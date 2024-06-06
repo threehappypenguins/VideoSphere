@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 // Components
 import MetadataDetails from '../components/MetadataDetails'
+import MetadataForm from '../components/MetadataForm'
 
 const Home = () => {
   const [metadata, setMetadata] = useState(null)
@@ -26,6 +27,7 @@ const Home = () => {
           <MetadataDetails key={metadatasubm._id} metadatasubm={metadatasubm} />
         ))}
       </div>
+      <MetadataForm />
     </div>
   )
 }
