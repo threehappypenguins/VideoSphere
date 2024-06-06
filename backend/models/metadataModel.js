@@ -13,13 +13,11 @@ const metadataSchema = new Schema({
   },
   date: {
     type: Date,
-    default: Date.now,
     required: true
   },
   visibility: {
     type: String,
     enum: ['Private', 'Unlisted', 'Public'],
-    default: 'Public',
     required: true
   }
 }, { timestamps: true })
