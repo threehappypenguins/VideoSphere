@@ -9,6 +9,7 @@ const MetadataForm = () => {
   const [date, setDate] = useState('')
   const [visibility, setVisibility] = useState('Public')
   const [error, setError] = useState(null)
+  const [emptyFields, setEmptyFields] = useState([])
 
   const visibilityOptions = ['Private', 'Unlisted', 'Public'];
 
@@ -27,8 +28,8 @@ const MetadataForm = () => {
     const json = await response.json()
 
     if (!response.ok) {
-
       setError(json.error)
+      setEmptyFields(json.emptyFields)
     }
     if (response.ok) {
       setTitle('')
@@ -36,6 +37,7 @@ const MetadataForm = () => {
       setDate('')
       setVisibility('')
       setError(null)
+      setEmptyFields([])
       console.log('New metadata submission added.', json)
       dispatch({type: 'CREATE_METADATA', payload: json})
     }
@@ -50,12 +52,14 @@ const MetadataForm = () => {
         type="text"
         onChange={(e) => setTitle(e.target.value)}
         value={title}
+        className={emptyFields.includes('title') ? 'error' : ''}
         />
 
       <label>Description:</label>
       <textarea
         onChange={(e) => setDescription(e.target.value)}
         value={description}
+        className={emptyFields.includes('description') ? 'error' : ''}
       />
 
       <label>Select Scheduled Date:</label>
@@ -63,6 +67,7 @@ const MetadataForm = () => {
         type="date"
         onChange={(e => setDate(e.target.value))}
         value={date}
+        className={emptyFields.includes('date') ? 'error' : ''}
       />
 
       <label>Visibility:</label>
@@ -75,7 +80,8 @@ const MetadataForm = () => {
               name="visibility" 
               value={option} 
               checked={visibility === option}
-              onChange={(e) => setVisibility(e.target.value)} 
+              onChange={(e) => setVisibility(e.target.value)}
+              className={emptyFields.includes('visibility') ? 'error' : ''}
             />
             <label htmlFor={`visibility-${option}`}>{option}</label>
           </div>

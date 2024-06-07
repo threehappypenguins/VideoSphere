@@ -29,6 +29,21 @@ const getMetadataSubm = async (req, res) => {
 const createMetadata = async (req, res) => {
   const {title, description, date, visibility} = req.body
 
+  let emptyFields = []
+
+  if(!title) {
+    emptyFields.push('title')
+  }
+  if(!date) {
+    emptyFields.push('date')
+  }
+  if(!visibility) {
+    emptyFields.push('visibility')
+  }
+  if(emptyFields.length > 0) {
+    return res.status(400).json({ error: 'Please fill in all the fields.', emptyFields })
+  }
+
   // Add doc to db
   try{
     const metadatasubm = await Metadata.create({title, description, date, visibility})

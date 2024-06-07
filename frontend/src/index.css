@@ -111,3 +111,6 @@ div.error {
 .radio-container label {
   margin: 0;
 }
+input.error {
+  border: 1px solid var(--error);
+}
