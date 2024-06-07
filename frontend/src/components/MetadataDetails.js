@@ -1,5 +1,9 @@
 import { useMetadataContext } from '../hooks/useMetadataContext'
 
+// Date fns
+import { format } from 'date-fns'
+import formatDistanceToNow from 'date-fns/formatDistanceToNow'
+
 const MetadataDetails = ({ metadatasubm }) => {
   const { dispatch } = useMetadataContext()
 
@@ -16,12 +20,12 @@ const MetadataDetails = ({ metadatasubm }) => {
 
   return (
     <div className="metadata-details">
-      <h4>Title: {metadatasubm.title}</h4>
+      <h4>{metadatasubm.title}</h4>
       <p><strong>Description: </strong>{metadatasubm.description}</p>
-      <p><strong>Date: </strong>{metadatasubm.date}</p>
-      <p>Visibility: {metadatasubm.visibility}</p>
-      <p>{metadatasubm.createdAt}</p>
-      <span onClick={handleClick}>delete</span>
+      <p><strong>Date: </strong>{format(new Date(metadatasubm.date), 'MMMM d, yyyy')}</p>
+      <p><strong>Visibility: </strong>{metadatasubm.visibility}</p>
+      <p>{formatDistanceToNow(new Date(metadatasubm.createdAt), { addSuffix: true })}</p>
+      <span className="material-symbols-outlined" onClick={handleClick}>delete</span>
     </div>
   )
 }
