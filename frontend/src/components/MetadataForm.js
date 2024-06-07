@@ -1,6 +1,9 @@
 import { useState } from "react"
+import { useMetadataContext } from '../hooks/useMetadataContext'
 
 const MetadataForm = () => {
+  const { dispatch } = useMetadataContext()
+  
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [date, setDate] = useState('')
@@ -34,6 +37,7 @@ const MetadataForm = () => {
       setVisibility('')
       setError(null)
       console.log('New metadata submission added.', json)
+      dispatch({type: 'CREATE_METADATA', payload: json})
     }
   }
 

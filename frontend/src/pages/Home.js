@@ -19,7 +19,7 @@ const Home = () => {
     }
 
     fetchMetadata()
-  }, [])
+  }, [dispatch])
 
   return (
     <div className="home">
