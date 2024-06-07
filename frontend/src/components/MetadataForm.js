@@ -18,7 +18,7 @@ const MetadataForm = () => {
   const visibilityOptions = ['Private', 'Unlisted', 'Public']
 
   const timezoneOptions = moment.tz.names().map((tz) => {
-    const offset = moment.tz(tz).format('Z');
+    const offset = moment.tz(tz).format('Z')
     return {
       value: tz,
       label: `${tz} (UTC${offset})`
