@@ -1,5 +1,7 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useMetadataContext } from '../hooks/useMetadataContext'
+import Select from 'react-select'
+import moment from 'moment-timezone'
 
 const MetadataForm = () => {
   const { dispatch } = useMetadataContext()
@@ -7,16 +9,42 @@ const MetadataForm = () => {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [date, setDate] = useState('')
+  const [time, setTime] = useState('')
+  const [timezone, setTimezone] = useState('')
   const [visibility, setVisibility] = useState('Public')
   const [error, setError] = useState(null)
   const [emptyFields, setEmptyFields] = useState([])
 
-  const visibilityOptions = ['Private', 'Unlisted', 'Public'];
+  const visibilityOptions = ['Private', 'Unlisted', 'Public']
+
+  const timezoneOptions = moment.tz.names().map((tz) => {
+    const offset = moment.tz(tz).format('Z');
+    return {
+      value: tz,
+      label: `${tz} (UTC${offset})`
+    }
+  })
+
+  useEffect(() => {
+    // Detect user's timezone
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    setTimezone(userTimezone)
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    const metadatasubm = {title, description, date, visibility}
+    // Combine date and time
+    const combinedDateTimeString = `${date}T${time}`
+    const zonedDateTime = moment.tz(combinedDateTimeString, timezone)
+    const formattedDate = zonedDateTime.toDate()
+
+    const metadatasubm = {
+      title,
+      description,
+      date: formattedDate,
+      visibility
+    }
 
     const response = await fetch('/api/metadata', {
       method: 'POST',
@@ -35,6 +63,8 @@ const MetadataForm = () => {
       setTitle('')
       setDescription('')
       setDate('')
+      setTime('')
+      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone)
       setVisibility('')
       setError(null)
       setEmptyFields([])
@@ -59,7 +89,6 @@ const MetadataForm = () => {
       <textarea
         onChange={(e) => setDescription(e.target.value)}
         value={description}
-        className={emptyFields.includes('description') ? 'error' : ''}
       />
 
       <label>Select Scheduled Date:</label>
@@ -68,6 +97,22 @@ const MetadataForm = () => {
         onChange={(e => setDate(e.target.value))}
         value={date}
         className={emptyFields.includes('date') ? 'error' : ''}
+      />
+
+      <label>Select Scheduled Time:</label>
+      <input
+        type="time"
+        onChange={(e) => setTime(e.target.value)}
+        value={time}
+        className={emptyFields.includes('time') ? 'error' : ''}
+      />
+
+      <label>Select Timezone:</label>
+      <Select
+        options={timezoneOptions}
+        onChange={(selectedOption) => setTimezone(selectedOption.value)}
+        value={timezoneOptions.find(option => option.value === timezone)}
+        className={emptyFields.includes('timezone') ? 'error' : ''}
       />
 
       <label>Visibility:</label>

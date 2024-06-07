@@ -22,7 +22,7 @@ const MetadataDetails = ({ metadatasubm }) => {
     <div className="metadata-details">
       <h4>{metadatasubm.title}</h4>
       <p><strong>Description: </strong>{metadatasubm.description}</p>
-      <p><strong>Date: </strong>{format(new Date(metadatasubm.date), 'MMMM d, yyyy')}</p>
+      <p><strong>Date: </strong>{format(new Date(metadatasubm.date), 'MMMM d, yyyy h:mm a')}</p>
       <p><strong>Visibility: </strong>{metadatasubm.visibility}</p>
       <p>{formatDistanceToNow(new Date(metadatasubm.createdAt), { addSuffix: true })}</p>
       <span className="material-symbols-outlined" onClick={handleClick}>delete</span>
