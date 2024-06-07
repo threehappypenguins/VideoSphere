@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useMetadataContext } from '../hooks/useMetadataContext'
 
 // Components
 import MetadataDetails from '../components/MetadataDetails'
 import MetadataForm from '../components/MetadataForm'
 
 const Home = () => {
-  const [metadata, setMetadata] = useState(null)
+  const {metadata, dispatch} = useMetadataContext()
 
   useEffect(() => {
     const fetchMetadata = async () => {
@@ -13,7 +14,7 @@ const Home = () => {
       const json = await response.json()
 
       if (response.ok) {
-        setMetadata(json)
+        dispatch({type: 'SET_METADATA', payload: json})
       }
     }
 
