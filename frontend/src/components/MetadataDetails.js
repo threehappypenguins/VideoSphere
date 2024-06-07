@@ -9,11 +9,11 @@ const MetadataDetails = ({ metadatasubm }) => {
 
   // Function to format the date including timezone
   const formatWithTimezone = (dateString) => {
-    const date = new Date(dateString);
-    const formattedDate = format(date, 'MMMM d, yyyy h:mm a');
-    const timezone = Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(date).find(part => part.type === 'timeZoneName').value;
-    return `${formattedDate} (${timezone})`;
-  };
+    const date = new Date(dateString)
+    const formattedDate = format(date, 'MMMM d, yyyy h:mm a')
+    const timezone = Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(date).find(part => part.type === 'timeZoneName').value
+    return `${formattedDate} (${timezone})`
+  }
 
   const handleClick = async () => {
     const response = await fetch('/api/metadata/' + metadatasubm._id, {
