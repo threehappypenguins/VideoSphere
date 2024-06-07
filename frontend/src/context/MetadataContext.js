@@ -12,6 +12,10 @@ export const metadataReducer = (state, action) => {
       return {
         metadata: [action.payload, ...state.metadata]
       }
+    case 'DELETE_METADATA':
+      return {
+        metadata: state.metadata.filter((m) => m._id !== action.payload._id)
+      }
     default: 
       return state
   }
