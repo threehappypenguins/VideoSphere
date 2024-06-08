@@ -34,9 +34,9 @@ header a {
 
 /* homepage */
 .home {
-  display: grid;
-  grid-template-columns: 3fr 1fr;
-  gap: 100px;
+  display: flex;
+  flex-direction: column; /* Display children in a column */
+  gap: 20px; /* Add some space between children */
 }
 .metadata-details {
   background: #fff;
@@ -94,6 +94,20 @@ form button {
   border-radius: 4px;
   cursor: pointer;
   margin: 20px auto 0 auto;
+}
+.form-button {
+  display: block;
+  background: var(--primary);
+  border: 0;
+  color: #fff;
+  padding: 10px;
+  font-family: "Poppins";
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 20px auto 0 auto;
+}
+.button-container {
+  align-self: flex-end; /* Align the button container to the end of the container */
 }
 div.error {
   padding: 10px;

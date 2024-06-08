@@ -48,9 +48,11 @@ const Home = () => {
 
   return (
     <div className="home">
-      <button onClick={toggleFormVisibility}>
-        {metadataFormVisible ? 'Close Form' : 'Create New Livestream'}
-      </button>
+      <div className="button-container">
+        <button onClick={toggleFormVisibility} className="form-button">
+          {metadataFormVisible ? 'Close Form' : 'Create New Livestream'}
+        </button>
+      </div>
       {metadataFormVisible && (
         <Modal onClose={toggleFormVisibility}>
           <MetadataForm onSubmit={handleFormSubmit} />
