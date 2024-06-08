@@ -1,11 +1,8 @@
 import { useState, useEffect } from "react"
-import { useMetadataContext } from '../hooks/useMetadataContext'
 import Select from 'react-select'
 import moment from 'moment-timezone'
 
-const MetadataForm = () => {
-  const { dispatch } = useMetadataContext()
-  
+const MetadataForm = ({ onSubmit }) => {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [date, setDate] = useState('')
@@ -69,7 +66,7 @@ const MetadataForm = () => {
       setError(null)
       setEmptyFields([])
       console.log('New metadata submission added.', json)
-      dispatch({type: 'CREATE_METADATA', payload: json})
+      onSubmit(json)
     }
   }
 
@@ -77,45 +74,55 @@ const MetadataForm = () => {
     <form className="create" onSubmit={handleSubmit}>
       <h3>Add New Metadata</h3>
 
-      <label>Title:</label>
+      <label htmlFor="title">Title:</label>
       <input 
+        id="title"
+        name="title"
         type="text"
         onChange={(e) => setTitle(e.target.value)}
         value={title}
         className={emptyFields.includes('title') ? 'error' : ''}
         />
 
-      <label>Description:</label>
+      <label htmlFor="description">Description:</label>
       <textarea
+        id="description"
+        name="description"
         onChange={(e) => setDescription(e.target.value)}
         value={description}
       />
 
-      <label>Select Scheduled Date:</label>
+      <label htmlFor="date">Select Scheduled Date:</label>
       <input
+        id="date"
+        name="date"
         type="date"
         onChange={(e => setDate(e.target.value))}
         value={date}
         className={emptyFields.includes('date') ? 'error' : ''}
       />
 
-      <label>Select Scheduled Time:</label>
+      <label htmlFor="time">Select Scheduled Time:</label>
       <input
+        id="time"
+        name="time"
         type="time"
         onChange={(e) => setTime(e.target.value)}
         value={time}
         className={emptyFields.includes('time') ? 'error' : ''}
       />
 
-      <label>Select Timezone:</label>
+      <label htmlFor="timezone">Select Timezone:</label>
       <Select
+        inputId="timezone"
+        name="timezone"
         options={timezoneOptions}
         onChange={(selectedOption) => setTimezone(selectedOption.value)}
         value={timezoneOptions.find(option => option.value === timezone)}
         className={emptyFields.includes('timezone') ? 'error' : ''}
       />
 
-      <label>Visibility:</label>
+      <label>Visibility:
       <div>
         {visibilityOptions.map((option, index) => (
           <div key={index} className="radio-container">
@@ -132,6 +139,7 @@ const MetadataForm = () => {
           </div>
         ))}
       </div>
+      </label>
 
       <button>Add Metadata</button>
       {error && <div className="error">{error}</div>}
