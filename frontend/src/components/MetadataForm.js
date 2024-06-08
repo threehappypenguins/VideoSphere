@@ -113,6 +113,7 @@ const MetadataForm = ({ onSubmit }) => {
       />
 
       <label htmlFor="timezone">Select Timezone:</label>
+      <div className="select-container">
       <Select
         inputId="timezone"
         name="timezone"
@@ -121,6 +122,7 @@ const MetadataForm = ({ onSubmit }) => {
         value={timezoneOptions.find(option => option.value === timezone)}
         className={emptyFields.includes('timezone') ? 'error' : ''}
       />
+      </div>
 
       <label>Visibility:
       <div>
