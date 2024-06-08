@@ -1,5 +1,5 @@
 /* google font */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;800&family=VT323&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;800&family=VT323&display=swap");
 
 /* layout */
 :root {
@@ -26,7 +26,7 @@ header a {
   color: #333;
   text-decoration: none;
 }
-.pages{
+.pages {
   max-width: 1400px;
   padding: 20px;
   margin: 0 auto;
@@ -44,7 +44,7 @@ header a {
   margin: 20px auto;
   padding: 20px;
   position: relative;
-  box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+  box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.05);
 }
 .metadata-details h4 {
   margin: 0 0 10px 0;
@@ -82,7 +82,9 @@ label {
     width: 100%; /* Set label width to 100% for better mobile responsiveness */
   }
 }
-input, textarea, .Select {
+input,
+textarea,
+.Select {
   width: calc(100% - 22px); /* Adjust the width of the form elements */
   padding: 10px;
   margin-bottom: 20px;
@@ -90,7 +92,9 @@ input, textarea, .Select {
   border-radius: 4px;
   box-sizing: border-box;
 }
-input[type="date"], input[type="time"], .select-container {
+input[type="date"],
+input[type="time"],
+.select-container {
   width: 400px; /* Adjust the width of date, time, and timezone selectors */
 }
 form button {

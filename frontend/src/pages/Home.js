@@ -1,50 +1,50 @@
-import { useEffect, useState } from 'react'
-import { useMetadataContext } from '../hooks/useMetadataContext'
+import { useEffect, useState } from "react";
+import { useMetadataContext } from "../hooks/useMetadataContext";
 
 // Components
-import MetadataDetails from '../components/MetadataDetails'
-import MetadataForm from '../components/MetadataForm'
-import Modal from '../components/Modal'
+import MetadataDetails from "../components/MetadataDetails";
+import MetadataForm from "../components/MetadataForm";
+import Modal from "../components/Modal";
 
 const Home = () => {
-  const {metadata, dispatch} = useMetadataContext()
-  const [metadataFormVisible, setmetadataFormVisible] = useState(false)
+  const { metadata, dispatch } = useMetadataContext();
+  const [metadataFormVisible, setmetadataFormVisible] = useState(false);
 
   useEffect(() => {
     const fetchMetadata = async () => {
-      const response = await fetch('/api/metadata')
-      const json = await response.json()
+      const response = await fetch("/api/metadata");
+      const json = await response.json();
 
       if (response.ok) {
-        dispatch({type: 'SET_METADATA', payload: json})
+        dispatch({ type: "SET_METADATA", payload: json });
       }
-    }
+    };
 
-    fetchMetadata()
-  }, [dispatch])
+    fetchMetadata();
+  }, [dispatch]);
 
   const toggleFormVisibility = () => {
-    setmetadataFormVisible(!metadataFormVisible)
-  }
+    setmetadataFormVisible(!metadataFormVisible);
+  };
 
   const handleFormSubmit = async (metadatasubm) => {
-    const response = await fetch('/api/metadata', {
-      method: 'POST',
+    const response = await fetch("/api/metadata", {
+      method: "POST",
       body: JSON.stringify(metadatasubm),
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
-    })
-    const json = await response.json()
+    });
+    const json = await response.json();
 
     if (response.ok) {
-      dispatch({ type: 'CREATE_METADATA', payload: json })
-      setmetadataFormVisible(false) // Close the modal after successful form submission
+      dispatch({ type: "CREATE_METADATA", payload: json });
+      setmetadataFormVisible(false); // Close the modal after successful form submission
     } else {
       // Handle error if needed
-      console.error(json.error)
+      console.error(json.error);
     }
-  }
+  };
 
   return (
     <div className="home">
@@ -59,12 +59,16 @@ const Home = () => {
         </Modal>
       )}
       <div className="metadata">
-        {metadata && metadata.map((metadatasubm) => (
-          <MetadataDetails key={metadatasubm._id} metadatasubm={metadatasubm} />
-        ))}
+        {metadata &&
+          metadata.map((metadatasubm) => (
+            <MetadataDetails
+              key={metadatasubm._id}
+              metadatasubm={metadatasubm}
+            />
+          ))}
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default Home
+export default Home;
