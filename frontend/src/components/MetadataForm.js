@@ -109,7 +109,7 @@ const MetadataForm = ({ onSubmit }) => {
         type="time"
         onChange={(e) => setTime(e.target.value)}
         value={time}
-        className={emptyFields.includes("time") ? "error" : ""}
+        className={emptyFields.includes("date") ? "error" : ""}
       />
 
       <label htmlFor="timezone">Select Timezone:</label>
