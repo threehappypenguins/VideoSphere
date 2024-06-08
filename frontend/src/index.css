@@ -95,7 +95,7 @@ form button {
   cursor: pointer;
   margin: 20px auto 0 auto;
 }
-.form-button {
+.modal-button {
   display: block;
   background: var(--primary);
   border: 0;
@@ -159,6 +159,7 @@ input.error {
   max-height: 80%;
   overflow: auto; /* Enable scrolling if the content overflows */
   position: relative; /* Add relative positioning */
+  z-index: 1001; /* Ensure it is above other content */
 }
 
 .close {

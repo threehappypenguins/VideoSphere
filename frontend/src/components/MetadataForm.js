@@ -72,7 +72,7 @@ const MetadataForm = ({ onSubmit }) => {
 
   return (
     <form className="create" onSubmit={handleSubmit}>
-      <h3>Add New Metadata</h3>
+      <h3>Create New Livestream</h3>
 
       <label htmlFor="title">Title:</label>
       <input 
@@ -141,7 +141,7 @@ const MetadataForm = ({ onSubmit }) => {
       </div>
       </label>
 
-      <button>Add Metadata</button>
+      <button>Save</button>
       {error && <div className="error">{error}</div>}
       </form>
   )
