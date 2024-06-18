@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 // Pages & components
 import Home from "./pages/Home";
+import Connect from "./pages/Connect";
 import Navbar from "./components/Navbar";
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
         <div className="pages">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/connect" element={<Connect />} />
           </Routes>
         </div>
       </BrowserRouter>
