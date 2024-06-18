@@ -11,4 +11,7 @@ router.get("/callback", authgoogleController.googleAuthCallback);
 // Route for user logout
 router.get("/logout", authgoogleController.logout);
 
+// Route for checking connection status
+router.get("/status", authgoogleController.status);
+
 module.exports = router;

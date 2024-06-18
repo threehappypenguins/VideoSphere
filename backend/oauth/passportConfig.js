@@ -25,6 +25,7 @@ passport.use(
     },
     async (accessToken, refreshToken, _profile, done) => {
       try {
+        // Still trying to find a way to get a refresh token
         console.log("Refresh Token:", refreshToken);
 
         // Make a request to the YouTube API to get the user's profile information
@@ -73,7 +74,7 @@ passport.use(
 
 // Implement Passport.js Serialization and Deserialization
 passport.serializeUser((user, done) => {
-  done(null, user);
+  done(null, user.id);
 });
 passport.deserializeUser(async (id, done) => {
   try {
