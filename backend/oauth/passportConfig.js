@@ -2,7 +2,8 @@ require('dotenv').config();
 
 const passport = require("passport");
 const axios = require("axios");
-const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const { Strategy: GoogleStrategy } = require("passport-google-oauth20");
+const { Strategy: JwtStrategy, ExtractJwt } = require("passport-jwt");
 const GoogleUser = require("../models/usergoogleModel");
 
 // Initialize Passport.js
@@ -25,8 +26,6 @@ passport.use(
     },
     async (accessToken, refreshToken, _profile, done) => {
       try {
-        // Still trying to find a way to get a refresh token
-        console.log("Refresh Token:", refreshToken);
 
         // Make a request to the YouTube API to get the user's profile information
         const response = await axios.get(
@@ -45,7 +44,7 @@ passport.use(
         const youtubeProfile = response.data.items[0];
         const googleId = youtubeProfile.id;
 
-        // Find or create the user based on googleId
+        // Save user to the database or update existing user
         let user = await GoogleUser.findOne({ googleId });
         if (!user) {
           user = new GoogleUser({
@@ -60,13 +59,29 @@ passport.use(
         }
         await user.save();
         done(null, user);
-        
       } catch (err) {
-        console.error(
-          "Error in OAuth callback:",
-          err.response ? err.response.data : err.message
-        );
         done(err);
+      }
+    }
+  )
+);
+
+// Configure JWT Strategy
+passport.use(
+  new JwtStrategy(
+    {
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      secretOrKey: process.env.JWT_SECRET,
+    },
+    async (jwtPayload, done) => {
+      try {
+        const user = await GoogleUser.findById(jwtPayload.id);
+        if (user) {
+          return done(null, user);
+        }
+        return done(null, false);
+      } catch (err) {
+        return done(err, false);
       }
     }
   )

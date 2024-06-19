@@ -1,4 +1,5 @@
 const passport = require("passport");
+const jwt = require("jsonwebtoken");
 const GoogleUser = require("../models/usergoogleModel");
 
 // Controller function to initiate Google OAuth authentication
@@ -7,25 +8,30 @@ exports.googleAuth = passport.authenticate("google", {
 
 // Callback function for Google OAuth authentication
 exports.googleAuthCallback = (req, res, next) => {
-  passport.authenticate("google", (err, user, info) => {
+  passport.authenticate('google', async (err, user, info) => {
     if (err) {
       console.error('Error during authentication:', err);
       return next(err);
     }
     if (!user) {
-      // Handle authentication failure
-      console.log('Authentication failed');
-       return res.redirect("http://localhost:3000/connect?error=Login failed");
-      // return res.send("Login failed.");
+      return res.redirect('http://localhost:3000/connect?error=Login failed');
     }
-    req.login(user, (loginErr) => {
+    req.login(user, async (loginErr) => {
       if (loginErr) {
         console.error('Error during login:', loginErr);
-        return next(loginErr); // Pass the error to Express error handler
+        return next(loginErr);
       }
-      // Handle authentication success
-      return res.redirect('http://localhost:3000/connect');
-      // res.send("Google OAuth authentication successful!");
+
+      // Generate JWT
+      const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '30d' });
+
+      // Store refresh token in the database
+      user.refreshToken = refreshToken;
+      await user.save();
+
+      // Redirect with tokens as query parameters
+      res.redirect(`http://localhost:3000/connect?accessToken=${accessToken}&refreshToken=${refreshToken}`);
     });
   })(req, res, next);
 };
