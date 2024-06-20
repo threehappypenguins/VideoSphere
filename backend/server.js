@@ -41,7 +41,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       sameSite: process.env.SESSION_SAMESITE || 'lax',
-      secure: process.env.NODE_ENV === 'production'
+      secure: process.env.NODE_ENV === 'production',
+      httpOnly: true
     }
   })
 );
