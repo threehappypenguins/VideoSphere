@@ -2,21 +2,23 @@ require("dotenv").config();
 
 const express = require("express");
 const session = require("express-session");
-const cors = require('cors');
-const MongoStore = require('connect-mongo');
+const cors = require("cors");
+const MongoStore = require("connect-mongo");
 const mongoose = require("mongoose");
-const cookieParser = require('cookie-parser');
-const passport = require("./oauth/passportConfig")
+const cookieParser = require("cookie-parser");
+const passport = require("./oauth/passportConfig");
 const metadataRoutes = require("./routes/metadata");
 const authgoogleRoutes = require("./routes/authgoogle");
 
 // Express app
 const app = express();
 
-app.use(cors({
-  origin: 'http://localhost:3000',
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  })
+);
 
 // Use cookie-parser middleware
 app.use(cookieParser());
@@ -36,14 +38,14 @@ app.use(
     resave: false,
     store: MongoStore.create({
       mongoUrl: process.env.MONGO_URI,
-      collectionName: 'sessions'
+      collectionName: "sessions",
     }),
     saveUninitialized: false,
     cookie: {
-      sameSite: process.env.SESSION_SAMESITE || 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true
-    }
+      sameSite: process.env.SESSION_SAMESITE || "lax",
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+    },
   })
 );
 

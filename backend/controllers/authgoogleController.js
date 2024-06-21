@@ -3,35 +3,42 @@ const jwt = require("jsonwebtoken");
 const GoogleUser = require("../models/usergoogleModel");
 
 // Controller function to initiate Google OAuth authentication
-exports.googleAuth = passport.authenticate("google", {
-});
+exports.googleAuth = passport.authenticate("google", {});
 
 // Callback function for Google OAuth authentication
 exports.googleAuthCallback = (req, res, next) => {
-  passport.authenticate('google', async (err, user, info) => {
+  passport.authenticate("google", async (err, user, info) => {
     if (err) {
-      console.error('Error during authentication:', err);
+      console.error("Error during authentication:", err);
       return next(err);
     }
     if (!user) {
-      return res.redirect('http://localhost:3000/connect?error=Login failed');
+      return res.redirect("http://localhost:3000/connect?error=Login failed");
     }
     req.login(user, async (loginErr) => {
       if (loginErr) {
-        console.error('Error during login:', loginErr);
+        console.error("Error during login:", loginErr);
         return next(loginErr);
       }
 
       // Generate JWT
-      const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-      const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_REFRESH_SECRET, { expiresIn: '30d' });
+      const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+        expiresIn: "1h",
+      });
+      const refreshToken = jwt.sign(
+        { id: user._id },
+        process.env.JWT_REFRESH_SECRET,
+        { expiresIn: "30d" }
+      );
 
       // Store refresh token in the database
       user.refreshToken = refreshToken;
       await user.save();
 
       // Redirect with tokens as query parameters
-      res.redirect(`http://localhost:3000/connect?accessToken=${accessToken}&refreshToken=${refreshToken}`);
+      res.redirect(
+        `http://localhost:3000/connect?accessToken=${accessToken}&refreshToken=${refreshToken}`
+      );
     });
   })(req, res, next);
 };
@@ -50,7 +57,7 @@ exports.status = async (req, res) => {
     if (req.isAuthenticated()) {
       // Use the GoogleUser model to find the user by _id
       const user = await GoogleUser.findById(req.user._id);
-      
+
       if (!user || !user.accessToken) {
         return res.json({ connected: false });
       }
