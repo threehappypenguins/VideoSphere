@@ -14,4 +14,7 @@ router.get("/logout", authgoogleController.logout);
 // Route for checking connection status
 router.get("/status", authgoogleController.status);
 
+// Route for refreshing the token
+//router.post("/refresh", authgoogleController.refreshToken);
+
 module.exports = router;
