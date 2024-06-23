@@ -7,8 +7,9 @@ const MongoStore = require("connect-mongo");
 const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 const passport = require("./oauth/passportConfig");
-const metadataRoutes = require("./routes/metadata");
+const authRoutes = require("./routes/auth");
 const authgoogleRoutes = require("./routes/authgoogle");
+const metadataRoutes = require("./routes/metadata");
 
 // Express app
 const app = express();
@@ -52,8 +53,9 @@ app.use(
 app.use(passport.session());
 
 //  Routes
-app.use("/api/metadata", metadataRoutes);
+app.use("/auth", authRoutes);
 app.use("/auth/google", authgoogleRoutes);
+app.use("/api/metadata", metadataRoutes);
 
 // Connect to db
 mongoose

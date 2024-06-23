@@ -22,12 +22,12 @@ exports.googleAuthCallback = (req, res, next) => {
       }
 
       // Generate JWT
-      const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      const accessToken = jwt.sign({ id: user._id }, process.env.JWT_GOOGLE_SECRET, {
         expiresIn: "1h",
       });
       const refreshToken = jwt.sign(
         { id: user._id },
-        process.env.JWT_REFRESH_SECRET,
+        process.env.JWT_GOOGLE_REFRESH_SECRET,
         { expiresIn: "30d" }
       );
 
