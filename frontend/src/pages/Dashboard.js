@@ -6,7 +6,7 @@ import MetadataDetails from "../components/MetadataDetails";
 import MetadataForm from "../components/MetadataForm";
 import Modal from "../components/Modal";
 
-const Home = () => {
+const Dashboard = () => {
   const { metadata, dispatch } = useMetadataContext();
   const [metadataFormVisible, setmetadataFormVisible] = useState(false);
 
@@ -47,7 +47,7 @@ const Home = () => {
   };
 
   return (
-    <div className="home">
+    <div className="dashboard">
       <div className="button-container">
         <button onClick={toggleFormVisibility} className="modal-button">
           Create New Livestream
@@ -71,4 +71,4 @@ const Home = () => {
   );
 };
 
-export default Home;
+export default Dashboard;

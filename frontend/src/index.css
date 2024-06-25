@@ -32,8 +32,8 @@ header a {
   margin: 0 auto;
 }
 
-/* homepage */
-.home {
+/* Dashboard */
+.dashboard {
   display: flex;
   flex-direction: column; /* Display children in a column */
   gap: 20px; /* Add some space between children */
