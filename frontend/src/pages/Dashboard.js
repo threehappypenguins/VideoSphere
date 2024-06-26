@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
 import { useMetadataContext } from "../hooks/useMetadataContext";
 
 // Components
@@ -9,14 +11,18 @@ import Modal from "../components/Modal";
 const Dashboard = () => {
   const { metadata, dispatch } = useMetadataContext();
   const [metadataFormVisible, setmetadataFormVisible] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchMetadata = async () => {
-      const response = await fetch("/api/metadata");
-      const json = await response.json();
-
-      if (response.ok) {
-        dispatch({ type: "SET_METADATA", payload: json });
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/metadata', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (response.status === 200) {
+        dispatch({ type: 'SET_METADATA', payload: response.data });
       }
     };
 
@@ -28,26 +34,30 @@ const Dashboard = () => {
   };
 
   const handleFormSubmit = async (metadatasubm) => {
-    const response = await fetch("/api/metadata", {
-      method: "POST",
-      body: JSON.stringify(metadatasubm),
+    const token = localStorage.getItem('token');
+    const response = await axios.post('/api/metadata', metadatasubm, {
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
       },
     });
-    const json = await response.json();
 
-    if (response.ok) {
-      dispatch({ type: "CREATE_METADATA", payload: json });
-      setmetadataFormVisible(false); // Close the modal after successful form submission
+    if (response.status === 200) {
+      dispatch({ type: 'CREATE_METADATA', payload: response.data });
+      setmetadataFormVisible(false);
     } else {
-      // Handle error if needed
-      console.error(json.error);
+      console.error(response.data.error);
     }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    navigate("/login");
   };
 
   return (
     <div className="dashboard">
+      <button onClick={handleLogout}>Logout</button>
       <div className="button-container">
         <button onClick={toggleFormVisibility} className="modal-button">
           Create New Livestream

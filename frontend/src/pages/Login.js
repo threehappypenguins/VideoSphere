@@ -5,14 +5,14 @@ import { useNavigate } from "react-router-dom";
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const history = useNavigate();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post("/auth/login", { email, password });
+      const response = await axios.post("http://localhost:4000/auth/login", { email, password });
       localStorage.setItem("token", response.data.token);
-      history.push("/dashboard");
+      navigate("/dashboard");
     } catch (err) {
       console.error("Error logging in", err);
     }

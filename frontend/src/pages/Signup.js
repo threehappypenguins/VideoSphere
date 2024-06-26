@@ -5,13 +5,13 @@ import { useNavigate } from "react-router-dom";
 const Signup = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const history = useNavigate();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       await axios.post("/auth/signup", {email, password });
-      history.push("/login");
+      navigate("/login");
     } catch (err) {
       console.error("Error signing up", err);
     }
