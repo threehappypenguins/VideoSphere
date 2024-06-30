@@ -1,18 +1,13 @@
 const passport = require("passport");
 const jwt = require("jsonwebtoken");
 const GoogleUser = require("../models/usergoogleModel");
-const { protect } = require("../controllers/authController")
+//const { protect } = require("../controllers/authController");
 
 // Controller function to initiate Google OAuth authentication
-exports.googleAuth = [
-  protect,
-  passport.authenticate("google", {}),
-];
+exports.googleAuth = passport.authenticate("google", {});
 
 // Callback function for Google OAuth authentication
-exports.googleAuthCallback = [
-  protect,
-  (req, res, next) => {
+exports.googleAuthCallback = (req, res, next) => {
     passport.authenticate("google", async (err, user, info) => {
       if (err) {
         console.error("Error during authentication:", err);
@@ -47,24 +42,18 @@ exports.googleAuthCallback = [
         );
       });
     })(req, res, next);
-  }
-];
+  };
 
 // Controller function for user logout
-exports.logout = [
-  protect,
-  (req, res) => {
-    req.logout(() => {
-      //    res.redirect("/"); // Redirect to the home page after logout
-      res.send("Logout successful!");
-    });
-  }
-];
+exports.logout = (req, res) => {
+  req.logout(() => {
+    //    res.redirect("/"); // Redirect to the home page after logout
+    res.send("Logout successful!");
+  });
+};
 
 // Controller for checking connection status
-exports.status = [
-  protect,
-  async (req, res) => {
+exports.status = async (req, res) => {
     try {
       if (req.isAuthenticated()) {
         // Use the GoogleUser model to find the user by _id
@@ -81,5 +70,20 @@ exports.status = [
       console.error("Error checking status:", err);
       res.status(500).json({ error: "Internal server error" });
     }
+  };
+
+// Controller for retrieving tokens
+exports.tokens = async (req, res) => {
+  try {
+    const user = await GoogleUser.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({
+      accessToken: user.accessToken,
+      refreshToken: user.refreshToken
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
   }
-];
+}
