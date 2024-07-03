@@ -50,9 +50,21 @@ const Dashboard = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    navigate("/login");
+  const handleLogout = async () => {
+    try {
+      const response = await fetch('http://localhost:4000/auth/logout', {
+        method: 'POST',
+        credentials: 'include', // Ensure cookies are included
+      });
+
+      if (response.ok) {
+        navigate('/login');
+      } else {
+        console.error('Logout failed');
+      }
+    } catch (error) {
+      console.error('Error during logout:', error);
+    }
   };
 
   return (
