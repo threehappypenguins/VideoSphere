@@ -19,7 +19,7 @@ exports.googleAuthCallback = (req, res, next) => {
       }
 
       try {
-        const loggedInUserId = req.session.passport.user;
+        const loggedInUserId = req.session.user.id;
 
         // Associate the YouTube account with the logged-in user
         const user = await User.findById(loggedInUserId);

@@ -24,6 +24,9 @@ app.use(
 // Use cookie-parser middleware
 app.use(cookieParser());
 
+// Middleware for handling forms
+app.use(express.urlencoded({ extended: true }));
+
 // Middleware for handling metadata
 app.use(express.json());
 
@@ -32,7 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Middleware to initialize Passport and configure session
+// Session middleware for basic auth
 app.use(
   session({
     secret: process.env.SESSION_SECRET,
@@ -50,6 +53,7 @@ app.use(
   })
 );
 
+app.use(passport.initialize());
 app.use(passport.session());
 
 //  Routes

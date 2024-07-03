@@ -5,12 +5,14 @@ const axios = require("axios");
 const { Strategy: GoogleStrategy } = require("passport-google-oauth20");
 const { Strategy: JwtStrategy, ExtractJwt } = require("passport-jwt");
 const GoogleUser = require("../models/usergoogleModel");
+const User = require("../models/userModel");
 
-// Initialize Passport.js
-passport.initialize();
+// // Initialize Passport.js
+// passport.initialize();
 
 // Configure Passport.js with Google OAuth 2.0 Strategy
 passport.use(
+  "google",
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
@@ -22,9 +24,10 @@ passport.use(
         "https://www.googleapis.com/auth/youtube.upload",
       ],
       skipUserProfile: true,
+      passReqToCallback: true,
       accessType: 'offline'
     },
-    async (accessToken, refreshToken, _profile, done) => {
+    async (req, accessToken, refreshToken, _profile, done) => {
       try {
 
         // Make a request to the YouTube API to get the user's profile information
@@ -44,21 +47,41 @@ passport.use(
         const youtubeProfile = response.data.items[0];
         const googleId = youtubeProfile.id;
 
+        if (!req.session || !req.session.user || !req.session.user.id) {
+          return done(new Error("No authenticated user found in session"), null);
+        }
+
+        const loggedInUserId = req.session.user.id;
+
         // Save user to the database or update existing user
-        let user = await GoogleUser.findOne({ googleId });
-        if (!user) {
-          user = new GoogleUser({
+        let googleUser = await GoogleUser.findOne({ googleId });
+        if (!googleUser) {
+          googleUser = new GoogleUser({
             googleId,
             accessToken,
             refreshToken,
+            userId: loggedInUserId,
           });
         } else {
           // Update user's access token and refresh token
-          user.accessToken = accessToken;
-          user.refreshToken = refreshToken;
+          googleUser.accessToken = accessToken;
+          googleUser.refreshToken = refreshToken;
         }
-        await user.save();
-        done(null, user);
+        await googleUser.save();
+
+        // Associate the YouTube account with the logged-in user
+        if (req.user) {
+          console.log("User authenticated, associating with Google account:", req.user);
+          const user = await User.findById(req.user._id);
+          if (user) {
+            user.googleUserId = googleUser._id;
+            await user.save();
+          }
+        } else {
+          console.log("No authenticated user found in req.user");
+        }
+
+        done(null, googleUser);
       } catch (err) {
         done(err);
       }
@@ -75,9 +98,9 @@ passport.use(
     },
     async (jwtPayload, done) => {
       try {
-        const user = await GoogleUser.findById(jwtPayload.id);
-        if (user) {
-          return done(null, user);
+        const googleUser = await GoogleUser.findById(jwtPayload.id);
+        if (googleUser) {
+          return done(null, googleUser);
         }
         return done(null, false);
       } catch (err) {
@@ -88,17 +111,17 @@ passport.use(
 );
 
 // Implement Passport.js Serialization and Deserialization
-passport.serializeUser((user, done) => {
-  done(null, user.id);
+passport.serializeUser((googleUser, done) => {
+  done(null, googleUser.id);
 });
 passport.deserializeUser(async (id, done) => {
   try {
-    const user = await GoogleUser.findById(id);
-    if (!user) {
+    const googleUser = await GoogleUser.findById(id);
+    if (!googleUser) {
       // If user is not found, pass null as the user
       return done(null, null);
     }
-    done(null, user);
+    done(null, googleUser);
   } catch (err) {
     done(err);
   }
