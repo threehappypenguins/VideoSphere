@@ -9,53 +9,50 @@ exports.googleAuth = passport.authorize("google", {});
 
 // Callback function for Google OAuth authentication
 exports.googleAuthCallback = (req, res, next) => {
-    passport.authorize("google", async (err, googleUser, info) => {
+    passport.authorize("google", async (err, user, info) => {
       if (err) {
         console.error("Error during authorization:", err);
         return next(err);
       }
-      if (!googleUser) {
+      if (!user) {
         return res.redirect("http://localhost:3000/connect?error=Login failed");
       }
 
       try {
-        const loggedInUserId = req.session.user.id;
+        // //const loggedInUserId = req.session.user.id;
+        // const loggedInUserEmail = req.session.user.email;
 
-        // Associate the YouTube account with the logged-in user
-        const user = await User.findById(loggedInUserId);
-        if (!user) {
-          console.error("User not found in database");
-          return res.redirect("http://localhost:3000/connect?error=User not found");
-        }
+        // // Associate the YouTube account with the logged-in user
+        // const dbUser = await User.findOne({ email: loggedInUserEmail });
+        // if (!dbUser) {
+        //   console.error("User not found in database");
+        //   return res.redirect("http://localhost:3000/connect?error=User not found");
+        // }
 
-        user.googleUserId = googleUser._id;
-        await user.save();
-
-        req.login(googleUser, async (loginErr) => {
-          if (loginErr) {
-            console.error("Error during login:", loginErr);
-            return next(loginErr);
-          }
+        // req.login(user, async (loginErr) => {
+        //   if (loginErr) {
+        //     console.error("Error during login:", loginErr);
+        //     return next(loginErr);
+        //   }
 
         // Generate JWT
-        const accessToken = jwt.sign({ id: googleUser._id }, process.env.JWT_GOOGLE_SECRET, {
+        const accessToken = jwt.sign({ id: user._id }, process.env.JWT_GOOGLE_SECRET, {
           expiresIn: "1h",
         });
         const refreshToken = jwt.sign(
-          { id: googleUser._id },
+          { id: user._id },
           process.env.JWT_GOOGLE_REFRESH_SECRET,
           { expiresIn: "30d" }
         );
 
         // Store refresh token in the database
-        googleUser.refreshToken = refreshToken;
-        await googleUser.save();
+        user.refreshToken = refreshToken;
+        await user.save();
 
         // Redirect with tokens as query parameters
         res.redirect(
           `http://localhost:3000/connect?accessToken=${accessToken}&refreshToken=${refreshToken}`
         );
-      });
     } catch (error) {
       console.error("Error associating Google account with user:", error);
       return res.redirect("http://localhost:3000/connect?error=Server error");
@@ -73,23 +70,25 @@ exports.logout = (req, res) => {
 
 // Controller for checking connection status
 exports.status = async (req, res) => {
-    try {
-      if (req.isAuthenticated()) {
-        // Use the GoogleUser model to find the user by _id
-        const googleUser = await GoogleUser.findById(req.user._id);
+  try {
+    if (req.session && req.session.user && req.session.user.email) {
+      const loggedInUserEmail = req.session.user.email;
 
-        if (!googleUser || !googleUser.accessToken) {
-          return res.json({ connected: false });
-        }
-        res.json({ connected: true });
-      } else {
-        res.json({ connected: false });
+      // Use the GoogleUser model to find the user by the email
+      const googleUser = await GoogleUser.findOne({ userId: loggedInUserEmail });
+
+      if (!googleUser || !googleUser.accessToken) {
+        return res.json({ connected: false });
       }
-    } catch (err) {
-      console.error("Error checking status:", err);
-      res.status(500).json({ error: "Internal server error" });
+      res.json({ connected: true });
+    } else {
+      res.json({ connected: false });
     }
-  };
+  } catch (err) {
+    console.error("Error checking status:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
 
 // Controller for retrieving tokens
 exports.tokens = async (req, res) => {

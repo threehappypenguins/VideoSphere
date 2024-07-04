@@ -47,20 +47,21 @@ passport.use(
         const youtubeProfile = response.data.items[0];
         const googleId = youtubeProfile.id;
 
-        if (!req.session || !req.session.user || !req.session.user.id) {
+        if (!req.session || !req.session.user || !req.session.user.email) {
           return done(new Error("No authenticated user found in session"), null);
         }
 
-        const loggedInUserId = req.session.user.id;
+        //const loggedInUserId = req.session.user.id;
+        const loggedInUserEmail = req.session.user.email;
 
-        // Save user to the database or update existing user
+        // Save or update Google OAuth user in the database
         let googleUser = await GoogleUser.findOne({ googleId });
         if (!googleUser) {
           googleUser = new GoogleUser({
             googleId,
             accessToken,
             refreshToken,
-            userId: loggedInUserId,
+            userId: loggedInUserEmail,
           });
         } else {
           // Update user's access token and refresh token
@@ -69,17 +70,17 @@ passport.use(
         }
         await googleUser.save();
 
-        // Associate the YouTube account with the logged-in user
-        if (req.user) {
-          console.log("User authenticated, associating with Google account:", req.user);
-          const user = await User.findById(req.user._id);
-          if (user) {
-            user.googleUserId = googleUser._id;
-            await user.save();
-          }
-        } else {
-          console.log("No authenticated user found in req.user");
-        }
+        // // Associate the YouTube account with the logged-in basic auth user
+        // if (req.account) {
+        //   console.log("User authenticated, associating with Google account:", req.account);
+        //   const dbUser = await User.findOne({ email: loggedInUserEmail });
+        //   if (dbUser) {
+        //     dbUser.userId = req.account._id;
+        //     await dbUser.save();
+        //   }
+        // } else {
+        //   console.log("No authenticated user found in req.account");
+        // }
 
         done(null, googleUser);
       } catch (err) {
@@ -110,7 +111,7 @@ passport.use(
   )
 );
 
-// Implement Passport.js Serialization and Deserialization
+// Implement Passport.js Serialization and Deserialization for Google OAuth
 passport.serializeUser((googleUser, done) => {
   done(null, googleUser.id);
 });
