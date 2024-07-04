@@ -43,12 +43,17 @@ app.use(
     store: MongoStore.create({
       mongoUrl: process.env.MONGO_URI,
       collectionName: "sessions",
+      autoRemove: 'native',
+      ttl: 365 * 24 * 60 * 60 // 1 year in seconds
+      //ttl: 60 // 1 minute
     }),
     saveUninitialized: false,
     cookie: {
       sameSite: process.env.SESSION_SAMESITE || "lax",
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
+      maxAge: 365 * 24 * 60 * 60 * 1000 // 1 year in milliseconds
+      //maxAge: 60 * 1000 // 1 minute
     },
   })
 );
