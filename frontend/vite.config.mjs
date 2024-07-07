@@ -21,13 +21,16 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      build: {
-        outDir: 'build',
-        manifest: true,
-        rollupOptions: {
-          input: '/src/index.js',
-        },
+      ssr: {
+        external: ['react', 'react-dom'],
       },
+    },
+  },
+  build: {
+    outDir: 'build',
+    manifest: true,
+    rollupOptions: {
+      input: '/src/main.jsx',
     },
   },
 })
