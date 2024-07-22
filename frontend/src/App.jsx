@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
-// Pages & components
+// Pages and components
 import Dashboard from "./pages/Dashboard";
 import Connect from "./pages/Connect";
 import Navbar from "./components/Navbar";
