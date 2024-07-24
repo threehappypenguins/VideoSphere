@@ -21,9 +21,6 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      ssr: {
-        external: ['react', 'react-dom'],
-      },
     },
   },
   build: {
