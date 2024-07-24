@@ -10,6 +10,11 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      // This commented out section is what initially worked to log in (but won't leave a cookie).
+      // To properly test the new section, try to login in incognito; it won't work right now.
+      // const response = await axios.post("http://localhost:4000/auth/login", { email, password });
+      // localStorage.setItem("token", response.data.token);
+      // navigate("/dashboard");
       const response = await axios.post(
         "http://localhost:4000/auth/login",
         { email, password },
