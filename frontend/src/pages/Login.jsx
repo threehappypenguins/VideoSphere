@@ -19,10 +19,10 @@ const Login = () => {
         "http://localhost:4000/auth/login",
         { email, password },
         {
-        withCredentials: true,
+          withCredentials: true,
         }
       );
-      
+
       // Navigate to dashboard if login successful (server sets cookies)
       if (response.status === 200) {
         navigate("/dashboard");
