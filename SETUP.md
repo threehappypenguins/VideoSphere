@@ -68,6 +68,8 @@ The admin must protect the `main` branch. This ensures all code goes through pul
 
 **Why this matters:** Without branch protection, anyone can push directly to `main`, bypassing code review and CI checks. This is both a security risk and a process violation.
 
+For a detailed explanation of each rule and why it is enabled, see [docs/branch-protection.md](docs/branch-protection.md).
+
 ## Step 5: Admin Sets Team Members as Maintainers
 
 1. Go to your repository on GitHub
