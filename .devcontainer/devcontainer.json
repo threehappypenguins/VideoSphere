@@ -13,8 +13,10 @@
 
   // Run once after the container is created:
   // 1. Enable corepack so pnpm is available at the correct version
+  //    (requires sudo — postCreateCommand runs as the non-root 'node' user,
+  //    but corepack enable needs to write a symlink to /usr/local/bin/)
   // 2. Install all project dependencies (also runs the `prepare` script which sets up Husky)
-  "postCreateCommand": "corepack enable && pnpm install",
+  "postCreateCommand": "sudo corepack enable && pnpm install",
 
   "customizations": {
     "vscode": {

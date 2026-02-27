@@ -5,7 +5,7 @@
 - **1 Admin** — has full control of the repository settings (branch protection, access management)
 - **Remaining members are Maintainers** — can push branches, create PRs, and review code
 
-The Admin is decided during initial setup (see `SETUP.md`).
+The Admin is decided during initial setup (see `SETUP.md`). For details on the branch protection rules the Admin configures, see [docs/branch-protection.md](branch-protection.md).
 
 ## Workflow Summary
 

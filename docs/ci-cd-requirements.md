@@ -24,7 +24,7 @@ This project includes a GitHub Actions CI workflow (`.github/workflows/ci.yml`) 
 
 - **All CI checks must pass** before merging any PR to `main`
 - **Never merge a PR with failing checks** — fix the issues first
-- **Branch protection rules must be configured** (see `SETUP.md`)
+- **Branch protection rules must be configured** (see `SETUP.md` and [branch-protection.md](branch-protection.md))
 
 ### 🎯 Enhancement Opportunities
 
