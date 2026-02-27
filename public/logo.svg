@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 40" fill="none">
+  <!-- STUDENT: Replace this placeholder logo with your own SVG logo -->
+  <rect width="36" height="36" x="2" y="2" rx="8" fill="#2563eb"/>
+  <path d="M12 20l6-8 6 8-6 8z" fill="white"/>
+  <text x="46" y="27" font-family="system-ui, sans-serif" font-size="18" font-weight="700" fill="#171717">[App]</text>
+</svg>

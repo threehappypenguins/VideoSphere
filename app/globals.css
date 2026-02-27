@@ -1,0 +1,65 @@
+/* =============================================================================
+ * GLOBAL STYLES
+ * =============================================================================
+ * This file imports Tailwind CSS and defines global CSS custom properties.
+ *
+ * Tailwind CSS v4 uses CSS-based configuration with the @theme directive.
+ * Customize your design tokens (colors, fonts, spacing, etc.) here.
+ *
+ * STUDENT: Modify the CSS variables below to match your project's branding.
+ * See /docs/styling.md for guidance on customizing Tailwind CSS.
+ * ============================================================================= */
+
+@import 'tailwindcss';
+
+/* --- Design Tokens --- */
+/* These CSS custom properties define your app's color palette.
+   Change these to match your project's brand. */
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --border: #e5e5e5;
+}
+
+/* --- Tailwind Theme Integration --- */
+/* The @theme directive maps CSS variables to Tailwind utility classes.
+   After defining a color here, you can use it as: bg-primary, text-muted, etc. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --font-sans: var(--font-inter);
+}
+
+/* --- Dark Mode --- */
+/* STUDENT: Dark mode is an enhancement. Uncomment and customize the
+   dark mode colors below when you're ready to implement it.
+   See /docs/styling.md and STRETCH_GOALS.md for guidance. */
+/*
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --primary: #3b82f6;
+    --primary-foreground: #ffffff;
+    --muted: #262626;
+    --muted-foreground: #a3a3a3;
+    --border: #404040;
+  }
+}
+*/
+
+/* --- Base Styles --- */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+}

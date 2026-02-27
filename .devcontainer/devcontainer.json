@@ -1,0 +1,90 @@
+{
+  "name": "Next.js Starter Template",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+
+  // Forward the Next.js dev server port
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Next.js Dev Server",
+      "onAutoForward": "notify"
+    }
+  },
+
+  // Run once after the container is created:
+  // 1. Enable corepack so pnpm is available at the correct version
+  // 2. Install all project dependencies (also runs the `prepare` script which sets up Husky)
+  "postCreateCommand": "corepack enable && pnpm install",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // --- Code quality & formatting ---
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "usernamehw.errorlens",
+
+        // --- TypeScript & React ---
+        "formulahendry.auto-rename-tag",
+        "christian-kohler.path-intellisense",
+
+        // --- Tailwind CSS ---
+        "bradlc.vscode-tailwindcss",
+
+        // --- Testing ---
+        "vitest.explorer",
+
+        // --- Git & GitHub workflow ---
+        "eamodio.gitlens",
+        "GitHub.vscode-pull-request-github",
+        "vivaxy.vscode-conventional-commits",
+
+        // --- AI assistance ---
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+
+        // --- General DX ---
+        "streetsidesoftware.code-spell-checker",
+        "PKief.material-icon-theme"
+      ],
+      "settings": {
+        // Prettier is the default formatter for all files
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.formatOnSave": true,
+
+        // Auto-fix ESLint issues on save (explicit = only when you save, not on every keystroke)
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+
+        // Match Prettier printWidth (see .prettierrc)
+        "editor.rulers": [100],
+
+        // 2-space indentation to match Prettier config
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+
+        // Unix line endings — prevents noisy diffs when the team mixes Windows and macOS
+        "files.eol": "\n",
+        "files.trimTrailingWhitespace": true,
+
+        // Use the project's own TypeScript version, not VS Code's built-in one
+        "typescript.tsdk": "node_modules/typescript/lib",
+        "typescript.enablePromptUseWorkspaceTsdk": true,
+
+        // Show Tailwind class completions in className strings
+        "tailwindCSS.includeLanguages": {
+          "typescript": "javascript",
+          "typescriptreact": "javascript"
+        },
+
+        // Exclude build output and dependencies from the file explorer search
+        "search.exclude": {
+          "**/node_modules": true,
+          "**/.next": true,
+          "**/coverage": true
+        }
+      }
+    }
+  }
+}
