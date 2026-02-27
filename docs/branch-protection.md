@@ -64,6 +64,7 @@ Commits must first be pushed to a non-protected branch and pass all configured s
   - `type-check` — TypeScript compiles with no errors
   - `format:check` — Prettier formatting is correct
   - `test` — Vitest tests pass
+  - `check-issue-and-keyword` — PR body contains a linked issue with a valid close keyword (e.g., `Closes #42`)
 
 > **Reference:** [GitHub REST API — Required Status Checks](https://docs.github.com/en/rest/branches/branch-protection#update-status-check-protection)
 

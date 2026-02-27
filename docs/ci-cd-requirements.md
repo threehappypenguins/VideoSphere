@@ -8,7 +8,11 @@ CI/CD catches problems early, ensures code quality, and reduces the risk of depl
 
 ## What's Already Configured
 
-This project includes a GitHub Actions CI workflow (`.github/workflows/ci.yml`) that runs on every push and pull request to `main`. It performs:
+This project includes two GitHub Actions workflows:
+
+### 1. CI Workflow (`.github/workflows/ci.yml`)
+
+Runs on every push and pull request to `main`. It performs:
 
 | Step       | Command             | What It Checks                       |
 | ---------- | ------------------- | ------------------------------------ |
@@ -17,6 +21,27 @@ This project includes a GitHub Actions CI workflow (`.github/workflows/ci.yml`) 
 | TypeScript | `pnpm type-check`   | Type errors                          |
 | Build      | `pnpm build`        | Project compiles successfully        |
 | Tests      | `pnpm test run`     | All tests pass                       |
+
+### 2. Check for Linked Issue (`.github/workflows/check-for-link-to-issue.yml`)
+
+Runs on every pull request (`opened`, `synchronize`, `reopened`, `edited`). It enforces that:
+
+- The PR body contains a **reference to a GitHub issue** (e.g., `#42`).
+- The PR body includes a **valid close keyword** before the issue reference.
+
+**Approved close keywords:** `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved`.
+
+**Valid examples in a PR description:**
+
+```
+Closes #42
+Fixes #15
+Resolves #108
+```
+
+If the PR body does not contain both a linked issue and a close keyword, this check will **fail** and the PR cannot be merged.
+
+**Why this matters:** Linking every PR to an issue ensures traceability between work items on the project board and the code changes that implement them. Using close keywords means the issue is automatically closed when the PR is merged, keeping the project board accurate without manual cleanup.
 
 ## Student Requirements
 
@@ -50,13 +75,15 @@ When a CI check fails:
 
 ### Common CI Failures
 
-| Error                 | Cause                   | Fix                              |
-| --------------------- | ----------------------- | -------------------------------- |
-| ESLint errors         | Code quality issues     | Run `pnpm lint:fix`              |
-| Prettier check failed | Formatting issues       | Run `pnpm format`                |
-| Type check failed     | TypeScript errors       | Fix the type errors in your code |
-| Build failed          | Compilation error       | Check imports and syntax         |
-| Tests failed          | Failing test assertions | Fix the test or the code         |
+| Error                 | Cause                                        | Fix                                                             |
+| --------------------- | -------------------------------------------- | --------------------------------------------------------------- |
+| ESLint errors         | Code quality issues                          | Run `pnpm lint:fix`                                             |
+| Prettier check failed | Formatting issues                            | Run `pnpm format`                                               |
+| Type check failed     | TypeScript errors                            | Fix the type errors in your code                                |
+| Build failed          | Compilation error                            | Check imports and syntax                                        |
+| Tests failed          | Failing test assertions                      | Fix the test or the code                                        |
+| No linked issue found | PR body missing an issue reference (`#123`)  | Add a close keyword + issue reference to PR description         |
+| No close keyword      | PR body missing a close keyword for the issue | Add e.g. `Closes #123` to the PR description                   |
 
 ## Extending the Workflow
 
