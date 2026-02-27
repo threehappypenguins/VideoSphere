@@ -54,7 +54,7 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 ├── lib/                    # Utility functions and shared logic
 ├── types/                  # TypeScript type definitions
 ├── public/                 # Static assets (images, fonts, etc.)
-├── docs/                   # Project documentation (20 guides)
+├── docs/                   # Project documentation (21 guides)
 ├── __tests__/              # Test files
 ├── .github/                # GitHub workflows, PR template, issue templates
 ├── .devcontainer/          # Dev Container configuration
@@ -103,6 +103,7 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 | [docs/styling.md](docs/styling.md)                         | Tailwind CSS v4 and styling approach              |
 | [docs/code-quality.md](docs/code-quality.md)               | ESLint, Prettier, Husky, conventional commits     |
 | [docs/git-workflow.md](docs/git-workflow.md)               | Feature branching and git workflow                |
+| [docs/branch-protection.md](docs/branch-protection.md)     | Branch protection rules and configuration         |
 | [docs/contributing-guide.md](docs/contributing-guide.md)   | Detailed contribution guidelines                  |
 | [docs/agile-process.md](docs/agile-process.md)             | Sprint structure and Agile workflow               |
 | [docs/testing.md](docs/testing.md)                         | Testing with Vitest and Testing Library           |

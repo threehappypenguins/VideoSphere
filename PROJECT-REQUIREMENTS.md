@@ -37,8 +37,8 @@ This template gives your team a fully configured, professional starting point. Y
 | **Dev Container** | Optional VS Code Dev Container for consistent team environments |
 | **Pages (UI shells)** | Landing, Pricing, About, Contact, Dashboard, Login, Signup, Profile, Admin Dashboard, 404, Error, Loading |
 | **API Examples** | Health check and example route handlers demonstrating the pattern |
-| **Documentation** | 20 guides in `/docs/` covering every technology decision made |
-| **GitHub Workflow** | PR template, 4 issue templates, branch protection guide |
+| **Documentation** | 21 guides in `/docs/` covering every technology decision made |
+| **GitHub Workflow** | PR template, 4 issue templates, [branch protection guide](docs/branch-protection.md) |
 
 > ⚠️ The pages listed above are **UI shells only** — they render but contain no live functionality. Your team must implement the functionality.
 
@@ -190,7 +190,7 @@ Beyond the product itself, your team will be assessed on **how you work**. The f
 ### Git Workflow
 
 - All work must happen on **feature branches** — direct commits to `main` are prohibited
-- Branch protection rules must be configured on `main` before any development begins (see `SETUP.md`)
+- Branch protection rules must be configured on `main` before any development begins (see `SETUP.md` and [docs/branch-protection.md](docs/branch-protection.md))
 - Every feature must go through a **pull request** with at least one team member review before merging
 - All commits must follow the **Conventional Commits** standard — this is enforced automatically
 
