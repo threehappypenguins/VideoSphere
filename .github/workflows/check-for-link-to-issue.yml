@@ -1,0 +1,40 @@
+name: Check for Linked Issue to auto-close in PR
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+
+jobs:
+  check-issue-and-keyword:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Check if PR has an associated issue and close keyword
+        id: check-issue
+        run: |
+          # Extract the issue number from the PR body or title (e.g., #123)
+          ISSUE_NUMBER=$(echo "${{ github.event.pull_request.body }}" | grep -oP '#\d+' | head -n 1 | sed 's/#//')
+
+          # Check if a linked issue is found
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No linked issue found in PR."
+            exit 1
+          fi
+
+          # Check if the PR description contains one of the approved close keywords
+          KEYWORD_MATCH=$(echo "${{ github.event.pull_request.body }}" | grep -E -i '\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#'${ISSUE_NUMBER})
+
+          if [ -z "$KEYWORD_MATCH" ]; then
+            echo "PR does not contain a valid close keyword for the linked issue (e.g., 'closes #$ISSUE_NUMBER')."
+            exit 1
+          else
+            echo "Linked issue #$ISSUE_NUMBER found and flagged to be closed."
+          fi
