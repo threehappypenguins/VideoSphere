@@ -4,10 +4,10 @@
 
 This project uses a **feature branching** workflow. This means:
 
-- `main` is the **protected** production branch
+- `main` is the **protected** production branch — see [branch-protection.md](branch-protection.md) for the full list of rules
 - **No one commits directly to main** — all changes go through pull requests
 - Each feature, fix, or task gets its own branch
-- Branches are merged via PRs with at least one code review
+- Branches are merged via PRs with at least two code reviews
 
 This workflow is an industry standard and a core part of this course.
 
@@ -78,7 +78,7 @@ git push origin feature/your-feature-name
 
 ### 7. Merge (after approval)
 
-Once approved and CI passes, merge via GitHub's UI. Delete the branch after merging.
+Once approved (2 approvals required) and CI passes, merge via GitHub's UI. Delete the branch after merging. Note that all review conversations must be resolved before merging is allowed — see [branch-protection.md](branch-protection.md) for details.
 
 ## Keeping Your Branch Up to Date
 
