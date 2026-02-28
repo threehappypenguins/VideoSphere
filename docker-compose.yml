@@ -18,7 +18,7 @@ services:
     container_name: videosphere-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - '3000:3000'
     env_file:
       - .env.local
     # Uncomment to talk to Appwrite in another container or on host:

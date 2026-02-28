@@ -190,6 +190,7 @@ Once all 11 steps are complete, your team is set up and ready to build. Start yo
 
 **Key resources to keep handy:**
 
+- [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — before/after development checklist (Docker, Appwrite, branch from main; format, lint, test, build)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute code
 - [docs/git-workflow.md](docs/git-workflow.md) — git branching workflow
 - [docs/agile-process.md](docs/agile-process.md) — sprint process

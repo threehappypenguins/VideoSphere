@@ -4,6 +4,8 @@
 
 **👉 Start here: [SETUP.md](SETUP.md)** — Complete the first-run setup before doing anything else.
 
+**📋 Daily workflow:** [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — Before you start (Docker, Appwrite, branch from main) and before you push (format, lint, test, build).
+
 ## Prerequisites
 
 | Tool    | Version  | Check Command    |
@@ -95,6 +97,7 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 | Document                                                   | Description                                       |
 | ---------------------------------------------------------- | ------------------------------------------------- |
 | [SETUP.md](SETUP.md)                                       | First-run setup guide (start here!)               |
+| [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md)   | Before/after development checklist (Docker, branch, format, lint, test, build) |
 | [CONTRIBUTING.md](CONTRIBUTING.md)                         | Team contribution workflow                        |
 | [STRETCH_GOALS.md](STRETCH_GOALS.md)                       | Stretch goals — add-on mark component (~20%)      |
 | [docs/typescript.md](docs/typescript.md)                   | TypeScript overview and configuration             |
