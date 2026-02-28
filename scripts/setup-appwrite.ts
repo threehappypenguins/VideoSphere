@@ -10,7 +10,7 @@
 import { config } from 'dotenv';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { Client, TablesDB } from 'node-appwrite';
+import { Client, IndexType, TablesDB } from 'node-appwrite';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
@@ -80,6 +80,28 @@ const tables: TableConfig[] = [
   },
 ];
 
+/** Indexes to create per table so queries by userId/status work and user_profiles.userId is unique. */
+const tableIndexes: {
+  tableId: string;
+  indexes: { key: string; type: IndexType; columns: string[] }[];
+}[] = [
+  {
+    tableId: 'drafts',
+    indexes: [{ key: 'drafts_userId', type: IndexType.Key, columns: ['userId'] }],
+  },
+  {
+    tableId: 'upload_jobs',
+    indexes: [
+      { key: 'upload_jobs_userId', type: IndexType.Key, columns: ['userId'] },
+      { key: 'upload_jobs_userId_status', type: IndexType.Key, columns: ['userId', 'status'] },
+    ],
+  },
+  {
+    tableId: 'user_profiles',
+    indexes: [{ key: 'user_profiles_userId_unique', type: IndexType.Unique, columns: ['userId'] }],
+  },
+];
+
 async function main(): Promise<void> {
   if (!endpoint || !projectId || !apiKey) {
     log(
@@ -106,6 +128,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const tablesCreatedThisRun = new Set<string>();
+
   for (const t of tables) {
     try {
       await db.getTable({ databaseId: DATABASE_ID, tableId: t.tableId });
@@ -122,9 +146,9 @@ async function main(): Promise<void> {
           databaseId: DATABASE_ID,
           tableId: t.tableId,
           name: t.name,
-          columns: t.columns,
         });
         log(`Created table: ${t.name} (${t.tableId})`);
+        tablesCreatedThisRun.add(t.tableId);
       } catch (createErr) {
         const createErrObj = createErr as { message?: string };
         log(
@@ -134,6 +158,82 @@ async function main(): Promise<void> {
             (createErrObj?.message ?? String(createErr))
         );
         process.exit(1);
+      }
+      for (const col of t.columns) {
+        try {
+          if (col.type === 'string') {
+            await db.createStringColumn({
+              databaseId: DATABASE_ID,
+              tableId: t.tableId,
+              key: col.key,
+              size: col.size ?? 255,
+              required: col.required,
+            });
+          } else if (col.type === 'datetime') {
+            await db.createDatetimeColumn({
+              databaseId: DATABASE_ID,
+              tableId: t.tableId,
+              key: col.key,
+              required: col.required,
+            });
+          } else if (col.type === 'boolean') {
+            await db.createBooleanColumn({
+              databaseId: DATABASE_ID,
+              tableId: t.tableId,
+              key: col.key,
+              required: col.required,
+            });
+          } else {
+            log('Skipping unknown column type: ' + col.type + ' (key: ' + col.key + ')');
+          }
+        } catch (colErr) {
+          const colErrObj = colErr as { code?: number; message?: string };
+          if (colErrObj?.code === 409) {
+            log(`Column already exists: ${t.tableId}.${col.key}`);
+          } else {
+            log(
+              'Failed to create column ' +
+                t.tableId +
+                '.' +
+                col.key +
+                ': ' +
+                (colErrObj?.message ?? String(colErr))
+            );
+            process.exit(1);
+          }
+        }
+      }
+    }
+  }
+
+  // Columns can take a moment to become available for indexing.
+  if (tablesCreatedThisRun.size > 0) {
+    const indexDelayMs = 5_000;
+    log(`Waiting ${indexDelayMs / 1000}s for columns to be ready before creating indexes...`);
+    await new Promise((r) => setTimeout(r, indexDelayMs));
+  }
+
+  for (const { tableId, indexes } of tableIndexes) {
+    for (const idx of indexes) {
+      try {
+        await db.createIndex({
+          databaseId: DATABASE_ID,
+          tableId,
+          key: idx.key,
+          type: idx.type,
+          columns: idx.columns,
+        });
+        log(`Created index: ${tableId}.${idx.key}`);
+      } catch (e) {
+        const err = e as { code?: number; message?: string };
+        if (err?.code === 409) {
+          log(`Index already exists: ${tableId}.${idx.key}`);
+        } else {
+          log(
+            'Failed to create index ' + tableId + '.' + idx.key + ': ' + (err?.message ?? String(e))
+          );
+          process.exit(1);
+        }
       }
     }
   }
