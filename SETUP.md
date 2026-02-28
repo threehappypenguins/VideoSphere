@@ -28,56 +28,49 @@ Open [http://localhost:3000](http://localhost:3000) in your browser. You should 
 
 **If it doesn't work:** Check the prerequisites in [README.md](README.md). You need Node.js ≥ 20 and pnpm installed.
 
-## Step 3: Team Decides on Admin
+## Step 3: Team Decides on a Maintainer
 
-One team member takes the **Admin** role on the GitHub repository. This person will:
+One team member takes the **Maintainer** role on the GitHub repository. This person will:
 
-- Configure branch protection rules
-- Manage repository settings
-- Handle access permissions
+- Coordinate pull request reviews
+- Help manage the project board
+- Serve as the primary point of contact for repository workflow questions
+
+> **Note:** The **instructor** is the Admin for all project repositories and manages repository settings, branch protection rules, and access permissions.
 
 **Document this decision:**
 
-- Who is the admin? **\*\***\_\_\_**\*\***
+- Who is the Maintainer? **\*\***\_\_\_**\*\***
 - Date decided: **\*\***\_\_\_**\*\***
 
-The remaining team members will be **Maintainers**.
+The remaining team members will have **Write** access to contribute code.
 
-## Step 4: Admin Configures Branch Protection on `main`
+## Step 4: Branch Protection on `main`
 
-The admin must protect the `main` branch. This ensures all code goes through pull request review before merging.
+The **instructor** configures branch protection on the `main` branch for all project repositories. This ensures all code goes through pull request review before merging.
 
-**Step-by-step:**
-
-1. Go to your repository on GitHub
-2. Click **Settings** (top navigation bar)
-3. Click **Branches** (left sidebar)
-4. Click **Add branch ruleset** (or "Add rule" depending on your GitHub plan)
-5. Set the branch name pattern to `main`
-6. Enable these protections:
+You do **not** need to configure these rules yourself — they are already in place. However, you should understand what they enforce:
 
 | Protection                                       | Setting     |
 | ------------------------------------------------ | ----------- |
 | **Require a pull request before merging**        | ✅ Enabled  |
-| **Required number of approving reviews**         | 1           |
+| **Required number of approving reviews**         | 2           |
 | **Require status checks to pass before merging** | ✅ Enabled  |
 | **Status checks: select your CI workflow**       | ✅ Selected |
 | **Do not allow bypassing the above settings**    | ✅ Enabled  |
 
-7. Click **Save changes**
-
 **Why this matters:** Without branch protection, anyone can push directly to `main`, bypassing code review and CI checks. This is both a security risk and a process violation.
 
-For a detailed explanation of each rule and why it is enabled, see [docs/branch-protection.md](docs/branch-protection.md).
+For a detailed explanation of each rule and why it is enabled, see [docs/branch-protection.md](docs/branch-protection.md). For CI/CD status checks that are enforced, see [docs/ci-cd-requirements.md](docs/ci-cd-requirements.md).
 
-## Step 5: Admin Sets Team Members as Maintainers
+## Step 5: Verify Team Access
 
-1. Go to your repository on GitHub
-2. Click **Settings** → **Manage access** (or **Collaborators**)
-3. For each team member:
-   - Click **Add people**
-   - Search for their GitHub username
-   - Set role to **Maintainer**
+The instructor has already configured repository access. Verify that your team has the correct permissions:
+
+- **1 team member** should have the **Maintainer** role (as decided in Step 3)
+- **All other team members** should have **Write** access
+
+If any team member cannot push branches or open pull requests, contact your instructor to resolve access issues.
 
 ## Step 6: Team Agrees on AI Tools
 
