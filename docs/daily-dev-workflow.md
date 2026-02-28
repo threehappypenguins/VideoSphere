@@ -36,7 +36,7 @@ Use a branch name that matches your task (e.g. `feature/draft-form`, `fix/login-
 
 ## When you finish work (before you push or open a PR)
 
-Run these commands so your changes match what CI runs. Fix any failures before pushing.
+Run these commands as recommended pre-push checks. Fix any failures before pushing. (CI currently runs lint, format check, and type-check; running format, lint, test, and build locally catches more issues before you open a PR.)
 
 ```bash
 pnpm format
@@ -49,7 +49,7 @@ pnpm build
 | ----------------- | -------------------------------------------------- |
 | `pnpm format`     | Formats code with Prettier (fixes style).          |
 | `pnpm lint`       | Runs ESLint (code quality and accessibility).      |
-| `pnpm test run`   | Runs tests once (CI uses this; no watch mode).    |
+| `pnpm test run`   | Runs tests once (no watch mode).                   |
 | `pnpm build`      | Builds the app (catches type and build errors).   |
 
 **Order:** Run them in this order. Fix any errors before moving to the next. If everything passes, your branch is ready to push and open a PR.

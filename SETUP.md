@@ -31,7 +31,7 @@ Use this when you're cloning the project for the first time or onboarding a new 
    ```bash
    cp .env.example .env.local
    ```
-   You'll fill in Appwrite (and other) values in step 5.
+   You'll fill in Appwrite (and other) values in step 4.
 
 4. **Set up Appwrite (auth + database)**  
    Follow **[docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md)** to install Docker Desktop, run Appwrite in a local container, create a project and API key in the Console, and put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`. Then run:
