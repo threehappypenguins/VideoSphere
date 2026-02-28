@@ -51,7 +51,7 @@ type: short description
 ## Pull Request Process
 
 1. Fill out the PR template completely
-2. Link the related issue using a **close keyword** in the PR description (e.g., `Closes #123`, `Fixes #42`, `Resolves #7`). This is **enforced by a GitHub Actions check** — PRs without a linked issue and close keyword will fail the `check-issue-and-keyword` status check and cannot be merged.
+2. Link the related issue using a **close keyword** in the PR description (e.g., `Closes #123`, `Fixes #42`, `Resolves #7`). This is **enforced by a GitHub Actions check** — PRs without a linked issue and close keyword will fail the `check-for-link-to-issue` status check and cannot be merged.
 3. Ensure all CI checks pass (lint, format, type-check, build, test, linked issue check)
 4. Request review from at least one teammate
 5. Respond to review feedback promptly
