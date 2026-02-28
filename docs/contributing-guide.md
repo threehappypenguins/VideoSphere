@@ -2,10 +2,11 @@
 
 ## Team Structure
 
-- **1 Admin** — has full control of the repository settings (branch protection, access management)
-- **Remaining members are Maintainers** — can push branches, create PRs, and review code
+- **Instructor (Admin)** — has full control of the repository settings (branch protection, access management)
+- **1 Maintainer** — coordinates PR reviews, manages the project board, and serves as the team's workflow lead
+- **Remaining members have Write access** — can push branches, create PRs, and review code
 
-The Admin is decided during initial setup (see `SETUP.md`). For details on the branch protection rules the Admin configures, see [docs/branch-protection.md](branch-protection.md).
+The Maintainer is decided during initial setup (see `SETUP.md`). Branch protection rules are configured by the instructor — see [docs/branch-protection.md](branch-protection.md) for details on what is enforced.
 
 ## Workflow Summary
 
