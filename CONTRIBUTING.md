@@ -81,7 +81,7 @@ type: description
 ## Pull Request Process
 
 1. **Fill out the PR template** — it's provided automatically when you open a PR
-2. **Link related issues with a close keyword** — use `Closes #12`, `Fixes #12`, or `Resolves #12` in the PR description. A GitHub Actions check (`check-issue-and-keyword`) **automatically enforces** that every PR references an issue and includes a close keyword. PRs that fail this check cannot be merged.
+2. **Link related issues with a close keyword** — use `Closes #12`, `Fixes #12`, or `Resolves #12` in the PR description. A GitHub Actions check (`check-for-link-to-issue`) **automatically enforces** that every PR references an issue and includes a close keyword. PRs that fail this check cannot be merged.
 3. **Keep PRs focused** — one feature or fix per PR
 4. **Ensure CI passes** — all checks must be green before merge (including the linked issue check)
 5. **Request review** from at least 1 team member

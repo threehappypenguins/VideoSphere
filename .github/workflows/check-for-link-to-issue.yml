@@ -10,7 +10,7 @@ on:
       - edited
 
 jobs:
-  check-issue-and-keyword:
+  check-for-link-to-issue:
     runs-on: ubuntu-latest
 
     steps:
