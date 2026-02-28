@@ -36,7 +36,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
  */
 export async function getDraft(id: string): Promise<Draft | null> {
   // TODO: Implement with Appwrite (get document by ID).
-  return null;
+  throw new Error('getDraft is not implemented yet.');
 }
 
 /**
@@ -44,7 +44,7 @@ export async function getDraft(id: string): Promise<Draft | null> {
  */
 export async function listDraftsByUserId(userId: string): Promise<Draft[]> {
   // TODO: Implement with Appwrite (query Drafts by userId).
-  return [];
+  throw new Error('listDraftsByUserId is not implemented yet.');
 }
 
 /**
@@ -52,5 +52,5 @@ export async function listDraftsByUserId(userId: string): Promise<Draft[]> {
  */
 export async function updateDraft(id: string, input: UpdateDraftInput): Promise<Draft | null> {
   // TODO: Implement with Appwrite (update document).
-  return null;
+  throw new Error('updateDraft is not implemented yet.');
 }

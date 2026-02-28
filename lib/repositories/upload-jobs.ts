@@ -28,7 +28,7 @@ export async function createUploadJob(input: CreateUploadJobInput): Promise<Uplo
  */
 export async function getUploadJob(id: string): Promise<UploadJob | null> {
   // TODO: Implement with Appwrite (get document by ID).
-  return null;
+  throw new Error('getUploadJob is not implemented yet.');
 }
 
 /**
@@ -39,7 +39,7 @@ export async function listUploadJobsByUserId(
   status?: UploadJobStatus
 ): Promise<UploadJob[]> {
   // TODO: Implement with Appwrite (query UploadJobs by userId; filter by status if provided).
-  return [];
+  throw new Error('listUploadJobsByUserId is not implemented yet.');
 }
 
 /**
@@ -52,5 +52,5 @@ export async function updateUploadJobStatus(
   errorMessage?: string | null
 ): Promise<UploadJob | null> {
   // TODO: Implement with Appwrite (update document).
-  return null;
+  throw new Error('updateUploadJobStatus is not implemented yet.');
 }

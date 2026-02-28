@@ -109,7 +109,13 @@ async function main(): Promise<void> {
     try {
       await db.getTable({ databaseId: DATABASE_ID, tableId: t.tableId });
       log(`Table already exists: ${t.tableId}`);
-    } catch {
+    } catch (e) {
+      const err = e as { code?: number; message?: string };
+      const isNotFound = err?.code === 404;
+      if (!isNotFound) {
+        log('Failed to get table ' + t.tableId + ': ' + (err?.message ?? String(e)));
+        process.exit(1);
+      }
       try {
         await db.createTable({
           databaseId: DATABASE_ID,
@@ -118,9 +124,14 @@ async function main(): Promise<void> {
           columns: t.columns,
         });
         log(`Created table: ${t.name} (${t.tableId})`);
-      } catch (e) {
-        const err = e as { message?: string };
-        log('Failed to create table ' + t.tableId + ': ' + (err?.message ?? String(e)));
+      } catch (createErr) {
+        const createErrObj = createErr as { message?: string };
+        log(
+          'Failed to create table ' +
+            t.tableId +
+            ': ' +
+            (createErrObj?.message ?? String(createErr))
+        );
         process.exit(1);
       }
     }

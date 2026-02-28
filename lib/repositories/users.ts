@@ -14,7 +14,7 @@ import type { User } from '@/types';
  */
 export async function getUserById(id: string): Promise<User | null> {
   // TODO: Implement with Appwrite (Users collection or Auth + custom attributes).
-  return null;
+  throw new Error('getUserById is not implemented yet.');
 }
 
 /**
@@ -23,6 +23,7 @@ export async function getUserById(id: string): Promise<User | null> {
  */
 export async function setSupporterStatus(userId: string, isSupporter: boolean): Promise<void> {
   // TODO: Implement with Appwrite (update user document).
+  throw new Error('setSupporterStatus is not implemented yet; supporter status was not updated.');
 }
 
 /**
@@ -30,5 +31,5 @@ export async function setSupporterStatus(userId: string, isSupporter: boolean): 
  */
 export async function listUsers(): Promise<User[]> {
   // TODO: Implement with Appwrite (list documents in Users collection).
-  return [];
+  throw new Error('listUsers is not implemented yet.');
 }
