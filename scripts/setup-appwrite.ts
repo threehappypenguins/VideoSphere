@@ -141,4 +141,8 @@ async function main(): Promise<void> {
   log('Setup complete.');
 }
 
-main();
+main().catch((e) => {
+  const err = e as { message?: string };
+  log('Unhandled error in setup-appwrite: ' + (err?.message ?? String(e)));
+  process.exit(1);
+});

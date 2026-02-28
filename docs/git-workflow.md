@@ -104,11 +104,11 @@ git commit -m "chore: resolve merge conflicts with main"
 Merge conflicts happen when two branches modify the same lines. Git will mark conflicts like this (the markers appear at the start of lines in the real file):
 
 ```
-  <<<<<<< HEAD
-  your changes
-  =======
-  their changes
-  >>>>>>> main
+<<<<<<< HEAD
+your changes
+=======
+their changes
+>>>>>>> main
 ```
 
 To resolve:

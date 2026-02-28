@@ -19,7 +19,8 @@
 export type UserRole = 'user' | 'admin';
 
 export interface User {
-  id: string;
+  /** User identifier; aligns with user_profiles.userId in Appwrite. */
+  userId: string;
   email: string;
   isSupporter: boolean;
   role: UserRole;
