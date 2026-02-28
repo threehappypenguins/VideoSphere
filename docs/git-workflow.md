@@ -63,7 +63,7 @@ git push origin feature/your-feature-name
 - Go to your repository on GitHub
 - Click "Compare & pull request"
 - Fill out the PR template
-- **Include a close keyword linking to the relevant issue** in the PR description (e.g., `Closes #42`, `Fixes #15`, `Resolves #7`). A GitHub Actions workflow automatically verifies this — PRs missing a linked issue or close keyword will fail the `check-for-link-to-issue` check and cannot be merged.
+- **Include a close keyword linking to the relevant issue** in the PR description (e.g., `Closes #42`, `Fixes #15`, `Resolves #7`). A GitHub Actions workflow automatically verifies this — PRs missing a linked issue or close keyword will fail the `check-issue-and-keyword` check and cannot be merged.
 - Request a review from a teammate
 
 ### 6. Address review feedback

@@ -268,8 +268,8 @@ If you prefer not to use the setup script, you can create the database and table
    - Go to **Columns**. Click **Create column** for each:
      - **Key:** `userId`, **Type:** String, **Size:** 255, **Required:** Yes.
      - **Key:** `title`, **Type:** String, **Size:** 500, **Required:** Yes.
-     - **Key:** `description`, **Type:** String, **Size:** 5000, **Required:** No.
-     - **Key:** `tags`, **Type:** String, **Size:** 2000, **Required:** No. (Store tags as a JSON string, e.g. `["tag1","tag2"]`; the app parses it when reading.)
+     - **Key:** `description`, **Type:** String, **Size:** 5000, **Required:** Yes.
+     - **Key:** `tags`, **Type:** String, **Size:** 2000, **Required:** Yes. (Store tags as a JSON string, e.g. `["tag1","tag2"]`; the app parses it when reading.)
      - **Key:** `createdAt`, **Type:** Datetime, **Required:** Yes.
      - **Key:** `updatedAt`, **Type:** Datetime, **Required:** Yes.
 
