@@ -190,7 +190,7 @@ Beyond the product itself, your team will be assessed on **how you work**. The f
 ### Git Workflow
 
 - All work must happen on **feature branches** — direct commits to `main` are prohibited
-- Branch protection rules must be configured on `main` before any development begins (see `SETUP.md` and [docs/branch-protection.md](docs/branch-protection.md))
+- Branch protection rules are configured by the instructor on `main` (see `SETUP.md` and [docs/branch-protection.md](docs/branch-protection.md))
 - Every feature must go through a **pull request** with at least one team member review before merging
 - All commits must follow the **Conventional Commits** standard — this is enforced automatically
 

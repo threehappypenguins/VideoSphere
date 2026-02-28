@@ -2,7 +2,7 @@
 
 This document describes the branch protection rules configured on the `main` branch of this repository and explains why each rule matters for team-based development.
 
-Branch protection is configured in **Settings → Branches → Branch protection rules** on GitHub. These rules apply to the `main` branch and cannot be bypassed by any contributor.
+Branch protection is configured by the **instructor** (repository Admin) in **Settings → Branches → Branch protection rules** on GitHub. These rules apply to the `main` branch and cannot be bypassed by any contributor.
 
 > **Reference:** [About protected branches — GitHub Docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
 
@@ -129,6 +129,8 @@ The following branch protection settings are available on GitHub but are **not e
 
 ## How to Modify These Rules
 
-Branch protection settings can only be changed by a repository **admin** or **organization owner**. In the case of this project, that would be your instructor. Contact your instructor to discuss further.
+Branch protection settings are configured and managed by the **instructor**, who serves as the repository Admin for all project repositories. Students cannot modify these rules.
+
+If you believe a rule needs to be adjusted, contact your instructor to discuss. See [SETUP.md](../SETUP.md) (Step 4) for an overview of the protections in place.
 
 > Changes to branch protection rules take effect immediately and apply to all open and future pull requests targeting the protected branch.
