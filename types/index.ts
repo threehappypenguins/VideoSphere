@@ -32,6 +32,7 @@ export interface Draft {
   userId: string;
   title: string;
   description: string;
+  /** In-app: array of tag strings. Persisted in Appwrite as a single string column (JSON); repository layer must JSON.stringify on write and JSON.parse on read. */
   tags: string[];
   createdAt: string;
   updatedAt: string;

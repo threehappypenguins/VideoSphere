@@ -48,6 +48,7 @@ const tables: TableConfig[] = [
       { key: 'userId', type: 'string', size: 255, required: true },
       { key: 'title', type: 'string', size: 500, required: true },
       { key: 'description', type: 'string', size: 5000, required: false },
+      /* tags: stored as JSON string; repository must JSON.stringify/parse to match Draft.tags (string[]) */
       { key: 'tags', type: 'string', size: 2000, required: false },
       { key: 'createdAt', type: 'datetime', required: true },
       { key: 'updatedAt', type: 'datetime', required: true },
