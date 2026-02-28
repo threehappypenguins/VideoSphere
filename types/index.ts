@@ -12,10 +12,47 @@
 // Types specific to a single component can stay in that component's file.
 // =============================================================================
 
-/**
- * Example type — demonstrates the pattern for defining shared types.
- * STUDENT: Replace this with your actual application types.
- */
+// =============================================================================
+// VideoSphere entity types (used by lib/repositories and API routes)
+// =============================================================================
+
+export type UserRole = 'user' | 'admin';
+
+export interface User {
+  id: string;
+  email: string;
+  isSupporter: boolean;
+  role: UserRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Draft {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type UploadJobStatus = 'pending' | 'uploading' | 'distributing' | 'completed' | 'failed';
+
+export interface UploadJob {
+  id: string;
+  userId: string;
+  draftId: string | null;
+  status: UploadJobStatus;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// =============================================================================
+// Example type — demonstrates the pattern for defining shared types.
+// =============================================================================
+
 export interface ExampleItem {
   id: string;
   title: string;

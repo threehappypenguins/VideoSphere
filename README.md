@@ -1,8 +1,6 @@
-# [Your App Name]
+# VideoSphere
 
-> **A Next.js SaaS Starter Template for Web Development Teams**
-
-This repository is a starter template for your team project. It provides a fully configured development environment, project structure, and comprehensive documentation to get your team building immediately.
+> **Upload once, distribute everywhere.** A Next.js app for uploading videos to Cloudflare R2 and distributing them to YouTube, Vimeo, and optional Google Drive backup — with metadata drafts, supporter payments, and self-hostable Docker deployment.
 
 **👉 Start here: [SETUP.md](SETUP.md)** — Complete the first-run setup before doing anything else.
 
@@ -118,8 +116,14 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 | [docs/ai-features.md](docs/ai-features.md)                 | Implementing AI features (OpenRouter + Vercel AI) |
 | [docs/payments.md](docs/payments.md)                       | Payment integration guide (Stripe)                |
 | [docs/admin-guide.md](docs/admin-guide.md)                 | Admin dashboard and RBAC guide                    |
+| [docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md) | Docker Desktop and local Appwrite setup       |
 | [docs/component-libraries.md](docs/component-libraries.md) | UI component library comparison                   |
 | [docs/enhancements.md](docs/enhancements.md)               | Stretch goals quick reference                     |
+
+## Docker
+
+- **Run the app in a container:** `docker build -t videosphere-app .` then `docker run -p 3000:3000 --env-file .env.local videosphere-app`. Or use `docker compose up -d` (see [docker-compose.yml](docker-compose.yml)).
+- **Run Appwrite locally (auth + database):** See [docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md) for Docker Desktop install and Appwrite in a local Docker container.
 
 ## Contributing
 
