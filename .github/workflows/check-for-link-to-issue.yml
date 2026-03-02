@@ -1,7 +1,4 @@
-# Status check will appear as: "check-issue-and-keyword" (job name only when workflow name matches).
-# If branch protection requires "check-issue-and-keyword", use this exact workflow name so the
-# reported check name matches. See docs/branch-protection.md and docs/ci-cd-requirements.md.
-name: check-issue-and-keyword
+name: Check for Linked Issue to auto-close in PR
 
 on:
   workflow_dispatch:
@@ -13,8 +10,7 @@ on:
       - edited
 
 jobs:
-  check-issue-and-keyword:
-    name: check-issue-and-keyword
+  check-for-link-to-issue:
     runs-on: ubuntu-latest
 
     steps:
