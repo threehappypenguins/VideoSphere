@@ -19,7 +19,8 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "prepare": "husky"
+    "prepare": "husky",
+    "setup:appwrite": "tsx scripts/setup-appwrite.ts"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -32,6 +33,7 @@
   },
   "dependencies": {
     "next": "16.1.6",
+    "node-appwrite": "^22.1.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
@@ -48,6 +50,7 @@
     "@vitejs/plugin-react": "^5",
     "@vitest/coverage-v8": "^4",
     "@vitest/ui": "^4",
+    "dotenv": "^17.3.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "eslint-plugin-jsx-a11y": "^6",
@@ -56,6 +59,7 @@
     "lint-staged": "^16",
     "prettier": "^3",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4"
   }

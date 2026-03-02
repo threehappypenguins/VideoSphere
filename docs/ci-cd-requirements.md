@@ -22,7 +22,7 @@ Runs on every push and pull request to `main`. It performs:
 | Build      | `pnpm build`        | Project compiles successfully        |
 | Tests      | `pnpm test run`     | All tests pass                       |
 
-### 2. Check for Linked Issue (`.github/workflows/check-for-link-to-issue.yml`)
+### 2. Check for Linked Issue (`.github/workflows/check-for-link-to-issue.yml` — status check name: `check-issue-and-keyword`)
 
 Runs on every pull request (`opened`, `synchronize`, `reopened`, `edited`). It enforces that:
 

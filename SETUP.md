@@ -4,29 +4,49 @@ Complete these steps **immediately** after receiving your GitHub Classroom assig
 
 ---
 
-## Step 1: Clone and Install
+## ~~Step 1: Clone and Install~~
 
-```bash
-# Clone your team's repository
-git clone [your-repo-url]
-cd [your-repo-name]
+## ~~Step 2: Verify It Runs~~
 
-# Install all dependencies
-pnpm install
+[Set up the dev environment](#setting-up-the-dev-environment)** (clone, install, Appwrite, env, verify)
 
-# Copy the environment variables template
-cp .env.example .env.local
-```
+---
 
-## Step 2: Verify It Runs
+## Setting up the dev environment
 
-```bash
-pnpm dev
-```
+Use this when you're cloning the project for the first time or onboarding a new developer. It covers clone, install, env, Appwrite, and running the app.
 
-Open [http://localhost:3000](http://localhost:3000) in your browser. You should see the landing page with placeholder content.
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team.git
+   cd project-videosphere-team
+   ```
 
-**If it doesn't work:** Check the prerequisites in [README.md](README.md). You need Node.js ≥ 20 and pnpm installed.
+2. **Install dependencies**
+   ```bash
+   pnpm install
+   ```
+
+3. **Copy environment variables**
+   ```bash
+   cp .env.example .env.local
+   ```
+   You'll fill in Appwrite (and other) values in step 4.
+
+4. **Set up Appwrite (auth + database)**  
+   Follow **[docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md)** to install Docker Desktop, run Appwrite in a local container, create a project and API key in the Console, and put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`. Then run:
+   ```bash
+   pnpm run setup:appwrite
+   ```
+   to create the database and tables.
+
+5. **Start the app and verify**
+   ```bash
+   pnpm dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000). To confirm the app can talk to Appwrite, open [http://localhost:3000/api/dev/test-appwrite](http://localhost:3000/api/dev/test-appwrite) — you should see `{ "ok": true, "message": "Connected to Appwrite" }`.
+
+---
 
 ## Step 3: Team Decides on a Maintainer
 
@@ -108,7 +128,7 @@ Hold your first sprint planning session:
 - Replace all `[Your App Name]` placeholders with your product name
 - Update the logo and branding colors
 - Customize the landing page content
-- Set up your BaaS provider (Supabase, Firebase, or Clerk)
+- Set up Appwrite (auth + database) — see [docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md) (Step 10)
 
 ## Step 9: Replace Placeholder Branding
 
@@ -125,7 +145,23 @@ Search the project for `[Your App Name]` and replace it with your actual product
 
 **Tip:** Use your editor's "Find and Replace" across all files (Cmd+Shift+H or Ctrl+Shift+H in VS Code) to find all instances of `[Your App Name]`.
 
-## Step 10: Practice Run
+## Step 10: Set up VideoSphere backend (Appwrite)
+
+VideoSphere uses **Appwrite** for authentication and the database. Every developer needs Appwrite running locally and the app configured to talk to it.
+
+1. Follow **[docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md)** from start to finish:
+   - Install Docker Desktop and run the Appwrite installer (creates the `appwrite` folder and starts the stack).
+   - Create an account and project in the Appwrite Console, then create an API key with **Database** and **Auth** scopes.
+   - Copy `.env.example` to `.env.local` (if you haven’t already) and set the three Appwrite variables: `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY`.
+2. From the **project root**, run the setup script to create the database and tables:
+   ```bash
+   pnpm run setup:appwrite
+   ```
+3. Start the Next.js app (`pnpm dev`) and open **[http://localhost:3000/api/dev/test-appwrite](http://localhost:3000/api/dev/test-appwrite)**. When you see `{ "ok": true, "message": "Connected to Appwrite" }`, the backend is ready.
+
+**Key resources:** [docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md) (full guide, troubleshooting, manual schema in Appendix A).
+
+## Step 11: Practice Run
 
 Before starting real work, do a practice run of the full workflow:
 
@@ -143,10 +179,11 @@ This ensures everyone understands the workflow **before** real development begin
 
 ## You're Ready!
 
-Once all 10 steps are complete, your team is set up and ready to build. Start your Sprint 1 work by picking up the issues you created in Step 8.
+Once all 11 steps are complete, your team is set up and ready to build. Start your Sprint 1 work by picking up the issues you created in Step 8.
 
 **Key resources to keep handy:**
 
+- [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — before/after development checklist (Docker, Appwrite, branch from main; format, lint, test, build)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute code
 - [docs/git-workflow.md](docs/git-workflow.md) — git branching workflow
 - [docs/agile-process.md](docs/agile-process.md) — sprint process

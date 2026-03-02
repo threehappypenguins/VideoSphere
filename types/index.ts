@@ -12,10 +12,49 @@
 // Types specific to a single component can stay in that component's file.
 // =============================================================================
 
-/**
- * Example type — demonstrates the pattern for defining shared types.
- * STUDENT: Replace this with your actual application types.
- */
+// =============================================================================
+// VideoSphere entity types (used by lib/repositories and API routes)
+// =============================================================================
+
+export type UserRole = 'user' | 'admin';
+
+export interface User {
+  /** User identifier; aligns with user_profiles.userId in Appwrite. */
+  userId: string;
+  email: string;
+  isSupporter: boolean;
+  role: UserRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Draft {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  /** In-app: array of tag strings. Persisted in Appwrite as a single string column (JSON); repository layer must JSON.stringify on write and JSON.parse on read. */
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type UploadJobStatus = 'pending' | 'uploading' | 'distributing' | 'completed' | 'failed';
+
+export interface UploadJob {
+  id: string;
+  userId: string;
+  draftId: string | null;
+  status: UploadJobStatus;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// =============================================================================
+// Example type — demonstrates the pattern for defining shared types.
+// =============================================================================
+
 export interface ExampleItem {
   id: string;
   title: string;

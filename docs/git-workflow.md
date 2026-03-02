@@ -63,7 +63,7 @@ git push origin feature/your-feature-name
 - Go to your repository on GitHub
 - Click "Compare & pull request"
 - Fill out the PR template
-- **Include a close keyword linking to the relevant issue** in the PR description (e.g., `Closes #42`, `Fixes #15`, `Resolves #7`). A GitHub Actions workflow automatically verifies this — PRs missing a linked issue or close keyword will fail the `check-for-link-to-issue` check and cannot be merged.
+- **Include a close keyword linking to the relevant issue** in the PR description (e.g., `Closes #42`, `Fixes #15`, `Resolves #7`). A GitHub Actions workflow automatically verifies this — PRs missing a linked issue or close keyword will fail the `check-issue-and-keyword` check and cannot be merged.
 - Request a review from a teammate
 
 ### 6. Address review feedback
@@ -101,7 +101,7 @@ git commit -m "chore: resolve merge conflicts with main"
 
 ## Resolving Merge Conflicts
 
-Merge conflicts happen when two branches modify the same lines. Git will mark conflicts like this:
+Merge conflicts happen when two branches modify the same lines. Git will mark conflicts like this (the markers appear at the start of lines in the real file):
 
 ```
 <<<<<<< HEAD

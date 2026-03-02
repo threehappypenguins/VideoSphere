@@ -1,0 +1,58 @@
+# Avoid baking secrets and dev-only files into image layers.
+# Keep in sync with .gitignore where relevant.
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Appwrite installer output (local Docker config; may contain secrets)
+appwrite/
+
+# Dependencies (installed in container)
+node_modules/
+
+# Build output
+.next/
+out/
+build/
+
+# Testing and tooling (not needed for production build)
+coverage/
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+vitest.config.ts
+vitest.setup.ts
+
+# Git and CI
+.git/
+.github/
+
+# Docs and meta (not needed for build)
+docs/
+*.md
+!README.md
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Husky, commitlint (dev-only)
+.husky/
+commitlint.config.js
+
+# Debug and logs
+*.log
+*.tsbuildinfo
+next-env.d.ts
+.pnpm-debug.log*
+
+# Misc
+*.pem
+*.swp
+*~
