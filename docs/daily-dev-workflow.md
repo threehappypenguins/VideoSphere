@@ -48,10 +48,9 @@ pnpm build
 
 **Start of day:**
 
-1. Start Docker Desktop.
-2. Start Appwrite: `cd appwrite && docker compose up -d && cd ..`
-3. `git checkout main && git pull origin main`
-4. `git checkout -b feature/your-branch-name`
+1. `git checkout main && git pull origin main`
+2. `git checkout -b feature/your-branch-name`
+3. `pnpm dev`
 
 **End of work / before push:**
 
