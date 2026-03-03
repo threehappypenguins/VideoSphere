@@ -124,7 +124,6 @@ Hold your first sprint planning session:
 - Replace all `[Your App Name]` placeholders with your product name
 - Update the logo and branding colors
 - Customize the landing page content
-(Step 10)
 
 ## Step 9: Replace Placeholder Branding
 
