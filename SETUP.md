@@ -34,11 +34,7 @@ Use this when you're cloning the project for the first time or onboarding a new 
    You'll fill in Appwrite (and other) values in step 4.
 
 4. **Set up Appwrite (auth + database)**  
-   Follow **[docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md)** to install Docker Desktop, run Appwrite in a local container, create a project and API key in the Console, and put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`. Then run:
-   ```bash
-   pnpm run setup:appwrite
-   ```
-   to create the database and tables.
+   Put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`.
 
 5. **Start the app and verify**
    ```bash
@@ -128,7 +124,6 @@ Hold your first sprint planning session:
 - Replace all `[Your App Name]` placeholders with your product name
 - Update the logo and branding colors
 - Customize the landing page content
-- Set up Appwrite (auth + database) — see [docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md) (Step 10)
 
 ## Step 9: Replace Placeholder Branding
 
@@ -149,17 +144,8 @@ Search the project for `[Your App Name]` and replace it with your actual product
 
 VideoSphere uses **Appwrite** for authentication and the database. Every developer needs Appwrite running locally and the app configured to talk to it.
 
-1. Follow **[docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md)** from start to finish:
-   - Install Docker Desktop and run the Appwrite installer (creates the `appwrite` folder and starts the stack).
-   - Create an account and project in the Appwrite Console, then create an API key with **Database** and **Auth** scopes.
-   - Copy `.env.example` to `.env.local` (if you haven’t already) and set the three Appwrite variables: `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY`.
-2. From the **project root**, run the setup script to create the database and tables:
-   ```bash
-   pnpm run setup:appwrite
-   ```
-3. Start the Next.js app (`pnpm dev`) and open **[http://localhost:3000/api/dev/test-appwrite](http://localhost:3000/api/dev/test-appwrite)**. When you see `{ "ok": true, "message": "Connected to Appwrite" }`, the backend is ready.
-
-**Key resources:** [docs/docker-appwrite-setup.md](docs/docker-appwrite-setup.md) (full guide, troubleshooting, manual schema in Appendix A).
+1. Copy `.env.example` to `.env.local` (if you haven’t already) and set the three Appwrite variables: `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY`.
+2. Start the Next.js app (`pnpm dev`) and open **[http://localhost:3000/api/dev/test-appwrite](http://localhost:3000/api/dev/test-appwrite)**. When you see `{ "ok": true, "message": "Connected to Appwrite" }`, the backend is ready.
 
 ## Step 11: Practice Run
 
@@ -188,3 +174,6 @@ Once all 11 steps are complete, your team is set up and ready to build. Start yo
 - [docs/git-workflow.md](docs/git-workflow.md) — git branching workflow
 - [docs/agile-process.md](docs/agile-process.md) — sprint process
 - [docs/ai-usage-policy.md](docs/ai-usage-policy.md) — AI tool policy
+
+## Note
+- Initially setting up Appwrite requires `pnpm run setup:appwrite`, but this only needs to be done once, since we are not all sharing a cloud Appwrite instance.
