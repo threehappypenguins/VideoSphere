@@ -124,7 +124,7 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 
 ## Docker
 
-- **Run the app in a container:** `docker build -t videosphere-app .` then `docker run -p 3000:3000 --env-file .env.local videosphere-app`. Or use `docker compose up -d` (see [docker-compose.yml](docker-compose.yml)).
+- **Run the app in a container:** `docker build -t videosphere-app .` then `docker run -p 3000:3000 --env-file .env.local videosphere-app`.
 
 ## Contributing
 
