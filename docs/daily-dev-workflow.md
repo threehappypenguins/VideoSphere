@@ -8,19 +8,7 @@ Use this checklist **before you start work** and **when you finish work** so you
 
 Do these at the beginning of each development session.
 
-### 1. Start Docker Desktop (for Appwrite)
-
-VideoSphere uses **Appwrite** in a local Docker container for auth and the database. The app needs Appwrite running to connect.
-
-- **Start Docker Desktop** and wait until it shows that it’s running.
-- **Start Appwrite** (from the project root):
-  - **Linux / macOS:** `cd appwrite && docker compose up -d && cd ..`
-  - **Windows PowerShell:** `cd appwrite; docker compose up -d; cd ..`
-  - **Windows CMD:** `cd appwrite & docker compose up -d & cd ..`
-
-Optional: confirm the app can reach Appwrite by running `pnpm dev` and opening [http://localhost:3000/api/dev/test-appwrite](http://localhost:3000/api/dev/test-appwrite). You should see `{ "ok": true, "message": "Connected to Appwrite" }`.
-
-### 2. Update `main` and create a branch
+### Update `main` and create a branch
 
 Always start from the latest `main` so you don’t base your work on outdated code.
 
