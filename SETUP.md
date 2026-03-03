@@ -175,3 +175,6 @@ Once all 11 steps are complete, your team is set up and ready to build. Start yo
 - [docs/git-workflow.md](docs/git-workflow.md) — git branching workflow
 - [docs/agile-process.md](docs/agile-process.md) — sprint process
 - [docs/ai-usage-policy.md](docs/ai-usage-policy.md) — AI tool policy
+
+## Note
+- Initially setting up Appwrite requires `pnpm run setup:appwrite`, but this only needs to be done once, since we are not all sharing a cloud Appwrite instance.
