@@ -1,0 +1,112 @@
+name: Auto Request Reviews
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  request-reviews:
+    name: Request reviews from collaborators
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Request reviews from repo collaborators
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.REVIEW_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = context.payload.pull_request.number;
+            const prAuthor = context.payload.pull_request.user.login;
+
+            const excludedUsers = [
+              prAuthor.toLowerCase(),
+              'w0244079',
+            ];
+
+            let reviewers = [];
+
+            // Try fetching collaborators directly
+            try {
+              const collaborators = await github.paginate(
+                github.rest.repos.listCollaborators,
+                {
+                  owner,
+                  repo,
+                  per_page: 100,
+                }
+              );
+
+              console.log(`Found ${collaborators.length} collaborators`);
+              for (const user of collaborators) {
+                console.log(`  ${user.login}: permissions=${JSON.stringify(user.permissions)}`);
+              }
+
+              reviewers = collaborators
+                .filter(user => user.permissions && (user.permissions.push || user.permissions.maintain || user.permissions.admin))
+                .map(user => user.login)
+                .filter(login => !excludedUsers.includes(login.toLowerCase()));
+            } catch (error) {
+              console.log(`listCollaborators failed: ${error.message}`);
+            }
+
+            // Fallback: if no collaborators found, try listing teams and their members
+            if (reviewers.length === 0) {
+              console.log('No collaborators found via direct lookup. Trying teams...');
+              try {
+                const teams = await github.paginate(
+                  github.rest.repos.listTeams,
+                  {
+                    owner,
+                    repo,
+                    per_page: 100,
+                  }
+                );
+
+                console.log(`Found ${teams.length} teams with repo access`);
+
+                for (const team of teams) {
+                  // Only consider teams with push/maintain/admin permission
+                  if (!['push', 'maintain', 'admin'].includes(team.permission)) {
+                    console.log(`  Skipping team "${team.slug}" (permission: ${team.permission})`);
+                    continue;
+                  }
+
+                  console.log(`  Fetching members of team "${team.slug}" (permission: ${team.permission})`);
+
+                  const members = await github.paginate(
+                    github.rest.teams.listMembersInOrg,
+                    {
+                      org: owner,
+                      team_slug: team.slug,
+                      per_page: 100,
+                    }
+                  );
+
+                  for (const member of members) {
+                    if (!excludedUsers.includes(member.login.toLowerCase()) && !reviewers.includes(member.login)) {
+                      reviewers.push(member.login);
+                    }
+                  }
+                }
+              } catch (error) {
+                console.log(`Teams lookup failed: ${error.message}`);
+              }
+            }
+
+            if (reviewers.length === 0) {
+              console.log('No eligible reviewers found.');
+              return;
+            }
+
+            console.log(`Requesting reviews from: ${reviewers.join(', ')}`);
+
+            await github.rest.pulls.requestReviewers({
+              owner,
+              repo,
+              pull_number: prNumber,
+              reviewers,
+            });
