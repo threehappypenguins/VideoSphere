@@ -255,7 +255,7 @@ WAS SUGGESTED BBY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHN
 **Sprint:** 2
 
 **Size Estimate:** M (medium — a day or two)
-
+s
 **Acceptance Criteria:**
 
 - [ ] `createUser(data)` creates a `user_profiles` document
