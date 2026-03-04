@@ -514,8 +514,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | ------ | ----------------------------------- | -------------------------------------- | ------------- |
 | GET    | `/api/platforms/connect/youtube`    | Initiate YouTube OAuth2 flow           | Yes           |
 | GET    | `/api/platforms/connect/vimeo`      | Initiate Vimeo OAuth2 flow             | Yes           |
-| GET    | `/api/platforms/callback/youtube`   | YouTube OAuth2 callback    
-Yes           |
+| GET    | `/api/platforms/callback/youtube`   | YouTube OAuth2 callback                | Yes           |
 | GET    | `/api/platforms/callback/drive`     | Google Drive OAuth2 callback           | Yes           |
 | GET    | `/api/platforms/callback/vimeo`     | Vimeo OAuth2 callback                  | Yes           |
 | GET    | `/api/platforms/connections`        | List user's connected accounts         | Yes           |
