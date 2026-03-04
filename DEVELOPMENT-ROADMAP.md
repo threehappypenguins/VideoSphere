@@ -226,8 +226,9 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 - `POST /api/auth/logout` — destroy session
 - `GET /api/auth/session` — return current session/user data
 - `GET /api/auth/oauth/google` — initiate Google OAuth
-- `GET /api/auth/oauth/github` — initiate GitHub OAuth
 - `GET /api/auth/callback` — OAuth callback handler
+
+- Google Cloud Console Authorized redirect URI (for dev): http://localhost:3000/api/auth/callback/google
 
 **Sprint:** 1
 
@@ -533,6 +534,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 - [ ] `GET /api/platforms/connect/youtube` redirects to Google OAuth2 consent screen requesting YouTube upload permissions
 - [ ] `GET /api/platforms/callback/youtube` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
+- [ ] GCP Authorized redirect URI: `http://localhost:3000/api/platforms/callback/youtube`
 - [ ] The user's YouTube channel name is fetched and stored as `platformName`
 - [ ] On success, user is redirected to the connections page with a success message
 - [ ] On failure, user sees an error message
@@ -545,6 +547,26 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
+### Issue #? · `[FEATURE]` Google Drive OAuth2 Connection Flow
+
+**User Story:** As a user, I want to connect my Google Drive account so that VideoSphere can backup videos on my behalf.
+
+**Acceptance Criteria:**
+
+- [ ] `GET /api/platforms/connect/drive` redirects to Google OAuth2 consent screen requesting YouTube upload permissions
+- [ ] `GET /api/platforms/callback/drive` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
+- [ ] GCP Authorized redirect URI: `http://localhost:3000/api/platforms/callback/drive`
+- [ ] On success, user is redirected to the connections page with a success message
+- [ ] On failure, user sees an error message
+
+**Priority:** P0 (High)
+
+**T-Shirt Size Estimate:** L (large — several days)
+
+**Additional Context:** PRD refs: PM-01, US-01. Requires Google Cloud Console project with Google Drive API enabled. ⚠️ Depends on Issue #15 (Connected Accounts Repository).
+
+---
+
 ### Issue #26 · `[FEATURE]` Vimeo OAuth2 Connection Flow
 
 **User Story:** As a user, I want to connect my Vimeo account so that I can distribute videos to Vimeo.
@@ -553,6 +575,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 - [ ] `GET /api/platforms/connect/vimeo` redirects to Vimeo OAuth2 consent screen
 - [ ] `GET /api/platforms/callback/vimeo` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
+- [ ] Vimeo Callback URL: `http://localhost:3000/api/platforms/callback/vimeo`
 - [ ] The user's Vimeo display name is fetched and stored as `platformName`
 - [ ] On success, user is redirected to the connections page with a success message
 - [ ] On failure, user sees an error message
