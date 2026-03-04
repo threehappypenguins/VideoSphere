@@ -504,7 +504,6 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | POST   | `/api/auth/logout`         | Destroy session                    | Yes           |
 | GET    | `/api/auth/session`        | Get current session/user           | Yes           |
 | GET    | `/api/auth/oauth/google`   | Initiate Google OAuth flow         | No            |
-| GET    | `/api/auth/oauth/github`   | Initiate GitHub OAuth flow         | No            |
 | GET    | `/api/auth/callback`       | OAuth callback handler             | No            |
 
 ### Platform Connection Routes
@@ -514,6 +513,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | GET    | `/api/platforms/connect/youtube`    | Initiate YouTube OAuth2 flow           | Yes           |
 | GET    | `/api/platforms/connect/vimeo`      | Initiate Vimeo OAuth2 flow             | Yes           |
 | GET    | `/api/platforms/callback/youtube`   | YouTube OAuth2 callback                | Yes           |
+| GET    | `/api/platforms/callback/drive`     | Google Drive OAuth2 callback           | Yes           |
 | GET    | `/api/platforms/callback/vimeo`     | Vimeo OAuth2 callback                  | Yes           |
 | GET    | `/api/platforms/connections`        | List user's connected accounts         | Yes           |
 | DELETE | `/api/platforms/connections/[id]`   | Disconnect a platform account          | Yes           |
