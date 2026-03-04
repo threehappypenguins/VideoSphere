@@ -254,8 +254,7 @@ The primary user journey follows this sequence:
 | MD-04  | Each platform upload runs as an independent **Upload Job** so that a failure on one platform does not block others. | P0 |
 | MD-05  | If a platform upload fails, the user receives an error message with details and can **retry** the failed job. | P0  |
 | MD-06  | Upon successful distribution, the platform-specific video URL is saved and displayed to the user.     | P0       |
-| MD-07  | Free-tier users can distribute to a maximum of **2 platforms** per upload.                             | P0       |
-| MD-08  | Premium users can distribute to **all connected platforms** per upload.                                | P0       |
+| MD-07  | Users can distribute to **all connected platforms** per upload.                                | P0       |
 
 ---
 
@@ -265,10 +264,10 @@ The primary user journey follows this sequence:
 
 | ID     | Requirement                                                                                          | Priority |
 | ------ | ---------------------------------------------------------------------------------------------------- | -------- |
-| SP-01  | Users can set a **publish date and time per platform** when creating a draft.                          | P1       |
+| SP-01  | Premium users can set a **publish date and time per platform** when creating a draft.                          | P1       |
 | SP-02  | Scheduled jobs are queued and executed at the specified time by a server-side process.                 | P1       |
-| SP-03  | Users can view all scheduled uploads in a "Scheduled" tab on the Dashboard.                           | P1       |
-| SP-04  | Users can **cancel or reschedule** a pending scheduled upload before it executes.                     | P1       |
+| SP-03  | Premium users can view all scheduled uploads in a "Scheduled" tab on the Dashboard.                           | P1       |
+| SP-04  | Premium users can **cancel or reschedule** a pending scheduled upload before it executes.                     | P1       |
 | SP-05  | Timezone is auto-detected from the user's browser but can be manually overridden.                    | P2       |
 
 ---
@@ -299,14 +298,13 @@ The primary user journey follows this sequence:
 | ------ | ---------------------------------------------------------------------------------------------------- | -------- |
 | UA-01  | Users can register with **email and password** via Appwrite Auth.                                     | P0       |
 | UA-02  | Users can sign in with **Google OAuth** via Appwrite Auth.                                            | P0       |
-| UA-03  | Users can sign in with **GitHub OAuth** via Appwrite Auth.                                            | P0       |
-| UA-04  | Users can log out; session is cleared.                                                                | P0       |
-| UA-05  | Authenticated state persists across page loads (session cookies / Appwrite session).                  | P0       |
-| UA-06  | Unauthenticated users are redirected to `/login` when accessing protected routes.                    | P0       |
-| UA-07  | Route protection is implemented via `middleware.ts` (server-side) — client-side checks alone are insufficient. | P0 |
-| UA-08  | Users can view and edit their profile (name, email) on the `/profile` page.                          | P1       |
-| UA-09  | The Profile page shows the user's current subscription status (Free or Supporter).                    | P0       |
-| UA-10  | New users are assigned the `user` role by default. The `admin` role is assigned manually or via the admin dashboard. | P0 |
+| UA-03  | Users can log out; session is cleared.                                                                | P0       |
+| UA-04  | Authenticated state persists across page loads (session cookies / Appwrite session).                  | P0       |
+| UA-05  | Unauthenticated users are redirected to `/login` when accessing protected routes.                    | P0       |
+| UA-06  | Route protection is implemented via `middleware.ts` (server-side) — client-side checks alone are insufficient. | P0 |
+| UA-07  | Users can view and edit their profile (name, email) on the `/profile` page.                          | P1       |
+| UA-08  | The Profile page shows the user's current subscription status (Free or Supporter).                    | P0       |
+| UA-09  | New users are assigned the `user` role by default. The `admin` role is assigned manually or via the admin dashboard. | P0 |
 
 ---
 
@@ -741,7 +739,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | **Stripe**       | Payment processing                   | Stripe SDK (`stripe`)          | Checkout Sessions, Webhooks                       |
 | **OpenRouter**   | AI model access                      | REST API / Vercel AI SDK       | Chat completions for metadata generation          |
 | **Google OAuth2**| User sign-in                         | Appwrite OAuth provider        | Sign in with Google                               |
-| **GitHub OAuth** | User sign-in                         | Appwrite OAuth provider        | Sign in with GitHub                               |
+
 
 ---
 
@@ -750,15 +748,13 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | Feature                        | Free Tier                              | Supporter (Premium) Tier                |
 | ------------------------------ | -------------------------------------- | --------------------------------------- |
 | **Monthly uploads**            | 10 per month                           | Unlimited                               |
-| **Connected platforms**        | Up to 2                                | All available platforms                 |
-| **Distribution per upload**    | Up to 2 platforms                      | All connected platforms                 |
 | **AI metadata generation**     | Basic model (lower quality)            | Premium model (GPT-4o / Claude-level)   |
 | **Draft management**           | ✅ Full access                         | ✅ Full access                          |
-| **Scheduled publishing**       | ✅ Full access                         | ✅ Full access                          |
+| **Scheduled publishing**       | No access                         | ✅ Full access                          |
 | **Upload job tracking**        | ✅ Full access                         | ✅ Full access                          |
 | **Per-platform metadata**      | ✅ Full access                         | ✅ Full access                          |
 | **Max file size**              | 5 GB                                  | 5 GB                                    |
-| **Price**                      | $0                                    | One-time supporter payment (via Stripe) |
+| **Price**                      | $0                                    | TBD (via Stripe) |
 
 ---
 
