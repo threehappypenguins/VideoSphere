@@ -553,7 +553,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `GET /api/platforms/connect/drive` redirects to Google OAuth2 consent screen requesting YouTube upload permissions
+- [ ] `GET /api/platforms/connect/drive` redirects to Google OAuth2 consent screen requesting Google Drive permissions
 - [ ] `GET /api/platforms/callback/drive` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
 - [ ] GCP Authorized redirect URI: `http://localhost:3000/api/platforms/callback/drive`
 - [ ] On success, user is redirected to the connections page with a success message
