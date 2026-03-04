@@ -226,7 +226,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 - `POST /api/auth/logout` — destroy session
 - `GET /api/auth/session` — return current session/user data
 - `GET /api/auth/oauth/google` — initiate Google OAuth
-- `GET /api/auth/callback` — OAuth callback handler
+- `GET /api/auth/callback/google` — OAuth callback handler
 
 - Google Cloud Console Authorized redirect URI (for dev): http://localhost:3000/api/auth/callback/google
 
