@@ -135,7 +135,7 @@
 
 ---
 
-<!-- 
+<!--
 WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNICAL
 ### Issue #7 · `[FEATURE]` GitHub OAuth Login
 
@@ -228,7 +228,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 - `GET /api/auth/oauth/google` — initiate Google OAuth
 - `GET /api/auth/callback/google` — OAuth callback handler
 
-- Google Cloud Console Authorized redirect URI (for dev): http://localhost:3000/api/auth/callback/google
+- Authorized redirect URI (for dev) is determined on the Auth page in AppWrite
 
 **Sprint:** 1
 
