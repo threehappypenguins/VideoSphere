@@ -1,37 +1,71 @@
 // =============================================================================
 // LOGIN PAGE
 // =============================================================================
-// Login form UI — NO authentication logic is implemented.
+// User authentication via email and password using Appwrite SDK.
+// On successful login, creates a session and redirects to /dashboard.
 //
-// STUDENT: You MUST implement authentication yourself. This is just a UI shell.
+// User Story: UA-01 — Users can register with email and password via Appwrite Auth.
+// The login represents the sign-in flow for registered users.
 //
-// What you need to do:
-//   1. Choose an auth provider (Supabase Auth, Firebase Auth, Clerk, NextAuth, etc.)
-//   2. Follow their documentation to implement the login flow
-//   3. Wire up the form submission to your auth provider's login method
-//   4. Handle errors (invalid credentials, network issues, etc.)
-//   5. Redirect to /dashboard on successful login
-//
-// This form currently does NOTHING when submitted. It only shows a console log.
+// Implementation: Uses the Appwrite browser SDK directly.
+// Reference: https://appwrite.io/docs/references/web/client-web/auth
 // =============================================================================
 
 'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { loginWithEmail } from '@/lib/auth-client';
+
+interface LoginState {
+  email: string;
+  password: string;
+}
+
+interface ErrorState {
+  message: string;
+  type: 'error' | 'success';
+}
 
 export default function LoginPage() {
-  const [formData, setFormData] = useState({
+  const router = useRouter();
+  const [formData, setFormData] = useState<LoginState>({
     email: '',
     password: '',
   });
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<ErrorState | null>(null);
 
-  // STUDENT: Replace this with your actual auth provider's login method
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // TODO: STUDENT: Implement authentication login
-    console.log('Login attempted (not implemented yet):', formData.email);
-    alert('Authentication is not yet implemented. See the code comments for guidance.');
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      // Call Appwrite SDK to create session
+      await loginWithEmail(formData.email, formData.password);
+
+      // Show success message
+      setError({
+        message: 'Login successful! Redirecting to dashboard...',
+        type: 'success',
+      });
+
+      // Redirect to dashboard after brief delay to show success message
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 1000);
+    } catch (err) {
+      // Handle login error
+      const message = err instanceof Error ? err.message : 'An error occurred during login';
+      setError({
+        message,
+        type: 'error',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -39,12 +73,24 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-foreground">Welcome back</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Log in to your [Your App Name] account
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">Log in to your VideoSphere account</p>
         </div>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          {/* Error/Success Message */}
+          {error && (
+            <div
+              className={`rounded-lg px-4 py-3 text-sm font-medium ${
+                error.type === 'error'
+                  ? 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                  : 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+              }`}
+              role="alert"
+            >
+              {error.message}
+            </div>
+          )}
+
           {/* Email */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-foreground">
@@ -56,9 +102,10 @@ export default function LoginPage() {
               name="email"
               autoComplete="email"
               required
+              disabled={isLoading}
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="you@example.com"
             />
           </div>
@@ -74,9 +121,10 @@ export default function LoginPage() {
               name="password"
               autoComplete="current-password"
               required
+              disabled={isLoading}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="••••••••"
             />
           </div>
@@ -84,9 +132,10 @@ export default function LoginPage() {
           {/* Submit */}
           <button
             type="submit"
-            className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            disabled={isLoading}
+            className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Log in
+            {isLoading ? 'Logging in...' : 'Log in'}
           </button>
         </form>
 
