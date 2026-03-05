@@ -1,0 +1,97 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Client, Account } from 'appwrite';
+
+export default function GoogleCallbackPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [error, setError] = useState<string | null>(null);
+  const doneRef = useRef(false);
+
+  useEffect(() => {
+    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
+
+    const handleCallback = async () => {
+      if (doneRef.current) return;
+      doneRef.current = true;
+      try {
+        const client = new Client()
+          .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
+          .setProject(projectId);
+
+        const account = new Account(client);
+
+        // If we have key/secret or project/secret in URL (e.g. landed here with params), set cookieFallback
+        const key = searchParams.get('key');
+        const secret = searchParams.get('secret');
+        const project = searchParams.get('project');
+        if (secret && typeof window !== 'undefined') {
+          const sessionKey = key ?? (project ? `a_session_${project}` : `a_session_${projectId}`);
+          const cookieFallback: Record<string, string> = { [sessionKey]: secret };
+          window.localStorage.setItem('cookieFallback', JSON.stringify(cookieFallback));
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+
+        // Or createSession if Appwrite sent userId + secret
+        const userId = searchParams.get('userId');
+        const secretForSession = searchParams.get('secret');
+        if (userId && secretForSession && !key && !project) {
+          await account.createSession({ userId, secret: secretForSession });
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+
+        const user = await account.get();
+        // Create user_profiles document if it doesn't exist
+        const response = await fetch('/api/auth/callback/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: user.$id, email: user.email }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.error || 'Failed to create user profile');
+          return;
+        }
+
+        router.push('/dashboard');
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        const detail =
+          err && typeof err === 'object' && 'code' in err
+            ? ` (${(err as { code?: number }).code})`
+            : '';
+        setError(
+          `Authentication failed: ${message}${detail}. Check the console and that cookieFallback was set on the success page.`
+        );
+        setTimeout(() => {
+          router.push('/login?error=oauth_callback_failed');
+        }, 5000);
+      }
+    };
+
+    handleCallback();
+  }, [router, searchParams]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="text-center">
+        {error ? (
+          <>
+            <h1 className="text-xl font-bold text-red-600 mb-4">Authentication Error</h1>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <p className="text-sm text-gray-500">Redirecting to login...</p>
+          </>
+        ) : (
+          <>
+            <h1 className="text-xl font-bold text-gray-900 mb-4">Signing you in...</h1>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
