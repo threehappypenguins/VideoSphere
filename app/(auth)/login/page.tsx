@@ -4,8 +4,9 @@
 // Appwrite-based login page with email/password and Google OAuth support.
 //
 // Email/Password Auth:
-//   - Form submission calls POST /api/auth/login
-//   - Implemented by the auth team member
+//   - Form submission calls loginWithEmail() from @/lib/auth-client
+//   - On success, redirects to /dashboard
+//   - User Story: UA-01 — Users can register with email and password via Appwrite Auth.
 //
 // Google OAuth:
 //   - "Sign in with Google" uses Appwrite SDK createOAuth2Session().
@@ -15,42 +16,75 @@
 //     /api/auth/callback/google to ensure a user_profiles document, then redirects to dashboard.
 //   - We use custom success/callback URLs so the user lands back in our app and we can
 //     create app-specific profile data; Appwrite only handles the OAuth and session.
-// ==============================================================================
+//
+// Reference: https://appwrite.io/docs/references/web/client-web/auth
+// =============================================================================
 
 'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { loginWithEmail } from '@/lib/auth-client';
+
+interface LoginState {
+  email: string;
+  password: string;
+}
+
+interface ErrorState {
+  message: string;
+  type: 'error' | 'success';
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<LoginState>({
     email: '',
     password: '',
   });
-
-  const [error, setError] = useState(searchParams.get('error') || '');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<ErrorState | null>(() => {
+    const urlError = searchParams.get('error');
+    return urlError ? { message: urlError, type: 'error' } : null;
+  });
 
-  // Email/password login (calls POST /api/auth/login when implemented)
-  const handleEmailPasswordSubmit = (e: React.FormEvent) => {
+  // Email/password login via Appwrite SDK
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setIsLoading(true);
 
-    // TODO: Implement POST /api/auth/login endpoint to actually authenticate
-    console.log('Email/password login:', formData.email);
-    alert('Email/password authentication is not yet implemented.');
-    setIsLoading(false);
+    try {
+      // Call Appwrite SDK to create session
+      await loginWithEmail(formData.email, formData.password);
+
+      // Show success message
+      setError({
+        message: 'Login successful! Redirecting to dashboard...',
+        type: 'success',
+      });
+
+      // Redirect to dashboard after brief delay to show success message
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 1000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An error occurred during login';
+      setError({
+        message,
+        type: 'error',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Google OAuth login
   const handleGoogleLogin = async () => {
     try {
-      // Use the Appwrite browser SDK to initiate OAuth
       const { Client, Account, OAuthProvider } = await import('appwrite');
 
       const client = new Client()
@@ -67,20 +101,21 @@ export default function LoginPage() {
         failure: new URL('/login?error=oauth_failed', base).toString(),
       });
     } catch (err) {
-      setError('Failed to initiate Google login');
+      setError({ message: 'Failed to initiate Google login', type: 'error' });
       console.error(err);
     }
   };
 
   // Map error codes to user-friendly messages
-  const getErrorMessage = (code: string) => {
+  const getErrorMessage = (message: string) => {
     const errorMap: Record<string, string> = {
       oauth_initiation_failed: 'Failed to start Google login. Please try again.',
       oauth_missing_params: 'OAuth callback was incomplete. Please try again.',
       oauth_auth_failed: 'Failed to complete Google authentication. Please try again.',
       oauth_callback_failed: 'An error occurred during Google login. Please try again.',
+      oauth_failed: 'Google sign-in failed. Please try again.',
     };
-    return errorMap[code] || code;
+    return errorMap[message] || message;
   };
 
   return (
@@ -88,20 +123,25 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-foreground">Welcome back</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Sign in to your VideoSphere account</p>
+          <p className="mt-2 text-sm text-muted-foreground">Log in to your VideoSphere account</p>
         </div>
 
-        {/* Error Message */}
+        {/* Error/Success Message */}
         {error && (
-          <div className="mt-6 rounded-lg border border-red-300 bg-red-50 p-4">
-            <p className="text-sm text-red-700">
-              {error.includes('_') ? getErrorMessage(error) : error}
-            </p>
+          <div
+            className={`mt-6 rounded-lg px-4 py-3 text-sm font-medium ${
+              error.type === 'error'
+                ? 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                : 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+            }`}
+            role="alert"
+          >
+            {error.type === 'error' ? getErrorMessage(error.message) : error.message}
           </div>
         )}
 
         {/* Email/Password Form */}
-        <form onSubmit={handleEmailPasswordSubmit} className="mt-8 space-y-6">
+        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           {/* Email */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-foreground">
@@ -113,10 +153,10 @@ export default function LoginPage() {
               name="email"
               autoComplete="email"
               required
+              disabled={isLoading}
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              disabled={isLoading}
-              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="you@example.com"
             />
           </div>
@@ -132,10 +172,10 @@ export default function LoginPage() {
               name="password"
               autoComplete="current-password"
               required
+              disabled={isLoading}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              disabled={isLoading}
-              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="••••••••"
             />
           </div>
@@ -144,9 +184,9 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:bg-primary/50 disabled:cursor-not-allowed"
+            className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Signing in...' : 'Log in'}
+            {isLoading ? 'Logging in...' : 'Log in'}
           </button>
         </form>
 
