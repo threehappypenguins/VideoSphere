@@ -8,9 +8,13 @@
 //   - Implemented by the auth team member
 //
 // Google OAuth:
-//   - "Sign in with Google" button uses Appwrite browser SDK (appwrite package)
-//   - Initiates OAuth via account.createOAuth2Session()
-//   - After consent, redirected to GET /api/auth/callback/google to create user_profiles
+//   - "Sign in with Google" uses Appwrite SDK createOAuth2Session().
+//   - Flow: User → Google consent → Appwrite's callback (on Appwrite's domain; set in GCP)
+//     → Appwrite redirects to our success URL with session params → our success page stores
+//     them (cookieFallback) → our /callback/google page runs and POSTs to
+//     /api/auth/callback/google to ensure a user_profiles document, then redirects to dashboard.
+//   - We use custom success/callback URLs so the user lands back in our app and we can
+//     create app-specific profile data; Appwrite only handles the OAuth and session.
 // ==============================================================================
 
 'use client';
