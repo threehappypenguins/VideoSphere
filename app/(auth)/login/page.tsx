@@ -56,13 +56,12 @@ export default function LoginPage() {
       const account = new Account(client);
 
       // Success path must match Appwrite's default so it appends session params to the URL.
-      // Try /v1/auth/oauth2/success first (Appwrite Cloud); fallback path: /auth/oauth2/success.
       const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-      await account.createOAuth2Session(
-        OAuthProvider.Google,
-        new URL('/v1/auth/oauth2/success', base).toString(),
-        new URL('/login?error=oauth_failed', base).toString()
-      );
+      account.createOAuth2Session({
+        provider: OAuthProvider.Google,
+        success: new URL('/v1/auth/oauth2/success', base).toString(),
+        failure: new URL('/login?error=oauth_failed', base).toString(),
+      });
     } catch (err) {
       setError('Failed to initiate Google login');
       console.error(err);
