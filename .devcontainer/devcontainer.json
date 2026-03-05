@@ -18,6 +18,8 @@
   // 2. Install all project dependencies (also runs the `prepare` script which sets up Husky)
   "postCreateCommand": "sudo corepack enable && pnpm install",
 
+  "mounts": ["source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,consistency=cached"],
+
   "customizations": {
     "vscode": {
       "extensions": [
