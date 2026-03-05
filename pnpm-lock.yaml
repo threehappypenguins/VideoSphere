@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      appwrite:
+        specifier: ^15.0.0
+        version: 15.0.0
       next:
         specifier: 16.1.6
         version: 16.1.6(@babel/core@7.29.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -1357,6 +1360,9 @@ packages:
   ansi-styles@6.2.3:
     resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
     engines: {node: '>=12'}
+
+  appwrite@15.0.0:
+    resolution: {integrity: sha512-rzmo+87tizYLs3YnRLets+vMUF85S/OHkgiGgp0UKcKJj0U1RktAsuIecFqRROKfkqs0fKzggRAIs3RCoYQQwA==}
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
@@ -4333,6 +4339,8 @@ snapshots:
   ansi-styles@5.2.0: {}
 
   ansi-styles@6.2.3: {}
+
+  appwrite@15.0.0: {}
 
   argparse@2.0.1: {}
 
