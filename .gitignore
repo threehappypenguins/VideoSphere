@@ -29,6 +29,7 @@ Thumbs.db
 .idea/
 
 # pnpm
+.pnpm-store/
 .pnpm-debug.log*
 
 # Debug logs
