@@ -142,6 +142,20 @@ export default function LoginPage() {
 
         {/* Email/Password Form */}
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          {/* Error/Success Message */}
+          {error && (
+            <div
+              className={`rounded-lg px-4 py-3 text-sm font-medium ${
+                error.type === 'error'
+                  ? 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                  : 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+              }`}
+              role="alert"
+            >
+              {error.message}
+            </div>
+          )}
+
           {/* Email */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-foreground">
