@@ -2,13 +2,17 @@
 // LOGIN PAGE
 // =============================================================================
 // Email/password: POST /api/auth/login sets session cookie server-side (SSR, no localStorage).
-// Google OAuth: client SDK redirects; session cookie set by Appwrite (same-origin).
+// Google OAuth: initiated via GET /api/auth/oauth/google (server); httpOnly session cookie
+//   set in GET /api/auth/oauth/callback, then redirect to /callback/google.
 //
 // Email/Password Auth:
-//   - "Sign in with Google" uses Appwrite SDK createOAuth2Session().
+//   - Form submission POSTs to /api/auth/login; on success, redirects to /dashboard.
+//
+// Google OAuth:
+//   - "Sign in with Google" navigates to /api/auth/oauth/google (server creates OAuth token, redirects to Google).
 //   - Works for both existing users (sign in) and new users (sign up): Appwrite creates the
 //     auth user on first Google sign-in; our callback ensures a user_profiles document.
-//   - Flow: User → Google consent → Appwrite callback → our success URL (session cookie)
+//   - Flow: User → Google consent → Appwrite callback → our /api/auth/oauth/callback (sets cookie)
 //     → /callback/google runs and POSTs to /api/auth/callback/google, then redirects to dashboard.
 //
 // Reference: https://appwrite.io/docs/references/web/client-web/auth
