@@ -1,21 +1,15 @@
 // =============================================================================
 // LOGIN PAGE
 // =============================================================================
-// Appwrite-based login page with email/password and Google OAuth support.
+// Email/password: POST /api/auth/login sets session cookie server-side (SSR, no localStorage).
+// Google OAuth: client SDK redirects; session cookie set by Appwrite (same-origin).
 //
 // Email/Password Auth:
-//   - Form submission calls loginWithEmail() from @/lib/auth-client
-//   - On success, redirects to /dashboard
-//   - User Story: UA-01 — Users can register with email and password via Appwrite Auth.
-//
-// Google OAuth:
 //   - "Sign in with Google" uses Appwrite SDK createOAuth2Session().
-//   - Flow: User → Google consent → Appwrite's callback (on Appwrite's domain; set in GCP)
-//     → Appwrite redirects to our success URL with session params → our success page stores
-//     them (cookieFallback) → our /callback/google page runs and POSTs to
-//     /api/auth/callback/google to ensure a user_profiles document, then redirects to dashboard.
-//   - We use custom success/callback URLs so the user lands back in our app and we can
-//     create app-specific profile data; Appwrite only handles the OAuth and session.
+//   - Works for both existing users (sign in) and new users (sign up): Appwrite creates the
+//     auth user on first Google sign-in; our callback ensures a user_profiles document.
+//   - Flow: User → Google consent → Appwrite callback → our success URL (session cookie)
+//     → /callback/google runs and POSTs to /api/auth/callback/google, then redirects to dashboard.
 //
 // Reference: https://appwrite.io/docs/references/web/client-web/auth
 // =============================================================================
@@ -25,7 +19,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { loginWithEmail } from '@/lib/auth-client';
 
 interface LoginState {
   email: string;
@@ -51,59 +44,47 @@ export default function LoginPage() {
     return urlError ? { message: urlError, type: 'error' } : null;
   });
 
-  // Email/password login via Appwrite SDK
+  // Email/password login via server (session cookie set by API; no localStorage)
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
 
     try {
-      // Call Appwrite SDK to create session
-      await loginWithEmail(formData.email, formData.password);
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+        credentials: 'include',
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
 
-      // Show success message
+      if (!res.ok) {
+        setError({
+          message: data?.error ?? 'Invalid email or password.',
+          type: 'error',
+        });
+        return;
+      }
+
       setError({
         message: 'Login successful! Redirecting to dashboard...',
         type: 'success',
       });
-
-      // Redirect to dashboard after brief delay to show success message
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1000);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'An error occurred during login';
-      setError({
-        message,
-        type: 'error',
-      });
+      setTimeout(() => router.push('/dashboard'), 1000);
+    } catch {
+      setError({ message: 'An error occurred during login.', type: 'error' });
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Google OAuth login
-  const handleGoogleLogin = async () => {
-    try {
-      const { Client, Account, OAuthProvider } = await import('appwrite');
-
-      const client = new Client()
-        .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
-        .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!);
-
-      const account = new Account(client);
-
-      // Success path must match Appwrite's default so it appends session params to the URL.
-      const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-      account.createOAuth2Session({
-        provider: OAuthProvider.Google,
-        success: new URL('/v1/auth/oauth2/success', base).toString(),
-        failure: new URL('/login?error=oauth_failed', base).toString(),
-      });
-    } catch (err) {
-      setError({ message: 'Failed to initiate Google login', type: 'error' });
-      console.error(err);
-    }
+  // Google OAuth: server-side flow (admin client), same pattern as email/password
+  const handleGoogleLogin = () => {
+    window.location.href = '/api/auth/oauth/google';
   };
 
   // Map error codes to user-friendly messages
