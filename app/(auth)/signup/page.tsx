@@ -256,10 +256,29 @@ export default function SignUpPage() {
         }),
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get('content-type');
+      let data: any = null;
+
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          data = await res.json();
+        } catch {
+          // Ignore JSON parse errors; fall back to a generic message below.
+        }
+      }
 
       if (!res.ok) {
-        setServerError(data.error ?? 'Something went wrong. Please try again.');
+        const messageFromBody =
+          data && typeof data === 'object' && typeof (data as any).error === 'string'
+            ? (data as any).error
+            : undefined;
+
+        const fallbackMessage =
+          res.statusText && res.statusText !== 'OK'
+            ? res.statusText
+            : 'Something went wrong. Please try again.';
+
+        setServerError(messageFromBody ?? fallbackMessage);
         return;
       }
 
