@@ -378,36 +378,42 @@ export default function SignUpPage() {
             />
 
             {/* Submit */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isLoading}
-              className="relative w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-violet-200 transition-all duration-200
-                hover:from-violet-500 hover:to-indigo-500 hover:shadow-lg hover:shadow-violet-300 hover:-translate-y-0.5
-                active:translate-y-0 active:shadow-md
-                disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0"
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleSubmit();
+              }}
             >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg
-                    className="animate-spin"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
-                  Creating account…
-                </span>
-              ) : (
-                'Create account'
-              )}
-            </button>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="relative w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-violet-200 transition-all duration-200
+                  hover:from-violet-500 hover:to-indigo-500 hover:shadow-lg hover:shadow-violet-300 hover:-translate-y-0.5
+                  active:translate-y-0 active:shadow-md
+                  disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0"
+              >
+                {isLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg
+                      className="animate-spin"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    Creating account…
+                  </span>
+                ) : (
+                  'Create account'
+                )}
+              </button>
+            </form>
           </div>
 
           {/* Divider */}
