@@ -8,13 +8,29 @@
 // =============================================================================
 
 import type { User } from '@/types';
+import { appwriteDatabases } from '@/lib/appwrite';
+
+const DATABASE_ID = 'videosphere';
+const COLLECTION_ID = 'user_profiles';
 
 /**
- * Fetch a user by ID. Returns null if not found.
+ * Fetch a user by ID from the Appwrite user_profiles collection.
+ * Returns null if not found or on error.
  */
 export async function getUserById(id: string): Promise<User | null> {
-  // TODO: Implement with Appwrite (Users collection or Auth + custom attributes).
-  throw new Error('getUserById is not implemented yet.');
+  try {
+    const doc = await appwriteDatabases.getDocument(DATABASE_ID, COLLECTION_ID, id);
+    return {
+      userId: doc.userId,
+      email: doc.email,
+      isSupporter: doc.isSupporter,
+      role: doc.role,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
+    } as User;
+  } catch {
+    return null;
+  }
 }
 
 /**

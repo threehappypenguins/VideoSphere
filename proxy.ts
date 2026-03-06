@@ -1,55 +1,96 @@
 // =============================================================================
-// PROXY STUB (formerly middleware.ts)
+// NEXT.JS ROUTE PROTECTION PROXY
 // =============================================================================
-// Next.js 16 renamed middleware to proxy. The proxy runs before every matched
-// request using the Node.js runtime and is the right place to implement route
-// protection, authentication checks, role-based access control (RBAC), and
-// redirects.
+// Intercepts requests to protected routes and enforces authentication and
+// admin-role requirements server-side using the Appwrite node-appwrite SDK.
 //
-// Currently this file does nothing — it is intentionally left for your team
-// to implement as part of your authentication and authorization work.
+// Protected routes:
+//   /dashboard/*  — authenticated users only
+//   /profile/*    — authenticated users only
+//   /admin/*      — authenticated admin users only
 //
-// STUDENT: When you have implemented authentication, this is where you would:
-// - Check if a user is authenticated before allowing access to protected routes
-// - Check if a user has the required role (e.g. 'admin') for admin-only routes
-// - Redirect unauthenticated users to the login page
-// - Redirect unauthorized users to an appropriate error or home page
-//
-// Important: Proxy alone is not sufficient for security — always validate
-// permissions on the server side as well (in your API routes or Server Actions)
-//
-// Helpful resources:
-// - Next.js Proxy: https://nextjs.org/docs/app/api-reference/file-conventions/proxy
-// - See /docs/admin-guide.md for context on protecting the admin route
-// - Your chosen auth provider will have specific proxy/middleware examples
-//   in their own documentation — refer to those when implementing
-//
-// The matcher config below shows which routes proxy would typically apply to.
-// Update the matcher when you have auth implemented.
-//
-// export const config = {
-//   matcher: [
-//     '/admin/:path*',
-//     '/dashboard/:path*',
-//     '/profile/:path*',
-//   ]
-// }
+// node-appwrite v14+ is fully fetch-based and compatible with the Edge Runtime.
 // =============================================================================
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { Client, Account, Databases } from 'node-appwrite';
 
-// STUDENT: Replace this placeholder with your actual auth/RBAC logic.
-// This function currently does nothing — it passes all requests through.
-export function proxy(request: Request) {
-  // Example: Check for authentication before allowing access
-  // const cookieHeader = request.headers.get('cookie') || '';
-  // if (!cookieHeader.includes('session=')) {
-  //   return NextResponse.redirect(new URL('/login', request.url));
-  // }
+const ENDPOINT = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!;
+const PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
+const API_KEY = process.env.APPWRITE_API_KEY!;
+
+const DATABASE_ID = 'videosphere';
+const COLLECTION_ID = 'user_profiles';
+
+// Appwrite stores the session under this cookie name (project ID lowercased)
+function sessionCookieName(): string {
+  return `a_session_${PROJECT_ID.toLowerCase()}`;
+}
+
+/**
+ * Verify the session token with Appwrite and return the user object.
+ * Uses a scoped client with .setSession() — does NOT use the admin API key.
+ * Returns null if the session is invalid or expired.
+ */
+async function getSessionUser(sessionToken: string): Promise<{ $id: string } | null> {
+  try {
+    const client = new Client()
+      .setEndpoint(ENDPOINT)
+      .setProject(PROJECT_ID)
+      .setSession(sessionToken);
+    const account = new Account(client);
+    return await account.get();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch the user's role from the user_profiles collection using the admin API key.
+ * Returns null if the document is not found or on error.
+ */
+async function getUserRole(userId: string): Promise<string | null> {
+  try {
+    const client = new Client().setEndpoint(ENDPOINT).setProject(PROJECT_ID).setKey(API_KEY);
+    const databases = new Databases(client);
+    const doc = await databases.getDocument(DATABASE_ID, COLLECTION_ID, userId);
+    return (doc.role as string) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  const sessionToken = request.cookies.get(sessionCookieName())?.value;
+
+  // No session cookie — redirect to login
+  if (!sessionToken) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // Verify the session is still valid with Appwrite
+  const user = await getSessionUser(sessionToken);
+  if (!user) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // Admin routes require the 'admin' role
+  if (pathname.startsWith('/admin')) {
+    const role = await getUserRole(user.$id);
+    if (role !== 'admin') {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+  }
+
   return NextResponse.next();
 }
 
-// Currently applies to no routes. Update this matcher when you implement auth.
 export const config = {
-  matcher: [],
+  matcher: ['/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
 };
