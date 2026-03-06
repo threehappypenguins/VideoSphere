@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     );
   } catch (err: unknown) {
     console.error('[POST /api/register]', err);
-    const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const publicMessage = 'An unexpected error occurred. Please try again later.';
+    return NextResponse.json({ error: publicMessage }, { status: 500 });
   }
 }
