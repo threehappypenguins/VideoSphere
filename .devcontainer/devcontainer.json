@@ -52,6 +52,9 @@
         "PKief.material-icon-theme"
       ],
       "settings": {
+        // Use pnpm (project has pnpm-lock.yaml and package.json engines require pnpm)
+        "npm.packageManager": "pnpm",
+
         // Prettier is the default formatter for all files
         "editor.defaultFormatter": "esbenp.prettier-vscode",
         "editor.formatOnSave": true,

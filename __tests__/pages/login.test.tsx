@@ -1,35 +1,40 @@
 // =============================================================================
 // LOGIN PAGE COMPONENT TESTS
 // =============================================================================
-// Tests for the login page UI and user interactions.
-// Focus on form handling, state management, and important user workflows.
+// Tests for the login page UI and user interactions. The page uses
+// fetch('/api/auth/login'), not loginWithEmail, so we mock global fetch.
 // =============================================================================
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LoginPage from '@/app/(auth)/login/page';
 
-// Mock the auth client
-vi.mock('@/lib/auth-client', () => ({
-  loginWithEmail: vi.fn(),
-}));
-
-// Mock Next.js router
+// Mock Next.js router and search params (login page uses useSearchParams for ?error=)
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(),
+  useSearchParams: vi.fn(),
 }));
 
-import { loginWithEmail } from '@/lib/auth-client';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 const mockPush = vi.fn();
+const mockFetch = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
   (useRouter as any).mockReturnValue({
     push: mockPush,
   });
+  (useSearchParams as any).mockReturnValue({
+    get: vi.fn(() => null),
+  });
+  vi.stubGlobal('fetch', mockFetch);
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('LoginPage Component', () => {
@@ -106,27 +111,8 @@ describe('LoginPage Component', () => {
   });
 
   describe('Form Submission', () => {
-    it('should call loginWithEmail with form data on submit', async () => {
+    it('should call login API with form data on submit', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockResolvedValue({ $id: 'session123' });
-
-      render(<LoginPage />);
-
-      const emailInput = screen.getByLabelText(/email address/i);
-      const passwordInput = screen.getByLabelText(/password/i);
-      const submitButton = screen.getByRole('button', { name: /log in/i });
-
-      await user.type(emailInput, 'test@example.com');
-      await user.type(passwordInput, 'password123');
-      await user.click(submitButton);
-
-      expect(loginWithEmail).toHaveBeenCalledWith('test@example.com', 'password123');
-    });
-
-    it('should show success message on successful login', async () => {
-      const user = userEvent.setup();
-      (loginWithEmail as any).mockResolvedValue({ $id: 'session123' });
-
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
@@ -134,14 +120,33 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/login successful/i)).toBeInTheDocument();
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/auth/login',
+          expect.objectContaining({
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'test@example.com', password: 'password123' }),
+          })
+        );
+      });
+    });
+
+    it('should show success message on successful login', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
+      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.click(screen.getByRole('button', { name: /log in/i }));
+
+      await waitFor(() => {
+        expect(screen.getAllByText(/login successful/i).length).toBeGreaterThan(0);
       });
     });
 
     it('should redirect to dashboard after successful login', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockResolvedValue({ $id: 'session123' });
-
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
@@ -161,7 +166,10 @@ describe('LoginPage Component', () => {
     it('should display error message on login failure', async () => {
       const user = userEvent.setup();
       const errorMessage = 'Invalid email or password';
-      (loginWithEmail as any).mockRejectedValue(new Error(errorMessage));
+      mockFetch.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: errorMessage }),
+      });
 
       render(<LoginPage />);
 
@@ -170,13 +178,13 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(errorMessage)).toBeInTheDocument();
+        expect(screen.getAllByText(errorMessage).length).toBeGreaterThan(0);
       });
     });
 
-    it('should display generic error message for non-Error objects', async () => {
+    it('should display generic error message when fetch throws', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockRejectedValue({ error: 'unknown' });
+      mockFetch.mockImplementationOnce(() => Promise.reject(new Error('Network error')));
 
       render(<LoginPage />);
 
@@ -185,7 +193,8 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/an error occurred during login/i)).toBeInTheDocument();
+        const alerts = screen.getAllByText(/an error occurred during login/i);
+        expect(alerts.length).toBeGreaterThan(0);
       });
     });
   });
@@ -193,8 +202,11 @@ describe('LoginPage Component', () => {
   describe('Loading State', () => {
     it('should show loading text on button during submission', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
+      mockFetch.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ ok: true, json: async () => ({}) }), 100)
+          )
       );
 
       render(<LoginPage />);
@@ -214,8 +226,11 @@ describe('LoginPage Component', () => {
 
     it('should disable form inputs during submission', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
+      mockFetch.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ ok: true, json: async () => ({}) }), 100)
+          )
       );
 
       render(<LoginPage />);
@@ -227,14 +242,19 @@ describe('LoginPage Component', () => {
       await user.type(passwordInput, 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
-      expect(emailInput.disabled).toBe(true);
-      expect(passwordInput.disabled).toBe(true);
+      await waitFor(() => {
+        expect(emailInput.disabled).toBe(true);
+        expect(passwordInput.disabled).toBe(true);
+      });
     });
 
     it('should disable submit button during submission', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockImplementation(
-        () => new Promise((resolve) => setTimeout(resolve, 100))
+      mockFetch.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ ok: true, json: async () => ({}) }), 100)
+          )
       );
 
       render(<LoginPage />);
@@ -245,14 +265,19 @@ describe('LoginPage Component', () => {
       const submitButton = screen.getByRole('button', { name: /log in/i });
       await user.click(submitButton);
 
-      expect(submitButton).toBeDisabled();
+      await waitFor(() => {
+        expect(submitButton).toBeDisabled();
+      });
     });
   });
 
   describe('Error Message Styling', () => {
     it('should display error message with error styling', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockRejectedValue(new Error('Login failed'));
+      mockFetch.mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: 'Login failed' }),
+      });
 
       render(<LoginPage />);
 
@@ -261,15 +286,13 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        const errorElement = screen.getByRole('alert');
-        expect(errorElement).toHaveClass('bg-red-50');
+        const alerts = screen.getAllByText('Login failed');
+        expect(alerts[0].closest('[role="alert"]')).toHaveClass('bg-red-50');
       });
     });
 
     it('should display success message with success styling', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockResolvedValue({ $id: 'session123' });
-
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
@@ -277,8 +300,8 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        const successElement = screen.getByRole('alert');
-        expect(successElement).toHaveClass('bg-green-50');
+        const alerts = screen.getAllByText(/login successful/i);
+        expect(alerts[0].closest('[role="alert"]')).toHaveClass('bg-green-50');
       });
     });
   });
@@ -286,8 +309,12 @@ describe('LoginPage Component', () => {
   describe('Form Reset', () => {
     it('should clear error message on new submission attempt', async () => {
       const user = userEvent.setup();
-      (loginWithEmail as any).mockRejectedValueOnce(new Error('Login failed'));
-      (loginWithEmail as any).mockResolvedValueOnce({ $id: 'session123' });
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: false,
+          json: async () => ({ error: 'Login failed' }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
 
       render(<LoginPage />);
 
@@ -297,7 +324,7 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        expect(screen.getByText('Login failed')).toBeInTheDocument();
+        expect(screen.getAllByText('Login failed').length).toBeGreaterThan(0);
       });
 
       // Change password and try again
@@ -307,8 +334,8 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        expect(screen.queryByText('Login failed')).not.toBeInTheDocument();
-        expect(screen.getByText(/login successful/i)).toBeInTheDocument();
+        expect(screen.queryAllByText('Login failed').length).toBe(0);
+        expect(screen.getAllByText(/login successful/i).length).toBeGreaterThan(0);
       });
     });
   });
