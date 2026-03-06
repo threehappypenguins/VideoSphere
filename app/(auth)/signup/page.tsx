@@ -4,7 +4,7 @@
 // /signup — Registration page
 // =============================================================================
 // Renders an email + password + confirm-password form.
-// Validates client-side, calls POST /api/auth/register, then redirects to
+// Validates client-side, calls POST /api/register, then redirects to
 // /dashboard on success or shows an inline error on failure.
 // =============================================================================
 
