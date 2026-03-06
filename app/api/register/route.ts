@@ -55,15 +55,30 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
-    // ── 2. Store role + isSupporter in user prefs (no database needed) ────────
-    await appwriteUsers.updatePrefs(authUser.$id, {
-      role: 'user',
-      isSupporter: false,
-      createdAt: new Date().toISOString(),
-    });
+    // ── 2 & 3. Initialize user prefs and labels atomically (best-effort) ─────
+    try {
+      // Store role + isSupporter in user prefs (no database needed)
+      await appwriteUsers.updatePrefs(authUser.$id, {
+        role: 'user',
+        isSupporter: false,
+        createdAt: new Date().toISOString(),
+      });
 
-    // ── 3. Add "user" label for easy querying later ───────────────────────────
-    await appwriteUsers.updateLabels(authUser.$id, ['user']);
+      // Add "user" label for easy querying later
+      await appwriteUsers.updateLabels(authUser.$id, ['user']);
+    } catch (initErr) {
+      // Best-effort rollback: delete the partially initialized user
+      try {
+        await appwriteUsers.delete(authUser.$id);
+      } catch (rollbackErr) {
+        console.error(
+          '[POST /api/register] Failed to rollback user creation',
+          rollbackErr
+        );
+      }
+      // Re-throw original initialization error so it is handled by the outer catch
+      throw initErr;
+    }
 
     return NextResponse.json(
       { message: 'Account created successfully.', userId: authUser.$id },
