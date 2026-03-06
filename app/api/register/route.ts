@@ -71,10 +71,7 @@ export async function POST(req: NextRequest) {
       try {
         await appwriteUsers.delete(authUser.$id);
       } catch (rollbackErr) {
-        console.error(
-          '[POST /api/register] Failed to rollback user creation',
-          rollbackErr
-        );
+        console.error('[POST /api/register] Failed to rollback user creation', rollbackErr);
       }
       // Re-throw original initialization error so it is handled by the outer catch
       throw initErr;
