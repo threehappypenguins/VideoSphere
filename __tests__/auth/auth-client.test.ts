@@ -103,14 +103,15 @@ describe('Auth Client Functions', () => {
     it('should call logout API with credentials', async () => {
       const mockFetch = vi.fn().mockResolvedValue({ ok: true });
       vi.stubGlobal('fetch', mockFetch);
-
-      await logout();
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      });
-      vi.unstubAllGlobals();
+      try {
+        await logout();
+        expect(mockFetch).toHaveBeenCalledWith('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 
