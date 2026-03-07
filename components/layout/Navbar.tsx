@@ -27,12 +27,24 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
 
-  // Re-fetch session when route changes so client-side redirects (e.g. after email/password login) pick up the new session
+  // Re-fetch session when route changes so client-side redirects (e.g. after email/password login) pick up the new session.
+  // AbortController ensures a slower response from a previous route cannot overwrite state (e.g. pre-login 401 after post-login 200).
   useEffect(() => {
-    fetch('/api/auth/session', { credentials: 'include' })
+    const controller = new AbortController();
+    fetch('/api/auth/session', {
+      credentials: 'include',
+      signal: controller.signal,
+    })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: SessionUser | null) => setSessionUser(data ?? null))
-      .catch(() => setSessionUser(null));
+      .then((data: SessionUser | null) => {
+        if (controller.signal.aborted) return;
+        setSessionUser(data ?? null);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setSessionUser(null);
+      });
+    return () => controller.abort();
   }, [pathname]);
 
   const handleLogout = async () => {
