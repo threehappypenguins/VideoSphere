@@ -2,14 +2,30 @@ name: pnpm format
 
 on:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to format'
+        required: true
+        default: ''
 
 jobs:
   format:
     runs-on: ubuntu-latest
+    # Only run on PRs from the same repo (not forks), since we need write access
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Check out the PR branch (on PR trigger) or the manually specified branch
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.head_ref }}
+          # Use a token with write permissions to allow pushing back
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -27,3 +43,10 @@ jobs:
 
       - name: Run formatter
         run: pnpm format
+
+      - name: Commit formatting changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'style: apply prettier formatting'
+          commit_user_name: 'github-actions[bot]'
+          commit_user_email: 'github-actions[bot]@users.noreply.github.com'
