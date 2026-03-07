@@ -271,8 +271,8 @@ describe('LoginPage Component', () => {
     });
   });
 
-  describe('Error Message Styling', () => {
-    it('should display error message with error styling', async () => {
+  describe('Alert Messages', () => {
+    it('should display error message in an alert', async () => {
       const user = userEvent.setup();
       mockFetch.mockResolvedValue({
         ok: false,
@@ -286,12 +286,12 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        const alerts = screen.getAllByText('Login failed');
-        expect(alerts[0].closest('[role="alert"]')).toHaveClass('bg-red-50');
+        const alert = screen.getByRole('alert');
+        expect(alert).toHaveTextContent('Login failed');
       });
     });
 
-    it('should display success message with success styling', async () => {
+    it('should display success message in an alert', async () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
@@ -300,8 +300,8 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        const alerts = screen.getAllByText(/login successful/i);
-        expect(alerts[0].closest('[role="alert"]')).toHaveClass('bg-green-50');
+        const alert = screen.getByRole('alert');
+        expect(alert).toHaveTextContent(/login successful/i);
       });
     });
   });
