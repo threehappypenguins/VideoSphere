@@ -20,7 +20,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 
@@ -47,10 +47,12 @@ export default function LoginPage() {
     const urlError = searchParams.get('error');
     return urlError ? { message: urlError, type: 'error' } : null;
   });
+  const submitHandledRef = useRef(false);
 
   // Email/password login via server (session cookie set by API; no localStorage)
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (submitHandledRef.current) return;
     setError(null);
     setIsLoading(true);
 
@@ -74,6 +76,8 @@ export default function LoginPage() {
         return;
       }
 
+      if (submitHandledRef.current) return;
+      submitHandledRef.current = true;
       setError({
         message: 'Login successful! Redirecting to dashboard...',
         type: 'success',
@@ -113,34 +117,20 @@ export default function LoginPage() {
 
         {/* Error/Success Message */}
         {error && (
-          <div
-            className={`mt-6 rounded-lg px-4 py-3 text-sm font-medium ${
+          <p
+            className={`mt-6 text-sm font-medium ${
               error.type === 'error'
-                ? 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
-                : 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
+                ? 'text-red-600 dark:text-red-400'
+                : 'text-green-600 dark:text-green-400'
             }`}
             role="alert"
           >
             {error.type === 'error' ? getErrorMessage(error.message) : error.message}
-          </div>
+          </p>
         )}
 
         {/* Email/Password Form */}
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-          {/* Error/Success Message */}
-          {error && (
-            <div
-              className={`rounded-lg px-4 py-3 text-sm font-medium ${
-                error.type === 'error'
-                  ? 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
-                  : 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              }`}
-              role="alert"
-            >
-              {error.message}
-            </div>
-          )}
-
           {/* Email */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-foreground">
