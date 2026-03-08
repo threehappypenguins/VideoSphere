@@ -12,9 +12,27 @@ import { getUserById, createUser } from '@/lib/repositories/users';
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { userId, email } = body;
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+    }
 
+    if (body === null || typeof body !== 'object') {
+      return NextResponse.json({ error: 'Body must be a JSON object.' }, { status: 400 });
+    }
+
+    const { userId: rawUserId, email: rawEmail } = body as Record<string, unknown>;
+    if (typeof rawUserId !== 'string' || typeof rawEmail !== 'string') {
+      return NextResponse.json(
+        { error: 'userId and email are required and must be strings.' },
+        { status: 400 }
+      );
+    }
+
+    const userId = rawUserId.trim();
+    const email = rawEmail.trim().toLowerCase();
     if (!userId || !email) {
       return NextResponse.json({ error: 'Missing userId or email' }, { status: 400 });
     }
@@ -29,7 +47,7 @@ export async function POST(request: NextRequest) {
     try {
       await createUser({
         userId,
-        email: String(email).trim().toLowerCase(),
+        email,
         isSupporter: false,
         role: 'user',
       });
