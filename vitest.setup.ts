@@ -13,3 +13,9 @@
 // =============================================================================
 
 import '@testing-library/jest-dom';
+
+// Required for connected-accounts repository tests (token encryption at rest).
+// Must be a 32-byte key, base64-encoded. This value is for testing only.
+if (!process.env.APPWRITE_TOKEN_ENCRYPTION_KEY) {
+  process.env.APPWRITE_TOKEN_ENCRYPTION_KEY = Buffer.from('A'.repeat(32)).toString('base64');
+}

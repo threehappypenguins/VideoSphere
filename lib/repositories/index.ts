@@ -30,6 +30,7 @@ export {
   createConnectedAccount,
   getConnectedAccountsByUser,
   getConnectedAccount,
+  getConnectedAccountWithTokens,
   deleteConnectedAccount,
   updateTokens,
 } from './connected-accounts';

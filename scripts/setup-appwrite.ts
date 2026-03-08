@@ -84,8 +84,8 @@ const tables: TableConfig[] = [
     columns: [
       { key: 'userId', type: 'string', size: 255, required: true },
       { key: 'platform', type: 'string', size: 64, required: true },
-      { key: 'accessToken', type: 'string', size: 2048, required: true },
-      { key: 'refreshToken', type: 'string', size: 2048, required: true },
+      { key: 'accessToken', type: 'string', size: 4096, required: true },
+      { key: 'refreshToken', type: 'string', size: 4096, required: true },
       { key: 'tokenExpiry', type: 'string', size: 64, required: true },
       { key: 'platformUserId', type: 'string', size: 255, required: true },
       { key: 'platformName', type: 'string', size: 500, required: true },

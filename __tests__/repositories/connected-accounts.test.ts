@@ -35,11 +35,13 @@ vi.mock('@/lib/appwrite', () => ({
   default: {},
 }));
 
-// Import after mocks
+// Import after mocks (token-encryption is not mocked; uses env key from vitest.setup)
+import { encryptToken } from '@/lib/crypto/token-encryption';
 import {
   createConnectedAccount,
   getConnectedAccountsByUser,
   getConnectedAccount,
+  getConnectedAccountWithTokens,
   updateTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
@@ -63,7 +65,7 @@ beforeEach(() => {
 
 describe('connected-accounts repository', () => {
   describe('createConnectedAccount', () => {
-    it('stores OAuth tokens, platform user ID, and platform name', async () => {
+    it('stores OAuth tokens encrypted, platform user ID, and platform name', async () => {
       mockCreateRow.mockResolvedValue({ ...baseRow });
 
       const result = await createConnectedAccount({
@@ -83,18 +85,23 @@ describe('connected-accounts repository', () => {
       expect(call.rowId).toBe('test-row-id-123');
       expect(call.data.userId).toBe('user-1');
       expect(call.data.platform).toBe('youtube');
-      expect(call.data.accessToken).toBe('access');
-      expect(call.data.refreshToken).toBe('refresh');
       expect(call.data.tokenExpiry).toBe('2026-12-31T00:00:00.000Z');
       expect(call.data.platformUserId).toBe('yt-123');
       expect(call.data.platformName).toBe('My Channel');
       expect(call.data.createdAt).toBeDefined();
       expect(call.data.updatedAt).toBeDefined();
+      expect(call.data.accessToken).not.toBe('access');
+      expect(call.data.refreshToken).not.toBe('refresh');
+      expect(call.data.accessToken).toMatch(/^[A-Za-z0-9+/=]+$/);
+      expect(call.data.refreshToken).toMatch(/^[A-Za-z0-9+/=]+$/);
 
       expect(result.id).toBe('row-1');
       expect(result.userId).toBe('user-1');
       expect(result.platform).toBe('youtube');
       expect(result.platformName).toBe('My Channel');
+      expect(result.tokenExpiry).toBe('2026-12-31T00:00:00.000Z');
+      expect(result).not.toHaveProperty('accessToken');
+      expect(result).not.toHaveProperty('refreshToken');
     });
   });
 
@@ -120,6 +127,10 @@ describe('connected-accounts repository', () => {
       expect(result[0].platform).toBe('youtube');
       expect(result[1].platform).toBe('vimeo');
       expect(result[1].platformName).toBe('Vimeo User');
+      result.forEach((account) => {
+        expect(account).not.toHaveProperty('accessToken');
+        expect(account).not.toHaveProperty('refreshToken');
+      });
     });
 
     it('returns empty array when user has no connections', async () => {
@@ -155,14 +166,54 @@ describe('connected-accounts repository', () => {
 
       expect(result).toBeNull();
     });
+
+    it('returns public shape without tokens', async () => {
+      mockListRows.mockResolvedValue({ rows: [{ ...baseRow }] });
+
+      const result = await getConnectedAccount('user-1', 'youtube');
+
+      expect(result).not.toHaveProperty('accessToken');
+      expect(result).not.toHaveProperty('refreshToken');
+    });
+  });
+
+  describe('getConnectedAccountWithTokens', () => {
+    it('returns full account with decrypted tokens when found', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [
+          {
+            ...baseRow,
+            platform: 'youtube',
+            accessToken: encryptToken('access'),
+            refreshToken: encryptToken('refresh'),
+          },
+        ],
+      });
+
+      const result = await getConnectedAccountWithTokens('user-1', 'youtube');
+
+      expect(result).not.toBeNull();
+      expect(result!.platform).toBe('youtube');
+      expect(result!.accessToken).toBe('access');
+      expect(result!.refreshToken).toBe('refresh');
+      expect(result!.tokenExpiry).toBe('2026-12-31T00:00:00.000Z');
+    });
+
+    it('returns null when no connection exists', async () => {
+      mockListRows.mockResolvedValue({ rows: [] });
+
+      const result = await getConnectedAccountWithTokens('user-1', 'vimeo');
+
+      expect(result).toBeNull();
+    });
   });
 
   describe('updateTokens', () => {
-    it('updates access, refresh, and expiry and returns updated account', async () => {
+    it('encrypts and stores new tokens, returns updated public account', async () => {
       const updated = {
         ...baseRow,
-        accessToken: 'new-access',
-        refreshToken: 'new-refresh',
+        accessToken: encryptToken('new-access'),
+        refreshToken: encryptToken('new-refresh'),
         tokenExpiry: '2027-01-01T00:00:00.000Z',
         updatedAt: '2026-03-08T12:00:00.000Z',
       };
@@ -181,16 +232,18 @@ describe('connected-accounts repository', () => {
           tableId: 'connected_accounts',
           rowId: 'row-1',
           data: expect.objectContaining({
-            accessToken: 'new-access',
-            refreshToken: 'new-refresh',
             tokenExpiry: '2027-01-01T00:00:00.000Z',
           }),
         })
       );
+      const data = mockUpdateRow.mock.calls[0][0].data;
+      expect(data.accessToken).not.toBe('new-access');
+      expect(data.refreshToken).not.toBe('new-refresh');
+      expect(data.accessToken).toMatch(/^[A-Za-z0-9+/=]+$/);
       expect(result).not.toBeNull();
-      expect(result!.accessToken).toBe('new-access');
-      expect(result!.refreshToken).toBe('new-refresh');
       expect(result!.tokenExpiry).toBe('2027-01-01T00:00:00.000Z');
+      expect(result).not.toHaveProperty('accessToken');
+      expect(result).not.toHaveProperty('refreshToken');
     });
 
     it('returns null when row is not found (404)', async () => {
