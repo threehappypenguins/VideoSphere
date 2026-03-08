@@ -25,3 +25,12 @@ export {
   updateUploadJobStatus,
 } from './upload-jobs';
 export type { CreateUploadJobInput } from './upload-jobs';
+
+export {
+  createConnectedAccount,
+  getConnectedAccountsByUser,
+  getConnectedAccount,
+  deleteConnectedAccount,
+  updateTokens,
+} from './connected-accounts';
+export type { CreateConnectedAccountData } from './connected-accounts';

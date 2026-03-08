@@ -51,6 +51,21 @@ export interface UploadJob {
   updatedAt: string;
 }
 
+export type ConnectedAccountPlatform = 'youtube' | 'vimeo';
+
+export interface ConnectedAccount {
+  id: string;
+  userId: string;
+  platform: ConnectedAccountPlatform;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiry: string;
+  platformUserId: string;
+  platformName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // =============================================================================
 // Example type — demonstrates the pattern for defining shared types.
 // =============================================================================
