@@ -8,13 +8,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ID } from 'node-appwrite';
-import { Databases } from 'node-appwrite';
-import appwriteClient from '@/lib/appwrite';
 import { appwriteUsers, appwriteAuth } from '@/lib/appwrite';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
-
-const DATABASE_ID = 'videosphere';
-const USER_PROFILES_COLLECTION_ID = 'user_profiles';
+import { createUser } from '@/lib/repositories/users';
 
 export async function POST(req: NextRequest) {
   try {
@@ -89,7 +85,6 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 2, 3 & 4. Prefs, labels, and user_profiles (same source of truth as OAuth) ─────
-    const databases = new Databases(appwriteClient);
     try {
       await appwriteUsers.updatePrefs(authUser.$id, {
         role: 'user',
@@ -98,15 +93,12 @@ export async function POST(req: NextRequest) {
       });
       await appwriteUsers.updateLabels(authUser.$id, ['user']);
 
-      // Ensure user_profiles document exists (same schema as /api/auth/callback/google)
       try {
-        await databases.createDocument(DATABASE_ID, USER_PROFILES_COLLECTION_ID, authUser.$id, {
+        await createUser({
           userId: authUser.$id,
           email,
           isSupporter: false,
           role: 'user',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
         });
       } catch (profileErr: unknown) {
         const err = profileErr as { code?: number };

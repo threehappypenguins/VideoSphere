@@ -4,17 +4,122 @@
 // All user data access goes through this module. API routes and Server
 // Components should call these functions only — not the Appwrite SDK directly.
 //
-// Implementation will use Appwrite (Database + Auth) for persistence.
+// Uses Appwrite Server SDK (Tables API) for the user_profiles table.
 // =============================================================================
 
-import type { User } from '@/types';
+import { Query, TablesDB } from 'node-appwrite';
+import type { User, UserRole } from '@/types';
+import appwriteClient from '@/lib/appwrite';
+import { DATABASE_ID, USER_PROFILES_COLLECTION_ID } from '@/lib/appwrite-constants';
+
+const tablesDb = new TablesDB(appwriteClient);
+
+/** Map an Appwrite row to the shared User type. */
+function rowToUser(row: Record<string, unknown>): User {
+  return {
+    userId: String(row.userId ?? row.$id),
+    email: String(row.email),
+    isSupporter: Boolean(row.isSupporter),
+    role: (row.role as UserRole) ?? 'user',
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Create
+// -----------------------------------------------------------------------------
+
+export interface CreateUserData {
+  userId: string;
+  email: string;
+  isSupporter?: boolean;
+  role?: UserRole;
+}
+
+/**
+ * Create a user_profiles row. Row ID is data.userId.
+ * Used by register and OAuth callback; callers must ensure the Auth user exists first.
+ */
+export async function createUser(data: CreateUserData): Promise<User> {
+  const now = new Date().toISOString();
+  const row = await tablesDb.createRow({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    rowId: data.userId,
+    data: {
+      userId: data.userId,
+      email: data.email.trim().toLowerCase(),
+      isSupporter: data.isSupporter ?? false,
+      role: data.role ?? 'user',
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  return rowToUser(row as unknown as Record<string, unknown>);
+}
+
+// -----------------------------------------------------------------------------
+// Read
+// -----------------------------------------------------------------------------
 
 /**
  * Fetch a user by ID. Returns null if not found.
  */
-export async function getUserById(id: string): Promise<User | null> {
-  // TODO: Implement with Appwrite (Users collection or Auth + custom attributes).
-  throw new Error('getUserById is not implemented yet.');
+export async function getUserById(userId: string): Promise<User | null> {
+  try {
+    const row = await tablesDb.getRow({
+      databaseId: DATABASE_ID,
+      tableId: USER_PROFILES_COLLECTION_ID,
+      rowId: userId,
+    });
+    return rowToUser(row as unknown as Record<string, unknown>);
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Fetch a user by email. Returns null if not found.
+ * Requires an index on the email column for the user_profiles table.
+ */
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    queries: [Query.equal('email', normalized), Query.limit(1)],
+    total: false,
+  });
+  if (rows.length === 0) return null;
+  return rowToUser(rows[0] as unknown as Record<string, unknown>);
+}
+
+// -----------------------------------------------------------------------------
+// Update
+// -----------------------------------------------------------------------------
+
+export interface UpdateUserData {
+  isSupporter?: boolean;
+  role?: UserRole;
+}
+
+/**
+ * Update user_profiles fields (e.g. isSupporter, role). Only provided fields are updated.
+ */
+export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
+  const payload: Record<string, unknown> = { ...data };
+  payload.updatedAt = new Date().toISOString();
+  const row = await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    rowId: userId,
+    data: payload,
+  });
+  return rowToUser(row as unknown as Record<string, unknown>);
 }
 
 /**
@@ -22,14 +127,38 @@ export async function getUserById(id: string): Promise<User | null> {
  * Used by the Stripe webhook (checkout.session.completed).
  */
 export async function setSupporterStatus(userId: string, isSupporter: boolean): Promise<void> {
-  // TODO: Implement with Appwrite (update user document).
-  throw new Error('setSupporterStatus is not implemented yet; supporter status was not updated.');
+  await updateUser(userId, { isSupporter });
+}
+
+// -----------------------------------------------------------------------------
+// List (admin)
+// -----------------------------------------------------------------------------
+
+export interface ListUsersOptions {
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListUsersResult {
+  users: User[];
+  total: number;
 }
 
 /**
- * List all users. For admin dashboard only; enforce admin role at call site.
+ * List users with pagination. For admin dashboard only; enforce admin role at call site.
  */
-export async function listUsers(): Promise<User[]> {
-  // TODO: Implement with Appwrite (list documents in Users collection).
-  throw new Error('listUsers is not implemented yet.');
+export async function listUsers(options: ListUsersOptions = {}): Promise<ListUsersResult> {
+  const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
+  const offset = Math.max(options.offset ?? 0, 0);
+  const queries = [Query.limit(limit), Query.offset(offset), Query.orderAsc('createdAt')];
+  const result = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    queries,
+    total: true,
+  });
+  const users = (result.rows ?? []).map((row) =>
+    rowToUser(row as unknown as Record<string, unknown>)
+  );
+  return { users, total: result.total ?? 0 };
 }

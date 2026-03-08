@@ -98,7 +98,10 @@ const tableIndexes: {
   },
   {
     tableId: 'user_profiles',
-    indexes: [{ key: 'user_profiles_userId_unique', type: IndexType.Unique, columns: ['userId'] }],
+    indexes: [
+      { key: 'user_profiles_userId_unique', type: IndexType.Unique, columns: ['userId'] },
+      { key: 'user_profiles_email', type: IndexType.Key, columns: ['email'] },
+    ],
   },
 ];
 

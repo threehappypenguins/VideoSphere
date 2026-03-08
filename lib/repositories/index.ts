@@ -5,7 +5,15 @@
 // All Appwrite (and future R2/API) access is behind this layer.
 // =============================================================================
 
-export { getUserById, setSupporterStatus, listUsers } from './users';
+export {
+  createUser,
+  getUserById,
+  getUserByEmail,
+  updateUser,
+  setSupporterStatus,
+  listUsers,
+} from './users';
+export type { CreateUserData, UpdateUserData, ListUsersOptions, ListUsersResult } from './users';
 
 export { createDraft, getDraft, listDraftsByUserId, updateDraft } from './drafts';
 export type { CreateDraftInput, UpdateDraftInput } from './drafts';
