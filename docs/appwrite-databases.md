@@ -4,19 +4,19 @@ This project uses **one** Appwrite database (`videosphere`) for all data. Appwri
 
 ## Document-oriented, not relational
 
-VideoSphere uses Appwrite as a **document-oriented** backend (collections of JSON documents), not as a relational/SQL database. All app code reads and writes **documents** via the Databases API (`createDocument`, `getDocument`, `listDocuments`, `updateDocument`). The data model is the same as you’d get with a document store like MongoDB: flexible JSON per document, keyed by document ID.
+VideoSphere uses Appwrite as a **document-oriented** backend (collections of JSON documents), not as a relational/SQL database. The underlying storage model is the same as you’d get with a document store like MongoDB: flexible JSON per document, keyed by document ID. Our app code talks to that store via the **Tables API** (`TablesDB.createRow`, `getRow`, `listRows`, `updateRow`, etc.), not via a relational/SQL layer.
 
-The setup script uses the **Tables API** only to *create* the schema (database, collections, attributes, indexes). Appwrite has moved schema creation to this “Tables” naming (table = collection, row = document, column = attribute), but the storage and the API you use at runtime are still **collections + documents**. So the setup script was not created incorrectly—it uses Appwrite’s current recommended way to define schema; it doesn’t change that you’re using a document-oriented database.
+Both the setup script and the runtime code use the **Tables API**. Appwrite has moved schema and data operations to this “Tables” naming (table = collection, row = document, column = attribute), but under the hood you still have **collections of documents** in a document store. So the setup script was not created incorrectly—it uses Appwrite’s current recommended way to define schema and access data; it doesn’t change that you’re using a document-oriented database.
 
 ## Two names for the same thing
 
-| Concept        | **Databases API** (what we use in app code) | **Tables API** (what the setup script uses) |
-|----------------|---------------------------------------------|---------------------------------------------|
-| Container      | **Collection**                              | **Table**                                   |
-| One record     | **Document**                                | **Row**                                     |
-| Field schema   | **Attribute**                               | **Column**                                  |
+| Concept        | **Tables API** (what we use in app code + setup) | **Legacy Databases API** (deprecated) |
+|----------------|---------------------------------------------------|---------------------------------------|
+| Container      | **Table**                                         | **Collection**                        |
+| One record     | **Row**                                           | **Document**                          |
+| Field schema   | **Column**                                        | **Attribute**                         |
 
-So when we say “the `user_profiles` **collection**” in `lib/repositories/users.ts`, we mean the same thing as “the `user_profiles` **table**” in `scripts/setup-appwrite.ts`. Same database, same container, same data.
+So when we say “the `user_profiles` **table**” in `lib/repositories/users.ts` or `scripts/setup-appwrite.ts`, we mean the same container and data. Same database, same storage.
 
 ## What we use where
 
