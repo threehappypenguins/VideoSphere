@@ -64,7 +64,8 @@ export async function createUser(data: CreateUserData): Promise<User> {
 // -----------------------------------------------------------------------------
 
 /**
- * Fetch a user by ID. Returns null if not found.
+ * Fetch a user by ID from the Appwrite user_profiles collection.
+ * Returns null if not found or on error.
  */
 export async function getUserById(userId: string): Promise<User | null> {
   try {
