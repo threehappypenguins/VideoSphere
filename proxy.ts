@@ -2,59 +2,65 @@
 // NEXT.JS ROUTE PROTECTION PROXY
 // =============================================================================
 // Intercepts requests to protected routes and enforces authentication and
-// admin-role requirements server-side using the Appwrite node-appwrite SDK.
+// admin-role requirements server-side.
 //
 // Protected routes:
 //   /dashboard/*  — authenticated users only
 //   /profile/*    — authenticated users only
 //   /admin/*      — authenticated admin users only
 //
-// node-appwrite v14+ is fully fetch-based and compatible with the Edge Runtime.
+// Session is stored as an httpOnly cookie. Authentication is verified by
+// calling /api/auth/session internally (outside the middleware matcher so
+// no circular routing occurs). Admin role is checked via the Appwrite REST API.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account, Databases } from 'node-appwrite';
-
-const ENDPOINT = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!;
-const PROJECT_ID = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
-const API_KEY = process.env.APPWRITE_API_KEY!;
+import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
 const DATABASE_ID = 'videosphere';
 const COLLECTION_ID = 'user_profiles';
 
-// Appwrite stores the session under this cookie name (exact project ID, no transformation)
-function sessionCookieName(): string {
-  return `a_session_${PROJECT_ID}`;
-}
-
 /**
- * Verify the session token with Appwrite and return the user object.
- * Uses a scoped client with .setSession() — does NOT use the admin API key.
- * Returns null if the session is invalid or expired.
+ * Verify the session by calling the /api/auth/session route.
+ * Forwards the incoming cookies so the route can read the session cookie.
+ * Returns the user object if valid, null otherwise.
  */
-async function getSessionUser(sessionToken: string): Promise<{ $id: string } | null> {
+async function getSessionUser(request: NextRequest): Promise<{ $id: string } | null> {
   try {
-    const client = new Client()
-      .setEndpoint(ENDPOINT)
-      .setProject(PROJECT_ID)
-      .setSession(sessionToken);
-    const account = new Account(client);
-    return await account.get();
+    const res = await fetch(new URL('/api/auth/session', request.url), {
+      headers: { cookie: request.headers.get('cookie') ?? '' },
+    });
+    if (!res.ok) return null;
+    const user = await res.json();
+    return user && typeof user.$id === 'string' ? user : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Fetch the user's role from the user_profiles collection using the admin API key.
+ * Fetch the user's role from the user_profiles collection via the Appwrite REST API.
  * Returns null if the document is not found or on error.
  */
 async function getUserRole(userId: string): Promise<string | null> {
+  const endpoint = process.env.APPWRITE_ENDPOINT ?? process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
+  const projectId = process.env.APPWRITE_PROJECT_ID ?? process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+  const apiKey = process.env.APPWRITE_API_KEY;
+  if (!endpoint || !projectId || !apiKey) return null;
+
   try {
-    const client = new Client().setEndpoint(ENDPOINT).setProject(PROJECT_ID).setKey(API_KEY);
-    const databases = new Databases(client);
-    const doc = await databases.getDocument(DATABASE_ID, COLLECTION_ID, userId);
-    return (doc.role as string) ?? null;
+    const res = await fetch(
+      `${endpoint}/v1/databases/${DATABASE_ID}/collections/${COLLECTION_ID}/documents/${userId}`,
+      {
+        headers: {
+          'X-Appwrite-Project': projectId,
+          'X-Appwrite-Key': apiKey,
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const doc = await res.json();
+    return typeof doc.role === 'string' ? doc.role : null;
   } catch {
     return null;
   }
@@ -64,8 +70,10 @@ export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
 
-    const cookieName = sessionCookieName();
-    const sessionToken = request.cookies.get(cookieName)?.value;
+    const projectId =
+      process.env.APPWRITE_PROJECT_ID ?? process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+    const cookieName = projectId ? getSessionCookieName(projectId) : null;
+    const sessionToken = cookieName ? request.cookies.get(cookieName)?.value : null;
 
     console.log(`[proxy] ${request.method} ${pathname}`);
     console.log(`[proxy] Looking for cookie: ${cookieName}`);
@@ -79,9 +87,9 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Verify the session is still valid with Appwrite
+    // Verify the session is still valid via /api/auth/session
     console.log(`[proxy] Verifying session...`);
-    const user = await getSessionUser(sessionToken);
+    const user = await getSessionUser(request);
     console.log(`[proxy] Session verification: ${user ? 'valid' : 'invalid'}`);
 
     if (!user) {
