@@ -16,12 +16,25 @@
 /* These CSS custom properties define your app's color palette.
    Change these to match your project's brand. */
 :root {
+  /* App background color (page background) */
   --background: #ffffff;
+
+  /* Default text color used across the app */
   --foreground: #171717;
+
+  /* Primary brand color (buttons, links, accents) */
   --primary: #2563eb;
+
+  /* Text color displayed on primary backgrounds */
   --primary-foreground: #ffffff;
+
+  /* Muted background for subtle sections or UI surfaces */
   --muted: #f5f5f5;
+
+  /* Muted text color for secondary text */
   --muted-foreground: #737373;
+
+  /* Border color used for dividers and inputs */
   --border: #e5e5e5;
 }
 
