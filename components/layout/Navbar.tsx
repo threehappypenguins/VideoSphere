@@ -9,75 +9,91 @@
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type RefObject } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import { logout } from '@/lib/auth-client';
 import { useTheme } from 'next-themes';
+import { SunIcon, MoonIcon, ComputerDesktopIcon, CheckIcon } from '@heroicons/react/24/outline';
 
-const SunIcon = ({ className }: { className?: string }) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.5}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M3 12H4.75m4.227-4.773-1.591-1.591M18.75 12H21" />
-    <circle cx="12" cy="12" r="4.5" />
-  </svg>
-);
-const MoonIcon = ({ className }: { className?: string }) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.5}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
-  </svg>
-);
-const SystemIcon = ({ className }: { className?: string }) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.5}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <rect width="20" height="14" x="2" y="3" rx="2" />
-    <path d="M8 21h8M12 17v4" />
-  </svg>
-);
-const CheckIcon = ({ className }: { className?: string }) => (
-  <svg
-    className={className}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M20 6 9 17l-5-5" />
-  </svg>
-);
+const THEME_OPTIONS = [
+  { value: 'system' as const, label: 'System', Icon: ComputerDesktopIcon },
+  { value: 'light' as const, label: 'Light', Icon: SunIcon },
+  { value: 'dark' as const, label: 'Dark', Icon: MoonIcon },
+] as const;
+
+type ThemeDropdownPlace = 'desktop' | 'mobile' | false;
+
+function ThemeDropdown({
+  containerRef,
+  isOpen,
+  onToggle,
+  onClose,
+  theme,
+  setTheme,
+  resolvedTheme,
+  mounted,
+  dropdownClassName,
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  theme: string | undefined;
+  setTheme: (theme: 'system' | 'light' | 'dark') => void;
+  resolvedTheme: string | undefined;
+  mounted: boolean;
+  dropdownClassName: string;
+}) {
+  const selectedTheme = mounted ? (theme ?? 'system') : 'system';
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        aria-label="Theme"
+        aria-expanded={isOpen ? 'true' : 'false'}
+        onClick={onToggle}
+        className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        {mounted && resolvedTheme === 'dark' ? (
+          <MoonIcon className="h-5 w-5" />
+        ) : (
+          <SunIcon className="h-5 w-5" />
+        )}
+      </button>
+      {isOpen && (
+        <div
+          className={`absolute top-full z-50 mt-1 min-w-[10rem] rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
+          role="menu"
+        >
+          {THEME_OPTIONS.map(({ value, label, Icon }) => (
+            <button
+              key={value}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setTheme(value);
+                onClose();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span>{label}</span>
+              {selectedTheme === value && <CheckIcon className="ml-auto h-4 w-4 text-primary" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** User shape returned by GET /api/auth/session (Appwrite User). */
 interface SessionUser {
   name?: string;
   email?: string;
 }
-
-type ThemeDropdownPlace = 'desktop' | 'mobile' | false;
 
 export default function Navbar() {
   const router = useRouter();
@@ -181,52 +197,19 @@ export default function Navbar() {
 
           {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
           <div className="hidden items-center gap-4 md:flex">
-            <div ref={desktopThemeRef} className="relative">
-              <button
-                type="button"
-                aria-label="Theme"
-                aria-expanded={themeDropdownOpen === 'desktop' ? 'true' : 'false'}
-                onClick={() =>
-                  setThemeDropdownOpen(themeDropdownOpen === 'desktop' ? false : 'desktop')
-                }
-                className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                {mounted && resolvedTheme === 'dark' ? (
-                  <MoonIcon className="h-5 w-5" />
-                ) : (
-                  <SunIcon className="h-5 w-5" />
-                )}
-              </button>
-              {themeDropdownOpen === 'desktop' && (
-                <div
-                  className="absolute right-0 top-full z-50 mt-1 min-w-[10rem] rounded-md border border-border bg-background py-1 shadow-lg"
-                  role="menu"
-                >
-                  {[
-                    { value: 'system' as const, label: 'System', Icon: SystemIcon },
-                    { value: 'light' as const, label: 'Light', Icon: SunIcon },
-                    { value: 'dark' as const, label: 'Dark', Icon: MoonIcon },
-                  ].map(({ value, label, Icon }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setTheme(value);
-                        setThemeDropdownOpen(false);
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span>{label}</span>
-                      {(mounted ? (theme ?? 'system') : 'system') === value && (
-                        <CheckIcon className="ml-auto h-4 w-4 text-primary" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ThemeDropdown
+              containerRef={desktopThemeRef}
+              isOpen={themeDropdownOpen === 'desktop'}
+              onToggle={() =>
+                setThemeDropdownOpen(themeDropdownOpen === 'desktop' ? false : 'desktop')
+              }
+              onClose={() => setThemeDropdownOpen(false)}
+              theme={theme}
+              setTheme={setTheme}
+              resolvedTheme={resolvedTheme}
+              mounted={mounted}
+              dropdownClassName="right-0"
+            />
 
             {sessionUser === 'loading' ? (
               <span className="text-sm text-muted-foreground" aria-hidden>
@@ -305,51 +288,20 @@ export default function Navbar() {
         {mobileMenuOpen && (
           <div className="border-t border-border pb-4 md:hidden">
             <div className="flex flex-col gap-2 pt-4">
-              <div ref={mobileThemeRef} className="relative px-3">
-                <button
-                  type="button"
-                  aria-label="Theme"
-                  aria-expanded={themeDropdownOpen === 'mobile' ? 'true' : 'false'}
-                  onClick={() =>
+              <div className="px-3">
+                <ThemeDropdown
+                  containerRef={mobileThemeRef}
+                  isOpen={themeDropdownOpen === 'mobile'}
+                  onToggle={() =>
                     setThemeDropdownOpen(themeDropdownOpen === 'mobile' ? false : 'mobile')
                   }
-                  className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  {mounted && resolvedTheme === 'dark' ? (
-                    <MoonIcon className="h-5 w-5" />
-                  ) : (
-                    <SunIcon className="h-5 w-5" />
-                  )}
-                </button>
-                {themeDropdownOpen === 'mobile' && (
-                  <div
-                    className="absolute left-3 right-3 top-full z-50 mt-1 min-w-[10rem] rounded-md border border-border bg-background py-1 shadow-lg"
-                    role="menu"
-                  >
-                    {[
-                      { value: 'system' as const, label: 'System', Icon: SystemIcon },
-                      { value: 'light' as const, label: 'Light', Icon: SunIcon },
-                      { value: 'dark' as const, label: 'Dark', Icon: MoonIcon },
-                    ].map(({ value, label, Icon }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setTheme(value);
-                          setThemeDropdownOpen(false);
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
-                      >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        <span>{label}</span>
-                        {(mounted ? (theme ?? 'system') : 'system') === value && (
-                          <CheckIcon className="ml-auto h-4 w-4 text-primary" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                  onClose={() => setThemeDropdownOpen(false)}
+                  theme={theme}
+                  setTheme={setTheme}
+                  resolvedTheme={resolvedTheme}
+                  mounted={mounted}
+                  dropdownClassName="left-3 right-3"
+                />
               </div>
               <Link
                 href="/"

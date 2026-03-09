@@ -89,6 +89,7 @@
   --muted-foreground: #a3a3a3;
   --border: #404040;
 }
+
 /* --- Base Styles --- */
 body {
   background: var(--background);
