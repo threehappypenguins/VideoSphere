@@ -14,6 +14,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import { logout } from '@/lib/auth-client';
+import { useTheme } from 'next-themes';
 
 /** User shape returned by GET /api/auth/session (Appwrite User). */
 interface SessionUser {
@@ -26,7 +27,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
-
+  const { theme, setTheme } = useTheme();
   // Re-fetch session when route changes so client-side redirects (e.g. after email/password login) pick up the new session.
   // AbortController ensures a slower response from a previous route cannot overwrite state (e.g. pre-login 401 after post-login 200).
   useEffect(() => {
@@ -96,6 +97,14 @@ export default function Navbar() {
 
           {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
           <div className="hidden items-center gap-4 md:flex">
+            <button
+              aria-label="Toggle theme"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="mx-3 mb-2 rounded-md border px-3 py-2 text-sm"
+            >
+              {theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}
+            </button>
+
             {sessionUser === 'loading' ? (
               <span className="text-sm text-muted-foreground" aria-hidden>
                 …
@@ -173,6 +182,13 @@ export default function Navbar() {
         {mobileMenuOpen && (
           <div className="border-t border-border pb-4 md:hidden">
             <div className="flex flex-col gap-2 pt-4">
+              <button
+                aria-label="Toggle theme"
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className="mx-3 mb-2 rounded-md border px-3 py-2 text-sm"
+              >
+                {theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}
+              </button>
               <Link
                 href="/"
                 className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"

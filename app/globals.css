@@ -73,7 +73,15 @@
   }
 }
 */
-
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --muted: #262626;
+  --muted-foreground: #a3a3a3;
+  --border: #404040;
+}
 /* --- Base Styles --- */
 body {
   background: var(--background);
