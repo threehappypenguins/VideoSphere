@@ -51,7 +51,7 @@ function ThemeDropdown({
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        aria-label="Theme"
+        aria-label="Change color theme"
         aria-expanded={isOpen ? 'true' : 'false'}
         onClick={onToggle}
         className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"

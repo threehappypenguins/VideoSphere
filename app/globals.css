@@ -62,22 +62,8 @@
 }
 
 /* --- Dark Mode --- */
-/* STUDENT: Dark mode is an enhancement. Uncomment and customize the
-   dark mode colors below when you're ready to implement it.
-   See /docs/styling.md and STRETCH_GOALS.md for guidance. */
-/*
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --primary: #3b82f6;
-    --primary-foreground: #ffffff;
-    --muted: #262626;
-    --muted-foreground: #a3a3a3;
-    --border: #404040;
-  }
-}
-*/
+/* Class-based dark mode (next-themes with attribute="class").
+   The .dark class is applied to the root when the user selects dark or system+dark. */
 
 .dark {
   --background: #0a0a0a;
