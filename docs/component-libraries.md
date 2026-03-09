@@ -1,5 +1,13 @@
 # Component Libraries Guide
 
+## Project Components
+
+This repo includes shared UI components that use design tokens from `globals.css`.
+
+| Component   | Location                 | Use Case                                              |
+| ----------- | ------------------------ | ----------------------------------------------------- |
+| **EmptyState** | `components/EmptyState.tsx` | Empty lists/tables: optional icon, title, description, and primary action (href or onClick). See JSDoc in the file for usage. |
+
 ## Overview
 
 Component libraries provide pre-built, styled, accessible UI components so you don't have to build everything from scratch. Choosing the right library is one of the first decisions your team should make.
