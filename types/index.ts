@@ -51,6 +51,32 @@ export interface UploadJob {
   updatedAt: string;
 }
 
+export type ConnectedAccountPlatform = 'youtube' | 'vimeo';
+
+/**
+ * Safe shape for listing and API responses. No OAuth tokens.
+ * Use this for GET /api/platforms/connections, UI, and any response sent to the client.
+ */
+export interface ConnectedAccountPublic {
+  id: string;
+  userId: string;
+  platform: ConnectedAccountPlatform;
+  tokenExpiry: string;
+  platformUserId: string;
+  platformName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Full connected account including OAuth tokens. Use only server-side when calling
+ * platform APIs (upload, token refresh). Do not expose in API responses or client.
+ */
+export interface ConnectedAccount extends ConnectedAccountPublic {
+  accessToken: string;
+  refreshToken: string;
+}
+
 // =============================================================================
 // Example type — demonstrates the pattern for defining shared types.
 // =============================================================================

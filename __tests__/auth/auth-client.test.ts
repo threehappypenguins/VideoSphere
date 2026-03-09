@@ -100,25 +100,18 @@ describe('Auth Client Functions', () => {
   });
 
   describe('logout', () => {
-    it('should successfully logout user', async () => {
-      mockDeleteSession.mockResolvedValue(null);
-
-      await logout();
-
-      expect(mockDeleteSession).toHaveBeenCalledWith('current');
-    });
-
-    it('should handle logout error', async () => {
-      const logoutError = new Error('Session already deleted');
-      mockDeleteSession.mockRejectedValue(logoutError);
-
-      await expect(logout()).rejects.toThrow('Session already deleted');
-    });
-
-    it('should throw generic error if error is not an Error instance', async () => {
-      mockDeleteSession.mockRejectedValue({ error: 'unknown' });
-
-      await expect(logout()).rejects.toThrow('Logout failed');
+    it('should call logout API with credentials', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', mockFetch);
+      try {
+        await logout();
+        expect(mockFetch).toHaveBeenCalledWith('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 

@@ -2,26 +2,60 @@
 // NAVBAR COMPONENT
 // =============================================================================
 // The main navigation bar displayed at the top of every page.
-//
-// STUDENT: Update this component with your app's branding and navigation:
-//   - Replace the placeholder logo with your own
-//   - Update navigation links to match your routes
-//   - Style to match your design system
-//   - The mobile menu uses a checkbox hack — no JavaScript required!
-//     (You may replace this with a React state-based menu if you prefer)
-//
-// This is a Client Component because it uses interactive state for the
-// mobile menu. See /docs/performance.md for Server vs Client Components.
+// Auth state: GET /api/auth/session (credentials: 'include') — 200 = logged in,
+// 401 = logged out. Logout via POST /api/auth/logout (existing API). No Appwrite
+// browser SDK for session; cookie is server-side only.
 // =============================================================================
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter, usePathname } from 'next/navigation';
+import { logout } from '@/lib/auth-client';
+
+/** User shape returned by GET /api/auth/session (Appwrite User). */
+interface SessionUser {
+  name?: string;
+  email?: string;
+}
 
 export default function Navbar() {
+  const router = useRouter();
+  const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
+
+  // Re-fetch session when route changes so client-side redirects (e.g. after email/password login) pick up the new session.
+  // AbortController ensures a slower response from a previous route cannot overwrite state (e.g. pre-login 401 after post-login 200).
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/auth/session', {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: SessionUser | null) => {
+        if (controller.signal.aborted) return;
+        setSessionUser(data ?? null);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setSessionUser(null);
+      });
+    return () => controller.abort();
+  }, [pathname]);
+
+  const handleLogout = async () => {
+    await logout();
+    setSessionUser(null);
+    setMobileMenuOpen(false);
+    router.push('/');
+  };
+
+  const isLoggedIn = sessionUser !== null && sessionUser !== 'loading';
+  const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
@@ -60,20 +94,41 @@ export default function Navbar() {
             </Link>
           </div>
 
-          {/* --- Desktop Auth Buttons --- */}
+          {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
           <div className="hidden items-center gap-4 md:flex">
-            <Link
-              href="/login"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              Sign up
-            </Link>
+            {sessionUser === 'loading' ? (
+              <span className="text-sm text-muted-foreground" aria-hidden>
+                …
+              </span>
+            ) : isLoggedIn ? (
+              <>
+                <span className="text-sm text-muted-foreground" title={sessionUser?.email}>
+                  {userLabel}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Log out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Log in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
           </div>
 
           {/* --- Mobile Menu Button --- */}
@@ -147,20 +202,37 @@ export default function Navbar() {
                 Contact
               </Link>
               <hr className="my-2 border-border" />
-              <Link
-                href="/login"
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Log in
-              </Link>
-              <Link
-                href="/signup"
-                className="mx-3 rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Sign up
-              </Link>
+              {sessionUser === 'loading' ? (
+                <span className="px-3 py-2 text-sm text-muted-foreground">…</span>
+              ) : isLoggedIn ? (
+                <>
+                  <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    Log out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Log in
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="mx-3 rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Sign up
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         )}

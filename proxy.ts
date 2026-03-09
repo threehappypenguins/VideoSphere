@@ -22,9 +22,9 @@ const API_KEY = process.env.APPWRITE_API_KEY!;
 const DATABASE_ID = 'videosphere';
 const COLLECTION_ID = 'user_profiles';
 
-// Appwrite stores the session under this cookie name (project ID lowercased)
+// Appwrite stores the session under this cookie name (exact project ID, no transformation)
 function sessionCookieName(): string {
-  return `a_session_${PROJECT_ID.toLowerCase()}`;
+  return `a_session_${PROJECT_ID}`;
 }
 
 /**
@@ -61,34 +61,55 @@ async function getUserRole(userId: string): Promise<string | null> {
 }
 
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  try {
+    const { pathname } = request.nextUrl;
 
-  const sessionToken = request.cookies.get(sessionCookieName())?.value;
+    const cookieName = sessionCookieName();
+    const sessionToken = request.cookies.get(cookieName)?.value;
 
-  // No session cookie — redirect to login
-  if (!sessionToken) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
+    console.log(`[proxy] ${request.method} ${pathname}`);
+    console.log(`[proxy] Looking for cookie: ${cookieName}`);
+    console.log(`[proxy] Session token found: ${!!sessionToken}`);
 
-  // Verify the session is still valid with Appwrite
-  const user = await getSessionUser(sessionToken);
-  if (!user) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // Admin routes require the 'admin' role
-  if (pathname.startsWith('/admin')) {
-    const role = await getUserRole(user.$id);
-    if (role !== 'admin') {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+    // No session cookie — redirect to login
+    if (!sessionToken) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      console.log(`[proxy] No session token. Redirecting to /login`);
+      return NextResponse.redirect(loginUrl);
     }
-  }
 
-  return NextResponse.next();
+    // Verify the session is still valid with Appwrite
+    console.log(`[proxy] Verifying session...`);
+    const user = await getSessionUser(sessionToken);
+    console.log(`[proxy] Session verification: ${user ? 'valid' : 'invalid'}`);
+
+    if (!user) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      console.log(`[proxy] Session invalid. Redirecting to /login`);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    console.log(`[proxy] User authenticated: ${user.$id}`);
+
+    // Admin routes require the 'admin' role
+    if (pathname.startsWith('/admin')) {
+      const role = await getUserRole(user.$id);
+      console.log(`[proxy] Admin check: role=${role}`);
+      if (role !== 'admin') {
+        console.log(`[proxy] Non-admin blocking /admin access`);
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    }
+
+    console.log(`[proxy] Allowing request`);
+    return NextResponse.next();
+  } catch (error) {
+    console.error(`[proxy] Error:`, error);
+    // On error, allow the request through (fail open) to avoid breaking the app
+    return NextResponse.next();
+  }
 }
 
 export const config = {
