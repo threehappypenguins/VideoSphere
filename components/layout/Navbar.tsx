@@ -100,7 +100,7 @@ export default function Navbar() {
             <button
               aria-label="Toggle theme"
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="mx-3 mb-2 rounded-md border px-3 py-2 text-sm"
+              className="mx-3 mb-2 rounded-md border border-border px-3 py-2 text-sm"
             >
               {theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}
             </button>
@@ -185,7 +185,7 @@ export default function Navbar() {
               <button
                 aria-label="Toggle theme"
                 onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                className="mx-3 mb-2 rounded-md border px-3 py-2 text-sm"
+                className="mx-3 mb-2 rounded-md border border-border px-3 py-2 text-sm"
               >
                 {theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}
               </button>
