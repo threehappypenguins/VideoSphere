@@ -7,7 +7,7 @@
 // NOTE: This should ONLY be used on the server. Never expose APPWRITE_API_KEY to the client.
 // =============================================================================
 
-import { Client, Account, Users } from 'node-appwrite';
+import { Client, Account, Users, Databases } from 'node-appwrite';
 
 const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
 const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
@@ -24,5 +24,6 @@ const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(a
 
 export const appwriteAuth = new Account(client);
 export const appwriteUsers = new Users(client);
+export const appwriteDatabases = new Databases(client);
 
 export default client;
