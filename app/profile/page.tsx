@@ -108,7 +108,12 @@ export default function ProfilePage() {
               Upgrade to Supporter
             </Link>
             <div className="mt-4">
-              <Link href="/profile/connections">Manage connected accounts</Link>
+              <Link
+                href="/profile/connections"
+                className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                Manage connected accounts
+              </Link>
             </div>
           </div>
         </section>
