@@ -9,9 +9,6 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { proxy } from '@/proxy';
 
-// Mock global fetch
-global.fetch = vi.fn();
-
 function createMockRequest(pathname: string, cookies: Record<string, string> = {}): NextRequest {
   const url = new URL(`http://localhost:3000${pathname}`);
   const request = new NextRequest(url);
@@ -27,16 +24,18 @@ function createMockRequest(pathname: string, cookies: Record<string, string> = {
 describe('Proxy Middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Use vi.stubGlobal to prevent test isolation issues
+    vi.stubGlobal('fetch', vi.fn());
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = '69aae95b002b81fe4fdb';
-    process.env.APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.APPWRITE_PROJECT_ID = '69aae95b002b81fe4fdb';
+    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.APPWRITE_API_KEY = 'test_api_key';
   });
 
   afterEach(() => {
+    // Restore globals
+    vi.unstubAllGlobals();
     delete process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    delete process.env.APPWRITE_ENDPOINT;
-    delete process.env.APPWRITE_PROJECT_ID;
+    delete process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
     delete process.env.APPWRITE_API_KEY;
   });
 
@@ -129,6 +128,22 @@ describe('Proxy Middleware', () => {
       const result = await proxy(request);
 
       expect(result.status).toBe(200);
+
+      // Assert fetch was called with correct Appwrite REST API URL and headers
+      const calls = (global.fetch as any).mock.calls;
+      expect(calls.length).toBeGreaterThanOrEqual(2);
+
+      // Second call should be the role lookup
+      const roleCheckCall = calls[1];
+      const roleCheckUrl = roleCheckCall[0].toString();
+      const roleCheckHeaders = roleCheckCall[1]?.headers;
+
+      expect(roleCheckUrl).toContain(
+        '/databases/videosphere/collections/user_profiles/documents/admin_user_123'
+      );
+      expect(roleCheckUrl).not.toContain('/v1/v1'); // Ensure no double /v1
+      expect(roleCheckHeaders['X-Appwrite-Project']).toBe('69aae95b002b81fe4fdb');
+      expect(roleCheckHeaders['X-Appwrite-Key']).toBe('test_api_key');
     });
 
     it('should block non-admin users from /admin routes', async () => {
@@ -154,6 +169,19 @@ describe('Proxy Middleware', () => {
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/dashboard');
+
+      // Assert fetch was called with correct Appwrite REST API URL and headers
+      const calls = (global.fetch as any).mock.calls;
+      const roleCheckCall = calls[1];
+      const roleCheckUrl = roleCheckCall[0].toString();
+      const roleCheckHeaders = roleCheckCall[1]?.headers;
+
+      expect(roleCheckUrl).toContain(
+        '/databases/videosphere/collections/user_profiles/documents/regular_user_456'
+      );
+      expect(roleCheckUrl).not.toContain('/v1/v1');
+      expect(roleCheckHeaders['X-Appwrite-Project']).toBe('69aae95b002b81fe4fdb');
+      expect(roleCheckHeaders['X-Appwrite-Key']).toBe('test_api_key');
     });
 
     it('should block users with missing role from /admin routes', async () => {
@@ -204,7 +232,6 @@ describe('Proxy Middleware', () => {
   describe('Cookie Handling', () => {
     it('should handle missing project ID gracefully', async () => {
       delete process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-      delete process.env.APPWRITE_PROJECT_ID;
 
       const request = createMockRequest('/dashboard');
 
@@ -215,13 +242,14 @@ describe('Proxy Middleware', () => {
       expect(location).toContain('/login');
     });
 
-    it('should use APPWRITE_PROJECT_ID in preference to NEXT_PUBLIC_APPWRITE_PROJECT_ID', async () => {
+    it('should use NEXT_PUBLIC_APPWRITE_PROJECT_ID consistently with /api/auth/session', async () => {
       const sessionToken = 'valid_token';
-      process.env.APPWRITE_PROJECT_ID = 'server_project_id';
-      process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'client_project_id';
+      process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'consistent_project_id';
+      // Only set NEXT_PUBLIC to ensure proxy uses it
+      delete process.env.APPWRITE_PROJECT_ID;
 
       const request = createMockRequest('/dashboard', {
-        a_session_server_project_id: sessionToken,
+        a_session_consistent_project_id: sessionToken,
       });
 
       // Mock successful session verification

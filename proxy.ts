@@ -16,9 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
-
-const DATABASE_ID = 'videosphere';
-const COLLECTION_ID = 'user_profiles';
+import { DATABASE_ID, USER_PROFILES_COLLECTION_ID } from '@/lib/appwrite-constants';
 
 /**
  * Verify the session by calling the /api/auth/session route.
@@ -43,14 +41,14 @@ async function getSessionUser(request: NextRequest): Promise<{ $id: string } | n
  * Returns null if the document is not found or on error.
  */
 async function getUserRole(userId: string): Promise<string | null> {
-  const endpoint = process.env.APPWRITE_ENDPOINT ?? process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.APPWRITE_PROJECT_ID ?? process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
+  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   const apiKey = process.env.APPWRITE_API_KEY;
   if (!endpoint || !projectId || !apiKey) return null;
 
   try {
     const res = await fetch(
-      `${endpoint}/v1/databases/${DATABASE_ID}/collections/${COLLECTION_ID}/documents/${userId}`,
+      `${endpoint}/databases/${DATABASE_ID}/collections/${USER_PROFILES_COLLECTION_ID}/documents/${userId}`,
       {
         headers: {
           'X-Appwrite-Project': projectId,
@@ -70,53 +68,44 @@ export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
 
-    const projectId =
-      process.env.APPWRITE_PROJECT_ID ?? process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+    // Use NEXT_PUBLIC_APPWRITE_PROJECT_ID to match /api/auth/session precedence
+    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
     const cookieName = projectId ? getSessionCookieName(projectId) : null;
     const sessionToken = cookieName ? request.cookies.get(cookieName)?.value : null;
-
-    console.log(`[proxy] ${request.method} ${pathname}`);
-    console.log(`[proxy] Looking for cookie: ${cookieName}`);
-    console.log(`[proxy] Session token found: ${!!sessionToken}`);
 
     // No session cookie — redirect to login
     if (!sessionToken) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
-      console.log(`[proxy] No session token. Redirecting to /login`);
       return NextResponse.redirect(loginUrl);
     }
 
     // Verify the session is still valid via /api/auth/session
-    console.log(`[proxy] Verifying session...`);
     const user = await getSessionUser(request);
-    console.log(`[proxy] Session verification: ${user ? 'valid' : 'invalid'}`);
 
     if (!user) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
-      console.log(`[proxy] Session invalid. Redirecting to /login`);
       return NextResponse.redirect(loginUrl);
     }
-
-    console.log(`[proxy] User authenticated: ${user.$id}`);
 
     // Admin routes require the 'admin' role
     if (pathname.startsWith('/admin')) {
       const role = await getUserRole(user.$id);
-      console.log(`[proxy] Admin check: role=${role}`);
       if (role !== 'admin') {
-        console.log(`[proxy] Non-admin blocking /admin access`);
+        // Fail closed: redirect to dashboard if unauthorized
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
     }
 
-    console.log(`[proxy] Allowing request`);
     return NextResponse.next();
   } catch (error) {
-    console.error(`[proxy] Error:`, error);
-    // On error, allow the request through (fail open) to avoid breaking the app
-    return NextResponse.next();
+    // Fail closed: on error, redirect to login instead of allowing through
+    const loginUrl = new URL('/login', request.url);
+    // Preserve the original pathname as the redirect parameter if possible
+    const pathname = request.nextUrl.pathname ?? '/';
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 }
 
