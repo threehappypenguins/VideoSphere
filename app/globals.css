@@ -28,6 +28,9 @@
   /* Text color displayed on primary backgrounds */
   --primary-foreground: #ffffff;
 
+  /* Secondary surface color used for hover states and subtle UI backgrounds */
+  --secondary: #f5f5f5;
+
   /* Muted background for subtle sections or UI surfaces */
   --muted: #f5f5f5;
 
@@ -46,6 +49,7 @@
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
