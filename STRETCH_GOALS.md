@@ -58,6 +58,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 
 ## 4. Backend, API & Data
 
+- [ ] **Multiple connections per platform** — allow a user to connect more than one account per platform (e.g. multiple YouTube channels). Current schema supports one connection per (userId, platform); to implement: drop the unique index `ca_userId_platform_unique` on `connected_accounts`, optionally add a `label` or `connectionName` column, add repository/API to list connections by (userId, platform), and let the user choose which connection to use when creating a draft or distributing. See comment in `scripts/setup-appwrite.ts`.
 - [ ] **Zod input validation on all API routes** — every POST/PUT/PATCH route validates its request body against a Zod schema and returns `400` with structured field errors on failure
 - [ ] **OpenAPI / Swagger documentation** — generate or hand-author an OpenAPI 3.x spec for all API routes; serve interactive Swagger UI at `/api/docs`
 - [ ] **API versioning** — structure at least one route namespace under `/api/v1/` and document the versioning strategy
