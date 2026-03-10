@@ -51,7 +51,37 @@ export interface UploadJob {
   updatedAt: string;
 }
 
+/** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
 export type ConnectedAccountPlatform = 'youtube' | 'vimeo';
+
+/** Platform upload status (PRD: pending, uploading, completed, failed). */
+export type PlatformUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
+
+/** Per-platform visibility (PRD: public, unlisted, private). */
+export type PlatformUploadVisibility = 'public' | 'unlisted' | 'private';
+
+/** Platform upload (one per target platform per upload job). See PRD Platform Upload. */
+export interface PlatformUpload {
+  id: string;
+  uploadJobId: string;
+  platform: ConnectedAccountPlatform;
+  status: PlatformUploadStatus;
+  platformVideoId: string;
+  platformUrl: string;
+  title: string;
+  description: string;
+  tags: string;
+  visibility: PlatformUploadVisibility;
+  scheduledAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Upload job with its related platform uploads (for dashboard/APIs). */
+export interface UploadJobWithPlatformUploads extends UploadJob {
+  platformUploads: PlatformUpload[];
+}
 
 /**
  * Safe shape for listing and API responses. No OAuth tokens.

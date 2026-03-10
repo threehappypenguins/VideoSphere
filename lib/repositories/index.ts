@@ -20,8 +20,9 @@ export type { CreateDraftInput, UpdateDraftInput } from './drafts';
 
 export {
   createUploadJob,
-  getUploadJob,
-  listUploadJobsByUserId,
+  getUploadJobById,
+  listUploadJobsByUser,
+  getUploadJobsWithPlatformUploads,
   updateUploadJobStatus,
 } from './upload-jobs';
 export type { CreateUploadJobInput } from './upload-jobs';
