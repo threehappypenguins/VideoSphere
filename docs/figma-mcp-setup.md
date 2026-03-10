@@ -428,7 +428,7 @@ Click the bookmark when you’re on the page you want to capture. The tool will 
 - [Figma REST API Documentation](https://www.figma.com/developers/api)
 - [Figma Developer Community](https://discord.gg/xzQhe2Vcvx)
 - [VideoSphere Design System](https://www.figma.com/design/[FILE_ID]/VideoSphere) (internal)
-- [Next.js Environment Variables](https://nextjs.org/docs/basic-features/environment-variables)
+- [Next.js Environment Variables](https://nextjs.org/docs/app/guides/environment-variables)
 - [GitHub Copilot Chat Documentation](https://code.visualstudio.com/docs/copilot/copilot-chat)
 
 ---
