@@ -50,6 +50,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable}>
+      <head>
+        <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+      </head>
       <body className="font-sans antialiased">
         <Navbar />
         <main className="min-h-screen">{children}</main>
