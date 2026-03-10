@@ -2,26 +2,161 @@
 // NAVBAR COMPONENT
 // =============================================================================
 // The main navigation bar displayed at the top of every page.
-//
-// STUDENT: Update this component with your app's branding and navigation:
-//   - Replace the placeholder logo with your own
-//   - Update navigation links to match your routes
-//   - Style to match your design system
-//   - The mobile menu uses a checkbox hack — no JavaScript required!
-//     (You may replace this with a React state-based menu if you prefer)
-//
-// This is a Client Component because it uses interactive state for the
-// mobile menu. See /docs/performance.md for Server vs Client Components.
+// Auth state: GET /api/auth/session (credentials: 'include') — 200 = logged in,
+// 401 = logged out. Logout via POST /api/auth/logout (existing API). No Appwrite
+// browser SDK for session; cookie is server-side only.
 // =============================================================================
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, type RefObject } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useRouter, usePathname } from 'next/navigation';
+import { logout } from '@/lib/auth-client';
+import { useTheme } from 'next-themes';
+import { SunIcon, MoonIcon, ComputerDesktopIcon, CheckIcon } from '@heroicons/react/24/outline';
+
+const THEME_OPTIONS = [
+  { value: 'system' as const, label: 'System', Icon: ComputerDesktopIcon },
+  { value: 'light' as const, label: 'Light', Icon: SunIcon },
+  { value: 'dark' as const, label: 'Dark', Icon: MoonIcon },
+] as const;
+
+type ThemeDropdownPlace = 'desktop' | 'mobile' | false;
+
+function ThemeDropdown({
+  containerRef,
+  isOpen,
+  onToggle,
+  onClose,
+  theme,
+  setTheme,
+  resolvedTheme,
+  mounted,
+  dropdownClassName,
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  theme: string | undefined;
+  setTheme: (theme: 'system' | 'light' | 'dark') => void;
+  resolvedTheme: string | undefined;
+  mounted: boolean;
+  dropdownClassName: string;
+}) {
+  const selectedTheme = mounted ? (theme ?? 'system') : 'system';
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        aria-label="Change color theme"
+        aria-expanded={isOpen ? 'true' : 'false'}
+        onClick={onToggle}
+        className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        {mounted && resolvedTheme === 'dark' ? (
+          <MoonIcon className="h-5 w-5" />
+        ) : (
+          <SunIcon className="h-5 w-5" />
+        )}
+      </button>
+      {isOpen && (
+        <div
+          className={`absolute top-full z-50 mt-1 min-w-[10rem] rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
+          role="menu"
+        >
+          {THEME_OPTIONS.map(({ value, label, Icon }) => (
+            <button
+              key={value}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setTheme(value);
+                onClose();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span>{label}</span>
+              {selectedTheme === value && <CheckIcon className="ml-auto h-4 w-4 text-primary" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** User shape returned by GET /api/auth/session (Appwrite User). */
+interface SessionUser {
+  name?: string;
+  email?: string;
+}
 
 export default function Navbar() {
+  const router = useRouter();
+  const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
+  const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
+  const [mounted, setMounted] = useState(false);
+  const desktopThemeRef = useRef<HTMLDivElement>(null);
+  const mobileThemeRef = useRef<HTMLDivElement>(null);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  // Re-fetch session when route changes so client-side redirects (e.g. after email/password login) pick up the new session.
+  // AbortController ensures a slower response from a previous route cannot overwrite state (e.g. pre-login 401 after post-login 200).
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/auth/session', {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: SessionUser | null) => {
+        if (controller.signal.aborted) return;
+        setSessionUser(data ?? null);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setSessionUser(null);
+      });
+    return () => controller.abort();
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!themeDropdownOpen) return;
+    const ref = themeDropdownOpen === 'desktop' ? desktopThemeRef : mobileThemeRef;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setThemeDropdownOpen(false);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setThemeDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [themeDropdownOpen]);
+
+  const handleLogout = async () => {
+    await logout();
+    setSessionUser(null);
+    setMobileMenuOpen(false);
+    router.push('/');
+  };
+
+  const isLoggedIn = sessionUser !== null && sessionUser !== 'loading';
+  const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
@@ -60,20 +195,55 @@ export default function Navbar() {
             </Link>
           </div>
 
-          {/* --- Desktop Auth Buttons --- */}
+          {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
           <div className="hidden items-center gap-4 md:flex">
-            <Link
-              href="/login"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              Sign up
-            </Link>
+            <ThemeDropdown
+              containerRef={desktopThemeRef}
+              isOpen={themeDropdownOpen === 'desktop'}
+              onToggle={() =>
+                setThemeDropdownOpen(themeDropdownOpen === 'desktop' ? false : 'desktop')
+              }
+              onClose={() => setThemeDropdownOpen(false)}
+              theme={theme}
+              setTheme={setTheme}
+              resolvedTheme={resolvedTheme}
+              mounted={mounted}
+              dropdownClassName="right-0"
+            />
+
+            {sessionUser === 'loading' ? (
+              <span className="text-sm text-muted-foreground" aria-hidden>
+                …
+              </span>
+            ) : isLoggedIn ? (
+              <>
+                <span className="text-sm text-muted-foreground" title={sessionUser?.email}>
+                  {userLabel}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Log out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Log in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
           </div>
 
           {/* --- Mobile Menu Button --- */}
@@ -81,7 +251,7 @@ export default function Navbar() {
             type="button"
             className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground md:hidden"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-expanded={mobileMenuOpen}
+            aria-expanded={mobileMenuOpen ? 'true' : 'false'}
             aria-label="Toggle navigation menu"
           >
             {mobileMenuOpen ? (
@@ -118,6 +288,21 @@ export default function Navbar() {
         {mobileMenuOpen && (
           <div className="border-t border-border pb-4 md:hidden">
             <div className="flex flex-col gap-2 pt-4">
+              <div className="px-3">
+                <ThemeDropdown
+                  containerRef={mobileThemeRef}
+                  isOpen={themeDropdownOpen === 'mobile'}
+                  onToggle={() =>
+                    setThemeDropdownOpen(themeDropdownOpen === 'mobile' ? false : 'mobile')
+                  }
+                  onClose={() => setThemeDropdownOpen(false)}
+                  theme={theme}
+                  setTheme={setTheme}
+                  resolvedTheme={resolvedTheme}
+                  mounted={mounted}
+                  dropdownClassName="left-3 right-3"
+                />
+              </div>
               <Link
                 href="/"
                 className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -147,20 +332,37 @@ export default function Navbar() {
                 Contact
               </Link>
               <hr className="my-2 border-border" />
-              <Link
-                href="/login"
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Log in
-              </Link>
-              <Link
-                href="/signup"
-                className="mx-3 rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Sign up
-              </Link>
+              {sessionUser === 'loading' ? (
+                <span className="px-3 py-2 text-sm text-muted-foreground">…</span>
+              ) : isLoggedIn ? (
+                <>
+                  <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-md px-3 py-2 text-left text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    Log out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Log in
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="mx-3 rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Sign up
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         )}

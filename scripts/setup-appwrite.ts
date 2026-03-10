@@ -78,6 +78,21 @@ const tables: TableConfig[] = [
       { key: 'updatedAt', type: 'datetime', required: true },
     ],
   },
+  {
+    tableId: 'connected_accounts',
+    name: 'Connected Accounts',
+    columns: [
+      { key: 'userId', type: 'string', size: 255, required: true },
+      { key: 'platform', type: 'string', size: 64, required: true },
+      { key: 'accessToken', type: 'string', size: 4096, required: true },
+      { key: 'refreshToken', type: 'string', size: 4096, required: true },
+      { key: 'tokenExpiry', type: 'string', size: 64, required: true },
+      { key: 'platformUserId', type: 'string', size: 255, required: true },
+      { key: 'platformName', type: 'string', size: 500, required: true },
+      { key: 'createdAt', type: 'datetime', required: true },
+      { key: 'updatedAt', type: 'datetime', required: true },
+    ],
+  },
 ];
 
 /** Indexes to create per table so queries by userId/status work and user_profiles.userId is unique. */
@@ -98,7 +113,24 @@ const tableIndexes: {
   },
   {
     tableId: 'user_profiles',
-    indexes: [{ key: 'user_profiles_userId_unique', type: IndexType.Unique, columns: ['userId'] }],
+    indexes: [
+      { key: 'user_profiles_userId_unique', type: IndexType.Unique, columns: ['userId'] },
+      { key: 'user_profiles_email', type: IndexType.Key, columns: ['email'] },
+    ],
+  },
+  {
+    tableId: 'connected_accounts',
+    indexes: [
+      { key: 'connected_accounts_userId', type: IndexType.Key, columns: ['userId'] },
+      // One connection per user per platform (PRD: "their YouTube account", "their Vimeo account").
+      // Stretch goal: multiple accounts per platform — drop this unique index, optionally add a
+      // label/connectionName column, and add API to list/select which connection to use per upload.
+      {
+        key: 'ca_userId_platform_unique',
+        type: IndexType.Unique,
+        columns: ['userId', 'platform'],
+      },
+    ],
   },
 ];
 

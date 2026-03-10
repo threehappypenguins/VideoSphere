@@ -22,6 +22,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
+import { ThemeProvider } from 'next-themes';
 
 // --- Font Configuration ---
 // next/font automatically optimizes fonts — no external requests at runtime.
@@ -49,14 +50,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
       <head>
         <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
       </head>
       <body className="font-sans antialiased">
-        <Navbar />
-        <main className="min-h-screen">{children}</main>
-        <Footer />
+        <ThemeProvider attribute="class" defaultTheme="system">
+          <Navbar />
+          <main className="min-h-screen">{children}</main>
+          <Footer />
+        </ThemeProvider>
       </body>
     </html>
   );

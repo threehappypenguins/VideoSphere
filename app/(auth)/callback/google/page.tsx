@@ -1,49 +1,32 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Client, Account } from 'appwrite';
+import { useRouter } from 'next/navigation';
+import { clearCookieFallback } from '@/lib/auth-client';
 
+/**
+ * OAuth callback page: session cookie was already set by GET /api/auth/oauth/callback.
+ * We get the user via our API (server forwards cookie to Appwrite) so the cookie
+ * is sent to our origin only, not cross-origin to Appwrite.
+ */
 export default function GoogleCallbackPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const doneRef = useRef(false);
 
   useEffect(() => {
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!;
-
     const handleCallback = async () => {
       if (doneRef.current) return;
       doneRef.current = true;
       try {
-        const client = new Client()
-          .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
-          .setProject(projectId);
-
-        const account = new Account(client);
-
-        // If we have key/secret or project/secret in URL (e.g. landed here with params), set cookieFallback
-        const key = searchParams.get('key');
-        const secret = searchParams.get('secret');
-        const project = searchParams.get('project');
-        if (secret && typeof window !== 'undefined') {
-          const sessionKey = key ?? (project ? `a_session_${project}` : `a_session_${projectId}`);
-          const cookieFallback: Record<string, string> = { [sessionKey]: secret };
-          window.localStorage.setItem('cookieFallback', JSON.stringify(cookieFallback));
-          window.history.replaceState({}, '', window.location.pathname);
+        const sessionRes = await fetch('/api/auth/session', { credentials: 'include' });
+        if (!sessionRes.ok) {
+          setError('Session not found. Please try signing in again.');
+          setTimeout(() => router.push('/login?error=oauth_callback_failed'), 3000);
+          return;
         }
+        const user = await sessionRes.json();
 
-        // Or createSession if Appwrite sent userId + secret
-        const userId = searchParams.get('userId');
-        const secretForSession = searchParams.get('secret');
-        if (userId && secretForSession && !key && !project) {
-          await account.createSession({ userId, secret: secretForSession });
-          window.history.replaceState({}, '', window.location.pathname);
-        }
-
-        const user = await account.get();
-        // Create user_profiles document if it doesn't exist
         const response = await fetch('/api/auth/callback/google', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -51,30 +34,20 @@ export default function GoogleCallbackPage() {
         });
 
         const data = await response.json();
-
         if (!response.ok) {
           setError(data.error || 'Failed to create user profile');
           return;
         }
-
+        clearCookieFallback();
         router.push('/dashboard');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        const detail =
-          err && typeof err === 'object' && 'code' in err
-            ? ` (${(err as { code?: number }).code})`
-            : '';
-        setError(
-          `Authentication failed: ${message}${detail}. Check the console and that cookieFallback was set on the success page.`
-        );
-        setTimeout(() => {
-          router.push('/login?error=oauth_callback_failed');
-        }, 5000);
+        setError(`Authentication failed: ${message}`);
+        setTimeout(() => router.push('/login?error=oauth_callback_failed'), 5000);
       }
     };
-
     handleCallback();
-  }, [router, searchParams]);
+  }, [router]);
 
   return (
     <div className="flex min-h-screen items-center justify-center">

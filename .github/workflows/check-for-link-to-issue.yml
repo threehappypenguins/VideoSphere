@@ -1,4 +1,12 @@
-name: Check for Linked Issue to auto-close in PR
+# This workflow will check if a PR has a linked issue and if it contains one of the approved close keywords. If not, it will fail the check and provide feedback to the contributor.
+# This helps ensure that contributors are aware of the need to link issues properly when they want them to be auto-closed by the PR.
+# Note: The keywords that trigger auto-closing of issues when mentioned in a PR description are:
+# close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved followed by the issue number (e.g., #123).
+# https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/using-keywords-in-issues-and-pull-requests
+# For more information on how to use these keywords, see the GitHub documentation linked above.
+# This workflow is triggered on pull request events (opened, synchronize, reopened, edited) and can also be manually triggered via the workflow_dispatch event.
+
+name: Validate PR Issue Link and Close Keyword
 
 on:
   workflow_dispatch:
@@ -19,9 +27,11 @@ jobs:
 
       - name: Check if PR has an associated issue and close keyword
         id: check-issue
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           # Extract the issue number from the PR body or title (e.g., #123)
-          ISSUE_NUMBER=$(echo "${{ github.event.pull_request.body }}" | grep -oP '#\d+' | head -n 1 | sed 's/#//')
+          ISSUE_NUMBER=$(echo "$PR_BODY" | grep -oP '#\d+' | head -n 1 | sed 's/#//')
 
           # Check if a linked issue is found
           if [ -z "$ISSUE_NUMBER" ]; then
@@ -30,7 +40,7 @@ jobs:
           fi
 
           # Check if the PR description contains one of the approved close keywords
-          KEYWORD_MATCH=$(echo "${{ github.event.pull_request.body }}" | grep -E -i '\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#'${ISSUE_NUMBER})
+          KEYWORD_MATCH=$(echo "$PR_BODY" | grep -E -i '\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#'"${ISSUE_NUMBER}")
 
           if [ -z "$KEYWORD_MATCH" ]; then
             echo "PR does not contain a valid close keyword for the linked issue (e.g., 'closes #$ISSUE_NUMBER')."
