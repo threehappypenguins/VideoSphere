@@ -4,6 +4,14 @@
     "figma": {
       "url": "https://mcp.figma.com/mcp",
       "type": "http"
+    },
+    "appwrite-docs": {
+      "url": "https://mcp-for-docs.appwrite.io",
+      "type": "http"
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "type": "http"
     }
   }
 }
