@@ -48,4 +48,3 @@ jobs:
           else
             echo "Linked issue #$ISSUE_NUMBER found and flagged to be closed."
           fi
-      

@@ -1,92 +1,70 @@
-// =============================================================================
-// PRICING PAGE
-// =============================================================================
-// Displays pricing tiers for your SaaS product.
-//
-// STUDENT: Replace ALL placeholder content with your actual pricing:
-//   - Update tier names, prices, and features
-//   - Wire up the CTA buttons to your payment processing (Stripe, etc.)
-//   - See /docs/payments.md for guidance on implementing payments
-//
-// The upgrade/purchase buttons are currently non-functional placeholders.
-// You must implement payment processing as part of your project requirements.
-// =============================================================================
+// PRICING PAGE — VideoSphere
+// Two tiers: Free and Supporter
+// Stripe / checkout not yet implemented — CTAs link to /signup.
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
-  title: 'Pricing',
-  description: '[Your App Name] pricing plans — find the right plan for your needs.',
+  title: 'Pricing — VideoSphere',
+  description:
+    'VideoSphere pricing — start free or upgrade to Supporter for unlimited uploads and premium features.',
 };
 
-// STUDENT: Update these pricing tiers with your actual plans
 const tiers = [
   {
     name: 'Free',
     price: '$0',
     period: '/month',
-    description: 'Perfect for getting started and exploring the platform.',
+    description: 'Everything you need to get started distributing your videos.',
     features: [
-      '[Feature included in free tier]',
-      '[Another free feature]',
-      '[Basic feature]',
-      '[Limited usage feature]',
+      '10 uploads per month',
+      'Distribute to 2 platforms',
+      'Basic AI-generated metadata',
+      'Draft & metadata management',
+      'Centralised distribution tracking',
     ],
-    cta: 'Get Started',
+    cta: 'Get Started Free',
+    ctaHref: '/signup',
     highlighted: false,
   },
   {
-    name: 'Pro',
-    price: '$19',
-    period: '/month',
-    description: 'Best for professionals who need more power and features.',
+    name: 'Supporter',
+    price: '$9',
+    period: '/one-time',
+    description: 'For creators who are serious about reaching every audience.',
     features: [
       'Everything in Free',
-      '[Pro-only feature]',
-      '[Advanced feature]',
-      '[Priority support]',
-      '[Higher limits]',
-      '[Premium feature]',
+      'Unlimited uploads',
+      'Distribute to all platforms',
+      'Premium AI-generated metadata',
+      'Scheduled publishing',
+      'Priority processing',
+      'Early access to new platforms',
     ],
-    cta: 'Upgrade to Pro',
+    cta: 'Become a Supporter',
+    ctaHref: '/signup',
     highlighted: true,
-  },
-  {
-    name: 'Enterprise',
-    price: '$49',
-    period: '/month',
-    description: 'For teams and organizations that need the full platform.',
-    features: [
-      'Everything in Pro',
-      '[Enterprise feature]',
-      '[Team management]',
-      '[Custom integrations]',
-      '[Dedicated support]',
-      '[SLA guarantee]',
-      '[Advanced analytics]',
-    ],
-    cta: 'Contact Sales',
-    highlighted: false,
   },
 ];
 
 export default function PricingPage() {
   return (
     <div className="px-4 py-20 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-4xl">
         {/* --- Header --- */}
         <div className="text-center">
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
             Simple, transparent pricing
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            [Choose the plan that works best for you. Upgrade or downgrade at any time.]
+            VideoSphere is free to start. Upgrade to Supporter whenever you&apos;re ready to unlock
+            unlimited uploads and premium features — no subscription required.
           </p>
         </div>
 
         {/* --- Pricing Cards --- */}
-        <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-3">
+        <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-2">
           {tiers.map((tier) => (
             <div
               key={tier.name}
@@ -130,10 +108,8 @@ export default function PricingPage() {
                 ))}
               </ul>
 
-              {/* STUDENT: Wire this button to your payment processing.
-                  See /docs/payments.md for Stripe integration guidance. */}
               <Link
-                href="/signup"
+                href={tier.ctaHref}
                 className={`mt-8 block w-full rounded-lg px-4 py-3 text-center text-sm font-medium transition-colors ${
                   tier.highlighted
                     ? 'bg-primary text-primary-foreground hover:bg-primary/90'
@@ -145,6 +121,15 @@ export default function PricingPage() {
             </div>
           ))}
         </div>
+
+        {/* --- FAQ note --- */}
+        <p className="mt-12 text-center text-sm text-muted-foreground">
+          Questions?{' '}
+          <a href="mailto:support@videosphere.app" className="text-primary hover:text-primary/90">
+            Contact us
+          </a>{' '}
+          and we&apos;ll be happy to help.
+        </p>
       </div>
     </div>
   );
