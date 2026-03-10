@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "appwrite-docs": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp-for-docs.appwrite.io"]
+    },
+    "context7": {
+      "url": "https://mcp.context7.com/mcp"
+    }
+  }
+}
