@@ -51,6 +51,29 @@ export interface UploadJob {
   updatedAt: string;
 }
 
+/** Platform upload (one per target platform per upload job). See PRD Platform Upload. */
+export interface PlatformUpload {
+  id: string;
+  uploadJobId: string;
+  platform: string;
+  status: string;
+  platformVideoId: string;
+  platformUrl: string;
+  title: string;
+  description: string;
+  tags: string;
+  visibility: string;
+  scheduledAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Upload job with its related platform uploads (for dashboard/APIs). */
+export interface UploadJobWithPlatformUploads extends UploadJob {
+  platformUploads: PlatformUpload[];
+}
+
 export type ConnectedAccountPlatform = 'youtube' | 'vimeo';
 
 /**
