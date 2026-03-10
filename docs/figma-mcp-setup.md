@@ -112,10 +112,6 @@ Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist across
 ```
 Then restart VS Code for the change to take effect.
 
-#### Option C: Using VS Code Settings (Not Recommended)
-
-You can configure the token in VS Code's `settings.json`, but this is **less secure** and only recommended for local development. See [Advanced Configuration](#advanced-configuration) if needed.
-
 ### Step 3: Restart VS Code and Verify Authentication
 
 1. **Close and reopen VS Code** to ensure environment variables are loaded
@@ -262,22 +258,40 @@ For unreliable network connections, you can configure timeout behavior (if suppo
 }
 ```
 
-### Token via VS Code Settings (Advanced)
+### Advanced Token Configuration Notes
 
-If environment variables don't work for your setup, you can add the token to VS Code settings:
+The Figma MCP server reads your API token **only** from the `FIGMA_API_TOKEN` environment variable. VS Code settings such as `"figma.token"` are **not** consumed by this MCP server and will not configure authentication for it.
 
-**⚠️ Warning: This method stores the token in VS Code's configuration and is less secure.**
+**Recommended (advanced) approach for workspace-specific config:** use a shell script, `.env` file loader, or your terminal profile to export `FIGMA_API_TOKEN` before starting VS Code.
 
-1. Open **Settings** (`Ctrl+,` / `Cmd+,`)
-2. Search for `figma.token`
-3. Enter your API token in the settings UI
-
-Alternatively, edit `.vscode/settings.json`:
-```json
-{
-  "figma.token": "your_api_token_here"
-}
+Example (bash/zsh):
+```bash
+export FIGMA_API_TOKEN="your_api_token_here"
+code .
 ```
+
+### Using the HTML-to-Design Capture Tool (Optional)
+
+The Figma **capture** script (`https://mcp.figma.com/mcp/html-to-design/capture.js`) is a developer tool for capturing the current page’s HTML/design and sending it to Figma. It is **not** required for MCP (which works via Cursor and `FIGMA_API_TOKEN`). Use it only when you need to capture a page; do not inject it into the app’s root layout.
+
+**Option 1 — Browser console (one-off use)**  
+Open the page you want to capture, open DevTools → Console, then run:
+
+```javascript
+const s = document.createElement('script');
+s.src = 'https://mcp.figma.com/mcp/html-to-design/capture.js';
+s.async = true;
+document.head.appendChild(s);
+```
+
+**Option 2 — Bookmarklet**  
+Create a bookmark with this as the URL (one line, no line break):
+
+```text
+javascript:(function(){var s=document.createElement('script');s.src='https://mcp.figma.com/mcp/html-to-design/capture.js';s.async=true;document.head.appendChild(s);})();
+```
+
+Click the bookmark when you’re on the page you want to capture. The tool will load only for that tab/session.
 
 ---
 
@@ -369,9 +383,15 @@ Alternatively, edit `.vscode/settings.json`:
    - Update `.env.local` with the new token
 
 4. **Clean up Git history** (if in a shared repository):
+   - Use **git filter-repo** (recommended) or see [GitHub's guide to removing sensitive data](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository). All collaborators must re-clone or rebase onto the new history.
    ```bash
-   git filter-branch --tree-filter 'rm -f .env.local' HEAD
-   git push --force origin main
+   # Install git-filter-repo if you don't have it:
+   # https://github.com/newren/git-filter-repo
+   # Remove .env.local from the entire history (all branches and tags)
+   git filter-repo --path .env.local --invert-paths
+   # Force-push rewritten history
+   git push --force --all
+   git push --force --tags
    ```
 
 ---

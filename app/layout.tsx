@@ -51,9 +51,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <head>
-        <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
-      </head>
+      <head></head>
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system">
           <Navbar />
