@@ -95,7 +95,7 @@ export default function ProfilePage() {
           <div className="mt-4">
             <div className="flex items-center gap-3">
               <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-                Free Plan
+                Free
               </span>
             </div>
             <p className="mt-4 text-sm text-muted-foreground">
@@ -105,8 +105,16 @@ export default function ProfilePage() {
               href="/pricing"
               className="mt-4 inline-block rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              Upgrade to Pro
+              Upgrade to Supporter
             </Link>
+            <div className="mt-4">
+              <Link
+                href="/profile/connections"
+                className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                Manage connected accounts
+              </Link>
+            </div>
           </div>
         </section>
       </div>

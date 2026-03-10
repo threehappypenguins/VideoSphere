@@ -15,13 +15,14 @@ export {
 } from './users';
 export type { CreateUserData, UpdateUserData, ListUsersOptions, ListUsersResult } from './users';
 
-export { createDraft, getDraft, listDraftsByUserId, updateDraft } from './drafts';
+export { createDraft, getDraftById, listDraftsByUser, updateDraft, deleteDraft } from './drafts';
 export type { CreateDraftInput, UpdateDraftInput } from './drafts';
 
 export {
   createUploadJob,
-  getUploadJob,
-  listUploadJobsByUserId,
+  getUploadJobById,
+  listUploadJobsByUser,
+  getUploadJobsWithPlatformUploads,
   updateUploadJobStatus,
 } from './upload-jobs';
 export type { CreateUploadJobInput } from './upload-jobs';
