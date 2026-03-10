@@ -19,7 +19,10 @@ vi.mock('node-appwrite', () => ({
     unique: () => 'upload-job-id-123',
   },
   Query: {
-    equal: (attr: string, value: string) => `equal("${attr}","${value}")`,
+    equal: (attr: string, value: string | string[]) =>
+      Array.isArray(value)
+        ? `equal("${attr}",[${value.map((v) => `"${v}"`).join(',')}])`
+        : `equal("${attr}","${value}")`,
     orderDesc: (attr: string) => `orderDesc("${attr}")`,
   },
   TablesDB: class TablesDB {
@@ -260,7 +263,35 @@ describe('upload-jobs repository', () => {
   });
 
   describe('getUploadJobsWithPlatformUploads', () => {
-    it('returns jobs with platformUploads for each job', async () => {
+    it('returns [] and does not query platform_uploads when user has no jobs', async () => {
+      mockListRows.mockResolvedValueOnce({ rows: [] });
+
+      const result = await getUploadJobsWithPlatformUploads('user-1');
+
+      expect(result).toEqual([]);
+      expect(mockListRows).toHaveBeenCalledTimes(1);
+      expect(mockListRows).toHaveBeenCalledWith(
+        expect.objectContaining({ tableId: 'upload_jobs' })
+      );
+    });
+
+    it('returns jobs with platformUploads for each job (single platform_uploads query)', async () => {
+      const platformUploadRow = {
+        $id: 'pu-1',
+        uploadJobId: 'job-1',
+        platform: 'youtube',
+        status: 'completed',
+        platformVideoId: 'yt-123',
+        platformUrl: 'https://youtube.com/watch?v=yt-123',
+        title: 'Video',
+        description: 'Desc',
+        tags: '[]',
+        visibility: 'public',
+        scheduledAt: '',
+        errorMessage: '',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      };
       mockListRows
         .mockResolvedValueOnce({
           rows: [
@@ -268,27 +299,7 @@ describe('upload-jobs repository', () => {
             { ...baseJobRow, $id: 'job-2' },
           ],
         })
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              $id: 'pu-1',
-              uploadJobId: 'job-1',
-              platform: 'youtube',
-              status: 'completed',
-              platformVideoId: 'yt-123',
-              platformUrl: 'https://youtube.com/watch?v=yt-123',
-              title: 'Video',
-              description: 'Desc',
-              tags: '[]',
-              visibility: 'public',
-              scheduledAt: '',
-              errorMessage: '',
-              createdAt: '2026-01-01T00:00:00.000Z',
-              updatedAt: '2026-01-01T00:00:00.000Z',
-            },
-          ],
-        })
-        .mockResolvedValueOnce({ rows: [] });
+        .mockResolvedValueOnce({ rows: [platformUploadRow] });
 
       const result = await getUploadJobsWithPlatformUploads('user-1');
 
@@ -300,36 +311,39 @@ describe('upload-jobs repository', () => {
       expect(result[1].id).toBe('job-2');
       expect(result[1].platformUploads).toEqual([]);
 
-      expect(mockListRows).toHaveBeenCalledTimes(3);
+      expect(mockListRows).toHaveBeenCalledTimes(2);
       expect(mockListRows).toHaveBeenNthCalledWith(
         1,
-        expect.objectContaining({
-          tableId: 'upload_jobs',
-        })
+        expect.objectContaining({ tableId: 'upload_jobs' })
       );
       expect(mockListRows).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({
           tableId: 'platform_uploads',
-        })
-      );
-      expect(mockListRows).toHaveBeenNthCalledWith(
-        3,
-        expect.objectContaining({
-          tableId: 'platform_uploads',
+          queries: expect.arrayContaining([expect.stringMatching(/equal\("uploadJobId"/)]),
         })
       );
     });
 
-    it('returns empty platformUploads when platform_uploads list fails', async () => {
+    it('returns empty platformUploads only when platform_uploads list returns 404 (e.g. table missing)', async () => {
+      const err404 = new Error('Not found') as Error & { code?: number };
+      err404.code = 404;
       mockListRows
         .mockResolvedValueOnce({ rows: [{ ...baseJobRow, $id: 'job-1' }] })
-        .mockRejectedValueOnce(new Error('Table not found'));
+        .mockRejectedValueOnce(err404);
 
       const result = await getUploadJobsWithPlatformUploads('user-1');
 
       expect(result).toHaveLength(1);
       expect(result[0].platformUploads).toEqual([]);
+    });
+
+    it('rethrows non-404 errors when listing platform_uploads', async () => {
+      mockListRows
+        .mockResolvedValueOnce({ rows: [{ ...baseJobRow, $id: 'job-1' }] })
+        .mockRejectedValueOnce(new Error('Server error'));
+
+      await expect(getUploadJobsWithPlatformUploads('user-1')).rejects.toThrow('Server error');
     });
   });
 });

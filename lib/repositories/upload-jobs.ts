@@ -15,6 +15,9 @@ import type {
   UploadJobStatus,
   UploadJobWithPlatformUploads,
   PlatformUpload,
+  ConnectedAccountPlatform,
+  PlatformUploadStatus,
+  PlatformUploadVisibility,
 } from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import {
@@ -44,14 +47,14 @@ function rowToPlatformUpload(row: Record<string, unknown>): PlatformUpload {
   return {
     id: String(row.$id ?? row.id),
     uploadJobId: String(row.uploadJobId),
-    platform: String(row.platform),
-    status: String(row.status),
+    platform: String(row.platform) as ConnectedAccountPlatform,
+    status: String(row.status) as PlatformUploadStatus,
     platformVideoId: String(row.platformVideoId ?? ''),
     platformUrl: String(row.platformUrl ?? ''),
     title: String(row.title ?? ''),
     description: String(row.description ?? ''),
     tags: String(row.tags ?? ''),
-    visibility: String(row.visibility ?? 'public'),
+    visibility: (String(row.visibility ?? 'public') || 'public') as PlatformUploadVisibility,
     scheduledAt: row.scheduledAt != null && row.scheduledAt !== '' ? String(row.scheduledAt) : null,
     errorMessage:
       row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
@@ -135,33 +138,49 @@ export async function listUploadJobsByUser(
 
 /**
  * List upload jobs for a user with their related platform uploads populated.
- * Sorted by most recent first.
+ * Sorted by most recent first. Fetches all platform_uploads for the user's jobs
+ * in a single query and groups in memory to avoid N+1.
  */
 export async function getUploadJobsWithPlatformUploads(
   userId: string
 ): Promise<UploadJobWithPlatformUploads[]> {
   const jobs = await listUploadJobsByUser(userId);
-  const result: UploadJobWithPlatformUploads[] = [];
+  if (jobs.length === 0) return [];
 
-  for (const job of jobs) {
-    let platformUploads: PlatformUpload[] = [];
-    try {
-      const { rows } = await tablesDb.listRows({
-        databaseId: DATABASE_ID,
-        tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-        queries: [Query.equal('uploadJobId', job.id), Query.orderDesc('createdAt')],
-        total: false,
-      });
-      platformUploads = (rows ?? []).map((r) =>
-        rowToPlatformUpload(r as unknown as Record<string, unknown>)
-      );
-    } catch {
-      // Table may not exist yet; return job with empty platformUploads
+  const jobIds = jobs.map((j) => j.id);
+  let uploadsByJobId = new Map<string, PlatformUpload[]>();
+
+  try {
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: PLATFORM_UPLOADS_COLLECTION_ID,
+      queries: [Query.equal('uploadJobId', jobIds), Query.orderDesc('createdAt')],
+      total: false,
+    });
+    const all = (rows ?? []).map((r) =>
+      rowToPlatformUpload(r as unknown as Record<string, unknown>)
+    );
+    for (const pu of all) {
+      const list = uploadsByJobId.get(pu.uploadJobId) ?? [];
+      list.push(pu);
+      uploadsByJobId.set(pu.uploadJobId, list);
     }
-    result.push({ ...job, platformUploads });
+    // Per-job list already in createdAt desc from query; preserve order
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code === 404) {
+      // Table/collection may not exist yet; treat as no platform uploads
+      uploadsByJobId = new Map();
+    } else {
+      // Re-throw unexpected errors (e.g., permission issues, outages)
+      throw err;
+    }
   }
 
-  return result;
+  return jobs.map((job) => ({
+    ...job,
+    platformUploads: uploadsByJobId.get(job.id) ?? [],
+  }));
 }
 
 // -----------------------------------------------------------------------------
