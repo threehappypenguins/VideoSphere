@@ -51,6 +51,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head></head>
       <body className="font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system">
           <Navbar />
