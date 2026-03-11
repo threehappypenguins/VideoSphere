@@ -17,29 +17,9 @@ import type {
 } from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, PLATFORM_UPLOADS_COLLECTION_ID } from '@/lib/appwrite-constants';
+import { rowToPlatformUpload } from '@/lib/repositories/upload-jobs';
 
 const tablesDb = new TablesDB(appwriteClient);
-
-/** Map an Appwrite row to the shared PlatformUpload type. */
-function rowToPlatformUpload(row: Record<string, unknown>): PlatformUpload {
-  return {
-    id: String(row.$id ?? row.id),
-    uploadJobId: String(row.uploadJobId),
-    platform: String(row.platform) as ConnectedAccountPlatform,
-    status: String(row.status) as PlatformUploadStatus,
-    platformVideoId: String(row.platformVideoId ?? ''),
-    platformUrl: String(row.platformUrl ?? ''),
-    title: String(row.title ?? ''),
-    description: String(row.description ?? ''),
-    tags: String(row.tags ?? ''),
-    visibility: (String(row.visibility ?? 'public') || 'public') as PlatformUploadVisibility,
-    scheduledAt: row.scheduledAt != null && row.scheduledAt !== '' ? String(row.scheduledAt) : null,
-    errorMessage:
-      row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
-  };
-}
 
 // -----------------------------------------------------------------------------
 // Create
