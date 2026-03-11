@@ -4,8 +4,8 @@ Cloudflare R2 integration for VideoSphere. Provides utility functions for genera
 
 ## Overview
 
-**Module:** `lib/r2.ts`  
-**Purpose:** S3-compatible Cloudflare R2 client for direct browser-to-R2 uploads  
+**Module:** `lib/r2.ts`
+**Purpose:** S3-compatible Cloudflare R2 client for direct browser-to-R2 uploads
 **Features:**
 - Presigned upload URLs (15 minute expiry)
 - Presigned download URLs (1 hour expiry)
@@ -20,7 +20,7 @@ Create an R2 account and bucket in Cloudflare Dashboard:
 2. **R2 → API Tokens** → **Create API Token**
    - Permissions: `s3.read`, `s3.write`
    - TTL: Long-lived (90+ days)
-   
+
 3. Add credentials to `.env.local`:
 ```bash
 R2_ACCOUNT_ID=your-account-id
@@ -121,13 +121,13 @@ Get R2 endpoint URL (for debugging/display).
 ```
 Client                          NextJS API                 R2
   |                              |                          |
-  +------ POST /api/uploads -----> Authenticate             
+  +------ POST /api/uploads -----> Authenticate
   |       presign request         |                          |
   |                               +---> getPresignedUploadUrl--->
   |                               |      (AWS SDK)          |
   |       <---- { uploadUrl } -----+<--- presigned PUT URL--+
   |                               |                          |
-  +------ PUT { file } ----------->                          
+  +------ PUT { file } ----------->
   |       uploadUrl               (Direct to R2)            |
   |                               |      +-- PUT /temp/...  |
   |       <---- 200 OK ------------------+                  |
