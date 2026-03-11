@@ -327,7 +327,8 @@ describe('POST /api/uploads/presign', () => {
     });
 
     it('should not expose R2 error details in production', async () => {
-      process.env.NODE_ENV = 'production';
+      vi.stubEnv('NODE_ENV', 'production');
+
       vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(
         new Error('R2 AccessKeyId does not exist')
       );
