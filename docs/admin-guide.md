@@ -4,7 +4,7 @@
 
 The admin dashboard at `/admin/dashboard` provides a management interface for users with admin privileges. It's where admins can view analytics, manage users, moderate content, and configure the application.
 
-**In this template, the admin dashboard exists but is completely unprotected.** Securing it is your responsibility.
+**In this template, the admin dashboard route is protected by `proxy.ts` (already implemented), but the UI shell has no real data or role-aware behavior.** Adding that functionality is your responsibility.
 
 ## Role-Based Access Control (RBAC)
 
@@ -46,15 +46,13 @@ function isAdmin(user: User): boolean {
 
 ## Why Client-Side Protection Is Not Enough
 
-The current admin dashboard page renders for anyone who visits `/admin/dashboard`. This is a **critical security issue** that you must fix.
-
-Client-side checks (like `if (!isAdmin) return <Redirect />`) are **insufficient** because:
+Route-level protection for `/admin/*` is already handled by `proxy.ts`, but that alone is not enough. Client-side checks (like `if (!isAdmin) return <Redirect />`) are **insufficient** because:
 
 1. The page content is still sent to the browser — a user can inspect the HTML
 2. JavaScript can be disabled or modified
 3. API routes behind the dashboard are still accessible
 
-**You need server-side protection.**
+**You also need server-side protection inside pages and API routes.**
 
 ## Where to Implement Protection
 
@@ -63,16 +61,47 @@ Client-side checks (like `if (!isAdmin) return <Redirect />`) are **insufficient
 The `proxy.ts` file in the project root runs **before any page renders**. It is already fully implemented — it checks authentication and role, then redirects unauthorized users.
 
 ```typescript
-// proxy.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+// proxy.ts (already implemented — see project root)
+// Session is verified by calling /api/auth/session internally.
+// Role is fetched from the Appwrite user_profiles collection via the REST API.
+
+async function getSessionUser(request: NextRequest): Promise<{ $id: string } | null> {
+  const res = await fetch(new URL('/api/auth/session', request.url), {
+    headers: { cookie: request.headers.get('cookie') ?? '' },
+  });
+  if (!res.ok) return null;
+  const user = await res.json();
+  return user && typeof user.$id === 'string' ? user : null;
+}
+
+async function getUserRole(userId: string): Promise<string | null> {
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT}/databases/${DATABASE_ID}/collections/${USER_PROFILES_COLLECTION_ID}/documents/${userId}`,
+    {
+      headers: {
+        'X-Appwrite-Project': process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!,
+        'X-Appwrite-Key': process.env.APPWRITE_API_KEY!,
+      },
+    }
+  );
+  if (!res.ok) return null;
+  const doc = await res.json();
+  return typeof doc.role === 'string' ? doc.role : null;
+}
 
 export async function proxy(request: NextRequest) {
-  // Session is verified via /api/auth/session before any page renders
-  const userRole = ''; // Resolved from Appwrite user_profiles collection
+  const { pathname } = request.nextUrl;
 
-  if (request.nextUrl.pathname.startsWith('/admin')) {
-    if (userRole !== 'admin') {
+  const user = await getSessionUser(request);
+  if (!user) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (pathname.startsWith('/admin')) {
+    const role = await getUserRole(user.$id);
+    if (role !== 'admin') {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }

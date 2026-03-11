@@ -331,34 +331,16 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 
 ## PROXY STUB (ALREADY IMPLEMENTED)
 
-**Note:** `proxy.ts` at the project root is already fully implemented with server-side route protection. Do **not** generate a stub — include the real implementation as provided below.
+**Note:** `proxy.ts` at the project root is already fully implemented with server-side route protection. **Do not generate, modify, or overwrite this file.** The existing implementation in the starter repository is the canonical source.
 
 ```typescript
-// =============================================================================
-// NEXT.JS ROUTE PROTECTION PROXY
-// =============================================================================
-// Intercepts requests to protected routes and enforces authentication and
-// admin-role requirements server-side before any page renders.
+// NOTE: The middleware proxy implementation for protected routes
+// (proxy.ts at the project root) already exists in the starter repository.
+// When using this template-generation prompt, DO NOT generate, modify,
+// or overwrite proxy.ts. Keep the existing implementation as-is.
 //
-// Protected routes:
-//   /dashboard/*  — authenticated users only
-//   /profile/*    — authenticated users only
-//   /admin/*      — authenticated admin users only
-//
-// Session is verified by calling /api/auth/session internally.
-// Admin role is checked via the Appwrite REST API.
-// =============================================================================
-
-import { NextRequest, NextResponse } from 'next/server';
-
-export async function proxy(request: NextRequest) {
-  // Full implementation: see proxy.ts in the project root
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ['/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
-};
+// The actual code is intentionally omitted here to avoid duplication and
+// accidental drift between this prompt and the canonical source file.
 ```
 
 ---

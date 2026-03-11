@@ -131,7 +131,7 @@ Your application must include a protected admin area accessible only to users wi
 - Route protection must be implemented properly — client-side checks alone are not sufficient
 
 **How to approach it:**
-The admin dashboard page (`/admin/dashboard`) exists as an unprotected UI shell. Your team must implement role-based access control (RBAC) using `proxy.ts` and server-side checks. Refer to `/docs/admin-guide.md` for detailed guidance.
+The admin dashboard page (`/admin/dashboard`) exists as a basic UI shell with no real data or role-aware behavior. Your team must implement role-based access control (RBAC) using `proxy.ts` and server-side checks. Refer to `/docs/admin-guide.md` for detailed guidance.
 
 **What is provided:**
 The Admin Dashboard UI shell with placeholder stat cards and a data table. `proxy.ts` is already implemented with route protection — only admin users can reach `/admin/*`. No real data, no role checking in the UI — all your team's work.
