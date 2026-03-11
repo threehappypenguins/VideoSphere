@@ -42,8 +42,8 @@ function rowToUploadJob(row: Record<string, unknown>): UploadJob {
   };
 }
 
-/** Map an Appwrite row to the shared PlatformUpload type. */
-function rowToPlatformUpload(row: Record<string, unknown>): PlatformUpload {
+/** Map an Appwrite row to the shared PlatformUpload type. Exported for use by platform-uploads repository. */
+export function rowToPlatformUpload(row: Record<string, unknown>): PlatformUpload {
   return {
     id: String(row.$id ?? row.id),
     uploadJobId: String(row.uploadJobId),

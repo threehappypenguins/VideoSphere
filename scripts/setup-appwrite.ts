@@ -93,6 +93,25 @@ const tables: TableConfig[] = [
       { key: 'updatedAt', type: 'datetime', required: true },
     ],
   },
+  {
+    tableId: 'platform_uploads',
+    name: 'Platform Uploads',
+    columns: [
+      { key: 'uploadJobId', type: 'string', size: 255, required: true },
+      { key: 'platform', type: 'string', size: 64, required: true },
+      { key: 'status', type: 'string', size: 64, required: true },
+      { key: 'platformVideoId', type: 'string', size: 255, required: false },
+      { key: 'platformUrl', type: 'string', size: 2048, required: false },
+      { key: 'title', type: 'string', size: 500, required: true },
+      { key: 'description', type: 'string', size: 5000, required: true },
+      { key: 'tags', type: 'string', size: 2000, required: true },
+      { key: 'visibility', type: 'string', size: 64, required: true },
+      { key: 'scheduledAt', type: 'datetime', required: false },
+      { key: 'errorMessage', type: 'string', size: 2000, required: false },
+      { key: 'createdAt', type: 'datetime', required: true },
+      { key: 'updatedAt', type: 'datetime', required: true },
+    ],
+  },
 ];
 
 /** Indexes to create per table so queries by userId/status work and user_profiles.userId is unique. */
@@ -129,6 +148,18 @@ const tableIndexes: {
         key: 'ca_userId_platform_unique',
         type: IndexType.Unique,
         columns: ['userId', 'platform'],
+      },
+    ],
+  },
+  {
+    tableId: 'platform_uploads',
+    indexes: [
+      { key: 'platform_uploads_uploadJobId', type: IndexType.Key, columns: ['uploadJobId'] },
+      {
+        // One platform_uploads record per upload job per target platform
+        key: 'pu_uploadJobId_platform_unique',
+        type: IndexType.Unique,
+        columns: ['uploadJobId', 'platform'],
       },
     ],
   },
