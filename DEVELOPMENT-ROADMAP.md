@@ -195,9 +195,9 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #10 · `[TASK]` Server-Side Route Protection (middleware.ts)
+### Issue #10 · `[TASK]` Server-Side Route Protection (proxy.ts)
 
-**Task Description:** Implement `middleware.ts` at the project root to protect authenticated and admin routes server-side. Unauthenticated users hitting `/dashboard/*`, `/profile/*`, or `/admin/*` must be redirected to `/login`. Non-admin users hitting `/admin/*` must receive a 403 or be redirected to `/dashboard`.
+**Task Description:** Implement `proxy.ts` at the project root to protect authenticated and admin routes server-side. Unauthenticated users hitting `/dashboard/*`, `/profile/*`, or `/admin/*` must be redirected to `/login`. Non-admin users hitting `/admin/*` must receive a 403 or be redirected to `/dashboard`.
 
 **Sprint:** 1
 
@@ -205,11 +205,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `middleware.ts` intercepts requests to protected route groups
+- [ ] `proxy.ts` intercepts requests to protected route groups
 - [ ] Unauthenticated requests to `/dashboard`, `/profile`, `/admin` redirect to `/login`
 - [ ] Non-admin requests to `/admin/*` return 403 or redirect to `/dashboard`
 - [ ] Public routes (`/`, `/about`, `/contact`, `/pricing`, `/login`, `/signup`, `/api/health`) remain accessible
-- [ ] Middleware reads session from Appwrite (server-side check, not client-only)
+- [ ] Proxy reads session from Appwrite (server-side check, not client-only)
 
 **Related Feature / Epic:** Authentication (UA-06, UA-07, AD-02)
 
@@ -956,7 +956,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **T-Shirt Size Estimate:** M (medium — a day or two)
 
-**Additional Context:** PRD refs: AD-01, AD-04, US-31, US-34. ⚠️ Depends on Issue #10 (middleware) and Issue #12 (User Repository).
+**Additional Context:** PRD refs: AD-01, AD-04, US-31, US-34. ⚠️ Depends on Issue #10 (proxy.ts) and Issue #12 (User Repository).
 
 ---
 

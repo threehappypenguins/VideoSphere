@@ -301,7 +301,7 @@ The primary user journey follows this sequence:
 | UA-03  | Users can log out; session is cleared.                                                                | P0       |
 | UA-04  | Authenticated state persists across page loads (session cookies / Appwrite session).                  | P0       |
 | UA-05  | Unauthenticated users are redirected to `/login` when accessing protected routes.                    | P0       |
-| UA-06  | Route protection is implemented via `middleware.ts` (server-side) — client-side checks alone are insufficient. | P0 |
+| UA-06  | Route protection is implemented via `proxy.ts` (server-side) — client-side checks alone are insufficient. | P0 |
 | UA-07  | Users can view and edit their profile (name, email) on the `/profile` page.                          | P1       |
 | UA-08  | The Profile page shows the user's current subscription status (Free or Supporter).                    | P0       |
 | UA-09  | New users are assigned the `user` role by default. The `admin` role is assigned manually or via the admin dashboard. | P0 |
@@ -332,7 +332,7 @@ The primary user journey follows this sequence:
 | ID     | Requirement                                                                                          | Priority |
 | ------ | ---------------------------------------------------------------------------------------------------- | -------- |
 | AD-01  | The `/admin/dashboard` route is accessible **only** to users with `role: 'admin'`.                   | P0       |
-| AD-02  | Route protection is enforced in `middleware.ts` (server-side) — not just client-side checks.          | P0       |
+| AD-02  | Route protection is enforced in `proxy.ts` (server-side) — not just client-side checks.          | P0       |
 | AD-03  | Regular users navigating to `/admin/dashboard` receive a 403 Forbidden or are redirected.             | P0       |
 | AD-04  | The admin dashboard displays a **user table** with: email, role, subscription status, created date.   | P0       |
 | AD-05  | The admin dashboard displays **system health information**: total users, total uploads, recent errors. | P1       |
@@ -587,7 +587,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | NF-07 | All API routes validate input using Zod schemas; reject malformed requests with 400 errors.  |
 | NF-08 | Presigned R2 URLs expire within 15 minutes to prevent unauthorized access.                   |
 | NF-09 | Rate limiting on auth endpoints and AI generation endpoint to prevent abuse.                 |
-| NF-10 | Server-side route protection via `middleware.ts` for all protected routes.                   |
+| NF-10 | Server-side route protection via `proxy.ts` for all protected routes.                   |
 
 ### Reliability
 
@@ -696,10 +696,10 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 │  └────┬─────┘ └──────┬───────┘ └─────┬─────┘ └────────┬─────────┘  │
 │       │              │               │                │              │
 │  ┌────┴─────┐   ┌────┴────────────┐  │          ┌─────┴──────────┐  │
-│  │middleware│   │ Distribution     │  │          │ OpenRouter     │  │
-│  │.ts       │   │ Engine           │  │          │ API Client     │  │
-│  │(route    │   │ ┌──────────────┐ │  │          └────────────────┘  │
-│  │ protect) │   │ │YouTube Adapter│ │  │                            │
+│  │proxy.ts  │   │ Distribution     │  │          │ OpenRouter     │  │
+│  │(route    │   │ Engine           │  │          │ API Client     │  │
+│  │ protect) │   │ ┌──────────────┐ │  │          └────────────────┘  │
+│  │          │   │ │YouTube Adapter│ │  │                            │
 │  └──────────┘   │ │Vimeo Adapter │ │  │                            │
 │                 │ └──────────────┘ │  │                            │
 │                 └────────┬─────────┘  │                            │
@@ -925,7 +925,7 @@ The following categories of stretch goals are applicable to VideoSphere and can 
 | Sprint | Dates          | Focus                                                                                               |
 | ------ | -------------- | --------------------------------------------------------------------------------------------------- |
 | 0      | Mar 2          | Setup day: complete `SETUP.md`, GitHub Projects, team alignment, PRD review                         |
-| 1      | Mar 2–4        | **Auth + Appwrite**: User registration, login (email + OAuth), session management, middleware route protection |
+| 1      | Mar 2–4        | **Auth + Appwrite**: User registration, login (email + OAuth), session management, proxy.ts route protection |
 | 2      | Mar 5–7        | **Core Data Model**: Implement Appwrite collections (drafts, upload jobs, connected accounts, platform uploads); repository layer; Cloudflare R2 integration |
 | 3      | Mar 8–11       | **Draft Management + Upload**: Draft CRUD UI/API; video file upload to R2 with progress bar         |
 | 4      | Mar 12–14      | **Platform OAuth**: YouTube and Vimeo OAuth2 connection flow; token storage and refresh              |

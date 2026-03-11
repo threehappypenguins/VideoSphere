@@ -189,7 +189,7 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 │   ├── payments.md
 │   ├── admin-guide.md
 │   └── enhancements.md
-├── middleware.ts
+├── proxy.ts
 ├── .env.example
 ├── .eslintrc.json
 ├── .prettierrc
@@ -291,7 +291,7 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 - Prominent comment block explaining:
   - This route is currently completely unprotected
   - Students must implement RBAC when they implement auth
-  - Reference to `middleware.ts` and `/docs/admin-guide.md`
+  - Reference to `proxy.ts` and `/docs/admin-guide.md`
   - Only users with an admin role should ever reach this page
 
 **Custom 404 Page** (`app/not-found.tsx`):
@@ -329,49 +329,36 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 
 ---
 
-## MIDDLEWARE STUB
+## PROXY STUB (ALREADY IMPLEMENTED)
 
-Generate `middleware.ts` at the root level as a commented stub only:
+**Note:** `proxy.ts` at the project root is already fully implemented with server-side route protection. Do **not** generate a stub — include the real implementation as provided below.
 
 ```typescript
 // =============================================================================
-// MIDDLEWARE STUB
+// NEXT.JS ROUTE PROTECTION PROXY
 // =============================================================================
-// Next.js Middleware runs before every matched request and is the right place
-// to implement route protection, authentication checks, role-based access
-// control (RBAC), and redirects.
+// Intercepts requests to protected routes and enforces authentication and
+// admin-role requirements server-side before any page renders.
 //
-// Currently this file does nothing — it is intentionally left for your team
-// to implement as part of your authentication and authorization work.
+// Protected routes:
+//   /dashboard/*  — authenticated users only
+//   /profile/*    — authenticated users only
+//   /admin/*      — authenticated admin users only
 //
-// STUDENT: When you have implemented authentication, this is where you would:
-// - Check if a user is authenticated before allowing access to protected routes
-// - Check if a user has the required role (e.g. 'admin') for admin-only routes
-// - Redirect unauthenticated users to the login page
-// - Redirect unauthorized users to an appropriate error or home page
-//
-// Important: Middleware alone is not sufficient for security — always validate
-// permissions on the server side as well (in your API routes or Server Actions)
-//
-// Helpful resources:
-// - Next.js Middleware: https://nextjs.org/docs/app/building-your-application/routing/middleware
-// - See /docs/admin-guide.md for context on protecting the admin route
-// - Your chosen auth provider will have specific middleware examples
-//   in their own documentation — refer to those when implementing
-//
-// The matcher config below shows which routes middleware would typically apply to.
-// This is commented out — do not uncomment until you have auth implemented.
-//
-// export const config = {
-//   matcher: [
-//     '/admin/:path*',
-//     '/dashboard/:path*',
-//     '/profile/:path*',
-//   ]
-// }
+// Session is verified by calling /api/auth/session internally.
+// Admin role is checked via the Appwrite REST API.
 // =============================================================================
 
-export {}
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function proxy(request: NextRequest) {
+  // Full implementation: see proxy.ts in the project root
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
+};
 ```
 
 ---
@@ -842,10 +829,10 @@ Agreed by: [team member names and date]
 - The admin dashboard route in this project is currently completely unprotected
 - Why client-side protection alone is insufficient
 - Where protection should be implemented:
-  - `middleware.ts` — redirect before the page loads
+  - `proxy.ts` — redirects before the page loads (already implemented)
   - Server Components — check session/role server-side
   - API routes — verify role before returning sensitive data
-- Reference to `middleware.ts` stub
+- Reference to `proxy.ts` in the project root
 - How different BaaS providers handle roles:
   - Supabase — Row Level Security and user metadata
   - Firebase — Custom Claims

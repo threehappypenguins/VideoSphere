@@ -64,7 +64,7 @@ Every user of your application must be able to create an account and sign in.
 Your team must choose an authentication strategy. Your choice of backend service will heavily influence this decision. Refer to `/docs/admin-guide.md` and the documentation of your chosen BaaS for guidance.
 
 **What is provided:**
-Login and Signup pages exist as UI shells. `middleware.ts` exists as a documented stub showing where route protection goes. Nothing is wired up — your team implements everything.
+Login and Signup pages exist as UI shells. `proxy.ts` is already fully implemented with server-side route protection — unauthenticated users are redirected to `/login` and non-admin users are redirected away from `/admin/*`.
 
 ---
 
@@ -131,10 +131,10 @@ Your application must include a protected admin area accessible only to users wi
 - Route protection must be implemented properly — client-side checks alone are not sufficient
 
 **How to approach it:**
-The admin dashboard page (`/admin/dashboard`) exists as an unprotected UI shell. Your team must implement role-based access control (RBAC) using `middleware.ts` and server-side checks. Refer to `/docs/admin-guide.md` for detailed guidance.
+The admin dashboard page (`/admin/dashboard`) exists as an unprotected UI shell. Your team must implement role-based access control (RBAC) using `proxy.ts` and server-side checks. Refer to `/docs/admin-guide.md` for detailed guidance.
 
 **What is provided:**
-The Admin Dashboard UI shell with placeholder stat cards and a data table. `middleware.ts` stub showing where protection logic goes. No protection, no real data, no role checking — all your team's work.
+The Admin Dashboard UI shell with placeholder stat cards and a data table. `proxy.ts` is already implemented with route protection — only admin users can reach `/admin/*`. No real data, no role checking in the UI — all your team's work.
 
 ---
 

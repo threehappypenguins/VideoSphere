@@ -58,22 +58,22 @@ Client-side checks (like `if (!isAdmin) return <Redirect />`) are **insufficient
 
 ## Where to Implement Protection
 
-### 1. middleware.ts (Redirect Before Page Loads)
+### 1. proxy.ts (Redirect Before Page Loads)
 
-The `middleware.ts` file in the project root runs **before any page renders**. Use it to check authentication and role, then redirect unauthorized users.
+The `proxy.ts` file in the project root runs **before any page renders**. It is already fully implemented — it checks authentication and role, then redirects unauthorized users.
 
 ```typescript
-// middleware.ts
+// proxy.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export function middleware(request: NextRequest) {
-  // STUDENT: Check the user's session/token here
-  const userRole = ''; // Get from session/cookie
+export async function proxy(request: NextRequest) {
+  // Session is verified via /api/auth/session before any page renders
+  const userRole = ''; // Resolved from Appwrite user_profiles collection
 
   if (request.nextUrl.pathname.startsWith('/admin')) {
     if (userRole !== 'admin') {
-      return NextResponse.redirect(new URL('/', request.url));
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 
@@ -81,7 +81,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*'],
+  matcher: ['/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
 };
 ```
 
@@ -199,7 +199,7 @@ These are features your team should implement (they are not in the template):
 
 - [ ] Choose an auth/BaaS provider (Supabase, Firebase, Clerk, etc.)
 - [ ] Set up user roles in your auth system
-- [ ] Protect the admin route in `middleware.ts`
+- [x] Admin routes are protected via `proxy.ts` (already implemented — see project root)
 - [ ] Add server-side role checks in admin pages
 - [ ] Protect all admin API routes
 - [ ] Replace placeholder data with real database queries
