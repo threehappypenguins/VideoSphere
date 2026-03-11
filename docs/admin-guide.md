@@ -60,59 +60,15 @@ Route-level protection for `/admin/*` is already handled by `proxy.ts`, but that
 
 The `proxy.ts` file in the project root runs **before any page renders**. It is already fully implemented — it checks authentication and role, then redirects unauthorized users.
 
-```typescript
-// proxy.ts (already implemented — see project root)
-// Session is verified by calling /api/auth/session internally.
-// Role is fetched from the Appwrite user_profiles collection via the REST API.
+The full implementation is in `proxy.ts` at the project root. Read that file directly — it is the canonical source. Do not duplicate it here to avoid drift.
 
-async function getSessionUser(request: NextRequest): Promise<{ $id: string } | null> {
-  const res = await fetch(new URL('/api/auth/session', request.url), {
-    headers: { cookie: request.headers.get('cookie') ?? '' },
-  });
-  if (!res.ok) return null;
-  const user = await res.json();
-  return user && typeof user.$id === 'string' ? user : null;
-}
+At a high level it:
 
-async function getUserRole(userId: string): Promise<string | null> {
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT}/databases/${DATABASE_ID}/collections/${USER_PROFILES_COLLECTION_ID}/documents/${userId}`,
-    {
-      headers: {
-        'X-Appwrite-Project': process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!,
-        'X-Appwrite-Key': process.env.APPWRITE_API_KEY!,
-      },
-    }
-  );
-  if (!res.ok) return null;
-  const doc = await res.json();
-  return typeof doc.role === 'string' ? doc.role : null;
-}
-
-export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  const user = await getSessionUser(request);
-  if (!user) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  if (pathname.startsWith('/admin')) {
-    const role = await getUserRole(user.$id);
-    if (role !== 'admin') {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-  }
-
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ['/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
-};
-```
+1. Reads the session cookie using `getSessionCookieName` from `@/lib/auth-session-cookie`
+2. Redirects to `/login` if no session cookie is present (fast path — no network call)
+3. Calls `/api/auth/session` internally to verify the session is still valid
+4. For `/admin/*` routes, fetches the user's `role` field from the Appwrite `user_profiles` collection via the REST API
+5. Redirects non-admin users to `/dashboard`; fails closed to `/login` on any error
 
 ### 2. Server Components (Check Role Server-Side)
 
