@@ -9,7 +9,7 @@
 // STUDENT: Before going to production, you MUST:
 //   1. Implement authentication (login/signup flow)
 //   2. Add a "role" field to your user model (e.g., 'user' | 'admin')
-//   3. Protect this route using middleware.ts (see the stub in the root)
+//   3. Protect this route using proxy.ts (see the project root)
 //   4. Verify the user's role in your Server Components and API routes
 //   5. Only users with an admin role should EVER reach this page
 //
@@ -19,7 +19,7 @@
 //
 // See:
 //   - /docs/admin-guide.md for detailed RBAC implementation guidance
-//   - middleware.ts for the middleware stub
+//   - proxy.ts for the route protection logic
 //   - /docs/ai-usage-policy.md for responsible development practices
 // =============================================================================
 

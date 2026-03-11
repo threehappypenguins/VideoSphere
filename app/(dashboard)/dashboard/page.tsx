@@ -12,8 +12,8 @@
 //   3. Replace placeholder data with real data from your database
 //   4. Build out the dashboard features your product needs
 //
-// See /docs/admin-guide.md for route protection guidance and middleware.ts
-// for where to implement auth checks.
+// See /docs/admin-guide.md for route protection guidance and proxy.ts
+// for where auth checks are implemented.
 // =============================================================================
 
 import type { Metadata } from 'next';

@@ -74,18 +74,18 @@
 
 ## Sprint 1 — Authentication & Appwrite (Mar 2–4)
 
-### Issue #4 · `[FEATURE]` Email/Password Registration
+### ✅ Issue #4 · `[FEATURE]` Email/Password Registration
 
 **User Story:** As a visitor, I want to create an account with my email and password so that I can start using VideoSphere.
 
 **Acceptance Criteria:**
 
-- [ ] `/signup` page renders a registration form with email, password, and confirm password fields
-- [ ] Form validates input client-side (valid email, password min length, passwords match)
-- [ ] Submitting the form calls `POST /api/auth/register` which creates an Appwrite Auth user
-- [ ] A `user_profiles` document is created with `role: 'user'` and `isSupporter: false`
-- [ ] On success, user is redirected to `/dashboard`
-- [ ] On failure, an error message is displayed (e.g., "Email already registered")
+- [x] `/signup` page renders a registration form with email, password, and confirm password fields
+- [x] Form validates input client-side (valid email, password min length, passwords match)
+- [x] Submitting the form calls `POST /api/auth/register` which creates an Appwrite Auth user
+- [x] A `user_profiles` document is created with `role: 'user'` and `isSupporter: false`
+- [x] On success, user is redirected to `/dashboard`
+- [x] On failure, an error message is displayed (e.g., "Email already registered")
 
 **Priority:** P0 (High)
 
@@ -95,17 +95,17 @@
 
 ---
 
-### Issue #5 · `[FEATURE]` Email/Password Login
+### ✅ Issue #5 · `[FEATURE]` Email/Password Login
 
 **User Story:** As a registered user, I want to sign in with my email and password so that I can access my dashboard.
 
 **Acceptance Criteria:**
 
-- [ ] `/login` page renders a login form with email and password fields
-- [ ] Submitting the form calls `POST /api/auth/login` which creates an Appwrite session
-- [ ] On success, user is redirected to `/dashboard`
-- [ ] On failure, an error message is displayed (e.g., "Invalid credentials")
-- [ ] A "Don't have an account? Sign up" link navigates to `/signup`
+- [x] `/login` page renders a login form with email and password fields
+- [x] Submitting the form calls `POST /api/auth/login` which creates an Appwrite session
+- [x] On success, user is redirected to `/dashboard`
+- [x] On failure, an error message is displayed (e.g., "Invalid credentials")
+- [x] A "Don't have an account? Sign up" link navigates to `/signup`
 
 **Priority:** P0 (High)
 
@@ -115,17 +115,17 @@
 
 ---
 
-### Issue #6 · `[FEATURE]` Google OAuth Login
+### ✅ Issue #6 · `[FEATURE]` Google OAuth Login
 
 **User Story:** As a visitor, I want to sign in with Google so I don't need to remember another password.
 
 **Acceptance Criteria:**
 
-- [ ] `/login` page has a "Sign in with Google" button
-- [ ] Clicking the button initiates the Google OAuth flow via Appwrite
-- [ ] On successful consent, user is redirected back and a session is created
-- [ ] If the user is new, a `user_profiles` document is created automatically
-- [ ] On failure, user sees an error message
+- [x] `/login` page has a "Sign in with Google" button
+- [x] Clicking the button initiates the Google OAuth flow via Appwrite
+- [x] On successful consent, user is redirected back and a session is created
+- [x] If the user is new, a `user_profiles` document is created automatically
+- [x] On failure, user sees an error message
 
 **Priority:** P0 (High)
 
@@ -157,16 +157,16 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #8 · `[FEATURE]` Logout Functionality
+### ✅ Issue #8 · `[FEATURE]` Logout Functionality
 
 **User Story:** As a user, I want to log out so that my session is secure on shared devices.
 
 **Acceptance Criteria:**
 
-- [ ] A "Log out" button is visible in the Navbar when the user is authenticated
-- [ ] Clicking "Log out" calls `POST /api/auth/logout` which destroys the Appwrite session
-- [ ] User is redirected to `/` (landing page)
-- [ ] Attempting to visit `/dashboard` after logout redirects to `/login`
+- [x] A "Log out" button is visible in the Navbar when the user is authenticated
+- [x] Clicking "Log out" calls `POST /api/auth/logout` which destroys the Appwrite session
+- [x] User is redirected to `/` (landing page)
+- [x] Attempting to visit `/dashboard` after logout redirects to `/login`
 
 **Priority:** P0 (High)
 
@@ -176,16 +176,16 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #9 · `[FEATURE]` Session Persistence & Auth State
+### ✅ Issue #9 · `[FEATURE]` Session Persistence & Auth State
 
 **User Story:** As a user, I want to stay logged in when I refresh the page so I don't have to sign in every time.
 
 **Acceptance Criteria:**
 
-- [ ] `GET /api/auth/session` returns the current user's session data if authenticated
-- [ ] The Navbar displays the user's name/email when logged in
-- [ ] The Navbar shows "Login / Sign up" buttons when not logged in
-- [ ] Session persists across page refreshes (Appwrite session cookie)
+- [x] `GET /api/auth/session` returns the current user's session data if authenticated
+- [x] The Navbar displays the user's name/email when logged in
+- [x] The Navbar shows "Login / Sign up" buttons when not logged in
+- [x] Session persists across page refreshes (Appwrite session cookie)
 
 **Priority:** P0 (High)
 
@@ -195,7 +195,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #10 · `[TASK]` Server-Side Route Protection (proxy.ts)
+### ✅ Issue #10 · `[TASK]` Server-Side Route Protection (proxy.ts)
 
 **Task Description:** Implement `proxy.ts` at the project root to protect authenticated and admin routes server-side. Unauthenticated users hitting `/dashboard/*`, `/profile/*`, or `/admin/*` must be redirected to `/login`. Non-admin users hitting `/admin/*` must receive a 403 or be redirected to `/dashboard`.
 
@@ -205,11 +205,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `proxy.ts` intercepts requests to protected route groups
-- [ ] Unauthenticated requests to `/dashboard`, `/profile`, `/admin` redirect to `/login`
-- [ ] Non-admin requests to `/admin/*` return 403 or redirect to `/dashboard`
-- [ ] Public routes (`/`, `/about`, `/contact`, `/pricing`, `/login`, `/signup`, `/api/health`) remain accessible
-- [ ] Proxy reads session from Appwrite (server-side check, not client-only)
+- [x] `proxy.ts` intercepts requests to protected route groups
+- [x] Unauthenticated requests to `/dashboard`, `/profile`, `/admin` redirect to `/login`
+- [x] Non-admin requests to `/admin/*` return 403 or redirect to `/dashboard`
+- [x] Public routes (`/`, `/about`, `/contact`, `/pricing`, `/login`, `/signup`, `/api/health`) remain accessible
+- [x] Proxy reads session from Appwrite (server-side check, not client-only)
 
 **Related Feature / Epic:** Authentication (UA-06, UA-07, AD-02)
 
@@ -217,7 +217,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #11 · `[TASK]` Create Auth API Route Handlers
+### ✅ Issue #11 · `[TASK]` Create Auth API Route Handlers
 
 **Task Description:** Implement the following Next.js API route handlers under `app/api/auth/`:
 
@@ -236,12 +236,12 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] All endpoints exist and return correct HTTP status codes
-- [ ] Register endpoint creates both an Auth user and a `user_profiles` document
-- [ ] Login endpoint returns a session cookie
-- [ ] Logout endpoint clears the session
-- [ ] OAuth endpoints correctly redirect through the Appwrite OAuth flow
-- [ ] Error responses follow the `ApiError` type format
+- [x] All endpoints exist and return correct HTTP status codes
+- [x] Register endpoint creates both an Auth user and a `user_profiles` document
+- [x] Login endpoint returns a session cookie
+- [x] Logout endpoint clears the session
+- [x] OAuth endpoints correctly redirect through the Appwrite OAuth flow
+- [x] Error responses follow the `ApiError` type format
 
 **Related Feature / Epic:** Authentication (UA-01 through UA-07)
 
@@ -249,7 +249,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ## Sprint 2 — Core Data Model & Repository Layer (Mar 5–7)
 
-### Issue #12 · `[TASK]` Implement User Repository
+### ✅ Issue #12 · `[TASK]` Implement User Repository
 
 **Task Description:** Create `lib/repositories/users.ts` with CRUD functions for the `user_profiles` collection: `createUser`, `getUserById`, `getUserByEmail`, `updateUser`, `listUsers` (for admin). All functions use the Appwrite Server SDK.
 
@@ -258,12 +258,12 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 **Size Estimate:** M (medium — a day or two)
 **Acceptance Criteria:**
 
-- [ ] `createUser(data)` creates a `user_profiles` document
-- [ ] `getUserById(userId)` returns a typed `User` object or null
-- [ ] `getUserByEmail(email)` returns a typed `User` object or null
-- [ ] `updateUser(userId, data)` updates fields like `isSupporter`, `role`
-- [ ] `listUsers(options)` returns paginated users (for admin dashboard)
-- [ ] All functions return typed results matching the `User` interface in `types/index.ts`
+- [x] `createUser(data)` creates a `user_profiles` document
+- [x] `getUserById(userId)` returns a typed `User` object or null
+- [x] `getUserByEmail(email)` returns a typed `User` object or null
+- [x] `updateUser(userId, data)` updates fields like `isSupporter`, `role`
+- [x] `listUsers(options)` returns paginated users (for admin dashboard)
+- [x] All functions return typed results matching the `User` interface in `types/index.ts`
 
 **Related Feature / Epic:** Core Data Model
 
@@ -271,7 +271,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #13 · `[TASK]` Implement Draft Repository
+### ✅ Issue #13 · `[TASK]` Implement Draft Repository
 
 **Task Description:** Create `lib/repositories/drafts.ts` with CRUD functions for the `drafts` collection: `createDraft`, `getDraftById`, `listDraftsByUser`, `updateDraft`, `deleteDraft`. Tags must be JSON-serialized on write and parsed on read.
 
@@ -281,12 +281,12 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `createDraft(data)` creates a draft document; `tags` is JSON-stringified before write
-- [ ] `getDraftById(id)` returns a typed `Draft` object with `tags` parsed as `string[]`
-- [ ] `listDraftsByUser(userId)` returns all drafts for a user, sorted by most recent
-- [ ] `updateDraft(id, data)` updates any draft fields
-- [ ] `deleteDraft(id)` removes the draft document
-- [ ] All functions return typed results matching the `Draft` interface
+- [x] `createDraft(data)` creates a draft document; `tags` is JSON-stringified before write
+- [x] `getDraftById(id)` returns a typed `Draft` object with `tags` parsed as `string[]`
+- [x] `listDraftsByUser(userId)` returns all drafts for a user, sorted by most recent
+- [x] `updateDraft(id, data)` updates any draft fields
+- [x] `deleteDraft(id)` removes the draft document
+- [x] All functions return typed results matching the `Draft` interface
 
 **Related Feature / Epic:** Draft Management (DM-06, DM-09)
 
@@ -294,7 +294,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #14 · `[TASK]` Implement Upload Job Repository
+### ✅ Issue #14 · `[TASK]` Implement Upload Job Repository
 
 **Task Description:** Create `lib/repositories/upload-jobs.ts` with CRUD functions for the `upload_jobs` collection: `createUploadJob`, `getUploadJobById`, `listUploadJobsByUser`, `updateUploadJobStatus`, `getUploadJobsWithPlatformUploads`.
 
@@ -304,11 +304,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `createUploadJob(data)` creates an upload job with `status: 'pending'`
-- [ ] `getUploadJobById(id)` returns a typed `UploadJob` object
-- [ ] `listUploadJobsByUser(userId)` returns jobs sorted by most recent
-- [ ] `updateUploadJobStatus(id, status, errorMessage?)` updates status and optional error
-- [ ] All functions return typed results matching the `UploadJob` interface
+- [x] `createUploadJob(data)` creates an upload job with `status: 'pending'`
+- [x] `getUploadJobById(id)` returns a typed `UploadJob` object
+- [x] `listUploadJobsByUser(userId)` returns jobs sorted by most recent
+- [x] `updateUploadJobStatus(id, status, errorMessage?)` updates status and optional error
+- [x] All functions return typed results matching the `UploadJob` interface
 
 **Related Feature / Epic:** Upload Job Tracking (JT-01, JT-02)
 
@@ -316,7 +316,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #15 · `[TASK]` Create Connected Accounts Collection & Repository
+### ✅ Issue #15 · `[TASK]` Create Connected Accounts Collection & Repository
 
 **Task Description:** Add the `connected_accounts` collection to the Appwrite setup script. Create `lib/repositories/connected-accounts.ts` with functions: `createConnectedAccount`, `getConnectedAccountsByUser`, `getConnectedAccount`, `deleteConnectedAccount`, `updateTokens`.
 
@@ -326,18 +326,18 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `connected_accounts` collection is defined in the setup script with all fields from the PRD data model
-- [ ] `createConnectedAccount(data)` stores OAuth tokens, platform user ID, and platform name
-- [ ] `getConnectedAccountsByUser(userId)` returns all connected accounts for a user
-- [ ] `getConnectedAccount(userId, platform)` returns a specific platform connection
-- [ ] `deleteConnectedAccount(id)` removes the connection and its tokens
-- [ ] `updateTokens(id, accessToken, refreshToken, tokenExpiry)` refreshes stored tokens
+- [x] `connected_accounts` collection is defined in the setup script with all fields from the PRD data model
+- [x] `createConnectedAccount(data)` stores OAuth tokens, platform user ID, and platform name
+- [x] `getConnectedAccountsByUser(userId)` returns all connected accounts for a user
+- [x] `getConnectedAccount(userId, platform)` returns a specific platform connection
+- [x] `deleteConnectedAccount(id)` removes the connection and its tokens
+- [x] `updateTokens(id, accessToken, refreshToken, tokenExpiry)` refreshes stored tokens
 
 **Related Feature / Epic:** Platform Management (PM-05)
 
 ---
 
-### Issue #16 · `[TASK]` Create Platform Uploads Collection & Repository
+### ✅ Issue #16 · `[TASK]` Create Platform Uploads Collection & Repository
 
 **Task Description:** Add the `platform_uploads` collection to the Appwrite setup script. Create `lib/repositories/platform-uploads.ts` with functions: `createPlatformUpload`, `getPlatformUploadsByJob`, `updatePlatformUploadStatus`.
 
@@ -347,17 +347,17 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `platform_uploads` collection is defined in the setup script with all fields from the PRD data model
-- [ ] `createPlatformUpload(data)` creates a record linked to an upload job
-- [ ] `getPlatformUploadsByJob(uploadJobId)` returns all platform uploads for a job
-- [ ] `updatePlatformUploadStatus(id, status, platformVideoId?, platformUrl?, errorMessage?)` updates status and result fields
-- [ ] All functions return typed results
+- [x] `platform_uploads` collection is defined in the setup script with all fields from the PRD data model
+- [x] `createPlatformUpload(data)` creates a record linked to an upload job
+- [x] `getPlatformUploadsByJob(uploadJobId)` returns all platform uploads for a job
+- [x] `updatePlatformUploadStatus(id, status, platformVideoId?, platformUrl?, errorMessage?)` updates status and result fields
+- [x] All functions return typed results
 
 **Related Feature / Epic:** Upload Job Tracking (JT-01)
 
 ---
 
-### Issue #17 · `[TASK]` Create Upload Usage Collection & Repository
+### ✅ Issue #17 · `[TASK]` Create Upload Usage Collection & Repository
 
 **Task Description:** Add the `upload_usage` collection to the Appwrite setup script. Create `lib/repositories/upload-usage.ts` with functions: `getMonthlyUsage`, `incrementUsage`, `canUpload` (checks free tier limit).
 
@@ -367,11 +367,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `upload_usage` collection is defined with `userId`, `month`, `uploadCount` fields
-- [ ] `getMonthlyUsage(userId)` returns the current month's upload count (or 0 if no record)
-- [ ] `incrementUsage(userId)` increments the current month's counter (creates record if none exists)
-- [ ] `canUpload(userId, isSupporter)` returns `true` for supporters, or checks `count < 10` for free users
-- [ ] Month format follows `"YYYY-MM"` pattern
+- [x] `upload_usage` collection is defined with `userId`, `month`, `uploadCount` fields
+- [x] `getMonthlyUsage(userId)` returns the current month's upload count (or 0 if no record)
+- [x] `incrementUsage(userId)` increments the current month's counter (creates record if none exists)
+- [x] `canUpload(userId, isSupporter)` returns `true` for supporters, or checks `count < 10` for free users
+- [x] Month format follows `"YYYY-MM"` pattern
 
 **Related Feature / Epic:** Video Upload (VU-09, VU-10)
 
@@ -397,7 +397,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #19 · `[TASK]` Update Appwrite Setup Script with New Collections
+### ✅ Issue #19 · `[TASK]` Update Appwrite Setup Script with New Collections
 
 **Task Description:** Update `scripts/setup-appwrite.ts` to create all collections needed by the app: `user_profiles`, `drafts`, `upload_jobs`, `connected_accounts`, `platform_uploads`, `upload_usage`. Each collection should have properly typed attributes and indexes.
 
@@ -407,11 +407,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] Running `pnpm run setup:appwrite` creates all 6 collections
-- [ ] Each collection has all attributes matching the PRD data model
-- [ ] Appropriate indexes are created (e.g., `userId` index on all user-scoped collections, `month + userId` on `upload_usage`)
-- [ ] Script is idempotent — running it twice doesn't cause errors
-- [ ] Script outputs success/skip messages for each collection
+- [x] Running `pnpm run setup:appwrite` creates all 6 collections
+- [x] Each collection has all attributes matching the PRD data model
+- [x] Appropriate indexes are created (e.g., `userId` index on all user-scoped collections, `month + userId` on `upload_usage`)
+- [x] Script is idempotent — running it twice doesn't cause errors
+- [x] Script outputs success/skip messages for each collection
 
 **Related Feature / Epic:** Core Data Model
 
@@ -863,11 +863,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `/pricing` page displays a side-by-side comparison table (matching PRD section 14)
-- [ ] Features compared: monthly uploads, connected platforms, AI model quality, price
-- [ ] A prominent "Upgrade to Supporter" CTA button is shown on the Supporter column
+- [x] `/pricing` page displays a side-by-side comparison table (matching PRD section 14)
+- [x] Features compared: monthly uploads, connected platforms, AI model quality, price
+- [x] A prominent "Upgrade to Supporter" CTA button is shown on the Supporter column
 - [ ] Free-tier column shows "Current Plan" if the user is on free, or a "You're a Supporter!" badge if already upgraded
-- [ ] Page is accessible to both authenticated and unauthenticated visitors
+- [x] Page is accessible to both authenticated and unauthenticated visitors
 
 **Priority:** P0 (High)
 
@@ -1109,8 +1109,8 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 - [ ] `/profile` page displays: name, email, role, subscription status (Free / Supporter)
 - [ ] Users can edit their name
 - [ ] Supporters see a "Supporter" badge
-- [ ] Free users see a link to `/pricing` to upgrade
-- [ ] The page links to `/profile/connections` for managing platform accounts
+- [x] Free users see a link to `/pricing` to upgrade
+- [x] The page links to `/profile/connections` for managing platform accounts
 
 **Priority:** P0 (High)
 
@@ -1151,8 +1151,8 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] Landing page (`/`) has a hero section explaining VideoSphere's value proposition
-- [ ] Landing page has a CTA leading to `/signup`
+- [x] Landing page (`/`) has a hero section explaining VideoSphere's value proposition
+- [x] Landing page has a CTA leading to `/signup`
 - [ ] About page has project/team information
 - [ ] Contact page has a contact form or contact info
 - [ ] All pages use consistent branding (colors, fonts, spacing)
@@ -1172,9 +1172,9 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] Navbar shows: Logo/brand, Dashboard link (auth'd), Profile link (auth'd), Login/Signup (unauth'd), Logout button (auth'd)
+- [x] Navbar shows: Logo/brand, Dashboard link (auth'd), Profile link (auth'd), Login/Signup (unauth'd), Logout button (auth'd)
 - [ ] Navbar highlights the active page
-- [ ] Navbar is mobile-responsive (hamburger menu)
+- [x] Navbar is mobile-responsive (hamburger menu)
 - [ ] Footer shows: Links to About, Contact, Pricing, GitHub repo link
 - [ ] Admin users see an "Admin" link in the Navbar
 
@@ -1195,10 +1195,10 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 **Acceptance Criteria:**
 
 - [ ] Each repository function has at least one test
-- [ ] Tests mock Appwrite SDK calls (no real database calls)
-- [ ] Tests verify correct Appwrite method calls and parameter shapes
-- [ ] Tests verify tags JSON serialization/deserialization in drafts repo
-- [ ] All tests pass with `pnpm test`
+- [x] Tests mock Appwrite SDK calls (no real database calls)
+- [x] Tests verify correct Appwrite method calls and parameter shapes
+- [x] Tests verify tags JSON serialization/deserialization in drafts repo
+- [x] All tests pass with `pnpm test`
 
 **Related Feature / Epic:** Testing
 
@@ -1299,9 +1299,9 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 - [ ] All reported bugs are triaged and P0 bugs are fixed
 - [ ] Error states are handled gracefully across the app (no unhandled promise rejections)
-- [ ] Loading states exist for all async operations
-- [ ] 404 page renders for unknown routes
-- [ ] Error boundary (`error.tsx`) catches and displays runtime errors
+- [x] Loading states exist for all async operations
+- [x] 404 page renders for unknown routes
+- [x] Error boundary (`error.tsx`) catches and displays runtime errors
 
 **Related Feature / Epic:** Polish
 
@@ -1317,12 +1317,12 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `pnpm lint` passes with zero errors
-- [ ] `pnpm format:check` passes (all files formatted)
-- [ ] `pnpm type-check` passes (zero TypeScript errors)
+- [x] `pnpm lint` passes with zero errors
+- [x] `pnpm format:check` passes (all files formatted)
+- [x] `pnpm type-check` passes (zero TypeScript errors)
 - [ ] `pnpm build` succeeds
-- [ ] `pnpm test` runs all tests and they pass
-- [ ] GitHub Actions workflow runs green on `main`
+- [x] `pnpm test` runs all tests and they pass
+- [x] GitHub Actions workflow runs green on `main`
 
 **Related Feature / Epic:** DevOps / Quality
 
@@ -1393,7 +1393,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 These issues can be created if the team has capacity after completing all P0 and P1 items above.
 
-### Issue #66 · `[FEATURE]` Dark/Light Mode Toggle
+### ✅ Issue #66 · `[FEATURE]` Dark/Light Mode Toggle
 
 **User Story:** As a user, I want to switch between dark and light themes so the app is comfortable to use at any time of day.
 
