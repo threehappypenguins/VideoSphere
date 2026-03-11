@@ -18,6 +18,13 @@
 
 export type UserRole = 'user' | 'admin';
 
+export interface UploadUsage {
+  userId: string;
+  /** Current month in "YYYY-MM" format. */
+  month: string;
+  uploadCount: number;
+}
+
 export interface User {
   /** User identifier; aligns with user_profiles.userId in Appwrite. */
   userId: string;
