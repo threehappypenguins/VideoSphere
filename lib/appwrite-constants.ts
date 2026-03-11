@@ -15,3 +15,4 @@ export const DRAFTS_COLLECTION_ID = 'drafts';
 export const UPLOAD_JOBS_COLLECTION_ID = 'upload_jobs';
 export const PLATFORM_UPLOADS_COLLECTION_ID = 'platform_uploads';
 export const CONNECTED_ACCOUNTS_COLLECTION_ID = 'connected_accounts';
+export const UPLOAD_USAGE_COLLECTION_ID = 'upload_usage';
