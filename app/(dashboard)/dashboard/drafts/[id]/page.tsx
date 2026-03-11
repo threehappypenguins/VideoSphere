@@ -38,11 +38,11 @@ const VISIBILITY_OPTIONS = [
 ] as const;
 
 interface Props {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export default async function EditDraftPage({ params }: Props) {
-  const { id } = params;
+  const { id } = await params;
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
