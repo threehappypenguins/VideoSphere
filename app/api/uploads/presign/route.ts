@@ -95,7 +95,7 @@ function validateRequest(body: unknown): {
 /**
  * Generate R2 object key from filename and user
  *
- * Format: temp/uploads/{timestamp}/{filename}
+ * Format: temp/uploads/{userId}/{timestamp}/{filename}
  * This keeps temp files organized by time
  */
 function generateObjectKey(userId: string, filename: string): string {
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const { filename, contentType, uploadJobId } = validation.data!;
+    const { filename, contentType, uploadJobId: _uploadJobId } = validation.data!;
 
     // Generate R2 object key
     const key = generateObjectKey(userId, filename);

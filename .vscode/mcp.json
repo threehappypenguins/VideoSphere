@@ -15,7 +15,7 @@
     },
     "cloudflare": {
       "command": "npx",
-      "args": ["mcp-remote", "https://docs.mcp.cloudflare.com/mcp"]
+      "args": ["-y", "mcp-remote", "https://docs.mcp.cloudflare.com/mcp"]
     }
   }
 }

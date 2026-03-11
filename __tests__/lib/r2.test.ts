@@ -155,22 +155,20 @@ describe('R2 Storage - Validation & Utilities', () => {
   });
 
   describe('Accepted Key Formats', () => {
-    it('accepts simple keys without throwing validation errors', () => {
+    it('accepts simple keys without throwing validation errors', async () => {
       const simpleKeys = ['video.mp4', 'file.mov', 'data.bin'];
 
       for (const key of simpleKeys) {
-        expect(async () => {
-          try {
-            await getPresignedUploadUrl(key, 'video/mp4');
-          } catch (error: any) {
-            // AWS SDK might fail, but we check validation errors don't occur
-            expect(error.message).not.toContain('Object key is required');
-          }
-        });
+        try {
+          await getPresignedUploadUrl(key, 'video/mp4');
+        } catch (error: any) {
+          // AWS SDK might fail, but validation errors should not occur
+          expect(error.message).not.toContain('Object key is required');
+        }
       }
     });
 
-    it('accepts nested paths without throwing validation errors', () => {
+    it('accepts nested paths without throwing validation errors', async () => {
       const nestedPaths = [
         'temp/uploads/user-123/video.mp4',
         'videos/2026/03/11/file.mp4',
@@ -178,27 +176,23 @@ describe('R2 Storage - Validation & Utilities', () => {
       ];
 
       for (const key of nestedPaths) {
-        expect(async () => {
-          try {
-            await getPresignedUploadUrl(key, 'video/mp4');
-          } catch (error: any) {
-            expect(error.message).not.toContain('Object key is required');
-          }
-        });
+        try {
+          await getPresignedUploadUrl(key, 'video/mp4');
+        } catch (error: any) {
+          expect(error.message).not.toContain('Object key is required');
+        }
       }
     });
 
-    it('accepts various MIME types without validation error', () => {
+    it('accepts various MIME types without validation error', async () => {
       const types = ['video/mp4', 'video/webm', 'video/quicktime'];
 
       for (const type of types) {
-        expect(async () => {
-          try {
-            await getPresignedUploadUrl('test.mp4', type);
-          } catch (error: any) {
-            expect(error.message).not.toContain('Content type is required');
-          }
-        });
+        try {
+          await getPresignedUploadUrl('test.mp4', type);
+        } catch (error: any) {
+          expect(error.message).not.toContain('Content type is required');
+        }
       }
     });
   });

@@ -199,8 +199,12 @@ export function getBucketName(): string {
 
 /**
  * Get R2 endpoint (for debugging/logging)
- * @returns R2 endpoint URL
+ * @returns R2 endpoint URL, or empty string if R2_ACCOUNT_ID is not set
  */
 export function getR2Endpoint(): string {
-  return `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+  const accountId = process.env.R2_ACCOUNT_ID;
+  if (!accountId) {
+    return '';
+  }
+  return `https://${accountId}.r2.cloudflarestorage.com`;
 }
