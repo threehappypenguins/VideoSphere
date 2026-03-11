@@ -94,6 +94,15 @@ const tables: TableConfig[] = [
     ],
   },
   {
+    tableId: 'upload_usage',
+    name: 'Upload Usage',
+    columns: [
+      { key: 'userId', type: 'string', size: 255, required: true },
+      { key: 'month', type: 'string', size: 7, required: true },
+      { key: 'uploadCount', type: 'integer', required: true },
+    ],
+  },
+  {
     tableId: 'platform_uploads',
     name: 'Platform Uploads',
     columns: [
@@ -148,6 +157,17 @@ const tableIndexes: {
         key: 'ca_userId_platform_unique',
         type: IndexType.Unique,
         columns: ['userId', 'platform'],
+      },
+    ],
+  },
+  {
+    tableId: 'upload_usage',
+    indexes: [
+      { key: 'upload_usage_userId', type: IndexType.Key, columns: ['userId'] },
+      {
+        key: 'upload_usage_userId_month_unique',
+        type: IndexType.Unique,
+        columns: ['userId', 'month'],
       },
     ],
   },
@@ -241,6 +261,13 @@ async function main(): Promise<void> {
             });
           } else if (col.type === 'boolean') {
             await db.createBooleanColumn({
+              databaseId: DATABASE_ID,
+              tableId: t.tableId,
+              key: col.key,
+              required: col.required,
+            });
+          } else if (col.type === 'integer') {
+            await db.createIntegerColumn({
               databaseId: DATABASE_ID,
               tableId: t.tableId,
               key: col.key,
