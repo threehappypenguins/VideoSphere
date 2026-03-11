@@ -7,6 +7,10 @@
     "context7": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.context7.com/mcp"]
+    },
+    "cloudflare": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://docs.mcp.cloudflare.com/mcp"]
     }
   }
 }
