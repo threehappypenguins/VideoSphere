@@ -157,7 +157,7 @@ const tableIndexes: {
       { key: 'platform_uploads_uploadJobId', type: IndexType.Key, columns: ['uploadJobId'] },
       {
         // One platform_uploads record per upload job per target platform
-        key: 'pu_uploadJobId_platform_uniq',
+        key: 'pu_uploadJobId_platform_unique',
         type: IndexType.Unique,
         columns: ['uploadJobId', 'platform'],
       },

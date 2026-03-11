@@ -28,6 +28,13 @@ export {
 export type { CreateUploadJobInput } from './upload-jobs';
 
 export {
+  createPlatformUpload,
+  getPlatformUploadsByJob,
+  updatePlatformUploadStatus,
+} from './platform-uploads';
+export type { CreatePlatformUploadInput } from './platform-uploads';
+
+export {
   createConnectedAccount,
   getConnectedAccountsByUser,
   getConnectedAccount,
