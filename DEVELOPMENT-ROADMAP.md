@@ -36,7 +36,7 @@
 
 ---
 
-### Issue #2 · `[TASK]` Set Up GitHub Projects Board & Labels
+### ✅ Issue #2 · `[TASK]` Set Up GitHub Projects Board & Labels
 
 **Task Description:** Create a GitHub Projects board (Kanban) with columns: `Backlog`, `To Do`, `In Progress`, `In Review`, `Done`. Add labels matching priorities (`P0`, `P1`, `P2`), feature areas (`auth`, `upload`, `distribution`, `ai`, `payments`, `admin`, `ui`), and issue types (`bug`, `enhancement`, `sprint-task`).
 
@@ -46,15 +46,15 @@
 
 **Acceptance Criteria:**
 
-- [ ] GitHub Projects board exists with all columns
-- [ ] Labels created for priority, feature area, and type
-- [ ] All team members have access to the board
+- [x] GitHub Projects board exists with all columns
+- [x] Labels created for priority, feature area, and type
+- [x] All team members have access to the board
 
 **Related Feature / Epic:** Project Setup
 
 ---
 
-### Issue #3 · `[TASK]` Review PRD & Assign Sprint 1 Issues
+### ✅ Issue #3 · `[TASK]` Review PRD & Assign Sprint 1 Issues
 
 **Task Description:** Team reviews the PRD together, discusses architecture decisions, and assigns Sprint 1 issues to team members.
 
@@ -64,9 +64,9 @@
 
 **Acceptance Criteria:**
 
-- [ ] All team members have read the PRD
-- [ ] Sprint 1 issues are created on the board
-- [ ] Each Sprint 1 issue has an assignee
+- [x] All team members have read the PRD
+- [x] Sprint 1 issues are created on the board
+- [x] Each Sprint 1 issue has an assignee
 
 **Related Feature / Epic:** Project Setup
 
