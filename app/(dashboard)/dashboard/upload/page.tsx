@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function UploadVideoPage() {
   return (
-    <main className="px-4 py-10 sm:px-6 lg:px-8">
+    <div className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <header>
           <h1 className="text-3xl font-semibold tracking-tight">Upload Video</h1>
@@ -30,6 +30,6 @@ export default function UploadVideoPage() {
           Back to Dashboard
         </Link>
       </div>
-    </main>
+    </div>
   );
 }
