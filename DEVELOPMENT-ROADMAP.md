@@ -13,6 +13,8 @@
 4. **Dependencies**: Issues marked with ⚠️ depend on earlier issues — check the "Depends on" note before starting.
 5. **Priority key**: P0 = must have for MVP · P1 = important · P2 = nice-to-have / stretch
 
+> **Note on issue numbers:** The `Issue #N` labels in this document are **internal roadmap sequence numbers**, not GitHub issue numbers. GitHub auto-assigns its own numbers when issues are created (based on the order they are opened, including PRs), so the roadmap number for a task will rarely match its GitHub issue number. Cross-reference by title, not by number.
+
 ---
 
 ## Sprint 0 — Project Setup & Team Alignment (Mar 2)

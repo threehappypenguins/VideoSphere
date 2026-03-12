@@ -52,6 +52,8 @@ export interface UploadJob {
   id: string;
   userId: string;
   draftId: string | null;
+  /** R2 object key for the uploaded video file. Null until the presign step records it. */
+  r2Key: string | null;
   status: UploadJobStatus;
   errorMessage: string | null;
   createdAt: string;

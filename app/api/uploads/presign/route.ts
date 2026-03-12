@@ -1,41 +1,52 @@
 /**
  * POST /api/uploads/presign
  *
- * Generate a presigned URL for direct browser-to-R2 upload.
+ * Generate a presigned URL for direct browser-to-R2 upload and create an
+ * UploadJob record linked to the given draft.
  *
  * Request body:
  * {
  *   fileName: string          - Original filename (e.g., "my-video.mp4"); also accepts "filename"
  *   contentType: string       - MIME type (e.g., "video/mp4")
- *   fileSize: number          - File size in bytes (must be ≤ 5 GB)
+ *   fileSize: number          - File size in bytes (required; must be > 0 and ≤ 5 GB)
+ *   draftId: string           - Draft ID to associate this upload with (required)
  * }
  *
  * Response (200 OK):
  * {
- *   uploadUrl: string         - Presigned PUT URL (expires 15 min)
- *   key: string               - Object key used in R2 (for tracking)
- *   bucketName: string        - Bucket name
+ *   uploadUrl: string         - Presigned PUT URL (expires 15 min); PUT the file directly to this URL
+ *   key: string               - R2 object key (store this for distribution)
+ *   bucketName: string        - R2 bucket name
  *   expiresIn: number         - URL expiry in seconds (900)
+ *   uploadJobId: string       - ID of the created UploadJob record in Appwrite
+ *   isSupporter: boolean      - Whether the authenticated user is a Supporter (for UI display)
  * }
  *
  * Error responses:
- * - 400 Bad Request: Missing or invalid fields, unsupported format, file too large
+ * - 400 Bad Request: Missing or invalid fields (filename, contentType, fileSize, draftId),
+ *                    unsupported format, or file exceeds 5 GB
  * - 401 Unauthorized: Not authenticated
- * - 403 Forbidden: Upload quota exceeded (free-tier limit reached)
- * - 500 Internal Server Error: R2 service error
+ * - 403 Forbidden (quota): Free-tier upload limit reached
+ *                  Body: { error, message, monthlyUsage, limit, isSupporter }
+ * - 403 Forbidden (ownership): Supplied draftId belongs to a different user
+ *                  Body: { error }
+ * - 404 Not Found: Supplied draftId does not exist
+ *                  Body: { error }
+ * - 500 Internal Server Error: R2 or Appwrite service error
  *
  * Security:
  * - Only authenticated users can request presigned URLs
  * - URLs expire in 15 minutes (NF-08)
- * - ContentType is locked in signature to prevent abuse
+ * - ContentType is locked in the presigned signature to prevent MIME-type abuse
  * - Format validated by both MIME type and file extension
- * - If draftId is supplied, ownership is verified before creating an UploadJob
+ * - draftId is required; ownership is verified (draft.userId === authenticatedUserId)
+ *   before creating an UploadJob — prevents IDOR attacks
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPresignedUploadUrl } from '@/lib/r2';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { canUpload, getMonthlyUsage } from '@/lib/repositories/upload-usage';
+import { canUpload, getMonthlyUsage, incrementUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -56,8 +67,8 @@ const ALLOWED_EXTENSIONS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm']);
 interface PresignRequestBody {
   filename: string;
   contentType: string;
-  fileSize?: number;
-  draftId?: string;
+  fileSize: number;
+  draftId: string;
 }
 
 interface PresignResponse {
@@ -66,6 +77,7 @@ interface PresignResponse {
   bucketName: string;
   expiresIn: number;
   uploadJobId: string;
+  isSupporter: boolean;
 }
 
 function getExtension(filename: string): string {
@@ -110,14 +122,17 @@ function validateRequest(body: unknown): {
     };
   }
 
-  // Validate file size when provided
-  if (req.fileSize !== undefined) {
-    if (typeof req.fileSize !== 'number' || req.fileSize <= 0) {
-      return { valid: false, error: 'fileSize must be a positive number' };
-    }
-    if (req.fileSize > MAX_FILE_SIZE) {
-      return { valid: false, error: 'File exceeds the 5 GB maximum size limit' };
-    }
+  // Validate file size — required to enforce the 5 GB server-side limit
+  if (typeof req.fileSize !== 'number' || req.fileSize <= 0) {
+    return { valid: false, error: 'fileSize is required and must be a positive number' };
+  }
+  if (req.fileSize > MAX_FILE_SIZE) {
+    return { valid: false, error: 'File exceeds the 5 GB maximum size limit' };
+  }
+
+  // draftId is required — all uploads must be associated with a draft
+  if (typeof req.draftId !== 'string' || req.draftId.trim() === '') {
+    return { valid: false, error: 'draftId is required and must be non-empty' };
   }
 
   return {
@@ -125,11 +140,8 @@ function validateRequest(body: unknown): {
     data: {
       filename: rawFilename.trim(),
       contentType: req.contentType.trim(),
-      fileSize: typeof req.fileSize === 'number' ? req.fileSize : undefined,
-      draftId:
-        typeof req.draftId === 'string' && req.draftId.trim() !== ''
-          ? req.draftId.trim()
-          : undefined,
+      fileSize: req.fileSize as number,
+      draftId: req.draftId.trim(),
     },
   };
 }
@@ -170,18 +182,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { filename, contentType, draftId } = validation.data!;
 
-    // If a draftId was supplied, verify the authenticated user owns that draft
-    if (draftId !== undefined) {
-      const draft = await getDraftById(draftId);
-      if (!draft) {
-        return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
-      }
-      if (draft.userId !== userId) {
-        return NextResponse.json(
-          { error: 'Forbidden: you do not own this draft' },
-          { status: 403 }
-        );
-      }
+    // Verify the authenticated user owns the draft (draftId is always present after validation)
+    const draft = await getDraftById(draftId);
+    if (!draft) {
+      return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
+    }
+    if (draft.userId !== userId) {
+      return NextResponse.json({ error: 'Forbidden: you do not own this draft' }, { status: 403 });
     }
 
     // Check upload quota — fetch user profile to determine supporter status
@@ -207,8 +214,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const key = generateObjectKey(userId, filename);
     const uploadUrl = await getPresignedUploadUrl(key, contentType);
 
-    // Create an UploadJob record to track this upload
-    const uploadJob = await createUploadJob({ userId, draftId: draftId ?? null });
+    // Create an UploadJob record to track this upload, storing the R2 key so the
+    // distribution step can locate the uploaded object without an extra round-trip.
+    const uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
+
+    // Increment the monthly usage counter for free-tier users.
+    // TODO(Issue #23): move this call to the distribution-initiation endpoint
+    // once multi-platform distribution is implemented, per the PRD spec.
+    if (!isSupporter) {
+      await incrementUsage(userId);
+    }
 
     const response: PresignResponse = {
       uploadUrl,
@@ -216,6 +231,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       bucketName: process.env.R2_BUCKET_NAME || 'unknown',
       expiresIn: 900,
       uploadJobId: uploadJob.id,
+      isSupporter,
     };
 
     return NextResponse.json(response, { status: 200 });

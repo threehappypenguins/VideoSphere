@@ -49,6 +49,7 @@ const baseJobRow = {
   $id: 'job-1',
   userId: 'user-1',
   draftId: 'draft-1',
+  r2Key: 'temp/uploads/user-1/1234567890/test.mp4',
   status: 'pending',
   errorMessage: '',
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -67,6 +68,7 @@ describe('upload-jobs repository', () => {
       const result = await createUploadJob({
         userId: 'user-1',
         draftId: 'draft-1',
+        r2Key: 'temp/uploads/user-1/1234567890/test.mp4',
       });
 
       expect(mockCreateRow).toHaveBeenCalledTimes(1);
@@ -76,6 +78,7 @@ describe('upload-jobs repository', () => {
       expect(call.rowId).toBe('upload-job-id-123');
       expect(call.data.userId).toBe('user-1');
       expect(call.data.draftId).toBe('draft-1');
+      expect(call.data.r2Key).toBe('temp/uploads/user-1/1234567890/test.mp4');
       expect(call.data.status).toBe('pending');
       expect(call.data.errorMessage).toBe('');
       expect(call.data.createdAt).toBeDefined();
@@ -84,6 +87,7 @@ describe('upload-jobs repository', () => {
       expect(result.id).toBe('job-1');
       expect(result.userId).toBe('user-1');
       expect(result.draftId).toBe('draft-1');
+      expect(result.r2Key).toBe('temp/uploads/user-1/1234567890/test.mp4');
       expect(result.status).toBe('pending');
       expect(result.errorMessage).toBeNull();
     });
@@ -91,7 +95,11 @@ describe('upload-jobs repository', () => {
     it('stores null draftId as empty string', async () => {
       mockCreateRow.mockResolvedValue({ ...baseJobRow, draftId: '' });
 
-      await createUploadJob({ userId: 'user-1', draftId: null });
+      await createUploadJob({
+        userId: 'user-1',
+        draftId: null,
+        r2Key: 'temp/uploads/user-1/1234567890/test.mp4',
+      });
 
       const call = mockCreateRow.mock.calls[0][0];
       expect(call.data.draftId).toBe('');

@@ -55,7 +55,7 @@ type UploadState =
   | { phase: 'quota-exceeded'; monthlyUsage: number }
   | { phase: 'selected'; file: File; error?: string }
   | { phase: 'uploading'; file: File; progress: number }
-  | { phase: 'success'; file: File; uploadJobId: string }
+  | { phase: 'success'; file: File; uploadJobId: string; r2Key: string }
   | { phase: 'error'; message: string };
 
 export interface UploadVideoFormProps {
@@ -79,12 +79,17 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
   // File selection
   // -------------------------------------------------------------------------
 
-  const handleFilesChosen = useCallback((files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    const error = validateFile(file);
-    setState({ phase: 'selected', file, error: error ?? undefined });
-  }, []);
+  const handleFilesChosen = useCallback(
+    (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      // Ignore new file selections while an upload is already in progress
+      if (state.phase === 'uploading') return;
+      const file = files[0];
+      const error = validateFile(file);
+      setState({ phase: 'selected', file, error: error ?? undefined });
+    },
+    [state.phase]
+  );
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     handleFilesChosen(e.target.files);
@@ -149,7 +154,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       }
 
       presignData = json as { uploadUrl: string; key: string; uploadJobId: string };
-      setIsSupporter(null);
+      setIsSupporter(json.isSupporter ?? null);
     } catch {
       setState({ phase: 'error', message: 'Network error. Check your connection and try again.' });
       return;
@@ -171,7 +176,12 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
 
       xhr.addEventListener('load', () => {
         if (xhr.status >= 200 && xhr.status < 300) {
-          setState({ phase: 'success', file, uploadJobId: presignData.uploadJobId });
+          setState({
+            phase: 'success',
+            file,
+            uploadJobId: presignData.uploadJobId,
+            r2Key: presignData.key,
+          });
         } else {
           setState({
             phase: 'error',
@@ -241,9 +251,16 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
           <p className="text-sm text-muted-foreground">
             <span className="font-medium">{state.file.name}</span> has been uploaded successfully.
           </p>
-          <p className="text-xs font-mono break-all text-muted-foreground">
-            Upload job: {state.uploadJobId}
-          </p>
+          <dl className="text-xs font-mono break-all text-muted-foreground space-y-1">
+            <div>
+              <dt className="inline font-sans font-medium not-italic">Upload job: </dt>
+              <dd className="inline">{state.uploadJobId}</dd>
+            </div>
+            <div>
+              <dt className="inline font-sans font-medium not-italic">R2 key: </dt>
+              <dd className="inline">{state.r2Key}</dd>
+            </div>
+          </dl>
           <div className="flex gap-3">
             <Link
               href={backHref}
@@ -283,19 +300,23 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
           {/* Drop zone */}
           <div
             role="button"
-            tabIndex={0}
+            tabIndex={state.phase === 'uploading' ? -1 : 0}
             aria-label="Click or drag a video file here to upload"
-            onClick={() => inputRef.current?.click()}
+            aria-disabled={state.phase === 'uploading'}
+            onClick={() => state.phase !== 'uploading' && inputRef.current?.click()}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click();
+              if (state.phase !== 'uploading' && (e.key === 'Enter' || e.key === ' '))
+                inputRef.current?.click();
             }}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition-colors ${
-              isDragging
-                ? 'border-primary bg-primary/5'
-                : 'border-border bg-muted hover:border-primary/50'
+            onDragOver={state.phase !== 'uploading' ? handleDragOver : undefined}
+            onDragLeave={state.phase !== 'uploading' ? handleDragLeave : undefined}
+            onDrop={state.phase !== 'uploading' ? handleDrop : undefined}
+            className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors ${
+              state.phase === 'uploading'
+                ? 'cursor-not-allowed border-border bg-muted opacity-50'
+                : isDragging
+                  ? 'cursor-pointer border-primary bg-primary/5'
+                  : 'cursor-pointer border-border bg-muted hover:border-primary/50'
             }`}
           >
             <input
