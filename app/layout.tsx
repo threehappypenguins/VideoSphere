@@ -38,10 +38,11 @@ const inter = Inter({
 // See /docs/performance.md for more on metadata and SEO.
 export const metadata: Metadata = {
   title: {
-    default: '[Your App Name]',
-    template: '%s | [Your App Name]',
+    default: 'VideoSphere',
+    template: '%s | VideoSphere',
   },
-  description: '[Your app description — explain what your SaaS product does]',
+  description:
+    'Upload once, distribute everywhere. VideoSphere lets creators distribute videos to YouTube, Vimeo, and more from a single dashboard.',
 };
 
 export default function RootLayout({
