@@ -19,7 +19,7 @@ describe('DashboardPage Component', () => {
 
   describe('Stat Cards', () => {
     it('should render all four stat cards with correct labels', () => {
-      const { container } = render(<DashboardPage />);
+      render(<DashboardPage />);
 
       expect(screen.getAllByText(/drafts/i)[0]).toBeInTheDocument();
       expect(screen.getByText(/uploads/i)).toBeInTheDocument();
