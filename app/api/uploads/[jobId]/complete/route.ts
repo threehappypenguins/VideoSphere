@@ -2,14 +2,11 @@
  * POST /api/uploads/[jobId]/complete
  *
  * Called by the client after a successful browser-to-R2 PUT.
- * Atomically enforces the monthly quota and transitions the UploadJob status
+ * Verifies the actual stored object size and transitions the UploadJob status
  * from pending → uploading (ready for distribution).
  *
- * Quota enforcement uses an increment-first strategy: the counter is
- * atomically incremented, then the resulting value is checked against the
- * limit. If the slot is over the cap it is immediately rolled back with an
- * atomic decrement, ensuring the persisted count never permanently exceeds
- * the free-tier limit even under concurrent load.
+ * Quota is enforced at presign time (POST /api/uploads/presign), not here.
+ * This endpoint is responsible only for confirming delivery and advancing job state.
  *
  * Path parameter:
  *   jobId  - ID of the UploadJob created during the presign step
@@ -21,29 +18,24 @@
  *
  * Error responses:
  * - 400 Bad Request: UploadJob has no R2 key, or the stored object exceeds 5 GB
- *                  (oversized objects are automatically deleted from R2)
+ *                  (oversized objects are deleted from R2; UploadJob is marked failed)
  * - 401 Unauthorized: Not authenticated
  * - 403 Forbidden (ownership): UploadJob belongs to a different user
- * - 403 Forbidden (quota): Free-tier monthly limit reached
- *                  Body: { error, message, monthlyUsage, limit }
  * - 404 Not Found: UploadJob does not exist
  * - 500 Internal Server Error
  *
  * Security:
  * - Only the authenticated user who created the UploadJob may call this endpoint
- * - Ownership is verified before touching the quota counter — prevents IDOR abuse
- * - Actual object byte size is verified via HEAD request before quota is claimed;
+ * - Ownership is verified before touching R2 — prevents IDOR abuse
+ * - Actual object byte size is verified via HEAD request before status is advanced;
  *   oversized objects are deleted from R2 (server-side enforcement layer 2)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { headObject, deleteObject } from '@/lib/r2';
-import { incrementUsageIfAllowed } from '@/lib/repositories/upload-usage';
-import { getUserById } from '@/lib/repositories/users';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 
-const FREE_TIER_LIMIT = 10;
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
 
 export async function POST(
@@ -75,8 +67,8 @@ export async function POST(
     // Server-side size enforcement (layer 2): HEAD the actual R2 object and verify
     // it does not exceed the 5 GB cap. This catches any gap between the declared
     // fileSize (used to sign the Content-Length header at presign time) and the
-    // bytes actually stored. Oversized objects are deleted before the quota slot
-    // is claimed, so the user's counter is never incremented for invalid uploads.
+    // bytes actually stored. Oversized objects are deleted from R2 before the job
+    // is marked failed, preventing orphaned unusable objects from accumulating.
     if (!job.r2Key) {
       return NextResponse.json(
         { error: 'Upload job has no associated R2 object key' },
@@ -85,29 +77,13 @@ export async function POST(
     }
     const actualBytes = await headObject(job.r2Key);
     if (actualBytes > MAX_FILE_SIZE) {
-      await deleteObject(job.r2Key);
+      await Promise.allSettled([
+        deleteObject(job.r2Key),
+        updateUploadJobStatus(jobId, 'failed', 'Uploaded file exceeds the 5 GB maximum size limit'),
+      ]);
       return NextResponse.json(
         { error: 'Uploaded file exceeds the 5 GB maximum size limit; the object has been deleted' },
         { status: 400 }
-      );
-    }
-
-    // Atomically check quota and claim a slot using increment-first strategy.
-    // This is the authoritative enforcement point — prevents concurrent complete
-    // calls from pushing the counter past the free-tier cap.
-    const user = await getUserById(userId);
-    const isSupporter = user?.isSupporter ?? false;
-    const { allowed, monthlyUsage } = await incrementUsageIfAllowed(userId, isSupporter);
-
-    if (!allowed) {
-      return NextResponse.json(
-        {
-          error: 'Upload limit reached',
-          message: `Free-tier users are limited to ${FREE_TIER_LIMIT} uploads per month. Upgrade to Supporter for unlimited uploads.`,
-          monthlyUsage,
-          limit: FREE_TIER_LIMIT,
-        },
-        { status: 403 }
       );
     }
 

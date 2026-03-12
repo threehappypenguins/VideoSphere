@@ -1,7 +1,7 @@
 /**
  * Tests for POST /api/uploads/[jobId]/complete
  *
- * Verifies authentication, ownership checks, quota increment behaviour,
+ * Verifies authentication, ownership checks, size enforcement,
  * and UploadJob status transition. Mocks external dependencies to isolate
  * endpoint logic.
  */
@@ -39,16 +39,6 @@ vi.mock('node-appwrite', () => {
   };
 });
 
-// Mock user repository
-vi.mock('@/lib/repositories/users', () => ({
-  getUserById: vi.fn(async () => ({ userId: 'user-123', isSupporter: false })),
-}));
-
-// Mock upload-usage repository
-vi.mock('@/lib/repositories/upload-usage', () => ({
-  incrementUsageIfAllowed: vi.fn(async () => ({ allowed: true, monthlyUsage: 5 })),
-}));
-
 // Mock upload-jobs repository
 vi.mock('@/lib/repositories/upload-jobs', () => ({
   getUploadJobById: vi.fn(async () => ({
@@ -80,8 +70,6 @@ vi.mock('@/lib/r2', () => ({
 }));
 
 import { POST } from '@/app/api/uploads/[jobId]/complete/route';
-import { incrementUsageIfAllowed } from '@/lib/repositories/upload-usage';
-import { getUserById } from '@/lib/repositories/users';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import { headObject, deleteObject } from '@/lib/r2';
 
@@ -111,15 +99,6 @@ describe('POST /api/uploads/[jobId]/complete', () => {
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
 
     mockGet.mockResolvedValue({ $id: 'user-123' });
-    vi.mocked(getUserById).mockResolvedValue({
-      userId: 'user-123',
-      isSupporter: false,
-      email: 'test@example.com',
-      role: 'user',
-      createdAt: '',
-      updatedAt: '',
-    });
-    vi.mocked(incrementUsageIfAllowed).mockResolvedValue({ allowed: true, monthlyUsage: 5 });
     vi.mocked(headObject).mockResolvedValue(1024);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
     vi.mocked(getUploadJobById).mockResolvedValue({
@@ -200,83 +179,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(response.status).toBe(403);
       const body = await response.json();
       expect(body.error).toContain('Forbidden');
-      expect(vi.mocked(incrementUsageIfAllowed)).not.toHaveBeenCalled();
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Quota enforcement', () => {
-    it('should return 200 when incrementUsageIfAllowed allows the upload', async () => {
-      const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', false);
-    });
-
-    it('should return 403 with quota body when limit is reached', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
-        allowed: false,
-        monthlyUsage: 10,
-      });
-
-      const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(response.status).toBe(403);
-      const body = await response.json();
-      expect(body.error).toContain('Upload limit reached');
-      expect(body.monthlyUsage).toBe(10);
-      expect(body.limit).toBe(10);
-    });
-
-    it('should not advance job status when quota is exceeded', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
-        allowed: false,
-        monthlyUsage: 10,
-      });
-
-      await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
-    });
-
-    it('should pass isSupporter=true to incrementUsageIfAllowed for supporters', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce({
-        userId: 'user-123',
-        isSupporter: true,
-        email: 'supporter@example.com',
-        role: 'user',
-        createdAt: '',
-        updatedAt: '',
-      });
-
-      const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', true);
-    });
-
-    it('should default to isSupporter=false when getUserById returns null', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce(null);
-
-      const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', false);
     });
   });
 
@@ -297,8 +200,11 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(vi.mocked(deleteObject)).toHaveBeenCalledWith(
         'temp/uploads/user-123/1234567890/test.mp4'
       );
-      expect(vi.mocked(incrementUsageIfAllowed)).not.toHaveBeenCalled();
-      expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
+        'job-123',
+        'failed',
+        'Uploaded file exceeds the 5 GB maximum size limit'
+      );
     });
 
     it('should proceed normally when actual size is exactly at the 5 GB limit', async () => {
@@ -333,7 +239,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.error).toContain('R2 object key');
-      expect(vi.mocked(incrementUsageIfAllowed)).not.toHaveBeenCalled();
+      expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
     });
   });
 
@@ -359,17 +265,6 @@ describe('POST /api/uploads/[jobId]/complete', () => {
   });
 
   describe('Error handling', () => {
-    it('should return 500 when incrementUsageIfAllowed throws', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockRejectedValueOnce(new Error('DB error'));
-
-      const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(response.status).toBe(500);
-    });
-
     it('should return 500 when updateUploadJobStatus throws', async () => {
       vi.mocked(updateUploadJobStatus).mockRejectedValueOnce(new Error('DB error'));
 

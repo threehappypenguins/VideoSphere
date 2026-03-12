@@ -26,7 +26,9 @@
  * - 400 Bad Request: Missing or invalid fields (filename, contentType, fileSize, draftId),
  *                    unsupported format, or file exceeds 5 GB
  * - 401 Unauthorized: Not authenticated
- * - 403 Forbidden (quota): Free-tier upload limit reached
+ * - 403 Forbidden (quota): Free-tier monthly upload limit reached (claimed atomically at
+ *                  presign time — a slot is reserved even if the upload is later cancelled
+ *                  or the presigned URL expires unused)
  *                  Body: { error, message, monthlyUsage, limit, isSupporter }
  * - 403 Forbidden (ownership): Supplied draftId belongs to a different user
  *                  Body: { error }
@@ -45,12 +47,14 @@
  * - Format validated by both MIME type and file extension
  * - draftId is required; ownership is verified (draft.userId === authenticatedUserId)
  *   before creating an UploadJob — prevents IDOR attacks
+ * - Quota is enforced atomically at presign time (increment-first strategy) so that
+ *   the limit cannot be bypassed by omitting the /complete call
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPresignedUploadUrl } from '@/lib/r2';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { canUpload, getMonthlyUsage } from '@/lib/repositories/upload-usage';
+import { incrementUsageIfAllowed } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -198,15 +202,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Forbidden: you do not own this draft' }, { status: 403 });
     }
 
-    // Pre-flight quota check — provides fast UX feedback before issuing a
-    // presigned URL. This check is advisory only (non-atomic read); the
-    // authoritative atomic enforcement is in POST /api/uploads/[jobId]/complete.
+    // Atomically claim a quota slot before issuing the presigned URL.
+    // Using incrementUsageIfAllowed here (not canUpload) ensures the limit is
+    // enforced server-side regardless of whether the client ever calls /complete.
+    // Cancelled or expired uploads consume the slot for the month; the 15-minute
+    // URL expiry naturally bounds how long a slot can be "in flight" without use.
     const user = await getUserById(userId);
     const isSupporter = user?.isSupporter ?? false;
-    const allowed = await canUpload(userId, isSupporter);
+    const { allowed, monthlyUsage } = await incrementUsageIfAllowed(userId, isSupporter);
 
     if (!allowed) {
-      const monthlyUsage = await getMonthlyUsage(userId);
       return NextResponse.json(
         {
           error: 'Upload limit reached',
@@ -226,10 +231,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Create an UploadJob record to track this upload, storing the R2 key so the
     // distribution step can locate the uploaded object without an extra round-trip.
     const uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
-
-    // NOTE: usage is incremented in POST /api/uploads/[jobId]/complete (called by
-    // the client after a successful PUT to R2) so that cancelled or failed uploads
-    // do not consume the user's monthly quota.
 
     const response: PresignResponse = {
       uploadUrl,

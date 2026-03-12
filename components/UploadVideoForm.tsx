@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ChangeEvent } from 'react';
 import Link from 'next/link';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +55,7 @@ type UploadState =
   | { phase: 'quota-exceeded'; monthlyUsage: number }
   | { phase: 'selected'; file: File; error?: string }
   | { phase: 'uploading'; file: File; progress: number }
+  | { phase: 'finalizing'; file: File; uploadJobId: string; r2Key: string }
   | { phase: 'success'; file: File; uploadJobId: string; r2Key: string }
   | { phase: 'error'; message: string };
 
@@ -82,8 +83,8 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
   const handleFilesChosen = useCallback(
     (files: FileList | null) => {
       if (!files || files.length === 0) return;
-      // Ignore new file selections while an upload is already in progress
-      if (state.phase === 'uploading') return;
+      // Ignore new file selections while an upload or finalization is in progress
+      if (state.phase === 'uploading' || state.phase === 'finalizing') return;
       const file = files[0];
       const error = validateFile(file);
       setState({ phase: 'selected', file, error: error ?? undefined });
@@ -91,7 +92,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
     [state.phase]
   );
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     handleFilesChosen(e.target.files);
   };
 
@@ -175,25 +176,43 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       });
 
       xhr.addEventListener('load', () => {
-        // Use an async IIFE so we can await the finalize call before resolving
         (async () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            // Notify the server that the R2 PUT succeeded so quota is recorded
-            // and the UploadJob status is advanced. Best-effort: a failure here
-            // must not prevent the user from seeing the success state.
-            try {
-              await fetch(`/api/uploads/${presignData.uploadJobId}/complete`, {
-                method: 'POST',
-              });
-            } catch {
-              console.error('Failed to record upload completion');
-            }
+            // Transition to finalizing while we notify the server. Quota
+            // enforcement and UploadJob status advancement happen in /complete,
+            // so we must wait for it to succeed before showing success.
             setState({
-              phase: 'success',
+              phase: 'finalizing',
               file,
               uploadJobId: presignData.uploadJobId,
               r2Key: presignData.key,
             });
+            try {
+              const res = await fetch(`/api/uploads/${presignData.uploadJobId}/complete`, {
+                method: 'POST',
+              });
+              if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                setState({
+                  phase: 'error',
+                  message:
+                    (body as { error?: string }).error ??
+                    'Upload could not be finalized. Please try again.',
+                });
+              } else {
+                setState({
+                  phase: 'success',
+                  file,
+                  uploadJobId: presignData.uploadJobId,
+                  r2Key: presignData.key,
+                });
+              }
+            } catch {
+              setState({
+                phase: 'error',
+                message: 'Network error while finalizing upload. Please try again.',
+              });
+            }
           } else {
             setState({
               phase: 'error',
@@ -314,19 +333,36 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
           {/* Drop zone */}
           <div
             role="button"
-            tabIndex={state.phase === 'uploading' ? -1 : 0}
+            tabIndex={state.phase === 'uploading' || state.phase === 'finalizing' ? -1 : 0}
             aria-label="Click or drag a video file here to upload"
-            aria-disabled={state.phase === 'uploading'}
-            onClick={() => state.phase !== 'uploading' && inputRef.current?.click()}
+            aria-disabled={state.phase === 'uploading' || state.phase === 'finalizing'}
+            onClick={() =>
+              state.phase !== 'uploading' &&
+              state.phase !== 'finalizing' &&
+              inputRef.current?.click()
+            }
             onKeyDown={(e) => {
-              if (state.phase !== 'uploading' && (e.key === 'Enter' || e.key === ' '))
-                inputRef.current?.click();
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (state.phase !== 'uploading' && state.phase !== 'finalizing')
+                  inputRef.current?.click();
+              }
             }}
-            onDragOver={state.phase !== 'uploading' ? handleDragOver : undefined}
-            onDragLeave={state.phase !== 'uploading' ? handleDragLeave : undefined}
-            onDrop={state.phase !== 'uploading' ? handleDrop : undefined}
+            onDragOver={
+              state.phase !== 'uploading' && state.phase !== 'finalizing'
+                ? handleDragOver
+                : undefined
+            }
+            onDragLeave={
+              state.phase !== 'uploading' && state.phase !== 'finalizing'
+                ? handleDragLeave
+                : undefined
+            }
+            onDrop={
+              state.phase !== 'uploading' && state.phase !== 'finalizing' ? handleDrop : undefined
+            }
             className={`rounded-xl border-2 border-dashed p-10 text-center transition-colors ${
-              state.phase === 'uploading'
+              state.phase === 'uploading' || state.phase === 'finalizing'
                 ? 'cursor-not-allowed border-border bg-muted opacity-50'
                 : isDragging
                   ? 'cursor-pointer border-primary bg-primary/5'
@@ -391,6 +427,13 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
             </div>
           )}
 
+          {/* Finalizing indicator */}
+          {state.phase === 'finalizing' && (
+            <p className="text-sm text-muted-foreground" aria-live="polite">
+              Finalizing upload…
+            </p>
+          )}
+
           {/* Action buttons */}
           <div className="flex gap-3">
             {state.phase === 'uploading' ? (
@@ -400,6 +443,14 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
                 className="rounded-md border border-destructive px-5 py-2 text-sm font-medium text-destructive hover:bg-destructive/10"
               >
                 Cancel
+              </button>
+            ) : state.phase === 'finalizing' ? (
+              <button
+                type="button"
+                disabled
+                className="rounded-md bg-primary px-5 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Finalizing…
               </button>
             ) : (
               <button

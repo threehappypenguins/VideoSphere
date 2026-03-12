@@ -52,9 +52,7 @@ vi.mock('@/lib/repositories/users', () => ({
 
 // Mock upload-usage repository
 vi.mock('@/lib/repositories/upload-usage', () => ({
-  canUpload: vi.fn(async () => true),
-  getMonthlyUsage: vi.fn(async () => 5),
-  incrementUsage: vi.fn(async () => undefined),
+  incrementUsageIfAllowed: vi.fn(async () => ({ allowed: true, monthlyUsage: 5 })),
 }));
 
 // Mock drafts repository
@@ -86,7 +84,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
 
 import { POST } from '@/app/api/uploads/presign/route';
 import { getPresignedUploadUrl } from '@/lib/r2';
-import { canUpload, getMonthlyUsage, incrementUsage } from '@/lib/repositories/upload-usage';
+import { incrementUsageIfAllowed } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -138,9 +136,7 @@ describe('POST /api/uploads/presign', () => {
       createdAt: '',
       updatedAt: '',
     });
-    vi.mocked(canUpload).mockResolvedValue(true);
-    vi.mocked(getMonthlyUsage).mockResolvedValue(5);
-    vi.mocked(incrementUsage).mockResolvedValue(undefined);
+    vi.mocked(incrementUsageIfAllowed).mockResolvedValue({ allowed: true, monthlyUsage: 5 });
     vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example.com/upload?signed=true');
     vi.mocked(createUploadJob).mockResolvedValue({
       id: 'job-123',
@@ -436,8 +432,10 @@ describe('POST /api/uploads/presign', () => {
 
   describe('Upload Quota', () => {
     it('should return 403 when free-tier quota is exceeded', async () => {
-      vi.mocked(canUpload).mockResolvedValueOnce(false);
-      vi.mocked(getMonthlyUsage).mockResolvedValueOnce(10);
+      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
+        allowed: false,
+        monthlyUsage: 10,
+      });
 
       const request = createRequest(
         {
@@ -458,7 +456,7 @@ describe('POST /api/uploads/presign', () => {
     });
 
     it('should allow upload when quota is not exceeded', async () => {
-      vi.mocked(canUpload).mockResolvedValueOnce(true);
+      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({ allowed: true, monthlyUsage: 5 });
 
       const request = createRequest(
         {
@@ -473,7 +471,7 @@ describe('POST /api/uploads/presign', () => {
       expect(response.status).toBe(200);
     });
 
-    it('should allow supporters to upload regardless of count', async () => {
+    it('should pass isSupporter=true to incrementUsageIfAllowed for supporters', async () => {
       vi.mocked(getUserById).mockResolvedValueOnce({
         userId: 'user-123',
         isSupporter: true,
@@ -482,7 +480,6 @@ describe('POST /api/uploads/presign', () => {
         createdAt: '',
         updatedAt: '',
       });
-      vi.mocked(canUpload).mockResolvedValueOnce(true);
 
       const request = createRequest(
         {
@@ -495,8 +492,7 @@ describe('POST /api/uploads/presign', () => {
       );
       const response = await POST(request);
       expect(response.status).toBe(200);
-      // canUpload is called with isSupporter=true
-      expect(vi.mocked(canUpload)).toHaveBeenCalledWith('user-123', true);
+      expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', true);
     });
   });
 
@@ -537,7 +533,7 @@ describe('POST /api/uploads/presign', () => {
       expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
     });
 
-    it('should not call incrementUsage at presign time (deferred to complete endpoint)', async () => {
+    it('should call incrementUsageIfAllowed at presign time (authoritative quota enforcement)', async () => {
       const request = createRequest(
         {
           filename: 'test.mp4',
@@ -550,12 +546,14 @@ describe('POST /api/uploads/presign', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(200);
-      expect(vi.mocked(incrementUsage)).not.toHaveBeenCalled();
+      expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', false);
     });
 
-    it('should not increment usage when quota is exceeded', async () => {
-      vi.mocked(canUpload).mockResolvedValueOnce(false);
-      vi.mocked(getMonthlyUsage).mockResolvedValueOnce(10);
+    it('should not create an UploadJob when quota is exceeded', async () => {
+      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
+        allowed: false,
+        monthlyUsage: 10,
+      });
 
       const request = createRequest(
         {
@@ -569,7 +567,7 @@ describe('POST /api/uploads/presign', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(403);
-      expect(vi.mocked(incrementUsage)).not.toHaveBeenCalled();
+      expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
     });
 
     it('should create an UploadJob with draftId when provided', async () => {
