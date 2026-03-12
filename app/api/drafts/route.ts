@@ -8,36 +8,9 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
-import type { ApiResponse, Draft } from '@/types';
-
-// ---------------------------------------------------------------------------
-// Shared auth helper
-// ---------------------------------------------------------------------------
-
-async function getAuthenticatedUserId(req: NextRequest): Promise<string | null> {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const cookieName = projectId ? getSessionCookieName(projectId) : null;
-  const sessionSecret = cookieName ? req.cookies.get(cookieName)?.value : null;
-
-  if (!endpoint || !projectId || !sessionSecret) return null;
-
-  try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-
-    const account = new Account(client);
-    const user = await account.get();
-    return user.$id;
-  } catch {
-    return null;
-  }
-}
+import type { ApiResponse, ApiError, Draft } from '@/types';
 
 // ---------------------------------------------------------------------------
 // POST /api/drafts
@@ -46,36 +19,71 @@ async function getAuthenticatedUserId(req: NextRequest): Promise<string | null> 
 export async function POST(req: NextRequest) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    const errRes: ApiError = {
+      error: 'Unauthorized',
+      message: 'Not authenticated',
+      statusCode: 401,
+    };
+    return NextResponse.json(errRes, { status: 401 });
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'Invalid JSON body',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
   }
 
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    return NextResponse.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'Request body must be a JSON object',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
   }
 
   const { title, description, tags } = body as Record<string, unknown>;
 
   if (!title || typeof title !== 'string' || title.trim() === '') {
-    return NextResponse.json({ error: 'title is required' }, { status: 400 });
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'title is required',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
   }
 
   if (description !== undefined && typeof description !== 'string') {
-    return NextResponse.json({ error: 'description must be a string' }, { status: 400 });
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'description must be a string',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
   }
 
   if (tags !== undefined && !Array.isArray(tags)) {
-    return NextResponse.json({ error: 'tags must be an array of strings' }, { status: 400 });
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'tags must be an array of strings',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
   }
 
   if (Array.isArray(tags) && !tags.every((t) => typeof t === 'string')) {
-    return NextResponse.json({ error: 'tags must be an array of strings' }, { status: 400 });
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'tags must be an array of strings',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
   }
 
   try {
@@ -90,7 +98,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(response, { status: 201 });
   } catch (err) {
     console.error('[POST /api/drafts]', err);
-    return NextResponse.json({ error: 'Failed to create draft' }, { status: 500 });
+    const errRes: ApiError = {
+      error: 'Internal Server Error',
+      message: 'Failed to create draft',
+      statusCode: 500,
+    };
+    return NextResponse.json(errRes, { status: 500 });
   }
 }
 
@@ -101,7 +114,12 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    const errRes: ApiError = {
+      error: 'Unauthorized',
+      message: 'Not authenticated',
+      statusCode: 401,
+    };
+    return NextResponse.json(errRes, { status: 401 });
   }
 
   try {
@@ -110,6 +128,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(response);
   } catch (err) {
     console.error('[GET /api/drafts]', err);
-    return NextResponse.json({ error: 'Failed to list drafts' }, { status: 500 });
+    const errRes: ApiError = {
+      error: 'Internal Server Error',
+      message: 'Failed to list drafts',
+      statusCode: 500,
+    };
+    return NextResponse.json(errRes, { status: 500 });
   }
 }

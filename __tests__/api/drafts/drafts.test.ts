@@ -2,41 +2,19 @@
  * Tests for POST /api/drafts and GET /api/drafts
  *
  * Covers authentication, input validation, and successful responses.
- * Mocks Appwrite and the drafts repository to isolate route logic.
+ * Mocks the auth helper and drafts repository to isolate route logic.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 // ---------------------------------------------------------------------------
-// Mock node-appwrite — must be defined before importing the route
+// Mock shared auth helper
 // ---------------------------------------------------------------------------
 
-const mockAccountGet = vi.fn();
-
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-
-  function MockClient() {
-    return mockClient;
-  }
-
-  function MockAccount(_client: unknown) {
-    this.get = mockAccountGet;
-  }
-
-  return { Client: MockClient, Account: MockAccount };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: vi.fn(),
+}));
 
 // ---------------------------------------------------------------------------
 // Mock drafts repository
@@ -48,6 +26,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
 }));
 
 import { POST, GET } from '@/app/api/drafts/route';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
 
 // ---------------------------------------------------------------------------
@@ -94,13 +73,13 @@ const baseDraft = {
 
 describe('POST /api/drafts', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   describe('Authentication', () => {
@@ -109,11 +88,11 @@ describe('POST /api/drafts', () => {
       const res = await POST(req);
       expect(res.status).toBe(401);
       const body = await res.json();
-      expect(body.error).toBeTruthy();
+      expect(body.error).toMatch(/unauthorized/i);
     });
 
     it('returns 401 when Appwrite rejects the session', async () => {
-      mockAccountGet.mockRejectedValueOnce(new Error('Invalid session'));
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const req = makeRequest('POST', { title: 'Test' }, { [SESSION_COOKIE]: 'bad-token' });
       const res = await POST(req);
       expect(res.status).toBe(401);
@@ -122,7 +101,7 @@ describe('POST /api/drafts', () => {
 
   describe('Input validation', () => {
     beforeEach(() => {
-      mockAccountGet.mockResolvedValue({ $id: 'user-123' });
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     });
 
     it('returns 400 when title is missing', async () => {
@@ -130,7 +109,7 @@ describe('POST /api/drafts', () => {
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error).toMatch(/title/i);
+      expect(body.message).toMatch(/title/i);
     });
 
     it('returns 400 when title is an empty string', async () => {
@@ -138,7 +117,7 @@ describe('POST /api/drafts', () => {
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error).toMatch(/title/i);
+      expect(body.message).toMatch(/title/i);
     });
 
     it('returns 400 when tags is not an array', async () => {
@@ -150,7 +129,7 @@ describe('POST /api/drafts', () => {
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error).toMatch(/tags/i);
+      expect(body.message).toMatch(/tags/i);
     });
 
     it('returns 400 when tags contains non-string items', async () => {
@@ -172,7 +151,7 @@ describe('POST /api/drafts', () => {
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error).toMatch(/description/i);
+      expect(body.message).toMatch(/description/i);
     });
 
     it('accepts an empty string for description', async () => {
@@ -223,7 +202,7 @@ describe('POST /api/drafts', () => {
 
   describe('Successful creation', () => {
     beforeEach(() => {
-      mockAccountGet.mockResolvedValue({ $id: 'user-123' });
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     });
 
     it('creates a draft with all fields and returns 201', async () => {
@@ -282,7 +261,7 @@ describe('POST /api/drafts', () => {
 
   describe('Repository errors', () => {
     beforeEach(() => {
-      mockAccountGet.mockResolvedValue({ $id: 'user-123' });
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     });
 
     it('returns 500 when createDraft throws', async () => {
@@ -300,13 +279,13 @@ describe('POST /api/drafts', () => {
 
 describe('GET /api/drafts', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   describe('Authentication', () => {
@@ -317,7 +296,7 @@ describe('GET /api/drafts', () => {
     });
 
     it('returns 401 when Appwrite rejects the session', async () => {
-      mockAccountGet.mockRejectedValueOnce(new Error('Bad session'));
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'bad' });
       const res = await GET(req);
       expect(res.status).toBe(401);
@@ -326,7 +305,7 @@ describe('GET /api/drafts', () => {
 
   describe('Successful listing', () => {
     beforeEach(() => {
-      mockAccountGet.mockResolvedValue({ $id: 'user-123' });
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     });
 
     it('returns 200 with the user drafts list', async () => {
@@ -367,7 +346,7 @@ describe('GET /api/drafts', () => {
 
   describe('Repository errors', () => {
     beforeEach(() => {
-      mockAccountGet.mockResolvedValue({ $id: 'user-123' });
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     });
 
     it('returns 500 when listDraftsByUser throws', async () => {
