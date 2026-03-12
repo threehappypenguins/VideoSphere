@@ -1,13 +1,13 @@
 /**
  * POST /api/uploads/presign
  *
- * Generate a presigned URL for direct browser-to-R2 upload
+ * Generate a presigned URL for direct browser-to-R2 upload.
  *
  * Request body:
  * {
- *   filename: string          - Original filename (e.g., "my-video.mp4")
+ *   fileName: string          - Original filename (e.g., "my-video.mp4"); also accepts "filename"
  *   contentType: string       - MIME type (e.g., "video/mp4")
- *   uploadJobId?: string      - Link to upload job record (optional for now)
+ *   fileSize: number          - File size in bytes (must be ≤ 5 GB)
  * }
  *
  * Response (200 OK):
@@ -19,25 +19,45 @@
  * }
  *
  * Error responses:
- * - 400 Bad Request: Missing or invalid fields
+ * - 400 Bad Request: Missing or invalid fields, unsupported format, file too large
  * - 401 Unauthorized: Not authenticated
+ * - 403 Forbidden: Upload quota exceeded (free-tier limit reached)
  * - 500 Internal Server Error: R2 service error
  *
  * Security:
  * - Only authenticated users can request presigned URLs
  * - URLs expire in 15 minutes (NF-08)
  * - ContentType is locked in signature to prevent abuse
+ * - Format validated by both MIME type and file extension
+ * - If draftId is supplied, ownership is verified before creating an UploadJob
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
 import { getPresignedUploadUrl } from '@/lib/r2';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { canUpload, getMonthlyUsage } from '@/lib/repositories/upload-usage';
+import { getUserById } from '@/lib/repositories/users';
+import { createUploadJob } from '@/lib/repositories/upload-jobs';
+import { getDraftById } from '@/lib/repositories/drafts';
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
+const FREE_TIER_LIMIT = 10;
+
+const ALLOWED_MIME_TYPES = new Set([
+  'video/mp4',
+  'video/quicktime', // MOV
+  'video/x-msvideo', // AVI
+  'video/x-matroska', // MKV
+  'video/webm',
+]);
+
+const ALLOWED_EXTENSIONS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm']);
 
 interface PresignRequestBody {
   filename: string;
   contentType: string;
-  uploadJobId?: string;
+  fileSize?: number;
+  draftId?: string;
 }
 
 interface PresignResponse {
@@ -45,10 +65,16 @@ interface PresignResponse {
   key: string;
   bucketName: string;
   expiresIn: number;
+  uploadJobId: string;
+}
+
+function getExtension(filename: string): string {
+  const lastDot = filename.lastIndexOf('.');
+  return lastDot >= 0 ? filename.slice(lastDot).toLowerCase() : '';
 }
 
 /**
- * Validate request body
+ * Validate request body — accepts both "fileName" and "filename" for compatibility.
  */
 function validateRequest(body: unknown): {
   valid: boolean;
@@ -61,83 +87,72 @@ function validateRequest(body: unknown): {
 
   const req = body as Record<string, unknown>;
 
-  // Validate filename
-  if (typeof req.filename !== 'string' || req.filename.trim() === '') {
+  // Accept both "fileName" (issue spec) and "filename" (backward compat)
+  const rawFilename = req.fileName ?? req.filename;
+  if (typeof rawFilename !== 'string' || rawFilename.trim() === '') {
     return { valid: false, error: 'filename is required and must be non-empty' };
   }
 
-  // Validate contentType
   if (typeof req.contentType !== 'string' || req.contentType.trim() === '') {
+    return { valid: false, error: 'contentType is required and must be non-empty' };
+  }
+
+  if (!req.contentType.includes('/')) {
+    return { valid: false, error: 'contentType must be a valid MIME type (e.g., video/mp4)' };
+  }
+
+  // Validate format: both MIME type and extension must be allowed
+  const ext = getExtension(rawFilename.trim());
+  if (!ALLOWED_MIME_TYPES.has(req.contentType.trim()) || !ALLOWED_EXTENSIONS.has(ext)) {
     return {
       valid: false,
-      error: 'contentType is required and must be non-empty',
+      error: 'Unsupported file format. Accepted formats: MP4, MOV, AVI, MKV, WebM',
     };
   }
 
-  // Validate contentType format (must contain /)
-  if (!req.contentType.includes('/')) {
-    return {
-      valid: false,
-      error: 'contentType must be a valid MIME type (e.g., video/mp4)',
-    };
+  // Validate file size when provided
+  if (req.fileSize !== undefined) {
+    if (typeof req.fileSize !== 'number' || req.fileSize <= 0) {
+      return { valid: false, error: 'fileSize must be a positive number' };
+    }
+    if (req.fileSize > MAX_FILE_SIZE) {
+      return { valid: false, error: 'File exceeds the 5 GB maximum size limit' };
+    }
   }
 
   return {
     valid: true,
     data: {
-      filename: req.filename as string,
-      contentType: req.contentType as string,
-      uploadJobId: typeof req.uploadJobId === 'string' ? req.uploadJobId : undefined,
+      filename: rawFilename.trim(),
+      contentType: req.contentType.trim(),
+      fileSize: typeof req.fileSize === 'number' ? req.fileSize : undefined,
+      draftId:
+        typeof req.draftId === 'string' && req.draftId.trim() !== ''
+          ? req.draftId.trim()
+          : undefined,
     },
   };
 }
 
 /**
- * Generate R2 object key from filename and user
- *
- * Format: temp/uploads/{userId}/{timestamp}/{filename}
- * This keeps temp files organized by time
+ * Generate R2 object key: temp/uploads/{userId}/{timestamp}/{sanitized_filename}
+ * Path separators are stripped from the filename to prevent directory traversal.
  */
 function generateObjectKey(userId: string, filename: string): string {
-  // Remove path separators from filename to prevent directory traversal
-  const sanitized = filename.replace(/[\/\\]/g, '_');
-
-  // Generate timestamp-based path for organization
+  const sanitized = filename.replace(/[/\\]/g, '_');
   const timestamp = Date.now();
-
   return `temp/uploads/${userId}/${timestamp}/${sanitized}`;
 }
 
-/**
- * Handle POST request for presigned URL
- */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // Check authentication
-    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const cookieName = projectId ? getSessionCookieName(projectId) : null;
-    const sessionSecret = cookieName ? request.cookies.get(cookieName)?.value : null;
-
-    if (!endpoint || !projectId || !sessionSecret) {
+    // Verify session
+    const userId = await getAuthenticatedUserId(request);
+    if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized: Please log in to upload videos' },
         { status: 401 }
       );
-    }
-
-    // Get user from session
-    let userId: string;
-    try {
-      const client = new Client()
-        .setEndpoint(endpoint)
-        .setProject(projectId)
-        .setSession(sessionSecret);
-      const account = new Account(client);
-      const user = await account.get();
-      userId = user.$id;
-    } catch {
-      return NextResponse.json({ error: 'Unauthorized: Invalid session' }, { status: 401 });
     }
 
     // Parse and validate request body
@@ -153,36 +168,60 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const { filename, contentType, uploadJobId: _uploadJobId } = validation.data!;
+    const { filename, contentType, draftId } = validation.data!;
 
-    // Generate R2 object key
+    // If a draftId was supplied, verify the authenticated user owns that draft
+    if (draftId !== undefined) {
+      const draft = await getDraftById(draftId);
+      if (!draft) {
+        return NextResponse.json({ error: 'Draft not found' }, { status: 404 });
+      }
+      if (draft.userId !== userId) {
+        return NextResponse.json(
+          { error: 'Forbidden: you do not own this draft' },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Check upload quota — fetch user profile to determine supporter status
+    const user = await getUserById(userId);
+    const isSupporter = user?.isSupporter ?? false;
+    const allowed = await canUpload(userId, isSupporter);
+
+    if (!allowed) {
+      const monthlyUsage = await getMonthlyUsage(userId);
+      return NextResponse.json(
+        {
+          error: 'Upload limit reached',
+          message: `Free-tier users are limited to ${FREE_TIER_LIMIT} uploads per month. Upgrade to Supporter for unlimited uploads.`,
+          monthlyUsage,
+          limit: FREE_TIER_LIMIT,
+          isSupporter,
+        },
+        { status: 403 }
+      );
+    }
+
+    // Generate R2 object key and presigned upload URL
     const key = generateObjectKey(userId, filename);
-
-    // Get presigned upload URL from R2
     const uploadUrl = await getPresignedUploadUrl(key, contentType);
 
-    // TODO: Create upload job record in Appwrite database
-    // This would track:
-    // - uploadJobId (unique ID for this upload attempt)
-    // - userId (who uploaded)
-    // - filename (original name)
-    // - key (R2 object key)
-    // - status: 'pending' | 'uploading' | 'failed'
-    // - createdAt, updatedAt
+    // Create an UploadJob record to track this upload
+    const uploadJob = await createUploadJob({ userId, draftId: draftId ?? null });
 
     const response: PresignResponse = {
       uploadUrl,
       key,
       bucketName: process.env.R2_BUCKET_NAME || 'unknown',
-      expiresIn: 900, // 15 minutes
+      expiresIn: 900,
+      uploadJobId: uploadJob.id,
     };
 
     return NextResponse.json(response, { status: 200 });
   } catch (error) {
-    // Log error for debugging
     console.error('Presigned URL generation error:', error);
 
-    // Return generic error to client (don't leak internal details)
     return NextResponse.json(
       {
         error: 'Failed to generate upload URL. Please try again.',

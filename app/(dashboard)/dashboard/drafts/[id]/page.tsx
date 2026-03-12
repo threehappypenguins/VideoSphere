@@ -165,8 +165,14 @@ export default async function EditDraftPage({ params }: Props) {
               Save draft
             </button>
             <Link
-              href="/dashboard/drafts"
+              href={`/dashboard/drafts/${id}/upload`}
               className="rounded-lg border border-border px-6 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Upload Video
+            </Link>
+            <Link
+              href="/dashboard/drafts"
+              className="rounded-lg px-6 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
             >
               Cancel
             </Link>

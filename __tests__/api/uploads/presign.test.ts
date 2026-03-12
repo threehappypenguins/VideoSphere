@@ -1,8 +1,8 @@
 /**
  * Tests for POST /api/uploads/presign
  *
- * Tests request validation, authentication, and presigned URL generation.
- * Mocks external dependencies (Appwrite, R2) to isolate endpoint logic.
+ * Tests request validation, authentication, upload quota, and presigned URL generation.
+ * Mocks external dependencies (Appwrite, R2, repositories) to isolate endpoint logic.
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
@@ -45,8 +45,49 @@ vi.mock('@/lib/r2', () => ({
   }),
 }));
 
+// Mock user repository
+vi.mock('@/lib/repositories/users', () => ({
+  getUserById: vi.fn(async () => ({ userId: 'user-123', isSupporter: false })),
+}));
+
+// Mock upload-usage repository
+vi.mock('@/lib/repositories/upload-usage', () => ({
+  canUpload: vi.fn(async () => true),
+  getMonthlyUsage: vi.fn(async () => 5),
+}));
+
+// Mock drafts repository
+vi.mock('@/lib/repositories/drafts', () => ({
+  getDraftById: vi.fn(async () => ({
+    id: 'draft-abc',
+    userId: 'user-123',
+    title: 'Test Draft',
+    description: '',
+    tags: [],
+    createdAt: '',
+    updatedAt: '',
+  })),
+}));
+
+// Mock upload-jobs repository
+vi.mock('@/lib/repositories/upload-jobs', () => ({
+  createUploadJob: vi.fn(async () => ({
+    id: 'job-123',
+    userId: 'user-123',
+    draftId: null,
+    status: 'pending',
+    errorMessage: null,
+    createdAt: '',
+    updatedAt: '',
+  })),
+}));
+
 import { POST } from '@/app/api/uploads/presign/route';
 import { getPresignedUploadUrl } from '@/lib/r2';
+import { canUpload, getMonthlyUsage } from '@/lib/repositories/upload-usage';
+import { getUserById } from '@/lib/repositories/users';
+import { createUploadJob } from '@/lib/repositories/upload-jobs';
+import { getDraftById } from '@/lib/repositories/drafts';
 
 function createRequest(
   body: Record<string, unknown>,
@@ -84,6 +125,38 @@ describe('POST /api/uploads/presign', () => {
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     process.env.R2_BUCKET_NAME = 'test-bucket';
+
+    // Default: authenticated user, supporter=false, quota OK
+    mockGet.mockResolvedValue({ $id: 'user-123' });
+    vi.mocked(getUserById).mockResolvedValue({
+      userId: 'user-123',
+      isSupporter: false,
+      email: 'test@example.com',
+      role: 'user',
+      createdAt: '',
+      updatedAt: '',
+    });
+    vi.mocked(canUpload).mockResolvedValue(true);
+    vi.mocked(getMonthlyUsage).mockResolvedValue(5);
+    vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example.com/upload?signed=true');
+    vi.mocked(createUploadJob).mockResolvedValue({
+      id: 'job-123',
+      userId: 'user-123',
+      draftId: null,
+      status: 'pending',
+      errorMessage: null,
+      createdAt: '',
+      updatedAt: '',
+    });
+    vi.mocked(getDraftById).mockResolvedValue({
+      id: 'draft-abc',
+      userId: 'user-123',
+      title: 'Test Draft',
+      description: '',
+      tags: [],
+      createdAt: '',
+      updatedAt: '',
+    });
   });
 
   afterEach(() => {
@@ -110,13 +183,9 @@ describe('POST /api/uploads/presign', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(401);
-      const body = await response.json();
-      expect(body.error).toContain('Invalid session');
     });
 
     it('should authenticate successfully with valid session', async () => {
-      mockGet.mockResolvedValueOnce({ $id: 'user-123' });
-
       const request = createRequest(
         { filename: 'test.mp4', contentType: 'video/mp4' },
         { 'a_session_test-project': 'valid-token' }
@@ -128,10 +197,6 @@ describe('POST /api/uploads/presign', () => {
   });
 
   describe('Request Validation', () => {
-    beforeEach(() => {
-      mockGet.mockResolvedValue({ $id: 'user-123' });
-    });
-
     it('should return 400 when filename is missing', async () => {
       const request = createRequest(
         { contentType: 'video/mp4' },
@@ -220,16 +285,151 @@ describe('POST /api/uploads/presign', () => {
       const body = await response.json();
       expect(body.error).toContain('Invalid JSON');
     });
+
+    it('should accept fileName (camelCase) as well as filename', async () => {
+      const request = createRequest(
+        { fileName: 'test.mp4', contentType: 'video/mp4' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+    });
+  });
+
+  describe('Format Validation', () => {
+    const validCases = [
+      { filename: 'video.mp4', contentType: 'video/mp4' },
+      { filename: 'video.mov', contentType: 'video/quicktime' },
+      { filename: 'video.avi', contentType: 'video/x-msvideo' },
+      { filename: 'video.mkv', contentType: 'video/x-matroska' },
+      { filename: 'video.webm', contentType: 'video/webm' },
+    ];
+
+    for (const { filename, contentType } of validCases) {
+      it(`should accept ${filename} (${contentType})`, async () => {
+        const request = createRequest(
+          { filename, contentType },
+          { 'a_session_test-project': 'token' }
+        );
+        const response = await POST(request);
+        expect(response.status).toBe(200);
+      });
+    }
+
+    it('should reject unsupported MIME type', async () => {
+      const request = createRequest(
+        { filename: 'video.mp4', contentType: 'video/mpeg' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('Unsupported file format');
+    });
+
+    it('should reject unsupported extension even with valid MIME type', async () => {
+      const request = createRequest(
+        { filename: 'video.flv', contentType: 'video/mp4' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('Unsupported file format');
+    });
+  });
+
+  describe('File Size Validation', () => {
+    it('should accept a file within the 5 GB limit', async () => {
+      const request = createRequest(
+        {
+          filename: 'video.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1 * 1024 * 1024 * 1024, // 1 GB
+        },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+    });
+
+    it('should reject a file over 5 GB', async () => {
+      const request = createRequest(
+        {
+          filename: 'video.mp4',
+          contentType: 'video/mp4',
+          fileSize: 6 * 1024 * 1024 * 1024, // 6 GB
+        },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('5 GB');
+    });
+
+    it('should reject an invalid (non-positive) fileSize', async () => {
+      const request = createRequest(
+        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: -1 },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe('Upload Quota', () => {
+    it('should return 403 when free-tier quota is exceeded', async () => {
+      vi.mocked(canUpload).mockResolvedValueOnce(false);
+      vi.mocked(getMonthlyUsage).mockResolvedValueOnce(10);
+
+      const request = createRequest(
+        { filename: 'test.mp4', contentType: 'video/mp4' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toContain('Upload limit reached');
+      expect(body.monthlyUsage).toBe(10);
+      expect(body.limit).toBe(10);
+    });
+
+    it('should allow upload when quota is not exceeded', async () => {
+      vi.mocked(canUpload).mockResolvedValueOnce(true);
+
+      const request = createRequest(
+        { filename: 'test.mp4', contentType: 'video/mp4' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+    });
+
+    it('should allow supporters to upload regardless of count', async () => {
+      vi.mocked(getUserById).mockResolvedValueOnce({
+        userId: 'user-123',
+        isSupporter: true,
+        email: 'supporter@example.com',
+        role: 'user',
+        createdAt: '',
+        updatedAt: '',
+      });
+      vi.mocked(canUpload).mockResolvedValueOnce(true);
+
+      const request = createRequest(
+        { filename: 'test.mp4', contentType: 'video/mp4' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(200);
+      // canUpload is called with isSupporter=true
+      expect(vi.mocked(canUpload)).toHaveBeenCalledWith('user-123', true);
+    });
   });
 
   describe('Presigned URL Generation', () => {
-    beforeEach(() => {
-      mockGet.mockResolvedValue({ $id: 'user-123' });
-      vi.mocked(getPresignedUploadUrl).mockResolvedValue(
-        'https://r2.example.com/upload?signed=true'
-      );
-    });
-
     it('should generate presigned URL response with correct fields', async () => {
       const request = createRequest(
         { filename: 'test.mp4', contentType: 'video/mp4' },
@@ -245,6 +445,71 @@ describe('POST /api/uploads/presign', () => {
       expect(body).toHaveProperty('bucketName');
       expect(body).toHaveProperty('expiresIn');
       expect(body.expiresIn).toBe(900);
+      expect(body).toHaveProperty('uploadJobId', 'job-123');
+    });
+
+    it('should create an UploadJob with no draftId when not provided', async () => {
+      const request = createRequest(
+        { filename: 'test.mp4', contentType: 'video/mp4' },
+        { 'a_session_test-project': 'token' }
+      );
+      await POST(request);
+
+      expect(vi.mocked(createUploadJob)).toHaveBeenCalledWith({
+        userId: 'user-123',
+        draftId: null,
+      });
+    });
+
+    it('should create an UploadJob with draftId when provided', async () => {
+      const request = createRequest(
+        { filename: 'test.mp4', contentType: 'video/mp4', draftId: 'draft-abc' },
+        { 'a_session_test-project': 'token' }
+      );
+      await POST(request);
+
+      expect(vi.mocked(createUploadJob)).toHaveBeenCalledWith({
+        userId: 'user-123',
+        draftId: 'draft-abc',
+      });
+    });
+
+    it('should return 404 when draftId does not exist', async () => {
+      vi.mocked(getDraftById).mockResolvedValueOnce(null);
+
+      const request = createRequest(
+        { filename: 'test.mp4', contentType: 'video/mp4', draftId: 'nonexistent-draft' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+
+      expect(response.status).toBe(404);
+      const body = await response.json();
+      expect(body.error).toContain('Draft not found');
+      expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
+    });
+
+    it('should return 403 when draftId belongs to a different user', async () => {
+      vi.mocked(getDraftById).mockResolvedValueOnce({
+        id: 'draft-other',
+        userId: 'other-user-999',
+        title: 'Someone Else Draft',
+        description: '',
+        tags: [],
+        createdAt: '',
+        updatedAt: '',
+      });
+
+      const request = createRequest(
+        { filename: 'test.mp4', contentType: 'video/mp4', draftId: 'draft-other' },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error).toContain('Forbidden');
+      expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
     });
 
     it('should include object key in response', async () => {
@@ -308,10 +573,6 @@ describe('POST /api/uploads/presign', () => {
   });
 
   describe('Error Handling', () => {
-    beforeEach(() => {
-      mockGet.mockResolvedValue({ $id: 'user-123' });
-    });
-
     it('should return 500 and error message when R2 service fails', async () => {
       vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 service unavailable'));
 
