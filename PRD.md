@@ -525,7 +525,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | POST   | `/api/drafts`              | Create a new draft                 | Yes           |
 | GET    | `/api/drafts`              | List user's drafts                 | Yes           |
 | GET    | `/api/drafts/[id]`         | Get a specific draft               | Yes           |
-| PUT    | `/api/drafts/[id]`         | Update a draft                     | Yes           |
+| PATCH  | `/api/drafts/[id]`         | Update a draft                     | Yes           |
 | DELETE | `/api/drafts/[id]`         | Delete a draft                     | Yes           |
 
 ### Upload & Distribution Routes

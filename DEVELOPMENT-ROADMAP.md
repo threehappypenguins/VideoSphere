@@ -428,7 +428,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 - [ ] `POST /api/drafts` creates a new draft (title, description, tags, userId)
 - [ ] `GET /api/drafts` lists all drafts for the authenticated user
 - [ ] `GET /api/drafts/[id]` returns a specific draft (only if owned by the user)
-- [ ] `PUT /api/drafts/[id]` updates a draft's fields
+- [ ] `PATCH /api/drafts/[id]` updates a draft's fields (partial update)
 - [ ] `DELETE /api/drafts/[id]` deletes a draft
 - [ ] All routes require authentication (return 401 if not logged in)
 - [ ] All routes validate input (return 400 on malformed data)
