@@ -19,6 +19,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -78,21 +79,33 @@ function getR2Client(): S3Client {
  *
  * @param key - Object key in R2 bucket (e.g., "users/123/videos/abc.mp4")
  * @param contentType - MIME type of file being uploaded (e.g., "video/mp4")
+ * @param contentLength - Exact file size in bytes; locked into the URL signature
  * @returns Presigned PUT URL that expires in 15 minutes
  *
- * Security: Content-Type is part of the signature, preventing upload of wrong file types
+ * Security:
+ * - Content-Type is part of the signature, preventing upload of wrong file types
+ * - Content-Length is part of the signature; the PUT must declare the exact byte
+ *   count that was signed — a mismatched Content-Length on the PUT request will
+ *   fail R2's signature verification and the upload will be rejected
  *
  * @example
- * const url = await getPresignedUploadUrl("users/123/video.mp4", "video/mp4");
+ * const url = await getPresignedUploadUrl("users/123/video.mp4", "video/mp4", 1024 * 1024);
  * // Client can now PUT file directly to R2 with this URL
  * fetch(url, { method: "PUT", body: file, headers: { "content-type": "video/mp4" } })
  */
-export async function getPresignedUploadUrl(key: string, contentType: string): Promise<string> {
+export async function getPresignedUploadUrl(
+  key: string,
+  contentType: string,
+  contentLength: number
+): Promise<string> {
   if (!key) {
     throw new Error('Object key is required');
   }
   if (!contentType) {
     throw new Error('Content type is required');
+  }
+  if (!contentLength || contentLength <= 0) {
+    throw new Error('Content length must be a positive number');
   }
 
   const client = getR2Client();
@@ -101,13 +114,16 @@ export async function getPresignedUploadUrl(key: string, contentType: string): P
     Bucket: process.env.R2_BUCKET_NAME!,
     Key: key,
     ContentType: contentType,
+    ContentLength: contentLength,
   });
 
   try {
     const url = await getSignedUrl(client, command, {
       expiresIn: UPLOAD_URL_EXPIRY,
-      // Include content-type in signature to prevent content-type mismatch attacks
-      signableHeaders: new Set([CONTENT_TYPE_HEADER]),
+      // Include both content-type and content-length in the signature:
+      // - content-type: prevents MIME-type abuse
+      // - content-length: binds the URL to the exact declared byte count
+      signableHeaders: new Set([CONTENT_TYPE_HEADER, 'content-length']),
     });
 
     return url;
@@ -185,6 +201,37 @@ export async function deleteObject(key: string): Promise<void> {
   } catch (error) {
     throw new Error(
       `Failed to delete object "${key}": ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/**
+ * Retrieve object metadata (HEAD request) from R2 bucket.
+ * Used by the upload complete endpoint to verify the actual stored byte size
+ * before the quota counter is incremented.
+ *
+ * @param key - Object key in R2 bucket
+ * @returns Actual size of the stored object in bytes (0 if ContentLength is absent)
+ * @throws When the object does not exist or the HEAD request fails
+ */
+export async function headObject(key: string): Promise<number> {
+  if (!key) {
+    throw new Error('Object key is required');
+  }
+
+  const client = getR2Client();
+
+  const command = new HeadObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: key,
+  });
+
+  try {
+    const response = await client.send(command);
+    return response.ContentLength ?? 0;
+  } catch (error) {
+    throw new Error(
+      `Failed to HEAD object "${key}": ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }

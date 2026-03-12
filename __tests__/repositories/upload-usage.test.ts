@@ -29,7 +29,12 @@ vi.mock('@/lib/appwrite', () => ({
   default: {},
 }));
 
-import { getMonthlyUsage, incrementUsage, canUpload } from '@/lib/repositories/upload-usage';
+import {
+  getMonthlyUsage,
+  incrementUsage,
+  canUpload,
+  incrementUsageIfAllowed,
+} from '@/lib/repositories/upload-usage';
 
 beforeAll(() => {
   vi.useFakeTimers();
@@ -193,5 +198,73 @@ describe('canUpload', () => {
     const result = await canUpload('user-1', false);
 
     expect(result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// incrementUsageIfAllowed
+// ---------------------------------------------------------------------------
+
+describe('incrementUsageIfAllowed', () => {
+  it('returns { allowed: true } for a supporter without touching the counter', async () => {
+    const result = await incrementUsageIfAllowed('user-1', true);
+
+    expect(result).toEqual({ allowed: true, monthlyUsage: 0 });
+    expect(mockIncrementRowColumn).not.toHaveBeenCalled();
+    expect(mockGetRow).not.toHaveBeenCalled();
+  });
+
+  it('returns { allowed: true } when count after increment is within the limit', async () => {
+    // incrementUsage path: incrementRowColumn succeeds
+    mockIncrementRowColumn.mockResolvedValueOnce({});
+    // getMonthlyUsage read-back: count is 5 (within limit of 10)
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 5 });
+
+    const result = await incrementUsageIfAllowed('user-1', false);
+
+    expect(result).toEqual({ allowed: true, monthlyUsage: 5 });
+    // Only one incrementRowColumn call (no rollback)
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(1);
+    expect(mockIncrementRowColumn).toHaveBeenCalledWith(
+      expect.objectContaining({ column: 'uploadCount', value: 1 })
+    );
+  });
+
+  it('rolls back and returns { allowed: false } when count exceeds the limit', async () => {
+    // incrementUsage path: incrementRowColumn succeeds
+    mockIncrementRowColumn.mockResolvedValue({});
+    // getMonthlyUsage read-back: count is 11 (over limit of 10)
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
+
+    const result = await incrementUsageIfAllowed('user-1', false);
+
+    expect(result).toEqual({ allowed: false, monthlyUsage: 10 });
+    // Two incrementRowColumn calls: +1 (claim) and -1 (rollback)
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(2);
+    expect(mockIncrementRowColumn).toHaveBeenLastCalledWith(
+      expect.objectContaining({ column: 'uploadCount', value: -1 })
+    );
+  });
+
+  it('returns { allowed: true } when count equals the limit exactly', async () => {
+    mockIncrementRowColumn.mockResolvedValueOnce({});
+    // count = 10, limit = 10: still allowed (10 ≤ 10)
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 10 });
+
+    const result = await incrementUsageIfAllowed('user-1', false);
+
+    expect(result).toEqual({ allowed: true, monthlyUsage: 10 });
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(1);
+  });
+
+  it('respects a custom limit', async () => {
+    mockIncrementRowColumn.mockResolvedValue({});
+    // count = 6, limit = 5: over custom limit
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 6 });
+
+    const result = await incrementUsageIfAllowed('user-1', false, 5);
+
+    expect(result).toEqual({ allowed: false, monthlyUsage: 5 });
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(2);
   });
 });

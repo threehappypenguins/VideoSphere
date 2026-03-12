@@ -175,21 +175,34 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       });
 
       xhr.addEventListener('load', () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          setState({
-            phase: 'success',
-            file,
-            uploadJobId: presignData.uploadJobId,
-            r2Key: presignData.key,
-          });
-        } else {
-          setState({
-            phase: 'error',
-            message: `Upload failed (HTTP ${xhr.status}). Please try again.`,
-          });
-        }
-        xhrRef.current = null;
-        resolve();
+        // Use an async IIFE so we can await the finalize call before resolving
+        (async () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            // Notify the server that the R2 PUT succeeded so quota is recorded
+            // and the UploadJob status is advanced. Best-effort: a failure here
+            // must not prevent the user from seeing the success state.
+            try {
+              await fetch(`/api/uploads/${presignData.uploadJobId}/complete`, {
+                method: 'POST',
+              });
+            } catch {
+              console.error('Failed to record upload completion');
+            }
+            setState({
+              phase: 'success',
+              file,
+              uploadJobId: presignData.uploadJobId,
+              r2Key: presignData.key,
+            });
+          } else {
+            setState({
+              phase: 'error',
+              message: `Upload failed (HTTP ${xhr.status}). Please try again.`,
+            });
+          }
+          xhrRef.current = null;
+          resolve();
+        })();
       });
 
       xhr.addEventListener('error', () => {
@@ -200,6 +213,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
 
       xhr.addEventListener('abort', () => {
         setState({ phase: 'idle' });
+        if (inputRef.current) inputRef.current.value = '';
         xhrRef.current = null;
         resolve();
       });

@@ -537,33 +537,7 @@ describe('POST /api/uploads/presign', () => {
       expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
     });
 
-    it('should increment usage for free-tier users after UploadJob is created', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { 'a_session_test-project': 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(incrementUsage)).toHaveBeenCalledWith('user-123');
-    });
-
-    it('should not increment usage for supporter users', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce({
-        userId: 'user-123',
-        isSupporter: true,
-        email: 'supporter@example.com',
-        role: 'user',
-        createdAt: '',
-        updatedAt: '',
-      });
-      vi.mocked(canUpload).mockResolvedValueOnce(true);
-
+    it('should not call incrementUsage at presign time (deferred to complete endpoint)', async () => {
       const request = createRequest(
         {
           filename: 'test.mp4',
@@ -699,7 +673,7 @@ describe('POST /api/uploads/presign', () => {
       expect(body.key).toContain('path_to_test.mp4');
     });
 
-    it('should call R2 getPresignedUploadUrl with key and contentType', async () => {
+    it('should call R2 getPresignedUploadUrl with key, contentType, and fileSize', async () => {
       const request = createRequest(
         {
           filename: 'video.mp4',
@@ -713,14 +687,15 @@ describe('POST /api/uploads/presign', () => {
 
       expect(vi.mocked(getPresignedUploadUrl)).toHaveBeenCalledWith(
         expect.stringContaining('temp/uploads/user-123/'),
-        'video/mp4'
+        'video/mp4',
+        1024 * 1024
       );
     });
 
-    it('should generate unique keys with timestamps for different uploads', async () => {
+    it('should generate unique keys even for same-millisecond requests (UUID component)', async () => {
       const request1 = createRequest(
         {
-          filename: 'video1.mp4',
+          filename: 'video.mp4',
           contentType: 'video/mp4',
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
@@ -730,13 +705,11 @@ describe('POST /api/uploads/presign', () => {
       const response1 = await POST(request1);
       const body1 = await response1.json();
 
-      // Small delay to ensure different timestamp
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
+      // No delay needed — uniqueness comes from UUID, not timestamp
       mockGet.mockResolvedValueOnce({ $id: 'user-123' });
       const request2 = createRequest(
         {
-          filename: 'video2.mp4',
+          filename: 'video.mp4',
           contentType: 'video/mp4',
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
@@ -747,6 +720,24 @@ describe('POST /api/uploads/presign', () => {
       const body2 = await response2.json();
 
       expect(body1.key).not.toBe(body2.key);
+    });
+
+    it('should include a UUID segment in the generated key', async () => {
+      const request = createRequest(
+        {
+          filename: 'video.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1024 * 1024,
+          draftId: 'draft-abc',
+        },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      const body = await response.json();
+
+      // Key format: temp/uploads/{userId}/{timestamp}-{uuid}/{filename}
+      const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+      expect(uuidRegex.test(body.key)).toBe(true);
     });
   });
 

@@ -37,7 +37,11 @@
  * Security:
  * - Only authenticated users can request presigned URLs
  * - URLs expire in 15 minutes (NF-08)
- * - ContentType is locked in the presigned signature to prevent MIME-type abuse
+ * - ContentType AND ContentLength are locked in the presigned signature; a PUT
+ *   with a mismatched Content-Length header fails R2's signature check
+ *   (server-side size enforcement — layer 1)
+ * - Actual object byte size is verified server-side in POST /api/uploads/[jobId]/complete
+ *   via a HEAD request after the upload completes (layer 2)
  * - Format validated by both MIME type and file extension
  * - draftId is required; ownership is verified (draft.userId === authenticatedUserId)
  *   before creating an UploadJob — prevents IDOR attacks
@@ -46,7 +50,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPresignedUploadUrl } from '@/lib/r2';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { canUpload, getMonthlyUsage, incrementUsage } from '@/lib/repositories/upload-usage';
+import { canUpload, getMonthlyUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -147,13 +151,16 @@ function validateRequest(body: unknown): {
 }
 
 /**
- * Generate R2 object key: temp/uploads/{userId}/{timestamp}/{sanitized_filename}
- * Path separators are stripped from the filename to prevent directory traversal.
+ * Generate R2 object key: temp/uploads/{userId}/{timestamp}-{uuid}/{sanitized_filename}
+ * - Timestamp prefix keeps objects coarsely sorted by upload time
+ * - UUID suffix guarantees uniqueness even for concurrent same-millisecond requests
+ * - Path separators are stripped from the filename to prevent directory traversal
  */
 function generateObjectKey(userId: string, filename: string): string {
   const sanitized = filename.replace(/[/\\]/g, '_');
   const timestamp = Date.now();
-  return `temp/uploads/${userId}/${timestamp}/${sanitized}`;
+  const uid = crypto.randomUUID();
+  return `temp/uploads/${userId}/${timestamp}-${uid}/${sanitized}`;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -180,7 +187,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const { filename, contentType, draftId } = validation.data!;
+    const { filename, contentType, fileSize, draftId } = validation.data!;
 
     // Verify the authenticated user owns the draft (draftId is always present after validation)
     const draft = await getDraftById(draftId);
@@ -191,7 +198,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Forbidden: you do not own this draft' }, { status: 403 });
     }
 
-    // Check upload quota — fetch user profile to determine supporter status
+    // Pre-flight quota check — provides fast UX feedback before issuing a
+    // presigned URL. This check is advisory only (non-atomic read); the
+    // authoritative atomic enforcement is in POST /api/uploads/[jobId]/complete.
     const user = await getUserById(userId);
     const isSupporter = user?.isSupporter ?? false;
     const allowed = await canUpload(userId, isSupporter);
@@ -212,18 +221,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Generate R2 object key and presigned upload URL
     const key = generateObjectKey(userId, filename);
-    const uploadUrl = await getPresignedUploadUrl(key, contentType);
+    const uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
 
     // Create an UploadJob record to track this upload, storing the R2 key so the
     // distribution step can locate the uploaded object without an extra round-trip.
     const uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
 
-    // Increment the monthly usage counter for free-tier users.
-    // TODO(Issue #23): move this call to the distribution-initiation endpoint
-    // once multi-platform distribution is implemented, per the PRD spec.
-    if (!isSupporter) {
-      await incrementUsage(userId);
-    }
+    // NOTE: usage is incremented in POST /api/uploads/[jobId]/complete (called by
+    // the client after a successful PUT to R2) so that cancelled or failed uploads
+    // do not consume the user's monthly quota.
 
     const response: PresignResponse = {
       uploadUrl,
