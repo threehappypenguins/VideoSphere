@@ -16,6 +16,7 @@
 // =============================================================================
 
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -35,40 +36,72 @@ export default function DashboardPage() {
         </div>
 
         {/* --- Stat Cards --- */}
-        {/* STUDENT: Replace these with real data from your database */}
         <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-border bg-background p-6">
-            <p className="text-sm font-medium text-muted-foreground">[Stat Label 1]</p>
+            <p className="text-sm font-medium text-muted-foreground">Drafts</p>
             <p className="mt-2 text-3xl font-bold text-foreground">0</p>
           </div>
           <div className="rounded-xl border border-border bg-background p-6">
-            <p className="text-sm font-medium text-muted-foreground">[Stat Label 2]</p>
+            <p className="text-sm font-medium text-muted-foreground">Uploads this month</p>
             <p className="mt-2 text-3xl font-bold text-foreground">0</p>
           </div>
           <div className="rounded-xl border border-border bg-background p-6">
-            <p className="text-sm font-medium text-muted-foreground">[Stat Label 3]</p>
+            <p className="text-sm font-medium text-muted-foreground">Scheduled</p>
             <p className="mt-2 text-3xl font-bold text-foreground">0</p>
           </div>
           <div className="rounded-xl border border-border bg-background p-6">
-            <p className="text-sm font-medium text-muted-foreground">[Stat Label 4]</p>
+            <p className="text-sm font-medium text-muted-foreground">Completed</p>
             <p className="mt-2 text-3xl font-bold text-foreground">0</p>
           </div>
         </div>
 
-        {/* --- Main Content Area --- */}
-        {/* STUDENT: Build out your dashboard content here */}
+        {/* --- Quick Actions --- */}
+        <div className="mt-8">
+          <h2 className="text-lg font-semibold text-foreground">Quick actions</h2>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link
+              href="/dashboard/upload"
+              className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              New upload
+            </Link>
+            <Link
+              href="/dashboard/upload"
+              className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              New draft
+            </Link>
+            <Link
+              href="/dashboard/drafts"
+              className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              View drafts
+            </Link>
+          </div>
+        </div>
+
+        {/* --- Upload Jobs --- */}
         <div className="mt-8 rounded-xl border border-border bg-background p-8">
-          <h2 className="text-xl font-semibold text-foreground">[Dashboard Content]</h2>
-          <p className="mt-4 text-muted-foreground">
-            This is where your main dashboard content will go. You might include:
-          </p>
-          <ul className="mt-4 list-inside list-disc space-y-2 text-sm text-muted-foreground">
-            <li>Recent activity feed</li>
-            <li>Data tables or lists</li>
-            <li>Charts and visualizations</li>
-            <li>Quick action buttons</li>
-            <li>Notifications or alerts</li>
-          </ul>
+          <h2 className="text-xl font-semibold text-foreground">Upload jobs</h2>
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Video</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Platform</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Status</th>
+                  <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-border">
+                  <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                    No jobs yet — your upload jobs will appear here.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
