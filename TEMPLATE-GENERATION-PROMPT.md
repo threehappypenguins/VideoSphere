@@ -189,7 +189,7 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 │   ├── payments.md
 │   ├── admin-guide.md
 │   └── enhancements.md
-├── middleware.ts
+├── proxy.ts
 ├── .env.example
 ├── .eslintrc.json
 ├── .prettierrc
@@ -291,7 +291,7 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 - Prominent comment block explaining:
   - This route is currently completely unprotected
   - Students must implement RBAC when they implement auth
-  - Reference to `middleware.ts` and `/docs/admin-guide.md`
+  - Reference to `proxy.ts` and `/docs/admin-guide.md`
   - Only users with an admin role should ever reach this page
 
 **Custom 404 Page** (`app/not-found.tsx`):
@@ -329,49 +329,18 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 
 ---
 
-## MIDDLEWARE STUB
+## PROXY STUB (ALREADY IMPLEMENTED)
 
-Generate `middleware.ts` at the root level as a commented stub only:
+**Note:** `proxy.ts` at the project root is already fully implemented with server-side route protection. **Do not generate, modify, or overwrite this file.** The existing implementation in the starter repository is the canonical source.
 
 ```typescript
-// =============================================================================
-// MIDDLEWARE STUB
-// =============================================================================
-// Next.js Middleware runs before every matched request and is the right place
-// to implement route protection, authentication checks, role-based access
-// control (RBAC), and redirects.
+// NOTE: The middleware proxy implementation for protected routes
+// (proxy.ts at the project root) already exists in the starter repository.
+// When using this template-generation prompt, DO NOT generate, modify,
+// or overwrite proxy.ts. Keep the existing implementation as-is.
 //
-// Currently this file does nothing — it is intentionally left for your team
-// to implement as part of your authentication and authorization work.
-//
-// STUDENT: When you have implemented authentication, this is where you would:
-// - Check if a user is authenticated before allowing access to protected routes
-// - Check if a user has the required role (e.g. 'admin') for admin-only routes
-// - Redirect unauthenticated users to the login page
-// - Redirect unauthorized users to an appropriate error or home page
-//
-// Important: Middleware alone is not sufficient for security — always validate
-// permissions on the server side as well (in your API routes or Server Actions)
-//
-// Helpful resources:
-// - Next.js Middleware: https://nextjs.org/docs/app/building-your-application/routing/middleware
-// - See /docs/admin-guide.md for context on protecting the admin route
-// - Your chosen auth provider will have specific middleware examples
-//   in their own documentation — refer to those when implementing
-//
-// The matcher config below shows which routes middleware would typically apply to.
-// This is commented out — do not uncomment until you have auth implemented.
-//
-// export const config = {
-//   matcher: [
-//     '/admin/:path*',
-//     '/dashboard/:path*',
-//     '/profile/:path*',
-//   ]
-// }
-// =============================================================================
-
-export {}
+// The actual code is intentionally omitted here to avoid duplication and
+// accidental drift between this prompt and the canonical source file.
 ```
 
 ---
@@ -842,10 +811,10 @@ Agreed by: [team member names and date]
 - The admin dashboard route in this project is currently completely unprotected
 - Why client-side protection alone is insufficient
 - Where protection should be implemented:
-  - `middleware.ts` — redirect before the page loads
+  - `proxy.ts` — redirects before the page loads (already implemented)
   - Server Components — check session/role server-side
   - API routes — verify role before returning sensitive data
-- Reference to `middleware.ts` stub
+- Reference to `proxy.ts` in the project root
 - How different BaaS providers handle roles:
   - Supabase — Row Level Security and user metadata
   - Firebase — Custom Claims

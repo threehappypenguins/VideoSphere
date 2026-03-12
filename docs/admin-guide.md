@@ -4,7 +4,7 @@
 
 The admin dashboard at `/admin/dashboard` provides a management interface for users with admin privileges. It's where admins can view analytics, manage users, moderate content, and configure the application.
 
-**In this template, the admin dashboard exists but is completely unprotected.** Securing it is your responsibility.
+**In this template, the admin dashboard route is protected by `proxy.ts` (already implemented), but the UI shell has no real data or role-aware behavior.** Adding that functionality is your responsibility.
 
 ## Role-Based Access Control (RBAC)
 
@@ -46,44 +46,29 @@ function isAdmin(user: User): boolean {
 
 ## Why Client-Side Protection Is Not Enough
 
-The current admin dashboard page renders for anyone who visits `/admin/dashboard`. This is a **critical security issue** that you must fix.
-
-Client-side checks (like `if (!isAdmin) return <Redirect />`) are **insufficient** because:
+Route-level protection for `/admin/*` is already handled by `proxy.ts`, but that alone is not enough. Client-side checks (like `if (!isAdmin) return <Redirect />`) are **insufficient** because:
 
 1. The page content is still sent to the browser — a user can inspect the HTML
 2. JavaScript can be disabled or modified
 3. API routes behind the dashboard are still accessible
 
-**You need server-side protection.**
+**You also need server-side protection inside pages and API routes.**
 
 ## Where to Implement Protection
 
-### 1. middleware.ts (Redirect Before Page Loads)
+### 1. proxy.ts (Redirect Before Page Loads)
 
-The `middleware.ts` file in the project root runs **before any page renders**. Use it to check authentication and role, then redirect unauthorized users.
+The `proxy.ts` file in the project root runs **before any page renders**. It is already fully implemented — it checks authentication and role, then redirects unauthorized users.
 
-```typescript
-// middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+The full implementation is in `proxy.ts` at the project root. Read that file directly — it is the canonical source. Do not duplicate it here to avoid drift.
 
-export function middleware(request: NextRequest) {
-  // STUDENT: Check the user's session/token here
-  const userRole = ''; // Get from session/cookie
+At a high level it:
 
-  if (request.nextUrl.pathname.startsWith('/admin')) {
-    if (userRole !== 'admin') {
-      return NextResponse.redirect(new URL('/', request.url));
-    }
-  }
-
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ['/admin/:path*'],
-};
-```
+1. Reads the session cookie using `getSessionCookieName` from `@/lib/auth-session-cookie`
+2. Redirects to `/login` if no session cookie is present (fast path — no network call)
+3. Calls `/api/auth/session` internally to verify the session is still valid
+4. For `/admin/*` routes, fetches the user's `role` field from the Appwrite `user_profiles` collection via the REST API
+5. Redirects non-admin users to `/dashboard`; fails closed to `/login` on any error
 
 ### 2. Server Components (Check Role Server-Side)
 
@@ -199,7 +184,7 @@ These are features your team should implement (they are not in the template):
 
 - [ ] Choose an auth/BaaS provider (Supabase, Firebase, Clerk, etc.)
 - [ ] Set up user roles in your auth system
-- [ ] Protect the admin route in `middleware.ts`
+- [x] Admin routes are protected via `proxy.ts` (already implemented — see project root)
 - [ ] Add server-side role checks in admin pages
 - [ ] Protect all admin API routes
 - [ ] Replace placeholder data with real database queries

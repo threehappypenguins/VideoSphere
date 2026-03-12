@@ -1,17 +1,15 @@
 // =============================================================================
 // ADMIN DASHBOARD
 // =============================================================================
-// ⚠️  WARNING: This page is currently COMPLETELY UNPROTECTED.
+// Route protection for /admin/* is already implemented in proxy.ts — only
+// users with the 'admin' role in the Appwrite user_profiles collection can
+// reach this page. Unauthenticated or non-admin users are redirected.
 //
-// ANY user can access /admin/dashboard right now. This is intentional in the
-// starter template — your team MUST implement proper access control.
-//
-// STUDENT: Before going to production, you MUST:
-//   1. Implement authentication (login/signup flow)
-//   2. Add a "role" field to your user model (e.g., 'user' | 'admin')
-//   3. Protect this route using middleware.ts (see the stub in the root)
-//   4. Verify the user's role in your Server Components and API routes
-//   5. Only users with an admin role should EVER reach this page
+// STUDENT: What you still need to do:
+//   1. Add server-side role checks inside this page and any admin API routes
+//      (proxy.ts protects the route, but pages/APIs should verify independently)
+//   2. Replace placeholder stat cards with real data from your database
+//   3. Build out user management, moderation, and analytics features
 //
 // Client-side checks alone are NOT sufficient for security.
 // A malicious user can bypass any client-side protection.
@@ -19,7 +17,7 @@
 //
 // See:
 //   - /docs/admin-guide.md for detailed RBAC implementation guidance
-//   - middleware.ts for the middleware stub
+//   - proxy.ts for the route protection logic
 //   - /docs/ai-usage-policy.md for responsible development practices
 // =============================================================================
 
@@ -37,8 +35,10 @@ export default function AdminDashboardPage() {
         {/* --- Warning Banner --- */}
         <div className="mb-8 rounded-lg border border-yellow-300 bg-yellow-50 p-4">
           <p className="text-sm font-medium text-yellow-800">
-            ⚠️ <strong>Unprotected Route:</strong> This admin dashboard is currently accessible to
-            everyone. Implement authentication and RBAC before deploying. See{' '}
+            ⚠️ <strong>Work in progress:</strong> Route protection is active via{' '}
+            <code className="rounded bg-yellow-100 px-1">proxy.ts</code>, but this page has no real
+            data or role-aware behavior yet. Add server-side checks and replace placeholder data
+            before deploying. See{' '}
             <code className="rounded bg-yellow-100 px-1">/docs/admin-guide.md</code> for guidance.
           </p>
         </div>

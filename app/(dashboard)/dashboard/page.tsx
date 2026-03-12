@@ -3,17 +3,16 @@
 // =============================================================================
 // This is the main authenticated user dashboard.
 //
-// STUDENT: This page is currently accessible to everyone — there is NO
-// authentication or route protection implemented.
+// Route protection is already implemented in proxy.ts — unauthenticated users
+// are redirected to /login before this page renders.
 //
-// What you need to do:
-//   1. Implement authentication (see your chosen auth provider's docs)
-//   2. Protect this route so only authenticated users can access it
-//   3. Replace placeholder data with real data from your database
-//   4. Build out the dashboard features your product needs
+// What you still need to do:
+//   1. Replace placeholder data with real data from your database
+//   2. Build out the dashboard features your product needs
+//   3. Add server-side role checks inside this page if needed
 //
-// See /docs/admin-guide.md for route protection guidance and middleware.ts
-// for where to implement auth checks.
+// See /docs/admin-guide.md for route protection guidance and proxy.ts
+// for the auth check implementation.
 // =============================================================================
 
 import type { Metadata } from 'next';
