@@ -22,6 +22,8 @@
  * - 401 Unauthorized: Not authenticated
  * - 403 Forbidden (ownership): UploadJob belongs to a different user
  * - 404 Not Found: UploadJob does not exist
+ * - 409 Conflict: UploadJob is not in the expected `pending` state
+ *                 (prevents re-finalizing completed, distributing, or failed jobs)
  * - 500 Internal Server Error
  *
  * Security:
@@ -33,7 +35,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { headObject, deleteObject } from '@/lib/r2';
+import { headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
@@ -64,6 +66,18 @@ export async function POST(
       );
     }
 
+    // Enforce the intended state transition: only a pending job may be finalized.
+    // Rejecting any other status prevents re-finalizing completed, distributing,
+    // or failed jobs via a second call to this endpoint.
+    if (job.status !== 'pending') {
+      return NextResponse.json(
+        {
+          error: `Upload job is already in '${job.status}' state and cannot be finalized again`,
+        },
+        { status: 409 }
+      );
+    }
+
     // Server-side size enforcement (layer 2): HEAD the actual R2 object and verify
     // it does not exceed the 5 GB cap. This catches any gap between the declared
     // fileSize (used to sign the Content-Length header at presign time) and the
@@ -75,7 +89,28 @@ export async function POST(
         { status: 400 }
       );
     }
-    const actualBytes = await headObject(job.r2Key);
+    let actualBytes: number;
+    try {
+      actualBytes = await headObject(job.r2Key);
+    } catch (err) {
+      if (err instanceof R2ObjectNotFoundError) {
+        // The object is absent — the upload never reached R2 (e.g. cancelled
+        // mid-flight or PUT failed). Mark the job failed so it doesn't linger
+        // as pending, then tell the client to treat this as a flow error.
+        await updateUploadJobStatus(
+          jobId,
+          'failed',
+          'Object not found in R2; upload may not have completed'
+        ).catch(() => {});
+        return NextResponse.json(
+          {
+            error: 'Upload not found in storage. The file may not have been uploaded successfully.',
+          },
+          { status: 404 }
+        );
+      }
+      throw err; // unexpected R2 error — fall through to outer catch → 500
+    }
     if (actualBytes > MAX_FILE_SIZE) {
       await Promise.allSettled([
         deleteObject(job.r2Key),
@@ -87,7 +122,7 @@ export async function POST(
       );
     }
 
-    // Transition: pending → uploading (R2 upload confirmed; awaiting distribution)
+    // Advance job: pending → uploading (R2 upload confirmed; awaiting distribution)
     await updateUploadJobStatus(jobId, 'uploading');
 
     return NextResponse.json({ success: true }, { status: 200 });

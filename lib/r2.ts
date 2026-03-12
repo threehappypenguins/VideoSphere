@@ -65,6 +65,18 @@ function createR2Client(): S3Client {
 let s3Client: S3Client | null = null;
 
 /**
+ * Thrown by headObject when the requested key does not exist in R2.
+ * Callers can catch this specifically to distinguish "object missing" from
+ * other R2 failures.
+ */
+export class R2ObjectNotFoundError extends Error {
+  constructor(key: string) {
+    super(`Object not found in R2: "${key}"`);
+    this.name = 'R2ObjectNotFoundError';
+  }
+}
+
+/**
  * Get or create S3 client for R2
  */
 function getR2Client(): S3Client {
@@ -208,11 +220,13 @@ export async function deleteObject(key: string): Promise<void> {
 /**
  * Retrieve object metadata (HEAD request) from R2 bucket.
  * Used by the upload complete endpoint to verify the actual stored byte size
- * before the quota counter is incremented.
+ * against the 5 GB cap. Quota is enforced earlier, at presign time, via
+ * incrementUsageIfAllowed in POST /api/uploads/presign.
  *
  * @param key - Object key in R2 bucket
  * @returns Actual size of the stored object in bytes (0 if ContentLength is absent)
- * @throws When the object does not exist or the HEAD request fails
+ * @throws {R2ObjectNotFoundError} When the object does not exist in R2
+ * @throws {Error} When the HEAD request fails for any other reason
  */
 export async function headObject(key: string): Promise<number> {
   if (!key) {
@@ -230,6 +244,15 @@ export async function headObject(key: string): Promise<number> {
     const response = await client.send(command);
     return response.ContentLength ?? 0;
   } catch (error) {
+    const status =
+      error != null &&
+      typeof error === 'object' &&
+      '$metadata' in error &&
+      typeof (error as { $metadata: unknown }).$metadata === 'object' &&
+      (error as { $metadata: { httpStatusCode?: number } }).$metadata.httpStatusCode;
+    if (status === 404) {
+      throw new R2ObjectNotFoundError(key);
+    }
     throw new Error(
       `Failed to HEAD object "${key}": ${error instanceof Error ? error.message : String(error)}`
     );

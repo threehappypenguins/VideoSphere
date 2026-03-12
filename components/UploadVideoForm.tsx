@@ -52,7 +52,7 @@ function validateFile(file: File): string | null {
 
 type UploadState =
   | { phase: 'idle' }
-  | { phase: 'quota-exceeded'; monthlyUsage: number }
+  | { phase: 'quota-exceeded'; monthlyUsage: number; limit: number }
   | { phase: 'selected'; file: File; error?: string }
   | { phase: 'uploading'; file: File; progress: number }
   | { phase: 'finalizing'; file: File; uploadJobId: string; r2Key: string }
@@ -140,10 +140,11 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       const json = await res.json();
 
       if (res.status === 403 && typeof json.monthlyUsage === 'number') {
-        // Quota-exceeded — the server includes monthlyUsage in the body
+        // Quota-exceeded — the server includes monthlyUsage and limit in the body
         setState({
           phase: 'quota-exceeded',
           monthlyUsage: json.monthlyUsage,
+          limit: typeof json.limit === 'number' ? json.limit : FREE_TIER_LIMIT,
         });
         setIsSupporter(json.isSupporter ?? false);
         return;
@@ -265,7 +266,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-5 text-center space-y-3">
           <p className="font-semibold text-destructive">Monthly upload limit reached</p>
           <p className="text-sm text-muted-foreground">
-            You have used {state.monthlyUsage} of {FREE_TIER_LIMIT} free uploads this month.
+            You have used {state.monthlyUsage} of {state.limit} free uploads this month.
           </p>
           <Link
             href="/pricing"
