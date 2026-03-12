@@ -163,11 +163,57 @@ describe('POST /api/drafts', () => {
       expect(res.status).toBe(400);
     });
 
+    it('returns 400 when description is not a string', async () => {
+      const req = makeRequest(
+        'POST',
+        { title: 'Valid', description: 42 },
+        { [SESSION_COOKIE]: 'tok' }
+      );
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toMatch(/description/i);
+    });
+
+    it('accepts an empty string for description', async () => {
+      vi.mocked(createDraft).mockResolvedValueOnce({ ...baseDraft, description: '' });
+      const req = makeRequest(
+        'POST',
+        { title: 'Valid', description: '' },
+        { [SESSION_COOKIE]: 'tok' }
+      );
+      const res = await POST(req);
+      expect(res.status).toBe(201);
+      expect(createDraft).toHaveBeenCalledWith(expect.objectContaining({ description: '' }));
+    });
+
     it('returns 400 when body is not valid JSON', async () => {
       const url = new URL('http://localhost:3000/api/drafts');
       const req = new NextRequest(url, {
         method: 'POST',
         body: 'not-json',
+        headers: { Cookie: `${SESSION_COOKIE}=tok`, 'Content-Type': 'application/json' },
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when body is JSON null', async () => {
+      const url = new URL('http://localhost:3000/api/drafts');
+      const req = new NextRequest(url, {
+        method: 'POST',
+        body: 'null',
+        headers: { Cookie: `${SESSION_COOKIE}=tok`, 'Content-Type': 'application/json' },
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when body is a JSON array', async () => {
+      const url = new URL('http://localhost:3000/api/drafts');
+      const req = new NextRequest(url, {
+        method: 'POST',
+        body: '["title","value"]',
         headers: { Cookie: `${SESSION_COOKIE}=tok`, 'Content-Type': 'application/json' },
       });
       const res = await POST(req);

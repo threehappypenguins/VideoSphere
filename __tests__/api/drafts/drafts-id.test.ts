@@ -286,11 +286,54 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(res.status).toBe(400);
     });
 
+    it('returns 400 when description is not a string', async () => {
+      const res = await PATCH(
+        makeRequest('PATCH', { description: 99 }, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toMatch(/description/i);
+    });
+
+    it('accepts an empty string to clear description', async () => {
+      const updated = { ...baseDraft, description: '' };
+      vi.mocked(updateDraft).mockResolvedValueOnce(updated);
+      const res = await PATCH(
+        makeRequest('PATCH', { description: '' }, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+      expect(res.status).toBe(200);
+      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { description: '' });
+    });
+
     it('returns 400 when body is not valid JSON', async () => {
       const url = new URL(`http://localhost:3000/api/drafts/${DRAFT_ID}`);
       const req = new NextRequest(url, {
         method: 'PATCH',
         body: 'not-json',
+        headers: { Cookie: `${SESSION_COOKIE}=tok`, 'Content-Type': 'application/json' },
+      });
+      const res = await PATCH(req, makeParams());
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when body is JSON null', async () => {
+      const url = new URL(`http://localhost:3000/api/drafts/${DRAFT_ID}`);
+      const req = new NextRequest(url, {
+        method: 'PATCH',
+        body: 'null',
+        headers: { Cookie: `${SESSION_COOKIE}=tok`, 'Content-Type': 'application/json' },
+      });
+      const res = await PATCH(req, makeParams());
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when body is a JSON array', async () => {
+      const url = new URL(`http://localhost:3000/api/drafts/${DRAFT_ID}`);
+      const req = new NextRequest(url, {
+        method: 'PATCH',
+        body: '["title","value"]',
         headers: { Cookie: `${SESSION_COOKIE}=tok`, 'Content-Type': 'application/json' },
       });
       const res = await PATCH(req, makeParams());

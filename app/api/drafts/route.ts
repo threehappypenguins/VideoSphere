@@ -56,10 +56,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
   const { title, description, tags } = body as Record<string, unknown>;
 
   if (!title || typeof title !== 'string' || title.trim() === '') {
     return NextResponse.json({ error: 'title is required' }, { status: 400 });
+  }
+
+  if (description !== undefined && typeof description !== 'string') {
+    return NextResponse.json({ error: 'description must be a string' }, { status: 400 });
   }
 
   if (tags !== undefined && !Array.isArray(tags)) {
@@ -74,7 +82,7 @@ export async function POST(req: NextRequest) {
     const draft = await createDraft({
       userId,
       title: title.trim(),
-      description: typeof description === 'string' ? description : '',
+      description: (description as string | undefined) ?? '',
       tags: Array.isArray(tags) ? (tags as string[]) : [],
     });
 

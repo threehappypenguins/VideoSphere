@@ -99,6 +99,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+
   const { title, description, tags } = body as Record<string, unknown>;
 
   // At least one field must be provided
@@ -111,6 +115,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (title !== undefined && (typeof title !== 'string' || title.trim() === '')) {
     return NextResponse.json({ error: 'title must be a non-empty string' }, { status: 400 });
+  }
+
+  if (description !== undefined && typeof description !== 'string') {
+    return NextResponse.json({ error: 'description must be a string' }, { status: 400 });
   }
 
   if (tags !== undefined && !Array.isArray(tags)) {
