@@ -377,7 +377,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #18 · `[TASK]` Set Up Cloudflare R2 Client & Presigned URL Utility
+### ✅ Issue #18 · `[TASK]` Set Up Cloudflare R2 Client & Presigned URL Utility
 
 **Task Description:** Create `lib/r2.ts` (or `lib/storage/r2.ts`) that configures the S3-compatible client for Cloudflare R2. Provide utility functions: `getPresignedUploadUrl(key, contentType)`, `deleteObject(key)`, `getObjectUrl(key)`.
 
@@ -387,11 +387,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] R2 client is configured using `@aws-sdk/client-s3` with env variables (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`)
-- [ ] `getPresignedUploadUrl(key, contentType)` returns a presigned PUT URL expiring in 15 minutes
-- [ ] `deleteObject(key)` removes an object from the R2 bucket
-- [ ] `getObjectUrl(key)` returns a presigned GET URL for the distribution engine to read the file
-- [ ] Environment variables are documented in `.env.example`
+- [x] R2 client is configured using `@aws-sdk/client-s3` with env variables (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`)
+- [x] `getPresignedUploadUrl(key, contentType)` returns a presigned PUT URL expiring in 15 minutes
+- [x] `deleteObject(key)` removes an object from the R2 bucket
+- [x] `getObjectUrl(key)` returns a presigned GET URL for the distribution engine to read the file
+- [x] Environment variables are documented in `.env.example`
 
 **Related Feature / Epic:** Video Upload & Storage (VU-04, NF-08)
 
@@ -444,44 +444,51 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ### Issue #21 · `[FEATURE]` Draft Creation & Edit UI
 
-**User Story:** As a user, I want a form to create and edit video drafts so that I can prepare metadata before distributing.
+**User Story:** As a user, I want a form to create and edit video drafts so that I can prepare metadata before distributing, choosing only the platforms I have connected and want to target.
 
 **Acceptance Criteria:**
 
 - [ ] `/dashboard/drafts` page lists all user drafts with title, created date, and action buttons (edit, delete)
 - [ ] "New Draft" button navigates to a create form
-- [ ] Draft form includes fields: title (required), description (textarea), tags (comma-separated or tag input), visibility selector
+- [ ] Draft form includes fields: title (required), description (textarea), tags (comma-separated or tag input)
+- [ ] The "Target Platforms" section loads the user's connected accounts from `GET /api/connected-accounts` and renders a toggle/checkbox for each; platforms the user has not connected are not selectable (show a "Connect" link instead)
+- [ ] Toggling a platform on reveals that platform's per-platform fields (visibility selector: public / unlisted / private); toggling it off hides and clears those fields
+- [ ] At least one platform must be toggled on before the form can be submitted
 - [ ] Form submits to the Draft API and shows success/error feedback
-- [ ] `/dashboard/drafts/[id]` loads an existing draft into the form for editing
+- [ ] `/dashboard/drafts/[id]` loads an existing draft into the form for editing, restoring previously selected platforms and their per-platform settings
 - [ ] Delete action shows a confirmation dialog before deleting
+- [ ] "Upload Video" button on the draft edit page navigates to `/dashboard/drafts/[id]/upload`
 
 **Priority:** P0 (High)
 
 **T-Shirt Size Estimate:** L (large — several days)
 
-**Additional Context:** PRD refs: DM-01, DM-02, DM-05, DM-07, US-12. Consider using shadcn/ui form components.
+**Additional Context:** PRD refs: DM-01, DM-02, DM-05, DM-07, DM-10, DM-11, DM-12, US-12. Consider using shadcn/ui form components. ⚠️ Depends on Issue #15 (Connected Accounts Repository) for loading the user's connected platforms.
 
 ---
 
-### Issue #22 · `[FEATURE]` Video File Upload to R2 with Progress Bar
+### ✅ Issue #22 · `[FEATURE]` Video File Upload to R2 with Progress Bar
 
-**User Story:** As a user, I want to upload a video file and see a progress bar so that I know how long the upload will take.
+**User Story:** As a user, I want to upload a video file from my draft's page and see a progress bar so that I know how long the upload will take.
 
 **Acceptance Criteria:**
 
-- [ ] Upload UI allows selecting a file via file picker or drag-and-drop
-- [ ] Client-side validation rejects files > 5 GB or unsupported formats (MP4, MOV, AVI, MKV, WebM) before upload begins
-- [ ] `POST /api/uploads/presign` returns a presigned R2 PUT URL
-- [ ] Client uploads directly to R2 via the presigned URL using `XMLHttpRequest` or `fetch` with progress tracking
-- [ ] A progress bar shows upload percentage and estimated time remaining
-- [ ] On success, the R2 object key is saved and associated with the draft/upload job
-- [ ] Error states are handled gracefully (network failure, timeout)
+- [x] Upload UI is accessible at `/dashboard/drafts/[id]/upload` via an "Upload Video" button on the draft edit page
+- [x] Upload UI allows selecting a file via file picker or drag-and-drop
+- [x] Client-side validation rejects files > 5 GB or unsupported formats (MP4, MOV, AVI, MKV, WebM) before upload begins
+- [x] `POST /api/uploads/presign` accepts `{ fileName, contentType, fileSize, draftId }` and returns a presigned R2 PUT URL plus an `uploadJobId`
+- [x] Client uploads directly to R2 via the presigned URL using `XMLHttpRequest` with progress tracking
+- [x] A progress bar shows upload percentage
+- [x] On success, an `UploadJob` record is created in Appwrite linked to the draft, and the `uploadJobId` is displayed to the user
+- [x] Upload can be cancelled mid-progress; progress bar resets and user can start a new upload
+- [x] Free-tier users who have reached the monthly limit (10 uploads) see a quota-exceeded message with an "Upgrade to Supporter" prompt instead of the upload form
+- [x] Error states are handled gracefully (network failure, timeout, server errors)
 
 **Priority:** P0 (High)
 
 **T-Shirt Size Estimate:** L (large — several days)
 
-**Additional Context:** PRD refs: VU-01 through VU-04, VU-08, US-05. ⚠️ Depends on Issue #18 (R2 Client).
+**Additional Context:** PRD refs: VU-01 through VU-04, VU-08, US-05. ⚠️ Depends on Issue #18 (R2 Client) and Issue #21 (Draft UI — provides the draft context and entry point).
 
 ---
 
@@ -505,7 +512,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #24 · `[TASK]` Cancel Upload Mid-Progress
+### ✅ Issue #24 · `[TASK]` Cancel Upload Mid-Progress
 
 **Task Description:** Allow users to cancel an in-progress file upload to R2. The `XMLHttpRequest` or `AbortController` should abort the upload and the UI should reset.
 
@@ -515,9 +522,9 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] A "Cancel" button is visible while an upload is in progress
-- [ ] Clicking "Cancel" aborts the upload request
-- [ ] The progress bar resets and the user can start a new upload
+- [x] A "Cancel" button is visible while an upload is in progress
+- [x] Clicking "Cancel" aborts the upload request
+- [x] The progress bar resets and the user can start a new upload
 - [ ] If partially uploaded, the R2 object is cleaned up (or left for TTL cleanup)
 
 **Related Feature / Epic:** Video Upload (VU-05)
