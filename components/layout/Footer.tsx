@@ -104,7 +104,7 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="https://github.com"
+                  href="https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team"
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                   target="_blank"
                   rel="noopener noreferrer"
