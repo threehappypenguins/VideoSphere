@@ -84,6 +84,7 @@ describe('POST /api/drafts', () => {
 
   describe('Authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const req = makeRequest('POST', { title: 'Test' });
       const res = await POST(req);
       expect(res.status).toBe(401);
@@ -290,6 +291,7 @@ describe('GET /api/drafts', () => {
 
   describe('Authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const req = makeRequest('GET');
       const res = await GET(req);
       expect(res.status).toBe(401);

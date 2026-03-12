@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const response: ApiResponse<Draft> = { data: draft };
     return NextResponse.json(response);
   } catch (err) {
-    console.error('[GET /api/drafts/[id]]', err);
+    console.error('[GET /api/drafts/:id]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'Failed to fetch draft',
@@ -73,7 +73,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     existing = await getDraftById(id);
   } catch (err) {
-    console.error('[PATCH /api/drafts/[id]] getDraftById', err);
+    console.error('[PATCH /api/drafts/:id] getDraftById', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'Failed to fetch draft',
@@ -171,7 +171,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const response: ApiResponse<Draft> = { data: updated, message: 'Draft updated' };
     return NextResponse.json(response);
   } catch (err) {
-    console.error('[PATCH /api/drafts/[id]]', err);
+    console.error('[PATCH /api/drafts/:id]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'Failed to update draft',
@@ -203,7 +203,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     existing = await getDraftById(id);
   } catch (err) {
-    console.error('[DELETE /api/drafts/[id]] getDraftById', err);
+    console.error('[DELETE /api/drafts/:id] getDraftById', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'Failed to fetch draft',
@@ -221,7 +221,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     await deleteDraft(id);
     return NextResponse.json({ data: null, message: 'Draft deleted' }, { status: 200 });
   } catch (err) {
-    console.error('[DELETE /api/drafts/[id]]', err);
+    console.error('[DELETE /api/drafts/:id]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'Failed to delete draft',

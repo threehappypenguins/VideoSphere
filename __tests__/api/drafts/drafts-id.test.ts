@@ -90,6 +90,7 @@ describe('GET /api/drafts/[id]', () => {
 
   describe('Authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const res = await GET(makeRequest('GET'), makeParams());
       expect(res.status).toBe(401);
     });
@@ -184,6 +185,7 @@ describe('PATCH /api/drafts/[id]', () => {
 
   describe('Authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeParams());
       expect(res.status).toBe(401);
     });
@@ -434,6 +436,7 @@ describe('DELETE /api/drafts/[id]', () => {
 
   describe('Authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const res = await DELETE(makeRequest('DELETE'), makeParams());
       expect(res.status).toBe(401);
     });
