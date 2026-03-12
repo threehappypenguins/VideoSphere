@@ -21,7 +21,7 @@ describe('DashboardPage Component', () => {
     it('should render all four stat cards with correct labels', () => {
       render(<DashboardPage />);
 
-      expect(screen.getAllByText(/drafts/i)[0]).toBeInTheDocument();
+      expect(screen.getByText(/^drafts$/i)).toBeInTheDocument();
       expect(screen.getByText(/uploads/i)).toBeInTheDocument();
       expect(screen.getByText(/scheduled/i)).toBeInTheDocument();
       expect(screen.getByText(/completed/i)).toBeInTheDocument();
