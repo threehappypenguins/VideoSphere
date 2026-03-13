@@ -101,7 +101,12 @@ export async function POST(
           jobId,
           'failed',
           'Object not found in R2; upload may not have completed'
-        ).catch(() => {});
+        ).catch((dbErr) => {
+          // Log but don't surface: the client still gets 404 regardless.
+          // Without logging this, a persistent DB failure would leave the job
+          // stuck in pending with no operational signal.
+          console.error(`Failed to mark upload job ${jobId} as failed after R2 not-found:`, dbErr);
+        });
         return NextResponse.json(
           {
             error: 'Upload not found in storage. The file may not have been uploaded successfully.',

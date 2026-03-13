@@ -130,9 +130,17 @@ function validateRequest(body: unknown): {
     };
   }
 
-  // Validate file size — required to enforce the 5 GB server-side limit
-  if (typeof req.fileSize !== 'number' || req.fileSize <= 0) {
-    return { valid: false, error: 'fileSize is required and must be a positive number' };
+  // Validate file size — required to enforce the 5 GB server-side limit.
+  // The typeof guard narrows the unknown to number so the subsequent
+  // Number.isFinite / Number.isInteger checks (which reject NaN, Infinity, and
+  // fractional byte counts) can operate on the narrowed type.
+  if (
+    typeof req.fileSize !== 'number' ||
+    !Number.isFinite(req.fileSize) ||
+    !Number.isInteger(req.fileSize) ||
+    req.fileSize <= 0
+  ) {
+    return { valid: false, error: 'fileSize is required and must be a positive integer' };
   }
   if (req.fileSize > MAX_FILE_SIZE) {
     return { valid: false, error: 'File exceeds the 5 GB maximum size limit' };

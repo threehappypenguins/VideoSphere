@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import Link from 'next/link';
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ type UploadState =
   | { phase: 'idle' }
   | { phase: 'quota-exceeded'; monthlyUsage: number; limit: number }
   | { phase: 'selected'; file: File; error?: string }
-  | { phase: 'uploading'; file: File; progress: number }
+  | { phase: 'uploading'; file: File; progress: number; uploadJobId: string }
   | { phase: 'finalizing'; file: File; uploadJobId: string; r2Key: string }
   | { phase: 'success'; file: File; uploadJobId: string; r2Key: string }
   | { phase: 'error'; message: string };
@@ -102,14 +102,14 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
 
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(true);
   };
 
   const handleDragLeave = () => setIsDragging(false);
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
     handleFilesChosen(e.dataTransfer.files);
@@ -163,7 +163,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
     }
 
     // 2. Upload directly to R2 using XHR for progress tracking
-    setState({ phase: 'uploading', file, progress: 0 });
+    setState({ phase: 'uploading', file, progress: 0, uploadJobId: presignData.uploadJobId });
 
     await new Promise<void>((resolve) => {
       const xhr = new XMLHttpRequest();
@@ -172,7 +172,12 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           const pct = Math.round((e.loaded / e.total) * 100);
-          setState({ phase: 'uploading', file, progress: pct });
+          setState({
+            phase: 'uploading',
+            file,
+            progress: pct,
+            uploadJobId: presignData.uploadJobId,
+          });
         }
       });
 
@@ -232,6 +237,14 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       });
 
       xhr.addEventListener('abort', () => {
+        // Best-effort: notify the server so it can mark the UploadJob as failed
+        // rather than leaving it in `pending` forever. The /complete endpoint
+        // will HEAD the (absent) R2 object, catch R2ObjectNotFoundError, and
+        // transition the job to `failed`. Errors here are intentionally ignored
+        // because the user-facing state has already been reset to idle.
+        fetch(`/api/uploads/${presignData.uploadJobId}/complete`, { method: 'POST' }).catch(
+          () => {}
+        );
         setState({ phase: 'idle' });
         if (inputRef.current) inputRef.current.value = '';
         xhrRef.current = null;

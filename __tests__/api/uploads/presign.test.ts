@@ -428,6 +428,39 @@ describe('POST /api/uploads/presign', () => {
       const response = await POST(request);
       expect(response.status).toBe(400);
     });
+
+    it('should reject NaN as fileSize', async () => {
+      const request = createRequest(
+        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: NaN },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('fileSize is required');
+    });
+
+    it('should reject Infinity as fileSize', async () => {
+      const request = createRequest(
+        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: Infinity },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('fileSize is required');
+    });
+
+    it('should reject a fractional fileSize', async () => {
+      const request = createRequest(
+        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: 1024.5 },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('fileSize is required');
+    });
   });
 
   describe('Upload Quota', () => {

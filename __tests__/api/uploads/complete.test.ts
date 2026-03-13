@@ -268,6 +268,26 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       );
       expect(vi.mocked(deleteObject)).not.toHaveBeenCalled();
     });
+
+    it('should log and still return 404 when marking job failed throws after R2 not-found', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(headObject).mockRejectedValueOnce(
+        new R2ObjectNotFoundError('temp/uploads/user-123/1234567890/test.mp4')
+      );
+      vi.mocked(updateUploadJobStatus).mockRejectedValueOnce(new Error('DB unavailable'));
+
+      const response = await POST(
+        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(404);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('job-123'),
+        expect.any(Error)
+      );
+      consoleSpy.mockRestore();
+    });
   });
 
   describe('UploadJob status transition', () => {
