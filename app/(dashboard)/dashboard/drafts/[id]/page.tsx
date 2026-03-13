@@ -60,23 +60,16 @@ function DraftsTable({ drafts }: { drafts: Draft[] }) {
         {drafts.map((draft) => (
           <li key={draft.id}>
             <Link
-              href={`/dashboard/drafts/${draft.id}`}
-              className="grid grid-cols-[1fr_auto_auto] gap-4 px-4 py-3.5 text-sm transition-colors hover:bg-accent/50"
+              href={`/dashboard/drafts/${id}/upload`}
+              className="rounded-lg border border-border px-6 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
-              {/* Title + icon */}
-              <span className="flex min-w-0 items-center gap-3">
-                <FileVideo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <span className="truncate font-medium text-foreground">{draft.title}</span>
-              </span>
-
-              {/* Duration */}
-              <span className="text-muted-foreground">{draft.duration}</span>
-
-              {/* Last edited */}
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                {draft.lastEdited}
-              </span>
+              Upload Video
+            </Link>
+            <Link
+              href="/dashboard/drafts"
+              className="rounded-lg px-6 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+            >
+              Cancel
             </Link>
           </li>
         ))}
