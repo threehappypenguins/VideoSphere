@@ -1,178 +1,86 @@
-// =============================================================================
-// EDIT DRAFT PAGE
-// =============================================================================
-// Static UI shell for /dashboard/drafts/[id].
-//
-// STUDENT: This form is intentionally uncontrolled and not yet wired to any
-// API. The route and UI are established so the backend can wire load/save later.
-//
-// What you need to do:
-//   1. On mount, call GET /api/drafts/[id] and pre-populate each field
-//   2. On "Save Draft", call PUT /api/drafts/[id] with the form values
-//   3. Show a success/error toast after save
-//   4. Protect this route so only authenticated users can access it
-//
-// See /docs/api-routes.md for the drafts API contract.
-// =============================================================================
-
-import type { Metadata } from 'next';
 import Link from 'next/link';
+import { DraftsEmptyState } from '@/components/drafts-empty-state';
+import { FileVideo, Clock } from 'lucide-react';
 
-export const metadata: Metadata = {
-  title: 'Edit Draft',
-  description: 'Edit your video draft metadata before publishing.',
-};
+// Static placeholder rows
+const PLACEHOLDER_DRAFTS = [
+  {
+    id: 'placeholder-1',
+    title: 'Draft title',
+    lastEdited: 'Last edited 2 days ago',
+    duration: '0:00',
+  },
+  {
+    id: 'placeholder-2',
+    title: 'Draft title',
+    lastEdited: 'Last edited 5 days ago',
+    duration: '0:00',
+  },
+];
 
-const INPUT_CLASS =
-  'mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary';
+const hasDrafts = false; // this will change to true once we implement fetching real drafts from the database
 
-const LABEL_CLASS = 'block text-sm font-medium text-foreground';
+export default function DraftsPage() {
+  return (
+    <div className="space-y-6">
+      {/* Page header */}
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Drafts</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Videos you&apos;ve started but haven&apos;t published yet.
+        </p>
+      </div>
 
-const PLATFORMS = ['YouTube', 'Vimeo'] as const;
-
-const VISIBILITY_OPTIONS = [
-  { value: 'public', label: 'Public' },
-  { value: 'unlisted', label: 'Unlisted' },
-  { value: 'private', label: 'Private' },
-  { value: 'scheduled', label: 'Scheduled' },
-] as const;
-
-interface Props {
-  params: Promise<{ id: string }>;
+      {hasDrafts ? <DraftsTable drafts={PLACEHOLDER_DRAFTS} /> : <DraftsEmptyState />}
+    </div>
+  );
 }
 
-export default async function EditDraftPage({ params }: Props) {
-  const { id } = await params;
+/* (placeholder layout) */
 
+type Draft = {
+  id: string;
+  title: string;
+  lastEdited: string;
+  duration: string;
+};
+
+function DraftsTable({ drafts }: { drafts: Draft[] }) {
   return (
-    <div className="px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl">
-        {/* --- Header --- */}
-        <header>
-          <h1 className="text-3xl font-bold text-foreground">Edit Draft</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Draft ID: <span className="font-mono text-foreground">{id}</span>
-          </p>
-        </header>
-
-        <form>
-          {/* --- Metadata --- */}
-          <section className="mt-8 rounded-xl border border-border bg-background p-6">
-            <h2 className="text-xl font-semibold text-foreground">Metadata</h2>
-
-            <div className="mt-6 space-y-6">
-              {/* Title */}
-              <div>
-                <label htmlFor="draft-title" className={LABEL_CLASS}>
-                  Title
-                </label>
-                <input
-                  type="text"
-                  id="draft-title"
-                  name="title"
-                  defaultValue=""
-                  placeholder="Enter a title for your video"
-                  className={INPUT_CLASS}
-                  required
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label htmlFor="draft-description" className={LABEL_CLASS}>
-                  Description
-                </label>
-                <textarea
-                  id="draft-description"
-                  name="description"
-                  rows={4}
-                  defaultValue=""
-                  placeholder="Describe your video"
-                  className={INPUT_CLASS}
-                />
-              </div>
-
-              {/* Tags */}
-              <div>
-                <label htmlFor="draft-tags" className={LABEL_CLASS}>
-                  Tags
-                </label>
-                <input
-                  type="text"
-                  id="draft-tags"
-                  name="tags"
-                  defaultValue=""
-                  placeholder="e.g. travel, vlog, tips"
-                  className={INPUT_CLASS}
-                />
-                <p className="mt-1.5 text-xs text-muted-foreground">Separate tags with commas.</p>
-              </div>
-            </div>
-          </section>
-
-          {/* --- Distribution --- */}
-          <section className="mt-8 rounded-xl border border-border bg-background p-6">
-            <h2 className="text-xl font-semibold text-foreground">Distribution</h2>
-
-            {/* Target Platforms */}
-            <div className="mt-6">
-              <p className={LABEL_CLASS}>Target Platforms</p>
-              <div className="mt-3 space-y-3">
-                {PLATFORMS.map((platform) => (
-                  <label
-                    key={platform}
-                    className="flex cursor-pointer items-center gap-3 text-sm text-foreground"
-                  >
-                    <input
-                      type="checkbox"
-                      name="platforms"
-                      value={platform.toLowerCase()}
-                      defaultChecked={false}
-                      className="h-4 w-4 rounded border-border accent-primary"
-                    />
-                    {platform}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Visibility */}
-            <div className="mt-6">
-              <label htmlFor="draft-visibility" className={LABEL_CLASS}>
-                Visibility
-              </label>
-              <select
-                id="draft-visibility"
-                name="visibility"
-                defaultValue="public"
-                className={INPUT_CLASS}
-              >
-                {VISIBILITY_OPTIONS.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </section>
-
-          {/* --- Actions --- */}
-          <div className="mt-8 flex items-center gap-4">
-            <button
-              type="submit"
-              className="rounded-lg bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              Save draft
-            </button>
-            <Link
-              href="/dashboard/drafts"
-              className="rounded-lg border border-border px-6 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-            >
-              Cancel
-            </Link>
-          </div>
-        </form>
+    <div className="rounded-lg border border-border bg-card">
+      {/* Table header */}
+      <div className="grid grid-cols-[1fr_auto_auto] gap-4 border-b border-border px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <span>Title</span>
+        <span>Duration</span>
+        <span>Last edited</span>
       </div>
+
+      {/* Rows */}
+      <ul className="divide-y divide-border">
+        {drafts.map((draft) => (
+          <li key={draft.id}>
+            <Link
+              href={`/dashboard/drafts/${draft.id}`}
+              className="grid grid-cols-[1fr_auto_auto] gap-4 px-4 py-3.5 text-sm transition-colors hover:bg-accent/50"
+            >
+              {/* Title + icon */}
+              <span className="flex min-w-0 items-center gap-3">
+                <FileVideo className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="truncate font-medium text-foreground">{draft.title}</span>
+              </span>
+
+              {/* Duration */}
+              <span className="text-muted-foreground">{draft.duration}</span>
+
+              {/* Last edited */}
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                {draft.lastEdited}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
