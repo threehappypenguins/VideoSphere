@@ -141,14 +141,14 @@ To become the go-to platform for anyone who publishes video content across multi
 The primary user journey follows this sequence:
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌──────────────┐     ┌──────────────────┐     ┌────────────────┐
-│ 1. Connect   │────▶│ 2. Select        │────▶│ 3. Create    │────▶│ 4. Upload        │────▶│ 5. Distribute  │
-│    Platforms  │     │    Platforms     │     │    Draft     │     │    Video File    │     │    & Track     │
-└──────────────┘     └──────────────────┘     └──────────────┘     └──────────────────┘     └────────────────┘
- OAuth2 connect       Choose which            Title, description,   Upload to Cloudflare    VideoSphere uploads
- YouTube, Vimeo       platforms this           tags, thumbnails,     R2 as temporary         to each platform
- accounts             video targets            per-platform          staging storage          via API; user
-                                               overrides (optional)                           tracks job status
+┌──────────────┐     ┌──────────────────────────────────────────┐     ┌──────────────────┐     ┌────────────────┐
+│ 1. Connect   │────▶│ 2. Create Draft                          │────▶│ 3. Upload        │────▶│ 4. Distribute  │
+│    Platforms  │     │    (metadata + target platform selection) │     │    Video File    │     │    & Track     │
+└──────────────┘     └──────────────────────────────────────────┘     └──────────────────┘     └────────────────┘
+ OAuth2 connect       Title, description, tags, thumbnails,            Upload to Cloudflare    VideoSphere uploads
+ YouTube, Vimeo       visibility, per-platform overrides,              R2 as temporary         to each platform
+ accounts             and which platforms to target — all on           staging storage          via API; user
+                      the draft edit page (/dashboard/drafts/[id])                              tracks job status
 ```
 
 ### Detailed Flow
@@ -159,12 +159,10 @@ The primary user journey follows this sequence:
    - Repeats for Vimeo.
    - Connected accounts are stored securely (OAuth tokens persisted in Appwrite).
 
-2. **Select Target Platforms**
-   - User starts a new upload from the Dashboard.
-   - Selects which connected platforms this video should be distributed to (e.g., YouTube + Vimeo).
-
-3. **Create Draft with Metadata**
+2. **Create Draft with Metadata**
+   - User clicks "New Draft" on the Dashboard and is taken to `/dashboard/drafts/[id]`.
    - User enters a default title, description, and tags that apply to all selected platforms.
+   - User selects which connected platforms this video should be distributed to (e.g., YouTube + Vimeo) directly on the draft form.
    - Optionally, user clicks "Customize per platform" to override title/description/tags for a specific platform.
    - User selects or uploads a thumbnail per platform.
    - User optionally clicks "Generate with AI" to auto-fill title, description, and tags based on the video file name or a user-provided prompt.
@@ -172,15 +170,16 @@ The primary user journey follows this sequence:
    - User optionally schedules a publish date/time per platform.
    - Draft is saved to Appwrite and can be returned to later.
 
-4. **Upload Video File**
-   - User selects a video file (max 5 GB).
-   - File is uploaded to **Cloudflare R2** as temporary staging storage.
+3. **Upload Video File**
+   - From the draft edit page, user clicks "Upload Video" to navigate to `/dashboard/drafts/[id]/upload`.
+   - User selects a video file (max 5 GB) via file picker or drag-and-drop.
+   - File is uploaded directly to **Cloudflare R2** as temporary staging storage via a presigned PUT URL.
    - A progress bar shows upload percentage.
-   - Once uploaded to R2, the file is ready for distribution.
+   - On success, an **Upload Job** is created and linked to the draft, and the R2 object key is stored.
 
-5. **Distribute & Track**
+4. **Distribute & Track**
    - User clicks "Distribute Now" (or the scheduled time arrives).
-   - VideoSphere creates an **Upload Job** for each target platform.
+   - VideoSphere creates a **Platform Upload** record for each target platform under the Upload Job.
    - The server-side process reads the video from R2 and uploads it to each platform's API (YouTube Data API v3, Vimeo API).
    - The Dashboard shows real-time job status: `pending → uploading → distributing → completed` (or `failed` with error details).
    - Once all platform uploads complete, the temporary file in R2 is cleaned up (or retained for a configurable period).
@@ -239,6 +238,9 @@ The primary user journey follows this sequence:
 | DM-07  | Users can view, edit, and delete saved drafts from the Dashboard.                                     | P0       |
 | DM-08  | Draft metadata is validated before distribution (e.g., title required, max character limits per platform). | P1    |
 | DM-09  | Tags are stored as an array of strings; the repository layer handles JSON serialization.              | P0       |
+| DM-10  | The platform selection list on the draft form shows **only the user's currently connected accounts** — platforms the user has not connected are not shown (or are shown as disabled with a "Connect" link). | P0 |
+| DM-11  | Toggling a platform on/off in the draft form **dynamically shows or hides that platform's per-platform fields** (visibility, per-platform metadata overrides). Only fields for selected platforms are saved. | P0 |
+| DM-12  | At least one platform must be selected before a draft can be saved or a video can be distributed.    | P0       |
 
 ---
 

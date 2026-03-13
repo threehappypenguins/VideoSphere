@@ -34,6 +34,7 @@ function rowToUploadJob(row: Record<string, unknown>): UploadJob {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
     draftId: row.draftId != null && row.draftId !== '' ? String(row.draftId) : null,
+    r2Key: row.r2Key != null && row.r2Key !== '' ? String(row.r2Key) : null,
     status: String(row.status) as UploadJobStatus,
     errorMessage:
       row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
@@ -70,6 +71,8 @@ export function rowToPlatformUpload(row: Record<string, unknown>): PlatformUploa
 export interface CreateUploadJobInput {
   userId: string;
   draftId: string | null;
+  /** R2 object key for the video file (from the presign step). */
+  r2Key: string;
 }
 
 /**
@@ -84,6 +87,7 @@ export async function createUploadJob(input: CreateUploadJobInput): Promise<Uplo
     data: {
       userId: input.userId,
       draftId: input.draftId ?? '',
+      r2Key: input.r2Key,
       status: 'pending',
       errorMessage: '',
       createdAt: now,

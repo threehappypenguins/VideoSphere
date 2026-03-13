@@ -52,6 +52,8 @@ export interface UploadJob {
   id: string;
   userId: string;
   draftId: string | null;
+  /** R2 object key for the uploaded video file. For new jobs this is set at creation; may be null only for legacy/backfill rows or if job creation is ever decoupled from presign. */
+  r2Key: string | null;
   status: UploadJobStatus;
   errorMessage: string | null;
   createdAt: string;
