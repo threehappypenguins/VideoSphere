@@ -64,10 +64,12 @@ export async function GET(req: NextRequest) {
   const redirectUri = `${origin}/api/platforms/callback/youtube`;
 
   // Generate a cryptographically random CSRF nonce. It is stored in a
-  // short-lived httpOnly cookie and verified in the callback route.
-  // The userId is NOT placed in state — the callback derives it from the
-  // Appwrite session instead, preventing CSRF account-linking attacks.
+  // short-lived httpOnly cookie alongside the userId so the callback can
+  // verify identity without needing to re-read the Appwrite session cookie
+  // (which is sameSite=strict and would be dropped on the cross-site redirect
+  // back from Google). Format: "<nonce>|<userId>".
   const csrfNonce = randomBytes(32).toString('hex');
+  const cookieValue = `${csrfNonce}|${userId}`;
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -81,9 +83,11 @@ export async function GET(req: NextRequest) {
 
   const response = NextResponse.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
 
-  // Store the nonce in a short-lived httpOnly cookie (10 minutes).
-  // SameSite=lax so that it survives the redirect back from Google.
-  response.cookies.set(YOUTUBE_OAUTH_STATE_COOKIE, csrfNonce, {
+  // Store the nonce+userId in a short-lived httpOnly cookie (10 minutes).
+  // SameSite=lax so it survives the redirect back from Google. This is the
+  // only cookie in the flow that needs lax — the Appwrite session cookie
+  // stays strict.
+  response.cookies.set(YOUTUBE_OAUTH_STATE_COOKIE, cookieValue, {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',

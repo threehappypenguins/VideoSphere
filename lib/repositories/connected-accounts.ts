@@ -187,6 +187,41 @@ export async function updateTokens(
   }
 }
 
+/**
+ * Update tokens and platform metadata (name, userId) for an existing connection.
+ * Use this on reconnection so the stored channel name/id stays current.
+ * Returns public shape (no tokens) so callers never receive secrets.
+ */
+export async function updateConnection(
+  id: string,
+  accessToken: string,
+  refreshToken: string,
+  tokenExpiry: string,
+  platformUserId: string,
+  platformName: string
+): Promise<ConnectedAccountPublic | null> {
+  try {
+    const row = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
+      rowId: id,
+      data: {
+        accessToken: encryptToken(accessToken),
+        refreshToken: encryptToken(refreshToken),
+        tokenExpiry,
+        platformUserId,
+        platformName,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    return rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code === 404) return null;
+    throw err;
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Delete
 // -----------------------------------------------------------------------------

@@ -150,11 +150,13 @@ describe('GET /api/platforms/connect/youtube', () => {
       expect(state).not.toBe('user-123');
     });
 
-    it('sets the CSRF nonce cookie on the response', async () => {
+    it('sets the CSRF nonce cookie containing the nonce and userId on the response', async () => {
       const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
       const res = await GET(req);
       const setCookie = res.headers.get('set-cookie') ?? '';
-      expect(setCookie).toContain('youtube_oauth_state=');
+      // Cookie value format in Set-Cookie header: "<64-char-hex-nonce>%7C<userId>"
+      // (the pipe separator is URL-encoded by Next.js cookies.set)
+      expect(setCookie).toMatch(/youtube_oauth_state=[0-9a-f]{64}%7Cuser-123/);
       expect(setCookie).toContain('HttpOnly');
     });
 
