@@ -125,6 +125,24 @@ export interface ExampleItem {
   createdAt: string;
 }
 
+// =============================================================================
+// AI Metadata Generation types (PRD: AI-01 through AI-06, AI-08)
+// =============================================================================
+
+/** Structured metadata returned by the AI metadata generation endpoint. */
+export interface GeneratedMetadata {
+  title: string;
+  description: string;
+  tags: string[];
+}
+
+/** Request body for POST /api/ai/generate-metadata. */
+export interface GenerateMetadataRequest {
+  fileName: string;
+  userPrompt?: string;
+  platforms: ConnectedAccountPlatform[];
+}
+
 /**
  * Standard API response wrapper.
  * Use this pattern to keep your API responses consistent.
