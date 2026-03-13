@@ -576,24 +576,24 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #26 · `[FEATURE]` Vimeo OAuth2 Connection Flow
+### ✅ Issue #26 · `[FEATURE]` Vimeo OAuth2 Connection Flow
 
 **User Story:** As a user, I want to connect my Vimeo account so that I can distribute videos to Vimeo.
 
 **Acceptance Criteria:**
 
-- [ ] `GET /api/platforms/connect/vimeo` redirects to Vimeo OAuth2 consent screen
-- [ ] `GET /api/platforms/callback/vimeo` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
-- [ ] Vimeo Callback URL: `http://localhost:3000/api/platforms/callback/vimeo`
-- [ ] The user's Vimeo display name is fetched and stored as `platformName`
-- [ ] On success, user is redirected to the connections page with a success message
-- [ ] On failure, user sees an error message
+- [x] `GET /api/platforms/connect/vimeo` redirects to Vimeo OAuth2 consent screen
+- [x] `GET /api/platforms/callback/vimeo` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
+- [x] Vimeo Callback URL: `http://localhost:3000/api/platforms/callback/vimeo`
+- [x] The user's Vimeo display name is fetched and stored as `platformName`
+- [x] On success, user is redirected to the connections page with a success message
+- [x] On failure, user sees an error message
 
 **Priority:** P0 (High)
 
 **T-Shirt Size Estimate:** L (large — several days)
 
-**Additional Context:** PRD refs: PM-02, US-02. Requires Vimeo Developer app with upload access scope. ⚠️ Depends on Issue #15 (Connected Accounts Repository).
+**Additional Context:** PRD refs: PM-02, US-02. Requires Vimeo Developer app with upload access scope. ⚠️ Depends on Issue #15 (Connected Accounts Repository). ⚠️ Upload scope pending Vimeo app approval — currently using `public` scope (see TODO in connect route).
 
 ---
 

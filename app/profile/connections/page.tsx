@@ -105,6 +105,29 @@ async function disconnectPlatform(accountId: string, platform: string) {
     }
   }
 
+  // Vimeo: DELETE /tokens revokes the access token, removing the app from
+  // the user's "Connected Apps" list on vimeo.com/settings/apps.
+  if (platform === 'vimeo' && accountWithTokens.accessToken) {
+    try {
+      const revokeRes = await fetch('https://api.vimeo.com/tokens', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `bearer ${accountWithTokens.accessToken}`,
+          Accept: 'application/vnd.vimeo.*+json;version=3.4',
+        },
+      });
+      if (!revokeRes.ok) {
+        const body = await revokeRes.text();
+        console.error(
+          `[disconnectPlatform] Vimeo token revocation returned ${revokeRes.status}:`,
+          body
+        );
+      }
+    } catch (err) {
+      console.error('[disconnectPlatform] Vimeo token revocation failed (non-fatal):', err);
+    }
+  }
+
   await deleteConnectedAccount(accountId);
   revalidatePath('/profile/connections');
 }
