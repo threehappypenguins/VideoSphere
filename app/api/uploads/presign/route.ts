@@ -28,7 +28,8 @@
  * - 401 Unauthorized: Not authenticated
  * - 403 Forbidden (quota): Free-tier monthly upload limit reached (claimed atomically at
  *                  presign time — a slot is reserved even if the upload is later cancelled
- *                  or the presigned URL expires unused)
+ *                  or the presigned URL expires unused; the slot is rolled back if
+ *                  URL generation or UploadJob creation fails server-side)
  *                  Body: { error, message, monthlyUsage, limit, isSupporter }
  * - 403 Forbidden (ownership): Supplied draftId belongs to a different user
  *                  Body: { error }
@@ -54,7 +55,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPresignedUploadUrl } from '@/lib/r2';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { incrementUsageIfAllowed } from '@/lib/repositories/upload-usage';
+import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -110,7 +111,7 @@ function validateRequest(body: unknown): {
   // Accept both "fileName" (issue spec) and "filename" (backward compat)
   const rawFilename = req.fileName ?? req.filename;
   if (typeof rawFilename !== 'string' || rawFilename.trim() === '') {
-    return { valid: false, error: 'filename is required and must be non-empty' };
+    return { valid: false, error: 'fileName (or filename) is required and must be non-empty' };
   }
 
   if (typeof req.contentType !== 'string' || req.contentType.trim() === '') {
@@ -232,13 +233,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Generate R2 object key and presigned upload URL
+    // Generate R2 object key and presigned upload URL, then create the UploadJob.
+    // These steps are wrapped in a try/catch so that any server-side failure after
+    // the quota slot was claimed triggers a best-effort rollback of that slot.
+    // Supporters bypass the counter entirely, so no rollback is needed for them.
     const key = generateObjectKey(userId, filename);
-    const uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
-
-    // Create an UploadJob record to track this upload, storing the R2 key so the
-    // distribution step can locate the uploaded object without an extra round-trip.
-    const uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
+    let uploadUrl: string;
+    let uploadJob: Awaited<ReturnType<typeof createUploadJob>>;
+    try {
+      uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
+      uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
+    } catch (err) {
+      // Roll back the quota slot so the user isn't charged for a failed presign.
+      // Best-effort: log but don't let a rollback failure shadow the original error.
+      if (!isSupporter) {
+        await decrementUsage(userId).catch((rollbackErr) => {
+          console.error(
+            `Failed to roll back quota slot for user ${userId} after presign error:`,
+            rollbackErr
+          );
+        });
+      }
+      throw err; // fall through to outer catch → 500
+    }
 
     const response: PresignResponse = {
       uploadUrl,

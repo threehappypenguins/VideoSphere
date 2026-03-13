@@ -127,8 +127,17 @@ export async function POST(
       );
     }
 
-    // Advance job: pending → uploading (R2 upload confirmed; awaiting distribution)
-    await updateUploadJobStatus(jobId, 'uploading');
+    // Advance job: pending → uploading (R2 upload confirmed; awaiting distribution).
+    // updateUploadJobStatus returns null when Appwrite 404s, which means the job
+    // was deleted between the earlier getUploadJobById check and now. Treat this
+    // as a 404 rather than silently returning 200 with no state change.
+    const updated = await updateUploadJobStatus(jobId, 'uploading');
+    if (!updated) {
+      return NextResponse.json(
+        { error: 'Upload job no longer exists and could not be finalized' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {

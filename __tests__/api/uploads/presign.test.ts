@@ -53,6 +53,7 @@ vi.mock('@/lib/repositories/users', () => ({
 // Mock upload-usage repository
 vi.mock('@/lib/repositories/upload-usage', () => ({
   incrementUsageIfAllowed: vi.fn(async () => ({ allowed: true, monthlyUsage: 5 })),
+  decrementUsage: vi.fn(async () => undefined),
 }));
 
 // Mock drafts repository
@@ -84,7 +85,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
 
 import { POST } from '@/app/api/uploads/presign/route';
 import { getPresignedUploadUrl } from '@/lib/r2';
-import { incrementUsageIfAllowed } from '@/lib/repositories/upload-usage';
+import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -211,7 +212,7 @@ describe('POST /api/uploads/presign', () => {
 
       expect(response.status).toBe(400);
       const body = await response.json();
-      expect(body.error).toContain('filename is required');
+      expect(body.error).toContain('fileName (or filename) is required');
     });
 
     it('should return 400 when filename is empty', async () => {
@@ -223,7 +224,7 @@ describe('POST /api/uploads/presign', () => {
 
       expect(response.status).toBe(400);
       const body = await response.json();
-      expect(body.error).toContain('filename is required');
+      expect(body.error).toContain('fileName (or filename) is required');
     });
 
     it('should return 400 when contentType is missing', async () => {
@@ -790,6 +791,81 @@ describe('POST /api/uploads/presign', () => {
       expect(response.status).toBe(500);
       const body = await response.json();
       expect(body.error).toBeDefined();
+    });
+
+    it('should roll back the quota slot when getPresignedUploadUrl throws', async () => {
+      vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 unavailable'));
+
+      const request = createRequest(
+        {
+          filename: 'test.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1024 * 1024,
+          draftId: 'draft-abc',
+        },
+        { 'a_session_test-project': 'token' }
+      );
+      await POST(request);
+
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123');
+    });
+
+    it('should roll back the quota slot when createUploadJob throws', async () => {
+      vi.mocked(createUploadJob).mockRejectedValueOnce(new Error('DB unavailable'));
+
+      const request = createRequest(
+        {
+          filename: 'test.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1024 * 1024,
+          draftId: 'draft-abc',
+        },
+        { 'a_session_test-project': 'token' }
+      );
+      await POST(request);
+
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123');
+    });
+
+    it('should NOT roll back the quota slot for a supporter when R2 throws', async () => {
+      vi.mocked(getUserById).mockResolvedValueOnce({
+        userId: 'user-123',
+        isSupporter: true,
+        email: 'test@example.com',
+        role: 'user',
+        createdAt: '',
+        updatedAt: '',
+      });
+      vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 unavailable'));
+
+      const request = createRequest(
+        {
+          filename: 'test.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1024 * 1024,
+          draftId: 'draft-abc',
+        },
+        { 'a_session_test-project': 'token' }
+      );
+      await POST(request);
+
+      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
+    });
+
+    it('should NOT call decrementUsage when presign succeeds end-to-end', async () => {
+      const request = createRequest(
+        {
+          filename: 'test.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1024 * 1024,
+          draftId: 'draft-abc',
+        },
+        { 'a_session_test-project': 'token' }
+      );
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
     });
 
     it('should not expose R2 error details in production', async () => {

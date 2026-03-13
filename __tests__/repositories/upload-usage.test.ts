@@ -32,6 +32,7 @@ vi.mock('@/lib/appwrite', () => ({
 import {
   getMonthlyUsage,
   incrementUsage,
+  decrementUsage,
   canUpload,
   incrementUsageIfAllowed,
 } from '@/lib/repositories/upload-usage';
@@ -157,6 +158,32 @@ describe('incrementUsage', () => {
 });
 
 // ---------------------------------------------------------------------------
+// decrementUsage
+// ---------------------------------------------------------------------------
+
+describe('decrementUsage', () => {
+  it('atomically decrements uploadCount by 1', async () => {
+    mockIncrementRowColumn.mockResolvedValue({});
+
+    await decrementUsage('user-1');
+
+    expect(mockIncrementRowColumn).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'upload_usage',
+      rowId: `user-1_${FIXED_MONTH}`,
+      column: 'uploadCount',
+      value: -1,
+    });
+  });
+
+  it('rethrows errors from incrementRowColumn', async () => {
+    mockIncrementRowColumn.mockRejectedValue({ code: 500, message: 'DB error' });
+
+    await expect(decrementUsage('user-1')).rejects.toMatchObject({ code: 500 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // canUpload
 // ---------------------------------------------------------------------------
 
@@ -255,6 +282,34 @@ describe('incrementUsageIfAllowed', () => {
 
     expect(result).toEqual({ allowed: true, monthlyUsage: 10 });
     expect(mockIncrementRowColumn).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws when the over-cap rollback decrement fails', async () => {
+    // incrementUsage path: claim succeeds
+    mockIncrementRowColumn
+      .mockResolvedValueOnce({}) // +1 claim
+      .mockRejectedValueOnce({ code: 503, message: 'Service unavailable' }); // -1 rollback fails
+    // getMonthlyUsage read-back: over limit
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
+
+    await expect(incrementUsageIfAllowed('user-1', false)).rejects.toThrow(
+      /Quota slot rollback failed/
+    );
+  });
+
+  it('logs an error when the over-cap rollback decrement fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockIncrementRowColumn
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('DB unavailable'));
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
+
+    await expect(incrementUsageIfAllowed('user-1', false)).rejects.toThrow();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('roll back over-cap quota slot'),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
   });
 
   it('respects a custom limit', async () => {

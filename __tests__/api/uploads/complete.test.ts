@@ -374,6 +374,20 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       const body = await response.json();
       expect(body).toEqual({ success: true });
     });
+
+    it('should return 404 when the job is deleted between ownership check and status update', async () => {
+      // updateUploadJobStatus returns null when Appwrite returns 404 (row deleted mid-flight)
+      vi.mocked(updateUploadJobStatus).mockResolvedValueOnce(null);
+
+      const response = await POST(
+        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(404);
+      const body = await response.json();
+      expect(body.error).toContain('no longer exists');
+    });
   });
 
   describe('Error handling', () => {
