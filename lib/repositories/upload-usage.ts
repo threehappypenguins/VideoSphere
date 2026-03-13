@@ -110,6 +110,26 @@ export async function incrementUsage(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Decrements the upload counter for `userId` in the current month by 1.
+ * Used as a rollback when a downstream operation fails after a slot was
+ * successfully claimed via `incrementUsage` / `incrementUsageIfAllowed`.
+ *
+ * Uses the same server-side atomic `incrementRowColumn` (value: -1) as the
+ * over-cap rollback in `incrementUsageIfAllowed`, so no read-modify-write race.
+ */
+export async function decrementUsage(userId: string): Promise<void> {
+  const month = currentMonth();
+  const rowId = usageRowId(userId, month);
+  await tablesDb.incrementRowColumn({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_USAGE_COLLECTION_ID,
+    rowId,
+    column: 'uploadCount',
+    value: -1,
+  });
+}
+
 // -----------------------------------------------------------------------------
 // Gate check
 // -----------------------------------------------------------------------------
@@ -118,9 +138,79 @@ export async function incrementUsage(userId: string): Promise<void> {
  * Returns `true` if the user is allowed to perform another upload this month.
  * Supporters always return true. Free-tier users must have fewer than 10
  * uploads in the current calendar month.
+ *
+ * NOTE: this is an advisory read — it does not atomically reserve a slot.
+ * Use `incrementUsageIfAllowed` at the point of actual commitment to prevent
+ * concurrent requests from exceeding the cap.
  */
 export async function canUpload(userId: string, isSupporter: boolean): Promise<boolean> {
   if (isSupporter) return true;
   const count = await getMonthlyUsage(userId);
   return count < FREE_TIER_MONTHLY_LIMIT;
+}
+
+/**
+ * Atomically checks and increments the monthly upload counter using an
+ * increment-first strategy, closing the check-then-increment race window.
+ *
+ * Algorithm:
+ * 1. Atomically claim a slot via `incrementRowColumn` (server-side, no lost updates).
+ * 2. Read back the counter (reflects this and any concurrent increments).
+ * 3a. If counter > limit: atomically roll back with value -1 and reject.
+ * 3b. If counter ≤ limit: the slot is valid — permit the upload.
+ *
+ * Concurrency guarantee: every concurrent request claims a unique slot via the
+ * atomic increment. Slots above the cap are always rolled back, so the
+ * persisted count never permanently exceeds the limit. If the rollback itself
+ * fails, the function throws rather than silently returning { allowed: false },
+ * to avoid leaving the counter permanently over-counted.
+ *
+ * Supporters bypass the counter entirely and always receive { allowed: true }.
+ */
+export async function incrementUsageIfAllowed(
+  userId: string,
+  isSupporter: boolean,
+  limit: number = FREE_TIER_MONTHLY_LIMIT
+): Promise<{ allowed: boolean; monthlyUsage: number }> {
+  if (isSupporter) return { allowed: true, monthlyUsage: 0 };
+
+  // Step 1: atomically claim a slot.
+  await incrementUsage(userId);
+
+  // Step 2: read back the current count (includes our increment and any concurrent ones).
+  const newCount = await getMonthlyUsage(userId);
+
+  if (newCount > limit) {
+    // Step 3a: slot is above the cap — release it atomically and reject.
+    // If the rollback itself fails we log the incident and rethrow a clear
+    // error so the caller can surface a 500. This is preferable to silently
+    // leaving the counter over-counted, which would incorrectly block future
+    // uploads until the month resets.
+    const month = currentMonth();
+    const rowId = usageRowId(userId, month);
+    try {
+      await tablesDb.incrementRowColumn({
+        databaseId: DATABASE_ID,
+        tableId: UPLOAD_USAGE_COLLECTION_ID,
+        rowId,
+        column: 'uploadCount',
+        value: -1,
+      });
+    } catch (rollbackErr) {
+      console.error(
+        `Failed to roll back over-cap quota slot for user ${userId} (month ${month}). ` +
+          'Counter may be temporarily over-counted until corrected.',
+        rollbackErr
+      );
+      throw new Error(
+        `Quota slot rollback failed for user ${userId}: ${
+          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)
+        }`
+      );
+    }
+    return { allowed: false, monthlyUsage: limit };
+  }
+
+  // Step 3b: slot is within the cap — permit the upload.
+  return { allowed: true, monthlyUsage: newCount };
 }

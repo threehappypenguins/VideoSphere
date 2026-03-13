@@ -60,6 +60,7 @@ const tables: TableConfig[] = [
     columns: [
       { key: 'userId', type: 'string', size: 255, required: true },
       { key: 'draftId', type: 'string', size: 255, required: false },
+      { key: 'r2Key', type: 'string', size: 1024, required: false },
       { key: 'status', type: 'string', size: 64, required: true },
       { key: 'errorMessage', type: 'string', size: 2000, required: false },
       { key: 'createdAt', type: 'datetime', required: true },

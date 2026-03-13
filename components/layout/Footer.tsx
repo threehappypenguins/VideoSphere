@@ -19,10 +19,9 @@ export default function Footer() {
         <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
           {/* --- Brand --- */}
           <div className="col-span-1 md:col-span-1">
-            <h3 className="text-lg font-semibold text-foreground">[Your App Name]</h3>
+            <h3 className="text-lg font-semibold text-foreground">VideoSphere</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              [Your app tagline or short description goes here. Explain what your product does in
-              one or two sentences.]
+              Upload once, distribute everywhere.
             </p>
           </div>
 
@@ -105,7 +104,7 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="https://github.com"
+                  href="https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team"
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -130,7 +129,7 @@ export default function Footer() {
         {/* --- Bottom Bar --- */}
         <div className="mt-12 border-t border-border pt-8 text-center">
           <p className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} [Your App Name]. All rights reserved.
+            &copy; {new Date().getFullYear()} VideoSphere. All rights reserved.
           </p>
         </div>
       </div>

@@ -29,7 +29,13 @@ vi.mock('@/lib/appwrite', () => ({
   default: {},
 }));
 
-import { getMonthlyUsage, incrementUsage, canUpload } from '@/lib/repositories/upload-usage';
+import {
+  getMonthlyUsage,
+  incrementUsage,
+  decrementUsage,
+  canUpload,
+  incrementUsageIfAllowed,
+} from '@/lib/repositories/upload-usage';
 
 beforeAll(() => {
   vi.useFakeTimers();
@@ -152,6 +158,32 @@ describe('incrementUsage', () => {
 });
 
 // ---------------------------------------------------------------------------
+// decrementUsage
+// ---------------------------------------------------------------------------
+
+describe('decrementUsage', () => {
+  it('atomically decrements uploadCount by 1', async () => {
+    mockIncrementRowColumn.mockResolvedValue({});
+
+    await decrementUsage('user-1');
+
+    expect(mockIncrementRowColumn).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'upload_usage',
+      rowId: `user-1_${FIXED_MONTH}`,
+      column: 'uploadCount',
+      value: -1,
+    });
+  });
+
+  it('rethrows errors from incrementRowColumn', async () => {
+    mockIncrementRowColumn.mockRejectedValue({ code: 500, message: 'DB error' });
+
+    await expect(decrementUsage('user-1')).rejects.toMatchObject({ code: 500 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // canUpload
 // ---------------------------------------------------------------------------
 
@@ -193,5 +225,101 @@ describe('canUpload', () => {
     const result = await canUpload('user-1', false);
 
     expect(result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// incrementUsageIfAllowed
+// ---------------------------------------------------------------------------
+
+describe('incrementUsageIfAllowed', () => {
+  it('returns { allowed: true } for a supporter without touching the counter', async () => {
+    const result = await incrementUsageIfAllowed('user-1', true);
+
+    expect(result).toEqual({ allowed: true, monthlyUsage: 0 });
+    expect(mockIncrementRowColumn).not.toHaveBeenCalled();
+    expect(mockGetRow).not.toHaveBeenCalled();
+  });
+
+  it('returns { allowed: true } when count after increment is within the limit', async () => {
+    // incrementUsage path: incrementRowColumn succeeds
+    mockIncrementRowColumn.mockResolvedValueOnce({});
+    // getMonthlyUsage read-back: count is 5 (within limit of 10)
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 5 });
+
+    const result = await incrementUsageIfAllowed('user-1', false);
+
+    expect(result).toEqual({ allowed: true, monthlyUsage: 5 });
+    // Only one incrementRowColumn call (no rollback)
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(1);
+    expect(mockIncrementRowColumn).toHaveBeenCalledWith(
+      expect.objectContaining({ column: 'uploadCount', value: 1 })
+    );
+  });
+
+  it('rolls back and returns { allowed: false } when count exceeds the limit', async () => {
+    // incrementUsage path: incrementRowColumn succeeds
+    mockIncrementRowColumn.mockResolvedValue({});
+    // getMonthlyUsage read-back: count is 11 (over limit of 10)
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
+
+    const result = await incrementUsageIfAllowed('user-1', false);
+
+    expect(result).toEqual({ allowed: false, monthlyUsage: 10 });
+    // Two incrementRowColumn calls: +1 (claim) and -1 (rollback)
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(2);
+    expect(mockIncrementRowColumn).toHaveBeenLastCalledWith(
+      expect.objectContaining({ column: 'uploadCount', value: -1 })
+    );
+  });
+
+  it('returns { allowed: true } when count equals the limit exactly', async () => {
+    mockIncrementRowColumn.mockResolvedValueOnce({});
+    // count = 10, limit = 10: still allowed (10 ≤ 10)
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 10 });
+
+    const result = await incrementUsageIfAllowed('user-1', false);
+
+    expect(result).toEqual({ allowed: true, monthlyUsage: 10 });
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws when the over-cap rollback decrement fails', async () => {
+    // incrementUsage path: claim succeeds
+    mockIncrementRowColumn
+      .mockResolvedValueOnce({}) // +1 claim
+      .mockRejectedValueOnce({ code: 503, message: 'Service unavailable' }); // -1 rollback fails
+    // getMonthlyUsage read-back: over limit
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
+
+    await expect(incrementUsageIfAllowed('user-1', false)).rejects.toThrow(
+      /Quota slot rollback failed/
+    );
+  });
+
+  it('logs an error when the over-cap rollback decrement fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockIncrementRowColumn
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('DB unavailable'));
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
+
+    await expect(incrementUsageIfAllowed('user-1', false)).rejects.toThrow();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('roll back over-cap quota slot'),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it('respects a custom limit', async () => {
+    mockIncrementRowColumn.mockResolvedValue({});
+    // count = 6, limit = 5: over custom limit
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 6 });
+
+    const result = await incrementUsageIfAllowed('user-1', false, 5);
+
+    expect(result).toEqual({ allowed: false, monthlyUsage: 5 });
+    expect(mockIncrementRowColumn).toHaveBeenCalledTimes(2);
   });
 });

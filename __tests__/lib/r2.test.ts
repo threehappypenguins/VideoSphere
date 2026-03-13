@@ -3,6 +3,7 @@ import {
   getPresignedUploadUrl,
   getObjectUrl,
   deleteObject,
+  headObject,
   getBucketName,
   getR2Endpoint,
 } from '../../lib/r2';
@@ -36,26 +37,38 @@ describe('R2 Storage - Validation & Utilities', () => {
 
   describe('getPresignedUploadUrl - Validation', () => {
     it('should throw when key is empty', async () => {
-      await expect(getPresignedUploadUrl('', 'video/mp4')).rejects.toThrow(
+      await expect(getPresignedUploadUrl('', 'video/mp4', 1024 * 1024)).rejects.toThrow(
         'Object key is required'
       );
     });
 
     it('should throw when key is null', async () => {
-      await expect(getPresignedUploadUrl(null as unknown as string, 'video/mp4')).rejects.toThrow(
-        'Object key is required'
-      );
+      await expect(
+        getPresignedUploadUrl(null as unknown as string, 'video/mp4', 1024 * 1024)
+      ).rejects.toThrow('Object key is required');
     });
 
     it('should throw when contentType is empty', async () => {
-      await expect(getPresignedUploadUrl('test.mp4', '')).rejects.toThrow(
+      await expect(getPresignedUploadUrl('test.mp4', '', 1024 * 1024)).rejects.toThrow(
         'Content type is required'
       );
     });
 
     it('should throw when contentType is null', async () => {
-      await expect(getPresignedUploadUrl('test.mp4', null as unknown as string)).rejects.toThrow(
-        'Content type is required'
+      await expect(
+        getPresignedUploadUrl('test.mp4', null as unknown as string, 1024 * 1024)
+      ).rejects.toThrow('Content type is required');
+    });
+
+    it('should throw when contentLength is zero', async () => {
+      await expect(getPresignedUploadUrl('test.mp4', 'video/mp4', 0)).rejects.toThrow(
+        'Content length must be a positive number'
+      );
+    });
+
+    it('should throw when contentLength is negative', async () => {
+      await expect(getPresignedUploadUrl('test.mp4', 'video/mp4', -1)).rejects.toThrow(
+        'Content length must be a positive number'
       );
     });
   });
@@ -96,6 +109,22 @@ describe('R2 Storage - Validation & Utilities', () => {
     });
   });
 
+  describe('headObject - Validation', () => {
+    it('should throw when key is empty', async () => {
+      await expect(headObject('')).rejects.toThrow('Object key is required');
+    });
+
+    it('should throw when key is null', async () => {
+      await expect(headObject(null as unknown as string)).rejects.toThrow('Object key is required');
+    });
+
+    it('should throw when key is undefined', async () => {
+      await expect(headObject(undefined as unknown as string)).rejects.toThrow(
+        'Object key is required'
+      );
+    });
+  });
+
   describe('Utility Functions', () => {
     it('getBucketName returns configured value', () => {
       expect(getBucketName()).toBe(MOCK_BUCKET);
@@ -119,7 +148,7 @@ describe('R2 Storage - Validation & Utilities', () => {
   describe('Error Messages', () => {
     it('upload error mentions missing key', async () => {
       try {
-        await getPresignedUploadUrl('', 'video/mp4');
+        await getPresignedUploadUrl('', 'video/mp4', 1024 * 1024);
         expect.fail('Should throw');
       } catch (error: any) {
         expect(error.message.toLowerCase()).toContain('key');
@@ -128,7 +157,7 @@ describe('R2 Storage - Validation & Utilities', () => {
 
     it('upload error mentions missing contentType', async () => {
       try {
-        await getPresignedUploadUrl('test.mp4', '');
+        await getPresignedUploadUrl('test.mp4', '', 1024 * 1024);
         expect.fail('Should throw');
       } catch (error: any) {
         expect(error.message.toLowerCase()).toContain('content type');
@@ -160,7 +189,7 @@ describe('R2 Storage - Validation & Utilities', () => {
 
       for (const key of simpleKeys) {
         try {
-          await getPresignedUploadUrl(key, 'video/mp4');
+          await getPresignedUploadUrl(key, 'video/mp4', 1024 * 1024);
         } catch (error: any) {
           // AWS SDK might fail, but validation errors should not occur
           expect(error.message).not.toContain('Object key is required');
@@ -177,7 +206,7 @@ describe('R2 Storage - Validation & Utilities', () => {
 
       for (const key of nestedPaths) {
         try {
-          await getPresignedUploadUrl(key, 'video/mp4');
+          await getPresignedUploadUrl(key, 'video/mp4', 1024 * 1024);
         } catch (error: any) {
           expect(error.message).not.toContain('Object key is required');
         }
@@ -189,7 +218,7 @@ describe('R2 Storage - Validation & Utilities', () => {
 
       for (const type of types) {
         try {
-          await getPresignedUploadUrl('test.mp4', type);
+          await getPresignedUploadUrl('test.mp4', type, 1024 * 1024);
         } catch (error: any) {
           expect(error.message).not.toContain('Content type is required');
         }
