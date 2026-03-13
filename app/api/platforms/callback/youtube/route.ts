@@ -2,9 +2,10 @@
 // GET /api/platforms/callback/youtube
 // =============================================================================
 // Handles the OAuth2 callback from Google after the user grants consent.
-// Reads the authorization `code` and `state` (userId) from query params,
-// exchanges the code for access and refresh tokens, fetches the user's YouTube
-// channel name from the YouTube Data API, and stores the connection using
+// Verifies the CSRF nonce (state param vs. youtube_oauth_state cookie), then
+// verifies the Appwrite session to derive the userId — the state parameter is
+// NOT trusted for identity. Exchanges the code for access and refresh tokens,
+// fetches the user's YouTube channel name, and stores the connection using
 // createConnectedAccount (tokens are encrypted at rest by the repository).
 //
 // Required env vars: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET
@@ -12,7 +13,14 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createConnectedAccount } from '@/lib/repositories/connected-accounts';
+import { Client, Account } from 'node-appwrite';
+import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/youtube/route';
+import {
+  createConnectedAccount,
+  getConnectedAccount,
+  updateTokens,
+} from '@/lib/repositories/connected-accounts';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const YOUTUBE_CHANNELS_URL =
@@ -53,9 +61,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(failureUrl);
   }
 
+  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
+  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+
+  if (!endpoint || !projectId) {
+    console.error('[GET /api/platforms/callback/youtube] Missing Appwrite environment variables');
+    return NextResponse.redirect(failureUrl);
+  }
+
   const { searchParams } = req.nextUrl;
   const code = searchParams.get('code');
-  const userId = searchParams.get('state');
+  const stateParam = searchParams.get('state');
   const error = searchParams.get('error');
 
   if (error) {
@@ -63,9 +79,37 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(failureUrl);
   }
 
-  if (!code || !userId) {
+  if (!code || !stateParam) {
     console.error('[GET /api/platforms/callback/youtube] Missing code or state');
     return NextResponse.redirect(failureUrl);
+  }
+
+  // Verify CSRF nonce: state param must match the cookie set in the connect route.
+  const storedNonce = req.cookies.get(YOUTUBE_OAUTH_STATE_COOKIE)?.value;
+  if (!storedNonce || storedNonce !== stateParam) {
+    console.error('[GET /api/platforms/callback/youtube] CSRF state mismatch');
+    return NextResponse.redirect(failureUrl);
+  }
+
+  // Verify the Appwrite session to get the userId — never trust the state param for identity.
+  const cookieName = getSessionCookieName(projectId);
+  const sessionSecret = req.cookies.get(cookieName)?.value;
+
+  if (!sessionSecret) {
+    return NextResponse.redirect(`${origin}/login`);
+  }
+
+  let userId: string;
+  try {
+    const client = new Client()
+      .setEndpoint(endpoint)
+      .setProject(projectId)
+      .setSession(sessionSecret);
+    const account = new Account(client);
+    const user = await account.get();
+    userId = user.$id;
+  } catch {
+    return NextResponse.redirect(`${origin}/login`);
   }
 
   try {
@@ -122,18 +166,27 @@ export async function GET(req: NextRequest) {
     // Calculate token expiry from expires_in (seconds)
     const tokenExpiry = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
-    // Store the connected account (repository encrypts tokens at rest)
-    await createConnectedAccount({
-      userId,
-      platform: 'youtube',
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? '',
-      tokenExpiry,
-      platformUserId,
-      platformName,
-    });
+    // Upsert: update tokens if a connection already exists, otherwise create.
+    // (One connection per user per platform — see repository comment.)
+    const existing = await getConnectedAccount(userId, 'youtube');
+    if (existing) {
+      await updateTokens(existing.id, tokens.access_token, tokens.refresh_token ?? '', tokenExpiry);
+    } else {
+      await createConnectedAccount({
+        userId,
+        platform: 'youtube',
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? '',
+        tokenExpiry,
+        platformUserId,
+        platformName,
+      });
+    }
 
-    return NextResponse.redirect(successUrl);
+    const successResponse = NextResponse.redirect(successUrl);
+    // Clear the CSRF nonce cookie — it's single-use.
+    successResponse.cookies.delete(YOUTUBE_OAUTH_STATE_COOKIE);
+    return successResponse;
   } catch (err) {
     console.error('[GET /api/platforms/callback/youtube] Unexpected error:', err);
     return NextResponse.redirect(failureUrl);

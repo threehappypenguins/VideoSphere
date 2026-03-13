@@ -140,11 +140,22 @@ describe('GET /api/platforms/connect/youtube', () => {
       expect(decodeURIComponent(location.searchParams.get('scope')!)).toContain('youtube.readonly');
     });
 
-    it('passes userId as the state parameter', async () => {
+    it('uses a random hex nonce (not userId) as the state parameter', async () => {
       const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
       const res = await GET(req);
       const location = new URL(res.headers.get('location')!);
-      expect(location.searchParams.get('state')).toBe('user-123');
+      const state = location.searchParams.get('state')!;
+      // Should be a 64-character hex string, not the userId
+      expect(state).toMatch(/^[0-9a-f]{64}$/);
+      expect(state).not.toBe('user-123');
+    });
+
+    it('sets the CSRF nonce cookie on the response', async () => {
+      const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
+      const res = await GET(req);
+      const setCookie = res.headers.get('set-cookie') ?? '';
+      expect(setCookie).toContain('youtube_oauth_state=');
+      expect(setCookie).toContain('HttpOnly');
     });
 
     it('requests offline access for a refresh token', async () => {
