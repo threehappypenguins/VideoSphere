@@ -13,14 +13,17 @@ export function getSessionCookieName(projectId: string): string {
 export function getSessionCookieOptions(): {
   path: string;
   httpOnly: boolean;
-  sameSite: 'strict';
+  sameSite: 'lax';
   secure: boolean;
 } {
   const isProduction = process.env.NODE_ENV === 'production';
   return {
     path: '/',
     httpOnly: true,
-    sameSite: 'strict',
+    // Use 'lax' (not 'strict') so the session cookie is included when the browser
+    // is redirected back from a cross-site OAuth provider (e.g. Google → localhost).
+    // 'strict' would drop the cookie on the return redirect, breaking OAuth flows.
+    sameSite: 'lax',
     secure: isProduction,
   };
 }
