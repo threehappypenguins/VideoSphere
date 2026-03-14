@@ -220,7 +220,6 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
             const meta = PLATFORM_META[platform];
             const account = accounts.find((a) => a.platform === platform);
             const status = getConnectionStatus(account);
-            const isConnected = status === 'connected' || status === 'expired';
 
             return (
               <div
@@ -236,9 +235,9 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                       <p className="font-medium text-foreground">{meta.label}</p>
                       <StatusBadge status={status} />
                     </div>
-                    {isConnected && account ? (
+                    {account ? (
                       <p className="text-sm text-muted-foreground">
-                        Connected as{' '}
+                        {status === 'expired' ? 'Was connected as ' : 'Connected as '}
                         <span className="font-medium text-foreground">{account.platformName}</span>
                       </p>
                     ) : (
@@ -247,15 +246,30 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   </div>
                 </div>
 
-                {isConnected && account ? (
+                {status === 'connected' && account ? (
                   <DisconnectButton
                     action={disconnectPlatform.bind(null, account.id, platform)}
                     platformLabel={meta.label}
                   />
+                ) : status === 'expired' && account ? (
+                  // Token is expired — offer both reconnect and disconnect.
+                  <div className="flex items-center gap-2">
+                    {/* Use a plain <a> tag — the connect route returns a 307 to an
+                        external OAuth URL. Next.js <Link> fetches href client-side
+                        and the cross-origin redirect triggers a dev-overlay CORS error. */}
+                    <a
+                      href={meta.connectHref}
+                      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    >
+                      Reconnect
+                    </a>
+                    <DisconnectButton
+                      action={disconnectPlatform.bind(null, account.id, platform)}
+                      platformLabel={meta.label}
+                    />
+                  </div>
                 ) : (
-                  // Use a plain <a> tag — the connect route returns a 307 to an
-                  // external OAuth URL. Next.js <Link> fetches the href client-side
-                  // and the cross-origin redirect triggers a dev-overlay CORS error.
+                  // Use a plain <a> tag — same reason as above.
                   <a
                     href={meta.connectHref}
                     className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"

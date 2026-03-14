@@ -19,6 +19,7 @@
 
 import { NextRequest } from 'next/server';
 import { VIMEO_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/vimeo/route';
+import { htmlRedirect } from '@/lib/api/html-redirect';
 import {
   createConnectedAccount,
   getConnectedAccount,
@@ -26,32 +27,6 @@ import {
 } from '@/lib/repositories/connected-accounts';
 
 const VIMEO_TOKEN_URL = 'https://api.vimeo.com/oauth/access_token';
-
-/**
- * Returns a 200 HTML response that immediately navigates the browser to `url`
- * via JavaScript (and a <meta refresh> fallback). This breaks the cross-site
- * redirect chain that starts at Vimeo, so the sameSite=strict Appwrite session
- * cookie is present on the subsequent same-site navigation to /profile/...
- * Optionally clears an httpOnly cookie by setting Max-Age=0.
- */
-function htmlRedirect(url: string, clearCookieName?: string): Response {
-  const safeUrl = JSON.stringify(url);
-  const headers = new Headers({ 'Content-Type': 'text/html; charset=utf-8' });
-  if (clearCookieName) {
-    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-    headers.set(
-      'Set-Cookie',
-      `${clearCookieName}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure}`
-    );
-  }
-  return new Response(
-    `<!DOCTYPE html><html><head>` +
-      `<meta http-equiv="refresh" content="0;url=${url}">` +
-      `<script>window.location.replace(${safeUrl})</script>` +
-      `</head><body></body></html>`,
-    { status: 200, headers }
-  );
-}
 
 interface VimeoUser {
   name: string;
