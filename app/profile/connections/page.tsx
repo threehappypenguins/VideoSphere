@@ -8,7 +8,7 @@
 // fetch real connected-account data without an extra client round-trip.
 // Unauthenticated users are redirected to /login.
 //
-// Flash messages come from ?success=youtube and ?error=youtube query params set
+// Flash messages come from ?success=youtube|vimeo and ?error=youtube|vimeo query params set
 // by the OAuth callback routes.
 // =============================================================================
 
@@ -173,6 +173,15 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
           <FlashMessage
             type="error"
             message="✗ Failed to connect YouTube account. Please try again."
+          />
+        )}
+        {success === 'vimeo' && (
+          <FlashMessage type="success" message="✓ Vimeo account connected successfully." />
+        )}
+        {error === 'vimeo' && (
+          <FlashMessage
+            type="error"
+            message="✗ Failed to connect Vimeo account. Please try again."
           />
         )}
 
