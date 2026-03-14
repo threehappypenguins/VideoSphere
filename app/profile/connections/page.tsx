@@ -112,7 +112,7 @@ async function disconnectPlatform(accountId: string, platform: string) {
       const revokeRes = await fetch('https://api.vimeo.com/tokens', {
         method: 'DELETE',
         headers: {
-          Authorization: `bearer ${accountWithTokens.accessToken}`,
+          Authorization: `Bearer ${accountWithTokens.accessToken}`,
           Accept: 'application/vnd.vimeo.*+json;version=3.4',
         },
       });
