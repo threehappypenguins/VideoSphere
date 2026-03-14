@@ -8,7 +8,7 @@
 // fetch real connected-account data without an extra client round-trip.
 // Unauthenticated users are redirected to /login.
 //
-// Flash messages come from ?success=youtube and ?error=youtube query params set
+// Flash messages come from ?success=youtube|vimeo and ?error=youtube|vimeo query params set
 // by the OAuth callback routes.
 // =============================================================================
 
@@ -105,6 +105,29 @@ async function disconnectPlatform(accountId: string, platform: string) {
     }
   }
 
+  // Vimeo: DELETE /tokens revokes the access token, removing the app from
+  // the user's "Connected Apps" list on vimeo.com/settings/apps.
+  if (platform === 'vimeo' && accountWithTokens.accessToken) {
+    try {
+      const revokeRes = await fetch('https://api.vimeo.com/tokens', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accountWithTokens.accessToken}`,
+          Accept: 'application/vnd.vimeo.*+json;version=3.4',
+        },
+      });
+      if (!revokeRes.ok) {
+        const body = await revokeRes.text();
+        console.error(
+          `[disconnectPlatform] Vimeo token revocation returned ${revokeRes.status}:`,
+          body
+        );
+      }
+    } catch (err) {
+      console.error('[disconnectPlatform] Vimeo token revocation failed (non-fatal):', err);
+    }
+  }
+
   await deleteConnectedAccount(accountId);
   revalidatePath('/profile/connections');
 }
@@ -150,6 +173,15 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
           <FlashMessage
             type="error"
             message="✗ Failed to connect YouTube account. Please try again."
+          />
+        )}
+        {success === 'vimeo' && (
+          <FlashMessage type="success" message="✓ Vimeo account connected successfully." />
+        )}
+        {error === 'vimeo' && (
+          <FlashMessage
+            type="error"
+            message="✗ Failed to connect Vimeo account. Please try again."
           />
         )}
 
