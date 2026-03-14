@@ -17,8 +17,9 @@
 // Callback URL: http://localhost:3000/api/platforms/callback/vimeo
 // =============================================================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { VIMEO_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/vimeo/route';
+import { htmlRedirect } from '@/lib/api/html-redirect';
 import {
   createConnectedAccount,
   getConnectedAccount,
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
     console.error(
       '[GET /api/platforms/callback/vimeo] Missing VIMEO_CLIENT_ID or VIMEO_CLIENT_SECRET'
     );
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   const { searchParams } = req.nextUrl;
@@ -61,12 +62,12 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.error('[GET /api/platforms/callback/vimeo] OAuth error from Vimeo:', error);
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   if (!code || !stateParam) {
     console.error('[GET /api/platforms/callback/vimeo] Missing code or state');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   // Verify CSRF nonce and extract userId from the server-set OAuth state cookie.
@@ -76,19 +77,19 @@ export async function GET(req: NextRequest) {
   const cookieValue = req.cookies.get(VIMEO_OAUTH_STATE_COOKIE)?.value;
   if (!cookieValue) {
     console.error('[GET /api/platforms/callback/vimeo] CSRF state cookie missing');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
   const pipeIndex = cookieValue.indexOf('|');
   if (pipeIndex === -1) {
     console.error('[GET /api/platforms/callback/vimeo] Malformed state cookie');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
   const storedNonce = cookieValue.slice(0, pipeIndex);
   const userId = cookieValue.slice(pipeIndex + 1);
 
   if (storedNonce !== stateParam || !userId) {
     console.error('[GET /api/platforms/callback/vimeo] CSRF state mismatch');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   try {
@@ -116,19 +117,19 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
       console.error('[GET /api/platforms/callback/vimeo] Token exchange failed:', body);
-      return NextResponse.redirect(failureUrl);
+      return htmlRedirect(failureUrl);
     }
 
     const tokens = (await tokenRes.json()) as VimeoTokenResponse;
 
     if (!tokens.access_token) {
       console.error('[GET /api/platforms/callback/vimeo] No access_token in response');
-      return NextResponse.redirect(failureUrl);
+      return htmlRedirect(failureUrl);
     }
 
     if (!tokens.user) {
       console.error('[GET /api/platforms/callback/vimeo] No user object in token response');
-      return NextResponse.redirect(failureUrl);
+      return htmlRedirect(failureUrl);
     }
 
     // Extract platformUserId from the user URI (e.g. "/users/12345678" → "12345678")
@@ -162,12 +163,10 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const successResponse = NextResponse.redirect(successUrl);
-    // Clear the CSRF nonce cookie — it's single-use.
-    successResponse.cookies.delete(VIMEO_OAUTH_STATE_COOKIE);
-    return successResponse;
+    // Clear the CSRF nonce cookie and break the cross-site redirect chain.
+    return htmlRedirect(successUrl, VIMEO_OAUTH_STATE_COOKIE);
   } catch (err) {
     console.error('[GET /api/platforms/callback/vimeo] Unexpected error:', err);
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 }

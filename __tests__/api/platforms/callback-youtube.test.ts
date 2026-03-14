@@ -116,76 +116,76 @@ describe('GET /api/platforms/callback/youtube', () => {
   });
 
   describe('Missing environment variables', () => {
-    it('redirects to ?error=youtube when YOUTUBE_CLIENT_ID is missing', async () => {
+    it('returns HTML that navigates to ?error=youtube when YOUTUBE_CLIENT_ID is missing', async () => {
       delete process.env.YOUTUBE_CLIENT_ID;
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
 
-    it('redirects to ?error=youtube when YOUTUBE_CLIENT_SECRET is missing', async () => {
+    it('returns HTML that navigates to ?error=youtube when YOUTUBE_CLIENT_SECRET is missing', async () => {
       delete process.env.YOUTUBE_CLIENT_SECRET;
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
   });
 
   describe('OAuth error param', () => {
-    it('redirects to ?error=youtube when Google returns an error param', async () => {
+    it('returns HTML that navigates to ?error=youtube when Google returns an error param', async () => {
       const req = makeRequest({ error: 'access_denied', state: CSRF_NONCE }, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
   });
 
   describe('Missing query params', () => {
-    it('redirects to ?error=youtube when code is missing', async () => {
+    it('returns HTML that navigates to ?error=youtube when code is missing', async () => {
       const req = makeRequest({ state: CSRF_NONCE }, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
 
-    it('redirects to ?error=youtube when state is missing', async () => {
+    it('returns HTML that navigates to ?error=youtube when state is missing', async () => {
       const req = makeRequest({ code: 'abc' }, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
   });
 
   describe('CSRF verification', () => {
-    it('redirects to ?error=youtube when CSRF cookie is absent', async () => {
+    it('returns HTML that navigates to ?error=youtube when CSRF cookie is absent', async () => {
       const req = makeRequest(VALID_PARAMS, {});
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
 
-    it('redirects to ?error=youtube when state param does not match CSRF cookie nonce', async () => {
+    it('returns HTML that navigates to ?error=youtube when state param does not match CSRF cookie nonce', async () => {
       const req = makeRequest(
         { code: 'abc', state: 'wrong-nonce' },
         { [CSRF_COOKIE]: VALID_COOKIE_VALUE }
       );
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
 
-    it('redirects to ?error=youtube when cookie is malformed (no pipe separator)', async () => {
+    it('returns HTML that navigates to ?error=youtube when cookie is malformed (no pipe separator)', async () => {
       const req = makeRequest(VALID_PARAMS, { [CSRF_COOKIE]: CSRF_NONCE }); // missing |userId
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
   });
 
   describe('Token exchange failure', () => {
-    it('redirects to ?error=youtube when token endpoint returns non-OK', async () => {
+    it('returns HTML that navigates to ?error=youtube when token endpoint returns non-OK', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 400,
@@ -193,11 +193,11 @@ describe('GET /api/platforms/callback/youtube', () => {
       });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
 
-    it('redirects to ?error=youtube when token response has no access_token', async () => {
+    it('returns HTML that navigates to ?error=youtube when token response has no access_token', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -205,26 +205,26 @@ describe('GET /api/platforms/callback/youtube', () => {
       });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
   });
 
   describe('Channel fetch failure', () => {
-    it('redirects to ?error=youtube when channels API returns non-OK', async () => {
+    it('returns HTML that navigates to ?error=youtube when channels API returns non-OK', async () => {
       mockFetchSequence(200, TOKEN_RESPONSE, 403, { error: { message: 'Forbidden' } });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
 
-    it('redirects to ?error=youtube when channel list is empty', async () => {
+    it('returns HTML that navigates to ?error=youtube when channel list is empty', async () => {
       mockFetchSequence(200, TOKEN_RESPONSE, 200, { items: [] });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=youtube');
     });
   });
 
@@ -244,11 +244,11 @@ describe('GET /api/platforms/callback/youtube', () => {
       });
     });
 
-    it('redirects to ?success=youtube', async () => {
+    it('returns HTML that navigates to ?success=youtube', async () => {
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('success=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('success=youtube');
     });
 
     it('calls createConnectedAccount with userId from the CSRF cookie (not state param)', async () => {
@@ -318,11 +318,11 @@ describe('GET /api/platforms/callback/youtube', () => {
       expect(createConnectedAccount).not.toHaveBeenCalled();
     });
 
-    it('still redirects to ?success=youtube on reconnect', async () => {
+    it('still returns HTML that navigates to ?success=youtube on reconnect', async () => {
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('success=youtube');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('success=youtube');
     });
   });
 });

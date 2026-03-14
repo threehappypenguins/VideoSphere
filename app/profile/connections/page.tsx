@@ -74,6 +74,37 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
 
 const ALL_PLATFORMS = ['youtube', 'vimeo'] as const;
 
+/** Derive connection status from tokenExpiry. */
+function getConnectionStatus(
+  account: ConnectedAccountPublic | undefined
+): 'connected' | 'expired' | 'not-connected' {
+  if (!account) return 'not-connected';
+  const expiry = new Date(account.tokenExpiry).getTime();
+  return expiry > Date.now() ? 'connected' : 'expired';
+}
+
+function StatusBadge({ status }: { status: 'connected' | 'expired' | 'not-connected' }) {
+  if (status === 'connected') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+        Connected
+      </span>
+    );
+  }
+  if (status === 'expired') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+        Expired — reconnect
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+      Not connected
+    </span>
+  );
+}
+
 async function disconnectPlatform(accountId: string, platform: string) {
   'use server';
 
@@ -135,7 +166,7 @@ async function disconnectPlatform(accountId: string, platform: string) {
 export default async function ConnectionsPage({ searchParams }: PageProps) {
   const userId = await getCurrentUserId();
   if (!userId) {
-    redirect('/login');
+    redirect(`/login?redirect=${encodeURIComponent('/profile/connections')}`);
   }
 
   const { success, error } = await searchParams;
@@ -146,8 +177,6 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
   } catch (err) {
     console.error('[ConnectionsPage] Failed to fetch connected accounts:', err);
   }
-
-  const connectedPlatforms = new Set(accounts.map((a) => a.platform));
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
@@ -190,7 +219,7 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
           {ALL_PLATFORMS.map((platform) => {
             const meta = PLATFORM_META[platform];
             const account = accounts.find((a) => a.platform === platform);
-            const isConnected = connectedPlatforms.has(platform);
+            const status = getConnectionStatus(account);
 
             return (
               <div
@@ -202,10 +231,13 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                     {meta.icon}
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">{meta.label}</p>
-                    {isConnected && account ? (
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-foreground">{meta.label}</p>
+                      <StatusBadge status={status} />
+                    </div>
+                    {account ? (
                       <p className="text-sm text-muted-foreground">
-                        Connected as{' '}
+                        {status === 'expired' ? 'Was connected as ' : 'Connected as '}
                         <span className="font-medium text-foreground">{account.platformName}</span>
                       </p>
                     ) : (
@@ -214,15 +246,30 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   </div>
                 </div>
 
-                {isConnected && account ? (
+                {status === 'connected' && account ? (
                   <DisconnectButton
                     action={disconnectPlatform.bind(null, account.id, platform)}
                     platformLabel={meta.label}
                   />
+                ) : status === 'expired' && account ? (
+                  // Token is expired — offer both reconnect and disconnect.
+                  <div className="flex items-center gap-2">
+                    {/* Use a plain <a> tag — the connect route returns a 307 to an
+                        external OAuth URL. Next.js <Link> fetches href client-side
+                        and the cross-origin redirect triggers a dev-overlay CORS error. */}
+                    <a
+                      href={meta.connectHref}
+                      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    >
+                      Reconnect
+                    </a>
+                    <DisconnectButton
+                      action={disconnectPlatform.bind(null, account.id, platform)}
+                      platformLabel={meta.label}
+                    />
+                  </div>
                 ) : (
-                  // Use a plain <a> tag — the connect route returns a 307 to an
-                  // external OAuth URL. Next.js <Link> fetches the href client-side
-                  // and the cross-origin redirect triggers a dev-overlay CORS error.
+                  // Use a plain <a> tag — same reason as above.
                   <a
                     href={meta.connectHref}
                     className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
