@@ -13,7 +13,7 @@
 // Callback URL: http://localhost:3000/api/platforms/callback/youtube
 // =============================================================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/youtube/route';
 import {
   createConnectedAccount,
@@ -45,6 +45,32 @@ interface YouTubeChannelsResponse {
   items?: YouTubeChannel[];
 }
 
+/**
+ * Returns a 200 HTML response that immediately navigates the browser to `url`
+ * via JavaScript (and a <meta refresh> fallback). This breaks the cross-site
+ * redirect chain that starts at Google, so the sameSite=strict Appwrite session
+ * cookie is present on the subsequent same-site navigation to /profile/...
+ * Optionally clears an httpOnly cookie by setting Max-Age=0.
+ */
+function htmlRedirect(url: string, clearCookieName?: string): Response {
+  const safeUrl = JSON.stringify(url);
+  const headers = new Headers({ 'Content-Type': 'text/html; charset=utf-8' });
+  if (clearCookieName) {
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    headers.set(
+      'Set-Cookie',
+      `${clearCookieName}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure}`
+    );
+  }
+  return new Response(
+    `<!DOCTYPE html><html><head>` +
+      `<meta http-equiv="refresh" content="0;url=${url}">` +
+      `<script>window.location.replace(${safeUrl})</script>` +
+      `</head><body></body></html>`,
+    { status: 200, headers }
+  );
+}
+
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const successUrl = `${origin}/profile/connections?success=youtube`;
@@ -57,7 +83,7 @@ export async function GET(req: NextRequest) {
     console.error(
       '[GET /api/platforms/callback/youtube] Missing YOUTUBE_CLIENT_ID or YOUTUBE_CLIENT_SECRET'
     );
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   const { searchParams } = req.nextUrl;
@@ -67,12 +93,12 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.error('[GET /api/platforms/callback/youtube] OAuth error from Google:', error);
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   if (!code || !stateParam) {
     console.error('[GET /api/platforms/callback/youtube] Missing code or state');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   // Verify CSRF nonce and extract userId from the server-set OAuth state cookie.
@@ -82,19 +108,19 @@ export async function GET(req: NextRequest) {
   const cookieValue = req.cookies.get(YOUTUBE_OAUTH_STATE_COOKIE)?.value;
   if (!cookieValue) {
     console.error('[GET /api/platforms/callback/youtube] CSRF state cookie missing');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
   const pipeIndex = cookieValue.indexOf('|');
   if (pipeIndex === -1) {
     console.error('[GET /api/platforms/callback/youtube] Malformed state cookie');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
   const storedNonce = cookieValue.slice(0, pipeIndex);
   const userId = cookieValue.slice(pipeIndex + 1);
 
   if (storedNonce !== stateParam || !userId) {
     console.error('[GET /api/platforms/callback/youtube] CSRF state mismatch');
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 
   try {
@@ -116,14 +142,14 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
       console.error('[GET /api/platforms/callback/youtube] Token exchange failed:', body);
-      return NextResponse.redirect(failureUrl);
+      return htmlRedirect(failureUrl);
     }
 
     const tokens = (await tokenRes.json()) as GoogleTokenResponse;
 
     if (!tokens.access_token) {
       console.error('[GET /api/platforms/callback/youtube] No access_token in response');
-      return NextResponse.redirect(failureUrl);
+      return htmlRedirect(failureUrl);
     }
 
     // Fetch the user's YouTube channel info
@@ -134,7 +160,7 @@ export async function GET(req: NextRequest) {
     if (!channelRes.ok) {
       const body = await channelRes.text();
       console.error('[GET /api/platforms/callback/youtube] Channel fetch failed:', body);
-      return NextResponse.redirect(failureUrl);
+      return htmlRedirect(failureUrl);
     }
 
     const channelData = (await channelRes.json()) as YouTubeChannelsResponse;
@@ -142,7 +168,7 @@ export async function GET(req: NextRequest) {
 
     if (!channel) {
       console.error('[GET /api/platforms/callback/youtube] No YouTube channel found for user');
-      return NextResponse.redirect(failureUrl);
+      return htmlRedirect(failureUrl);
     }
 
     const platformUserId = channel.id;
@@ -176,12 +202,10 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const successResponse = NextResponse.redirect(successUrl);
-    // Clear the CSRF nonce cookie — it's single-use.
-    successResponse.cookies.delete(YOUTUBE_OAUTH_STATE_COOKIE);
-    return successResponse;
+    // Clear the CSRF nonce cookie and break the cross-site redirect chain.
+    return htmlRedirect(successUrl, YOUTUBE_OAUTH_STATE_COOKIE);
   } catch (err) {
     console.error('[GET /api/platforms/callback/youtube] Unexpected error:', err);
-    return NextResponse.redirect(failureUrl);
+    return htmlRedirect(failureUrl);
   }
 }

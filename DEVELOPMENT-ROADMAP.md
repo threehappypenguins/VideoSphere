@@ -636,7 +636,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #29 · `[TASK]` Platform Connection Status Indicator
+### ✅ Issue #29 · `[TASK]` Platform Connection Status Indicator
 
 **Task Description:** Display a clear visual indicator for each connected platform showing whether the connection is active, token expired, or disconnected.
 
@@ -646,10 +646,10 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] Connected + valid token → green "Connected" badge
-- [ ] Connected + expired token → amber "Token expired — reconnect" badge with re-auth button
-- [ ] Not connected → grey "Not connected" with "Connect" button
-- [ ] Status is derived from token expiry date compared to current time
+- [x] Connected + valid token → green "Connected" badge
+- [x] Connected + expired token → amber "Token expired — reconnect" badge with re-auth button
+- [x] Not connected → grey "Not connected" with "Connect" button
+- [x] Status is derived from token expiry date compared to current time
 
 **Related Feature / Epic:** Platform Management (PM-06)
 

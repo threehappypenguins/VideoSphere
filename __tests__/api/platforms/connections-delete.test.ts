@@ -1,0 +1,220 @@
+/**
+ * Tests for DELETE /api/platforms/connections/[id]
+ *
+ * Covers: unauthenticated requests, IDOR protection (user can only delete
+ * their own accounts), DB errors, and the successful 204 No Content path.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+
+// ---------------------------------------------------------------------------
+// Mock connected-accounts repository
+// ---------------------------------------------------------------------------
+
+vi.mock('@/lib/repositories/connected-accounts', () => ({
+  getConnectedAccountsByUser: vi.fn(),
+  deleteConnectedAccount: vi.fn(),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock node-appwrite Client + Account (needed by getAuthenticatedUserId)
+// ---------------------------------------------------------------------------
+
+const mockAccountGet = vi.fn();
+
+vi.mock('node-appwrite', () => {
+  const mockClient = {
+    setEndpoint: vi.fn(function () {
+      return this;
+    }),
+    setProject: vi.fn(function () {
+      return this;
+    }),
+    setSession: vi.fn(function () {
+      return this;
+    }),
+  };
+  function MockClient() {
+    return mockClient;
+  }
+  function MockAccount() {
+    this.get = mockAccountGet;
+  }
+  return { Client: MockClient, Account: MockAccount };
+});
+
+import { DELETE } from '@/app/api/platforms/connections/[id]/route';
+import {
+  getConnectedAccountsByUser,
+  deleteConnectedAccount,
+} from '@/lib/repositories/connected-accounts';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const USER_ID = 'user-abc';
+const SESSION_COOKIE = 'a_session_test-project';
+const ACCOUNT_ID = 'conn-123';
+
+function makeRequest(
+  id: string,
+  cookies: Record<string, string> = {}
+): [NextRequest, { params: Promise<{ id: string }> }] {
+  const url = new URL(`http://localhost:3000/api/platforms/connections/${id}`);
+  const cookieHeader = Object.entries(cookies)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ');
+  const req = new NextRequest(url, {
+    method: 'DELETE',
+    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+  });
+  return [req, { params: Promise.resolve({ id }) }];
+}
+
+const MOCK_ACCOUNT = {
+  id: ACCOUNT_ID,
+  userId: USER_ID,
+  platform: 'youtube',
+  platformUserId: 'yt-user-123',
+  platformName: 'Test Channel',
+  tokenExpiry: new Date(Date.now() + 1_000_000).toISOString(),
+};
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
+  vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'https://appwrite.test/v1');
+  mockAccountGet.mockResolvedValue({ $id: USER_ID });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+});
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('DELETE /api/platforms/connections/[id]', () => {
+  describe('authentication', () => {
+    it('returns 401 when no session cookie is present', async () => {
+      const [req, ctx] = makeRequest(ACCOUNT_ID);
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.error).toBe('Unauthorized');
+    });
+
+    it('returns 401 when the session is invalid (Appwrite throws)', async () => {
+      mockAccountGet.mockRejectedValueOnce(new Error('Session not found'));
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'bad-token' });
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(401);
+    });
+
+    it('does not call repository when unauthenticated', async () => {
+      const [req, ctx] = makeRequest(ACCOUNT_ID);
+      await DELETE(req, ctx);
+      expect(getConnectedAccountsByUser).not.toHaveBeenCalled();
+      expect(deleteConnectedAccount).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('IDOR protection', () => {
+    it('returns 404 when the account id does not exist in the user accounts', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      const [req, ctx] = makeRequest('other-id', { [SESSION_COOKIE]: 'valid-session' });
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toBe('Not Found');
+    });
+
+    it('returns 404 when the user has no connected accounts', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([]);
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'valid-session' });
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(404);
+    });
+
+    it('does not call deleteConnectedAccount when account not owned by user', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      const [req, ctx] = makeRequest('other-id', { [SESSION_COOKIE]: 'valid-session' });
+      await DELETE(req, ctx);
+      expect(deleteConnectedAccount).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('success path', () => {
+    it('returns 204 No Content on successful deletion', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      vi.mocked(deleteConnectedAccount).mockResolvedValueOnce(undefined);
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'valid-session' });
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(204);
+    });
+
+    it('returns empty body on success', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      vi.mocked(deleteConnectedAccount).mockResolvedValueOnce(undefined);
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'valid-session' });
+      const res = await DELETE(req, ctx);
+      const body = await res.text();
+      expect(body).toBe('');
+    });
+
+    it('calls deleteConnectedAccount with the correct id', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      vi.mocked(deleteConnectedAccount).mockResolvedValueOnce(undefined);
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'valid-session' });
+      await DELETE(req, ctx);
+      expect(deleteConnectedAccount).toHaveBeenCalledWith(ACCOUNT_ID);
+    });
+
+    it('calls getConnectedAccountsByUser with the authenticated userId', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      vi.mocked(deleteConnectedAccount).mockResolvedValueOnce(undefined);
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'valid-session' });
+      await DELETE(req, ctx);
+      expect(getConnectedAccountsByUser).toHaveBeenCalledWith(USER_ID);
+    });
+
+    it('works for the second account in the users list', async () => {
+      const second = { ...MOCK_ACCOUNT, id: 'conn-456', platform: 'vimeo' };
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([
+        MOCK_ACCOUNT as never,
+        second as never,
+      ]);
+      vi.mocked(deleteConnectedAccount).mockResolvedValueOnce(undefined);
+      const [req, ctx] = makeRequest('conn-456', { [SESSION_COOKIE]: 'valid-session' });
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(204);
+      expect(deleteConnectedAccount).toHaveBeenCalledWith('conn-456');
+    });
+  });
+
+  describe('error handling', () => {
+    it('returns 500 when getConnectedAccountsByUser throws', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockRejectedValueOnce(new Error('DB error'));
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'valid-session' });
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.error).toBe('Internal Server Error');
+    });
+
+    it('returns 500 when deleteConnectedAccount throws', async () => {
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      vi.mocked(deleteConnectedAccount).mockRejectedValueOnce(new Error('Delete failed'));
+      const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'valid-session' });
+      const res = await DELETE(req, ctx);
+      expect(res.status).toBe(500);
+    });
+  });
+});

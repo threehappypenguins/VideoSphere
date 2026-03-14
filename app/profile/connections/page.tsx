@@ -74,6 +74,37 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
 
 const ALL_PLATFORMS = ['youtube', 'vimeo'] as const;
 
+/** Derive connection status from tokenExpiry. */
+function getConnectionStatus(
+  account: ConnectedAccountPublic | undefined
+): 'connected' | 'expired' | 'not-connected' {
+  if (!account) return 'not-connected';
+  const expiry = new Date(account.tokenExpiry).getTime();
+  return expiry > Date.now() ? 'connected' : 'expired';
+}
+
+function StatusBadge({ status }: { status: 'connected' | 'expired' | 'not-connected' }) {
+  if (status === 'connected') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+        Connected
+      </span>
+    );
+  }
+  if (status === 'expired') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+        Expired — reconnect
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+      Not connected
+    </span>
+  );
+}
+
 async function disconnectPlatform(accountId: string, platform: string) {
   'use server';
 
@@ -135,7 +166,7 @@ async function disconnectPlatform(accountId: string, platform: string) {
 export default async function ConnectionsPage({ searchParams }: PageProps) {
   const userId = await getCurrentUserId();
   if (!userId) {
-    redirect('/login');
+    redirect(`/login?redirect=${encodeURIComponent('/profile/connections')}`);
   }
 
   const { success, error } = await searchParams;
@@ -146,8 +177,6 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
   } catch (err) {
     console.error('[ConnectionsPage] Failed to fetch connected accounts:', err);
   }
-
-  const connectedPlatforms = new Set(accounts.map((a) => a.platform));
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
@@ -190,7 +219,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
           {ALL_PLATFORMS.map((platform) => {
             const meta = PLATFORM_META[platform];
             const account = accounts.find((a) => a.platform === platform);
-            const isConnected = connectedPlatforms.has(platform);
+            const status = getConnectionStatus(account);
+            const isConnected = status === 'connected' || status === 'expired';
 
             return (
               <div
@@ -202,7 +232,10 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                     {meta.icon}
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">{meta.label}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-foreground">{meta.label}</p>
+                      <StatusBadge status={status} />
+                    </div>
                     {isConnected && account ? (
                       <p className="text-sm text-muted-foreground">
                         Connected as{' '}

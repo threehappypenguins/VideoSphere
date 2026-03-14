@@ -109,97 +109,97 @@ describe('GET /api/platforms/callback/vimeo', () => {
   });
 
   describe('Missing environment variables', () => {
-    it('redirects to ?error=vimeo when VIMEO_CLIENT_ID is missing', async () => {
+    it('returns HTML that navigates to ?error=vimeo when VIMEO_CLIENT_ID is missing', async () => {
       delete process.env.VIMEO_CLIENT_ID;
       const req = makeRequest(VALID_PARAMS);
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
-    it('redirects to ?error=vimeo when VIMEO_CLIENT_SECRET is missing', async () => {
+    it('returns HTML that navigates to ?error=vimeo when VIMEO_CLIENT_SECRET is missing', async () => {
       delete process.env.VIMEO_CLIENT_SECRET;
       const req = makeRequest(VALID_PARAMS);
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
   });
 
   describe('OAuth error param', () => {
-    it('redirects to ?error=vimeo when Vimeo returns an error param', async () => {
+    it('returns HTML that navigates to ?error=vimeo when Vimeo returns an error param', async () => {
       const req = makeRequest({ error: 'access_denied', state: CSRF_NONCE }, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
   });
 
   describe('Missing query params', () => {
-    it('redirects to ?error=vimeo when code is missing', async () => {
+    it('returns HTML that navigates to ?error=vimeo when code is missing', async () => {
       const req = makeRequest({ state: CSRF_NONCE }, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
-    it('redirects to ?error=vimeo when state is missing', async () => {
+    it('returns HTML that navigates to ?error=vimeo when state is missing', async () => {
       const req = makeRequest({ code: 'abc' }, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
   });
 
   describe('CSRF verification', () => {
-    it('redirects to ?error=vimeo when CSRF cookie is absent', async () => {
+    it('returns HTML that navigates to ?error=vimeo when CSRF cookie is absent', async () => {
       const req = makeRequest(VALID_PARAMS, {});
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
-    it('redirects to ?error=vimeo when state param does not match CSRF cookie nonce', async () => {
+    it('returns HTML that navigates to ?error=vimeo when state param does not match CSRF cookie nonce', async () => {
       const req = makeRequest(
         { code: 'abc', state: 'wrong-nonce' },
         { [CSRF_COOKIE]: VALID_COOKIE_VALUE }
       );
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
-    it('redirects to ?error=vimeo when cookie is malformed (no pipe separator)', async () => {
+    it('returns HTML that navigates to ?error=vimeo when cookie is malformed (no pipe separator)', async () => {
       const req = makeRequest(VALID_PARAMS, { [CSRF_COOKIE]: CSRF_NONCE }); // missing |userId
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
   });
 
   describe('Token exchange', () => {
-    it('redirects to ?error=vimeo when token endpoint returns non-OK', async () => {
+    it('returns HTML that navigates to ?error=vimeo when token endpoint returns non-OK', async () => {
       mockTokenFailure(400);
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
-    it('redirects to ?error=vimeo when token response has no access_token', async () => {
+    it('returns HTML that navigates to ?error=vimeo when token response has no access_token', async () => {
       mockTokenSuccess({ token_type: 'bearer', scope: 'public', user: TOKEN_RESPONSE.user });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
-    it('redirects to ?error=vimeo when token response has no user object', async () => {
+    it('returns HTML that navigates to ?error=vimeo when token response has no user object', async () => {
       mockTokenSuccess({ access_token: 'tok', token_type: 'bearer', scope: 'public' });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
     it('sends a JSON body (not form-encoded) to the token endpoint', async () => {
@@ -262,11 +262,11 @@ describe('GET /api/platforms/callback/vimeo', () => {
       });
     });
 
-    it('redirects to ?success=vimeo', async () => {
+    it('returns HTML that navigates to ?success=vimeo', async () => {
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('success=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('success=vimeo');
     });
 
     it('calls createConnectedAccount with userId from the CSRF cookie (not state param)', async () => {
@@ -333,22 +333,22 @@ describe('GET /api/platforms/callback/vimeo', () => {
   });
 
   describe('Unexpected errors', () => {
-    it('redirects to ?error=vimeo when createConnectedAccount throws', async () => {
+    it('returns HTML that navigates to ?error=vimeo when createConnectedAccount throws', async () => {
       mockTokenSuccess();
       vi.mocked(getConnectedAccount).mockResolvedValue(null);
       vi.mocked(createConnectedAccount).mockRejectedValueOnce(new Error('DB error'));
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
 
-    it('redirects to ?error=vimeo when fetch throws a network error', async () => {
+    it('returns HTML that navigates to ?error=vimeo when fetch throws a network error', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
     });
   });
 
@@ -384,11 +384,11 @@ describe('GET /api/platforms/callback/vimeo', () => {
       expect(createConnectedAccount).not.toHaveBeenCalled();
     });
 
-    it('still redirects to ?success=vimeo on reconnect', async () => {
+    it('still returns HTML that navigates to ?success=vimeo on reconnect', async () => {
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('success=vimeo');
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('success=vimeo');
     });
   });
 });
