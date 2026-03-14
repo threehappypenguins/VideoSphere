@@ -99,7 +99,7 @@ describe('ConnectionsPage', () => {
       mockCookiesGet.mockReturnValue(undefined);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(redirect).toHaveBeenCalledWith('/login');
+      expect(redirect).toHaveBeenCalledWith('/login?redirect=%2Fprofile%2Fconnections');
     });
 
     it('redirects to /login when Appwrite rejects the session', async () => {
@@ -107,7 +107,7 @@ describe('ConnectionsPage', () => {
       mockAccountGet.mockRejectedValue(new Error('Invalid session'));
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(redirect).toHaveBeenCalledWith('/login');
+      expect(redirect).toHaveBeenCalledWith('/login?redirect=%2Fprofile%2Fconnections');
     });
   });
 
