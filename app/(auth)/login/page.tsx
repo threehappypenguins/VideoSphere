@@ -6,14 +6,14 @@
 //   set in GET /api/auth/oauth/callback, then redirect to /callback/google.
 //
 // Email/Password Auth:
-//   - Form submission POSTs to /api/auth/login; on success, redirects to /dashboard.
+//   - Form submission POSTs to /api/auth/login; on success, redirects to ?redirect or /dashboard.
 //
 // Google OAuth:
 //   - "Sign in with Google" navigates to /api/auth/oauth/google (server creates OAuth token, redirects to Google).
 //   - Works for both existing users (sign in) and new users (sign up): Appwrite creates the
 //     auth user on first Google sign-in; our callback ensures a user_profiles document.
 //   - Flow: User → Google consent → Appwrite callback → our /api/auth/oauth/callback (sets cookie)
-//     → /callback/google runs and POSTs to /api/auth/callback/google, then redirects to dashboard.
+//     → /callback/google runs and POSTs to /api/auth/callback/google, then redirects to ?redirect or dashboard.
 //
 // Reference: https://appwrite.io/docs/references/web/client-web/auth
 // =============================================================================
@@ -23,6 +23,7 @@
 import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 interface LoginState {
   email: string;
@@ -37,6 +38,7 @@ interface ErrorState {
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const redirectTo = safeRedirect(searchParams.get('redirect'));
 
   const [formData, setFormData] = useState<LoginState>({
     email: '',
@@ -79,10 +81,10 @@ export default function LoginPage() {
       if (submitHandledRef.current) return;
       submitHandledRef.current = true;
       setError({
-        message: 'Login successful! Redirecting to dashboard...',
+        message: 'Login successful! Redirecting...',
         type: 'success',
       });
-      setTimeout(() => router.push('/dashboard'), 1000);
+      setTimeout(() => router.push(redirectTo ?? '/dashboard'), 1000);
     } catch {
       setError({ message: 'An error occurred during login.', type: 'error' });
     } finally {
@@ -92,7 +94,8 @@ export default function LoginPage() {
 
   // Google OAuth: server-side flow (admin client), same pattern as email/password
   const handleGoogleLogin = () => {
-    window.location.href = '/api/auth/oauth/google';
+    const params = redirectTo ? `?redirect=${encodeURIComponent(redirectTo)}` : '';
+    window.location.href = `/api/auth/oauth/google${params}`;
   };
 
   // Map error codes to user-friendly messages

@@ -145,7 +145,7 @@ describe('LoginPage Component', () => {
       });
     });
 
-    it('should redirect to dashboard after successful login', async () => {
+    it('should redirect to dashboard after successful login (no redirect param)', async () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 

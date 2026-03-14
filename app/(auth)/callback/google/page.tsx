@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { clearCookieFallback } from '@/lib/auth-client';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 /**
  * OAuth callback page: session cookie was already set by GET /api/auth/oauth/callback.
@@ -11,6 +12,8 @@ import { clearCookieFallback } from '@/lib/auth-client';
  */
 export default function GoogleCallbackPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = safeRedirect(searchParams.get('rd'));
   const [error, setError] = useState<string | null>(null);
   const doneRef = useRef(false);
 
@@ -39,7 +42,7 @@ export default function GoogleCallbackPage() {
           return;
         }
         clearCookieFallback();
-        router.push('/dashboard');
+        router.push(redirectTo ?? '/dashboard');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         setError(`Authentication failed: ${message}`);

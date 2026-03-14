@@ -20,7 +20,19 @@
  * @param clearCookieName  Optional httpOnly cookie to clear (Max-Age=0).
  */
 export function htmlRedirect(url: string, clearCookieName?: string): Response {
-  const safeUrl = JSON.stringify(url);
+  // JSON.stringify alone does not make a string safe to embed inside a <script>
+  // tag: a URL containing "</script>" would close the tag early, and Unicode
+  // line separators (U+2028, U+2029) are invalid in JS string literals.
+  // Replacing these with their Unicode escape sequences is safe because JS
+  // evaluates them identically while the HTML parser never sees the raw chars.
+  // This is the same technique used by Next.js / React for JSON in <script> tags.
+  const safeUrl = JSON.stringify(url)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
   // Encode for HTML attribute context: prevent attribute breakout if the URL
   // contains quotes, ampersands, or angle brackets (e.g. multi-param query strings).
   const attrUrl = url

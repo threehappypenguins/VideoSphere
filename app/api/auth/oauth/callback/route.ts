@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { appwriteAuth } from '@/lib/appwrite';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
@@ -35,7 +36,11 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(`${origin}/callback/google`);
+    const rd = safeRedirect(req.nextUrl.searchParams.get('rd'));
+    const callbackUrl = rd
+      ? `${origin}/callback/google?rd=${encodeURIComponent(rd)}`
+      : `${origin}/callback/google`;
+    return NextResponse.redirect(callbackUrl);
   } catch (err) {
     console.error('[GET /api/auth/oauth/callback]', err);
     return NextResponse.redirect(`${origin}/login?error=oauth_callback_failed`);
