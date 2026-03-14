@@ -153,6 +153,30 @@ export async function getConnectedAccountWithTokens(
   return rowToConnectedAccount(decrypted);
 }
 
+/**
+ * Fetch a single connected account by its row ID, returning it only when it
+ * belongs to the given user. Constant-time (primary-key lookup) and
+ * IDOR-safe: returns null if the row doesn't exist or belongs to another user.
+ */
+export async function getConnectedAccountForUser(
+  id: string,
+  userId: string
+): Promise<ConnectedAccountPublic | null> {
+  try {
+    const row = await tablesDb.getRow({
+      databaseId: DATABASE_ID,
+      tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
+      rowId: id,
+    });
+    const account = rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
+    return account.userId === userId ? account : null;
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code === 404) return null;
+    throw err;
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Update (tokens only)
 // -----------------------------------------------------------------------------

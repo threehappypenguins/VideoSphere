@@ -33,15 +33,36 @@ export function htmlRedirect(url: string, clearCookieName?: string): Response {
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
 
-  // Encode for HTML attribute context: prevent attribute breakout if the URL
-  // contains quotes, ampersands, or angle brackets (e.g. multi-param query strings).
+  // Encode for the <meta http-equiv="refresh" content="0;url=..."> attribute.
+  //
+  // In that attribute the parser treats ';' as a directive separator (so a URL
+  // containing ";url=evil" would silently override the redirect target) and
+  // CR/LF can truncate the attribute or inject additional HTML attributes.
+  //
+  // We therefore:
+  //   1. Strip bare CR and LF (they have no valid role in a URL here).
+  //   2. Percent-encode ';' so it cannot be mistaken for a directive separator
+  //      (RFC 3986 allows ';' unencoded in query strings, but encodes to %3B).
+  //   3. HTML-entity-encode the remaining special characters to prevent
+  //      attribute context breakout (quotes, angle brackets, ampersands).
+  //
+  // The JS path (safeUrl / window.location.replace) is unaffected.
   const attrUrl = url
+    .replace(/[\r\n]/g, '') // strip CR/LF — no valid use; prevents attr injection
+    .replace(/;/g, '%3B') // meta-refresh directive separator
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  const headers = new Headers({ 'Content-Type': 'text/html; charset=utf-8' });
+  const headers = new Headers({
+    'Content-Type': 'text/html; charset=utf-8',
+    // Prevent browsers and intermediaries from caching the OAuth callback HTML.
+    // A cached response could replay the redirect (and its Set-Cookie) on the
+    // next visit, leading to stale session state or CSRF token reuse.
+    'Cache-Control': 'no-store',
+    Pragma: 'no-cache',
+  });
   if (clearCookieName) {
     const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
     headers.set(

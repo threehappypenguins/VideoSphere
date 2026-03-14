@@ -7,12 +7,15 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockCreateRow, mockListRows, mockUpdateRow, mockDeleteRow } = vi.hoisted(() => ({
-  mockCreateRow: vi.fn(),
-  mockListRows: vi.fn(),
-  mockUpdateRow: vi.fn(),
-  mockDeleteRow: vi.fn(),
-}));
+const { mockCreateRow, mockListRows, mockUpdateRow, mockDeleteRow, mockGetRow } = vi.hoisted(
+  () => ({
+    mockCreateRow: vi.fn(),
+    mockListRows: vi.fn(),
+    mockUpdateRow: vi.fn(),
+    mockDeleteRow: vi.fn(),
+    mockGetRow: vi.fn(),
+  })
+);
 
 vi.mock('node-appwrite', () => ({
   ID: {
@@ -28,6 +31,7 @@ vi.mock('node-appwrite', () => ({
     listRows = mockListRows;
     updateRow = mockUpdateRow;
     deleteRow = mockDeleteRow;
+    getRow = mockGetRow;
   },
 }));
 
@@ -42,6 +46,7 @@ import {
   getConnectedAccountsByUser,
   getConnectedAccount,
   getConnectedAccountWithTokens,
+  getConnectedAccountForUser,
   updateTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
@@ -174,6 +179,50 @@ describe('connected-accounts repository', () => {
 
       expect(result).not.toHaveProperty('accessToken');
       expect(result).not.toHaveProperty('refreshToken');
+    });
+  });
+
+  describe('getConnectedAccountForUser', () => {
+    it('returns the account (public shape) when the row exists and userId matches', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow });
+
+      const result = await getConnectedAccountForUser('row-1', 'user-1');
+
+      expect(mockGetRow).toHaveBeenCalledWith({
+        databaseId: 'videosphere',
+        tableId: 'connected_accounts',
+        rowId: 'row-1',
+      });
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe('row-1');
+      expect(result!.userId).toBe('user-1');
+      expect(result).not.toHaveProperty('accessToken');
+      expect(result).not.toHaveProperty('refreshToken');
+    });
+
+    it('returns null when the row belongs to a different user (IDOR check)', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow, userId: 'other-user' });
+
+      const result = await getConnectedAccountForUser('row-1', 'user-1');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when the row does not exist (404 from Appwrite)', async () => {
+      const err = Object.assign(new Error('Not found'), { code: 404 });
+      mockGetRow.mockRejectedValue(err);
+
+      const result = await getConnectedAccountForUser('missing-id', 'user-1');
+
+      expect(result).toBeNull();
+    });
+
+    it('rethrows non-404 errors', async () => {
+      mockGetRow.mockRejectedValue(new Error('DB connection error'));
+
+      await expect(getConnectedAccountForUser('row-1', 'user-1')).rejects.toThrow(
+        'DB connection error'
+      );
     });
   });
 

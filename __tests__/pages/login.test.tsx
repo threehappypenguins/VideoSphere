@@ -160,6 +160,48 @@ describe('LoginPage Component', () => {
         { timeout: 2000 }
       );
     });
+
+    it('should redirect to the ?redirect path after successful login when a safe redirect param is present', async () => {
+      const user = userEvent.setup();
+      // Arrange: simulate ?redirect=/profile/connections
+      (useSearchParams as any).mockReturnValue({
+        get: vi.fn((key: string) => (key === 'redirect' ? '/profile/connections' : null)),
+      });
+
+      render(<LoginPage />);
+
+      await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
+      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.click(screen.getByRole('button', { name: /log in/i }));
+
+      await waitFor(
+        () => {
+          expect(mockPush).toHaveBeenCalledWith('/profile/connections');
+        },
+        { timeout: 2000 }
+      );
+    });
+
+    it('should ignore an unsafe ?redirect param and fall back to /dashboard', async () => {
+      const user = userEvent.setup();
+      // Arrange: protocol-relative URL should be rejected by safeRedirect
+      (useSearchParams as any).mockReturnValue({
+        get: vi.fn((key: string) => (key === 'redirect' ? '//evil.example.com' : null)),
+      });
+
+      render(<LoginPage />);
+
+      await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
+      await user.type(screen.getByLabelText(/password/i), 'password123');
+      await user.click(screen.getByRole('button', { name: /log in/i }));
+
+      await waitFor(
+        () => {
+          expect(mockPush).toHaveBeenCalledWith('/dashboard');
+        },
+        { timeout: 2000 }
+      );
+    });
   });
 
   describe('Error Handling', () => {
@@ -268,6 +310,66 @@ describe('LoginPage Component', () => {
       await waitFor(() => {
         expect(submitButton).toBeDisabled();
       });
+    });
+  });
+
+  describe('Google OAuth', () => {
+    let originalLocation: Location;
+
+    beforeEach(() => {
+      // jsdom's window.location is not writable directly, so we replace the
+      // whole object with a plain object that has a writable `href` property.
+      originalLocation = window.location;
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: { href: '' },
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: originalLocation,
+      });
+    });
+
+    it('should navigate to /api/auth/oauth/google without params when no redirect is present', async () => {
+      const user = userEvent.setup();
+      // Default beforeEach: useSearchParams().get() returns null for all keys
+      render(<LoginPage />);
+
+      await user.click(screen.getByRole('button', { name: /sign in with google/i }));
+
+      expect(window.location.href).toBe('/api/auth/oauth/google');
+    });
+
+    it('should append ?redirect= to the Google OAuth URL when a safe redirect param is present', async () => {
+      const user = userEvent.setup();
+      (useSearchParams as any).mockReturnValue({
+        get: vi.fn((key: string) => (key === 'redirect' ? '/profile/connections' : null)),
+      });
+
+      render(<LoginPage />);
+
+      await user.click(screen.getByRole('button', { name: /sign in with google/i }));
+
+      expect(window.location.href).toBe('/api/auth/oauth/google?redirect=%2Fprofile%2Fconnections');
+    });
+
+    it('should NOT append ?redirect= when the redirect param is unsafe', async () => {
+      const user = userEvent.setup();
+      // Protocol-relative URL is rejected by safeRedirect → redirectTo is null
+      (useSearchParams as any).mockReturnValue({
+        get: vi.fn((key: string) => (key === 'redirect' ? '//evil.example.com' : null)),
+      });
+
+      render(<LoginPage />);
+
+      await user.click(screen.getByRole('button', { name: /sign in with google/i }));
+
+      expect(window.location.href).toBe('/api/auth/oauth/google');
     });
   });
 

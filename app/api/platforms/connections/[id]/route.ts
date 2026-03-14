@@ -16,7 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
-  getConnectedAccountsByUser,
+  getConnectedAccountForUser,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
 import type { ApiError } from '@/types';
@@ -39,10 +39,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
   const { id } = await params;
 
   try {
-    // Fetch all accounts for this user and verify the requested id belongs to them.
-    // This guards against IDOR — a user must not be able to delete another user's account.
-    const accounts = await getConnectedAccountsByUser(userId);
-    const account = accounts.find((a) => a.id === id);
+    // Primary-key lookup (O(1)) — returns null when the row doesn't exist or
+    // belongs to a different user, keeping IDOR protection without a full list scan.
+    const account = await getConnectedAccountForUser(id, userId);
 
     if (!account) {
       const errRes: ApiError = {
