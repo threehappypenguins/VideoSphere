@@ -217,6 +217,18 @@ export default function Navbar() {
               </span>
             ) : isLoggedIn ? (
               <>
+                <Link
+                  href="/dashboard"
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  href="/profile"
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Profile
+                </Link>
                 <span className="text-sm text-muted-foreground" title={sessionUser?.email}>
                   {userLabel}
                 </span>
@@ -336,6 +348,22 @@ export default function Navbar() {
                 <span className="px-3 py-2 text-sm text-muted-foreground">…</span>
               ) : isLoggedIn ? (
                 <>
+                  <Link
+                    href="/dashboard"
+                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Dashboard
+                  </Link>
+
+                  <Link
+                    href="/profile"
+                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Profile
+                  </Link>
+
                   <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
                   <button
                     type="button"
