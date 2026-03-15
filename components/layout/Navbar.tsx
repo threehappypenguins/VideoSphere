@@ -350,14 +350,14 @@ export default function Navbar() {
                 <>
                   <Link
                     href="/dashboard"
-                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Dashboard
                   </Link>
                   <Link
                     href="/profile"
-                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/profile' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Profile
