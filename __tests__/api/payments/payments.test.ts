@@ -1,344 +1,259 @@
 // =============================================================================
-// PAYMENTS API TESTS
+// PAYMENTS ROUTE TESTS
 // =============================================================================
-// Tests for Stripe payment integration: checkout creation and webhook handling
-// =============================================================================
+// Handler-level tests that invoke the actual exported Next.js route handlers
+// while mocking Stripe + Appwrite dependencies.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type Stripe from 'stripe';
+import { NextRequest } from 'next/server';
 
-/**
- * Mock helper: Create a mock NextRequest for testing
- */
-function createMockRequest(
-  method = 'POST',
-  options: {
-    cookies?: Record<string, string>;
-    body?: string;
-    headers?: Record<string, string>;
-  } = {}
-): any {
-  const { cookies = {}, body, headers = {} } = options;
+// `vi.mock` factories are hoisted, so these mocks must be declared with
+// `vi.hoisted` to avoid initialization-order issues.
+const checkoutSessionCreateMock = vi.hoisted(() => vi.fn());
+const constructEventMock = vi.hoisted(() => vi.fn());
+const updateUserMock = vi.hoisted(() => vi.fn());
+const accountGetMock = vi.hoisted(() => vi.fn());
 
+vi.mock('stripe', () => {
   return {
-    method,
-    headers: new Map(Object.entries(headers)),
-    cookies: {
-      get: (name: string) => ({
-        value: cookies[name] || '',
-      }),
-    },
-    json: async () => (body ? JSON.parse(body) : {}),
-    text: async () => body || '',
-    arrayBuffer: async () => new TextEncoder().encode(body || ''),
-    nextUrl: {
-      origin: 'http://localhost:3000',
-      searchParams: new URLSearchParams(),
+    __esModule: true,
+    default: class StripeMock {
+      public checkout = {
+        sessions: {
+          create: checkoutSessionCreateMock,
+        },
+      };
+
+      public webhooks = {
+        constructEvent: constructEventMock,
+      };
+
+      constructor(..._args: any[]) {
+        // no-op
+      }
     },
   };
+});
+
+vi.mock('node-appwrite', () => {
+  return {
+    __esModule: true,
+    Client: class ClientMock {
+      setEndpoint() {
+        return this;
+      }
+      setProject() {
+        return this;
+      }
+      setSession() {
+        return this;
+      }
+    },
+    Account: class AccountMock {
+      constructor(..._args: any[]) {}
+      get = accountGetMock;
+    },
+  };
+});
+
+vi.mock('@/lib/repositories/users', () => ({
+  updateUser: updateUserMock,
+}));
+
+import { POST as checkoutPOST } from '@/app/api/payments/checkout/route';
+import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route';
+
+function createCheckoutRequest({
+  projectId,
+  sessionSecret,
+}: {
+  projectId: string;
+  sessionSecret?: string;
+}): NextRequest {
+  const url = new URL('http://localhost:3000/api/payments/checkout');
+  const cookieName = `a_session_${projectId}`;
+
+  return new NextRequest(url, {
+    method: 'POST',
+    headers: sessionSecret ? { Cookie: `${cookieName}=${sessionSecret}` } : {},
+  });
 }
 
-describe('Payments API', () => {
+function createWebhookRequest({
+  rawBody,
+  stripeSignature,
+}: {
+  rawBody: string;
+  stripeSignature?: string;
+}): NextRequest {
+  const url = new URL('http://localhost:3000/api/webhooks/stripe');
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (stripeSignature !== undefined) headers['stripe-signature'] = stripeSignature;
+
+  return new NextRequest(url, {
+    method: 'POST',
+    headers,
+    body: rawBody,
+  });
+}
+
+describe('Payments route handlers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
+    vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
+
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
+    vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_secret');
+  });
+
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
   describe('POST /api/payments/checkout', () => {
-    it('should return 401 when not authenticated (no session cookie)', async () => {
-      // When: POST /api/payments/checkout without session cookie
-      const req = createMockRequest('POST', {
-        cookies: {}, // No session cookie
+    it('returns 401 when session cookie is missing', async () => {
+      const res = await checkoutPOST(createCheckoutRequest({ projectId: 'test-project' }));
+
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'Not authenticated' });
+      expect(accountGetMock).not.toHaveBeenCalled();
+      expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when STRIPE_SECRET_KEY is missing', async () => {
+      vi.stubEnv('STRIPE_SECRET_KEY', '');
+      vi.stubEnv('STRIPE_PRICE_ID', '');
+
+      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+
+      const res = await checkoutPOST(
+        createCheckoutRequest({
+          projectId: 'test-project',
+          sessionSecret: 'session-secret',
+        })
+      );
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.error).toBe('Payment service not configured');
+      expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('creates checkout session and returns checkoutUrl', async () => {
+      vi.stubEnv('STRIPE_PRICE_ID', '');
+
+      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      checkoutSessionCreateMock.mockResolvedValueOnce({
+        url: 'https://checkout.stripe.com/pay/test',
       });
 
-      // Then: Should return 401
-      expect(req.cookies.get('a_session_test')).toBeDefined();
-    });
+      const res = await checkoutPOST(
+        createCheckoutRequest({
+          projectId: 'test-project',
+          sessionSecret: 'session-secret',
+        })
+      );
 
-    it('should return 401 when STRIPE_SECRET_KEY is not configured', async () => {
-      // Test environment setup
-      const originalKey = process.env.STRIPE_SECRET_KEY;
-      process.env.STRIPE_SECRET_KEY = '';
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ checkoutUrl: 'https://checkout.stripe.com/pay/test' });
 
-      try {
-        // When: Missing STRIPE_SECRET_KEY
-        // Then: Should fail to initialize Stripe client
-        expect(process.env.STRIPE_SECRET_KEY).toBe('');
-      } finally {
-        process.env.STRIPE_SECRET_KEY = originalKey;
-      }
-    });
-
-    it('should require authentication headers', async () => {
-      // When: Request without proper session
-      const req = createMockRequest('POST', {
-        headers: { 'content-type': 'application/json' },
-      });
-
-      // Then: Should fail auth check
-      expect(req.method).toBe('POST');
-    });
-
-    it('should validate environment configuration', async () => {
-      // Given: Required env vars
-      const required = ['STRIPE_SECRET_KEY', 'NEXT_PUBLIC_APP_URL'];
-
-      // When: Checking configuration
-      // Then: All required vars should be present or have defaults
-      expect(required.length).toBeGreaterThan(0);
-    });
-
-    it('should create checkout session with correct amount', async () => {
-      // Given: Valid Stripe SDK
-      // When: Creating checkout session
-      // Then: Session should have $9 USD amount (900 cents)
-      const expectedAmount = 900;
-      expect(expectedAmount).toBe(900);
-    });
-
-    it('should set client_reference_id for webhook verification', async () => {
-      // Given: User ID from session
-      const userId = 'user_test_123';
-
-      // When: Creating checkout session
-      // Then: client_reference_id should match userId
-      expect(userId).toBe('user_test_123');
-    });
-
-    it('should set correct success and cancel URLs', async () => {
-      // Given: Application URLs
-      const appUrl = 'http://localhost:3000';
-
-      // When: Creating checkout session
-      // Then: URLs should match expected redirects
-      const successUrl = `${appUrl}/profile?upgrade=success`;
-      const cancelUrl = `${appUrl}/pricing`;
-
-      expect(successUrl).toContain('/profile?upgrade=success');
-      expect(cancelUrl).toContain('/pricing');
-    });
-
-    it('should return checkout URL in response', async () => {
-      // Given: Successful Stripe session creation
-      // When: Returning response
-      // Then: Should include checkoutUrl field
-      const response = { checkoutUrl: 'https://checkout.stripe.com/pay/...' };
-
-      expect(response).toHaveProperty('checkoutUrl');
-      expect(response.checkoutUrl).toContain('https://');
+      expect(checkoutSessionCreateMock).toHaveBeenCalledTimes(1);
+      const stripeArgs = checkoutSessionCreateMock.mock.calls[0]?.[0];
+      expect(stripeArgs.client_reference_id).toBe('user_123');
+      expect(stripeArgs.success_url).toContain('/profile?upgrade=success');
+      expect(stripeArgs.cancel_url).toContain('/pricing');
+      expect(stripeArgs.line_items).toEqual([
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'VideoSphere Supporter Upgrade',
+              description: 'Unlock unlimited uploads, all platforms, and premium AI',
+            },
+            unit_amount: 900,
+          },
+          quantity: 1,
+        },
+      ]);
     });
   });
 
   describe('POST /api/webhooks/stripe', () => {
-    const mockWebhookSecret = 'whsec_test_1234567890';
+    it('returns 403 when STRIPE_WEBHOOK_SECRET is missing', async () => {
+      vi.stubEnv('STRIPE_WEBHOOK_SECRET', '');
 
-    beforeEach(() => {
-      process.env.STRIPE_WEBHOOK_SECRET = mockWebhookSecret;
-      process.env.STRIPE_SECRET_KEY = 'sk_test_1234567890';
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'Webhook secret not configured' });
+      expect(constructEventMock).not.toHaveBeenCalled();
+      expect(updateUserMock).not.toHaveBeenCalled();
     });
 
-    it('should return 403 when STRIPE_WEBHOOK_SECRET is not configured', async () => {
-      // When: STRIPE_WEBHOOK_SECRET is missing
-      const original = process.env.STRIPE_WEBHOOK_SECRET;
-      process.env.STRIPE_WEBHOOK_SECRET = '';
+    it('returns 400 when stripe-signature header is missing', async () => {
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"type":"checkout.session.completed"}',
+        })
+      );
 
-      try {
-        // Then: Should return 403 Forbidden
-        expect(process.env.STRIPE_WEBHOOK_SECRET).toBe('');
-      } finally {
-        process.env.STRIPE_WEBHOOK_SECRET = original;
-      }
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: 'Invalid request: missing stripe-signature header',
+      });
+      expect(constructEventMock).not.toHaveBeenCalled();
+      expect(updateUserMock).not.toHaveBeenCalled();
     });
 
-    it('should return 400 when stripe-signature header is missing', async () => {
-      // When: POST without stripe-signature header
-      const req = createMockRequest('POST', {
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'checkout.session.completed' }),
+    it('returns 400 when constructEvent throws', async () => {
+      constructEventMock.mockImplementationOnce(() => {
+        throw new Error('bad signature');
       });
 
-      // Then: Should return 400
-      expect(req.headers.get('stripe-signature')).toBeUndefined();
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'Invalid webhook signature' });
+      expect(updateUserMock).not.toHaveBeenCalled();
     });
 
-    it('should return 400 for invalid webhook signature', async () => {
-      // When: POST with invalid signature
-      const req = createMockRequest('POST', {
-        headers: {
-          'stripe-signature': 'invalid_signature_xyz',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ type: 'checkout.session.completed' }),
-      });
-
-      // Then: Signature verification should fail via Stripe SDK
-      expect(req.headers.get('stripe-signature')).toBeDefined();
-    });
-
-    it('should handle checkout.session.completed events', async () => {
-      // Given: Valid checkout.session.completed webhook event
-      const event = {
+    it('updates user and returns 200 for checkout.session.completed', async () => {
+      constructEventMock.mockReturnValueOnce({
         type: 'checkout.session.completed',
         data: {
           object: {
-            client_reference_id: 'user_test_123',
-            id: 'cs_test_1234567890',
+            client_reference_id: 'user_123',
+            id: 'cs_test_123',
           },
         },
-      };
+      });
 
-      // When: Event is received with correct signature
-      // Then: Should extract userId and update database
-      expect(event.type).toBe('checkout.session.completed');
-      expect(event.data.object.client_reference_id).toBe('user_test_123');
-    });
+      updateUserMock.mockResolvedValueOnce({ userId: 'user_123', isSupporter: true });
 
-    it('should be idempotent: same event twice causes no errors', async () => {
-      // Given: Same event processed twice (Stripe retry)
-      const userId = 'user_test_123';
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"id":"evt_test","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
 
-      // When: Processing same event twice
-      // Then: Second call should not cause errors (updateUser is idempotent)
-      // Multiple calls to updateUser with same data should be safe
-      expect(userId).toBeDefined();
-      expect(userId).toBeDefined(); // Process twice
-    });
-
-    it('should return 200 for recognized events', async () => {
-      // When: POST with valid webhook signature
-      // Then: Should return 200 even if we ignore the event type
-      const response = { received: true };
-
-      expect(response.received).toBe(true);
-    });
-
-    it('should return 200 even if user update fails', async () => {
-      // Given: Valid webhook but user doesn't exist
-      // When: Processing event
-      // Then: Should still return 200 to prevent Stripe retries forever
-      const statusCode = 200;
-
-      expect(statusCode).toBe(200);
-    });
-
-    it('should log webhook events for debugging', async () => {
-      // Given: Valid webhook event
-      const eventType = 'checkout.session.completed';
-
-      // When: Processing event
-      // Then: Event type should be logged
-      expect(eventType.length).toBeGreaterThan(0);
-    });
-
-    it('should handle missing client_reference_id gracefully', async () => {
-      // Given: checkout.session.completed without client_reference_id
-      const event = {
-        type: 'checkout.session.completed',
-        data: {
-          object: {
-            client_reference_id: null,
-            id: 'cs_test_1234567890',
-          },
-        },
-      };
-
-      // When: Processing event
-      // Then: Should not crash, log error, but return 200
-      expect(event.data.object.client_reference_id).toBeNull();
-    });
-
-    it('should reject unsigned requests with 400', async () => {
-      // When: POST without stripe-signature
-      // Then: Should return 400 immediately
-      const status = 400;
-
-      expect(status).toBe(400);
-    });
-
-    it('should validate event signature before processing', async () => {
-      // Given: Webhook request
-      // When: Verifying signature
-      // Then: Should use stripe.webhooks.constructEvent with raw body and secret
-      const hasSignatureCheck = true;
-
-      expect(hasSignatureCheck).toBe(true);
-    });
-
-    it('should return 500 on internal errors and allow retry', async () => {
-      // Given: Unexpected error during processing
-      // When: Exception thrown in handler
-      // Then: Should return 500 so Stripe retries
-      const status = 500;
-
-      expect(status).toBe(500);
-    });
-
-    it('should call updateUser with isSupporter true on success', async () => {
-      // Given: Valid checkout.session.completed event
-      // When: Processing webhook
-      // Then: Should call updateUser(userId, { isSupporter: true })
-      const update = { isSupporter: true };
-
-      expect(update.isSupporter).toBe(true);
-    });
-  });
-
-  describe('Environment Configuration', () => {
-    it('should have all required Stripe env vars documented', () => {
-      // Given: .env.example
-      // When: Checking documentation
-      // Then: Should include STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID
-      const requiredVars = ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_ID'];
-
-      expect(requiredVars.length).toBe(3);
-    });
-
-    it('should use test mode keys in development', () => {
-      // Given: Development environment
-      // When: Checking API key format
-      // Then: Key should start with sk_test_ or pk_test_
-      const testKey = 'sk_test_1234567890';
-
-      expect(testKey).toMatch(/^sk_test_/);
-    });
-
-    it('should have APP_URL configured for redirect URLs', () => {
-      // Given: Checkout needs to redirect
-      // When: Creating session
-      // Then: APP_URL should have a default or be set
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
-      expect(appUrl).toBeTruthy();
-    });
-  });
-
-  describe('Integration', () => {
-    it('should successfully update user tier after payment', async () => {
-      // Given: User at Free tier
-      // When: Completing payment via checkout + webhook
-      // Then: User should be updated to Supporter tier
-      const initialTier = 'free';
-      const finalTier = 'supporter';
-
-      expect(initialTier).not.toBe(finalTier);
-    });
-
-    it('should handle concurrent webhook events safely', async () => {
-      // Given: Multiple simultaneous webhook events
-      // When: Processing in parallel
-      // Then: No race conditions or duplicates (idempotent)
-      const events = ['evt_1', 'evt_2', 'evt_3'];
-
-      expect(events.length).toBe(3);
-    });
-
-    it('should provide clear error messages for debugging', async () => {
-      // Given: Failed request
-      // When: Returning error response
-      // Then: Should include error field with description
-      const error = { error: 'Not authenticated' };
-
-      expect(error).toHaveProperty('error');
-      expect(error.error).toBeTruthy();
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true });
+      expect(updateUserMock).toHaveBeenCalledWith('user_123', { isSupporter: true });
     });
   });
 });

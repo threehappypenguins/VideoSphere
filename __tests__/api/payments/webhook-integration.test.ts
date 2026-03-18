@@ -1,267 +1,276 @@
-// =============================================================================
-// WEBHOOK INTEGRATION TESTS
-// =============================================================================
-// Tests for Stripe webhook handling with Appwrite integration
-// =============================================================================
-
+/**
+ * Real handler tests for POST /api/webhooks/stripe.
+ *
+ * These tests exercise the exported `POST(req)` route handler directly and
+ * assert on the returned `NextResponse` status/body.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
 
-describe('Stripe Webhook Integration', () => {
+// `vi.mock` is hoisted to the top of the file, so the mock functions must be
+// created via `vi.hoisted` to avoid "Cannot access ... before initialization".
+const constructEventMock = vi.hoisted(() => vi.fn());
+const updateUserMock = vi.hoisted(() => vi.fn());
+
+vi.mock('stripe', () => {
+  return {
+    __esModule: true,
+    default: class StripeMock {
+      public webhooks = {
+        constructEvent: constructEventMock,
+      };
+
+      constructor(..._args: any[]) {
+        // Intentionally unused: we only need the mocked constructEvent.
+      }
+    },
+  };
+});
+
+vi.mock('@/lib/repositories/users', () => ({
+  updateUser: updateUserMock,
+}));
+
+import { POST } from '@/app/api/webhooks/stripe/route';
+
+function createRequest({
+  rawBody,
+  stripeSignature,
+}: {
+  rawBody: string;
+  stripeSignature?: string;
+}): NextRequest {
+  const url = new URL('http://localhost:3000/api/webhooks/stripe');
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+  if (stripeSignature !== undefined) {
+    headers['stripe-signature'] = stripeSignature;
+  }
+
+  return new NextRequest(url, {
+    method: 'POST',
+    headers,
+    body: rawBody,
+  });
+}
+
+describe('POST /api/webhooks/stripe', () => {
   beforeEach(() => {
-    // Setup environment
-    process.env.STRIPE_SECRET_KEY = 'sk_test_1234567890';
-    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_1234567890';
-    process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3000';
+    vi.clearAllMocks();
+
+    // Default config: can be overridden per-test.
+    vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_webhook');
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
-  describe('Webhook Event Processing', () => {
-    it('should define the webhook endpoint handler', () => {
-      // When: Webhook endpoint is defined
-      // Then: Should handle POST requests
-      const method = 'POST';
+  it('returns 403 when STRIPE_WEBHOOK_SECRET is missing', async () => {
+    vi.stubEnv('STRIPE_WEBHOOK_SECRET', '');
 
-      expect(method).toBe('POST');
+    const req = createRequest({
+      rawBody: '{"type":"checkout.session.completed"}',
+      stripeSignature: 't=123,v1=abc',
     });
 
-    it('should accept webhook events', () => {
-      // Given: Stripe webhook event
-      const event = {
-        type: 'checkout.session.completed',
-        data: {
-          object: {
-            client_reference_id: 'user_test_123',
-            id: 'cs_test_1234567890',
-          },
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe('Webhook secret not configured');
+    expect(constructEventMock).not.toHaveBeenCalled();
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when STRIPE_SECRET_KEY is missing', async () => {
+    vi.stubEnv('STRIPE_SECRET_KEY', '');
+
+    const req = createRequest({
+      rawBody: '{"type":"checkout.session.completed"}',
+      stripeSignature: 't=123,v1=abc',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe('Stripe not configured');
+    expect(constructEventMock).not.toHaveBeenCalled();
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when stripe-signature header is missing', async () => {
+    const req = createRequest({
+      rawBody: '{"type":"checkout.session.completed"}',
+      stripeSignature: undefined,
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('Invalid request: missing stripe-signature header');
+    expect(constructEventMock).not.toHaveBeenCalled();
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when stripe.webhooks.constructEvent throws', async () => {
+    constructEventMock.mockImplementationOnce(() => {
+      throw new Error('bad signature');
+    });
+
+    const req = createRequest({
+      rawBody: '{"type":"checkout.session.completed"}',
+      stripeSignature: 't=123,v1=abc',
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('Invalid webhook signature');
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 and updates the user for checkout.session.completed', async () => {
+    const rawBody = '{"id":"evt_test","type":"checkout.session.completed"}';
+    const stripeSignature = 't=123,v1=abc';
+    const webhookSecret = 'whsec_test_webhook';
+    const userId = 'user_123';
+
+    constructEventMock.mockReturnValueOnce({
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: userId,
+          id: 'cs_test_1234567890',
         },
-      };
-
-      // When: Endpoint receives event
-      // Then: Should process event
-      expect(event.type).toBe('checkout.session.completed');
+      },
     });
 
-    it('should extract userId from client_reference_id', () => {
-      // Given: Stripe session with client_reference_id
-      const session = {
-        client_reference_id: 'user_test_123',
-        id: 'cs_test_1234567890',
-      };
-
-      // When: Extracting userId
-      const userId = session.client_reference_id;
-
-      // Then: Should extract correctly
-      expect(userId).toBe('user_test_123');
+    updateUserMock.mockResolvedValueOnce({
+      userId,
+      isSupporter: true,
+      email: 'test@example.com',
+      role: 'user',
+      createdAt: '',
+      updatedAt: '',
     });
 
-    it('should handle missing client_reference_id gracefully', () => {
-      // Given: checkout.session.completed without client_reference_id
-      const event = {
-        type: 'checkout.session.completed',
-        data: {
-          object: {
-            client_reference_id: null,
-            id: 'cs_test_1234567890',
-          },
+    const res = await POST(
+      createRequest({
+        rawBody,
+        stripeSignature,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(constructEventMock).toHaveBeenCalledWith(
+      Buffer.from(rawBody),
+      stripeSignature,
+      webhookSecret
+    );
+    expect(updateUserMock).toHaveBeenCalledWith(userId, { isSupporter: true });
+    const body = await res.json();
+    expect(body).toEqual({ received: true });
+  });
+
+  it('returns 200 when checkout.session.completed is missing client_reference_id', async () => {
+    const req = createRequest({
+      rawBody: '{"id":"evt_test","type":"checkout.session.completed"}',
+      stripeSignature: 't=123,v1=abc',
+    });
+
+    constructEventMock.mockReturnValueOnce({
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: null,
+          id: 'cs_test_1234567890',
         },
-      };
-
-      // When: Processing event
-      // Then: Should not crash, should log and return 200
-      expect(event.data.object.client_reference_id).toBeNull();
+      },
     });
 
-    it('should be idempotent for duplicate events', () => {
-      // Given: Same event processed multiple times
-      const userId = 'user_test_123';
+    const res = await POST(req);
 
-      // When: Duplicate processing
-      // Then: updateUser should be safe to call multiple times
-      // The repository layer handles idempotency
-      expect(userId).toBe('user_test_123');
-    });
+    expect(res.status).toBe(200);
+    expect(updateUserMock).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body).toEqual({ received: true });
   });
 
-  describe('Webhook Signature Verification', () => {
-    it('should require stripe-signature header', () => {
-      // Given: Webhook without signature
-      const headers = { 'content-type': 'application/json' };
-
-      // When: Checking for signature
-      // Then: Should be missing
-      expect(headers['stripe-signature']).toBeUndefined();
+  it('returns 200 for unhandled event types without updating the user', async () => {
+    constructEventMock.mockReturnValueOnce({
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          client_reference_id: 'user_123',
+          id: 'pi_test_123',
+        },
+      },
     });
 
-    it('should verify signature before processing', () => {
-      // Given: Webhook with signature header
-      const signature = 'whsec_test_1234567890';
+    const res = await POST(
+      createRequest({
+        rawBody: '{"type":"payment_intent.succeeded"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
 
-      // When: Verifying signature
-      // Then: Should validate using stripe.webhooks.constructEvent
-      expect(signature.startsWith('whsec')).toBe(true);
-    });
-
-    it('should reject invalid signatures', () => {
-      // Given: Invalid signature
-      const signature = 'invalid_signature';
-
-      // When: Attempting verification
-      // Then: Stripe SDK will throw error
-      expect(signature).not.toMatch(/^whsec/);
-    });
+    expect(res.status).toBe(200);
+    expect(updateUserMock).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body).toEqual({ received: true });
   });
 
-  describe('Error Handling', () => {
-    it('should handle missing STRIPE_WEBHOOK_SECRET', () => {
-      // Given: Missing webhook secret
-      const original = process.env.STRIPE_WEBHOOK_SECRET;
-      process.env.STRIPE_WEBHOOK_SECRET = '';
-
-      // When: Attempting webhook processing
-      // Then: Should return 403
-      expect(process.env.STRIPE_WEBHOOK_SECRET).toBe('');
-
-      process.env.STRIPE_WEBHOOK_SECRET = original;
+  it('returns 500 when updateUser throws', async () => {
+    constructEventMock.mockReturnValueOnce({
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'user_123',
+          id: 'cs_test_1234567890',
+        },
+      },
     });
 
-    it('should handle missing STRIPE_SECRET_KEY', () => {
-      // Given: Missing secret key
-      const original = process.env.STRIPE_SECRET_KEY;
-      process.env.STRIPE_SECRET_KEY = '';
+    updateUserMock.mockRejectedValueOnce(new Error('Appwrite unavailable'));
 
-      // When: Initializing Stripe client
-      // Then: Should not initialize
-      expect(process.env.STRIPE_SECRET_KEY).toBe('');
+    const res = await POST(
+      createRequest({
+        rawBody: '{"type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
 
-      process.env.STRIPE_SECRET_KEY = original;
-    });
-
-    it('should handle malformed event JSON', () => {
-      // Given: Invalid JSON in webhook body
-      const malformed = '{invalid json}';
-
-      // When: Parsing event
-      // Then: Should catch error
-      expect(() => JSON.parse(malformed)).toThrow();
-    });
-
-    it('should handle database errors gracefully', () => {
-      // Given: Appwrite update fails
-      // When: Processing webhook
-      // Then: Should still return 200 to Stripe (prevent retries)
-      const shouldReturn200 = true;
-
-      expect(shouldReturn200).toBe(true);
-    });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('Failed to update user tier');
   });
 
-  describe('Event Handling', () => {
-    it('should specifically handle checkout.session.completed events', () => {
-      // Given: checkout.session.completed event type
-      const eventType = 'checkout.session.completed';
-
-      // When: Checking event type
-      // Then: Should match the target event
-      expect(eventType).toBe('checkout.session.completed');
+  it('returns 500 on unexpected errors in the handler', async () => {
+    // Cause a crash inside the checkout.session.completed branch.
+    constructEventMock.mockReturnValueOnce({
+      type: 'checkout.session.completed',
+      data: {
+        object: null,
+      },
     });
 
-    it('should ignore unhandled event types', () => {
-      // Given: Different event type
-      const eventType = 'payment_intent.succeeded';
+    const res = await POST(
+      createRequest({
+        rawBody: '{"type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
 
-      // When: Receiving event
-      // Then: Should not process, just return 200
-      expect(eventType).not.toBe('checkout.session.completed');
-    });
-
-    it('should not crash on unknown events', () => {
-      // Given: Unknown event type
-      const eventType = 'some.unknown.event';
-
-      // When: Receiving event
-      // Then: Should handle gracefully
-      expect(eventType.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Response Status Codes', () => {
-    it('should return 200 for valid webhooks', () => {
-      // Given: Valid webhook
-      // When: Processing
-      // Then: 200 OK
-      const status = 200;
-
-      expect(status).toBe(200);
-    });
-
-    it('should return 400 for invalid signature', () => {
-      // Given: Invalid signature
-      // When: Processing
-      // Then: 400 Bad Request
-      const status = 400;
-
-      expect(status).toBe(400);
-    });
-
-    it('should return 403 for missing configuration', () => {
-      // Given: Missing webhook secret
-      // When: Processing
-      // Then: 403 Forbidden
-      const status = 403;
-
-      expect(status).toBe(403);
-    });
-
-    it('should return 500 on unexpected errors', () => {
-      // Given: Unexpected error
-      // When: Processing
-      // Then: 500 Internal Error (allows Stripe retry)
-      const status = 500;
-
-      expect(status).toBe(500);
-    });
-
-    it('should always return 200 for processed events', () => {
-      // Given: Even if user update fails
-      // When: Webhook processed
-      // Then: Should return 200 to prevent endless retries
-      const status = 200;
-
-      expect(status).toBe(200);
-    });
-  });
-
-  describe('Production Readiness', () => {
-    it('should log webhook events for debugging', () => {
-      // Given: Webhook event
-      const eventType = 'checkout.session.completed';
-
-      // When: Processing
-      // Then: Should log event type
-      expect(eventType.length).toBeGreaterThan(0);
-    });
-
-    it('should handle concurrent webhook deliveries', () => {
-      // Given: Multiple simultaneous webhooks
-      // When: Processing in parallel
-      // Then: updateUser is idempotent, no race conditions
-      const events = [1, 2, 3];
-
-      expect(events.length).toBe(3);
-    });
-
-    it('should provide clear error messages', () => {
-      // Given: Failed webhook
-      // When: Returning error
-      // Then: Should include error field with description
-      const error = { error: 'Invalid webhook signature' };
-
-      expect(error).toHaveProperty('error');
-      expect(error.error).toBeTruthy();
-    });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('Internal server error');
   });
 });

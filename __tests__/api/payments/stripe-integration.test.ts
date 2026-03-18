@@ -1,229 +1,296 @@
-// =============================================================================
-// STRIPE PAYMENT ROUTES TESTS
-// =============================================================================
-// Unit tests for Stripe checkout and webhook endpoints
-// =============================================================================
+/**
+ * Real handler tests for Stripe checkout + webhook routes.
+ *
+ * This file was previously placeholder-like (hard-coded constants).
+ * The tests below import and execute the actual exported route handlers,
+ * while mocking Stripe and Appwrite dependencies.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { NextRequest } from 'next/server';
 
-import { describe, it, expect } from 'vitest';
+// `vi.mock` factories are hoisted, so mock fns must be declared with `vi.hoisted`.
+const checkoutSessionCreateMock = vi.hoisted(() => vi.fn());
+const constructEventMock = vi.hoisted(() => vi.fn());
+const updateUserMock = vi.hoisted(() => vi.fn());
+const accountGetMock = vi.hoisted(() => vi.fn());
 
-describe('Stripe Payment Integration', () => {
+vi.mock('stripe', () => {
+  return {
+    __esModule: true,
+    default: class StripeMock {
+      public checkout = {
+        sessions: {
+          create: checkoutSessionCreateMock,
+        },
+      };
+
+      public webhooks = {
+        constructEvent: constructEventMock,
+      };
+
+      constructor(..._args: any[]) {
+        // No-op: tests control behavior via mocks above.
+      }
+    },
+  };
+});
+
+vi.mock('node-appwrite', () => {
+  return {
+    __esModule: true,
+    Client: class ClientMock {
+      setEndpoint() {
+        return this;
+      }
+      setProject() {
+        return this;
+      }
+      setSession() {
+        return this;
+      }
+    },
+    Account: class AccountMock {
+      constructor(..._args: any[]) {
+        // no-op
+      }
+      get = accountGetMock;
+    },
+  };
+});
+
+vi.mock('@/lib/repositories/users', () => ({
+  updateUser: updateUserMock,
+}));
+
+import { POST as checkoutPOST } from '@/app/api/payments/checkout/route';
+import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route';
+
+function createCheckoutRequest({
+  projectId,
+  cookies,
+}: {
+  projectId: string;
+  cookies?: Record<string, string>;
+}): NextRequest {
+  const cookieName = `a_session_${projectId}`;
+  const cookieHeader = cookies ? `${cookieName}=${cookies[cookieName]}` : '';
+  const url = new URL('http://localhost:3000/api/payments/checkout');
+
+  return new NextRequest(url, {
+    method: 'POST',
+    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    body: undefined,
+  });
+}
+
+function createWebhookRequest({
+  rawBody,
+  stripeSignature,
+}: {
+  rawBody: string;
+  stripeSignature?: string;
+}): NextRequest {
+  const url = new URL('http://localhost:3000/api/webhooks/stripe');
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+  if (stripeSignature !== undefined) headers['stripe-signature'] = stripeSignature;
+
+  return new NextRequest(url, {
+    method: 'POST',
+    headers,
+    body: rawBody,
+  });
+}
+
+describe('Stripe integration (checkout + webhook)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
+    vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
+
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
+    vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_webhook');
+    vi.stubEnv('STRIPE_PRICE_ID', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+
   describe('Checkout Route (POST /api/payments/checkout)', () => {
-    it('requires authentication via session cookie', () => {
-      // The route checks for a session cookie before proceeding
-      const requiresAuth = true;
-      expect(requiresAuth).toBe(true);
+    it('returns 401 when session cookie is missing', async () => {
+      vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
+      vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
+
+      const req = createCheckoutRequest({
+        projectId: 'test-project',
+      });
+
+      const res = await checkoutPOST(req);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'Not authenticated' });
+
+      expect(accountGetMock).not.toHaveBeenCalled();
+      expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
     });
 
-    it('requires STRIPE_SECRET_KEY environment variable', () => {
-      // Stripe client initialization needs STRIPE_SECRET_KEY
-      const keyRequired = true;
-      expect(keyRequired).toBe(true);
+    it('returns 500 when STRIPE_SECRET_KEY is missing', async () => {
+      vi.stubEnv('STRIPE_SECRET_KEY', '');
+
+      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+
+      const req = createCheckoutRequest({
+        projectId: 'test-project',
+        cookies: { 'a_session_test-project': 'session-secret' },
+      });
+
+      const res = await checkoutPOST(req);
+      expect(res.status).toBe(500);
+
+      const body = await res.json();
+      expect(body.error).toBe('Payment service not configured');
+
+      expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
     });
 
-    it('creates a checkout session with $9 one-time payment', () => {
-      // Payment amount is in cents
-      const amountInCents = 900; // $9.00
-      expect(amountInCents).toBe(900);
+    it('creates a Stripe checkout session and returns checkoutUrl', async () => {
+      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      checkoutSessionCreateMock.mockResolvedValueOnce({
+        url: 'https://checkout.stripe.com/pay/test',
+      });
+
+      const req = createCheckoutRequest({
+        projectId: 'test-project',
+        cookies: { 'a_session_test-project': 'session-secret' },
+      });
+
+      const res = await checkoutPOST(req);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({ checkoutUrl: 'https://checkout.stripe.com/pay/test' });
+
+      expect(checkoutSessionCreateMock).toHaveBeenCalledTimes(1);
+      const call = checkoutSessionCreateMock.mock.calls[0]?.[0];
+      expect(call.client_reference_id).toBe('user_123');
+      expect(call.success_url).toContain('/profile?upgrade=success');
+      expect(call.cancel_url).toContain('/pricing');
+      expect(call.line_items).toEqual([
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'VideoSphere Supporter Upgrade',
+              description: 'Unlock unlimited uploads, all platforms, and premium AI',
+            },
+            unit_amount: 900,
+          },
+          quantity: 1,
+        },
+      ]);
     });
 
-    it('sets client_reference_id to userId for webhook verification', () => {
-      // client_reference_id allows webhook to identify which user paid
-      const userId = 'user_123';
-      const clientRefId = userId;
-      expect(clientRefId).toBe(userId);
-    });
+    it('uses STRIPE_PRICE_ID when provided', async () => {
+      vi.stubEnv('STRIPE_PRICE_ID', 'price_test_123');
 
-    it('redirects to /profile?upgrade=success on payment success', () => {
-      // success_url configuration
-      const successUrl = '/profile?upgrade=success';
-      expect(successUrl).toContain('/profile');
-      expect(successUrl).toContain('upgrade=success');
-    });
+      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      checkoutSessionCreateMock.mockResolvedValueOnce({
+        url: 'https://checkout.stripe.com/pay/test',
+      });
 
-    it('redirects to /pricing on payment cancellation', () => {
-      // cancel_url configuration
-      const cancelUrl = '/pricing';
-      expect(cancelUrl).toBe('/pricing');
-    });
+      const req = createCheckoutRequest({
+        projectId: 'test-project',
+        cookies: { 'a_session_test-project': 'session-secret' },
+      });
 
-    it('returns HTTP 401 when user is not authenticated', () => {
-      // No session cookie → 401 Unauthorized
-      const status = 401;
-      expect(status).toBe(401);
-    });
+      const res = await checkoutPOST(req);
+      expect(res.status).toBe(200);
 
-    it('returns HTTP 200 with checkoutUrl on success', () => {
-      // Successful response includes checkout URL
-      const response = { checkoutUrl: 'https://checkout.stripe.com/...' };
-      expect(response).toHaveProperty('checkoutUrl');
-      expect(response.checkoutUrl).toContain('https://');
+      const call = checkoutSessionCreateMock.mock.calls[0]?.[0];
+      expect(call.client_reference_id).toBe('user_123');
+      expect(call.line_items).toEqual([{ price: 'price_test_123', quantity: 1 }]);
     });
   });
 
   describe('Webhook Route (POST /api/webhooks/stripe)', () => {
-    it('requires STRIPE_WEBHOOK_SECRET configuration', () => {
-      // Webhook secret is required for signature verification
-      const secretRequired = true;
-      expect(secretRequired).toBe(true);
+    it('returns 403 when STRIPE_WEBHOOK_SECRET is missing', async () => {
+      vi.stubEnv('STRIPE_WEBHOOK_SECRET', '');
+
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'Webhook secret not configured' });
+      expect(constructEventMock).not.toHaveBeenCalled();
+      expect(updateUserMock).not.toHaveBeenCalled();
     });
 
-    it('requires stripe-signature header', () => {
-      // Webhook authentication via signature header
-      const headerRequired = true;
-      expect(headerRequired).toBe(true);
+    it('returns 400 when stripe-signature header is missing', async () => {
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"type":"checkout.session.completed"}',
+        })
+      );
+
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: 'Invalid request: missing stripe-signature header',
+      });
+      expect(constructEventMock).not.toHaveBeenCalled();
+      expect(updateUserMock).not.toHaveBeenCalled();
     });
 
-    it('verifies webhook signature using stripe.webhooks.constructEvent', () => {
-      // Signature verification prevents spoofed webhooks
-      const verifySignature = true;
-      expect(verifySignature).toBe(true);
+    it('returns 400 when signature verification fails', async () => {
+      constructEventMock.mockImplementationOnce(() => {
+        throw new Error('bad signature');
+      });
+
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe('Invalid webhook signature');
+      expect(updateUserMock).not.toHaveBeenCalled();
     });
 
-    it('returns HTTP 400 for invalid webhook signature', () => {
-      // Invalid signature = rejected request
-      const status = 400;
-      expect(status).toBe(400);
-    });
+    it('updates user for checkout.session.completed', async () => {
+      constructEventMock.mockReturnValueOnce({
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_123',
+          },
+        },
+      });
 
-    it('returns HTTP 403 when webhook secret is missing', () => {
-      // Missing configuration = forbidden
-      const status = 403;
-      expect(status).toBe(403);
-    });
+      updateUserMock.mockResolvedValueOnce({
+        userId: 'user_123',
+        isSupporter: true,
+      });
 
-    it('processes checkout.session.completed events', () => {
-      // This is the event we care about
-      const eventType = 'checkout.session.completed';
-      expect(eventType).toBe('checkout.session.completed');
-    });
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"id":"evt_test","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
 
-    it('extracts userId from client_reference_id', () => {
-      // Webhook must identify which user made payment
-      const clientRefId = 'user_123';
-      const userId = clientRefId;
-      expect(userId).toBe('user_123');
-    });
-
-    it('calls updateUser to set isSupporter=true', () => {
-      // Core business logic: upgrade user on payment
-      const updateData = { isSupporter: true };
-      expect(updateData.isSupporter).toBe(true);
-    });
-
-    it('is idempotent: duplicate events cause no errors', () => {
-      // Stripe may retry, so we must handle duplicates
-      const idempotent = true;
-      expect(idempotent).toBe(true);
-    });
-
-    it('returns HTTP 200 for valid webhook events', () => {
-      // Always return 200 for webhooks we handle
-      const status = 200;
-      expect(status).toBe(200);
-    });
-
-    it('returns HTTP 200 even if user update fails', () => {
-      // Prevent Stripe from retrying forever
-      const statusOnError = 200;
-      expect(statusOnError).toBe(200);
-    });
-
-    it('returns HTTP 500 on unexpected internal errors', () => {
-      // Allows Stripe to retry on temporary failures
-      const status = 500;
-      expect(status).toBe(500);
-    });
-
-    it('gracefully handles missing client_reference_id', () => {
-      // Log error but return 200 to Stripe
-      const shouldRecover = true;
-      expect(shouldRecover).toBe(true);
-    });
-
-    it('ignores unhandled event types', () => {
-      // Events other than checkout.session.completed are ignored
-      const otherEvent = 'payment_intent.succeeded';
-      expect(otherEvent).not.toBe('checkout.session.completed');
-    });
-
-    it('logs webhook events for debugging', () => {
-      // Important for production debugging
-      const shouldLog = true;
-      expect(shouldLog).toBe(true);
-    });
-  });
-
-  describe('Environment Configuration', () => {
-    it('requires STRIPE_SECRET_KEY in environment', () => {
-      // Test mode key format: sk_test_...
-      const testKeyFormat = /^sk_test_/;
-      const exampleKey = 'sk_test_1234567890';
-      expect(exampleKey).toMatch(testKeyFormat);
-    });
-
-    it('requires STRIPE_WEBHOOK_SECRET in environment', () => {
-      // Webhook secret format: whsec_...
-      const webhookSecretFormat = /^whsec/;
-      const exampleSecret = 'whsec_test_1234567890';
-      expect(exampleSecret).toMatch(webhookSecretFormat);
-    });
-
-    it('requires STRIPE_PRICE_ID or uses default $9', () => {
-      // Price ID is optional, defaults to hardcoded $9
-      const defaultAmount = 900; // cents
-      expect(defaultAmount).toBe(900);
-    });
-
-    it('uses test mode only (no real payments)', () => {
-      // All keys should be test mode keys (sk_test_, pk_test_, whsec_test_)
-      const testKeyPrefix = 'sk_test_';
-      expect(testKeyPrefix).toContain('test');
-    });
-  });
-
-  describe('Security', () => {
-    it('authenticates checkout requests via session cookie', () => {
-      // Only authenticated users can create checkouts
-      const requiresAuth = true;
-      expect(requiresAuth).toBe(true);
-    });
-
-    it('verifies webhook signatures to prevent spoofing', () => {
-      // Signature verification is mandatory
-      const shouldVerify = true;
-      expect(shouldVerify).toBe(true);
-    });
-
-    it('rejects unsigned webhook requests', () => {
-      // Missing signature = 400 Bad Request
-      const rejectUnsigned = true;
-      expect(rejectUnsigned).toBe(true);
-    });
-
-    it('reads raw webhook body for signature verification', () => {
-      // Stripe signature uses raw bytes, not parsed JSON
-      const usesRawBody = true;
-      expect(usesRawBody).toBe(true);
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('returns clear error messages for debugging', () => {
-      // Errors should be informative
-      const error = { error: 'Not authenticated' };
-      expect(error).toHaveProperty('error');
-    });
-
-    it('handles missing environment configuration gracefully', () => {
-      // Missing config returns appropriate HTTP status
-      const configurableError = true;
-      expect(configurableError).toBe(true);
-    });
-
-    it('logs errors for monitoring and alerting', () => {
-      // Important for production observability
-      const shouldLog = true;
-      expect(shouldLog).toBe(true);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true });
+      expect(updateUserMock).toHaveBeenCalledWith('user_123', { isSupporter: true });
     });
   });
 });
