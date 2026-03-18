@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { updateUser } from '@/lib/repositories/users';
+import { setSupporterStatus } from '@/lib/repositories/users';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {});
 
@@ -36,11 +36,6 @@ export async function POST(req: NextRequest) {
     if (!webhookSecret) {
       console.error('[POST /api/webhooks/stripe] STRIPE_WEBHOOK_SECRET not configured');
       return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 403 });
-    }
-
-    if (!process.env.STRIPE_SECRET_KEY) {
-      console.error('[POST /api/webhooks/stripe] STRIPE_SECRET_KEY not configured');
-      return NextResponse.json({ error: 'Stripe not configured' }, { status: 403 });
     }
 
     // =========================================================================
@@ -78,8 +73,12 @@ export async function POST(req: NextRequest) {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
 
-      // Extract userId from client_reference_id
-      const userId = session.client_reference_id;
+      // Extract userId from `client_reference_id` first.
+      // If absent, fall back to `metadata.userId` (Stripe Checkout metadata).
+      const userId =
+        session.client_reference_id ||
+        // Stripe checkout session metadata values are always strings.
+        (session.metadata?.userId ? String(session.metadata.userId) : null);
 
       if (!userId) {
         console.error(
@@ -90,9 +89,8 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        // Set the user's isSupporter status to true
-        // This uses the Appwrite server SDK with the API key
-        await updateUser(userId, { isSupporter: true });
+        // Set the user's isSupporter status to true using repository abstraction.
+        await setSupporterStatus(userId, true);
 
         console.log(
           `[POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=${userId}`
@@ -102,7 +100,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true }, { status: 200 });
       } catch (dbErr) {
         console.error(
-          `[POST /api/webhooks/stripe] checkout.session.completed: Failed to update user:`,
+          `[POST /api/webhooks/stripe] checkout.session.completed: Failed to update user tier:`,
           dbErr
         );
 

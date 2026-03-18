@@ -11,7 +11,7 @@ import { NextRequest } from 'next/server';
 // `vi.mock` factories are hoisted, so mock fns must be declared with `vi.hoisted`.
 const checkoutSessionCreateMock = vi.hoisted(() => vi.fn());
 const constructEventMock = vi.hoisted(() => vi.fn());
-const updateUserMock = vi.hoisted(() => vi.fn());
+const setSupporterStatusMock = vi.hoisted(() => vi.fn());
 const accountGetMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
@@ -59,7 +59,7 @@ vi.mock('node-appwrite', () => {
 });
 
 vi.mock('@/lib/repositories/users', () => ({
-  updateUser: updateUserMock,
+  setSupporterStatus: setSupporterStatusMock,
 }));
 
 import { POST as checkoutPOST } from '@/app/api/payments/checkout/route';
@@ -229,7 +229,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: 'Webhook secret not configured' });
       expect(constructEventMock).not.toHaveBeenCalled();
-      expect(updateUserMock).not.toHaveBeenCalled();
+      expect(setSupporterStatusMock).not.toHaveBeenCalled();
     });
 
     it('returns 400 when stripe-signature header is missing', async () => {
@@ -244,7 +244,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         error: 'Invalid request: missing stripe-signature header',
       });
       expect(constructEventMock).not.toHaveBeenCalled();
-      expect(updateUserMock).not.toHaveBeenCalled();
+      expect(setSupporterStatusMock).not.toHaveBeenCalled();
     });
 
     it('returns 400 when signature verification fails', async () => {
@@ -262,7 +262,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('Invalid webhook signature');
-      expect(updateUserMock).not.toHaveBeenCalled();
+      expect(setSupporterStatusMock).not.toHaveBeenCalled();
     });
 
     it('updates user for checkout.session.completed', async () => {
@@ -276,10 +276,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         },
       });
 
-      updateUserMock.mockResolvedValueOnce({
-        userId: 'user_123',
-        isSupporter: true,
-      });
+      setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
       const res = await webhookPOST(
         createWebhookRequest({
@@ -290,7 +287,7 @@ describe('Stripe integration (checkout + webhook)', () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ received: true });
-      expect(updateUserMock).toHaveBeenCalledWith('user_123', { isSupporter: true });
+      expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
     });
   });
 });

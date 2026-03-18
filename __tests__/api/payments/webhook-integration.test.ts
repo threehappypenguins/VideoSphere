@@ -10,7 +10,7 @@ import { NextRequest } from 'next/server';
 // `vi.mock` is hoisted to the top of the file, so the mock functions must be
 // created via `vi.hoisted` to avoid "Cannot access ... before initialization".
 const constructEventMock = vi.hoisted(() => vi.fn());
-const updateUserMock = vi.hoisted(() => vi.fn());
+const setSupporterStatusMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
   return {
@@ -28,7 +28,7 @@ vi.mock('stripe', () => {
 });
 
 vi.mock('@/lib/repositories/users', () => ({
-  updateUser: updateUserMock,
+  setSupporterStatus: setSupporterStatusMock,
 }));
 
 import { POST } from '@/app/api/webhooks/stripe/route';
@@ -84,24 +84,44 @@ describe('POST /api/webhooks/stripe', () => {
     const body = await res.json();
     expect(body.error).toBe('Webhook secret not configured');
     expect(constructEventMock).not.toHaveBeenCalled();
-    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
-  it('returns 403 when STRIPE_SECRET_KEY is missing', async () => {
+  it('still processes webhooks when STRIPE_SECRET_KEY is missing', async () => {
     vi.stubEnv('STRIPE_SECRET_KEY', '');
 
-    const req = createRequest({
-      rawBody: '{"type":"checkout.session.completed"}',
-      stripeSignature: 't=123,v1=abc',
+    const rawBody = '{"id":"evt_test","type":"checkout.session.completed"}';
+    const stripeSignature = 't=123,v1=abc';
+    const webhookSecret = 'whsec_test_webhook';
+    const userId = 'user_123';
+
+    constructEventMock.mockReturnValueOnce({
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: userId,
+          id: 'cs_test_1234567890',
+        },
+      },
     });
 
-    const res = await POST(req);
+    setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
-    expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toBe('Stripe not configured');
-    expect(constructEventMock).not.toHaveBeenCalled();
-    expect(updateUserMock).not.toHaveBeenCalled();
+    const res = await POST(
+      createRequest({
+        rawBody,
+        stripeSignature,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(constructEventMock).toHaveBeenCalledWith(
+      Buffer.from(rawBody),
+      stripeSignature,
+      webhookSecret
+    );
+    expect(setSupporterStatusMock).toHaveBeenCalledWith(userId, true);
+    expect(await res.json()).toEqual({ received: true });
   });
 
   it('returns 400 when stripe-signature header is missing', async () => {
@@ -116,7 +136,7 @@ describe('POST /api/webhooks/stripe', () => {
     const body = await res.json();
     expect(body.error).toBe('Invalid request: missing stripe-signature header');
     expect(constructEventMock).not.toHaveBeenCalled();
-    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
   it('returns 400 when stripe.webhooks.constructEvent throws', async () => {
@@ -134,7 +154,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('Invalid webhook signature');
-    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
   it('returns 200 and updates the user for checkout.session.completed', async () => {
@@ -153,14 +173,7 @@ describe('POST /api/webhooks/stripe', () => {
       },
     });
 
-    updateUserMock.mockResolvedValueOnce({
-      userId,
-      isSupporter: true,
-      email: 'test@example.com',
-      role: 'user',
-      createdAt: '',
-      updatedAt: '',
-    });
+    setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
     const res = await POST(
       createRequest({
@@ -175,7 +188,7 @@ describe('POST /api/webhooks/stripe', () => {
       stripeSignature,
       webhookSecret
     );
-    expect(updateUserMock).toHaveBeenCalledWith(userId, { isSupporter: true });
+    expect(setSupporterStatusMock).toHaveBeenCalledWith(userId, true);
     const body = await res.json();
     expect(body).toEqual({ received: true });
   });
@@ -191,6 +204,7 @@ describe('POST /api/webhooks/stripe', () => {
       data: {
         object: {
           client_reference_id: null,
+          metadata: {},
           id: 'cs_test_1234567890',
         },
       },
@@ -199,9 +213,45 @@ describe('POST /api/webhooks/stripe', () => {
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
     const body = await res.json();
     expect(body).toEqual({ received: true });
+  });
+
+  it('uses checkout.session.completed metadata.userId when client_reference_id is missing', async () => {
+    const rawBody = '{"id":"evt_test","type":"checkout.session.completed"}';
+    const stripeSignature = 't=123,v1=abc';
+    const webhookSecret = 'whsec_test_webhook';
+    const userId = 'user_from_metadata';
+
+    constructEventMock.mockReturnValueOnce({
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: null,
+          metadata: { userId },
+          id: 'cs_test_1234567890',
+        },
+      },
+    });
+
+    setSupporterStatusMock.mockResolvedValueOnce(undefined);
+
+    const res = await POST(
+      createRequest({
+        rawBody,
+        stripeSignature,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(constructEventMock).toHaveBeenCalledWith(
+      Buffer.from(rawBody),
+      stripeSignature,
+      webhookSecret
+    );
+    expect(setSupporterStatusMock).toHaveBeenCalledWith(userId, true);
+    expect(await res.json()).toEqual({ received: true });
   });
 
   it('returns 200 for unhandled event types without updating the user', async () => {
@@ -223,12 +273,12 @@ describe('POST /api/webhooks/stripe', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
     const body = await res.json();
     expect(body).toEqual({ received: true });
   });
 
-  it('returns 500 when updateUser throws', async () => {
+  it('returns 500 when setSupporterStatus throws', async () => {
     constructEventMock.mockReturnValueOnce({
       type: 'checkout.session.completed',
       data: {
@@ -239,7 +289,7 @@ describe('POST /api/webhooks/stripe', () => {
       },
     });
 
-    updateUserMock.mockRejectedValueOnce(new Error('Appwrite unavailable'));
+    setSupporterStatusMock.mockRejectedValueOnce(new Error('Appwrite unavailable'));
 
     const res = await POST(
       createRequest({
