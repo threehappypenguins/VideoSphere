@@ -97,23 +97,26 @@ export async function POST(req: NextRequest) {
         console.log(
           `[POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=${userId}`
         );
+
+        // Successfully updated user, return 200
+        return NextResponse.json({ received: true }, { status: 200 });
       } catch (dbErr) {
         console.error(
           `[POST /api/webhooks/stripe] checkout.session.completed: Failed to update user:`,
           dbErr
         );
 
-        // IDEMPOTENCY: Check if the error is due to user not existing
-        // In production, we might want to log this for manual review
-        // but return 200 to prevent Stripe from retrying forever.
-        // Stripe will keep the payment; we should have monitoring to catch this.
+        // Return 500 so Stripe retries the webhook
+        // The updateUser operation is idempotent, so retries are safe
+        // This ensures users don't get stuck on the Free tier due to transient database errors
+        return NextResponse.json({ error: 'Failed to update user tier' }, { status: 500 });
       }
     }
 
     // =========================================================================
-    // 5. Return success response for all recognized events
+    // 5. Return success response for other recognized events
     // =========================================================================
-    // Return 200 for all event types so Stripe stops retrying.
+    // Return 200 for all other event types so Stripe stops retrying.
     // We only take action on events we care about (checkout.session.completed).
     // Ignoring other events is fine — we can add handlers for them later.
     return NextResponse.json({ received: true }, { status: 200 });
