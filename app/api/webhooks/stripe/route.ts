@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
         );
 
         // Return 500 so Stripe retries the webhook
-        // The updateUser operation is idempotent, so retries are safe
+        // Repeated setSupporterStatus(userId, true) calls are idempotent, so retries are safe
         // This ensures users don't get stuck on the Free tier due to transient database errors
         return NextResponse.json({ error: 'Failed to update user tier' }, { status: 500 });
       }

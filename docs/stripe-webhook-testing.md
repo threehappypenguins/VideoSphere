@@ -300,7 +300,7 @@ curl -X POST http://localhost:3000/api/payments/checkout \
 ## Summary
 
 | Step | Terminal | Command |
-|------|----------|---------|
+| --- | --- | --- |
 | 1 | Host | `stripe login` |
 | 2 | Host | `stripe listen --forward-to localhost:3000/api/webhooks/stripe` |
 | 3 | Editor | Update `.env.local` with `STRIPE_WEBHOOK_SECRET` |
