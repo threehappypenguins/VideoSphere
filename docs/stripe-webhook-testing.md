@@ -16,7 +16,7 @@ When a user completes a payment via Stripe Checkout, Stripe sends a webhook even
 - Stripe CLI installed on your **host machine** (not inside the Docker container)
 - A Stripe test account with API keys in `.env.local`:
   - `STRIPE_SECRET_KEY=sk_test_...`
-  - `STRIPE_WEBHOOKS_SECRET` (initially empty, will be set during testing)
+  - `STRIPE_WEBHOOK_SECRET` (initially empty, will be set during testing)
 
 ## Installation
 
