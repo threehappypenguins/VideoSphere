@@ -37,11 +37,9 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================================
-    // 2. Extract the raw body and stripe-signature header
+    // 2. Require stripe-signature header (before reading body)
     // =========================================================================
-    const rawBody = await getRawBody(req);
     const stripeSignature = req.headers.get('stripe-signature');
-
     if (!stripeSignature) {
       console.warn('[POST /api/webhooks/stripe] Missing stripe-signature header');
       return NextResponse.json(
@@ -51,8 +49,9 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================================
-    // 3. Verify the webhook signature using Stripe's constructEvent
+    // 3. Read raw body and verify signature using Stripe's constructEvent
     // =========================================================================
+    const rawBody = await getRawBody(req);
     // Uses static method — no API key needed; only webhook secret is used for verification.
     let event: Stripe.Event;
     try {

@@ -6,7 +6,7 @@
 //
 // Request: POST with no body (auth from session cookie)
 // Response: { checkoutUrl: string }
-// Errors: 401 (not authenticated), 400 (bad request), 500 (Stripe error)
+// Errors: 401 (not authenticated), 500 (payment service not configured / Stripe error)
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
