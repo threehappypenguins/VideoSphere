@@ -1,0 +1,100 @@
+// =============================================================================
+// POST /api/payments/checkout
+// =============================================================================
+// Creates a Stripe Checkout Session for upgrading from Free to Supporter tier.
+// Requires authentication. Returns the Stripe checkout session URL for redirect.
+//
+// Request: POST with no body (auth from session cookie)
+// Response: { checkoutUrl: string }
+// Errors: 401 (not authenticated), 400 (bad request), 500 (Stripe error)
+// =============================================================================
+
+import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
+import { Client, Account } from 'node-appwrite';
+import { getSessionCookieName } from '@/lib/auth-session-cookie';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {});
+
+export async function POST(req: NextRequest) {
+  try {
+    // =========================================================================
+    // 1. Verify the user is authenticated by extracting the session cookie
+    // =========================================================================
+    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
+    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+    const cookieName = projectId ? getSessionCookieName(projectId) : null;
+    const sessionSecret = cookieName ? req.cookies.get(cookieName)?.value : null;
+
+    if (!endpoint || !projectId || !sessionSecret) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // =========================================================================
+    // 2. Get the current user from Appwrite
+    // =========================================================================
+    let userId: string;
+    try {
+      const client = new Client()
+        .setEndpoint(endpoint)
+        .setProject(projectId)
+        .setSession(sessionSecret);
+
+      const account = new Account(client);
+      const user = await account.get();
+      userId = user.$id;
+    } catch (authErr) {
+      console.error('[POST /api/payments/checkout] Auth error:', authErr);
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // =========================================================================
+    // 3. Validate Stripe environment variables
+    // =========================================================================
+    if (!process.env.STRIPE_SECRET_KEY) {
+      console.error('[POST /api/payments/checkout] STRIPE_SECRET_KEY not configured');
+      return NextResponse.json({ error: 'Payment service not configured' }, { status: 500 });
+    }
+
+    // =========================================================================
+    // 4. Create a Stripe Checkout Session
+    // =========================================================================
+    // Price: $9 one-time payment for Supporter tier
+    // client_reference_id: userId so the webhook can identify which user paid
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'VideoSphere Supporter Upgrade',
+              description: 'Unlock unlimited uploads, all platforms, and premium AI',
+            },
+            unit_amount: 900, // $9.00 in cents
+          },
+          quantity: 1,
+        },
+      ],
+      client_reference_id: userId, // Store userId for webhook verification
+      success_url: `${appUrl}/profile?upgrade=success`,
+      cancel_url: `${appUrl}/pricing`,
+    });
+
+    // =========================================================================
+    // 5. Return the checkout session URL for client redirect
+    // =========================================================================
+    if (!checkoutSession.url) {
+      console.error('[POST /api/payments/checkout] No URL returned from Stripe');
+      return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 });
+    }
+
+    return NextResponse.json({ checkoutUrl: checkoutSession.url }, { status: 200 });
+  } catch (err) {
+    console.error('[POST /api/payments/checkout]', err);
+    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 });
+  }
+}
