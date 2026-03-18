@@ -19,12 +19,12 @@ import { updateUser } from '@/lib/repositories/users';
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {});
 
 /**
- * Read the raw request body as a string for webhook signature verification.
- * Stripe requires the exact raw bytes to verify the signature.
+ * Read the raw request body as bytes for webhook signature verification.
+ * Stripe verifies signatures over the exact raw payload bytes.
  */
-async function getRawBody(request: NextRequest): Promise<string> {
-  const buffer = await request.arrayBuffer();
-  return new TextDecoder().decode(buffer);
+async function getRawBody(request: NextRequest): Promise<Buffer> {
+  const arrayBuffer = await request.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 export async function POST(req: NextRequest) {
