@@ -15,24 +15,17 @@ const setSupporterStatusMock = vi.hoisted(() => vi.fn());
 const accountGetMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
-  return {
-    __esModule: true,
-    default: class StripeMock {
-      public checkout = {
-        sessions: {
-          create: checkoutSessionCreateMock,
-        },
-      };
+  const StripeMock = class {
+    public checkout = {
+      sessions: { create: checkoutSessionCreateMock },
+    };
 
-      public webhooks = {
-        constructEvent: constructEventMock,
-      };
-
-      constructor(..._args: any[]) {
-        // No-op: tests control behavior via mocks above.
-      }
-    },
+    constructor(..._args: any[]) {
+      // Checkout uses instance; webhook uses static Stripe.webhooks.constructEvent.
+    }
   };
+  (StripeMock as any).webhooks = { constructEvent: constructEventMock };
+  return { __esModule: true, default: StripeMock };
 });
 
 vi.mock('node-appwrite', () => {

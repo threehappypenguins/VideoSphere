@@ -115,10 +115,9 @@ In your **host terminal**, run:
 stripe listen --forward-to localhost:3000/api/webhooks/stripe
 ```
 
-**Output:**
+**Output:** (exact text may vary by Stripe CLI version; the important part is the signing secret)
 ```
-Ready! You are using Stripe API Version [2026-02-25.clover].
-Your webhook signing secret is: whsec_test_3iXx...
+Ready! Your webhook signing secret is: whsec_test_3iXx...
 ```
 
 **Keep this terminal open.** It will:

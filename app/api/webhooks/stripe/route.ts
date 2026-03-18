@@ -16,8 +16,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { setSupporterStatus } from '@/lib/repositories/users';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {});
-
 /**
  * Read the raw request body as bytes for webhook signature verification.
  * Stripe verifies signatures over the exact raw payload bytes.
@@ -55,9 +53,10 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     // 3. Verify the webhook signature using Stripe's constructEvent
     // =========================================================================
+    // Uses static method — no API key needed; only webhook secret is used for verification.
     let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(rawBody, stripeSignature, webhookSecret);
+      event = Stripe.webhooks.constructEvent(rawBody, stripeSignature, webhookSecret);
     } catch (signatureErr) {
       // Signature verification failed — reject the request
       const errorMessage = signatureErr instanceof Error ? signatureErr.message : 'Unknown error';

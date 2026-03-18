@@ -11,53 +11,32 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {});
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 
 export async function POST(req: NextRequest) {
   try {
     // =========================================================================
-    // 1. Verify the user is authenticated by extracting the session cookie
+    // 1. Authenticate via shared helper (session cookie → Appwrite)
     // =========================================================================
-    const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const cookieName = projectId ? getSessionCookieName(projectId) : null;
-    const sessionSecret = cookieName ? req.cookies.get(cookieName)?.value : null;
-
-    if (!endpoint || !projectId || !sessionSecret) {
+    const userId = await getAuthenticatedUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     // =========================================================================
-    // 2. Get the current user from Appwrite
+    // 2. Validate Stripe environment variables
     // =========================================================================
-    let userId: string;
-    try {
-      const client = new Client()
-        .setEndpoint(endpoint)
-        .setProject(projectId)
-        .setSession(sessionSecret);
-
-      const account = new Account(client);
-      const user = await account.get();
-      userId = user.$id;
-    } catch (authErr) {
-      console.error('[POST /api/payments/checkout] Auth error:', authErr);
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
-    // =========================================================================
-    // 3. Validate Stripe environment variables
-    // =========================================================================
-    if (!process.env.STRIPE_SECRET_KEY) {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
       console.error('[POST /api/payments/checkout] STRIPE_SECRET_KEY not configured');
       return NextResponse.json({ error: 'Payment service not configured' }, { status: 500 });
     }
 
+    // Instantiate Stripe after validating env to avoid capturing bad/empty configuration.
+    const stripe = new Stripe(stripeSecretKey, {});
+
     // =========================================================================
-    // 4. Create a Stripe Checkout Session
+    // 3. Create a Stripe Checkout Session
     // =========================================================================
     // Price: $9 one-time payment for Supporter tier
     // client_reference_id: userId so the webhook can identify which user paid
@@ -93,7 +72,7 @@ export async function POST(req: NextRequest) {
     });
 
     // =========================================================================
-    // 5. Return the checkout session URL for client redirect
+    // 4. Return the checkout session URL for client redirect
     // =========================================================================
     if (!checkoutSession.url) {
       console.error('[POST /api/payments/checkout] No URL returned from Stripe');

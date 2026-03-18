@@ -13,18 +13,13 @@ const constructEventMock = vi.hoisted(() => vi.fn());
 const setSupporterStatusMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
-  return {
-    __esModule: true,
-    default: class StripeMock {
-      public webhooks = {
-        constructEvent: constructEventMock,
-      };
-
-      constructor(..._args: any[]) {
-        // Intentionally unused: we only need the mocked constructEvent.
-      }
-    },
+  const StripeMock = class {
+    constructor(..._args: any[]) {
+      // Route uses static Stripe.webhooks.constructEvent; no instance needed.
+    }
   };
+  (StripeMock as any).webhooks = { constructEvent: constructEventMock };
+  return { __esModule: true, default: StripeMock };
 });
 
 vi.mock('@/lib/repositories/users', () => ({
