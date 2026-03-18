@@ -171,25 +171,25 @@ export default function Navbar() {
           <div className="hidden items-center gap-8 md:flex">
             <Link
               href="/"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
             >
               Home
             </Link>
             <Link
               href="/pricing"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
             >
               Pricing
             </Link>
             <Link
               href="/about"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
             >
               About
             </Link>
             <Link
               href="/contact"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
             >
               Contact
             </Link>
@@ -219,13 +219,13 @@ export default function Navbar() {
               <>
                 <Link
                   href="/dashboard"
-                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
                 >
                   Dashboard
                 </Link>
                 <Link
                   href="/profile"
-                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/profile' ? 'text-foreground' : 'text-muted-foreground'}`}
                 >
                   Profile
                 </Link>
@@ -317,28 +317,28 @@ export default function Navbar() {
               </div>
               <Link
                 href="/"
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Home
               </Link>
               <Link
                 href="/pricing"
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Pricing
               </Link>
               <Link
                 href="/about"
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 About
               </Link>
               <Link
                 href="/contact"
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Contact
@@ -350,20 +350,18 @@ export default function Navbar() {
                 <>
                   <Link
                     href="/dashboard"
-                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Dashboard
                   </Link>
-
                   <Link
                     href="/profile"
-                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/profile' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Profile
                   </Link>
-
                   <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
                   <button
                     type="button"
