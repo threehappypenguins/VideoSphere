@@ -16,7 +16,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: vi.fn(),
-  getConnectedAccount: vi.fn(),
+  getConnectedAccountWithTokens: vi.fn(),
   updateConnection: vi.fn(),
 }));
 
@@ -30,7 +30,7 @@ vi.stubGlobal('fetch', mockFetch);
 import { GET } from '@/app/api/platforms/callback/youtube/route';
 import {
   createConnectedAccount,
-  getConnectedAccount,
+  getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
 
@@ -231,7 +231,7 @@ describe('GET /api/platforms/callback/youtube', () => {
   describe('Success path', () => {
     beforeEach(() => {
       mockFetchSequence(200, TOKEN_RESPONSE, 200, CHANNEL_RESPONSE);
-      vi.mocked(getConnectedAccount).mockResolvedValue(null);
+      vi.mocked(getConnectedAccountWithTokens).mockResolvedValue(null);
       vi.mocked(createConnectedAccount).mockResolvedValue({
         id: 'account-1',
         userId: USER_ID,
@@ -300,7 +300,11 @@ describe('GET /api/platforms/callback/youtube', () => {
 
     beforeEach(() => {
       mockFetchSequence(200, TOKEN_RESPONSE, 200, CHANNEL_RESPONSE);
-      vi.mocked(getConnectedAccount).mockResolvedValue(EXISTING_ACCOUNT);
+      vi.mocked(getConnectedAccountWithTokens).mockResolvedValue({
+        ...EXISTING_ACCOUNT,
+        accessToken: 'existing-access-token',
+        refreshToken: 'existing-refresh-token',
+      });
       vi.mocked(updateConnection).mockResolvedValue(EXISTING_ACCOUNT);
     });
 
@@ -323,6 +327,27 @@ describe('GET /api/platforms/callback/youtube', () => {
       const res = await GET(req);
       expect(res.status).toBe(200);
       expect(await res.text()).toContain('success=youtube');
+    });
+
+    it('preserves existing refresh token when token exchange omits refresh_token', async () => {
+      mockFetchSequence(
+        200,
+        { ...TOKEN_RESPONSE, refresh_token: undefined },
+        200,
+        CHANNEL_RESPONSE
+      );
+
+      const req = makeRequest(VALID_PARAMS, validCookies());
+      await GET(req);
+
+      expect(updateConnection).toHaveBeenCalledWith(
+        'account-existing',
+        TOKEN_RESPONSE.access_token,
+        'existing-refresh-token',
+        expect.any(String),
+        'UCtest123',
+        'My Test Channel'
+      );
     });
   });
 });

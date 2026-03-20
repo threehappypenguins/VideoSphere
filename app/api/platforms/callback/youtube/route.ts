@@ -18,7 +18,7 @@ import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/youtube/
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import {
   createConnectedAccount,
-  getConnectedAccount,
+  getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
 
@@ -155,12 +155,13 @@ export async function GET(req: NextRequest) {
     // Upsert: update all fields if a connection already exists, otherwise create.
     // updateConnection also refreshes platformName/platformUserId so a renamed
     // channel is reflected immediately on reconnect.
-    const existing = await getConnectedAccount(userId, 'youtube');
+    const existing = await getConnectedAccountWithTokens(userId, 'youtube');
+    const refreshTokenToStore = tokens.refresh_token ?? existing?.refreshToken ?? '';
     if (existing) {
       await updateConnection(
         existing.id,
         tokens.access_token,
-        tokens.refresh_token ?? '',
+        refreshTokenToStore,
         tokenExpiry,
         platformUserId,
         platformName
@@ -170,7 +171,7 @@ export async function GET(req: NextRequest) {
         userId,
         platform: 'youtube',
         accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token ?? '',
+        refreshToken: refreshTokenToStore,
         tokenExpiry,
         platformUserId,
         platformName,
