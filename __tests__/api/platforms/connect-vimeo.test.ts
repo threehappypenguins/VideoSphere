@@ -141,6 +141,15 @@ describe('GET /api/platforms/connect/vimeo', () => {
       expect(location.searchParams.get('response_type')).toBe('code');
     });
 
+    it('requests Vimeo upload and edit scopes', async () => {
+      const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
+      const res = await GET(req);
+      const location = new URL(res.headers.get('location')!);
+      const scope = decodeURIComponent(location.searchParams.get('scope') || '');
+      expect(scope).toContain('upload');
+      expect(scope).toContain('edit');
+    });
+
     it('sets the correct callback redirect_uri', async () => {
       const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
       const res = await GET(req);

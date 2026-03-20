@@ -330,6 +330,7 @@ describe('GET /api/platforms/callback/youtube', () => {
     });
 
     it('preserves existing refresh token when token exchange omits refresh_token', async () => {
+      mockFetch.mockReset();
       mockFetchSequence(
         200,
         { ...TOKEN_RESPONSE, refresh_token: undefined },

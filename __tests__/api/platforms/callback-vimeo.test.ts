@@ -67,7 +67,7 @@ const VALID_PARAMS = { code: 'auth-code', state: CSRF_NONCE };
 const TOKEN_RESPONSE = {
   access_token: 'test-vimeo-access-token',
   token_type: 'bearer',
-  scope: 'public',
+  scope: 'upload edit public private',
   user: {
     name: 'Test Vimeo User',
     uri: '/users/987654321',
@@ -187,7 +187,19 @@ describe('GET /api/platforms/callback/vimeo', () => {
     });
 
     it('returns HTML that navigates to ?error=vimeo when token response has no access_token', async () => {
-      mockTokenSuccess({ token_type: 'bearer', scope: 'public', user: TOKEN_RESPONSE.user });
+      mockTokenSuccess({
+        token_type: 'bearer',
+        scope: TOKEN_RESPONSE.scope,
+        user: TOKEN_RESPONSE.user,
+      });
+      const req = makeRequest(VALID_PARAMS, validCookies());
+      const res = await GET(req);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('error=vimeo');
+    });
+
+    it('returns HTML that navigates to ?error=vimeo when upload scope is missing', async () => {
+      mockTokenSuccess({ ...TOKEN_RESPONSE, scope: 'public private' });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
       expect(res.status).toBe(200);

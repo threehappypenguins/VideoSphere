@@ -120,7 +120,7 @@ async function runSinglePlatformUpload(
 
     if (shouldRefreshYouTubeToken) {
       const refreshed = await refreshYouTubeAccessToken({ refreshToken: tokens.refreshToken });
-      if (!refreshed.ok) {
+      if ('error' in refreshed) {
         await updatePlatformUploadStatus(
           platformUpload.id,
           'failed',
