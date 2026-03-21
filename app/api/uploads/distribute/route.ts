@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { ConnectedAccountPlatform, PlatformUpload, PlatformUploadVisibility } from '@/types';
+import type { ConnectedAccountPlatform, PlatformUpload } from '@/types';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
+import type { PlatformUploadMetadata } from '@/lib/platforms/youtube';
 import { deleteObject, getObjectWebStream } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { getUserById } from '@/lib/repositories/users';
@@ -21,8 +23,6 @@ import { uploadToVimeo } from '@/lib/platforms/vimeo';
 
 const FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT = 2;
 const SUPPORTED_PLATFORMS: ConnectedAccountPlatform[] = ['youtube', 'vimeo'];
-const DEFAULT_VISIBILITY: PlatformUploadVisibility = 'private';
-
 interface DistributeRequestBody {
   draftId: string;
   r2ObjectKey: string;
@@ -81,12 +81,7 @@ async function runSinglePlatformUpload(
   userId: string,
   r2ObjectKey: string,
   platformUpload: PlatformUpload,
-  metadata: {
-    title: string;
-    description: string;
-    tags: string[];
-    visibility: PlatformUploadVisibility;
-  }
+  metadata: PlatformUploadMetadata
 ): Promise<void> {
   await updatePlatformUploadStatus(platformUpload.id, 'uploading');
 
@@ -220,18 +215,17 @@ async function runDistributionInBackground(
   userId: string,
   r2ObjectKey: string,
   platformUploads: PlatformUpload[],
-  metadata: {
-    title: string;
-    description: string;
-    tags: string[];
-    visibility: PlatformUploadVisibility;
-  }
+  metadataByPlatformId: Map<string, PlatformUploadMetadata>
 ): Promise<void> {
   try {
     await Promise.all(
-      platformUploads.map((platformUpload) =>
-        runSinglePlatformUpload(userId, r2ObjectKey, platformUpload, metadata)
-      )
+      platformUploads.map((platformUpload) => {
+        const meta = metadataByPlatformId.get(platformUpload.id);
+        if (!meta) {
+          throw new Error(`Missing merged metadata for platform upload ${platformUpload.id}`);
+        }
+        return runSinglePlatformUpload(userId, r2ObjectKey, platformUpload, meta);
+      })
     );
 
     const finalPlatformUploads = await getPlatformUploadsByJob(jobId);
@@ -337,26 +331,50 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await updateUploadJobStatus(uploadJob.id, 'distributing', null);
 
     const platformUploads = await Promise.all(
-      targetPlatforms.map((platform) =>
-        createPlatformUpload({
+      targetPlatforms.map((platform) => {
+        const meta = buildMetadataForPlatform(draft, platform);
+        return createPlatformUpload({
           uploadJobId: uploadJob.id,
           platform,
-          title: draft.title,
-          description: draft.description,
-          tags: JSON.stringify(draft.tags),
-          visibility: DEFAULT_VISIBILITY,
-        })
-      )
+          title: meta.title,
+          description: meta.description,
+          tags: meta.tags,
+          visibility: meta.visibility,
+          ...(platform === 'youtube'
+            ? {
+                ...(meta.categoryId !== undefined ? { categoryId: meta.categoryId } : {}),
+                ...(meta.madeForKids !== undefined ? { madeForKids: meta.madeForKids } : {}),
+                ...(draft.platforms.youtube !== undefined
+                  ? { draftYoutube: draft.platforms.youtube }
+                  : {}),
+              }
+            : {}),
+          ...(platform === 'vimeo'
+            ? {
+                ...(meta.vimeoCategoryUri !== undefined
+                  ? { vimeoCategoryUri: meta.vimeoCategoryUri }
+                  : {}),
+                ...(draft.platforms.vimeo !== undefined
+                  ? { draftVimeo: draft.platforms.vimeo }
+                  : {}),
+              }
+            : {}),
+        });
+      })
     );
 
-    const metadata = {
-      title: draft.title,
-      description: draft.description,
-      tags: draft.tags,
-      visibility: DEFAULT_VISIBILITY,
-    };
+    const metadataByPlatformId = new Map<string, PlatformUploadMetadata>();
+    for (const pu of platformUploads) {
+      metadataByPlatformId.set(pu.id, buildMetadataForPlatform(draft, pu.platform));
+    }
 
-    void runDistributionInBackground(uploadJob.id, userId, r2ObjectKey, platformUploads, metadata);
+    void runDistributionInBackground(
+      uploadJob.id,
+      userId,
+      r2ObjectKey,
+      platformUploads,
+      metadataByPlatformId
+    );
 
     return NextResponse.json({ jobId: uploadJob.id }, { status: 202 });
   } catch (error) {

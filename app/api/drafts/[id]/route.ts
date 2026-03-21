@@ -12,6 +12,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
+import {
+  isPlatformUploadVisibility,
+  MAX_DRAFT_TITLE_LENGTH,
+  parseDraftTargetsFromRequestBody,
+  parseTagsFromRequestBody,
+} from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -108,13 +114,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const { title, description, tags } = body as Record<string, unknown>;
+  const { title, description, visibility, targets, platforms, tags } = body as Record<
+    string,
+    unknown
+  >;
 
   // At least one field must be provided
-  if (title === undefined && description === undefined && tags === undefined) {
+  if (
+    title === undefined &&
+    description === undefined &&
+    visibility === undefined &&
+    targets === undefined &&
+    platforms === undefined &&
+    tags === undefined
+  ) {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: 'At least one field (title, description, tags) must be provided',
+      message:
+        'At least one field (title, description, visibility, targets, tags, platforms) must be provided',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
+  if (
+    platforms !== undefined &&
+    (platforms === null || typeof platforms !== 'object' || Array.isArray(platforms))
+  ) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'platforms must be a JSON object',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -129,6 +158,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 400 });
   }
 
+  if (
+    title !== undefined &&
+    typeof title === 'string' &&
+    title.trim().length > MAX_DRAFT_TITLE_LENGTH
+  ) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: `title must be at most ${MAX_DRAFT_TITLE_LENGTH} characters (YouTube limit)`,
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
   if (description !== undefined && typeof description !== 'string') {
     const errRes: ApiError = {
       error: 'Bad Request',
@@ -138,29 +180,49 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (tags !== undefined && !Array.isArray(tags)) {
+  if (visibility !== undefined && !isPlatformUploadVisibility(visibility)) {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: 'tags must be an array of strings',
+      message: 'visibility must be one of: public, unlisted, private',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (Array.isArray(tags) && !tags.every((t) => typeof t === 'string')) {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: 'tags must be an array of strings',
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
+  let parsedTargets: ReturnType<typeof parseDraftTargetsFromRequestBody> | undefined;
+  if (targets !== undefined) {
+    parsedTargets = parseDraftTargetsFromRequestBody(targets);
+    if (parsedTargets.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: parsedTargets.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+  }
+
+  let parsedTags: ReturnType<typeof parseTagsFromRequestBody> | undefined;
+  if (tags !== undefined) {
+    parsedTags = parseTagsFromRequestBody(tags);
+    if (parsedTags.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: parsedTags.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
   }
 
   try {
     const updated = await updateDraft(id, {
       ...(title !== undefined && { title: (title as string).trim() }),
       ...(description !== undefined && { description: description as string }),
-      ...(tags !== undefined && { tags: tags as string[] }),
+      ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
+      ...(parsedTargets?.ok === true ? { targets: parsedTargets.value } : {}),
+      ...(parsedTags?.ok === true ? { tags: parsedTags.value } : {}),
+      ...(platforms !== undefined ? { platformsPatch: platforms } : {}),
     });
 
     if (!updated) {

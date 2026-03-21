@@ -29,6 +29,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
 import { GET, PATCH, DELETE } from '@/app/api/drafts/[id]/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
+import { MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,11 +67,14 @@ function makeParams(id = DRAFT_ID) {
 const baseDraft = {
   id: DRAFT_ID,
   userId: 'user-123',
+  targets: ['youtube', 'vimeo'] as const,
   title: 'My Video',
   description: 'Great video',
-  tags: ['tag1', 'tag2'],
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  tags: [] as string[],
+  visibility: 'private' as const,
+  platforms: {} as const,
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 // ---------------------------------------------------------------------------
@@ -249,19 +253,33 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(body.message).toMatch(/title/i);
     });
 
-    it('returns 400 when tags is not an array', async () => {
+    it(`returns 400 when title exceeds ${MAX_DRAFT_TITLE_LENGTH} characters`, async () => {
       const res = await PATCH(
-        makeRequest('PATCH', { tags: 'bad' }, { [SESSION_COOKIE]: 'tok' }),
+        makeRequest(
+          'PATCH',
+          { title: 'y'.repeat(MAX_DRAFT_TITLE_LENGTH + 1) },
+          { [SESSION_COOKIE]: 'tok' }
+        ),
         makeParams()
       );
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.message).toMatch(/tags/i);
+      expect(body.message).toMatch(/100|YouTube/i);
     });
 
-    it('returns 400 when tags contains non-string items', async () => {
+    it('returns 400 when platforms is not an object', async () => {
       const res = await PATCH(
-        makeRequest('PATCH', { tags: [1, 2] }, { [SESSION_COOKIE]: 'tok' }),
+        makeRequest('PATCH', { platforms: 'bad' }, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toMatch(/platforms/i);
+    });
+
+    it('returns 400 when targets is empty', async () => {
+      const res = await PATCH(
+        makeRequest('PATCH', { targets: [] }, { [SESSION_COOKIE]: 'tok' }),
         makeParams()
       );
       expect(res.status).toBe(400);
@@ -354,27 +372,54 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { title: 'Trimmed' });
     });
 
-    it('updates only tags when only tags are supplied', async () => {
-      const updated = { ...baseDraft, tags: ['new'] };
-      vi.mocked(updateDraft).mockResolvedValueOnce(updated);
-
-      const res = await PATCH(
-        makeRequest('PATCH', { tags: ['new'] }, { [SESSION_COOKIE]: 'tok' }),
-        makeParams()
-      );
-
-      expect(res.status).toBe(200);
-      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { tags: ['new'] });
-    });
-
-    it('updates multiple fields at once', async () => {
-      const updated = { ...baseDraft, title: 'New', description: 'Desc', tags: [] };
+    it('passes platforms as platformsPatch for partial platform merge', async () => {
+      const updated = {
+        ...baseDraft,
+        platforms: { youtube: { categoryId: '10' } },
+      };
       vi.mocked(updateDraft).mockResolvedValueOnce(updated);
 
       const res = await PATCH(
         makeRequest(
           'PATCH',
-          { title: 'New', description: 'Desc', tags: [] },
+          { platforms: { youtube: { categoryId: '10' } } },
+          { [SESSION_COOKIE]: 'tok' }
+        ),
+        makeParams()
+      );
+
+      expect(res.status).toBe(200);
+      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, {
+        platformsPatch: { youtube: { categoryId: '10' } },
+      });
+    });
+
+    it('passes tags array to updateDraft', async () => {
+      const updated = { ...baseDraft, tags: ['a', 'b'] };
+      vi.mocked(updateDraft).mockResolvedValueOnce(updated);
+
+      const res = await PATCH(
+        makeRequest('PATCH', { tags: ['a', 'b'] }, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+
+      expect(res.status).toBe(200);
+      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { tags: ['a', 'b'] });
+    });
+
+    it('updates multiple fields at once', async () => {
+      const updated = {
+        ...baseDraft,
+        title: 'New',
+        description: 'Desc',
+        targets: ['youtube'] as const,
+      };
+      vi.mocked(updateDraft).mockResolvedValueOnce(updated);
+
+      const res = await PATCH(
+        makeRequest(
+          'PATCH',
+          { title: 'New', description: 'Desc', targets: ['youtube'] },
           { [SESSION_COOKIE]: 'tok' }
         ),
         makeParams()
@@ -384,7 +429,7 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, {
         title: 'New',
         description: 'Desc',
-        tags: [],
+        targets: ['youtube'],
       });
     });
 

@@ -11,18 +11,20 @@ import { Query, TablesDB } from 'node-appwrite';
 import type { User, UserRole } from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, USER_PROFILES_COLLECTION_ID } from '@/lib/appwrite-constants';
+import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
 
 const tablesDb = new TablesDB(appwriteClient);
 
 /** Map an Appwrite row to the shared User type. */
 function rowToUser(row: Record<string, unknown>): User {
+  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
   return {
     userId: String(row.userId ?? row.$id),
     email: String(row.email),
     isSupporter: Boolean(row.isSupporter),
     role: (row.role as UserRole) ?? 'user',
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
+    $createdAt,
+    $updatedAt,
   };
 }
 
@@ -42,7 +44,6 @@ export interface CreateUserData {
  * Used by register and OAuth callback; callers must ensure the Auth user exists first.
  */
 export async function createUser(data: CreateUserData): Promise<User> {
-  const now = new Date().toISOString();
   const row = await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
@@ -52,8 +53,6 @@ export async function createUser(data: CreateUserData): Promise<User> {
       email: data.email.trim().toLowerCase(),
       isSupporter: data.isSupporter ?? false,
       role: data.role ?? 'user',
-      createdAt: now,
-      updatedAt: now,
     },
   });
   return rowToUser(row as unknown as Record<string, unknown>);
@@ -113,7 +112,6 @@ export interface UpdateUserData {
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   const payload: Record<string, unknown> = { ...data };
-  payload.updatedAt = new Date().toISOString();
   const row = await tablesDb.updateRow({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
@@ -151,7 +149,7 @@ export interface ListUsersResult {
 export async function listUsers(options: ListUsersOptions = {}): Promise<ListUsersResult> {
   const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
   const offset = Math.max(options.offset ?? 0, 0);
-  const queries = [Query.limit(limit), Query.offset(offset), Query.orderAsc('createdAt')];
+  const queries = [Query.limit(limit), Query.offset(offset), Query.orderAsc('$createdAt')];
   const result = await tablesDb.listRows({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,

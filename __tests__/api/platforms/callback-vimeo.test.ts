@@ -223,8 +223,8 @@ describe('GET /api/platforms/callback/vimeo', () => {
         tokenExpiry: new Date().toISOString(),
         platformUserId: '987654321',
         platformName: 'Test Vimeo User',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        $createdAt: new Date().toISOString(),
+        $updatedAt: new Date().toISOString(),
       });
       await GET(makeRequest(VALID_PARAMS, validCookies()));
 
@@ -245,8 +245,8 @@ describe('GET /api/platforms/callback/vimeo', () => {
         tokenExpiry: new Date().toISOString(),
         platformUserId: '987654321',
         platformName: 'Test Vimeo User',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        $createdAt: new Date().toISOString(),
+        $updatedAt: new Date().toISOString(),
       });
       await GET(makeRequest(VALID_PARAMS, validCookies()));
 
@@ -269,8 +269,8 @@ describe('GET /api/platforms/callback/vimeo', () => {
         tokenExpiry: new Date().toISOString(),
         platformUserId: '987654321',
         platformName: 'Test Vimeo User',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        $createdAt: new Date().toISOString(),
+        $updatedAt: new Date().toISOString(),
       });
     });
 
@@ -372,8 +372,8 @@ describe('GET /api/platforms/callback/vimeo', () => {
       tokenExpiry: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000).toISOString(),
       platformUserId: '987654321',
       platformName: 'Test Vimeo User',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      $createdAt: new Date().toISOString(),
+      $updatedAt: new Date().toISOString(),
     };
 
     beforeEach(() => {

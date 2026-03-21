@@ -161,8 +161,8 @@ describe('ConnectionsPage', () => {
           tokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(),
           platformUserId: 'UCtest123',
           platformName: 'My Test Channel',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
         },
       ]);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });

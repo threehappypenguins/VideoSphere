@@ -28,6 +28,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
 import { POST, GET } from '@/app/api/drafts/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
+import { MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,11 +61,14 @@ function makeRequest(
 const baseDraft = {
   id: 'draft-1',
   userId: 'user-123',
+  targets: ['youtube', 'vimeo'] as const,
   title: 'My Video',
   description: 'Great video',
-  tags: ['tag1', 'tag2'],
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  tags: [] as string[],
+  visibility: 'private' as const,
+  platforms: {} as const,
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 // ---------------------------------------------------------------------------
@@ -85,7 +89,7 @@ describe('POST /api/drafts', () => {
   describe('Authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
-      const req = makeRequest('POST', { title: 'Test' });
+      const req = makeRequest('POST', { title: 'Test', targets: ['youtube'] });
       const res = await POST(req);
       expect(res.status).toBe(401);
       const body = await res.json();
@@ -105,8 +109,26 @@ describe('POST /api/drafts', () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     });
 
+    it('returns 400 when targets is missing', async () => {
+      const req = makeRequest('POST', { title: 'T' }, { [SESSION_COOKIE]: 'tok' });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toMatch(/targets/i);
+    });
+
+    it('returns 400 when targets is empty', async () => {
+      const req = makeRequest('POST', { title: 'T', targets: [] }, { [SESSION_COOKIE]: 'tok' });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+    });
+
     it('returns 400 when title is missing', async () => {
-      const req = makeRequest('POST', { description: 'No title' }, { [SESSION_COOKIE]: 'tok' });
+      const req = makeRequest(
+        'POST',
+        { description: 'No title', targets: ['youtube'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
@@ -114,39 +136,45 @@ describe('POST /api/drafts', () => {
     });
 
     it('returns 400 when title is an empty string', async () => {
-      const req = makeRequest('POST', { title: '   ' }, { [SESSION_COOKIE]: 'tok' });
+      const req = makeRequest(
+        'POST',
+        { title: '   ', targets: ['youtube'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.message).toMatch(/title/i);
     });
 
-    it('returns 400 when tags is not an array', async () => {
+    it(`returns 400 when title is longer than ${MAX_DRAFT_TITLE_LENGTH} characters (after trim)`, async () => {
       const req = makeRequest(
         'POST',
-        { title: 'Valid', tags: 'not-an-array' },
+        { title: 'x'.repeat(MAX_DRAFT_TITLE_LENGTH + 1), targets: ['youtube'] },
         { [SESSION_COOKIE]: 'tok' }
       );
       const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.message).toMatch(/tags/i);
+      expect(body.message).toMatch(/100|YouTube/i);
     });
 
-    it('returns 400 when tags contains non-string items', async () => {
+    it('returns 400 when platforms is not an object', async () => {
       const req = makeRequest(
         'POST',
-        { title: 'Valid', tags: [1, 2] },
+        { title: 'Valid', targets: ['youtube'], platforms: 'bad' },
         { [SESSION_COOKIE]: 'tok' }
       );
       const res = await POST(req);
       expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toMatch(/platforms/i);
     });
 
     it('returns 400 when description is not a string', async () => {
       const req = makeRequest(
         'POST',
-        { title: 'Valid', description: 42 },
+        { title: 'Valid', targets: ['youtube'], description: 42 },
         { [SESSION_COOKIE]: 'tok' }
       );
       const res = await POST(req);
@@ -159,7 +187,7 @@ describe('POST /api/drafts', () => {
       vi.mocked(createDraft).mockResolvedValueOnce({ ...baseDraft, description: '' });
       const req = makeRequest(
         'POST',
-        { title: 'Valid', description: '' },
+        { title: 'Valid', targets: ['youtube'], description: '' },
         { [SESSION_COOKIE]: 'tok' }
       );
       const res = await POST(req);
@@ -211,7 +239,11 @@ describe('POST /api/drafts', () => {
 
       const req = makeRequest(
         'POST',
-        { title: 'My Video', description: 'Great video', tags: ['tag1', 'tag2'] },
+        {
+          title: 'My Video',
+          description: 'Great video',
+          targets: ['youtube', 'vimeo'],
+        },
         { [SESSION_COOKIE]: 'valid-token' }
       );
       const res = await POST(req);
@@ -224,27 +256,37 @@ describe('POST /api/drafts', () => {
         userId: 'user-123',
         title: 'My Video',
         description: 'Great video',
-        tags: ['tag1', 'tag2'],
+        tags: [],
+        targets: ['youtube', 'vimeo'],
+        platforms: {},
       });
     });
 
-    it('creates a draft with only title (optional fields default correctly)', async () => {
-      const minimalDraft = { ...baseDraft, description: '', tags: [] };
+    it('creates a draft with only title and targets (optional fields default correctly)', async () => {
+      const minimalDraft = { ...baseDraft, description: '', targets: ['youtube'] as const };
       vi.mocked(createDraft).mockResolvedValueOnce(minimalDraft);
 
-      const req = makeRequest('POST', { title: 'Title Only' }, { [SESSION_COOKIE]: 'tok' });
+      const req = makeRequest(
+        'POST',
+        { title: 'Title Only', targets: ['youtube'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
       const res = await POST(req);
 
       expect(res.status).toBe(201);
       expect(createDraft).toHaveBeenCalledWith(
-        expect.objectContaining({ description: '', tags: [] })
+        expect.objectContaining({ description: '', platforms: {} })
       );
     });
 
     it('trims whitespace from title', async () => {
       vi.mocked(createDraft).mockResolvedValueOnce(baseDraft);
 
-      const req = makeRequest('POST', { title: '  Padded  ' }, { [SESSION_COOKIE]: 'tok' });
+      const req = makeRequest(
+        'POST',
+        { title: '  Padded  ', targets: ['youtube'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
       await POST(req);
 
       expect(createDraft).toHaveBeenCalledWith(expect.objectContaining({ title: 'Padded' }));
@@ -253,7 +295,11 @@ describe('POST /api/drafts', () => {
     it('sets userId from the authenticated session', async () => {
       vi.mocked(createDraft).mockResolvedValueOnce(baseDraft);
 
-      const req = makeRequest('POST', { title: 'Test' }, { [SESSION_COOKIE]: 'tok' });
+      const req = makeRequest(
+        'POST',
+        { title: 'Test', targets: ['youtube'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
       await POST(req);
 
       expect(createDraft).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-123' }));
@@ -268,7 +314,11 @@ describe('POST /api/drafts', () => {
     it('returns 500 when createDraft throws', async () => {
       vi.mocked(createDraft).mockRejectedValueOnce(new Error('DB error'));
 
-      const req = makeRequest('POST', { title: 'Test' }, { [SESSION_COOKIE]: 'tok' });
+      const req = makeRequest(
+        'POST',
+        { title: 'Test', targets: ['youtube'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
       const res = await POST(req);
 
       expect(res.status).toBe(500);

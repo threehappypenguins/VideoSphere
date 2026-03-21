@@ -19,11 +19,16 @@ import { getSessionCookieName } from '@/lib/auth-session-cookie';
 export const YOUTUBE_OAUTH_STATE_COOKIE = 'youtube_oauth_state';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
-// youtube.upload — allows uploading videos
-// youtube.readonly — required to read channel info (name, id) after connection
+// youtube.upload — resumable video upload (narrow; does not include playlists.insert)
+// youtube.readonly — channel info; playlists.list (read)
+// youtube.force-ssl — listed for playlistItems.insert / some write paths
+// youtube — manage account including playlists.insert (see API doc); avoids 403 insufficientPermissions
+//   when creating playlists. Users must reconnect YouTube after this scope is added.
 const YOUTUBE_SCOPES = [
   'https://www.googleapis.com/auth/youtube.upload',
   'https://www.googleapis.com/auth/youtube.readonly',
+  'https://www.googleapis.com/auth/youtube.force-ssl',
+  'https://www.googleapis.com/auth/youtube',
 ].join(' ');
 
 export async function GET(req: NextRequest) {

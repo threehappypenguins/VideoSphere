@@ -10,6 +10,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
+import {
+  isPlatformUploadVisibility,
+  MAX_DRAFT_TITLE_LENGTH,
+  parseDraftTargetsFromRequestBody,
+  parsePlatformsFromRequestBody,
+  parseTagsFromRequestBody,
+} from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -48,12 +55,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const { title, description, tags } = body as Record<string, unknown>;
+  const { title, description, visibility, targets, platforms, tags } = body as Record<
+    string,
+    unknown
+  >;
+
+  const targetsParse = parseDraftTargetsFromRequestBody(targets);
+  if (targetsParse.ok === false) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: targetsParse.error,
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
 
   if (!title || typeof title !== 'string' || title.trim() === '') {
     const errRes: ApiError = {
       error: 'Bad Request',
       message: 'title is required',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
+  const trimmedTitle = title.trim();
+  if (trimmedTitle.length > MAX_DRAFT_TITLE_LENGTH) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: `title must be at most ${MAX_DRAFT_TITLE_LENGTH} characters (YouTube limit)`,
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -68,19 +98,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (tags !== undefined && !Array.isArray(tags)) {
+  if (visibility !== undefined && !isPlatformUploadVisibility(visibility)) {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: 'tags must be an array of strings',
+      message: 'visibility must be one of: public, unlisted, private',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (Array.isArray(tags) && !tags.every((t) => typeof t === 'string')) {
+  const platformsParse = parsePlatformsFromRequestBody(platforms);
+  if (platformsParse.ok === false) {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: 'tags must be an array of strings',
+      message: platformsParse.error,
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
+  const tagsParse = parseTagsFromRequestBody(tags);
+  if (tagsParse.ok === false) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: tagsParse.error,
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -89,9 +130,12 @@ export async function POST(req: NextRequest) {
   try {
     const draft = await createDraft({
       userId,
-      title: title.trim(),
+      targets: targetsParse.value,
+      title: trimmedTitle,
       description: (description as string | undefined) ?? '',
-      tags: Array.isArray(tags) ? (tags as string[]) : [],
+      tags: tagsParse.value,
+      ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
+      platforms: platformsParse.value,
     });
 
     const response: ApiResponse<Draft> = { data: draft, message: 'Draft created' };

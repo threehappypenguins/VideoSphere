@@ -15,9 +15,6 @@ import type {
   UploadJobStatus,
   UploadJobWithPlatformUploads,
   PlatformUpload,
-  ConnectedAccountPlatform,
-  PlatformUploadStatus,
-  PlatformUploadVisibility,
 } from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import {
@@ -25,11 +22,14 @@ import {
   UPLOAD_JOBS_COLLECTION_ID,
   PLATFORM_UPLOADS_COLLECTION_ID,
 } from '@/lib/appwrite-constants';
+import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
+import { rowToPlatformUpload } from '@/lib/repositories/platform-uploads';
 
 const tablesDb = new TablesDB(appwriteClient);
 
 /** Map an Appwrite row to the shared UploadJob type. */
 function rowToUploadJob(row: Record<string, unknown>): UploadJob {
+  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
   return {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
@@ -38,29 +38,8 @@ function rowToUploadJob(row: Record<string, unknown>): UploadJob {
     status: String(row.status) as UploadJobStatus,
     errorMessage:
       row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
-  };
-}
-
-/** Map an Appwrite row to the shared PlatformUpload type. Exported for use by platform-uploads repository. */
-export function rowToPlatformUpload(row: Record<string, unknown>): PlatformUpload {
-  return {
-    id: String(row.$id ?? row.id),
-    uploadJobId: String(row.uploadJobId),
-    platform: String(row.platform) as ConnectedAccountPlatform,
-    status: String(row.status) as PlatformUploadStatus,
-    platformVideoId: String(row.platformVideoId ?? ''),
-    platformUrl: String(row.platformUrl ?? ''),
-    title: String(row.title ?? ''),
-    description: String(row.description ?? ''),
-    tags: String(row.tags ?? ''),
-    visibility: (String(row.visibility ?? 'public') || 'public') as PlatformUploadVisibility,
-    scheduledAt: row.scheduledAt != null && row.scheduledAt !== '' ? String(row.scheduledAt) : null,
-    errorMessage:
-      row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
+    $createdAt,
+    $updatedAt,
   };
 }
 
@@ -79,7 +58,6 @@ export interface CreateUploadJobInput {
  * Create a new upload job (e.g. when user starts an upload). Status defaults to pending.
  */
 export async function createUploadJob(input: CreateUploadJobInput): Promise<UploadJob> {
-  const now = new Date().toISOString();
   const row = await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: UPLOAD_JOBS_COLLECTION_ID,
@@ -90,8 +68,6 @@ export async function createUploadJob(input: CreateUploadJobInput): Promise<Uplo
       r2Key: input.r2Key,
       status: 'pending',
       errorMessage: '',
-      createdAt: now,
-      updatedAt: now,
     },
   });
   return rowToUploadJob(row as unknown as Record<string, unknown>);
@@ -127,7 +103,7 @@ export async function listUploadJobsByUser(
   userId: string,
   status?: UploadJobStatus
 ): Promise<UploadJob[]> {
-  const queries = [Query.equal('userId', userId), Query.orderDesc('createdAt')];
+  const queries = [Query.equal('userId', userId), Query.orderDesc('$createdAt')];
   if (status != null) {
     queries.push(Query.equal('status', status));
   }
@@ -158,7 +134,7 @@ export async function getUploadJobsWithPlatformUploads(
     const { rows } = await tablesDb.listRows({
       databaseId: DATABASE_ID,
       tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-      queries: [Query.equal('uploadJobId', jobIds), Query.orderDesc('createdAt')],
+      queries: [Query.equal('uploadJobId', jobIds), Query.orderDesc('$createdAt')],
       total: false,
     });
     const all = (rows ?? []).map((r) =>
@@ -169,7 +145,7 @@ export async function getUploadJobsWithPlatformUploads(
       list.push(pu);
       uploadsByJobId.set(pu.uploadJobId, list);
     }
-    // Per-job list already in createdAt desc from query; preserve order
+    // Per-job list already in $createdAt desc from query; preserve order
   } catch (err: unknown) {
     const e = err as { code?: number };
     if (e.code === 404) {
@@ -202,7 +178,6 @@ export async function updateUploadJobStatus(
 ): Promise<UploadJob | null> {
   const data: Record<string, unknown> = {
     status,
-    updatedAt: new Date().toISOString(),
   };
   if (errorMessage !== undefined) {
     data.errorMessage = errorMessage ?? '';

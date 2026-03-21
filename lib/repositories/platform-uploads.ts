@@ -14,12 +14,41 @@ import type {
   ConnectedAccountPlatform,
   PlatformUploadStatus,
   PlatformUploadVisibility,
+  YouTubeDraftFields,
+  VimeoDraftFields,
 } from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, PLATFORM_UPLOADS_COLLECTION_ID } from '@/lib/appwrite-constants';
-import { rowToPlatformUpload } from '@/lib/repositories/upload-jobs';
+import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
+import {
+  stringifyPlatformUploadDocumentForStorage,
+  platformUploadDocumentFromRow,
+} from '@/lib/platform-upload-document';
 
 const tablesDb = new TablesDB(appwriteClient);
+
+/** Map an Appwrite row to the shared PlatformUpload type. */
+export function rowToPlatformUpload(row: Record<string, unknown>): PlatformUpload {
+  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+  const doc = platformUploadDocumentFromRow(row);
+  return {
+    id: String(row.$id ?? row.id),
+    uploadJobId: String(row.uploadJobId),
+    platform: String(row.platform) as ConnectedAccountPlatform,
+    status: String(row.status) as PlatformUploadStatus,
+    platformVideoId: String(row.platformVideoId ?? ''),
+    platformUrl: String(row.platformUrl ?? ''),
+    title: doc.title,
+    description: doc.description,
+    tags: [...doc.tags],
+    visibility: doc.visibility,
+    scheduledAt: row.scheduledAt != null && row.scheduledAt !== '' ? String(row.scheduledAt) : null,
+    errorMessage:
+      row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
+    $createdAt,
+    $updatedAt,
+  };
+}
 
 // -----------------------------------------------------------------------------
 // Create
@@ -30,8 +59,17 @@ export interface CreatePlatformUploadInput {
   platform: ConnectedAccountPlatform;
   title: string;
   description: string;
-  tags: string;
+  tags: string[];
   visibility: PlatformUploadVisibility;
+  /** YouTube: stored in `document` when set. */
+  categoryId?: string;
+  madeForKids?: boolean;
+  /** Vimeo: stored in `document` when set. */
+  vimeoCategoryUri?: string;
+  /** Full `platforms.youtube` snapshot for this upload row. */
+  draftYoutube?: YouTubeDraftFields;
+  /** Full `platforms.vimeo` snapshot for this upload row. */
+  draftVimeo?: VimeoDraftFields;
   scheduledAt?: string | null;
 }
 
@@ -42,20 +80,24 @@ export interface CreatePlatformUploadInput {
 export async function createPlatformUpload(
   data: CreatePlatformUploadInput
 ): Promise<PlatformUpload> {
-  const now = new Date().toISOString();
   const rowData: Record<string, unknown> = {
     uploadJobId: data.uploadJobId,
     platform: data.platform,
     status: 'pending',
     platformVideoId: '',
     platformUrl: '',
-    title: data.title,
-    description: data.description,
-    tags: data.tags,
-    visibility: data.visibility,
+    document: stringifyPlatformUploadDocumentForStorage({
+      title: data.title,
+      description: data.description,
+      tags: data.tags,
+      visibility: data.visibility,
+      ...(data.categoryId !== undefined ? { categoryId: data.categoryId } : {}),
+      ...(data.madeForKids !== undefined ? { madeForKids: data.madeForKids } : {}),
+      ...(data.vimeoCategoryUri !== undefined ? { vimeoCategoryUri: data.vimeoCategoryUri } : {}),
+      ...(data.draftYoutube !== undefined ? { draftYoutube: data.draftYoutube } : {}),
+      ...(data.draftVimeo !== undefined ? { draftVimeo: data.draftVimeo } : {}),
+    }),
     errorMessage: '',
-    createdAt: now,
-    updatedAt: now,
   };
   if (data.scheduledAt != null && data.scheduledAt !== '') {
     rowData.scheduledAt = data.scheduledAt;
@@ -74,13 +116,13 @@ export async function createPlatformUpload(
 // -----------------------------------------------------------------------------
 
 /**
- * Return all platform uploads for a given upload job, ordered by createdAt descending.
+ * Return all platform uploads for a given upload job, ordered by `$createdAt` descending.
  */
 export async function getPlatformUploadsByJob(uploadJobId: string): Promise<PlatformUpload[]> {
   const { rows } = await tablesDb.listRows({
     databaseId: DATABASE_ID,
     tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-    queries: [Query.equal('uploadJobId', uploadJobId), Query.orderDesc('createdAt')],
+    queries: [Query.equal('uploadJobId', uploadJobId), Query.orderDesc('$createdAt')],
     total: false,
   });
   return (rows ?? []).map((r) => rowToPlatformUpload(r as unknown as Record<string, unknown>));
@@ -104,7 +146,6 @@ export async function updatePlatformUploadStatus(
 ): Promise<PlatformUpload | null> {
   const data: Record<string, unknown> = {
     status,
-    updatedAt: new Date().toISOString(),
   };
   if (platformVideoId !== undefined) {
     data.platformVideoId = platformVideoId;

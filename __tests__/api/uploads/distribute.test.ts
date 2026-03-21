@@ -87,10 +87,14 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/platforms/youtube', () => ({
-  uploadToYouTube: (...args: unknown[]) => mockUploadToYouTube(...args),
-  refreshYouTubeAccessToken: (...args: unknown[]) => mockRefreshYouTubeAccessToken(...args),
-}));
+vi.mock('@/lib/platforms/youtube', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/platforms/youtube')>();
+  return {
+    ...actual,
+    uploadToYouTube: (...args: unknown[]) => mockUploadToYouTube(...args),
+    refreshYouTubeAccessToken: (...args: unknown[]) => mockRefreshYouTubeAccessToken(...args),
+  };
+});
 
 vi.mock('@/lib/platforms/vimeo', () => ({
   uploadToVimeo: (...args: unknown[]) => mockUploadToVimeo(...args),
@@ -131,11 +135,14 @@ describe('POST /api/uploads/distribute', () => {
     mockGetDraftById.mockResolvedValue({
       id: 'draft-1',
       userId: 'user-123',
+      targets: ['youtube', 'vimeo'],
       title: 'My title',
       description: 'My description',
+      visibility: 'private',
       tags: ['tag-1', 'tag-2'],
-      createdAt: '',
-      updatedAt: '',
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
     mockGetUserById.mockResolvedValue({
@@ -143,8 +150,8 @@ describe('POST /api/uploads/distribute', () => {
       email: 'test@example.com',
       isSupporter: false,
       role: 'user',
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
     mockCreateUploadJob.mockResolvedValue({
@@ -154,8 +161,8 @@ describe('POST /api/uploads/distribute', () => {
       r2Key: 'temp/uploads/user-123/video.mp4',
       status: 'pending',
       errorMessage: null,
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
     mockListUploadJobsByUser.mockResolvedValue([]);
@@ -167,26 +174,34 @@ describe('POST /api/uploads/distribute', () => {
       r2Key: 'temp/uploads/user-123/video.mp4',
       status: 'distributing',
       errorMessage: null,
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
-    mockCreatePlatformUpload.mockImplementation(async ({ platform }: { platform: string }) => ({
-      id: `pu-${platform}`,
-      uploadJobId: 'job-123',
-      platform,
-      status: 'pending',
-      platformVideoId: '',
-      platformUrl: '',
-      title: 'My title',
-      description: 'My description',
-      tags: '["tag-1","tag-2"]',
-      visibility: 'private',
-      scheduledAt: null,
-      errorMessage: null,
-      createdAt: '',
-      updatedAt: '',
-    }));
+    mockCreatePlatformUpload.mockImplementation(
+      async (data: {
+        platform: string;
+        title: string;
+        description: string;
+        tags: string[];
+        visibility: string;
+      }) => ({
+        id: `pu-${data.platform}`,
+        uploadJobId: 'job-123',
+        platform: data.platform,
+        status: 'pending',
+        platformVideoId: '',
+        platformUrl: '',
+        title: data.title,
+        description: data.description,
+        tags: data.tags,
+        visibility: data.visibility,
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      })
+    );
 
     mockUpdateTokens.mockResolvedValue({
       id: 'ca-youtube',
@@ -195,8 +210,8 @@ describe('POST /api/uploads/distribute', () => {
       tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
       platformUserId: 'channel-1',
       platformName: 'Test Channel',
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
     mockRefreshYouTubeAccessToken.mockResolvedValue({
@@ -226,8 +241,8 @@ describe('POST /api/uploads/distribute', () => {
       tokenExpiry: '',
       platformUserId: 'p1',
       platformName: 'n1',
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
     mockUploadToYouTube.mockResolvedValue({
@@ -309,6 +324,51 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockUpdateUploadJobStatus).toHaveBeenCalledWith('job-123', 'distributing', null);
   });
 
+  it('passes per-platform draft fields into createPlatformUpload for document snapshot', async () => {
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube', 'vimeo'],
+      title: 'T',
+      description: 'D',
+      visibility: 'public',
+      tags: ['one'],
+      platforms: {
+        youtube: { categoryId: '22', madeForKids: true },
+        vimeo: { categoryUri: '/categories/docs' },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube', 'vimeo'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+
+    expect(mockCreatePlatformUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: 'youtube',
+        categoryId: '22',
+        madeForKids: true,
+      })
+    );
+    expect(mockCreatePlatformUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: 'vimeo',
+        vimeoCategoryUri: '/categories/docs',
+      })
+    );
+  });
+
   it('reuses existing upload job from presign/complete instead of creating a new one', async () => {
     mockListUploadJobsByUser.mockResolvedValueOnce([
       {
@@ -318,8 +378,8 @@ describe('POST /api/uploads/distribute', () => {
         r2Key: 'temp/uploads/user-123/video.mp4',
         status: 'uploading',
         errorMessage: null,
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       },
     ]);
 
@@ -363,22 +423,30 @@ describe('POST /api/uploads/distribute', () => {
   });
 
   it('updates platform statuses independently and marks job failed when any platform fails', async () => {
-    mockCreatePlatformUpload.mockImplementation(async ({ platform }: { platform: string }) => ({
-      id: `pu-${platform}`,
-      uploadJobId: 'job-123',
-      platform,
-      status: 'pending',
-      platformVideoId: '',
-      platformUrl: '',
-      title: 'My title',
-      description: 'My description',
-      tags: '["tag-1","tag-2"]',
-      visibility: 'private',
-      scheduledAt: null,
-      errorMessage: null,
-      createdAt: '',
-      updatedAt: '',
-    }));
+    mockCreatePlatformUpload.mockImplementation(
+      async (data: {
+        platform: string;
+        title: string;
+        description: string;
+        tags: string[];
+        visibility: string;
+      }) => ({
+        id: `pu-${data.platform}`,
+        uploadJobId: 'job-123',
+        platform: data.platform,
+        status: 'pending',
+        platformVideoId: '',
+        platformUrl: '',
+        title: data.title,
+        description: data.description,
+        tags: data.tags,
+        visibility: data.visibility,
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      })
+    );
 
     mockUploadToYouTube.mockResolvedValueOnce({
       ok: false,
@@ -404,8 +472,8 @@ describe('POST /api/uploads/distribute', () => {
         tokenExpiry: '',
         platformUserId: 'p1',
         platformName: 'n1',
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       })
     );
 
@@ -419,12 +487,12 @@ describe('POST /api/uploads/distribute', () => {
         platformUrl: '',
         title: '',
         description: '',
-        tags: '',
+        tags: [],
         visibility: 'private',
         scheduledAt: null,
         errorMessage: 'YouTube upload failed',
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       },
       {
         id: 'pu-vimeo',
@@ -435,12 +503,12 @@ describe('POST /api/uploads/distribute', () => {
         platformUrl: 'https://vimeo.com/vm-9',
         title: '',
         description: '',
-        tags: '',
+        tags: [],
         visibility: 'private',
         scheduledAt: null,
         errorMessage: null,
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       },
     ]);
 

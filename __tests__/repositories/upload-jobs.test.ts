@@ -52,8 +52,8 @@ const baseJobRow = {
   r2Key: 'temp/uploads/user-1/1234567890/test.mp4',
   status: 'pending',
   errorMessage: '',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 beforeEach(() => {
@@ -81,8 +81,8 @@ describe('upload-jobs repository', () => {
       expect(call.data.r2Key).toBe('temp/uploads/user-1/1234567890/test.mp4');
       expect(call.data.status).toBe('pending');
       expect(call.data.errorMessage).toBe('');
-      expect(call.data.createdAt).toBeDefined();
-      expect(call.data.updatedAt).toBeDefined();
+      expect(call.data).not.toHaveProperty('createdAt');
+      expect(call.data).not.toHaveProperty('updatedAt');
 
       expect(result.id).toBe('job-1');
       expect(result.userId).toBe('user-1');
@@ -160,11 +160,11 @@ describe('upload-jobs repository', () => {
   });
 
   describe('listUploadJobsByUser', () => {
-    it('returns jobs for user sorted by createdAt descending', async () => {
+    it('returns jobs for user sorted by $createdAt descending', async () => {
       mockListRows.mockResolvedValue({
         rows: [
-          { ...baseJobRow, $id: 'j1', createdAt: '2026-01-03T00:00:00.000Z' },
-          { ...baseJobRow, $id: 'j2', createdAt: '2026-01-02T00:00:00.000Z' },
+          { ...baseJobRow, $id: 'j1', $createdAt: '2026-01-03T00:00:00.000Z' },
+          { ...baseJobRow, $id: 'j2', $createdAt: '2026-01-02T00:00:00.000Z' },
         ],
       });
 
@@ -179,7 +179,7 @@ describe('upload-jobs repository', () => {
       );
       const queries = mockListRows.mock.calls[0][0].queries;
       expect(queries).toContain('equal("userId","user-1")');
-      expect(queries).toContain('orderDesc("createdAt")');
+      expect(queries).toContain('orderDesc("$createdAt")');
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('j1');
       expect(result[1].id).toBe('j2');
@@ -204,11 +204,11 @@ describe('upload-jobs repository', () => {
   });
 
   describe('updateUploadJobStatus', () => {
-    it('updates status and updatedAt', async () => {
+    it('updates status (Appwrite maintains $updatedAt)', async () => {
       const updated = {
         ...baseJobRow,
         status: 'distributing',
-        updatedAt: '2026-03-09T12:00:00.000Z',
+        $updatedAt: '2026-03-09T12:00:00.000Z',
       };
       mockUpdateRow.mockResolvedValue(updated);
 
@@ -219,10 +219,7 @@ describe('upload-jobs repository', () => {
           databaseId: 'videosphere',
           tableId: 'upload_jobs',
           rowId: 'job-1',
-          data: expect.objectContaining({
-            status: 'distributing',
-            updatedAt: expect.any(String),
-          }),
+          data: { status: 'distributing' },
         })
       );
       expect(result).not.toBeNull();
@@ -234,7 +231,7 @@ describe('upload-jobs repository', () => {
         ...baseJobRow,
         status: 'failed',
         errorMessage: 'Upload quota exceeded',
-        updatedAt: '2026-03-09T12:00:00.000Z',
+        $updatedAt: '2026-03-09T12:00:00.000Z',
       };
       mockUpdateRow.mockResolvedValue(updated);
 
@@ -291,14 +288,16 @@ describe('upload-jobs repository', () => {
         status: 'completed',
         platformVideoId: 'yt-123',
         platformUrl: 'https://youtube.com/watch?v=yt-123',
-        title: 'Video',
-        description: 'Desc',
-        tags: '[]',
-        visibility: 'public',
+        document: JSON.stringify({
+          title: 'Video',
+          description: 'Desc',
+          tags: [],
+          visibility: 'public',
+        }),
         scheduledAt: '',
         errorMessage: '',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
+        $createdAt: '2026-01-01T00:00:00.000Z',
+        $updatedAt: '2026-01-01T00:00:00.000Z',
       };
       mockListRows
         .mockResolvedValueOnce({
