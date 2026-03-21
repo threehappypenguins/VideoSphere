@@ -327,6 +327,23 @@ export async function getObjectWebStream(key: string): Promise<{
 }
 
 /**
+ * Whether `r2ObjectKey` is under this user's presigned staging prefix.
+ * Keys are created by `generateObjectKey` in `app/api/uploads/presign/route.ts`:
+ * `temp/uploads/{userId}/{timestamp}-{uuid}/{sanitizedFilename}`.
+ *
+ * Rejects path traversal (`..`, backslashes) and userIds containing separators so
+ * `temp/uploads/../other/` style keys cannot satisfy the check.
+ */
+export function isTempUploadObjectKeyForUser(r2ObjectKey: string, userId: string): boolean {
+  if (userId.length === 0 || r2ObjectKey.length === 0) return false;
+  if (userId.includes('/') || userId.includes('\\') || userId.includes('..')) return false;
+  if (r2ObjectKey.includes('..') || r2ObjectKey.includes('\\')) return false;
+  const prefix = `temp/uploads/${userId}/`;
+  if (!r2ObjectKey.startsWith(prefix)) return false;
+  return r2ObjectKey.length > prefix.length;
+}
+
+/**
  * Get bucket information (for health checks or diagnostics)
  * @returns Bucket name
  */

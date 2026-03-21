@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
+  MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS,
   platformUploadDocumentFromRow,
+  serializePlatformUploadDocumentForAppwrite,
   stringifyPlatformUploadDocumentForStorage,
 } from '@/lib/platform-upload-document';
 
@@ -50,5 +52,32 @@ describe('platform-upload-document', () => {
       description: '',
       tags: [],
     });
+  });
+
+  it('serializePlatformUploadDocumentForAppwrite keeps JSON within Appwrite max', () => {
+    const huge = 'x'.repeat(20_000);
+    const json = serializePlatformUploadDocumentForAppwrite({
+      title: 't',
+      description: huge,
+      tags: ['a'],
+      visibility: 'public',
+      draftYoutube: { playlistTitles: [huge.slice(0, 5000)] },
+    });
+    expect(json.length).toBeLessThanOrEqual(MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS);
+    const parsed = JSON.parse(json) as { __documentStorageTruncated?: boolean };
+    expect(parsed.__documentStorageTruncated).toBe(true);
+  });
+
+  it('parse ignores __documentStorageTruncated helper key from stored JSON', () => {
+    const json = serializePlatformUploadDocumentForAppwrite({
+      title: 'ok',
+      description: 'x'.repeat(25_000),
+      tags: [],
+      visibility: 'public',
+    });
+    const row = { document: json };
+    const parsed = platformUploadDocumentFromRow(row);
+    expect(parsed.title).toBe('ok');
+    expect(parsed.description.length).toBeLessThan(25_000);
   });
 });

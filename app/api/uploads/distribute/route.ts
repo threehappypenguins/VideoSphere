@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { ConnectedAccountPlatform, PlatformUpload } from '@/types';
+import type { ConnectedAccountPlatform, Draft, PlatformUpload } from '@/types';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
-import type { PlatformUploadMetadata } from '@/lib/platforms/youtube';
-import { deleteObject, getObjectWebStream } from '@/lib/r2';
+import type { PlatformUploadMetadata } from '@/lib/platforms/types';
+import { deleteObject, getObjectWebStream, isTempUploadObjectKeyForUser } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { getUserById } from '@/lib/repositories/users';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import { updateTokens } from '@/lib/repositories/connected-accounts';
+import { listUploadJobsByUser, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import {
-  createUploadJob,
-  listUploadJobsByUser,
-  updateUploadJobStatus,
-} from '@/lib/repositories/upload-jobs';
-import {
-  createPlatformUpload,
+  type CreatePlatformUploadInput,
+  ensurePlatformUploadsForJobTargets,
   getPlatformUploadsByJob,
   updatePlatformUploadStatus,
 } from '@/lib/repositories/platform-uploads';
+import {
+  PlatformUploadDocumentTooLargeError,
+  platformUploadDocumentJsonForCreateRow,
+} from '@/lib/platform-upload-document';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
 
@@ -31,6 +32,39 @@ interface DistributeRequestBody {
 
 function uniquePlatforms(platforms: ConnectedAccountPlatform[]): ConnectedAccountPlatform[] {
   return [...new Set(platforms)];
+}
+
+function distributeCreatePlatformUploadInput(
+  uploadJobId: string,
+  draft: Draft,
+  platform: ConnectedAccountPlatform
+): CreatePlatformUploadInput {
+  const meta = buildMetadataForPlatform(draft, platform);
+  return {
+    uploadJobId,
+    platform,
+    title: meta.title,
+    description: meta.description,
+    tags: meta.tags,
+    visibility: meta.visibility,
+    ...(platform === 'youtube'
+      ? {
+          ...(meta.categoryId !== undefined ? { categoryId: meta.categoryId } : {}),
+          ...(meta.madeForKids !== undefined ? { madeForKids: meta.madeForKids } : {}),
+          ...(draft.platforms.youtube !== undefined
+            ? { draftYoutube: draft.platforms.youtube }
+            : {}),
+        }
+      : {}),
+    ...(platform === 'vimeo'
+      ? {
+          ...(meta.vimeoCategoryUri !== undefined
+            ? { vimeoCategoryUri: meta.vimeoCategoryUri }
+            : {}),
+          ...(draft.platforms.vimeo !== undefined ? { draftVimeo: draft.platforms.vimeo } : {}),
+        }
+      : {}),
+  };
 }
 
 function parseRequestBody(
@@ -217,6 +251,7 @@ async function runDistributionInBackground(
   platformUploads: PlatformUpload[],
   metadataByPlatformId: Map<string, PlatformUploadMetadata>
 ): Promise<void> {
+  const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -229,7 +264,8 @@ async function runDistributionInBackground(
     );
 
     const finalPlatformUploads = await getPlatformUploadsByJob(jobId);
-    const failedUploads = finalPlatformUploads.filter((upload) => upload.status === 'failed');
+    const attemptResults = finalPlatformUploads.filter((u) => attemptPlatformUploadIds.has(u.id));
+    const failedUploads = attemptResults.filter((upload) => upload.status === 'failed');
 
     if (failedUploads.length > 0) {
       const errorDetails = failedUploads
@@ -299,10 +335,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Forbidden: you do not own this draft' }, { status: 403 });
     }
 
+    if (!isTempUploadObjectKeyForUser(r2ObjectKey, userId)) {
+      return NextResponse.json(
+        { error: 'Forbidden: storage key is not valid for this account' },
+        { status: 403 }
+      );
+    }
+
     const user = await getUserById(userId);
     const isSupporter = user?.isSupporter ?? false;
 
-    if (!isSupporter && platforms.length > FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT) {
+    const targetPlatforms = uniquePlatforms(platforms);
+
+    if (!isSupporter && targetPlatforms.length > FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT) {
       return NextResponse.json(
         {
           error: `Free-tier users can distribute to at most ${FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT} platforms per request`,
@@ -311,56 +356,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const targetPlatforms = uniquePlatforms(platforms);
-
-    const existingJob = (await listUploadJobsByUser(userId)).find(
+    const uploadJob = (await listUploadJobsByUser(userId)).find(
       (job) =>
-        job.draftId === draftId &&
+        (job.draftId ?? '') === draftId &&
         job.r2Key === r2ObjectKey &&
         (job.status === 'uploading' || job.status === 'pending')
     );
 
-    const uploadJob =
-      existingJob ??
-      (await createUploadJob({
-        userId,
-        draftId,
-        r2Key: r2ObjectKey,
-      }));
+    if (!uploadJob) {
+      return NextResponse.json(
+        {
+          error:
+            'No upload job found for this draft and file. Complete the upload (presign → R2 PUT → complete) before distributing.',
+        },
+        { status: 400 }
+      );
+    }
+
+    try {
+      for (const platform of targetPlatforms) {
+        platformUploadDocumentJsonForCreateRow(
+          distributeCreatePlatformUploadInput(uploadJob.id, draft, platform)
+        );
+      }
+    } catch (err) {
+      if (err instanceof PlatformUploadDocumentTooLargeError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      throw err;
+    }
 
     await updateUploadJobStatus(uploadJob.id, 'distributing', null);
 
-    const platformUploads = await Promise.all(
-      targetPlatforms.map((platform) => {
-        const meta = buildMetadataForPlatform(draft, platform);
-        return createPlatformUpload({
-          uploadJobId: uploadJob.id,
-          platform,
-          title: meta.title,
-          description: meta.description,
-          tags: meta.tags,
-          visibility: meta.visibility,
-          ...(platform === 'youtube'
-            ? {
-                ...(meta.categoryId !== undefined ? { categoryId: meta.categoryId } : {}),
-                ...(meta.madeForKids !== undefined ? { madeForKids: meta.madeForKids } : {}),
-                ...(draft.platforms.youtube !== undefined
-                  ? { draftYoutube: draft.platforms.youtube }
-                  : {}),
-              }
-            : {}),
-          ...(platform === 'vimeo'
-            ? {
-                ...(meta.vimeoCategoryUri !== undefined
-                  ? { vimeoCategoryUri: meta.vimeoCategoryUri }
-                  : {}),
-                ...(draft.platforms.vimeo !== undefined
-                  ? { draftVimeo: draft.platforms.vimeo }
-                  : {}),
-              }
-            : {}),
-        });
-      })
+    const platformUploads = await ensurePlatformUploadsForJobTargets(
+      targetPlatforms.map((platform) =>
+        distributeCreatePlatformUploadInput(uploadJob.id, draft, platform)
+      )
     );
 
     const metadataByPlatformId = new Map<string, PlatformUploadMetadata>();

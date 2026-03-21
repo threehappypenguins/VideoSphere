@@ -19,6 +19,7 @@ import type {
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, DRAFTS_COLLECTION_ID } from '@/lib/appwrite-constants';
 import {
+  assertDraftDocumentJsonWithinLimit,
   DEFAULT_DRAFT_VISIBILITY,
   draftDocumentFromRow,
   mergeDraftPlatformsPatch,
@@ -68,20 +69,23 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
   const visibility = input.visibility ?? DEFAULT_DRAFT_VISIBILITY;
   const platforms = input.platforms ?? {};
   const tags = input.tags ?? [];
+  const documentJson = stringifyDraftDocumentForStorage({
+    targets: input.targets,
+    title: input.title,
+    description: input.description,
+    visibility,
+    tags,
+    platforms,
+  });
+  assertDraftDocumentJsonWithinLimit(documentJson);
+
   const row = await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: DRAFTS_COLLECTION_ID,
     rowId: ID.unique(),
     data: {
       userId: input.userId,
-      document: stringifyDraftDocumentForStorage({
-        targets: input.targets,
-        title: input.title,
-        description: input.description,
-        visibility,
-        tags,
-        platforms,
-      }),
+      document: documentJson,
     },
   });
   return rowToDraft(row as unknown as Record<string, unknown>);
@@ -157,7 +161,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
       input.platformsPatch !== undefined
         ? mergeDraftPlatformsPatch(current.platforms, input.platformsPatch)
         : current.platforms;
-    data.document = stringifyDraftDocumentForStorage({
+    const documentJson = stringifyDraftDocumentForStorage({
       targets: input.targets ?? current.targets,
       title: input.title ?? current.title,
       description: input.description ?? current.description,
@@ -165,6 +169,8 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
       visibility: input.visibility ?? current.visibility,
       platforms: mergedPlatforms,
     });
+    assertDraftDocumentJsonWithinLimit(documentJson);
+    data.document = documentJson;
   }
 
   if (Object.keys(data).length === 0) {

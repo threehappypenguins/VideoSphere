@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import type { CreatePlatformUploadInput } from '@/lib/repositories/platform-uploads';
 
 const mockGet = vi.fn();
 
@@ -43,6 +44,7 @@ const mockCreateUploadJob = vi.fn();
 const mockListUploadJobsByUser = vi.fn();
 const mockUpdateUploadJobStatus = vi.fn();
 const mockCreatePlatformUpload = vi.fn();
+const mockEnsurePlatformUploadsForJobTargets = vi.fn();
 const mockGetConnectedAccountWithTokens = vi.fn();
 const mockUpdateTokens = vi.fn();
 const mockGetObjectWebStream = vi.fn();
@@ -68,6 +70,8 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
 }));
 
 vi.mock('@/lib/repositories/platform-uploads', () => ({
+  ensurePlatformUploadsForJobTargets: (...args: unknown[]) =>
+    mockEnsurePlatformUploadsForJobTargets(...args),
   createPlatformUpload: (...args: unknown[]) => mockCreatePlatformUpload(...args),
   getPlatformUploadsByJob: (...args: unknown[]) => mockGetPlatformUploadsByJob(...args),
   updatePlatformUploadStatus: (...args: unknown[]) => mockUpdatePlatformUploadStatus(...args),
@@ -165,7 +169,18 @@ describe('POST /api/uploads/distribute', () => {
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
-    mockListUploadJobsByUser.mockResolvedValue([]);
+    mockListUploadJobsByUser.mockResolvedValue([
+      {
+        id: 'job-123',
+        userId: 'user-123',
+        draftId: 'draft-1',
+        r2Key: 'temp/uploads/user-123/video.mp4',
+        status: 'uploading',
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
 
     mockUpdateUploadJobStatus.mockResolvedValue({
       id: 'job-123',
@@ -262,6 +277,11 @@ describe('POST /api/uploads/distribute', () => {
       { id: 'pu-youtube', status: 'completed' },
       { id: 'pu-vimeo', status: 'completed' },
     ]);
+
+    mockEnsurePlatformUploadsForJobTargets.mockImplementation(
+      async (inputs: CreatePlatformUploadInput[]) =>
+        Promise.all(inputs.map((input) => mockCreatePlatformUpload(input)))
+    );
   });
 
   it('returns 401 when user is not authenticated', async () => {
@@ -285,20 +305,39 @@ describe('POST /api/uploads/distribute', () => {
     expect(body.error).toContain('r2ObjectKey');
   });
 
-  it('enforces free-tier platform limit of 2', async () => {
+  it('applies free-tier limit to unique platforms only (duplicates do not count)', async () => {
     const response = await POST(
       createRequest(
-        { draftId: 'draft-1', r2ObjectKey: 'k1', platforms: ['youtube', 'vimeo', 'youtube'] },
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube', 'vimeo', 'youtube'],
+        },
         { 'a_session_test-project': 'token' }
       )
     );
 
-    expect(response.status).toBe(403);
-    const body = await response.json();
-    expect(body.error).toContain('at most 2 platforms');
+    expect(response.status).toBe(202);
+    expect(mockCreatePlatformUpload).toHaveBeenCalledTimes(2);
   });
 
-  it('creates UploadJob + PlatformUpload rows and responds immediately with jobId', async () => {
+  it('dedupes repeated platforms to a single upload row', async () => {
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube', 'youtube', 'youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    expect(mockCreatePlatformUpload).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses existing upload job + PlatformUpload rows and responds immediately with jobId', async () => {
     const response = await POST(
       createRequest(
         {
@@ -314,14 +353,48 @@ describe('POST /api/uploads/distribute', () => {
     const body = await response.json();
     expect(body.jobId).toBe('job-123');
 
-    expect(mockCreateUploadJob).toHaveBeenCalledWith({
-      userId: 'user-123',
-      draftId: 'draft-1',
-      r2Key: 'temp/uploads/user-123/video.mp4',
-    });
-
+    expect(mockCreateUploadJob).not.toHaveBeenCalled();
+    expect(mockListUploadJobsByUser).toHaveBeenCalled();
     expect(mockCreatePlatformUpload).toHaveBeenCalledTimes(2);
     expect(mockUpdateUploadJobStatus).toHaveBeenCalledWith('job-123', 'distributing', null);
+  });
+
+  it('returns 403 when r2ObjectKey is not under the user temp upload prefix', async () => {
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/other-user/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error).toMatch(/storage key|account/i);
+    expect(mockCreateUploadJob).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when no upload job matches draftId and r2ObjectKey', async () => {
+    mockListUploadJobsByUser.mockResolvedValueOnce([]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/upload job|Complete the upload/i);
+    expect(mockCreateUploadJob).not.toHaveBeenCalled();
   });
 
   it('passes per-platform draft fields into createPlatformUpload for document snapshot', async () => {
@@ -419,6 +492,81 @@ describe('POST /api/uploads/distribute', () => {
 
     expect(mockGetObjectWebStream).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
     expect(mockUploadToYouTube).toHaveBeenCalledTimes(1);
+    expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
+  });
+
+  it('completes job when stale platform_upload rows exist but are not part of this attempt', async () => {
+    mockEnsurePlatformUploadsForJobTargets.mockResolvedValueOnce([
+      {
+        id: 'pu-youtube',
+        uploadJobId: 'job-123',
+        platform: 'youtube',
+        status: 'pending',
+        platformVideoId: '',
+        platformUrl: '',
+        title: 'My title',
+        description: 'My description',
+        tags: ['tag-1', 'tag-2'],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    mockGetPlatformUploadsByJob.mockResolvedValueOnce([
+      {
+        id: 'orphan-vimeo',
+        uploadJobId: 'job-123',
+        platform: 'vimeo',
+        status: 'failed',
+        platformVideoId: '',
+        platformUrl: '',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: 'stale failure from older attempt',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'pu-youtube',
+        uploadJobId: 'job-123',
+        platform: 'youtube',
+        status: 'completed',
+        platformVideoId: 'yt-1',
+        platformUrl: 'https://youtube.com/watch?v=yt-1',
+        title: 'My title',
+        description: 'My description',
+        tags: ['tag-1', 'tag-2'],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    expect(mockCreatePlatformUpload).not.toHaveBeenCalled();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockUpdateUploadJobStatus).toHaveBeenCalledWith('job-123', 'completed', null);
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
 

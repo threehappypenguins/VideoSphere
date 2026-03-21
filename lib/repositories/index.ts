@@ -29,7 +29,9 @@ export type { CreateUploadJobInput } from './upload-jobs';
 
 export {
   createPlatformUpload,
+  ensurePlatformUploadsForJobTargets,
   getPlatformUploadsByJob,
+  resetPlatformUploadForRetry,
   updatePlatformUploadStatus,
 } from './platform-uploads';
 export type { CreatePlatformUploadInput } from './platform-uploads';

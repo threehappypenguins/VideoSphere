@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
 import {
+  DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
   MAX_DRAFT_TITLE_LENGTH,
   parseDraftTargetsFromRequestBody,
@@ -141,6 +142,14 @@ export async function POST(req: NextRequest) {
     const response: ApiResponse<Draft> = { data: draft, message: 'Draft created' };
     return NextResponse.json(response, { status: 201 });
   } catch (err) {
+    if (err instanceof DraftDocumentTooLargeError) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: err.message,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
     console.error('[POST /api/drafts]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',

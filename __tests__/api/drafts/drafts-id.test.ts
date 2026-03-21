@@ -29,7 +29,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
 import { GET, PATCH, DELETE } from '@/app/api/drafts/[id]/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
-import { MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
+import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -394,6 +394,18 @@ describe('PATCH /api/drafts/[id]', () => {
       });
     });
 
+    it('accepts platforms: null like POST (normalized to empty object)', async () => {
+      vi.mocked(updateDraft).mockResolvedValueOnce(baseDraft);
+
+      const res = await PATCH(
+        makeRequest('PATCH', { platforms: null }, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+
+      expect(res.status).toBe(200);
+      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { platformsPatch: {} });
+    });
+
     it('passes tags array to updateDraft', async () => {
       const updated = { ...baseDraft, tags: ['a', 'b'] };
       vi.mocked(updateDraft).mockResolvedValueOnce(updated);
@@ -460,6 +472,23 @@ describe('PATCH /api/drafts/[id]', () => {
         makeParams()
       );
       expect(res.status).toBe(500);
+    });
+
+    it('returns 400 when updateDraft throws DraftDocumentTooLargeError', async () => {
+      vi.mocked(updateDraft).mockRejectedValueOnce(
+        new DraftDocumentTooLargeError(
+          'Draft document JSON is 20000 characters; Appwrite allows at most 16383 in the document column.'
+        )
+      );
+
+      const res = await PATCH(
+        makeRequest('PATCH', { description: 'x' }, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+      const body = (await res.json()) as { message?: string };
+
+      expect(res.status).toBe(400);
+      expect(body.message).toContain('16383');
     });
   });
 });

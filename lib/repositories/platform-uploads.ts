@@ -9,20 +9,14 @@
 // =============================================================================
 
 import { ID, Query, TablesDB } from 'node-appwrite';
-import type {
-  PlatformUpload,
-  ConnectedAccountPlatform,
-  PlatformUploadStatus,
-  PlatformUploadVisibility,
-  YouTubeDraftFields,
-  VimeoDraftFields,
-} from '@/types';
+import type { PlatformUpload, ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, PLATFORM_UPLOADS_COLLECTION_ID } from '@/lib/appwrite-constants';
 import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
 import {
-  stringifyPlatformUploadDocumentForStorage,
   platformUploadDocumentFromRow,
+  platformUploadDocumentJsonForCreateRow,
+  type PlatformUploadRowDocumentInput,
 } from '@/lib/platform-upload-document';
 
 const tablesDb = new TablesDB(appwriteClient);
@@ -54,22 +48,9 @@ export function rowToPlatformUpload(row: Record<string, unknown>): PlatformUploa
 // Create
 // -----------------------------------------------------------------------------
 
-export interface CreatePlatformUploadInput {
+export interface CreatePlatformUploadInput extends PlatformUploadRowDocumentInput {
   uploadJobId: string;
   platform: ConnectedAccountPlatform;
-  title: string;
-  description: string;
-  tags: string[];
-  visibility: PlatformUploadVisibility;
-  /** YouTube: stored in `document` when set. */
-  categoryId?: string;
-  madeForKids?: boolean;
-  /** Vimeo: stored in `document` when set. */
-  vimeoCategoryUri?: string;
-  /** Full `platforms.youtube` snapshot for this upload row. */
-  draftYoutube?: YouTubeDraftFields;
-  /** Full `platforms.vimeo` snapshot for this upload row. */
-  draftVimeo?: VimeoDraftFields;
   scheduledAt?: string | null;
 }
 
@@ -86,17 +67,7 @@ export async function createPlatformUpload(
     status: 'pending',
     platformVideoId: '',
     platformUrl: '',
-    document: stringifyPlatformUploadDocumentForStorage({
-      title: data.title,
-      description: data.description,
-      tags: data.tags,
-      visibility: data.visibility,
-      ...(data.categoryId !== undefined ? { categoryId: data.categoryId } : {}),
-      ...(data.madeForKids !== undefined ? { madeForKids: data.madeForKids } : {}),
-      ...(data.vimeoCategoryUri !== undefined ? { vimeoCategoryUri: data.vimeoCategoryUri } : {}),
-      ...(data.draftYoutube !== undefined ? { draftYoutube: data.draftYoutube } : {}),
-      ...(data.draftVimeo !== undefined ? { draftVimeo: data.draftVimeo } : {}),
-    }),
+    document: platformUploadDocumentJsonForCreateRow(data),
     errorMessage: '',
   };
   if (data.scheduledAt != null && data.scheduledAt !== '') {
@@ -109,6 +80,80 @@ export async function createPlatformUpload(
     data: rowData,
   });
   return rowToPlatformUpload(row as unknown as Record<string, unknown>);
+}
+
+/** Newest row per platform (input must be ordered with newest first, as from {@link getPlatformUploadsByJob}). */
+function latestPlatformUploadPerPlatform(
+  uploads: PlatformUpload[]
+): Map<ConnectedAccountPlatform, PlatformUpload> {
+  const map = new Map<ConnectedAccountPlatform, PlatformUpload>();
+  for (const pu of uploads) {
+    if (!map.has(pu.platform)) {
+      map.set(pu.platform, pu);
+    }
+  }
+  return map;
+}
+
+/**
+ * Reset an existing row for a new distribution attempt (same job + platform).
+ * Clears outcome fields and replaces `document` with the latest draft snapshot.
+ */
+export async function resetPlatformUploadForRetry(
+  id: string,
+  data: CreatePlatformUploadInput
+): Promise<PlatformUpload> {
+  const document = platformUploadDocumentJsonForCreateRow(data);
+  const rowData: Record<string, unknown> = {
+    status: 'pending',
+    platformVideoId: '',
+    platformUrl: '',
+    errorMessage: '',
+    document,
+  };
+  if (data.scheduledAt != null && data.scheduledAt !== '') {
+    rowData.scheduledAt = data.scheduledAt;
+  } else {
+    rowData.scheduledAt = '';
+  }
+  const row = await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: PLATFORM_UPLOADS_COLLECTION_ID,
+    rowId: id,
+    data: rowData,
+  });
+  return rowToPlatformUpload(row as unknown as Record<string, unknown>);
+}
+
+/**
+ * Ensures one `platform_uploads` row per target platform for this job: reuses the newest
+ * existing row per platform (reset to pending) or creates a new row. Keeps distribute retries idempotent
+ * under the unique (uploadJobId, platform) index.
+ */
+export async function ensurePlatformUploadsForJobTargets(
+  inputs: CreatePlatformUploadInput[]
+): Promise<PlatformUpload[]> {
+  if (inputs.length === 0) return [];
+  const jobId = inputs[0].uploadJobId;
+  for (const input of inputs) {
+    if (input.uploadJobId !== jobId) {
+      throw new Error(
+        'ensurePlatformUploadsForJobTargets: all inputs must share the same uploadJobId'
+      );
+    }
+  }
+  const existing = await getPlatformUploadsByJob(jobId);
+  const latestByPlatform = latestPlatformUploadPerPlatform(existing);
+
+  return Promise.all(
+    inputs.map(async (input) => {
+      const prev = latestByPlatform.get(input.platform);
+      if (prev) {
+        return resetPlatformUploadForRetry(prev.id, input);
+      }
+      return createPlatformUpload(input);
+    })
+  );
 }
 
 // -----------------------------------------------------------------------------

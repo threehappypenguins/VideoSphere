@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  assertDraftDocumentJsonWithinLimit,
   buildMetadataForPlatform,
+  DraftDocumentTooLargeError,
   draftDocumentFromRow,
+  MAX_DRAFT_DOCUMENT_CHARS,
   mergeDraftPlatforms,
   mergeDraftPlatformsPatch,
   parseDraftTargetsFromRequestBody,
@@ -13,6 +16,11 @@ import {
 import type { Draft, DraftPlatforms } from '@/types';
 
 describe('draft-upload-metadata', () => {
+  it('assertDraftDocumentJsonWithinLimit throws when JSON exceeds Appwrite column max', () => {
+    const huge = 'z'.repeat(MAX_DRAFT_DOCUMENT_CHARS + 1);
+    expect(() => assertDraftDocumentJsonWithinLimit(huge)).toThrow(DraftDocumentTooLargeError);
+  });
+
   it('draftDocumentFromRow parses document JSON with top-level tags', () => {
     const doc = stringifyDraftDocumentForStorage({
       targets: ['youtube', 'vimeo'],

@@ -13,9 +13,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
 import {
+  DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
   MAX_DRAFT_TITLE_LENGTH,
   parseDraftTargetsFromRequestBody,
+  parsePlatformsFromRequestBody,
   parseTagsFromRequestBody,
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
@@ -137,18 +139,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (
-    platforms !== undefined &&
-    (platforms === null || typeof platforms !== 'object' || Array.isArray(platforms))
-  ) {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: 'platforms must be a JSON object',
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
-  }
-
   if (title !== undefined && (typeof title !== 'string' || title.trim() === '')) {
     const errRes: ApiError = {
       error: 'Bad Request',
@@ -215,6 +205,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  let parsedPlatforms: ReturnType<typeof parsePlatformsFromRequestBody> | undefined;
+  if (platforms !== undefined) {
+    parsedPlatforms = parsePlatformsFromRequestBody(platforms);
+    if (parsedPlatforms.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: parsedPlatforms.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+  }
+
   try {
     const updated = await updateDraft(id, {
       ...(title !== undefined && { title: (title as string).trim() }),
@@ -222,7 +225,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
       ...(parsedTargets?.ok === true ? { targets: parsedTargets.value } : {}),
       ...(parsedTags?.ok === true ? { tags: parsedTags.value } : {}),
-      ...(platforms !== undefined ? { platformsPatch: platforms } : {}),
+      ...(parsedPlatforms?.ok === true ? { platformsPatch: parsedPlatforms.value } : {}),
     });
 
     if (!updated) {
@@ -233,6 +236,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const response: ApiResponse<Draft> = { data: updated, message: 'Draft updated' };
     return NextResponse.json(response);
   } catch (err) {
+    if (err instanceof DraftDocumentTooLargeError) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: err.message,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
     console.error('[PATCH /api/drafts/:id]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',

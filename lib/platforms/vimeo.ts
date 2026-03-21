@@ -3,7 +3,7 @@ import type {
   PlatformUploadMetadata,
   PlatformUploadResult,
   PlatformUploadTokens,
-} from '@/lib/platforms/youtube';
+} from '@/lib/platforms/types';
 
 interface UploadToVimeoInput {
   videoStream: ReadableStream<Uint8Array>;

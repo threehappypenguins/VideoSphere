@@ -25,6 +25,14 @@ export interface PlatformUploadDocumentStored {
   draftVimeo?: VimeoDraftFields;
 }
 
+/**
+ * Writable tags for create-input; same shape as persisted document fields (without job id / platform).
+ * Defined here so routes can validate serialized size without importing the Appwrite-backed repository.
+ */
+export type PlatformUploadRowDocumentInput = Omit<PlatformUploadDocumentStored, 'tags'> & {
+  tags: string[];
+};
+
 /** Appwrite string column max; keep `document` under this when serialized. */
 export const MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS = 16_383;
 
@@ -37,7 +45,15 @@ function normalizeTagList(value: unknown): string[] {
   return value.filter((t): t is string => typeof t === 'string');
 }
 
-export function stringifyPlatformUploadDocumentForStorage(d: PlatformUploadDocumentStored): string {
+export interface StringifyPlatformUploadDocumentOptions {
+  /** When true, adds `__documentStorageTruncated` so support can see the DB row was shrunk to fit the column. */
+  documentStorageTruncated?: boolean;
+}
+
+export function stringifyPlatformUploadDocumentForStorage(
+  d: PlatformUploadDocumentStored,
+  options?: StringifyPlatformUploadDocumentOptions
+): string {
   const payload: Record<string, unknown> = {
     title: d.title,
     description: d.description,
@@ -49,7 +65,192 @@ export function stringifyPlatformUploadDocumentForStorage(d: PlatformUploadDocum
   if (d.vimeoCategoryUri !== undefined) payload.vimeoCategoryUri = d.vimeoCategoryUri;
   if (d.draftYoutube !== undefined) payload.draftYoutube = d.draftYoutube;
   if (d.draftVimeo !== undefined) payload.draftVimeo = d.draftVimeo;
+  if (options?.documentStorageTruncated === true) {
+    payload.__documentStorageTruncated = true;
+  }
   return JSON.stringify(payload);
+}
+
+const DOCUMENT_STORAGE_TRUNCATION_MARKER = ' … [truncated for Appwrite storage]';
+
+export class PlatformUploadDocumentTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlatformUploadDocumentTooLargeError';
+  }
+}
+
+function jsonByteLengthForDocument(
+  d: PlatformUploadDocumentStored,
+  truncatedFlag: boolean
+): number {
+  return stringifyPlatformUploadDocumentForStorage(d, {
+    documentStorageTruncated: truncatedFlag,
+  }).length;
+}
+
+/** Largest tag count such that the serialized document fits (binary search). */
+function maxTagCountFitting(doc: PlatformUploadDocumentStored, truncatedFlag: boolean): number {
+  const tags = [...doc.tags];
+  if (tags.length === 0) return 0;
+  let lo = 0;
+  let hi = tags.length;
+  let best = 0;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const candidate = { ...doc, tags: tags.slice(0, mid) };
+    if (jsonByteLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
+/** Largest title prefix (plus marker if truncated) such that JSON fits. */
+function shrinkTitleToFit(doc: PlatformUploadDocumentStored, truncatedFlag: boolean): string {
+  const full = doc.title;
+  if (jsonByteLengthForDocument(doc, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return full;
+  }
+  let lo = 0;
+  let hi = full.length;
+  let best = '';
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const prefix = full.slice(0, mid);
+    const title = mid < full.length ? prefix + DOCUMENT_STORAGE_TRUNCATION_MARKER : prefix;
+    const candidate = { ...doc, title };
+    if (jsonByteLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+      best = title;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
+/** Largest description prefix (plus marker if truncated) such that JSON fits. */
+function shrinkDescriptionToFit(doc: PlatformUploadDocumentStored, truncatedFlag: boolean): string {
+  const full = doc.description;
+  if (jsonByteLengthForDocument(doc, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return full;
+  }
+  let lo = 0;
+  let hi = full.length;
+  let best = '';
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const prefix = full.slice(0, mid);
+    const description = mid < full.length ? prefix + DOCUMENT_STORAGE_TRUNCATION_MARKER : prefix;
+    const candidate = { ...doc, description };
+    if (jsonByteLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+      best = description;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
+/**
+ * Serialize `platform_uploads.document` so it never exceeds {@link MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS}.
+ * Order: drop optional audit snapshots (`draftYoutube` / `draftVimeo`), then shrink description, tags,
+ * and title. Actual upload metadata still comes from the draft in the distribute route — this row is
+ * primarily an audit snapshot.
+ */
+export function serializePlatformUploadDocumentForAppwrite(
+  d: PlatformUploadDocumentStored
+): string {
+  let doc: PlatformUploadDocumentStored = {
+    ...d,
+    tags: [...d.tags],
+  };
+  let truncated = false;
+
+  if (jsonByteLengthForDocument(doc, false) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return stringifyPlatformUploadDocumentForStorage(doc);
+  }
+
+  doc = {
+    ...doc,
+    draftYoutube: undefined,
+    draftVimeo: undefined,
+  };
+  truncated = true;
+
+  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
+  }
+
+  doc = {
+    ...doc,
+    description: shrinkDescriptionToFit(doc, truncated),
+  };
+
+  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
+  }
+
+  const tagCount = maxTagCountFitting(doc, truncated);
+  doc = { ...doc, tags: doc.tags.slice(0, tagCount) };
+
+  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
+  }
+
+  doc = { ...doc, title: shrinkTitleToFit(doc, truncated) };
+
+  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
+  }
+
+  doc = {
+    ...doc,
+    categoryId: undefined,
+    vimeoCategoryUri: undefined,
+  };
+
+  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
+  }
+
+  throw new PlatformUploadDocumentTooLargeError(
+    `platform_uploads.document still exceeds ${MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS} characters after ` +
+      'dropping audit snapshots and truncating stored title/description/tags. Shorten the draft or reduce tag count.'
+  );
+}
+
+/** Serialized `document` for a new `platform_uploads` row, guaranteed ≤ {@link MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS}. */
+export function platformUploadDocumentJsonForCreateRow(
+  data: PlatformUploadRowDocumentInput
+): string {
+  const {
+    title,
+    description,
+    tags,
+    visibility,
+    categoryId,
+    madeForKids,
+    vimeoCategoryUri,
+    draftYoutube,
+    draftVimeo,
+  } = data;
+  return serializePlatformUploadDocumentForAppwrite({
+    title,
+    description,
+    tags: [...tags],
+    visibility,
+    ...(categoryId !== undefined ? { categoryId } : {}),
+    ...(madeForKids !== undefined ? { madeForKids } : {}),
+    ...(vimeoCategoryUri !== undefined ? { vimeoCategoryUri } : {}),
+    ...(draftYoutube !== undefined ? { draftYoutube } : {}),
+    ...(draftVimeo !== undefined ? { draftVimeo } : {}),
+  });
 }
 
 const EMPTY_DOC: PlatformUploadDocumentStored = {

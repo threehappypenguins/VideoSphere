@@ -45,7 +45,10 @@ import {
   updateDraft,
   deleteDraft,
 } from '@/lib/repositories/drafts';
-import { stringifyDraftDocumentForStorage } from '@/lib/draft-upload-metadata';
+import {
+  DraftDocumentTooLargeError,
+  stringifyDraftDocumentForStorage,
+} from '@/lib/draft-upload-metadata';
 
 const publishDefaults = {
   targets: ['youtube', 'vimeo'] as const,
@@ -144,6 +147,18 @@ describe('drafts repository', () => {
       expect(parsed.visibility).toBe('unlisted');
       expect(parsed.platforms).toEqual({ youtube: { categoryId: '10' } });
     });
+
+    it('throws DraftDocumentTooLargeError before Appwrite when document JSON exceeds column limit', async () => {
+      await expect(
+        createDraft({
+          userId: 'user-1',
+          targets: ['youtube'],
+          title: 't',
+          description: 'x'.repeat(20_000),
+        })
+      ).rejects.toBeInstanceOf(DraftDocumentTooLargeError);
+      expect(mockCreateRow).not.toHaveBeenCalled();
+    });
   });
 
   describe('getDraftById', () => {
@@ -227,6 +242,14 @@ describe('drafts repository', () => {
         })
       );
       expect(result!.title).toBe('Updated Title');
+    });
+
+    it('throws before updateRow when merged document exceeds column limit', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow });
+      await expect(
+        updateDraft('draft-1', { description: 'y'.repeat(20_000) })
+      ).rejects.toBeInstanceOf(DraftDocumentTooLargeError);
+      expect(mockUpdateRow).not.toHaveBeenCalled();
     });
 
     it('merges platformsPatch without wiping omitted fields', async () => {

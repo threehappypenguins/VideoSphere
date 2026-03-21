@@ -7,6 +7,7 @@ import {
   headObject,
   getBucketName,
   getR2Endpoint,
+  isTempUploadObjectKeyForUser,
 } from '../../lib/r2';
 
 /**
@@ -252,6 +253,30 @@ describe('R2 Storage - Validation & Utilities', () => {
       expect(getBucketName()).toBe('');
 
       if (original) process.env.R2_BUCKET_NAME = original;
+    });
+  });
+
+  describe('isTempUploadObjectKeyForUser', () => {
+    it('accepts keys under temp/uploads/{userId}/...', () => {
+      expect(
+        isTempUploadObjectKeyForUser('temp/uploads/user-123/1700000000-uuid/file.mp4', 'user-123')
+      ).toBe(true);
+    });
+
+    it('rejects another user prefix', () => {
+      expect(
+        isTempUploadObjectKeyForUser('temp/uploads/user-456/1700000000-uuid/file.mp4', 'user-123')
+      ).toBe(false);
+    });
+
+    it('rejects path traversal segments', () => {
+      expect(
+        isTempUploadObjectKeyForUser('temp/uploads/user-123/../user-456/x.mp4', 'user-123')
+      ).toBe(false);
+    });
+
+    it('rejects key equal to prefix only', () => {
+      expect(isTempUploadObjectKeyForUser('temp/uploads/user-123/', 'user-123')).toBe(false);
     });
   });
 });

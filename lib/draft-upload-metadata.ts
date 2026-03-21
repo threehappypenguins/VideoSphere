@@ -6,7 +6,7 @@
  * - **Per platform:** `platforms.youtube` / `platforms.vimeo` (e.g. YouTube `categoryId`, Vimeo `categoryUri`)
  */
 
-import type { PlatformUploadMetadata } from '@/lib/platforms/youtube';
+import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { uniqueTrimmedPlaylistTitles } from '@/lib/platforms/youtube';
 import {
   CONNECTED_ACCOUNT_PLATFORMS,
@@ -28,6 +28,22 @@ export const MAX_DRAFT_TITLE_LENGTH = 100;
 
 /** Appwrite string column max; entire `document` must serialize under this. */
 export const MAX_DRAFT_DOCUMENT_CHARS = 16_383;
+
+export class DraftDocumentTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DraftDocumentTooLargeError';
+  }
+}
+
+/** Throws {@link DraftDocumentTooLargeError} if JSON is too large for the `drafts.document` column. */
+export function assertDraftDocumentJsonWithinLimit(json: string): void {
+  if (json.length > MAX_DRAFT_DOCUMENT_CHARS) {
+    throw new DraftDocumentTooLargeError(
+      `Draft document JSON is ${json.length} characters; Appwrite allows at most ${MAX_DRAFT_DOCUMENT_CHARS} in the document column. Shorten description, tags, or platform-specific fields.`
+    );
+  }
+}
 
 const VISIBILITY_SET = new Set<PlatformUploadVisibility>(['public', 'unlisted', 'private']);
 

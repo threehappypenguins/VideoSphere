@@ -28,7 +28,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
 import { POST, GET } from '@/app/api/drafts/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
-import { MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
+import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -322,6 +322,25 @@ describe('POST /api/drafts', () => {
       const res = await POST(req);
 
       expect(res.status).toBe(500);
+    });
+
+    it('returns 400 when createDraft throws DraftDocumentTooLargeError', async () => {
+      vi.mocked(createDraft).mockRejectedValueOnce(
+        new DraftDocumentTooLargeError(
+          'Draft document JSON is 20000 characters; Appwrite allows at most 16383 in the document column.'
+        )
+      );
+
+      const req = makeRequest(
+        'POST',
+        { title: 'Test', targets: ['youtube'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
+      const res = await POST(req);
+      const body = (await res.json()) as { message?: string };
+
+      expect(res.status).toBe(400);
+      expect(body.message).toContain('16383');
     });
   });
 });

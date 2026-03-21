@@ -1,50 +1,10 @@
-import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
-
-export interface PlatformUploadMetadata {
-  title: string;
-  description: string;
-  tags: string[];
-  visibility: PlatformUploadVisibility;
-  /** YouTube Data API `snippet.categoryId`; omit to use server default. */
-  categoryId?: string;
-  /** YouTube `status.selfDeclaredMadeForKids` when set. */
-  madeForKids?: boolean;
-  defaultLanguage?: string;
-  defaultAudioLanguage?: string;
-  embeddable?: boolean;
-  license?: 'youtube' | 'creativeCommon';
-  publicStatsViewable?: boolean;
-  publishAt?: string;
-  containsSyntheticMedia?: boolean;
-  playlistIds?: string[];
-  /**
-   * Resolved with `playlists.list` then `playlists.insert` if no title match, then `playlistItems.insert`
-   * (same pattern as [porjo/youtubeuploader](https://github.com/porjo/youtubeuploader) `playlistTitles` / `playlistIds`).
-   * New playlists use the video’s `privacyStatus`.
-   */
-  playlistTitles?: string[];
-  /** Vimeo category: `/categories/{slug}`, plain slug, or vimeo.com category URL (not YouTube `categoryId`). */
-  vimeoCategoryUri?: string;
-  /** Vimeo-only create options (from draft `platforms.vimeo`). */
-  vimeo?: VimeoDraftFields;
-}
-
-export interface PlatformUploadTokens {
-  accessToken: string;
-  refreshToken?: string;
-  tokenExpiry?: string;
-}
-
-export interface PlatformUploadError {
-  code: string;
-  message: string;
-  statusCode?: number;
-  details?: string;
-}
-
-export type PlatformUploadResult =
-  | { ok: true; platformVideoId: string; platformUrl: string }
-  | { ok: false; error: PlatformUploadError };
+import type { PlatformUploadVisibility } from '@/types';
+import type {
+  PlatformUploadError,
+  PlatformUploadMetadata,
+  PlatformUploadResult,
+  PlatformUploadTokens,
+} from '@/lib/platforms/types';
 
 type PlatformUploadFailure = Extract<PlatformUploadResult, { ok: false }>;
 
@@ -67,6 +27,65 @@ const YOUTUBE_RESUMABLE_URL =
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DEFAULT_YOUTUBE_CATEGORY_ID = '22';
+
+/**
+ * YouTube `snippet.tags` total character budget (videos resource).
+ * Commas between tags count; tags containing spaces are counted as though wrapped in quotes (+2).
+ *
+ * @see https://developers.google.com/youtube/v3/docs/videos#resource
+ */
+const YOUTUBE_SNIPPET_TAGS_MAX_CHARS = 500;
+
+/**
+ * Approximate serialized length of `snippet.tags` per YouTube counting rules (for trimming).
+ */
+export function estimateYouTubeTagsListCharCount(tags: string[]): number {
+  if (tags.length === 0) return 0;
+  let n = 0;
+  for (let i = 0; i < tags.length; i++) {
+    const t = tags[i];
+    n += t.length + (/\s/.test(t) ? 2 : 0);
+    if (i < tags.length - 1) n += 1;
+  }
+  return n;
+}
+
+function clipTagToMaxYouTubeTagChars(tag: string, maxContentChars: number): string {
+  if (maxContentChars <= 0) return '';
+  return tag.length <= maxContentChars ? tag : tag.slice(0, maxContentChars);
+}
+
+/**
+ * Trim tags, drop empties, and fit the list under YouTube’s `snippet.tags` character limit.
+ * Order is preserved; oversized tails are dropped or truncated so the API does not reject the upload.
+ */
+export function normalizeYouTubeSnippetTags(raw: readonly string[]): string[] {
+  const trimmed = raw.map((t) => t.trim()).filter((t) => t.length > 0);
+  const out: string[] = [];
+
+  for (const tag of trimmed) {
+    const withWhole = [...out, tag];
+    if (estimateYouTubeTagsListCharCount(withWhole) <= YOUTUBE_SNIPPET_TAGS_MAX_CHARS) {
+      out.push(tag);
+      continue;
+    }
+
+    const used = estimateYouTubeTagsListCharCount(out);
+    const comma = out.length > 0 ? 1 : 0;
+    const remaining = YOUTUBE_SNIPPET_TAGS_MAX_CHARS - used - comma;
+    if (remaining <= 0) break;
+
+    const quoteAllowance = /\s/.test(tag) ? 2 : 0;
+    const maxContent = remaining - quoteAllowance;
+    const clipped = clipTagToMaxYouTubeTagChars(tag, maxContent);
+    if (clipped.length > 0) {
+      out.push(clipped);
+    }
+    break;
+  }
+
+  return out;
+}
 
 function youtubePlaylistTitleKey(title: string): string {
   return title.trim().toLowerCase();
@@ -329,6 +348,25 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Parse the `Range` header on a 308 Resume Incomplete from YouTube/Google resumable upload.
+ * Value is cumulative bytes stored (e.g. `bytes 0-524287` or `bytes=0-524287`).
+ * Returns the last byte index received (inclusive), or `null` if missing/invalid.
+ *
+ * @see https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol
+ */
+export function parseYouTube308RangeLastByteInclusive(headerValue: string | null): number | null {
+  if (headerValue == null || headerValue.trim() === '') return null;
+  const s = headerValue.trim();
+  if (s.includes('*')) return null;
+  const m = /^bytes[\t ]*[= ][\t ]*(\d+)[\t ]*-[ \t]*(\d+)\s*$/i.exec(s);
+  if (!m) return null;
+  const start = Number(m[1]);
+  const end = Number(m[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) return null;
+  return end;
+}
+
+/**
  * Resumable upload in 256 KiB–aligned chunks (Google's recommended protocol).
  * Avoids long single-PUT streams that often end in HTTP 408 from Google frontends.
  */
@@ -423,14 +461,39 @@ async function uploadYouTubeResumableInChunks(input: {
       }
 
       if (res.status === 308) {
-        offset += chunk.length;
-        if (offset > total) {
+        const chunkStart = offset;
+        const lastReceived = parseYouTube308RangeLastByteInclusive(res.headers.get('Range'));
+        let nextAbsolute: number;
+        if (lastReceived === null) {
+          nextAbsolute = chunkStart + chunk.length;
+        } else {
+          nextAbsolute = lastReceived + 1;
+          if (nextAbsolute < chunkStart) {
+            return toError(
+              'YOUTUBE_UPLOAD_RANGE_INVALID',
+              'YouTube Range header is behind the current upload offset.',
+              502
+            );
+          }
+          if (nextAbsolute > chunkStart + chunk.length) {
+            nextAbsolute = chunkStart + chunk.length;
+          }
+        }
+
+        if (nextAbsolute > total) {
           return toError(
             'YOUTUBE_UPLOAD_RANGE_MISMATCH',
             'YouTube upload advanced past declared file size.',
             502
           );
         }
+
+        if (nextAbsolute < chunkStart + chunk.length) {
+          const remainder = chunk.subarray(nextAbsolute - chunkStart);
+          carry = concatUint8Arrays([remainder, carry]);
+        }
+
+        offset = nextAbsolute;
         continue;
       }
 
@@ -595,7 +658,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
 
     const safeTitle = input.metadata.title.trim() || 'Untitled video';
     const safeDescription = input.metadata.description.trim();
-    const safeTags = input.metadata.tags.filter((tag) => tag.trim().length > 0);
+    const safeTags = normalizeYouTubeSnippetTags(input.metadata.tags);
 
     const m = input.metadata;
     const snippet: Record<string, unknown> = {

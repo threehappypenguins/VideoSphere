@@ -34,7 +34,9 @@ vi.mock('@/lib/appwrite', () => ({
 
 import {
   createPlatformUpload,
+  ensurePlatformUploadsForJobTargets,
   getPlatformUploadsByJob,
+  resetPlatformUploadForRetry,
   updatePlatformUploadStatus,
 } from '@/lib/repositories/platform-uploads';
 
@@ -340,6 +342,124 @@ describe('platform-uploads repository', () => {
       mockUpdateRow.mockRejectedValue(new Error('Server error'));
 
       await expect(updatePlatformUploadStatus('pu-1', 'completed')).rejects.toThrow('Server error');
+    });
+  });
+
+  describe('resetPlatformUploadForRetry', () => {
+    it('updates row to pending with fresh document and cleared outcome fields', async () => {
+      const updatedRow = {
+        ...basePlatformUploadRow,
+        $id: 'pu-1',
+        status: 'pending',
+        platformVideoId: '',
+        platformUrl: '',
+        errorMessage: '',
+      };
+      mockUpdateRow.mockResolvedValue(updatedRow);
+
+      await resetPlatformUploadForRetry('pu-1', {
+        uploadJobId: 'job-1',
+        platform: 'youtube',
+        title: 'Retry title',
+        description: 'D',
+        tags: ['x'],
+        visibility: 'public',
+      });
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(1);
+      const data = mockUpdateRow.mock.calls[0][0].data as Record<string, unknown>;
+      expect(data.status).toBe('pending');
+      expect(data.platformVideoId).toBe('');
+      expect(data.platformUrl).toBe('');
+      expect(data.errorMessage).toBe('');
+      expect(data.scheduledAt).toBe('');
+      const doc = JSON.parse(data.document as string);
+      expect(doc.title).toBe('Retry title');
+    });
+  });
+
+  describe('ensurePlatformUploadsForJobTargets', () => {
+    const youtubeInput = {
+      uploadJobId: 'job-1',
+      platform: 'youtube' as const,
+      title: 'T',
+      description: 'D',
+      tags: [] as string[],
+      visibility: 'public' as const,
+    };
+
+    it('resets newest row per platform when one already exists', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [
+          {
+            ...basePlatformUploadRow,
+            $id: 'pu-existing',
+            platform: 'youtube',
+            status: 'failed',
+            errorMessage: 'old',
+            $createdAt: '2026-01-03T00:00:00.000Z',
+          },
+        ],
+      });
+      mockUpdateRow.mockResolvedValue({
+        ...basePlatformUploadRow,
+        $id: 'pu-existing',
+        status: 'pending',
+      });
+
+      const out = await ensurePlatformUploadsForJobTargets([youtubeInput]);
+
+      expect(mockCreateRow).not.toHaveBeenCalled();
+      expect(mockUpdateRow).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'pu-existing' }));
+      expect(out).toHaveLength(1);
+      expect(out[0].id).toBe('pu-existing');
+    });
+
+    it('creates when no row exists for that platform', async () => {
+      mockListRows.mockResolvedValue({ rows: [] });
+      mockCreateRow.mockResolvedValue({ ...basePlatformUploadRow });
+
+      await ensurePlatformUploadsForJobTargets([youtubeInput]);
+
+      expect(mockCreateRow).toHaveBeenCalledTimes(1);
+      expect(mockUpdateRow).not.toHaveBeenCalled();
+    });
+
+    it('resets one platform and creates the other when only one exists', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [{ ...basePlatformUploadRow, $id: 'pu-yt', platform: 'youtube' }],
+      });
+      mockUpdateRow.mockResolvedValue({ ...basePlatformUploadRow, $id: 'pu-yt' });
+      mockCreateRow.mockResolvedValue({
+        ...basePlatformUploadRow,
+        $id: 'pu-vm',
+        platform: 'vimeo',
+      });
+
+      await ensurePlatformUploadsForJobTargets([
+        youtubeInput,
+        {
+          uploadJobId: 'job-1',
+          platform: 'vimeo',
+          title: 'V',
+          description: 'D',
+          tags: [],
+          visibility: 'unlisted',
+        },
+      ]);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(1);
+      expect(mockCreateRow).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when inputs mix different uploadJobId values', async () => {
+      await expect(
+        ensurePlatformUploadsForJobTargets([
+          youtubeInput,
+          { ...youtubeInput, uploadJobId: 'job-2' },
+        ])
+      ).rejects.toThrow(/uploadJobId/);
+      expect(mockListRows).not.toHaveBeenCalled();
     });
   });
 });
