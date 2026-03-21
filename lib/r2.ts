@@ -14,6 +14,7 @@
  * - R2_BUCKET_NAME: R2 bucket name
  */
 
+import { Readable } from 'node:stream';
 import {
   S3Client,
   GetObjectCommand,
@@ -257,6 +258,72 @@ export async function headObject(key: string): Promise<number> {
       `Failed to HEAD object "${key}": ${error instanceof Error ? error.message : String(error)}`
     );
   }
+}
+
+/**
+ * Stream object bytes from R2 using the S3 API (not HTTP fetch to a presigned URL).
+ *
+ * Each call performs its own GetObject and returns an independent Web ReadableStream.
+ * That lets multiple platforms read the same object in parallel without sharing a
+ * single fetch() Response body (which can trigger "body disturbed or locked"), and
+ * without buffering the entire object in memory (important for multi‑GB files).
+ */
+export async function getObjectWebStream(key: string): Promise<{
+  stream: ReadableStream<Uint8Array>;
+  contentLength: number;
+  contentType: string;
+}> {
+  if (!key) {
+    throw new Error('Object key is required');
+  }
+
+  const client = getR2Client();
+
+  let response;
+  try {
+    response = await client.send(
+      new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME!,
+        Key: key,
+      })
+    );
+  } catch (error) {
+    const status =
+      error != null &&
+      typeof error === 'object' &&
+      '$metadata' in error &&
+      typeof (error as { $metadata: unknown }).$metadata === 'object' &&
+      (error as { $metadata: { httpStatusCode?: number } }).$metadata.httpStatusCode;
+    if (status === 404) {
+      throw new R2ObjectNotFoundError(key);
+    }
+    throw new Error(
+      `Failed to open object stream for key "${key}": ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+
+  if (!response.Body) {
+    throw new Error(`R2 GetObject returned empty body for key "${key}"`);
+  }
+
+  const nodeReadable = response.Body as Readable;
+  const stream = Readable.toWeb(nodeReadable) as ReadableStream<Uint8Array>;
+
+  let contentLength = response.ContentLength ?? 0;
+  if (!Number.isFinite(contentLength) || contentLength <= 0) {
+    contentLength = await headObject(key);
+  }
+  if (contentLength <= 0) {
+    throw new Error(`R2 object has invalid or unknown size for key "${key}"`);
+  }
+
+  const trimmedType = response.ContentType?.trim();
+  const contentType =
+    trimmedType && trimmedType.length > 0 ? trimmedType : 'application/octet-stream';
+
+  return { stream, contentLength, contentType };
 }
 
 /**

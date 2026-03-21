@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   getPresignedUploadUrl,
   getObjectUrl,
+  getObjectWebStream,
   deleteObject,
   headObject,
   getBucketName,
@@ -70,6 +71,12 @@ describe('R2 Storage - Validation & Utilities', () => {
       await expect(getPresignedUploadUrl('test.mp4', 'video/mp4', -1)).rejects.toThrow(
         'Content length must be a positive number'
       );
+    });
+  });
+
+  describe('getObjectWebStream - Validation', () => {
+    it('should throw when key is empty', async () => {
+      await expect(getObjectWebStream('')).rejects.toThrow('Object key is required');
     });
   });
 

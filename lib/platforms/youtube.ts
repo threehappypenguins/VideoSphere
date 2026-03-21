@@ -25,8 +25,7 @@ export type PlatformUploadResult =
   | { ok: false; error: PlatformUploadError };
 
 interface UploadToYouTubeInput {
-  videoUrl?: string;
-  videoStream?: ReadableStream<Uint8Array>;
+  videoStream: ReadableStream<Uint8Array>;
   contentLength?: number;
   contentType?: string;
   metadata: PlatformUploadMetadata;
@@ -90,46 +89,6 @@ async function readApiErrorDetails(response: Response): Promise<string | undefin
   }
 
   return raw.slice(0, 1000);
-}
-
-async function getVideoSource(input: UploadToYouTubeInput): Promise<
-  | {
-      stream: ReadableStream<Uint8Array>;
-      contentLength?: number;
-      contentType: string;
-    }
-  | PlatformUploadResult
-> {
-  if (input.videoStream) {
-    return {
-      stream: input.videoStream,
-      contentLength: input.contentLength,
-      contentType: input.contentType ?? 'application/octet-stream',
-    };
-  }
-
-  if (!input.videoUrl) {
-    return toError('YOUTUBE_SOURCE_MISSING', 'Video source is required (videoUrl or videoStream).');
-  }
-
-  const response = await fetch(input.videoUrl, { method: 'GET' });
-  if (!response.ok || !response.body) {
-    return toError(
-      'YOUTUBE_SOURCE_FETCH_FAILED',
-      'Failed to read source video from storage.',
-      response.status || 500,
-      await response.text().catch(() => undefined)
-    );
-  }
-
-  return {
-    stream: response.body,
-    contentLength: response.headers.get('content-length')
-      ? Number(response.headers.get('content-length'))
-      : undefined,
-    contentType:
-      response.headers.get('content-type') || input.contentType || 'application/octet-stream',
-  };
 }
 
 export async function refreshYouTubeAccessToken(input: {
@@ -222,8 +181,11 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
   }
 
   try {
-    const videoSource = await getVideoSource(input);
-    if ('ok' in videoSource) return videoSource;
+    const videoSource = {
+      stream: input.videoStream,
+      contentLength: input.contentLength,
+      contentType: input.contentType ?? 'application/octet-stream',
+    };
 
     const safeTitle = input.metadata.title.trim() || 'Untitled video';
     const safeDescription = input.metadata.description.trim();

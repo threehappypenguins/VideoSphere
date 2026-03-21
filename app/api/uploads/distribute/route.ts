@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { ConnectedAccountPlatform, PlatformUpload, PlatformUploadVisibility } from '@/types';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { deleteObject, getObjectUrl } from '@/lib/r2';
+import { deleteObject, getObjectWebStream } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { getUserById } from '@/lib/repositories/users';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
@@ -79,7 +79,7 @@ function parseRequestBody(
 
 async function runSinglePlatformUpload(
   userId: string,
-  objectUrl: string,
+  r2ObjectKey: string,
   platformUpload: PlatformUpload,
   metadata: {
     title: string;
@@ -145,18 +145,14 @@ async function runSinglePlatformUpload(
       );
     }
 
-    const executeUpload = () =>
-      platformUpload.platform === 'youtube'
-        ? uploadToYouTube({
-            videoUrl: objectUrl,
-            metadata,
-            tokens,
-          })
-        : uploadToVimeo({
-            videoUrl: objectUrl,
-            metadata,
-            tokens,
-          });
+    // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
+    // we never buffer multi‑GB files in RAM (unlike a shared presigned fetch() body).
+    const executeUpload = async () => {
+      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey);
+      return platformUpload.platform === 'youtube'
+        ? uploadToYouTube({ videoStream: stream, contentLength, contentType, metadata, tokens })
+        : uploadToVimeo({ videoStream: stream, contentLength, contentType, metadata, tokens });
+    };
 
     let uploadResult = await executeUpload();
 
@@ -232,11 +228,9 @@ async function runDistributionInBackground(
   }
 ): Promise<void> {
   try {
-    const objectUrl = await getObjectUrl(r2ObjectKey);
-
     await Promise.all(
       platformUploads.map((platformUpload) =>
-        runSinglePlatformUpload(userId, objectUrl, platformUpload, metadata)
+        runSinglePlatformUpload(userId, r2ObjectKey, platformUpload, metadata)
       )
     );
 

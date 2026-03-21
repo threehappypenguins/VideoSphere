@@ -45,7 +45,7 @@ const mockUpdateUploadJobStatus = vi.fn();
 const mockCreatePlatformUpload = vi.fn();
 const mockGetConnectedAccountWithTokens = vi.fn();
 const mockUpdateTokens = vi.fn();
-const mockGetObjectUrl = vi.fn();
+const mockGetObjectWebStream = vi.fn();
 const mockDeleteObject = vi.fn();
 const mockUploadToYouTube = vi.fn();
 const mockRefreshYouTubeAccessToken = vi.fn();
@@ -82,7 +82,7 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/r2')>();
   return {
     ...actual,
-    getObjectUrl: (...args: unknown[]) => mockGetObjectUrl(...args),
+    getObjectWebStream: (...args: unknown[]) => mockGetObjectWebStream(...args),
     deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
   };
 });
@@ -206,7 +206,15 @@ describe('POST /api/uploads/distribute', () => {
       tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
     });
 
-    mockGetObjectUrl.mockResolvedValue('https://r2.example.com/video.mp4');
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+      contentLength: 1024,
+      contentType: 'video/mp4',
+    });
     mockDeleteObject.mockResolvedValue(undefined);
 
     mockGetConnectedAccountWithTokens.mockResolvedValue({
@@ -349,7 +357,7 @@ describe('POST /api/uploads/distribute', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(mockGetObjectUrl).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
+    expect(mockGetObjectWebStream).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
     expect(mockUploadToYouTube).toHaveBeenCalledTimes(1);
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
