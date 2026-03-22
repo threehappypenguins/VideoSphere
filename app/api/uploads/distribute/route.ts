@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import type { ConnectedAccountPlatform, Draft, PlatformUpload } from '@/types';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
@@ -399,12 +399,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       metadataByPlatformId.set(pu.id, buildMetadataForPlatform(draft, pu.platform));
     }
 
-    void runDistributionInBackground(
-      uploadJob.id,
-      userId,
-      r2ObjectKey,
-      platformUploads,
-      metadataByPlatformId
+    // Schedule after the response so serverless hosts (e.g. Vercel) keep the invocation
+    // alive until this work finishes (Next `after` → waitUntil-style semantics). For
+    // multi-minute uploads or guaranteed delivery across crashes, use a queue/worker.
+    after(() =>
+      runDistributionInBackground(
+        uploadJob.id,
+        userId,
+        r2ObjectKey,
+        platformUploads,
+        metadataByPlatformId
+      )
     );
 
     return NextResponse.json({ jobId: uploadJob.id }, { status: 202 });

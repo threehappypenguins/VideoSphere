@@ -33,7 +33,7 @@ export type PlatformUploadRowDocumentInput = Omit<PlatformUploadDocumentStored, 
   tags: string[];
 };
 
-/** Appwrite string column max; keep `document` under this when serialized. */
+/** Appwrite string column max (character/code-unit budget); keep serialized `document` under this. */
 export const MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS = 16_383;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -80,7 +80,8 @@ export class PlatformUploadDocumentTooLargeError extends Error {
   }
 }
 
-function jsonByteLengthForDocument(
+/** Serialized JSON length in UTF-16 code units (`String#length`), not byte size. */
+function jsonCharLengthForDocument(
   d: PlatformUploadDocumentStored,
   truncatedFlag: boolean
 ): number {
@@ -89,7 +90,7 @@ function jsonByteLengthForDocument(
   }).length;
 }
 
-/** Largest tag count such that the serialized document fits (binary search). */
+/** Largest tag count such that the serialized JSON fits the char limit (binary search). */
 function maxTagCountFitting(doc: PlatformUploadDocumentStored, truncatedFlag: boolean): number {
   const tags = [...doc.tags];
   if (tags.length === 0) return 0;
@@ -99,7 +100,7 @@ function maxTagCountFitting(doc: PlatformUploadDocumentStored, truncatedFlag: bo
   while (lo <= hi) {
     const mid = Math.floor((lo + hi) / 2);
     const candidate = { ...doc, tags: tags.slice(0, mid) };
-    if (jsonByteLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    if (jsonCharLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
       best = mid;
       lo = mid + 1;
     } else {
@@ -109,10 +110,10 @@ function maxTagCountFitting(doc: PlatformUploadDocumentStored, truncatedFlag: bo
   return best;
 }
 
-/** Largest title prefix (plus marker if truncated) such that JSON fits. */
+/** Largest title prefix (plus marker if truncated) such that serialized JSON fits the char limit. */
 function shrinkTitleToFit(doc: PlatformUploadDocumentStored, truncatedFlag: boolean): string {
   const full = doc.title;
-  if (jsonByteLengthForDocument(doc, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return full;
   }
   let lo = 0;
@@ -123,7 +124,7 @@ function shrinkTitleToFit(doc: PlatformUploadDocumentStored, truncatedFlag: bool
     const prefix = full.slice(0, mid);
     const title = mid < full.length ? prefix + DOCUMENT_STORAGE_TRUNCATION_MARKER : prefix;
     const candidate = { ...doc, title };
-    if (jsonByteLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    if (jsonCharLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
       best = title;
       lo = mid + 1;
     } else {
@@ -133,10 +134,10 @@ function shrinkTitleToFit(doc: PlatformUploadDocumentStored, truncatedFlag: bool
   return best;
 }
 
-/** Largest description prefix (plus marker if truncated) such that JSON fits. */
+/** Largest description prefix (plus marker if truncated) such that serialized JSON fits the char limit. */
 function shrinkDescriptionToFit(doc: PlatformUploadDocumentStored, truncatedFlag: boolean): string {
   const full = doc.description;
-  if (jsonByteLengthForDocument(doc, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return full;
   }
   let lo = 0;
@@ -147,7 +148,7 @@ function shrinkDescriptionToFit(doc: PlatformUploadDocumentStored, truncatedFlag
     const prefix = full.slice(0, mid);
     const description = mid < full.length ? prefix + DOCUMENT_STORAGE_TRUNCATION_MARKER : prefix;
     const candidate = { ...doc, description };
-    if (jsonByteLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+    if (jsonCharLengthForDocument(candidate, truncatedFlag) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
       best = description;
       lo = mid + 1;
     } else {
@@ -172,7 +173,7 @@ export function serializePlatformUploadDocumentForAppwrite(
   };
   let truncated = false;
 
-  if (jsonByteLengthForDocument(doc, false) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, false) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return stringifyPlatformUploadDocumentForStorage(doc);
   }
 
@@ -183,7 +184,7 @@ export function serializePlatformUploadDocumentForAppwrite(
   };
   truncated = true;
 
-  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
   }
 
@@ -192,20 +193,20 @@ export function serializePlatformUploadDocumentForAppwrite(
     description: shrinkDescriptionToFit(doc, truncated),
   };
 
-  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
   }
 
   const tagCount = maxTagCountFitting(doc, truncated);
   doc = { ...doc, tags: doc.tags.slice(0, tagCount) };
 
-  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
   }
 
   doc = { ...doc, title: shrinkTitleToFit(doc, truncated) };
 
-  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
   }
 
@@ -215,7 +216,7 @@ export function serializePlatformUploadDocumentForAppwrite(
     vimeoCategoryUri: undefined,
   };
 
-  if (jsonByteLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
+  if (jsonCharLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
     return stringifyPlatformUploadDocumentForStorage(doc, { documentStorageTruncated: true });
   }
 

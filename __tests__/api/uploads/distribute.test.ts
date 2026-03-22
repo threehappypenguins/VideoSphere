@@ -9,6 +9,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { CreatePlatformUploadInput } from '@/lib/repositories/platform-uploads';
 
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>();
+  return {
+    ...actual,
+    // Route handlers run outside Next request scope in these tests; run `after` tasks immediately.
+    after: (task: (() => void | Promise<void>) | Promise<void>) => {
+      if (typeof task === 'function') {
+        void task();
+      } else {
+        void task;
+      }
+    },
+  };
+});
+
 const mockGet = vi.fn();
 
 vi.mock('node-appwrite', () => {

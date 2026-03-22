@@ -131,40 +131,140 @@ export function buildVimeoCategorySuggestBatchBody(
   return slugs.map((name) => ({ category: name }));
 }
 
+class VimeoIngestWaitFailedError extends Error {
+  readonly statusCode?: number;
+  readonly details?: string;
+
+  constructor(message: string, opts?: { statusCode?: number; details?: string }) {
+    super(message);
+    this.name = 'VimeoIngestWaitFailedError';
+    this.statusCode = opts?.statusCode;
+    this.details = opts?.details;
+  }
+}
+
+function retryDelayMsAfterRateLimit(res: Response, attemptIndex: number, status: number): number {
+  const raw = res.headers.get('Retry-After');
+  if (raw) {
+    const sec = parseInt(raw, 10);
+    if (Number.isFinite(sec) && sec >= 0) {
+      return Math.min(Math.max(sec * 1000, 15_000), 180_000);
+    }
+  }
+  if (status === 429) {
+    return Math.min(65_000 + attemptIndex * 15_000, 180_000);
+  }
+  if (status === 503) {
+    return Math.min(5000 * 2 ** attemptIndex, 60_000);
+  }
+  return 10_000;
+}
+
+function vimeoStatusProbeRetryDelayMs(res: Response, consecutiveNonOk: number): number {
+  const idx = Math.max(0, consecutiveNonOk - 1);
+  if (res.status === 429 || res.status === 503) {
+    return retryDelayMsAfterRateLimit(res, idx, res.status);
+  }
+  if (res.status >= 500) {
+    return Math.min(5000 * 2 ** Math.min(idx, 6), 45_000);
+  }
+  return Math.min(3000 * 2 ** Math.min(idx, 5), 30_000);
+}
+
+function vimeoStatusProbeNetworkRetryDelayMs(consecutiveNetworkFailures: number): number {
+  const idx = Math.max(0, consecutiveNetworkFailures - 1);
+  return Math.min(2000 * 2 ** Math.min(idx, 5), 30_000);
+}
+
 /**
  * After TUS PATCH, wait until the file is ingested **and** transcoding has finished.
  * Vimeo's docs treat `upload.status` and `transcode.status` separately; tagging right
  * after upload completes (but before transcode) can return HTTP 2xx without tags
  * sticking on the video.
+ *
+ * Non-2xx status probes are retried with backoff until `deadlineMs`. Vimeo
+ * `upload.status` / `transcode.status` of `error` fails immediately.
  */
-async function waitUntilVimeoUploadAndTranscodeComplete(
+export async function waitUntilVimeoUploadAndTranscodeComplete(
   videoBasePath: string,
-  accessToken: string
+  accessToken: string,
+  opts?: { deadlineMs?: number; pollIntervalMs?: number }
 ): Promise<void> {
-  const deadline = Date.now() + 300_000;
+  const deadlineMs = opts?.deadlineMs ?? 300_000;
+  const pollIntervalMs = opts?.pollIntervalMs ?? 2000;
+  const deadline = Date.now() + deadlineMs;
+  let probeNonOkStreak = 0;
+  let networkFailStreak = 0;
+
   while (Date.now() < deadline) {
-    const res = await fetch(
-      `https://api.vimeo.com/${videoBasePath}?fields=upload.status,transcode.status`,
-      { headers: vimeoReadHeaders(accessToken) }
-    );
-    if (!res.ok) return;
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://api.vimeo.com/${videoBasePath}?fields=upload.status,transcode.status`,
+        { headers: vimeoReadHeaders(accessToken) }
+      );
+    } catch {
+      networkFailStreak++;
+      probeNonOkStreak = 0;
+      const waitMs = vimeoStatusProbeNetworkRetryDelayMs(networkFailStreak);
+      if (Date.now() + waitMs >= deadline) {
+        throw new VimeoIngestWaitFailedError(
+          'Timed out waiting for Vimeo upload/transcode status (network errors while polling).'
+        );
+      }
+      await delay(waitMs);
+      continue;
+    }
+
+    networkFailStreak = 0;
+
+    if (!res.ok) {
+      probeNonOkStreak++;
+      const waitMs = vimeoStatusProbeRetryDelayMs(res, probeNonOkStreak);
+      const details = await res.text().catch(() => undefined);
+      if (Date.now() + waitMs >= deadline) {
+        throw new VimeoIngestWaitFailedError(
+          `Vimeo status probe failed (HTTP ${res.status}) before ingest wait deadline.`,
+          { statusCode: res.status, details }
+        );
+      }
+      await delay(waitMs);
+      continue;
+    }
+
+    probeNonOkStreak = 0;
 
     const body = (await res.json().catch(() => ({}))) as {
       upload?: { status?: string } | null;
       transcode?: { status?: string } | null;
     };
     const uploadSt = body.upload?.status;
-    if (uploadSt === 'error') return;
+    if (uploadSt === 'error') {
+      throw new VimeoIngestWaitFailedError('Vimeo reported upload.status error.', {
+        details: JSON.stringify(body.upload ?? null),
+      });
+    }
 
     const transcodeSt = body.transcode?.status;
-    if (transcodeSt === 'error') return;
+    if (transcodeSt === 'error') {
+      throw new VimeoIngestWaitFailedError('Vimeo reported transcode.status error.', {
+        details: JSON.stringify(body.transcode ?? null),
+      });
+    }
 
     const uploadDone = uploadSt === 'complete';
     const transcodeDone = transcodeSt === 'complete';
     if (uploadDone && transcodeDone) return;
 
-    await delay(2000);
+    if (Date.now() + pollIntervalMs >= deadline) {
+      break;
+    }
+    await delay(pollIntervalMs);
   }
+
+  throw new VimeoIngestWaitFailedError(
+    'Timed out waiting for Vimeo upload and transcode to complete.'
+  );
 }
 
 function normalizeVimeoTagKey(tag: string): string {
@@ -226,23 +326,6 @@ async function verifyVimeoTagsApplied(
     if (wantedTagsArePresentOnVideo(wanted, onVideo)) return true;
   }
   return false;
-}
-
-function retryDelayMsAfterRateLimit(res: Response, attemptIndex: number, status: number): number {
-  const raw = res.headers.get('Retry-After');
-  if (raw) {
-    const sec = parseInt(raw, 10);
-    if (Number.isFinite(sec) && sec >= 0) {
-      return Math.min(Math.max(sec * 1000, 15_000), 180_000);
-    }
-  }
-  if (status === 429) {
-    return Math.min(65_000 + attemptIndex * 15_000, 180_000);
-  }
-  if (status === 503) {
-    return Math.min(5000 * 2 ** attemptIndex, 60_000);
-  }
-  return 10_000;
 }
 
 /**
@@ -573,6 +656,9 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       platformUrl: `https://vimeo.com/${videoId}`,
     };
   } catch (error) {
+    if (error instanceof VimeoIngestWaitFailedError) {
+      return toError('VIMEO_INGEST_WAIT_FAILED', error.message, error.statusCode, error.details);
+    }
     return toError(
       'VIMEO_UPLOAD_ERROR',
       'Unexpected Vimeo upload error.',
