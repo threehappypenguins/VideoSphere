@@ -116,6 +116,40 @@ export async function listUploadJobsByUser(
   return (rows ?? []).map((r) => rowToUploadJob(r as unknown as Record<string, unknown>));
 }
 
+const UPLOAD_JOB_STATUSES_FOR_DISTRIBUTE: readonly UploadJobStatus[] = [
+  'pending',
+  'uploading',
+  'distributing',
+];
+
+/**
+ * Find the upload job for POST /api/uploads/distribute: same user, draft, R2 key, and a
+ * status that allows starting or resuming distribution. Uses indexed filters + limit 1
+ * instead of scanning the first page of all jobs for the user.
+ */
+export async function findUploadJobForDistribution(input: {
+  userId: string;
+  draftId: string;
+  r2Key: string;
+}): Promise<UploadJob | null> {
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_JOBS_COLLECTION_ID,
+    queries: [
+      Query.equal('userId', input.userId),
+      Query.equal('draftId', input.draftId),
+      Query.equal('r2Key', input.r2Key),
+      Query.equal('status', [...UPLOAD_JOB_STATUSES_FOR_DISTRIBUTE]),
+      Query.orderDesc('$createdAt'),
+      Query.limit(1),
+    ],
+    total: false,
+  });
+  const row = rows?.[0];
+  if (!row) return null;
+  return rowToUploadJob(row as unknown as Record<string, unknown>);
+}
+
 /**
  * List upload jobs for a user with their related platform uploads populated.
  * Sorted by most recent first. Fetches all platform_uploads for the user's jobs

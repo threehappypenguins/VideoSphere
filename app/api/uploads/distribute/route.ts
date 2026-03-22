@@ -4,7 +4,6 @@ import {
   type ConnectedAccountPlatform,
   type Draft,
   type PlatformUpload,
-  type UploadJobStatus,
 } from '@/types';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { buildMetadataForPlatform, isConnectedAccountPlatform } from '@/lib/draft-upload-metadata';
@@ -14,7 +13,10 @@ import { getDraftById } from '@/lib/repositories/drafts';
 import { getUserById } from '@/lib/repositories/users';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import { updateTokens } from '@/lib/repositories/connected-accounts';
-import { listUploadJobsByUser, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
+import {
+  findUploadJobForDistribution,
+  updateUploadJobStatus,
+} from '@/lib/repositories/upload-jobs';
 import {
   type CreatePlatformUploadInput,
   ensurePlatformUploadsForJobTargets,
@@ -30,12 +32,6 @@ import { uploadToVimeo } from '@/lib/platforms/vimeo';
 
 const FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT = 2;
 
-/** Jobs eligible to start or resume distribution for the same draft + R2 object. */
-const DISTRIBUTE_REUSE_UPLOAD_JOB_STATUSES: readonly UploadJobStatus[] = [
-  'pending',
-  'uploading',
-  'distributing',
-];
 interface DistributeRequestBody {
   draftId: string;
   r2ObjectKey: string;
@@ -125,9 +121,9 @@ async function runSinglePlatformUpload(
   platformUpload: PlatformUpload,
   metadata: PlatformUploadMetadata
 ): Promise<void> {
-  await updatePlatformUploadStatus(platformUpload.id, 'uploading');
-
   try {
+    await updatePlatformUploadStatus(platformUpload.id, 'uploading');
+
     const connectedAccount = await getConnectedAccountWithTokens(userId, platformUpload.platform);
 
     if (!connectedAccount) {
@@ -364,12 +360,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const uploadJob = (await listUploadJobsByUser(userId)).find(
-      (job) =>
-        (job.draftId ?? '') === draftId &&
-        job.r2Key === r2ObjectKey &&
-        DISTRIBUTE_REUSE_UPLOAD_JOB_STATUSES.includes(job.status)
-    );
+    const uploadJob = await findUploadJobForDistribution({
+      userId,
+      draftId,
+      r2Key: r2ObjectKey,
+    });
 
     if (!uploadJob) {
       return NextResponse.json(

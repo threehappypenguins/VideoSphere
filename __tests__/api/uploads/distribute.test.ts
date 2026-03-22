@@ -56,7 +56,7 @@ vi.mock('node-appwrite', () => {
 const mockGetDraftById = vi.fn();
 const mockGetUserById = vi.fn();
 const mockCreateUploadJob = vi.fn();
-const mockListUploadJobsByUser = vi.fn();
+const mockFindUploadJobForDistribution = vi.fn();
 const mockUpdateUploadJobStatus = vi.fn();
 const mockCreatePlatformUpload = vi.fn();
 const mockEnsurePlatformUploadsForJobTargets = vi.fn();
@@ -80,7 +80,7 @@ vi.mock('@/lib/repositories/users', () => ({
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
   createUploadJob: (...args: unknown[]) => mockCreateUploadJob(...args),
-  listUploadJobsByUser: (...args: unknown[]) => mockListUploadJobsByUser(...args),
+  findUploadJobForDistribution: (...args: unknown[]) => mockFindUploadJobForDistribution(...args),
   updateUploadJobStatus: (...args: unknown[]) => mockUpdateUploadJobStatus(...args),
 }));
 
@@ -184,18 +184,16 @@ describe('POST /api/uploads/distribute', () => {
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
-    mockListUploadJobsByUser.mockResolvedValue([
-      {
-        id: 'job-123',
-        userId: 'user-123',
-        draftId: 'draft-1',
-        r2Key: 'temp/uploads/user-123/video.mp4',
-        status: 'uploading',
-        errorMessage: null,
-        $createdAt: '2000-01-01T00:00:00.000Z',
-        $updatedAt: '2000-01-01T00:00:00.000Z',
-      },
-    ]);
+    mockFindUploadJobForDistribution.mockResolvedValue({
+      id: 'job-123',
+      userId: 'user-123',
+      draftId: 'draft-1',
+      r2Key: 'temp/uploads/user-123/video.mp4',
+      status: 'uploading',
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
 
     mockUpdateUploadJobStatus.mockResolvedValue({
       id: 'job-123',
@@ -369,24 +367,26 @@ describe('POST /api/uploads/distribute', () => {
     expect(body.jobId).toBe('job-123');
 
     expect(mockCreateUploadJob).not.toHaveBeenCalled();
-    expect(mockListUploadJobsByUser).toHaveBeenCalled();
+    expect(mockFindUploadJobForDistribution).toHaveBeenCalledWith({
+      userId: 'user-123',
+      draftId: 'draft-1',
+      r2Key: 'temp/uploads/user-123/video.mp4',
+    });
     expect(mockCreatePlatformUpload).toHaveBeenCalledTimes(2);
     expect(mockUpdateUploadJobStatus).toHaveBeenCalledWith('job-123', 'distributing', null);
   });
 
   it('returns 202 with same jobId when job is already distributing (idempotent client retry)', async () => {
-    mockListUploadJobsByUser.mockResolvedValueOnce([
-      {
-        id: 'job-123',
-        userId: 'user-123',
-        draftId: 'draft-1',
-        r2Key: 'temp/uploads/user-123/video.mp4',
-        status: 'distributing',
-        errorMessage: null,
-        $createdAt: '2000-01-01T00:00:00.000Z',
-        $updatedAt: '2000-01-01T00:00:00.000Z',
-      },
-    ]);
+    mockFindUploadJobForDistribution.mockResolvedValueOnce({
+      id: 'job-123',
+      userId: 'user-123',
+      draftId: 'draft-1',
+      r2Key: 'temp/uploads/user-123/video.mp4',
+      status: 'distributing',
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
 
     const response = await POST(
       createRequest(
@@ -425,7 +425,7 @@ describe('POST /api/uploads/distribute', () => {
   });
 
   it('returns 400 when no upload job matches draftId and r2ObjectKey', async () => {
-    mockListUploadJobsByUser.mockResolvedValueOnce([]);
+    mockFindUploadJobForDistribution.mockResolvedValueOnce(null);
 
     const response = await POST(
       createRequest(
@@ -490,18 +490,16 @@ describe('POST /api/uploads/distribute', () => {
   });
 
   it('reuses existing upload job from presign/complete instead of creating a new one', async () => {
-    mockListUploadJobsByUser.mockResolvedValueOnce([
-      {
-        id: 'job-existing',
-        userId: 'user-123',
-        draftId: 'draft-1',
-        r2Key: 'temp/uploads/user-123/video.mp4',
-        status: 'uploading',
-        errorMessage: null,
-        $createdAt: '2000-01-01T00:00:00.000Z',
-        $updatedAt: '2000-01-01T00:00:00.000Z',
-      },
-    ]);
+    mockFindUploadJobForDistribution.mockResolvedValueOnce({
+      id: 'job-existing',
+      userId: 'user-123',
+      draftId: 'draft-1',
+      r2Key: 'temp/uploads/user-123/video.mp4',
+      status: 'uploading',
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
 
     const response = await POST(
       createRequest(

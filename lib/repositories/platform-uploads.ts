@@ -95,6 +95,20 @@ function latestPlatformUploadPerPlatform(
   return map;
 }
 
+/** First input wins per `platform` so callers cannot trigger parallel work for the same (job, platform). */
+function dedupeCreatePlatformUploadInputsByPlatform(
+  inputs: CreatePlatformUploadInput[]
+): CreatePlatformUploadInput[] {
+  const seen = new Set<ConnectedAccountPlatform>();
+  const out: CreatePlatformUploadInput[] = [];
+  for (const input of inputs) {
+    if (seen.has(input.platform)) continue;
+    seen.add(input.platform);
+    out.push(input);
+  }
+  return out;
+}
+
 /**
  * Reset an existing row for a new distribution attempt (same job + platform).
  * Clears outcome fields and replaces `document` with the latest draft snapshot.
@@ -129,6 +143,9 @@ export async function resetPlatformUploadForRetry(
  * Ensures one `platform_uploads` row per target platform for this job: reuses the newest
  * existing row per platform (reset to pending) or creates a new row. Keeps distribute retries idempotent
  * under the unique (uploadJobId, platform) index.
+ *
+ * Duplicate `platform` values in `inputs` are deduped (first occurrence kept) to avoid concurrent
+ * creates/resets for the same key.
  */
 export async function ensurePlatformUploadsForJobTargets(
   inputs: CreatePlatformUploadInput[]
@@ -142,11 +159,12 @@ export async function ensurePlatformUploadsForJobTargets(
       );
     }
   }
+  const uniqueByPlatform = dedupeCreatePlatformUploadInputsByPlatform(inputs);
   const existing = await getPlatformUploadsByJob(jobId);
   const latestByPlatform = latestPlatformUploadPerPlatform(existing);
 
   return Promise.all(
-    inputs.map(async (input) => {
+    uniqueByPlatform.map(async (input) => {
       const prev = latestByPlatform.get(input.platform);
       if (prev) {
         return resetPlatformUploadForRetry(prev.id, input);

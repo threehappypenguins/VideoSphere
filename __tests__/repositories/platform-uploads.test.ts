@@ -461,5 +461,35 @@ describe('platform-uploads repository', () => {
       ).rejects.toThrow(/uploadJobId/);
       expect(mockListRows).not.toHaveBeenCalled();
     });
+
+    it('dedupes duplicate platforms so only one reset/create runs per platform', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [
+          {
+            ...basePlatformUploadRow,
+            $id: 'pu-existing',
+            platform: 'youtube',
+            status: 'failed',
+            $createdAt: '2026-01-03T00:00:00.000Z',
+          },
+        ],
+      });
+      mockUpdateRow.mockResolvedValue({
+        ...basePlatformUploadRow,
+        $id: 'pu-existing',
+        status: 'pending',
+      });
+
+      const out = await ensurePlatformUploadsForJobTargets([
+        { ...youtubeInput, title: 'First' },
+        { ...youtubeInput, title: 'Second duplicate' },
+      ]);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(1);
+      expect(mockCreateRow).not.toHaveBeenCalled();
+      expect(out).toHaveLength(1);
+      const doc = JSON.parse(mockUpdateRow.mock.calls[0][0].data.document as string);
+      expect(doc.title).toBe('First');
+    });
   });
 });

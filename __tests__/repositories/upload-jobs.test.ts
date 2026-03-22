@@ -24,6 +24,7 @@ vi.mock('node-appwrite', () => ({
         ? `equal("${attr}",[${value.map((v) => `"${v}"`).join(',')}])`
         : `equal("${attr}","${value}")`,
     orderDesc: (attr: string) => `orderDesc("${attr}")`,
+    limit: (n: number) => `limit(${n})`,
   },
   TablesDB: class TablesDB {
     createRow = mockCreateRow;
@@ -39,6 +40,7 @@ vi.mock('@/lib/appwrite', () => ({
 
 import {
   createUploadJob,
+  findUploadJobForDistribution,
   getUploadJobById,
   listUploadJobsByUser,
   updateUploadJobStatus,
@@ -200,6 +202,47 @@ describe('upload-jobs repository', () => {
       const result = await listUploadJobsByUser('user-1');
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('findUploadJobForDistribution', () => {
+    it('queries userId, draftId, r2Key, distributable statuses, and limit 1', async () => {
+      mockListRows.mockResolvedValue({ rows: [{ ...baseJobRow }] });
+
+      const result = await findUploadJobForDistribution({
+        userId: 'user-1',
+        draftId: 'draft-1',
+        r2Key: 'temp/uploads/user-1/x.mp4',
+      });
+
+      expect(mockListRows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: 'videosphere',
+          tableId: 'upload_jobs',
+          total: false,
+        })
+      );
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('equal("userId","user-1")');
+      expect(queries).toContain('equal("draftId","draft-1")');
+      expect(queries).toContain('equal("r2Key","temp/uploads/user-1/x.mp4")');
+      expect(queries).toContain('equal("status",["pending","uploading","distributing"])');
+      expect(queries).toContain('orderDesc("$createdAt")');
+      expect(queries).toContain('limit(1)');
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe('job-1');
+    });
+
+    it('returns null when no row matches', async () => {
+      mockListRows.mockResolvedValue({ rows: [] });
+
+      const result = await findUploadJobForDistribution({
+        userId: 'user-1',
+        draftId: 'draft-1',
+        r2Key: 'temp/uploads/user-1/x.mp4',
+      });
+
+      expect(result).toBeNull();
     });
   });
 
