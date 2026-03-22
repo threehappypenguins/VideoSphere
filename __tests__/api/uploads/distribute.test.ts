@@ -374,6 +374,38 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockUpdateUploadJobStatus).toHaveBeenCalledWith('job-123', 'distributing', null);
   });
 
+  it('returns 202 with same jobId when job is already distributing (idempotent client retry)', async () => {
+    mockListUploadJobsByUser.mockResolvedValueOnce([
+      {
+        id: 'job-123',
+        userId: 'user-123',
+        draftId: 'draft-1',
+        r2Key: 'temp/uploads/user-123/video.mp4',
+        status: 'distributing',
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    const body = await response.json();
+    expect(body.jobId).toBe('job-123');
+    expect(mockUpdateUploadJobStatus).not.toHaveBeenCalled();
+    expect(mockEnsurePlatformUploadsForJobTargets).not.toHaveBeenCalled();
+  });
+
   it('returns 403 when r2ObjectKey is not under the user temp upload prefix', async () => {
     const response = await POST(
       createRequest(

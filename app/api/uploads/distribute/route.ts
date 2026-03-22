@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import type { ConnectedAccountPlatform, Draft, PlatformUpload } from '@/types';
+import {
+  CONNECTED_ACCOUNT_PLATFORMS,
+  type ConnectedAccountPlatform,
+  type Draft,
+  type PlatformUpload,
+  type UploadJobStatus,
+} from '@/types';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
+import { buildMetadataForPlatform, isConnectedAccountPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { deleteObject, getObjectWebStream, isTempUploadObjectKeyForUser } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -23,7 +29,13 @@ import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/yout
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
 
 const FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT = 2;
-const SUPPORTED_PLATFORMS: ConnectedAccountPlatform[] = ['youtube', 'vimeo'];
+
+/** Jobs eligible to start or resume distribution for the same draft + R2 object. */
+const DISTRIBUTE_REUSE_UPLOAD_JOB_STATUSES: readonly UploadJobStatus[] = [
+  'pending',
+  'uploading',
+  'distributing',
+];
 interface DistributeRequestBody {
   draftId: string;
   r2ObjectKey: string;
@@ -88,16 +100,12 @@ function parseRequestBody(
     return { ok: false, error: 'platforms is required and must be a non-empty array' };
   }
 
-  const normalizedPlatforms = payload.platforms.filter(
-    (platform): platform is ConnectedAccountPlatform =>
-      typeof platform === 'string' &&
-      SUPPORTED_PLATFORMS.includes(platform as ConnectedAccountPlatform)
-  );
+  const normalizedPlatforms = payload.platforms.filter(isConnectedAccountPlatform);
 
   if (normalizedPlatforms.length !== payload.platforms.length) {
     return {
       ok: false,
-      error: `platforms contains unsupported values. Supported platforms: ${SUPPORTED_PLATFORMS.join(', ')}`,
+      error: `platforms contains unsupported values. Supported platforms: ${CONNECTED_ACCOUNT_PLATFORMS.join(', ')}`,
     };
   }
 
@@ -360,7 +368,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       (job) =>
         (job.draftId ?? '') === draftId &&
         job.r2Key === r2ObjectKey &&
-        (job.status === 'uploading' || job.status === 'pending')
+        DISTRIBUTE_REUSE_UPLOAD_JOB_STATUSES.includes(job.status)
     );
 
     if (!uploadJob) {
@@ -386,13 +394,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw err;
     }
 
-    await updateUploadJobStatus(uploadJob.id, 'distributing', null);
+    if (uploadJob.status === 'distributing') {
+      return NextResponse.json({ jobId: uploadJob.id }, { status: 202 });
+    }
 
+    // Persist platform_upload rows before marking the job distributing so a failed ensure
+    // leaves the job in uploading/pending (retryable) instead of stuck distributing with no rows.
     const platformUploads = await ensurePlatformUploadsForJobTargets(
       targetPlatforms.map((platform) =>
         distributeCreatePlatformUploadInput(uploadJob.id, draft, platform)
       )
     );
+
+    await updateUploadJobStatus(uploadJob.id, 'distributing', null);
 
     const metadataByPlatformId = new Map<string, PlatformUploadMetadata>();
     for (const pu of platformUploads) {

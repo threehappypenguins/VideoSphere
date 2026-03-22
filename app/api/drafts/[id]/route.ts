@@ -16,8 +16,8 @@ import {
   DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
   MAX_DRAFT_TITLE_LENGTH,
+  parseDraftPlatformsPatchBody,
   parseDraftTargetsFromRequestBody,
-  parsePlatformsFromRequestBody,
   parseTagsFromRequestBody,
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
@@ -205,13 +205,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  let parsedPlatforms: ReturnType<typeof parsePlatformsFromRequestBody> | undefined;
+  let platformsPatchParse: ReturnType<typeof parseDraftPlatformsPatchBody> | undefined;
   if (platforms !== undefined) {
-    parsedPlatforms = parsePlatformsFromRequestBody(platforms);
-    if (parsedPlatforms.ok === false) {
+    platformsPatchParse = parseDraftPlatformsPatchBody(platforms);
+    if (platformsPatchParse.ok === false) {
       const errRes: ApiError = {
         error: 'Bad Request',
-        message: parsedPlatforms.error,
+        message: platformsPatchParse.error,
         statusCode: 400,
       };
       return NextResponse.json(errRes, { status: 400 });
@@ -225,7 +225,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
       ...(parsedTargets?.ok === true ? { targets: parsedTargets.value } : {}),
       ...(parsedTags?.ok === true ? { tags: parsedTags.value } : {}),
-      ...(parsedPlatforms?.ok === true ? { platformsPatch: parsedPlatforms.value } : {}),
+      ...(platformsPatchParse?.ok === true ? { platformsPatch: platformsPatchParse.value } : {}),
     });
 
     if (!updated) {

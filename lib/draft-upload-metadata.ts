@@ -369,7 +369,9 @@ export function parseTagsFromRequestBody(
 }
 
 /**
- * Validate optional `platforms` from API JSON body (POST/PATCH).
+ * Validate optional `platforms` on **POST** bodies: trims strings, drops empties, full normalized snapshot.
+ * For **PATCH**, use {@link parseDraftPlatformsPatchBody} so fields like `categoryUri: ""` still reach
+ * {@link mergeDraftPlatformsPatch} and can clear stored values.
  */
 export function parsePlatformsFromRequestBody(
   value: unknown
@@ -380,6 +382,23 @@ export function parsePlatformsFromRequestBody(
     return { ok: false, error: 'platforms must be a JSON object' };
   }
   return { ok: true, value: normalizeDraftPlatforms(value) };
+}
+
+/**
+ * Validate `platforms` on **PATCH** bodies: must be a plain object or `null` (treated as `{}`).
+ * Returns the raw value (no `normalizeDraftPlatforms`) so merge semantics — including clearing
+ * with empty strings — match {@link mergeDraftPlatformsPatch}.
+ */
+export function parseDraftPlatformsPatchBody(
+  value: unknown
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  if (value === null || value === undefined) {
+    return { ok: true, value: {} };
+  }
+  if (!isPlainObject(value)) {
+    return { ok: false, error: 'platforms must be a JSON object' };
+  }
+  return { ok: true, value };
 }
 
 export function mergeDraftPlatforms(base: DraftPlatforms, patch: DraftPlatforms): DraftPlatforms {

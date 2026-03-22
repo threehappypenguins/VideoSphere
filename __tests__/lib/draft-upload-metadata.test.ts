@@ -8,6 +8,7 @@ import {
   mergeDraftPlatforms,
   mergeDraftPlatformsPatch,
   parseDraftTargetsFromRequestBody,
+  parseDraftPlatformsPatchBody,
   parsePlatformsFromRequestBody,
   parseTagsFromRequestBody,
   stringifyDraftDocumentForStorage,
@@ -126,6 +127,25 @@ describe('draft-upload-metadata', () => {
       error: 'platforms must be a JSON object',
     });
     expect(parsePlatformsFromRequestBody(undefined)).toEqual({ ok: true, value: {} });
+  });
+
+  it('parseDraftPlatformsPatchBody keeps empty strings for merge/clear semantics', () => {
+    expect(parseDraftPlatformsPatchBody({ vimeo: { categoryUri: '' } })).toEqual({
+      ok: true,
+      value: { vimeo: { categoryUri: '' } },
+    });
+    expect(parsePlatformsFromRequestBody({ vimeo: { categoryUri: '' } })).toEqual({
+      ok: true,
+      value: {},
+    });
+  });
+
+  it('parseDraftPlatformsPatchBody accepts null as empty patch', () => {
+    expect(parseDraftPlatformsPatchBody(null)).toEqual({ ok: true, value: {} });
+    expect(parseDraftPlatformsPatchBody('x')).toEqual({
+      ok: false,
+      error: 'platforms must be a JSON object',
+    });
   });
 
   it('mergeDraftPlatforms deep-merges per platform', () => {

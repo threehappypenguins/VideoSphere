@@ -406,6 +406,24 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { platformsPatch: {} });
     });
 
+    it('passes raw platforms patch so empty string can clear vimeo categoryUri', async () => {
+      vi.mocked(updateDraft).mockResolvedValueOnce(baseDraft);
+
+      const res = await PATCH(
+        makeRequest(
+          'PATCH',
+          { platforms: { vimeo: { categoryUri: '' } } },
+          { [SESSION_COOKIE]: 'tok' }
+        ),
+        makeParams()
+      );
+
+      expect(res.status).toBe(200);
+      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, {
+        platformsPatch: { vimeo: { categoryUri: '' } },
+      });
+    });
+
     it('passes tags array to updateDraft', async () => {
       const updated = { ...baseDraft, tags: ['a', 'b'] };
       vi.mocked(updateDraft).mockResolvedValueOnce(updated);
