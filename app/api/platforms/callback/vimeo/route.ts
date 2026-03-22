@@ -132,6 +132,15 @@ export async function GET(req: NextRequest) {
       return htmlRedirect(failureUrl);
     }
 
+    const grantedScopes = (tokens.scope || '').split(/\s+/).filter(Boolean);
+    if (!grantedScopes.includes('upload')) {
+      console.error(
+        '[GET /api/platforms/callback/vimeo] Missing required upload scope in token response:',
+        tokens.scope
+      );
+      return htmlRedirect(failureUrl);
+    }
+
     // Extract platformUserId from the user URI (e.g. "/users/12345678" → "12345678")
     const platformUserId = tokens.user.uri.split('/').pop() ?? tokens.user.uri;
     const platformName = tokens.user.name;

@@ -1,8 +1,7 @@
 // =============================================================================
 // DRAFTS REPOSITORY UNIT TESTS
 // =============================================================================
-// Tests for draft CRUD. Mocks node-appwrite TablesDB so we don't hit a real
-// Appwrite instance. Ensures tags are JSON-serialized on write and parsed on read.
+// Mocks node-appwrite TablesDB. Schema: userId + document (JSON).
 // =============================================================================
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -46,15 +45,35 @@ import {
   updateDraft,
   deleteDraft,
 } from '@/lib/repositories/drafts';
+import {
+  DraftDocumentTooLargeError,
+  stringifyDraftDocumentForStorage,
+} from '@/lib/draft-upload-metadata';
+
+const publishDefaults = {
+  targets: ['youtube', 'vimeo'] as const,
+  title: 'My Video',
+  description: 'A great video.',
+  visibility: 'public' as const,
+  tags: [] as string[],
+  platforms: { youtube: { categoryId: '22' } },
+};
+
+const baseDocument = stringifyDraftDocumentForStorage({
+  targets: [...publishDefaults.targets],
+  title: publishDefaults.title,
+  description: publishDefaults.description,
+  visibility: publishDefaults.visibility,
+  tags: publishDefaults.tags,
+  platforms: publishDefaults.platforms,
+});
 
 const baseRow = {
   $id: 'draft-1',
   userId: 'user-1',
-  title: 'My Video',
-  description: 'A great video.',
-  tags: '["tag1","tag2"]',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  document: baseDocument,
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 beforeEach(() => {
@@ -63,64 +82,94 @@ beforeEach(() => {
 
 describe('drafts repository', () => {
   describe('createDraft', () => {
-    it('stores draft with tags JSON-stringified', async () => {
-      mockCreateRow.mockResolvedValue({ ...baseRow });
+    it('stores userId and document JSON only', async () => {
+      mockCreateRow.mockImplementation(
+        async (args: { data: { userId: string; document: string } }) => ({
+          $id: 'draft-id-123',
+          userId: args.data.userId,
+          document: args.data.document,
+          $createdAt: '2026-01-01T00:00:00.000Z',
+          $updatedAt: '2026-01-01T00:00:00.000Z',
+        })
+      );
 
       const result = await createDraft({
         userId: 'user-1',
+        targets: ['youtube'],
         title: 'My Video',
         description: 'A great video.',
-        tags: ['tag1', 'tag2'],
       });
 
       expect(mockCreateRow).toHaveBeenCalledTimes(1);
       const call = mockCreateRow.mock.calls[0][0];
-      expect(call.databaseId).toBe('videosphere');
-      expect(call.tableId).toBe('drafts');
-      expect(call.rowId).toBe('draft-id-123');
-      expect(call.data.userId).toBe('user-1');
-      expect(call.data.title).toBe('My Video');
-      expect(call.data.description).toBe('A great video.');
-      expect(call.data.tags).toBe(JSON.stringify(['tag1', 'tag2']));
-      expect(call.data.createdAt).toBeDefined();
-      expect(call.data.updatedAt).toBeDefined();
+      expect(call.data).toEqual({
+        userId: 'user-1',
+        document: stringifyDraftDocumentForStorage({
+          targets: ['youtube'],
+          title: 'My Video',
+          description: 'A great video.',
+          visibility: 'private',
+          tags: [],
+          platforms: {},
+        }),
+      });
+      expect(call.data).not.toHaveProperty('title');
+      expect(call.data).not.toHaveProperty('publishFields');
 
-      expect(result.id).toBe('draft-1');
-      expect(result.userId).toBe('user-1');
-      expect(result.title).toBe('My Video');
-      expect(result.tags).toEqual(['tag1', 'tag2']);
+      expect(result.targets).toEqual(['youtube']);
+      expect(result.visibility).toBe('private');
+      expect(result.platforms).toEqual({});
     });
 
-    it('stringifies empty tags array', async () => {
-      mockCreateRow.mockResolvedValue({ ...baseRow, tags: '[]' });
+    it('persists custom visibility and platforms in document', async () => {
+      mockCreateRow.mockImplementation(async (args: { data: { document: string } }) => ({
+        $id: 'draft-id-123',
+        userId: 'user-1',
+        document: args.data.document,
+        $createdAt: '2026-01-01T00:00:00.000Z',
+        $updatedAt: '2026-01-01T00:00:00.000Z',
+      }));
 
       await createDraft({
         userId: 'user-1',
-        title: 'No Tags',
-        description: 'Desc',
-        tags: [],
+        targets: ['youtube', 'vimeo'],
+        title: 'T',
+        description: 'D',
+        visibility: 'unlisted',
+        platforms: { youtube: { categoryId: '10' } },
       });
 
       const call = mockCreateRow.mock.calls[0][0];
-      expect(call.data.tags).toBe('[]');
+      const parsed = JSON.parse(call.data.document as string) as {
+        visibility: string;
+        platforms: unknown;
+      };
+      expect(parsed.visibility).toBe('unlisted');
+      expect(parsed.platforms).toEqual({ youtube: { categoryId: '10' } });
+    });
+
+    it('throws DraftDocumentTooLargeError before Appwrite when document JSON exceeds column limit', async () => {
+      await expect(
+        createDraft({
+          userId: 'user-1',
+          targets: ['youtube'],
+          title: 't',
+          description: 'x'.repeat(20_000),
+        })
+      ).rejects.toBeInstanceOf(DraftDocumentTooLargeError);
+      expect(mockCreateRow).not.toHaveBeenCalled();
     });
   });
 
   describe('getDraftById', () => {
-    it('returns typed Draft with tags parsed as string[]', async () => {
-      mockGetRow.mockResolvedValue({ ...baseRow, tags: '["a","b","c"]' });
+    it('returns typed Draft from document', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow });
 
       const result = await getDraftById('draft-1');
 
-      expect(mockGetRow).toHaveBeenCalledWith({
-        databaseId: 'videosphere',
-        tableId: 'drafts',
-        rowId: 'draft-1',
-      });
       expect(result).not.toBeNull();
-      expect(result!.id).toBe('draft-1');
       expect(result!.title).toBe('My Video');
-      expect(result!.tags).toEqual(['a', 'b', 'c']);
+      expect(result!.targets).toEqual(['youtube', 'vimeo']);
     });
 
     it('returns null when draft is not found (404)', async () => {
@@ -128,120 +177,151 @@ describe('drafts repository', () => {
       err.code = 404;
       mockGetRow.mockRejectedValue(err);
 
-      const result = await getDraftById('missing-id');
-
-      expect(result).toBeNull();
+      expect(await getDraftById('missing-id')).toBeNull();
     });
 
-    it('returns empty tags array when tags is invalid or missing', async () => {
-      mockGetRow.mockResolvedValue({ ...baseRow, tags: '' });
+    it('defaults when document missing', async () => {
+      mockGetRow.mockResolvedValue({
+        ...baseRow,
+        document: '',
+      });
 
       const result = await getDraftById('draft-1');
-
-      expect(result!.tags).toEqual([]);
+      expect(result!.title).toBe('');
+      expect(result!.targets).toEqual([]);
+      expect(result!.visibility).toBe('private');
     });
 
     it('rethrows non-404 errors', async () => {
       mockGetRow.mockRejectedValue(new Error('Server error'));
-
       await expect(getDraftById('draft-1')).rejects.toThrow('Server error');
     });
   });
 
   describe('listDraftsByUser', () => {
-    it('returns all drafts for user sorted by updatedAt descending', async () => {
+    it('returns drafts for user', async () => {
       mockListRows.mockResolvedValue({
         rows: [
-          { ...baseRow, $id: 'd1', updatedAt: '2026-01-03T00:00:00.000Z' },
-          { ...baseRow, $id: 'd2', updatedAt: '2026-01-02T00:00:00.000Z' },
+          { ...baseRow, $id: 'd1', $updatedAt: '2026-01-03T00:00:00.000Z' },
+          { ...baseRow, $id: 'd2', $updatedAt: '2026-01-02T00:00:00.000Z' },
         ],
       });
 
       const result = await listDraftsByUser('user-1');
-
-      expect(mockListRows).toHaveBeenCalledWith(
-        expect.objectContaining({
-          databaseId: 'videosphere',
-          tableId: 'drafts',
-          total: false,
-        })
-      );
-      const queries = mockListRows.mock.calls[0][0].queries;
-      expect(queries).toContain('equal("userId","user-1")');
-      expect(queries).toContain('orderDesc("updatedAt")');
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('d1');
-      expect(result[1].id).toBe('d2');
-      result.forEach((draft) => {
-        expect(draft).toHaveProperty('tags');
-        expect(Array.isArray(draft.tags)).toBe(true);
-      });
     });
 
-    it('returns empty array when user has no drafts', async () => {
+    it('returns empty array when none', async () => {
       mockListRows.mockResolvedValue({ rows: [] });
-
-      const result = await listDraftsByUser('user-1');
-
-      expect(result).toEqual([]);
+      expect(await listDraftsByUser('user-1')).toEqual([]);
     });
   });
 
   describe('updateDraft', () => {
-    it('updates provided fields and JSON-stringifies tags', async () => {
-      const updated = {
-        ...baseRow,
+    it('updates title via getRow merge + document', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow });
+      const updatedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
         title: 'Updated Title',
-        tags: '["new","tags"]',
-        updatedAt: '2026-03-09T12:00:00.000Z',
-      };
-      mockUpdateRow.mockResolvedValue(updated);
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: publishDefaults.tags,
+        platforms: publishDefaults.platforms,
+      });
+      mockUpdateRow.mockResolvedValue({ ...baseRow, document: updatedDoc });
 
       const result = await updateDraft('draft-1', {
         title: 'Updated Title',
-        tags: ['new', 'tags'],
       });
 
+      expect(mockGetRow).toHaveBeenCalledTimes(1);
       expect(mockUpdateRow).toHaveBeenCalledWith(
         expect.objectContaining({
-          databaseId: 'videosphere',
-          tableId: 'drafts',
-          rowId: 'draft-1',
-          data: expect.objectContaining({
-            title: 'Updated Title',
-            tags: '["new","tags"]',
-            updatedAt: expect.any(String),
-          }),
+          data: { document: updatedDoc },
         })
       );
-      expect(result).not.toBeNull();
       expect(result!.title).toBe('Updated Title');
-      expect(result!.tags).toEqual(['new', 'tags']);
     });
 
-    it('returns null when draft is not found (404)', async () => {
+    it('throws before updateRow when merged document exceeds column limit', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow });
+      await expect(
+        updateDraft('draft-1', { description: 'y'.repeat(20_000) })
+      ).rejects.toBeInstanceOf(DraftDocumentTooLargeError);
+      expect(mockUpdateRow).not.toHaveBeenCalled();
+    });
+
+    it('merges platformsPatch without wiping omitted fields', async () => {
+      const rowWithTags = {
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: ['keep'],
+          platforms: {
+            youtube: { categoryId: '22' },
+          },
+        }),
+      };
+      mockGetRow.mockResolvedValue({ ...rowWithTags });
+      const updatedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
+        title: publishDefaults.title,
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: ['keep'],
+        platforms: {
+          youtube: { categoryId: '99' },
+        },
+      });
+      mockUpdateRow.mockResolvedValue({ ...rowWithTags, document: updatedDoc });
+
+      await updateDraft('draft-1', {
+        platformsPatch: { youtube: { categoryId: '99' } },
+      });
+
+      const doc = mockUpdateRow.mock.calls[0][0].data.document as string;
+      const parsed = JSON.parse(doc) as {
+        tags: string[];
+        platforms: { youtube: { categoryId: string } };
+      };
+      expect(parsed.platforms.youtube.categoryId).toBe('99');
+      expect(parsed.tags).toEqual(['keep']);
+    });
+
+    it('returns null when updateRow returns 404', async () => {
       const err = new Error('Not found') as Error & { code?: number };
       err.code = 404;
       mockUpdateRow.mockRejectedValue(err);
-
-      const result = await updateDraft('missing-id', { title: 'New' });
-
-      expect(result).toBeNull();
+      expect(await updateDraft('missing-id', { title: 'New' })).toBeNull();
     });
 
-    it('rethrows non-404 errors', async () => {
-      mockUpdateRow.mockRejectedValue(new Error('Server error'));
+    it('returns null when draft missing for platformsPatch-only update', async () => {
+      const err = new Error('Not found') as Error & { code?: number };
+      err.code = 404;
+      mockGetRow.mockRejectedValue(err);
+      const result = await updateDraft('missing-id', {
+        platformsPatch: { vimeo: { categoryUri: '/categories/x' } },
+      });
+      expect(result).toBeNull();
+      expect(mockUpdateRow).not.toHaveBeenCalled();
+    });
 
-      await expect(updateDraft('draft-1', { title: 'X' })).rejects.toThrow('Server error');
+    it('returns current draft when nothing to change', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow });
+      const result = await updateDraft('draft-1', {});
+      expect(mockUpdateRow).not.toHaveBeenCalled();
+      expect(result!.id).toBe('draft-1');
     });
   });
 
   describe('deleteDraft', () => {
-    it('calls deleteRow with the given id', async () => {
+    it('calls deleteRow', async () => {
       mockDeleteRow.mockResolvedValue(undefined);
-
       await deleteDraft('draft-1');
-
       expect(mockDeleteRow).toHaveBeenCalledWith({
         databaseId: 'videosphere',
         tableId: 'drafts',

@@ -60,8 +60,8 @@ const baseRow = {
   tokenExpiry: '2026-12-31T00:00:00.000Z',
   platformUserId: 'yt-123',
   platformName: 'My Channel',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 beforeEach(() => {
@@ -93,8 +93,8 @@ describe('connected-accounts repository', () => {
       expect(call.data.tokenExpiry).toBe('2026-12-31T00:00:00.000Z');
       expect(call.data.platformUserId).toBe('yt-123');
       expect(call.data.platformName).toBe('My Channel');
-      expect(call.data.createdAt).toBeDefined();
-      expect(call.data.updatedAt).toBeDefined();
+      expect(call.data).not.toHaveProperty('createdAt');
+      expect(call.data).not.toHaveProperty('updatedAt');
       expect(call.data.accessToken).not.toBe('access');
       expect(call.data.refreshToken).not.toBe('refresh');
       expect(call.data.accessToken).toMatch(/^[A-Za-z0-9+/=]+$/);
@@ -264,7 +264,7 @@ describe('connected-accounts repository', () => {
         accessToken: encryptToken('new-access'),
         refreshToken: encryptToken('new-refresh'),
         tokenExpiry: '2027-01-01T00:00:00.000Z',
-        updatedAt: '2026-03-08T12:00:00.000Z',
+        $updatedAt: '2026-03-08T12:00:00.000Z',
       };
       mockUpdateRow.mockResolvedValue(updated);
 

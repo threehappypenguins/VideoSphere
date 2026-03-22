@@ -140,6 +140,15 @@ describe('GET /api/platforms/connect/youtube', () => {
       expect(decodeURIComponent(location.searchParams.get('scope')!)).toContain('youtube.readonly');
     });
 
+    it('includes youtube.force-ssl scope for playlist management', async () => {
+      const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
+      const res = await GET(req);
+      const location = new URL(res.headers.get('location')!);
+      expect(decodeURIComponent(location.searchParams.get('scope')!)).toContain(
+        'youtube.force-ssl'
+      );
+    });
+
     it('uses a random hex nonce (not userId) as the state parameter', async () => {
       const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
       const res = await GET(req);

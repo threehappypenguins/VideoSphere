@@ -18,6 +18,7 @@ import { getSessionCookieName } from '@/lib/auth-session-cookie';
 export const VIMEO_OAUTH_STATE_COOKIE = 'vimeo_oauth_state';
 
 const VIMEO_AUTH_URL = 'https://api.vimeo.com/oauth/authorize';
+const VIMEO_SCOPES = ['upload', 'edit', 'public', 'private'].join(' ');
 
 export async function GET(req: NextRequest) {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
@@ -64,16 +65,11 @@ export async function GET(req: NextRequest) {
   const csrfNonce = randomBytes(32).toString('hex');
   const cookieValue = `${csrfNonce}|${userId}`;
 
-  // TODO: Change scope back to 'upload' once Vimeo approves the upload access request.
-  // Upload access is currently under review — using 'public' in the meantime.
-  // See: https://developer.vimeo.com/apps (Upload Access: "Your upload request is being reviewed.")
-  const scope = 'public';
-
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope,
+    scope: VIMEO_SCOPES,
     state: csrfNonce,
   });
 

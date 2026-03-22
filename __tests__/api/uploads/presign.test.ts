@@ -47,7 +47,14 @@ vi.mock('@/lib/r2', () => ({
 
 // Mock user repository
 vi.mock('@/lib/repositories/users', () => ({
-  getUserById: vi.fn(async () => ({ userId: 'user-123', isSupporter: false })),
+  getUserById: vi.fn(async () => ({
+    userId: 'user-123',
+    email: 'user@example.com',
+    isSupporter: false,
+    role: 'user' as const,
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-01T00:00:00.000Z',
+  })),
 }));
 
 // Mock upload-usage repository
@@ -61,11 +68,14 @@ vi.mock('@/lib/repositories/drafts', () => ({
   getDraftById: vi.fn(async () => ({
     id: 'draft-abc',
     userId: 'user-123',
+    targets: ['youtube'] as const,
     title: 'Test Draft',
     description: '',
-    tags: [],
-    createdAt: '',
-    updatedAt: '',
+    tags: [] as string[],
+    visibility: 'private' as const,
+    platforms: {},
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
 }));
 
@@ -78,8 +88,8 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
     r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
     status: 'pending',
     errorMessage: null,
-    createdAt: '',
-    updatedAt: '',
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
 }));
 
@@ -134,8 +144,8 @@ describe('POST /api/uploads/presign', () => {
       isSupporter: false,
       email: 'test@example.com',
       role: 'user',
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
     vi.mocked(incrementUsageIfAllowed).mockResolvedValue({ allowed: true, monthlyUsage: 5 });
     vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example.com/upload?signed=true');
@@ -146,17 +156,20 @@ describe('POST /api/uploads/presign', () => {
       r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
       status: 'pending',
       errorMessage: null,
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
     vi.mocked(getDraftById).mockResolvedValue({
       id: 'draft-abc',
       userId: 'user-123',
+      targets: ['youtube'],
       title: 'Test Draft',
       description: '',
       tags: [],
-      createdAt: '',
-      updatedAt: '',
+      visibility: 'private',
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
   });
 
@@ -511,8 +524,8 @@ describe('POST /api/uploads/presign', () => {
         isSupporter: true,
         email: 'supporter@example.com',
         role: 'user',
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
 
       const request = createRequest(
@@ -647,11 +660,14 @@ describe('POST /api/uploads/presign', () => {
       vi.mocked(getDraftById).mockResolvedValueOnce({
         id: 'draft-other',
         userId: 'other-user-999',
+        targets: ['youtube'],
         title: 'Someone Else Draft',
         description: '',
         tags: [],
-        createdAt: '',
-        updatedAt: '',
+        visibility: 'private',
+        platforms: {},
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
 
       const request = createRequest(
@@ -833,8 +849,8 @@ describe('POST /api/uploads/presign', () => {
         isSupporter: true,
         email: 'test@example.com',
         role: 'user',
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
       vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 unavailable'));
 
