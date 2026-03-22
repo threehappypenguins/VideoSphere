@@ -4,6 +4,7 @@ import {
   type ConnectedAccountPlatform,
   type Draft,
   type PlatformUpload,
+  type PlatformUploadStatus,
 } from '@/types';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { buildMetadataForPlatform, isConnectedAccountPlatform } from '@/lib/draft-upload-metadata';
@@ -115,6 +116,26 @@ function parseRequestBody(
   };
 }
 
+/** Throws if Appwrite returns 404 — avoids continuing upload when the row no longer exists. */
+async function requireUpdatePlatformUploadStatus(
+  id: string,
+  status: PlatformUploadStatus,
+  platformVideoId?: string,
+  platformUrl?: string,
+  errorMessage?: string | null
+): Promise<void> {
+  const row = await updatePlatformUploadStatus(
+    id,
+    status,
+    platformVideoId,
+    platformUrl,
+    errorMessage
+  );
+  if (row === null) {
+    throw new Error(`platform_upload ${id} not found (cannot set status to ${status})`);
+  }
+}
+
 async function runSinglePlatformUpload(
   userId: string,
   r2ObjectKey: string,
@@ -122,12 +143,12 @@ async function runSinglePlatformUpload(
   metadata: PlatformUploadMetadata
 ): Promise<void> {
   try {
-    await updatePlatformUploadStatus(platformUpload.id, 'uploading');
+    await requireUpdatePlatformUploadStatus(platformUpload.id, 'uploading');
 
     const connectedAccount = await getConnectedAccountWithTokens(userId, platformUpload.platform);
 
     if (!connectedAccount) {
-      await updatePlatformUploadStatus(
+      await requireUpdatePlatformUploadStatus(
         platformUpload.id,
         'failed',
         undefined,
@@ -154,7 +175,7 @@ async function runSinglePlatformUpload(
     if (shouldRefreshYouTubeToken) {
       const refreshed = await refreshYouTubeAccessToken({ refreshToken: tokens.refreshToken });
       if ('error' in refreshed) {
-        await updatePlatformUploadStatus(
+        await requireUpdatePlatformUploadStatus(
           platformUpload.id,
           'failed',
           undefined,
@@ -220,7 +241,7 @@ async function runSinglePlatformUpload(
       const detailsSuffix = uploadResult.error.details
         ? ` Details: ${uploadResult.error.details}`
         : '';
-      await updatePlatformUploadStatus(
+      await requireUpdatePlatformUploadStatus(
         platformUpload.id,
         'failed',
         undefined,
@@ -230,7 +251,7 @@ async function runSinglePlatformUpload(
       return;
     }
 
-    await updatePlatformUploadStatus(
+    await requireUpdatePlatformUploadStatus(
       platformUpload.id,
       'completed',
       uploadResult.platformVideoId,
@@ -238,13 +259,20 @@ async function runSinglePlatformUpload(
       null
     );
   } catch (error) {
-    await updatePlatformUploadStatus(
+    const detail = error instanceof Error ? error.message : 'Unexpected platform upload error';
+    const marked = await updatePlatformUploadStatus(
       platformUpload.id,
       'failed',
       undefined,
       undefined,
-      error instanceof Error ? error.message : 'Unexpected platform upload error'
+      detail
     );
+    if (marked === null) {
+      console.error(
+        `[POST /api/uploads/distribute] platform_upload ${platformUpload.id} missing; could not persist failure (${detail})`
+      );
+      throw error instanceof Error ? error : new Error(detail);
+    }
   }
 }
 
@@ -269,6 +297,19 @@ async function runDistributionInBackground(
 
     const finalPlatformUploads = await getPlatformUploadsByJob(jobId);
     const attemptResults = finalPlatformUploads.filter((u) => attemptPlatformUploadIds.has(u.id));
+    const foundAttemptIds = new Set(attemptResults.map((u) => u.id));
+    const missingAttemptRows = [...attemptPlatformUploadIds].filter(
+      (id) => !foundAttemptIds.has(id)
+    );
+    if (missingAttemptRows.length > 0) {
+      await updateUploadJobStatus(
+        jobId,
+        'failed',
+        `Platform upload row(s) missing after distribution: ${missingAttemptRows.join(', ')}`
+      );
+      return;
+    }
+
     const failedUploads = attemptResults.filter((upload) => upload.status === 'failed');
 
     if (failedUploads.length > 0) {
@@ -279,6 +320,16 @@ async function runDistributionInBackground(
         jobId,
         'failed',
         `${failedUploads.length} platform upload(s) failed: ${errorDetails}`
+      );
+      return;
+    }
+
+    const nonCompleted = attemptResults.filter((u) => u.status !== 'completed');
+    if (nonCompleted.length > 0) {
+      await updateUploadJobStatus(
+        jobId,
+        'failed',
+        `Platform upload(s) not in completed state: ${nonCompleted.map((u) => `${u.platform}=${u.status}`).join('; ')}`
       );
       return;
     }
@@ -390,6 +441,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     if (uploadJob.status === 'distributing') {
+      const existingUploads = await getPlatformUploadsByJob(uploadJob.id);
+      const jobPlatforms = new Set(existingUploads.map((u) => u.platform));
+      const notOnJob = targetPlatforms.filter((p) => !jobPlatforms.has(p));
+      if (notOnJob.length > 0) {
+        return NextResponse.json(
+          {
+            error: `This upload is already distributing. These platforms are not part of this job: ${notOnJob.join(', ')}. Retry with the same targets as the original request (or a subset).`,
+          },
+          { status: 409 }
+        );
+      }
       return NextResponse.json({ jobId: uploadJob.id }, { status: 202 });
     }
 

@@ -519,7 +519,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     const createBody: Record<string, unknown> = {
       upload: {
         approach: 'tus',
-        size: String(videoSource.contentLength),
+        size: videoSource.contentLength,
       },
       name: safeTitle,
       description: safeDescription,

@@ -285,10 +285,25 @@ describe('POST /api/uploads/distribute', () => {
       platformUrl: 'https://vimeo.com/vm-1',
     });
 
-    mockUpdatePlatformUploadStatus.mockResolvedValue(null);
+    mockUpdatePlatformUploadStatus.mockImplementation(async (id: string, status: string) => ({
+      id,
+      uploadJobId: 'job-123',
+      platform: id.includes('vimeo') ? 'vimeo' : 'youtube',
+      status,
+      platformVideoId: '',
+      platformUrl: '',
+      title: '',
+      description: '',
+      tags: [] as string[],
+      visibility: 'private' as const,
+      scheduledAt: null,
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    }));
     mockGetPlatformUploadsByJob.mockResolvedValue([
-      { id: 'pu-youtube', status: 'completed' },
-      { id: 'pu-vimeo', status: 'completed' },
+      { id: 'pu-youtube', platform: 'youtube', status: 'completed' },
+      { id: 'pu-vimeo', platform: 'vimeo', status: 'completed' },
     ]);
 
     mockEnsurePlatformUploadsForJobTargets.mockImplementation(
@@ -403,6 +418,54 @@ describe('POST /api/uploads/distribute', () => {
     const body = await response.json();
     expect(body.jobId).toBe('job-123');
     expect(mockUpdateUploadJobStatus).not.toHaveBeenCalled();
+    expect(mockEnsurePlatformUploadsForJobTargets).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 when job is distributing but request adds platforms not on the job', async () => {
+    mockFindUploadJobForDistribution.mockResolvedValueOnce({
+      id: 'job-123',
+      userId: 'user-123',
+      draftId: 'draft-1',
+      r2Key: 'temp/uploads/user-123/video.mp4',
+      status: 'distributing',
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockGetPlatformUploadsByJob.mockResolvedValueOnce([
+      {
+        id: 'pu-youtube',
+        uploadJobId: 'job-123',
+        platform: 'youtube',
+        status: 'uploading',
+        platformVideoId: '',
+        platformUrl: '',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube', 'vimeo'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error).toMatch(/vimeo|not part of this job/i);
     expect(mockEnsurePlatformUploadsForJobTargets).not.toHaveBeenCalled();
   });
 
