@@ -34,9 +34,18 @@ vi.mock('@/lib/appwrite', () => ({
 
 import {
   createPlatformUpload,
+  ensurePlatformUploadsForJobTargets,
   getPlatformUploadsByJob,
+  resetPlatformUploadForRetry,
   updatePlatformUploadStatus,
 } from '@/lib/repositories/platform-uploads';
+
+const baseDocument = JSON.stringify({
+  title: 'My Video',
+  description: 'Description',
+  tags: [] as string[],
+  visibility: 'public',
+});
 
 const basePlatformUploadRow = {
   $id: 'pu-1',
@@ -45,14 +54,11 @@ const basePlatformUploadRow = {
   status: 'pending',
   platformVideoId: '',
   platformUrl: '',
-  title: 'My Video',
-  description: 'Description',
-  tags: '[]',
-  visibility: 'public',
+  document: baseDocument,
   scheduledAt: '',
   errorMessage: '',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 beforeEach(() => {
@@ -69,7 +75,7 @@ describe('platform-uploads repository', () => {
         platform: 'youtube',
         title: 'My Video',
         description: 'Description',
-        tags: '[]',
+        tags: [],
         visibility: 'public',
       });
 
@@ -81,12 +87,12 @@ describe('platform-uploads repository', () => {
       expect(call.data.uploadJobId).toBe('job-1');
       expect(call.data.platform).toBe('youtube');
       expect(call.data.status).toBe('pending');
-      expect(call.data.title).toBe('My Video');
+      expect(call.data.document).toBe(baseDocument);
       expect(call.data.platformVideoId).toBe('');
       expect(call.data.platformUrl).toBe('');
       expect(call.data.errorMessage).toBe('');
-      expect(call.data.createdAt).toBeDefined();
-      expect(call.data.updatedAt).toBeDefined();
+      expect(call.data).not.toHaveProperty('createdAt');
+      expect(call.data).not.toHaveProperty('updatedAt');
       expect(call.data.scheduledAt).toBeUndefined();
 
       expect(result.id).toBe('pu-1');
@@ -109,7 +115,7 @@ describe('platform-uploads repository', () => {
         platform: 'vimeo',
         title: 'Scheduled',
         description: 'Desc',
-        tags: '[]',
+        tags: [],
         visibility: 'unlisted',
         scheduledAt: '2026-03-15T14:00:00.000Z',
       });
@@ -125,30 +131,70 @@ describe('platform-uploads repository', () => {
         platform: 'youtube',
         title: 'Immediate',
         description: 'Desc',
-        tags: '[]',
+        tags: [],
         visibility: 'public',
         scheduledAt: null,
       });
 
       expect(mockCreateRow.mock.calls[0][0].data.scheduledAt).toBeUndefined();
     });
+
+    it('embeds YouTube category and madeForKids in document JSON', async () => {
+      mockCreateRow.mockResolvedValue({ ...basePlatformUploadRow });
+
+      await createPlatformUpload({
+        uploadJobId: 'job-1',
+        platform: 'youtube',
+        title: 'T',
+        description: 'D',
+        tags: ['a'],
+        visibility: 'public',
+        categoryId: '10',
+        madeForKids: false,
+      });
+
+      const doc = JSON.parse(mockCreateRow.mock.calls[0][0].data.document as string);
+      expect(doc).toMatchObject({
+        title: 'T',
+        categoryId: '10',
+        madeForKids: false,
+        tags: ['a'],
+      });
+    });
+
+    it('embeds Vimeo category URI in document JSON', async () => {
+      mockCreateRow.mockResolvedValue({ ...basePlatformUploadRow, platform: 'vimeo' });
+
+      await createPlatformUpload({
+        uploadJobId: 'job-1',
+        platform: 'vimeo',
+        title: 'T',
+        description: 'D',
+        tags: [],
+        visibility: 'unlisted',
+        vimeoCategoryUri: '/categories/music',
+      });
+
+      const doc = JSON.parse(mockCreateRow.mock.calls[0][0].data.document as string);
+      expect(doc.vimeoCategoryUri).toBe('/categories/music');
+    });
   });
 
   describe('getPlatformUploadsByJob', () => {
-    it('returns all platform uploads for the job ordered by createdAt desc', async () => {
+    it('returns all platform uploads for the job ordered by $createdAt desc', async () => {
       mockListRows.mockResolvedValue({
         rows: [
           {
             ...basePlatformUploadRow,
             $id: 'pu-1',
             platform: 'youtube',
-            createdAt: '2026-01-02T00:00:00.000Z',
+            $createdAt: '2026-01-02T00:00:00.000Z',
           },
           {
             ...basePlatformUploadRow,
             $id: 'pu-2',
             platform: 'vimeo',
-            createdAt: '2026-01-01T00:00:00.000Z',
+            $createdAt: '2026-01-01T00:00:00.000Z',
           },
         ],
       });
@@ -164,7 +210,7 @@ describe('platform-uploads repository', () => {
       );
       const queries = mockListRows.mock.calls[0][0].queries;
       expect(queries).toContain('equal("uploadJobId","job-1")');
-      expect(queries).toContain('orderDesc("createdAt")');
+      expect(queries).toContain('orderDesc("$createdAt")');
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('pu-1');
       expect(result[0].platform).toBe('youtube');
@@ -185,7 +231,12 @@ describe('platform-uploads repository', () => {
         rows: [
           {
             ...basePlatformUploadRow,
-            visibility: 'unlisted',
+            document: JSON.stringify({
+              title: 'My Video',
+              description: 'Description',
+              tags: [],
+              visibility: 'unlisted',
+            }),
             scheduledAt: '2026-03-10T12:00:00.000Z',
             errorMessage: '',
           },
@@ -201,11 +252,11 @@ describe('platform-uploads repository', () => {
   });
 
   describe('updatePlatformUploadStatus', () => {
-    it('updates status and updatedAt', async () => {
+    it('updates status (Appwrite maintains $updatedAt)', async () => {
       const updated = {
         ...basePlatformUploadRow,
         status: 'completed',
-        updatedAt: '2026-03-09T12:00:00.000Z',
+        $updatedAt: '2026-03-09T12:00:00.000Z',
       };
       mockUpdateRow.mockResolvedValue(updated);
 
@@ -216,10 +267,7 @@ describe('platform-uploads repository', () => {
           databaseId: 'videosphere',
           tableId: 'platform_uploads',
           rowId: 'pu-1',
-          data: expect.objectContaining({
-            status: 'completed',
-            updatedAt: expect.any(String),
-          }),
+          data: { status: 'completed' },
         })
       );
       expect(result).not.toBeNull();
@@ -232,7 +280,7 @@ describe('platform-uploads repository', () => {
         status: 'completed',
         platformVideoId: 'yt-abc',
         platformUrl: 'https://youtube.com/watch?v=yt-abc',
-        updatedAt: '2026-03-09T12:00:00.000Z',
+        $updatedAt: '2026-03-09T12:00:00.000Z',
       };
       mockUpdateRow.mockResolvedValue(updated);
 
@@ -255,7 +303,7 @@ describe('platform-uploads repository', () => {
         ...basePlatformUploadRow,
         status: 'failed',
         errorMessage: 'Quota exceeded',
-        updatedAt: '2026-03-09T12:00:00.000Z',
+        $updatedAt: '2026-03-09T12:00:00.000Z',
       };
       mockUpdateRow.mockResolvedValue(updated);
 
@@ -294,6 +342,154 @@ describe('platform-uploads repository', () => {
       mockUpdateRow.mockRejectedValue(new Error('Server error'));
 
       await expect(updatePlatformUploadStatus('pu-1', 'completed')).rejects.toThrow('Server error');
+    });
+  });
+
+  describe('resetPlatformUploadForRetry', () => {
+    it('updates row to pending with fresh document and cleared outcome fields', async () => {
+      const updatedRow = {
+        ...basePlatformUploadRow,
+        $id: 'pu-1',
+        status: 'pending',
+        platformVideoId: '',
+        platformUrl: '',
+        errorMessage: '',
+      };
+      mockUpdateRow.mockResolvedValue(updatedRow);
+
+      await resetPlatformUploadForRetry('pu-1', {
+        uploadJobId: 'job-1',
+        platform: 'youtube',
+        title: 'Retry title',
+        description: 'D',
+        tags: ['x'],
+        visibility: 'public',
+      });
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(1);
+      const data = mockUpdateRow.mock.calls[0][0].data as Record<string, unknown>;
+      expect(data.status).toBe('pending');
+      expect(data.platformVideoId).toBe('');
+      expect(data.platformUrl).toBe('');
+      expect(data.errorMessage).toBe('');
+      expect(data.scheduledAt).toBe('');
+      const doc = JSON.parse(data.document as string);
+      expect(doc.title).toBe('Retry title');
+    });
+  });
+
+  describe('ensurePlatformUploadsForJobTargets', () => {
+    const youtubeInput = {
+      uploadJobId: 'job-1',
+      platform: 'youtube' as const,
+      title: 'T',
+      description: 'D',
+      tags: [] as string[],
+      visibility: 'public' as const,
+    };
+
+    it('resets newest row per platform when one already exists', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [
+          {
+            ...basePlatformUploadRow,
+            $id: 'pu-existing',
+            platform: 'youtube',
+            status: 'failed',
+            errorMessage: 'old',
+            $createdAt: '2026-01-03T00:00:00.000Z',
+          },
+        ],
+      });
+      mockUpdateRow.mockResolvedValue({
+        ...basePlatformUploadRow,
+        $id: 'pu-existing',
+        status: 'pending',
+      });
+
+      const out = await ensurePlatformUploadsForJobTargets([youtubeInput]);
+
+      expect(mockCreateRow).not.toHaveBeenCalled();
+      expect(mockUpdateRow).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'pu-existing' }));
+      expect(out).toHaveLength(1);
+      expect(out[0].id).toBe('pu-existing');
+    });
+
+    it('creates when no row exists for that platform', async () => {
+      mockListRows.mockResolvedValue({ rows: [] });
+      mockCreateRow.mockResolvedValue({ ...basePlatformUploadRow });
+
+      await ensurePlatformUploadsForJobTargets([youtubeInput]);
+
+      expect(mockCreateRow).toHaveBeenCalledTimes(1);
+      expect(mockUpdateRow).not.toHaveBeenCalled();
+    });
+
+    it('resets one platform and creates the other when only one exists', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [{ ...basePlatformUploadRow, $id: 'pu-yt', platform: 'youtube' }],
+      });
+      mockUpdateRow.mockResolvedValue({ ...basePlatformUploadRow, $id: 'pu-yt' });
+      mockCreateRow.mockResolvedValue({
+        ...basePlatformUploadRow,
+        $id: 'pu-vm',
+        platform: 'vimeo',
+      });
+
+      await ensurePlatformUploadsForJobTargets([
+        youtubeInput,
+        {
+          uploadJobId: 'job-1',
+          platform: 'vimeo',
+          title: 'V',
+          description: 'D',
+          tags: [],
+          visibility: 'unlisted',
+        },
+      ]);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(1);
+      expect(mockCreateRow).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws when inputs mix different uploadJobId values', async () => {
+      await expect(
+        ensurePlatformUploadsForJobTargets([
+          youtubeInput,
+          { ...youtubeInput, uploadJobId: 'job-2' },
+        ])
+      ).rejects.toThrow(/uploadJobId/);
+      expect(mockListRows).not.toHaveBeenCalled();
+    });
+
+    it('dedupes duplicate platforms so only one reset/create runs per platform', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [
+          {
+            ...basePlatformUploadRow,
+            $id: 'pu-existing',
+            platform: 'youtube',
+            status: 'failed',
+            $createdAt: '2026-01-03T00:00:00.000Z',
+          },
+        ],
+      });
+      mockUpdateRow.mockResolvedValue({
+        ...basePlatformUploadRow,
+        $id: 'pu-existing',
+        status: 'pending',
+      });
+
+      const out = await ensurePlatformUploadsForJobTargets([
+        { ...youtubeInput, title: 'First' },
+        { ...youtubeInput, title: 'Second duplicate' },
+      ]);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(1);
+      expect(mockCreateRow).not.toHaveBeenCalled();
+      expect(out).toHaveLength(1);
+      const doc = JSON.parse(mockUpdateRow.mock.calls[0][0].data.document as string);
+      expect(doc.title).toBe('First');
     });
   });
 });

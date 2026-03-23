@@ -20,6 +20,7 @@ export type { CreateDraftInput, UpdateDraftInput } from './drafts';
 
 export {
   createUploadJob,
+  findUploadJobForDistribution,
   getUploadJobById,
   listUploadJobsByUser,
   getUploadJobsWithPlatformUploads,
@@ -29,7 +30,9 @@ export type { CreateUploadJobInput } from './upload-jobs';
 
 export {
   createPlatformUpload,
+  ensurePlatformUploadsForJobTargets,
   getPlatformUploadsByJob,
+  resetPlatformUploadForRetry,
   updatePlatformUploadStatus,
 } from './platform-uploads';
 export type { CreatePlatformUploadInput } from './platform-uploads';

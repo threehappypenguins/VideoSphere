@@ -9,13 +9,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OAuthProvider } from 'node-appwrite';
 import { appwriteAuth } from '@/lib/appwrite';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 export async function GET(req: NextRequest) {
   try {
     const origin = req.nextUrl.origin;
+    const rd = safeRedirect(req.nextUrl.searchParams.get('redirect'));
+    const callbackUrl = rd
+      ? `${origin}/api/auth/oauth/callback?rd=${encodeURIComponent(rd)}`
+      : `${origin}/api/auth/oauth/callback`;
     const redirectUrl = await appwriteAuth.createOAuth2Token({
       provider: OAuthProvider.Google,
-      success: `${origin}/api/auth/oauth/callback`,
+      success: callbackUrl,
       failure: `${origin}/login?error=oauth_failed`,
     });
     return NextResponse.redirect(redirectUrl || `${origin}/login?error=oauth_failed`);

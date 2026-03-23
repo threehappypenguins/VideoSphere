@@ -14,11 +14,13 @@ import type { ConnectedAccount, ConnectedAccountPlatform, ConnectedAccountPublic
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, CONNECTED_ACCOUNTS_COLLECTION_ID } from '@/lib/appwrite-constants';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
+import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
 
 const tablesDb = new TablesDB(appwriteClient);
 
 /** Map row to full type (includes tokens). Use only for server-side token retrieval. */
 function rowToConnectedAccount(row: Record<string, unknown>): ConnectedAccount {
+  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
   return {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
@@ -28,13 +30,14 @@ function rowToConnectedAccount(row: Record<string, unknown>): ConnectedAccount {
     tokenExpiry: String(row.tokenExpiry),
     platformUserId: String(row.platformUserId),
     platformName: String(row.platformName),
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
+    $createdAt,
+    $updatedAt,
   };
 }
 
 /** Map row to public type (no tokens). Safe for API responses and UI. */
 function rowToConnectedAccountPublic(row: Record<string, unknown>): ConnectedAccountPublic {
+  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
   return {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
@@ -42,8 +45,8 @@ function rowToConnectedAccountPublic(row: Record<string, unknown>): ConnectedAcc
     tokenExpiry: String(row.tokenExpiry),
     platformUserId: String(row.platformUserId),
     platformName: String(row.platformName),
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
+    $createdAt,
+    $updatedAt,
   };
 }
 
@@ -69,7 +72,6 @@ export interface CreateConnectedAccountData {
 export async function createConnectedAccount(
   data: CreateConnectedAccountData
 ): Promise<ConnectedAccountPublic> {
-  const now = new Date().toISOString();
   const row = await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
@@ -82,8 +84,6 @@ export async function createConnectedAccount(
       tokenExpiry: data.tokenExpiry,
       platformUserId: data.platformUserId,
       platformName: data.platformName,
-      createdAt: now,
-      updatedAt: now,
     },
   });
   return rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
@@ -153,6 +153,30 @@ export async function getConnectedAccountWithTokens(
   return rowToConnectedAccount(decrypted);
 }
 
+/**
+ * Fetch a single connected account by its row ID, returning it only when it
+ * belongs to the given user. Constant-time (primary-key lookup) and
+ * IDOR-safe: returns null if the row doesn't exist or belongs to another user.
+ */
+export async function getConnectedAccountForUser(
+  id: string,
+  userId: string
+): Promise<ConnectedAccountPublic | null> {
+  try {
+    const row = await tablesDb.getRow({
+      databaseId: DATABASE_ID,
+      tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
+      rowId: id,
+    });
+    const account = rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
+    return account.userId === userId ? account : null;
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code === 404) return null;
+    throw err;
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Update (tokens only)
 // -----------------------------------------------------------------------------
@@ -176,7 +200,40 @@ export async function updateTokens(
         accessToken: encryptToken(accessToken),
         refreshToken: encryptToken(refreshToken),
         tokenExpiry,
-        updatedAt: new Date().toISOString(),
+      },
+    });
+    return rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Update tokens and platform metadata (name, userId) for an existing connection.
+ * Use this on reconnection so the stored channel name/id stays current.
+ * Returns public shape (no tokens) so callers never receive secrets.
+ */
+export async function updateConnection(
+  id: string,
+  accessToken: string,
+  refreshToken: string,
+  tokenExpiry: string,
+  platformUserId: string,
+  platformName: string
+): Promise<ConnectedAccountPublic | null> {
+  try {
+    const row = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
+      rowId: id,
+      data: {
+        accessToken: encryptToken(accessToken),
+        refreshToken: encryptToken(refreshToken),
+        tokenExpiry,
+        platformUserId,
+        platformName,
       },
     });
     return rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);

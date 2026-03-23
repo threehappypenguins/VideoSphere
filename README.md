@@ -6,6 +6,8 @@
 
 **📋 Daily workflow:** [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — Before you start (Docker, Appwrite, branch from main) and before you push (format, lint, test, build).
 
+**📝 Draft JSON & manual uploads:** [docs/draft-document-and-upload-testing.md](docs/draft-document-and-upload-testing.md) — `document` on `drafts` / `platform_uploads`, field reference, presign → R2 → complete → distribute.
+
 ## Prerequisites
 
 | Tool    | Version  | Check Command    |

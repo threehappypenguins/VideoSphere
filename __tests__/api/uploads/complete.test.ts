@@ -48,8 +48,8 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
     r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
     status: 'pending',
     errorMessage: null,
-    createdAt: '',
-    updatedAt: '',
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
   updateUploadJobStatus: vi.fn(async () => ({
     id: 'job-123',
@@ -58,8 +58,8 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
     r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
     status: 'uploading',
     errorMessage: null,
-    createdAt: '',
-    updatedAt: '',
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
 }));
 
@@ -114,8 +114,8 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
       status: 'pending',
       errorMessage: null,
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
     vi.mocked(updateUploadJobStatus).mockResolvedValue({
       id: 'job-123',
@@ -124,8 +124,8 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
       status: 'uploading',
       errorMessage: null,
-      createdAt: '',
-      updatedAt: '',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
     });
   });
 
@@ -173,8 +173,8 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/other-user-999/123/file.mp4',
         status: 'pending',
         errorMessage: null,
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
 
       const response = await POST(
@@ -233,8 +233,8 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: null,
         status: 'pending',
         errorMessage: null,
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
 
       const response = await POST(
@@ -299,8 +299,8 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
         status: 'uploading',
         errorMessage: null,
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
 
       const response = await POST(
@@ -322,8 +322,8 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
         status: 'completed',
         errorMessage: null,
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
 
       const response = await POST(
@@ -343,8 +343,8 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
         status: 'failed',
         errorMessage: 'previous failure',
-        createdAt: '',
-        updatedAt: '',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
       });
 
       const response = await POST(

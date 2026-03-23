@@ -32,6 +32,10 @@ pnpm test:ui       # Open the Vitest UI in your browser
 pnpm test:coverage # Generate a code coverage report
 ```
 
+## Manual upload flow (draft `document`, R2, distribute)
+
+For presign → `curl` to R2 → complete → distribute, and for the **`document`** JSON on **`drafts`** and **`platform_uploads`**, see **[draft-document-and-upload-testing.md](./draft-document-and-upload-testing.md)**.
+
 ## Writing Your First Component Test
 
 Here's a step-by-step example of testing a simple component.

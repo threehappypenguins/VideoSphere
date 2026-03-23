@@ -7,12 +7,15 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockCreateRow, mockListRows, mockUpdateRow, mockDeleteRow } = vi.hoisted(() => ({
-  mockCreateRow: vi.fn(),
-  mockListRows: vi.fn(),
-  mockUpdateRow: vi.fn(),
-  mockDeleteRow: vi.fn(),
-}));
+const { mockCreateRow, mockListRows, mockUpdateRow, mockDeleteRow, mockGetRow } = vi.hoisted(
+  () => ({
+    mockCreateRow: vi.fn(),
+    mockListRows: vi.fn(),
+    mockUpdateRow: vi.fn(),
+    mockDeleteRow: vi.fn(),
+    mockGetRow: vi.fn(),
+  })
+);
 
 vi.mock('node-appwrite', () => ({
   ID: {
@@ -28,6 +31,7 @@ vi.mock('node-appwrite', () => ({
     listRows = mockListRows;
     updateRow = mockUpdateRow;
     deleteRow = mockDeleteRow;
+    getRow = mockGetRow;
   },
 }));
 
@@ -42,6 +46,7 @@ import {
   getConnectedAccountsByUser,
   getConnectedAccount,
   getConnectedAccountWithTokens,
+  getConnectedAccountForUser,
   updateTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
@@ -55,8 +60,8 @@ const baseRow = {
   tokenExpiry: '2026-12-31T00:00:00.000Z',
   platformUserId: 'yt-123',
   platformName: 'My Channel',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
 beforeEach(() => {
@@ -88,8 +93,8 @@ describe('connected-accounts repository', () => {
       expect(call.data.tokenExpiry).toBe('2026-12-31T00:00:00.000Z');
       expect(call.data.platformUserId).toBe('yt-123');
       expect(call.data.platformName).toBe('My Channel');
-      expect(call.data.createdAt).toBeDefined();
-      expect(call.data.updatedAt).toBeDefined();
+      expect(call.data).not.toHaveProperty('createdAt');
+      expect(call.data).not.toHaveProperty('updatedAt');
       expect(call.data.accessToken).not.toBe('access');
       expect(call.data.refreshToken).not.toBe('refresh');
       expect(call.data.accessToken).toMatch(/^[A-Za-z0-9+/=]+$/);
@@ -177,6 +182,50 @@ describe('connected-accounts repository', () => {
     });
   });
 
+  describe('getConnectedAccountForUser', () => {
+    it('returns the account (public shape) when the row exists and userId matches', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow });
+
+      const result = await getConnectedAccountForUser('row-1', 'user-1');
+
+      expect(mockGetRow).toHaveBeenCalledWith({
+        databaseId: 'videosphere',
+        tableId: 'connected_accounts',
+        rowId: 'row-1',
+      });
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe('row-1');
+      expect(result!.userId).toBe('user-1');
+      expect(result).not.toHaveProperty('accessToken');
+      expect(result).not.toHaveProperty('refreshToken');
+    });
+
+    it('returns null when the row belongs to a different user (IDOR check)', async () => {
+      mockGetRow.mockResolvedValue({ ...baseRow, userId: 'other-user' });
+
+      const result = await getConnectedAccountForUser('row-1', 'user-1');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when the row does not exist (404 from Appwrite)', async () => {
+      const err = Object.assign(new Error('Not found'), { code: 404 });
+      mockGetRow.mockRejectedValue(err);
+
+      const result = await getConnectedAccountForUser('missing-id', 'user-1');
+
+      expect(result).toBeNull();
+    });
+
+    it('rethrows non-404 errors', async () => {
+      mockGetRow.mockRejectedValue(new Error('DB connection error'));
+
+      await expect(getConnectedAccountForUser('row-1', 'user-1')).rejects.toThrow(
+        'DB connection error'
+      );
+    });
+  });
+
   describe('getConnectedAccountWithTokens', () => {
     it('returns full account with decrypted tokens when found', async () => {
       mockListRows.mockResolvedValue({
@@ -215,7 +264,7 @@ describe('connected-accounts repository', () => {
         accessToken: encryptToken('new-access'),
         refreshToken: encryptToken('new-refresh'),
         tokenExpiry: '2027-01-01T00:00:00.000Z',
-        updatedAt: '2026-03-08T12:00:00.000Z',
+        $updatedAt: '2026-03-08T12:00:00.000Z',
       };
       mockUpdateRow.mockResolvedValue(updated);
 

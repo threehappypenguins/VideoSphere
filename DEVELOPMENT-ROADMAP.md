@@ -535,18 +535,18 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ## Sprint 4 — Platform OAuth Connections (Mar 12–14)
 
-### Issue #25 · `[FEATURE]` YouTube OAuth2 Connection Flow
+### ✅ Issue #25 · `[FEATURE]` YouTube OAuth2 Connection Flow
 
 **User Story:** As a user, I want to connect my YouTube account so that VideoSphere can upload videos on my behalf.
 
 **Acceptance Criteria:**
 
-- [ ] `GET /api/platforms/connect/youtube` redirects to Google OAuth2 consent screen requesting YouTube upload permissions
-- [ ] `GET /api/platforms/callback/youtube` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
-- [ ] GCP Authorized redirect URI: `http://localhost:3000/api/platforms/callback/youtube`
-- [ ] The user's YouTube channel name is fetched and stored as `platformName`
-- [ ] On success, user is redirected to the connections page with a success message
-- [ ] On failure, user sees an error message
+- [x] `GET /api/platforms/connect/youtube` redirects to Google OAuth2 consent screen requesting YouTube upload permissions
+- [x] `GET /api/platforms/callback/youtube` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
+- [x] GCP Authorized redirect URI: `http://localhost:3000/api/platforms/callback/youtube`
+- [x] The user's YouTube channel name is fetched and stored as `platformName`
+- [x] On success, user is redirected to the connections page with a success message
+- [x] On failure, user sees an error message
 
 **Priority:** P0 (High)
 
@@ -576,38 +576,38 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #26 · `[FEATURE]` Vimeo OAuth2 Connection Flow
+### ✅ Issue #26 · `[FEATURE]` Vimeo OAuth2 Connection Flow
 
 **User Story:** As a user, I want to connect my Vimeo account so that I can distribute videos to Vimeo.
 
 **Acceptance Criteria:**
 
-- [ ] `GET /api/platforms/connect/vimeo` redirects to Vimeo OAuth2 consent screen
-- [ ] `GET /api/platforms/callback/vimeo` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
-- [ ] Vimeo Callback URL: `http://localhost:3000/api/platforms/callback/vimeo`
-- [ ] The user's Vimeo display name is fetched and stored as `platformName`
-- [ ] On success, user is redirected to the connections page with a success message
-- [ ] On failure, user sees an error message
+- [x] `GET /api/platforms/connect/vimeo` redirects to Vimeo OAuth2 consent screen
+- [x] `GET /api/platforms/callback/vimeo` handles the callback, exchanges the code for tokens, and stores them in `connected_accounts`
+- [x] Vimeo Callback URL: `http://localhost:3000/api/platforms/callback/vimeo`
+- [x] The user's Vimeo display name is fetched and stored as `platformName`
+- [x] On success, user is redirected to the connections page with a success message
+- [x] On failure, user sees an error message
 
 **Priority:** P0 (High)
 
 **T-Shirt Size Estimate:** L (large — several days)
 
-**Additional Context:** PRD refs: PM-02, US-02. Requires Vimeo Developer app with upload access scope. ⚠️ Depends on Issue #15 (Connected Accounts Repository).
+**Additional Context:** PRD refs: PM-02, US-02. Requires Vimeo Developer app with upload access scope. ⚠️ Depends on Issue #15 (Connected Accounts Repository). ⚠️ Upload scope pending Vimeo app approval — currently using `public` scope (see TODO in connect route).
 
 ---
 
-### Issue #27 · `[FEATURE]` Connected Accounts Management Page
+### ✅ Issue #27 · `[FEATURE]` Connected Accounts Management Page
 
 **User Story:** As a user, I want to view and manage my connected platform accounts so that I can control which platforms VideoSphere can access.
 
 **Acceptance Criteria:**
 
-- [ ] `/profile/connections` page lists all connected accounts with: platform icon, platform name, channel/user name, connection status
-- [ ] Each connected account has a "Disconnect" button
-- [ ] Disconnecting shows a confirmation dialog, then calls `DELETE /api/platforms/connections/[id]`
-- [ ] Unconnected platforms show a "Connect" button that initiates the OAuth flow
-- [ ] `GET /api/platforms/connections` API route returns the user's connected accounts
+- [x] `/profile/connections` page lists all connected accounts with: platform icon, platform name, channel/user name, connection status
+- [x] Each connected account has a "Disconnect" button
+- [x] Disconnecting shows a confirmation dialog, then calls `DELETE /api/platforms/connections/[id]`
+- [x] Unconnected platforms show a "Connect" button that initiates the OAuth flow
+- [x] `GET /api/platforms/connections` API route returns the user's connected accounts
 
 **Priority:** P0 (High)
 
@@ -636,7 +636,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #29 · `[TASK]` Platform Connection Status Indicator
+### ✅ Issue #29 · `[TASK]` Platform Connection Status Indicator
 
 **Task Description:** Display a clear visual indicator for each connected platform showing whether the connection is active, token expired, or disconnected.
 
@@ -646,10 +646,10 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] Connected + valid token → green "Connected" badge
-- [ ] Connected + expired token → amber "Token expired — reconnect" badge with re-auth button
-- [ ] Not connected → grey "Not connected" with "Connect" button
-- [ ] Status is derived from token expiry date compared to current time
+- [x] Connected + valid token → green "Connected" badge
+- [x] Connected + expired token → amber "Token expired — reconnect" badge with re-auth button
+- [x] Not connected → grey "Not connected" with "Connect" button
+- [x] Status is derived from token expiry date compared to current time
 
 **Related Feature / Epic:** Platform Management (PM-06)
 

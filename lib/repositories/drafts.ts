@@ -5,40 +5,45 @@
 // and Server Components should call these functions only — not the Appwrite
 // SDK directly.
 //
-// Uses Appwrite Server SDK (Tables API) for the drafts table.
-// Tags are stored as a JSON string; we JSON.stringify on write and JSON.parse on read.
+// Tables: `userId` (indexed, for list queries) + `document` (JSON blob:
+// targets, title, description, visibility, tags, platforms).
 // =============================================================================
 
 import { ID, Query, TablesDB } from 'node-appwrite';
-import type { Draft } from '@/types';
+import type {
+  ConnectedAccountPlatform,
+  Draft,
+  DraftPlatforms,
+  PlatformUploadVisibility,
+} from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, DRAFTS_COLLECTION_ID } from '@/lib/appwrite-constants';
+import {
+  assertDraftDocumentJsonWithinLimit,
+  DEFAULT_DRAFT_VISIBILITY,
+  draftDocumentFromRow,
+  mergeDraftPlatformsPatch,
+  stringifyDraftDocumentForStorage,
+} from '@/lib/draft-upload-metadata';
+import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
 
 const tablesDb = new TablesDB(appwriteClient);
 
-/** Parse tags from stored JSON string to string[]. Returns [] if invalid or missing. */
-function parseTags(value: unknown): string[] {
-  if (value == null || value === '') return [];
-  if (typeof value !== 'string') return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is string => typeof item === 'string');
-  } catch {
-    return [];
-  }
-}
-
-/** Map an Appwrite row to the shared Draft type (tags parsed from JSON). */
+/** Map an Appwrite row to the shared Draft type. */
 function rowToDraft(row: Record<string, unknown>): Draft {
+  const doc = draftDocumentFromRow(row);
+  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
   return {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
-    title: String(row.title),
-    description: String(row.description),
-    tags: parseTags(row.tags),
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
+    targets: doc.targets,
+    title: doc.title,
+    description: doc.description,
+    tags: doc.tags,
+    visibility: doc.visibility,
+    platforms: doc.platforms,
+    $createdAt,
+    $updatedAt,
   };
 }
 
@@ -48,28 +53,39 @@ function rowToDraft(row: Record<string, unknown>): Draft {
 
 export interface CreateDraftInput {
   userId: string;
+  targets: ConnectedAccountPlatform[];
   title: string;
   description: string;
-  tags: string[];
+  /** Shared tags for all targets; default []. */
+  tags?: string[];
+  visibility?: PlatformUploadVisibility;
+  platforms?: DraftPlatforms;
 }
 
 /**
- * Create a new draft. Tags are JSON-stringified before write.
- * Returns the created draft with id and timestamps.
+ * Create a new draft.
  */
 export async function createDraft(input: CreateDraftInput): Promise<Draft> {
-  const now = new Date().toISOString();
+  const visibility = input.visibility ?? DEFAULT_DRAFT_VISIBILITY;
+  const platforms = input.platforms ?? {};
+  const tags = input.tags ?? [];
+  const documentJson = stringifyDraftDocumentForStorage({
+    targets: input.targets,
+    title: input.title,
+    description: input.description,
+    visibility,
+    tags,
+    platforms,
+  });
+  assertDraftDocumentJsonWithinLimit(documentJson);
+
   const row = await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: DRAFTS_COLLECTION_ID,
     rowId: ID.unique(),
     data: {
       userId: input.userId,
-      title: input.title,
-      description: input.description,
-      tags: JSON.stringify(input.tags ?? []),
-      createdAt: now,
-      updatedAt: now,
+      document: documentJson,
     },
   });
   return rowToDraft(row as unknown as Record<string, unknown>);
@@ -80,8 +96,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
 // -----------------------------------------------------------------------------
 
 /**
- * Fetch a draft by ID. Returns a typed Draft with tags parsed as string[].
- * Returns null if not found.
+ * Fetch a draft by ID. Returns null if not found.
  */
 export async function getDraftById(id: string): Promise<Draft | null> {
   try {
@@ -99,13 +114,13 @@ export async function getDraftById(id: string): Promise<Draft | null> {
 }
 
 /**
- * List drafts for a user, sorted by most recent (updatedAt descending).
+ * List drafts for a user, sorted by most recent (`$updatedAt` descending).
  */
 export async function listDraftsByUser(userId: string): Promise<Draft[]> {
   const { rows } = await tablesDb.listRows({
     databaseId: DATABASE_ID,
     tableId: DRAFTS_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.orderDesc('updatedAt')],
+    queries: [Query.equal('userId', userId), Query.orderDesc('$updatedAt')],
     total: false,
   });
   return (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
@@ -116,23 +131,51 @@ export async function listDraftsByUser(userId: string): Promise<Draft[]> {
 // -----------------------------------------------------------------------------
 
 export interface UpdateDraftInput {
+  targets?: ConnectedAccountPlatform[];
   title?: string;
   description?: string;
   tags?: string[];
+  visibility?: PlatformUploadVisibility;
+  /** Partial platforms object from PATCH; merged without wiping omitted fields. */
+  platformsPatch?: unknown;
 }
 
 /**
  * Update an existing draft. Only provided fields are updated.
- * Tags, if provided, are JSON-stringified before write.
- * Returns the updated draft or null if not found.
  */
 export async function updateDraft(id: string, input: UpdateDraftInput): Promise<Draft | null> {
-  const data: Record<string, unknown> = {
-    updatedAt: new Date().toISOString(),
-  };
-  if (input.title !== undefined) data.title = input.title;
-  if (input.description !== undefined) data.description = input.description;
-  if (input.tags !== undefined) data.tags = JSON.stringify(input.tags);
+  const needsDocMerge =
+    input.targets !== undefined ||
+    input.title !== undefined ||
+    input.description !== undefined ||
+    input.tags !== undefined ||
+    input.visibility !== undefined ||
+    input.platformsPatch !== undefined;
+
+  const data: Record<string, unknown> = {};
+
+  if (needsDocMerge) {
+    const current = await getDraftById(id);
+    if (!current) return null;
+    const mergedPlatforms =
+      input.platformsPatch !== undefined
+        ? mergeDraftPlatformsPatch(current.platforms, input.platformsPatch)
+        : current.platforms;
+    const documentJson = stringifyDraftDocumentForStorage({
+      targets: input.targets ?? current.targets,
+      title: input.title ?? current.title,
+      description: input.description ?? current.description,
+      tags: input.tags ?? current.tags,
+      visibility: input.visibility ?? current.visibility,
+      platforms: mergedPlatforms,
+    });
+    assertDraftDocumentJsonWithinLimit(documentJson);
+    data.document = documentJson;
+  }
+
+  if (Object.keys(data).length === 0) {
+    return getDraftById(id);
+  }
 
   try {
     const row = await tablesDb.updateRow({
@@ -154,7 +197,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
 // -----------------------------------------------------------------------------
 
 /**
- * Remove a draft document by ID.
+ * Remove a draft row by ID.
  */
 export async function deleteDraft(id: string): Promise<void> {
   await tablesDb.deleteRow({

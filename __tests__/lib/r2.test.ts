@@ -2,10 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   getPresignedUploadUrl,
   getObjectUrl,
+  getObjectWebStream,
   deleteObject,
   headObject,
   getBucketName,
   getR2Endpoint,
+  isTempUploadObjectKeyForUser,
 } from '../../lib/r2';
 
 /**
@@ -70,6 +72,12 @@ describe('R2 Storage - Validation & Utilities', () => {
       await expect(getPresignedUploadUrl('test.mp4', 'video/mp4', -1)).rejects.toThrow(
         'Content length must be a positive number'
       );
+    });
+  });
+
+  describe('getObjectWebStream - Validation', () => {
+    it('should throw when key is empty', async () => {
+      await expect(getObjectWebStream('')).rejects.toThrow('Object key is required');
     });
   });
 
@@ -245,6 +253,30 @@ describe('R2 Storage - Validation & Utilities', () => {
       expect(getBucketName()).toBe('');
 
       if (original) process.env.R2_BUCKET_NAME = original;
+    });
+  });
+
+  describe('isTempUploadObjectKeyForUser', () => {
+    it('accepts keys under temp/uploads/{userId}/...', () => {
+      expect(
+        isTempUploadObjectKeyForUser('temp/uploads/user-123/1700000000-uuid/file.mp4', 'user-123')
+      ).toBe(true);
+    });
+
+    it('rejects another user prefix', () => {
+      expect(
+        isTempUploadObjectKeyForUser('temp/uploads/user-456/1700000000-uuid/file.mp4', 'user-123')
+      ).toBe(false);
+    });
+
+    it('rejects path traversal segments', () => {
+      expect(
+        isTempUploadObjectKeyForUser('temp/uploads/user-123/../user-456/x.mp4', 'user-123')
+      ).toBe(false);
+    });
+
+    it('rejects key equal to prefix only', () => {
+      expect(isTempUploadObjectKeyForUser('temp/uploads/user-123/', 'user-123')).toBe(false);
     });
   });
 });
