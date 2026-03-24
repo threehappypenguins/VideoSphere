@@ -10,13 +10,15 @@
 //   /admin/*      — authenticated admin users only
 //
 // Session is stored as an httpOnly cookie. Authentication is verified by
-// calling /api/auth/session internally (outside the middleware matcher so
-// no circular routing occurs). Admin role is checked via the Appwrite REST API.
+// calling Appwrite-backed API routes internally (outside the matcher so no
+// circular routing). Admin RBAC uses GET /api/auth/session-role so this file
+// never imports lib/appwrite or the users repository — middleware stays free
+// of server SDK init (and edge-safe fetch-only I/O). Role still comes from
+// user_profiles, not Auth prefs/labels.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
-import { DATABASE_ID, USER_PROFILES_COLLECTION_ID } from '@/lib/appwrite-constants';
 
 /**
  * Verify the session by calling the /api/auth/session route.
@@ -37,30 +39,23 @@ async function getSessionUser(request: NextRequest): Promise<{ $id: string } | n
 }
 
 /**
- * Fetch the user's role from the user_profiles collection via the Appwrite REST API.
- * Returns null if the document is not found or on error.
+ * Session + user_profiles.role in one round trip (for /admin/* only).
+ * Avoids importing the Tables SDK in middleware.
  */
-async function getUserRole(userId: string): Promise<string | null> {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const apiKey = process.env.APPWRITE_API_KEY;
-  if (!endpoint || !projectId || !apiKey) return null;
-
+async function getSessionRoleForAdminGate(
+  request: NextRequest
+): Promise<'admin' | 'user' | 'unauthenticated' | 'error'> {
   try {
-    const res = await fetch(
-      `${endpoint}/databases/${DATABASE_ID}/collections/${USER_PROFILES_COLLECTION_ID}/documents/${userId}`,
-      {
-        headers: {
-          'X-Appwrite-Project': projectId,
-          'X-Appwrite-Key': apiKey,
-        },
-      }
-    );
-    if (!res.ok) return null;
-    const doc = await res.json();
-    return typeof doc.role === 'string' ? doc.role : null;
+    const res = await fetch(new URL('/api/auth/session-role', request.url), {
+      headers: { cookie: request.headers.get('cookie') ?? '' },
+    });
+    if (res.status === 401) return 'unauthenticated';
+    if (!res.ok) return 'error';
+    const data = (await res.json()) as { role?: string };
+    return data.role === 'admin' ? 'admin' : 'user';
   } catch {
-    return null;
+    // Network / JSON parse failures — not a confirmed 401; avoid treating as logged-out
+    return 'error';
   }
 }
 
@@ -80,22 +75,25 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Verify the session is still valid via /api/auth/session
+    if (pathname.startsWith('/admin')) {
+      const gate = await getSessionRoleForAdminGate(request);
+      if (gate === 'unauthenticated') {
+        const loginUrl = new URL('/login', request.url);
+        loginUrl.searchParams.set('redirect', pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+      if (gate !== 'admin') {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+      return NextResponse.next();
+    }
+
     const user = await getSessionUser(request);
 
     if (!user) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);
-    }
-
-    // Admin routes require the 'admin' role
-    if (pathname.startsWith('/admin')) {
-      const role = await getUserRole(user.$id);
-      if (role !== 'admin') {
-        // Fail closed: redirect to dashboard if unauthorized
-        return NextResponse.redirect(new URL('/dashboard', request.url));
-      }
     }
 
     return NextResponse.next();
