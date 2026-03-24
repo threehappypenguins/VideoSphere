@@ -1,0 +1,29 @@
+'use client';
+
+interface ConnectButtonProps {
+  href: string;
+  label: string;
+}
+
+/**
+ * Renders a Connect / Reconnect anchor that forces a hard browser navigation
+ * to the OAuth initiation route. A plain <a> tag on the same origin can be
+ * intercepted by Next.js App Router's client-side fetch, which then follows
+ * the server-side 307 redirect to the external OAuth provider — a cross-origin
+ * fetch that CORS blocks, leaving async message-channel listeners unresolved.
+ * Using window.location.assign() bypasses the router entirely.
+ */
+export function ConnectButton({ href, label }: ConnectButtonProps) {
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        window.location.assign(href);
+      }}
+      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+    >
+      {label}
+    </a>
+  );
+}

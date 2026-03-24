@@ -469,6 +469,47 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
+### Issue #76 · `[FEATURE]` New Draft Wizard — Multi-Step Modal/Page
+
+**User Story:** As a user, I want to create a new draft through a guided multi-step flow so that I can select my target platforms, enter metadata with AI assistance, and review everything before saving.
+
+**Acceptance Criteria:**
+
+**Step 1 — Platform Selection:**
+
+- [ ] The wizard opens when the user clicks "New Draft" on `/dashboard/drafts`
+- [ ] Step 1 displays each of the user's connected platforms as a selectable card (loaded from `GET /api/connected-accounts`)
+- [ ] Platforms the user has not connected are shown as disabled cards with a "Connect" call-to-action that links to the connections page
+- [ ] User can select one or more platforms by toggling the cards; selected platforms are visually highlighted
+- [ ] A "Next" button is disabled until at least one platform is selected (per DM-12)
+
+**Step 2 — Metadata & AI Generation:**
+
+- [ ] Step 2 displays a short "AI Prompt" text bar (e.g., placeholder: "Describe your video in a few words…") positioned above a "Generate with AI" button
+- [ ] Clicking "Generate with AI" calls `POST /api/ai/generate` with the prompt text and selected platforms; a loading spinner/skeleton is shown in the form fields while waiting
+- [ ] On success, the returned `title`, `description`, and `tags` populate the respective editable form fields (replacing any existing content)
+- [ ] All metadata fields (title required, description, tags) remain fully editable regardless of whether AI was used
+- [ ] User can click "Regenerate" to get a fresh AI suggestion at any time; field values are replaced with the new response
+- [ ] If the AI request fails, a non-blocking error toast is shown and the form fields remain blank/user-editable
+- [ ] A visibility selector (public / unlisted / private) is shown for each selected platform
+- [ ] Inline character count indicators enforce platform-specific title limits (YouTube ≤ 100 chars, Vimeo ≤ 128 chars)
+
+**Navigation & Submission:**
+
+- [ ] A step indicator (e.g., "Step 1 of 2" stepper or progress bar) is visible throughout the wizard
+- [ ] "Back" button on Step 2 returns to Step 1 with previously selected platforms preserved
+- [ ] "Save Draft" button on Step 2 submits to `POST /api/drafts` and redirects to `/dashboard/drafts/[id]` on success
+- [ ] Submitting with an empty title shows an inline validation error
+- [ ] Closing or dismissing the wizard without saving prompts the user with a confirmation dialog if any field has been filled
+
+**Priority:** P0 (High)
+
+**T-Shirt Size Estimate:** L (large — several days)
+
+**Additional Context:** PRD refs: DM-01, DM-02, DM-05, DM-10, DM-11, DM-12, AI-01, AI-02, AI-03, US-12, US-16. Implement as a shadcn/ui `Dialog` with internal step state (or a dedicated wizard page at `/dashboard/drafts/new` if the form is too large for a modal). ⚠️ Depends on Issue #20 (Draft CRUD API), Issue #21 (Draft Creation & Edit UI), and Issue #37 (AI Metadata Endpoint).
+
+---
+
 ### ✅ Issue #22 · `[FEATURE]` Video File Upload to R2 with Progress Bar
 
 **User Story:** As a user, I want to upload a video file from my draft's page and see a progress bar so that I know how long the upload will take.
@@ -1493,7 +1534,7 @@ These issues can be created if the team has capacity after completing all P0 and
 | 0      | Project Setup                            | #1–#3      | 3     |
 | 1      | Auth & Appwrite                          | #4–#11     | 8     |
 | 2      | Data Model & Repositories               | #12–#19    | 8     |
-| 3      | Draft Management & Upload                | #20–#24    | 5     |
+| 3      | Draft Management & Upload                | #20–#24, #76 | 6   |
 | 4      | Platform OAuth                           | #25–#29    | 5     |
 | 5      | Distribution Engine                      | #30–#35    | 6     |
 | 6      | AI Metadata                              | #36–#39    | 4     |
@@ -1504,7 +1545,7 @@ These issues can be created if the team has capacity after completing all P0 and
 | 11     | Testing & Stretch                        | #56–#60    | 5     |
 | 12     | Final Polish & Presentation              | #61–#65    | 5     |
 | —      | Stretch Goals (optional)                 | #66–#75    | 10    |
-| **Total** |                                       |            | **75** |
+| **Total** |                                       |            | **76** |
 
 ---
 
