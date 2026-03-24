@@ -11,19 +11,25 @@ import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vites
 const FIXED_DATE = new Date('2026-03-11T12:00:00.000Z');
 const FIXED_MONTH = '2026-03';
 
-const { mockCreateRow, mockGetRow, mockIncrementRowColumn } = vi.hoisted(() => ({
+const { mockCreateRow, mockGetRow, mockIncrementRowColumn, mockListRows } = vi.hoisted(() => ({
   mockCreateRow: vi.fn(),
   mockGetRow: vi.fn(),
   mockIncrementRowColumn: vi.fn(),
+  mockListRows: vi.fn(),
 }));
 
-vi.mock('node-appwrite', () => ({
-  TablesDB: class TablesDB {
-    createRow = mockCreateRow;
-    getRow = mockGetRow;
-    incrementRowColumn = mockIncrementRowColumn;
-  },
-}));
+vi.mock('node-appwrite', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node-appwrite')>();
+  return {
+    ...actual,
+    TablesDB: class TablesDB {
+      createRow = mockCreateRow;
+      getRow = mockGetRow;
+      incrementRowColumn = mockIncrementRowColumn;
+      listRows = mockListRows;
+    },
+  };
+});
 
 vi.mock('@/lib/appwrite', () => ({
   default: {},
@@ -31,6 +37,7 @@ vi.mock('@/lib/appwrite', () => ({
 
 import {
   getMonthlyUsage,
+  getTotalUploadsForMonth,
   incrementUsage,
   decrementUsage,
   canUpload,
@@ -93,6 +100,65 @@ describe('getMonthlyUsage', () => {
     mockGetRow.mockRejectedValue({ code: 500, message: 'Internal Server Error' });
 
     await expect(getMonthlyUsage('user-1')).rejects.toMatchObject({ code: 500 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getTotalUploadsForMonth
+// ---------------------------------------------------------------------------
+
+describe('getTotalUploadsForMonth', () => {
+  it('sums uploadCount across pages and requests total only on the first listRows', async () => {
+    mockListRows
+      .mockResolvedValueOnce({
+        total: 250,
+        rows: [
+          { uploadCount: 1 },
+          { uploadCount: 2 },
+          ...Array.from({ length: 98 }, () => ({ uploadCount: 0 })),
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: Array.from({ length: 100 }, (_, i) => ({ uploadCount: i === 0 ? 3 : 0 })),
+      })
+      .mockResolvedValueOnce({
+        rows: [{ uploadCount: 4 }, { uploadCount: 5 }],
+      });
+
+    const sum = await getTotalUploadsForMonth(FIXED_MONTH);
+
+    expect(sum).toBe(1 + 2 + 3 + 4 + 5);
+    expect(mockListRows).toHaveBeenCalledTimes(3);
+    expect(mockListRows.mock.calls[0][0]).toMatchObject({ total: true });
+    expect(mockListRows.mock.calls[1][0]).toMatchObject({ total: false });
+    expect(mockListRows.mock.calls[2][0]).toMatchObject({ total: false });
+  });
+
+  it('stops after one page when total is 0', async () => {
+    mockListRows.mockResolvedValueOnce({ total: 0, rows: [] });
+
+    const sum = await getTotalUploadsForMonth(FIXED_MONTH);
+
+    expect(sum).toBe(0);
+    expect(mockListRows).toHaveBeenCalledTimes(1);
+    expect(mockListRows.mock.calls[0][0]).toMatchObject({ total: true });
+  });
+
+  it('paginates until a short page when total is omitted', async () => {
+    mockListRows
+      .mockResolvedValueOnce({
+        rows: Array.from({ length: 100 }, () => ({ uploadCount: 1 })),
+      })
+      .mockResolvedValueOnce({
+        rows: [{ uploadCount: 2 }, { uploadCount: 3 }],
+      });
+
+    const sum = await getTotalUploadsForMonth(FIXED_MONTH);
+
+    expect(sum).toBe(100 + 2 + 3);
+    expect(mockListRows).toHaveBeenCalledTimes(2);
+    expect(mockListRows.mock.calls[0][0]).toMatchObject({ total: true });
+    expect(mockListRows.mock.calls[1][0]).toMatchObject({ total: false });
   });
 });
 

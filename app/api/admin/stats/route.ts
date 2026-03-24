@@ -3,6 +3,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { countActiveDrafts } from '@/lib/repositories/drafts';
 import { getCurrentUsageMonth, getTotalUploadsForMonth } from '@/lib/repositories/upload-usage';
 import { getUserById, getUserCounts } from '@/lib/repositories/users';
+import type { ApiError, ApiResponse } from '@/types';
 
 interface AdminStats {
   totalUsers: number;
@@ -13,30 +14,37 @@ interface AdminStats {
 
 async function requireAdmin(
   request: NextRequest
-): Promise<
-  | { ok: true; userId: string }
-  | { ok: false; response: NextResponse<{ error: string; message: string; statusCode: number }> }
-> {
+): Promise<{ ok: true; userId: string } | { ok: false; response: NextResponse<ApiError> }> {
   const userId = await getAuthenticatedUserId(request);
   if (!userId) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: 'Unauthorized', message: 'Not authenticated', statusCode: 401 },
-        { status: 401 }
-      ),
+    const errRes: ApiError = {
+      error: 'Unauthorized',
+      message: 'Not authenticated',
+      statusCode: 401,
     };
+    return { ok: false, response: NextResponse.json(errRes, { status: 401 }) };
   }
 
-  const user = await getUserById(userId);
-  if (!user || user.role !== 'admin') {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: 'Forbidden', message: 'Admin access required', statusCode: 403 },
-        { status: 403 }
-      ),
+  let user;
+  try {
+    user = await getUserById(userId);
+  } catch (err) {
+    console.error('[GET /api/admin/stats] requireAdmin: getUserById failed', err);
+    const errRes: ApiError = {
+      error: 'Internal Server Error',
+      message: 'Failed to verify admin access',
+      statusCode: 500,
     };
+    return { ok: false, response: NextResponse.json(errRes, { status: 500 }) };
+  }
+
+  if (!user || user.role !== 'admin') {
+    const errRes: ApiError = {
+      error: 'Forbidden',
+      message: 'Admin access required',
+      statusCode: 403,
+    };
+    return { ok: false, response: NextResponse.json(errRes, { status: 403 }) };
   }
 
   return { ok: true, userId };
@@ -61,12 +69,15 @@ export async function GET(request: NextRequest) {
       activeDrafts,
     };
 
-    return NextResponse.json({ data: stats });
+    const body: ApiResponse<AdminStats> = { data: stats };
+    return NextResponse.json(body);
   } catch (error) {
     console.error('[GET /api/admin/stats]', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error', message: 'Failed to load admin stats', statusCode: 500 },
-      { status: 500 }
-    );
+    const errRes: ApiError = {
+      error: 'Internal Server Error',
+      message: 'Failed to load admin stats',
+      statusCode: 500,
+    };
+    return NextResponse.json(errRes, { status: 500 });
   }
 }

@@ -10,15 +10,15 @@
 //   /admin/*      — authenticated admin users only
 //
 // Session is stored as an httpOnly cookie. Authentication is verified by
-// calling /api/auth/session internally (outside the matcher so no circular
-// routing). Admin RBAC uses user_profiles.role via getUserById (Tables SDK),
-// same as API routes — not Auth labels or Account prefs (prefs.role is
-// unrelated unless you add code to sync it).
+// calling Appwrite-backed API routes internally (outside the matcher so no
+// circular routing). Admin RBAC uses GET /api/auth/session-role so this file
+// never imports lib/appwrite or the users repository — middleware stays free
+// of server SDK init (and edge-safe fetch-only I/O). Role still comes from
+// user_profiles, not Auth prefs/labels.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
-import { getUserById } from '@/lib/repositories/users';
 
 /**
  * Verify the session by calling the /api/auth/session route.
@@ -38,6 +38,26 @@ async function getSessionUser(request: NextRequest): Promise<{ $id: string } | n
   }
 }
 
+/**
+ * Session + user_profiles.role in one round trip (for /admin/* only).
+ * Avoids importing the Tables SDK in middleware.
+ */
+async function getSessionRoleForAdminGate(
+  request: NextRequest
+): Promise<'admin' | 'user' | 'unauthenticated' | 'error'> {
+  try {
+    const res = await fetch(new URL('/api/auth/session-role', request.url), {
+      headers: { cookie: request.headers.get('cookie') ?? '' },
+    });
+    if (res.status === 401) return 'unauthenticated';
+    if (!res.ok) return 'error';
+    const data = (await res.json()) as { role?: string };
+    return data.role === 'admin' ? 'admin' : 'user';
+  } catch {
+    return 'unauthenticated';
+  }
+}
+
 export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
@@ -54,21 +74,25 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Verify the session is still valid via /api/auth/session
+    if (pathname.startsWith('/admin')) {
+      const gate = await getSessionRoleForAdminGate(request);
+      if (gate === 'unauthenticated') {
+        const loginUrl = new URL('/login', request.url);
+        loginUrl.searchParams.set('redirect', pathname);
+        return NextResponse.redirect(loginUrl);
+      }
+      if (gate !== 'admin') {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+      return NextResponse.next();
+    }
+
     const user = await getSessionUser(request);
 
     if (!user) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);
-    }
-
-    if (pathname.startsWith('/admin')) {
-      const profile = await getUserById(user.$id);
-      if (profile?.role !== 'admin') {
-        // Fail closed: redirect to dashboard if unauthorized
-        return NextResponse.redirect(new URL('/dashboard', request.url));
-      }
     }
 
     return NextResponse.next();

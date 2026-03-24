@@ -221,19 +221,23 @@ export async function incrementUsageIfAllowed(
 
 /**
  * Sum uploadCount across all users for a given month.
+ *
+ * Only the first `listRows` uses `total: true` so Appwrite counts matching rows once.
+ * Later pages use `total: false` to avoid repeating that work on every page.
  */
 export async function getTotalUploadsForMonth(month: string = currentMonth()): Promise<number> {
   const pageSize = 100;
   let offset = 0;
-  let total = 0;
   let summed = 0;
+  /** Matching row count from the first response; `-1` if Appwrite omitted `total` (paginate until a short page). */
+  let docTotal: number | null = null;
 
-  do {
+  while (true) {
     const result = await tablesDb.listRows({
       databaseId: DATABASE_ID,
       tableId: UPLOAD_USAGE_COLLECTION_ID,
       queries: [Query.equal('month', month), Query.limit(pageSize), Query.offset(offset)],
-      total: true,
+      total: docTotal === null,
     });
 
     const rows = (result.rows ?? []) as Array<Record<string, unknown>>;
@@ -244,9 +248,16 @@ export async function getTotalUploadsForMonth(month: string = currentMonth()): P
       }
     }
 
-    total = result.total ?? 0;
+    if (docTotal === null) {
+      docTotal = typeof result.total === 'number' ? result.total : -1;
+    }
+
     offset += pageSize;
-  } while (offset < total);
+
+    if (rows.length === 0) break;
+    if (rows.length < pageSize) break;
+    if (docTotal >= 0 && offset >= docTotal) break;
+  }
 
   return summed;
 }

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+
+const USERS_PAGE_SIZE = 50;
 
 interface AdminStats {
   totalUsers: number;
@@ -10,6 +12,7 @@ interface AdminStats {
 }
 
 interface AdminUser {
+  userId: string;
   email: string;
   role: 'user' | 'admin';
   isSupporter: boolean;
@@ -18,6 +21,11 @@ interface AdminUser {
 
 interface UsersResponseData {
   users: AdminUser[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+  };
 }
 
 interface StatsResponseData {
@@ -36,55 +44,72 @@ function formatDate(value: string): string {
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersOffset, setUsersOffset] = useState(0);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersInitialLoading, setUsersInitialLoading] = useState(true);
+  const [usersPageLoading, setUsersPageLoading] = useState(false);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [usersError, setUsersError] = useState<string | null>(null);
 
+  const fetchUsersPage = useCallback(async (offset: number, mode: 'initial' | 'page') => {
+    const isInitial = mode === 'initial';
+    if (isInitial) {
+      setUsersInitialLoading(true);
+    } else {
+      setUsersPageLoading(true);
+    }
+    setUsersError(null);
+    try {
+      const res = await fetch(`/api/admin/users?limit=${USERS_PAGE_SIZE}&offset=${offset}`);
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(payload.message ?? 'Failed to load users');
+      }
+      const payload = (await res.json()) as { data: UsersResponseData };
+      setUsers(payload.data.users);
+      setUsersTotal(payload.data.pagination.total);
+      setUsersOffset(payload.data.pagination.offset);
+    } catch (error: unknown) {
+      setUsersError(error instanceof Error ? error.message : 'Failed to load users');
+    } finally {
+      if (isInitial) {
+        setUsersInitialLoading(false);
+      } else {
+        setUsersPageLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    const load = async () => {
+    const loadStats = async () => {
       setStatsLoading(true);
-      setUsersLoading(true);
       setStatsError(null);
-      setUsersError(null);
-
-      const statsPromise = fetch('/api/admin/stats')
-        .then(async (res) => {
-          if (!res.ok) {
-            const payload = (await res.json().catch(() => ({}))) as { message?: string };
-            throw new Error(payload.message ?? 'Failed to load admin stats');
-          }
-          return res.json() as Promise<{ data: StatsResponseData }>;
-        })
-        .then((payload) => {
-          setStats(payload.data);
-        })
-        .catch((error: unknown) => {
-          setStatsError(error instanceof Error ? error.message : 'Failed to load admin stats');
-        })
-        .finally(() => setStatsLoading(false));
-
-      const usersPromise = fetch('/api/admin/users?limit=50&offset=0')
-        .then(async (res) => {
-          if (!res.ok) {
-            const payload = (await res.json().catch(() => ({}))) as { message?: string };
-            throw new Error(payload.message ?? 'Failed to load users');
-          }
-          return res.json() as Promise<{ data: UsersResponseData }>;
-        })
-        .then((payload) => {
-          setUsers(payload.data.users);
-        })
-        .catch((error: unknown) => {
-          setUsersError(error instanceof Error ? error.message : 'Failed to load users');
-        })
-        .finally(() => setUsersLoading(false));
-
-      await Promise.all([statsPromise, usersPromise]);
+      try {
+        const res = await fetch('/api/admin/stats');
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as { message?: string };
+          throw new Error(payload.message ?? 'Failed to load admin stats');
+        }
+        const payload = (await res.json()) as { data: StatsResponseData };
+        setStats(payload.data);
+      } catch (error: unknown) {
+        setStatsError(error instanceof Error ? error.message : 'Failed to load admin stats');
+      } finally {
+        setStatsLoading(false);
+      }
     };
 
-    void load();
-  }, []);
+    void loadStats();
+    void fetchUsersPage(0, 'initial');
+  }, [fetchUsersPage]);
+
+  const usersLoading = usersInitialLoading;
+  const rangeStart = usersTotal === 0 ? 0 : usersOffset + 1;
+  const rangeEnd = usersOffset + users.length;
+  const canGoPrev = usersOffset > 0 && !usersPageLoading && !usersInitialLoading;
+  const canGoNext =
+    usersOffset + users.length < usersTotal && !usersPageLoading && !usersInitialLoading;
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
@@ -124,7 +149,14 @@ export default function AdminDashboardPage() {
         {statsError ? <p className="mt-4 text-sm text-red-600">{statsError}</p> : null}
 
         <div className="mt-8 rounded-xl border border-border bg-background p-6">
-          <h2 className="text-xl font-semibold text-foreground">Users</h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-xl font-semibold text-foreground">Users</h2>
+            {!usersInitialLoading && users.length > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Showing {rangeStart}–{rangeEnd} of {usersTotal}
+              </p>
+            ) : null}
+          </div>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
@@ -150,7 +182,10 @@ export default function AdminDashboardPage() {
                   </tr>
                 ) : (
                   users.map((user) => (
-                    <tr key={`${user.email}-${user.createdAt}`} className="border-b border-border">
+                    <tr
+                      key={user.userId}
+                      className={`border-b border-border ${usersPageLoading ? 'opacity-60' : ''}`}
+                    >
                       <td className="py-3 text-foreground">{user.email}</td>
                       <td className="py-3 text-muted-foreground">{user.role}</td>
                       <td className="py-3">
@@ -171,6 +206,31 @@ export default function AdminDashboardPage() {
               </tbody>
             </table>
           </div>
+          {!usersInitialLoading && usersTotal > USERS_PAGE_SIZE ? (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={!canGoPrev}
+                onClick={() =>
+                  void fetchUsersPage(Math.max(0, usersOffset - USERS_PAGE_SIZE), 'page')
+                }
+                className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={!canGoNext}
+                onClick={() => void fetchUsersPage(usersOffset + USERS_PAGE_SIZE, 'page')}
+                className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+              >
+                Next
+              </button>
+              {usersPageLoading ? (
+                <span className="text-sm text-muted-foreground">Loading…</span>
+              ) : null}
+            </div>
+          ) : null}
           {usersError ? <p className="mt-4 text-sm text-red-600">{usersError}</p> : null}
         </div>
       </div>
