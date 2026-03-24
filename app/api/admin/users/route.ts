@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUserById, listUsers } from '@/lib/repositories/users';
+import { requireAdmin } from '@/lib/api/admin-auth';
+import { listUsers } from '@/lib/repositories/users';
 import type { ApiError, ApiResponse } from '@/types';
 
 interface AdminUserRow {
@@ -28,46 +28,8 @@ function parsePositiveInt(value: string | null, fallback: number): number {
   return parsed;
 }
 
-async function requireAdmin(
-  request: NextRequest
-): Promise<{ ok: true; userId: string } | { ok: false; response: NextResponse<ApiError> }> {
-  const userId = await getAuthenticatedUserId(request);
-  if (!userId) {
-    const errRes: ApiError = {
-      error: 'Unauthorized',
-      message: 'Not authenticated',
-      statusCode: 401,
-    };
-    return { ok: false, response: NextResponse.json(errRes, { status: 401 }) };
-  }
-
-  let user;
-  try {
-    user = await getUserById(userId);
-  } catch (err) {
-    console.error('[GET /api/admin/users] requireAdmin: getUserById failed', err);
-    const errRes: ApiError = {
-      error: 'Internal Server Error',
-      message: 'Failed to verify admin access',
-      statusCode: 500,
-    };
-    return { ok: false, response: NextResponse.json(errRes, { status: 500 }) };
-  }
-
-  if (!user || user.role !== 'admin') {
-    const errRes: ApiError = {
-      error: 'Forbidden',
-      message: 'Admin access required',
-      statusCode: 403,
-    };
-    return { ok: false, response: NextResponse.json(errRes, { status: 403 }) };
-  }
-
-  return { ok: true, userId };
-}
-
 export async function GET(request: NextRequest) {
-  const adminCheck = await requireAdmin(request);
+  const adminCheck = await requireAdmin(request, '[GET /api/admin/users]');
   if (adminCheck.ok === false) return adminCheck.response;
 
   const searchParams = request.nextUrl.searchParams;

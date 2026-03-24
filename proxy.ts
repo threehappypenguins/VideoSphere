@@ -54,7 +54,8 @@ async function getSessionRoleForAdminGate(
     const data = (await res.json()) as { role?: string };
     return data.role === 'admin' ? 'admin' : 'user';
   } catch {
-    return 'unauthenticated';
+    // Network / JSON parse failures — not a confirmed 401; avoid treating as logged-out
+    return 'error';
   }
 }
 

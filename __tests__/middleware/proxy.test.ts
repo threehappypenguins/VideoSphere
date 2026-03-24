@@ -103,6 +103,25 @@ describe('Proxy Middleware', () => {
   });
 
   describe('Admin Role Enforcement', () => {
+    it('should redirect to login when session-role returns 401', async () => {
+      const sessionToken = 'expired_session';
+      const request = createMockRequest('/admin/dashboard', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      const location = result.headers.get('location') || '';
+      expect(location).toContain('/login');
+      expect(location).toContain('redirect=');
+    });
+
     it('should allow admin users to access /admin routes', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/admin/dashboard', {
@@ -171,6 +190,40 @@ describe('Proxy Middleware', () => {
       (global.fetch as any).mockResolvedValueOnce({
         ok: false,
         status: 503,
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      expect(result.headers.get('location') || '').toContain('/dashboard');
+    });
+
+    it('should redirect to dashboard when session-role fetch throws (e.g. network)', async () => {
+      const sessionToken = 'admin_session_token';
+      const request = createMockRequest('/admin/dashboard', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      expect(result.headers.get('location') || '').toContain('/dashboard');
+    });
+
+    it('should redirect to dashboard when session-role response JSON is invalid', async () => {
+      const sessionToken = 'admin_session_token';
+      const request = createMockRequest('/admin/dashboard', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error('Invalid JSON');
+        },
       });
 
       const result = await proxy(request);
