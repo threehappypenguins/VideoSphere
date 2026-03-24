@@ -126,6 +126,20 @@ export async function listDraftsByUser(userId: string): Promise<Draft[]> {
   return (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
 }
 
+/**
+ * Count all active draft rows.
+ * Drafts currently have no archived/deleted status, so "active" means existing rows.
+ */
+export async function countActiveDrafts(): Promise<number> {
+  const result = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: DRAFTS_COLLECTION_ID,
+    queries: [Query.limit(1)],
+    total: true,
+  });
+  return result.total ?? 0;
+}
+
 // -----------------------------------------------------------------------------
 // Update
 // -----------------------------------------------------------------------------

@@ -84,37 +84,26 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
-    // ── 2, 3 & 4. Prefs, labels, and user_profiles (same source of truth as OAuth) ─────
+    // ── 2. user_profiles row — source of truth for role, isSupporter (same as Google OAuth createUser)
     try {
-      await appwriteUsers.updatePrefs(authUser.$id, {
-        role: 'user',
+      await createUser({
+        userId: authUser.$id,
+        email,
         isSupporter: false,
-        createdAt: new Date().toISOString(),
+        role: 'user',
       });
-      await appwriteUsers.updateLabels(authUser.$id, ['user']);
-
-      try {
-        await createUser({
-          userId: authUser.$id,
-          email,
-          isSupporter: false,
-          role: 'user',
-        });
-      } catch (profileErr: unknown) {
-        const err = profileErr as { code?: number };
-        if (err.code === 409) {
-          // Document already exists (e.g. race); treat as success
-        } else {
-          throw profileErr;
+    } catch (profileErr: unknown) {
+      const err = profileErr as { code?: number };
+      if (err.code === 409) {
+        // Row already exists (e.g. race); keep auth user
+      } else {
+        try {
+          await appwriteUsers.delete(authUser.$id);
+        } catch (rollbackErr) {
+          console.error('[POST /api/auth/register] Failed to rollback user creation', rollbackErr);
         }
+        throw profileErr;
       }
-    } catch (initErr) {
-      try {
-        await appwriteUsers.delete(authUser.$id);
-      } catch (rollbackErr) {
-        console.error('[POST /api/auth/register] Failed to rollback user creation', rollbackErr);
-      }
-      throw initErr;
     }
 
     const response = NextResponse.json(

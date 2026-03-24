@@ -7,7 +7,12 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { getUserById } from '@/lib/repositories/users';
 import { proxy } from '@/proxy';
+
+vi.mock('@/lib/repositories/users', () => ({
+  getUserById: vi.fn(),
+}));
 
 function createMockRequest(pathname: string, cookies: Record<string, string> = {}): NextRequest {
   const url = new URL(`http://localhost:3000${pathname}`);
@@ -24,6 +29,7 @@ function createMockRequest(pathname: string, cookies: Record<string, string> = {
 describe('Proxy Middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getUserById).mockReset();
     // Use vi.stubGlobal to prevent test isolation issues
     vi.stubGlobal('fetch', vi.fn());
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = '69aae95b002b81fe4fdb';
@@ -119,31 +125,20 @@ describe('Proxy Middleware', () => {
         json: async () => ({ $id: 'admin_user_123' }),
       });
 
-      // Mock admin role lookup
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ role: 'admin' }),
+      vi.mocked(getUserById).mockResolvedValueOnce({
+        userId: 'admin_user_123',
+        email: 'admin@example.com',
+        isSupporter: false,
+        role: 'admin',
+        $createdAt: '2026-01-01T00:00:00.000Z',
+        $updatedAt: '2026-01-01T00:00:00.000Z',
       });
 
       const result = await proxy(request);
 
       expect(result.status).toBe(200);
-
-      // Assert fetch was called with correct Appwrite REST API URL and headers
-      const calls = (global.fetch as any).mock.calls;
-      expect(calls.length).toBeGreaterThanOrEqual(2);
-
-      // Second call should be the role lookup
-      const roleCheckCall = calls[1];
-      const roleCheckUrl = roleCheckCall[0].toString();
-      const roleCheckHeaders = roleCheckCall[1]?.headers;
-
-      expect(roleCheckUrl).toContain(
-        '/databases/videosphere/collections/user_profiles/documents/admin_user_123'
-      );
-      expect(roleCheckUrl).not.toContain('/v1/v1'); // Ensure no double /v1
-      expect(roleCheckHeaders['X-Appwrite-Project']).toBe('69aae95b002b81fe4fdb');
-      expect(roleCheckHeaders['X-Appwrite-Key']).toBe('test_api_key');
+      expect(vi.mocked(getUserById)).toHaveBeenCalledWith('admin_user_123');
+      expect((global.fetch as any).mock.calls).toHaveLength(1);
     });
 
     it('should block non-admin users from /admin routes', async () => {
@@ -158,10 +153,13 @@ describe('Proxy Middleware', () => {
         json: async () => ({ $id: 'regular_user_456' }),
       });
 
-      // Mock non-admin role lookup
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ role: 'user' }),
+      vi.mocked(getUserById).mockResolvedValueOnce({
+        userId: 'regular_user_456',
+        email: 'user@example.com',
+        isSupporter: false,
+        role: 'user',
+        $createdAt: '2026-01-01T00:00:00.000Z',
+        $updatedAt: '2026-01-01T00:00:00.000Z',
       });
 
       const result = await proxy(request);
@@ -169,19 +167,8 @@ describe('Proxy Middleware', () => {
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/dashboard');
-
-      // Assert fetch was called with correct Appwrite REST API URL and headers
-      const calls = (global.fetch as any).mock.calls;
-      const roleCheckCall = calls[1];
-      const roleCheckUrl = roleCheckCall[0].toString();
-      const roleCheckHeaders = roleCheckCall[1]?.headers;
-
-      expect(roleCheckUrl).toContain(
-        '/databases/videosphere/collections/user_profiles/documents/regular_user_456'
-      );
-      expect(roleCheckUrl).not.toContain('/v1/v1');
-      expect(roleCheckHeaders['X-Appwrite-Project']).toBe('69aae95b002b81fe4fdb');
-      expect(roleCheckHeaders['X-Appwrite-Key']).toBe('test_api_key');
+      expect(vi.mocked(getUserById)).toHaveBeenCalledWith('regular_user_456');
+      expect((global.fetch as any).mock.calls).toHaveLength(1);
     });
 
     it('should block users with missing role from /admin routes', async () => {
@@ -196,17 +183,14 @@ describe('Proxy Middleware', () => {
         json: async () => ({ $id: 'user_without_role_789' }),
       });
 
-      // Mock role lookup returning 404 (no role document)
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-      });
+      vi.mocked(getUserById).mockResolvedValueOnce(null);
 
       const result = await proxy(request);
 
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/dashboard');
+      expect(vi.mocked(getUserById)).toHaveBeenCalledWith('user_without_role_789');
     });
 
     it('should allow admin users to access /dashboard routes', async () => {

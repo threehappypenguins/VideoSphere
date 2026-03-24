@@ -10,13 +10,15 @@
 //   /admin/*      — authenticated admin users only
 //
 // Session is stored as an httpOnly cookie. Authentication is verified by
-// calling /api/auth/session internally (outside the middleware matcher so
-// no circular routing occurs). Admin role is checked via the Appwrite REST API.
+// calling /api/auth/session internally (outside the matcher so no circular
+// routing). Admin RBAC uses user_profiles.role via getUserById (Tables SDK),
+// same as API routes — not Auth labels or Account prefs (prefs.role is
+// unrelated unless you add code to sync it).
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
-import { DATABASE_ID, USER_PROFILES_COLLECTION_ID } from '@/lib/appwrite-constants';
+import { getUserById } from '@/lib/repositories/users';
 
 /**
  * Verify the session by calling the /api/auth/session route.
@@ -31,34 +33,6 @@ async function getSessionUser(request: NextRequest): Promise<{ $id: string } | n
     if (!res.ok) return null;
     const user = await res.json();
     return user && typeof user.$id === 'string' ? user : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Fetch the user's role from the user_profiles collection via the Appwrite REST API.
- * Returns null if the document is not found or on error.
- */
-async function getUserRole(userId: string): Promise<string | null> {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const apiKey = process.env.APPWRITE_API_KEY;
-  if (!endpoint || !projectId || !apiKey) return null;
-
-  try {
-    const res = await fetch(
-      `${endpoint}/databases/${DATABASE_ID}/collections/${USER_PROFILES_COLLECTION_ID}/documents/${userId}`,
-      {
-        headers: {
-          'X-Appwrite-Project': projectId,
-          'X-Appwrite-Key': apiKey,
-        },
-      }
-    );
-    if (!res.ok) return null;
-    const doc = await res.json();
-    return typeof doc.role === 'string' ? doc.role : null;
   } catch {
     return null;
   }
@@ -89,10 +63,9 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Admin routes require the 'admin' role
     if (pathname.startsWith('/admin')) {
-      const role = await getUserRole(user.$id);
-      if (role !== 'admin') {
+      const profile = await getUserById(user.$id);
+      if (profile?.role !== 'admin') {
         // Fail closed: redirect to dashboard if unauthorized
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
