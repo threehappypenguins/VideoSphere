@@ -255,17 +255,19 @@ export function DraftWizard({ isOpen, onClose }: DraftWizardProps) {
 
       try {
         setAiLoading(true);
-        const response = await fetch('/api/ai/generate', {
+        const response = await fetch('/api/ai/generate-metadata', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt,
+            fileName: videoFile?.name ?? 'video',
+            userPrompt: prompt || undefined,
             platforms: state.selectedPlatforms,
           }),
         });
 
         if (!response.ok) {
-          throw new Error('Failed to generate metadata');
+          const errBody = await response.json().catch(() => null);
+          throw new Error(errBody?.message ?? 'Failed to generate metadata');
         }
 
         const data = await response.json();
@@ -290,7 +292,7 @@ export function DraftWizard({ isOpen, onClose }: DraftWizardProps) {
         setAiLoading(false);
       }
     },
-    [state.selectedPlatforms]
+    [state.selectedPlatforms, videoFile]
   );
 
   const handleGoToStep2 = () => {
