@@ -24,6 +24,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
 import { generateMetadata, RateLimitError } from '@/lib/ai/openrouter';
 import type { ApiResponse, ApiError, GeneratedMetadata, ConnectedAccountPlatform } from '@/types';
+import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Platform character limits (PRD AI-06)
@@ -145,15 +146,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const validPlatforms: ConnectedAccountPlatform[] = ['youtube', 'vimeo'];
   if (
     !Array.isArray(platforms) ||
     platforms.length === 0 ||
-    !platforms.every((p) => validPlatforms.includes(p as ConnectedAccountPlatform))
+    !platforms.every((p) => CONNECTED_ACCOUNT_PLATFORMS.includes(p as ConnectedAccountPlatform))
   ) {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: 'platforms must be a non-empty array of "youtube" and/or "vimeo"',
+      message: `platforms must be a non-empty array of: ${CONNECTED_ACCOUNT_PLATFORMS.join(', ')}`,
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
