@@ -10,6 +10,13 @@
 
 import type { GeneratedMetadata } from '@/types';
 
+export class RateLimitError extends Error {
+  constructor(message = 'AI rate limit reached. Please wait a moment and try again.') {
+    super(message);
+    this.name = 'RateLimitError';
+  }
+}
+
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 interface OpenRouterMessage {
@@ -82,7 +89,7 @@ export async function generateMetadata(
   }
 
   if (response.status === 429) {
-    throw new Error('AI rate limit reached. Please wait a moment and try again.');
+    throw new RateLimitError();
   }
 
   if (!response.ok) {
@@ -113,7 +120,7 @@ export async function generateMetadata(
   // Some models wrap their response in markdown code fences (```json ... ```)
   // despite instructions not to. Strip them before parsing.
   const cleaned = rawContent
-    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/^\s*```(?:json)?\s*/i, '')
     .replace(/\s*```\s*$/, '')
     .trim();
 

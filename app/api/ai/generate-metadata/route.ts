@@ -22,7 +22,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
-import { generateMetadata } from '@/lib/ai/openrouter';
+import { generateMetadata, RateLimitError } from '@/lib/ai/openrouter';
 import type { ApiResponse, ApiError, GeneratedMetadata, ConnectedAccountPlatform } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -214,9 +214,7 @@ export async function POST(req: NextRequest) {
     };
     return NextResponse.json(response, { status: 200 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-
-    if (message.includes('rate limit')) {
+    if (err instanceof RateLimitError) {
       const errRes: ApiError = {
         error: 'Too Many Requests',
         message: 'AI rate limit reached. Please wait a moment and try again.',
