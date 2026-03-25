@@ -19,6 +19,18 @@ export function ConnectButton({ href, label, className }: ConnectButtonProps) {
     <a
       href={href}
       onClick={(e) => {
+        // Only override unmodified left-clicks; let the browser handle
+        // modified clicks (cmd/ctrl/middle-click, etc.) normally.
+        if (
+          e.defaultPrevented ||
+          e.button !== 0 ||
+          e.metaKey ||
+          e.ctrlKey ||
+          e.altKey ||
+          e.shiftKey
+        ) {
+          return;
+        }
         e.preventDefault();
         window.location.assign(href);
       }}
