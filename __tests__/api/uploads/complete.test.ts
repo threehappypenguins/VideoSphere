@@ -136,6 +136,13 @@ vi.mock('@/lib/draft-upload-metadata', () => ({
   })),
 }));
 
+// Mock after() to prevent "outside request scope" errors — keeps all other
+// next/server exports (NextRequest, NextResponse, etc.) intact.
+vi.mock('next/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/server')>();
+  return { ...actual, after: vi.fn() };
+});
+
 import { POST } from '@/app/api/uploads/[jobId]/complete/route';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import { headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';

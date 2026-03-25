@@ -17,6 +17,12 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+// Mock DraftWizard and its hook — the wizard is tested separately
+vi.mock('@/components/DraftWizard', () => ({ DraftWizard: () => null }));
+vi.mock('@/hooks/use-draft-wizard', () => ({
+  useDraftWizard: () => ({ isOpen: false, openWizard: vi.fn(), closeWizard: vi.fn() }),
+}));
+
 import DraftsPage from '@/app/(dashboard)/dashboard/drafts/page';
 
 describe('DraftsPage', () => {
@@ -33,11 +39,9 @@ describe('DraftsPage', () => {
     expect(screen.getByText(/create a draft to get started/i)).toBeInTheDocument();
   });
 
-  it('renders the Create draft link targeting /dashboard/upload', () => {
+  it('renders a Create draft button that opens the wizard', () => {
     render(<DraftsPage />);
 
-    const createDraftLink = screen.getByRole('link', { name: /create draft/i });
-    expect(createDraftLink).toBeInTheDocument();
-    expect(createDraftLink).toHaveAttribute('href', '/dashboard/upload');
+    expect(screen.getByRole('button', { name: /create draft/i })).toBeInTheDocument();
   });
 });
