@@ -1525,6 +1525,57 @@ These issues can be created if the team has capacity after completing all P0 and
 
 ---
 
+### Issue #77 · `[FEATURE]` Thumbnail Upload for Drafts
+
+**User Story:** As a user, I want to upload a custom thumbnail image for my video draft so that my videos stand out when distributed to platforms.
+
+**Acceptance Criteria:**
+
+- [ ] A "Upload Thumbnail" section is present on the draft create/edit form and in the Draft Wizard (Step 2)
+- [ ] Users can select a thumbnail via a file picker or drag-and-drop area; accepted formats are JPG, PNG, and WebP with a maximum file size of 2 MB
+- [ ] Client-side validation rejects files that exceed 2 MB or are not an accepted image format before any upload begins, displaying a clear inline error message
+- [ ] `POST /api/uploads/thumbnail-presign` accepts `{ draftId, contentType }`, validates the user owns the draft, and returns a presigned R2 PUT URL with a `thumbnailKey`
+- [ ] The client uploads the image directly to Cloudflare R2 using the presigned URL
+- [ ] On successful upload, `PATCH /api/drafts/[id]` is called to save the `thumbnailUrl` (public or presigned R2 URL) on the draft document
+- [ ] A preview of the uploaded thumbnail is displayed in the form immediately after a successful upload
+- [ ] Users can replace an existing thumbnail by uploading a new file; the old R2 object is deleted via `DELETE /api/uploads/thumbnail` before the new one is stored
+- [ ] The thumbnail URL is included in the draft payload sent to the distribution engine so it can be submitted to platforms that support custom thumbnails (YouTube, Vimeo)
+- [ ] Removing a thumbnail ("Remove" button) deletes the R2 object and clears `thumbnailUrl` on the draft document
+- [ ] All thumbnail access is scoped to the owning user — presign endpoint returns 403 for drafts the user does not own
+
+**Priority:** Low (Stretch Goal)
+
+**T-Shirt Size Estimate:** M (medium — a day or two)
+
+**Additional Context:** Stretch goal — see STRETCH_GOALS.md §6 (File Handling & Media). Store thumbnails under a key such as `thumbnails/{userId}/{draftId}/{filename}` in R2. Reuse the existing `lib/r2.ts` presigned URL utilities. ⚠️ Depends on Issue #18 (R2 Client), Issue #20 (Draft CRUD API), and Issue #21 (Draft Creation & Edit UI).
+
+---
+
+### Issue #78 · `[FEATURE]` AI Video Content Analysis & Smart Metadata Generation (Supporter Tier)
+
+**User Story:** As a supporter-tier user, I want an AI agent to watch my uploaded video and automatically generate a title, description, tags, and captions based on the actual content — so my metadata is accurate and platform-optimized without manual effort.
+
+**Acceptance Criteria:**
+
+- [ ] A "Analyse Video with AI" button is visible on the draft edit form and Draft Wizard only when `isSupporter: true`; free-tier users see a disabled button with an upgrade prompt tooltip instead
+- [ ] `POST /api/ai/analyse-video` accepts `{ draftId, platforms[] }`, verifies the user is a supporter and owns the draft, retrieves the video's R2 object URL, and submits it to a multimodal model via OpenRouter that can process video input
+- [ ] The endpoint returns a streaming (`text/event-stream`) response so the UI can display a live progress indicator while the model processes the video
+- [ ] The AI response includes: `title`, `description`, `tags` (`string[]`), and a `captions` map keyed by platform (e.g. `{ youtube: "...", vimeo: "..." }`), all grounded in the visual and audio content of the video
+- [ ] The endpoint enforces per-platform character limits on the generated fields (reusing the truncation logic from Issue #39) as a defense-in-depth measure
+- [ ] The UI prefills the draft form fields with the AI suggestions; the user can edit or regenerate individual fields before saving
+- [ ] A "Regenerate" button re-calls the endpoint with the same video; rate-limited to 3 requests per draft per day to prevent abuse
+- [ ] Non-supporter requests to `POST /api/ai/analyse-video` return `403` with a structured `ApiError` response
+- [ ] The selected multimodal model is configurable via an environment variable (`OPENROUTER_VIDEO_MODEL`), defaulting to a capable multimodal model (e.g. `google/gemini-2.0-flash-001`)
+- [ ] Unit tests cover: supporter-gated access, R2 URL construction, response parsing, character-limit truncation, and streaming output format
+
+**Priority:** Low (Stretch Goal)
+
+**T-Shirt Size Estimate:** L (large — several days)
+
+**Additional Context:** Stretch goal — see STRETCH_GOALS.md §9 (AI — Advanced). Requires a multimodal model with video understanding capability available on OpenRouter. The video file must already be uploaded to R2 (Issue #22) before analysis can begin. Use a presigned GET URL from `lib/r2.ts` `getObjectUrl()` to give the model temporary read access. ⚠️ Depends on Issue #18 (R2 Client), Issue #36 (OpenRouter AI Client), Issue #37 (AI Metadata Endpoint — reuse truncation helpers), Issue #39 (Character Limit Enforcement), and Issue #43 (Supporter Tier Enforcement).
+
+---
+
 ---
 
 ## Summary — Issue Count by Sprint
@@ -1544,8 +1595,8 @@ These issues can be created if the team has capacity after completing all P0 and
 | 10     | Responsive Design & Polish               | #52–#55    | 4     |
 | 11     | Testing & Stretch                        | #56–#60    | 5     |
 | 12     | Final Polish & Presentation              | #61–#65    | 5     |
-| —      | Stretch Goals (optional)                 | #66–#75    | 10    |
-| **Total** |                                       |            | **76** |
+| —      | Stretch Goals (optional)                 | #66–#75, #77, #78 | 12  |
+| **Total** |                                       |            | **78** |
 
 ---
 
