@@ -75,9 +75,71 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   };
 });
 
+// Mock drafts repository (needed for auto-distribution)
+vi.mock('@/lib/repositories/drafts', () => ({
+  getDraftById: vi.fn(async () => ({
+    id: 'draft-abc',
+    userId: 'user-123',
+    targets: ['youtube'],
+    title: 'Test Video',
+    description: 'desc',
+    tags: ['tag1'],
+    visibility: 'public',
+    platforms: {},
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-01T00:00:00.000Z',
+  })),
+}));
+
+// Mock platform-uploads repository
+vi.mock('@/lib/repositories/platform-uploads', () => ({
+  ensurePlatformUploadsForJobTargets: vi.fn(async () => [
+    {
+      id: 'pu-1',
+      uploadJobId: 'job-123',
+      platform: 'youtube',
+      status: 'pending',
+      platformVideoId: '',
+      platformUrl: '',
+      title: 'Test Video',
+      description: 'desc',
+      tags: ['tag1'],
+      visibility: 'public',
+      scheduledAt: null,
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    },
+  ]),
+}));
+
+// Mock shared distribute module — prevents actual platform uploads during tests
+vi.mock('@/lib/api/distribute', () => ({
+  distributeCreatePlatformUploadInput: vi.fn(() => ({
+    uploadJobId: 'job-123',
+    platform: 'youtube',
+    title: 'Test Video',
+    description: 'desc',
+    tags: ['tag1'],
+    visibility: 'public',
+  })),
+  runDistributionInBackground: vi.fn(async () => undefined),
+}));
+
+// Mock draft-upload-metadata
+vi.mock('@/lib/draft-upload-metadata', () => ({
+  buildMetadataForPlatform: vi.fn(() => ({
+    title: 'Test Video',
+    description: 'desc',
+    tags: ['tag1'],
+    visibility: 'public',
+  })),
+}));
+
 import { POST } from '@/app/api/uploads/[jobId]/complete/route';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import { headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
+import { getDraftById } from '@/lib/repositories/drafts';
 
 function createRequest(jobId: string, cookies: Record<string, string> = {}): NextRequest {
   const url = new URL(`http://localhost:3000/api/uploads/${jobId}/complete`);
@@ -356,23 +418,51 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
     });
 
-    it('should advance status to uploading after successful completion', async () => {
+    it('should advance status to distributing and auto-distribute when draft has targets', async () => {
       await POST(
         createRequest('job-123', { 'a_session_test-project': 'token' }),
         makeParams('job-123')
       );
 
-      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith('job-123', 'uploading');
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
+        'job-123',
+        'distributing',
+        null
+      );
     });
 
-    it('should return success: true in response body', async () => {
+    it('should return success: true and distributing: true in response body', async () => {
       const response = await POST(
         createRequest('job-123', { 'a_session_test-project': 'token' }),
         makeParams('job-123')
       );
 
       const body = await response.json();
-      expect(body).toEqual({ success: true });
+      expect(body).toEqual({ success: true, distributing: true });
+    });
+
+    it('should fall back to uploading when draft has no targets', async () => {
+      vi.mocked(getDraftById).mockResolvedValueOnce({
+        id: 'draft-abc',
+        userId: 'user-123',
+        targets: [],
+        title: 'Test Video',
+        description: 'desc',
+        tags: ['tag1'],
+        visibility: 'public',
+        platforms: {},
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      });
+
+      const response = await POST(
+        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        makeParams('job-123')
+      );
+
+      const body = await response.json();
+      expect(body).toEqual({ success: true, distributing: false });
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith('job-123', 'uploading');
     });
 
     it('should return 404 when the job is deleted between ownership check and status update', async () => {

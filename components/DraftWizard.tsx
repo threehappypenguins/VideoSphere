@@ -468,7 +468,6 @@ export function DraftWizard({ isOpen, onClose }: DraftWizardProps) {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', uploadUrl);
         xhr.setRequestHeader('Content-Type', videoFile.type);
-        xhr.setRequestHeader('Content-Length', String(videoFile.size));
 
         xhr.upload.addEventListener('progress', (event) => {
           if (event.lengthComputable) {
