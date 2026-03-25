@@ -85,6 +85,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 - [ ] **Avatar upload and crop** — profile photo upload with in-browser crop/resize before upload; stored in cloud storage
 - [ ] **Image optimisation pipeline** — all user-uploaded images are resized and converted to WebP/AVIF on upload; served via a CDN
 - [ ] **File download** — allow authenticated users to download their own uploaded files; enforce access control so users cannot download other users' private files
+- [ ] **Thumbnail upload for drafts** — allow users to upload a custom thumbnail image (JPG/PNG/WebP, max 2 MB) for a draft; store in Cloudflare R2; display a preview in the draft form; include the R2 thumbnail URL in the draft document so it can be submitted alongside video metadata on distribution
 
 ---
 

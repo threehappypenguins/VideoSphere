@@ -160,6 +160,7 @@ export async function POST(req: NextRequest) {
   }
 
   const typedPlatforms = platforms as ConnectedAccountPlatform[];
+  const typedUserPrompt = userPrompt as string | undefined;
 
   // 4. Determine user tier and select model
   const user = await getUserById(userId);
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
 
   const userMessage = [
     `Video filename: ${fileName.trim()}`,
-    userPrompt?.trim() ? `Additional context: ${userPrompt.trim()}` : null,
+    typedUserPrompt?.trim() ? `Additional context: ${typedUserPrompt.trim()}` : null,
   ]
     .filter(Boolean)
     .join('\n');

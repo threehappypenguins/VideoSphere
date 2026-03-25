@@ -1525,6 +1525,32 @@ These issues can be created if the team has capacity after completing all P0 and
 
 ---
 
+### Issue #77 · `[FEATURE]` Thumbnail Upload for Drafts
+
+**User Story:** As a user, I want to upload a custom thumbnail image for my video draft so that my videos stand out when distributed to platforms.
+
+**Acceptance Criteria:**
+
+- [ ] A "Upload Thumbnail" section is present on the draft create/edit form and in the Draft Wizard (Step 2)
+- [ ] Users can select a thumbnail via a file picker or drag-and-drop area; accepted formats are JPG, PNG, and WebP with a maximum file size of 2 MB
+- [ ] Client-side validation rejects files that exceed 2 MB or are not an accepted image format before any upload begins, displaying a clear inline error message
+- [ ] `POST /api/uploads/thumbnail-presign` accepts `{ draftId, contentType }`, validates the user owns the draft, and returns a presigned R2 PUT URL with a `thumbnailKey`
+- [ ] The client uploads the image directly to Cloudflare R2 using the presigned URL
+- [ ] On successful upload, `PATCH /api/drafts/[id]` is called to save the `thumbnailUrl` (public or presigned R2 URL) on the draft document
+- [ ] A preview of the uploaded thumbnail is displayed in the form immediately after a successful upload
+- [ ] Users can replace an existing thumbnail by uploading a new file; the old R2 object is deleted via `DELETE /api/uploads/thumbnail` before the new one is stored
+- [ ] The thumbnail URL is included in the draft payload sent to the distribution engine so it can be submitted to platforms that support custom thumbnails (YouTube, Vimeo)
+- [ ] Removing a thumbnail ("Remove" button) deletes the R2 object and clears `thumbnailUrl` on the draft document
+- [ ] All thumbnail access is scoped to the owning user — presign endpoint returns 403 for drafts the user does not own
+
+**Priority:** Low (Stretch Goal)
+
+**T-Shirt Size Estimate:** M (medium — a day or two)
+
+**Additional Context:** Stretch goal — see STRETCH_GOALS.md §6 (File Handling & Media). Store thumbnails under a key such as `thumbnails/{userId}/{draftId}/{filename}` in R2. Reuse the existing `lib/r2.ts` presigned URL utilities. ⚠️ Depends on Issue #18 (R2 Client), Issue #20 (Draft CRUD API), and Issue #21 (Draft Creation & Edit UI).
+
+---
+
 ---
 
 ## Summary — Issue Count by Sprint
@@ -1544,8 +1570,8 @@ These issues can be created if the team has capacity after completing all P0 and
 | 10     | Responsive Design & Polish               | #52–#55    | 4     |
 | 11     | Testing & Stretch                        | #56–#60    | 5     |
 | 12     | Final Polish & Presentation              | #61–#65    | 5     |
-| —      | Stretch Goals (optional)                 | #66–#75    | 10    |
-| **Total** |                                       |            | **76** |
+| —      | Stretch Goals (optional)                 | #66–#75, #77 | 11  |
+| **Total** |                                       |            | **77** |
 
 ---
 
