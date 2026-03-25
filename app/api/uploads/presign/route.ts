@@ -40,11 +40,12 @@
  * Security:
  * - Only authenticated users can request presigned URLs
  * - URLs expire in 15 minutes (NF-08)
- * - ContentType AND ContentLength are locked in the presigned signature; a PUT
- *   with a mismatched Content-Length header fails R2's signature check
- *   (server-side size enforcement — layer 1)
- * - Actual object byte size is verified server-side in POST /api/uploads/[jobId]/complete
- *   via a HEAD request after the upload completes (layer 2)
+ * - ContentType is locked in the presigned signature; a PUT with a mismatched
+ *   Content-Type header fails R2's signature check
+ * - ContentLength is NOT signed (browsers treat it as a forbidden header and
+ *   set it automatically — signing it would cause SignatureDoesNotMatch on every
+ *   browser upload). Actual byte size is verified server-side in
+ *   POST /api/uploads/[jobId]/complete via a HEAD request after upload (layer 2)
  * - Format validated by both MIME type and file extension
  * - draftId is required; ownership is verified (draft.userId === authenticatedUserId)
  *   before creating an UploadJob — prevents IDOR attacks

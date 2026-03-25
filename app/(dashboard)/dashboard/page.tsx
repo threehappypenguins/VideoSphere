@@ -60,16 +60,10 @@ export default function DashboardPage() {
           <h2 className="text-lg font-semibold text-foreground">Quick actions</h2>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link
-              href="/dashboard/upload"
+              href="/dashboard/drafts?openWizard=true"
               className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               New upload
-            </Link>
-            <Link
-              href="/dashboard/upload"
-              className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-            >
-              New draft
             </Link>
             <Link
               href="/dashboard/drafts"

@@ -193,7 +193,7 @@ export interface Draft {
   description: string;
   /** Shared tag list for every target platform; stored in `document`. */
   tags: string[];
-  /** Applied when distributing (mapped to each API’s privacy model). */
+  /** Applied when distributing (mapped to each API's privacy model). */
   visibility: PlatformUploadVisibility;
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */
   platforms: DraftPlatforms;
@@ -280,6 +280,24 @@ export interface ExampleItem {
   title: string;
   description: string;
   createdAt: string;
+}
+
+// =============================================================================
+// AI Metadata Generation types (PRD: AI-01 through AI-06, AI-08)
+// =============================================================================
+
+/** Structured metadata returned by the AI metadata generation endpoint. */
+export interface GeneratedMetadata {
+  title: string;
+  description: string;
+  tags: string[];
+}
+
+/** Request body for POST /api/ai/generate-metadata. */
+export interface GenerateMetadataRequest {
+  fileName: string;
+  userPrompt?: string;
+  platforms: ConnectedAccountPlatform[];
 }
 
 /**

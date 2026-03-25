@@ -35,26 +35,18 @@ describe('DashboardPage Component', () => {
       expect(screen.getByRole('heading', { level: 2, name: /quick actions/i })).toBeInTheDocument();
     });
 
-    it('should render all three action links with correct text', () => {
+    it('should render both action links with correct text', () => {
       render(<DashboardPage />);
 
       expect(screen.getByRole('link', { name: /new upload/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /new draft/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /view drafts/i })).toBeInTheDocument();
     });
 
-    it('should link "New upload" to /dashboard/upload', () => {
+    it('should link "New upload" to the drafts wizard', () => {
       render(<DashboardPage />);
 
       const newUploadLink = screen.getByRole('link', { name: /new upload/i });
-      expect(newUploadLink).toHaveAttribute('href', '/dashboard/upload');
-    });
-
-    it('should link "New draft" to /dashboard/upload', () => {
-      render(<DashboardPage />);
-
-      const newDraftLink = screen.getByRole('link', { name: /new draft/i });
-      expect(newDraftLink).toHaveAttribute('href', '/dashboard/upload');
+      expect(newUploadLink).toHaveAttribute('href', '/dashboard/drafts?openWizard=true');
     });
 
     it('should link "View drafts" to /dashboard/drafts', () => {

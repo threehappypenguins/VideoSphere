@@ -53,6 +53,10 @@
 
   /* Border color used for dividers and inputs */
   --border: #e5e5e5;
+
+  /* Popover/dropdown background (must be opaque to avoid overlap) */
+  --popover: #ffffff;
+  --popover-foreground: #171717;
 }
 
 /* --- Tailwind Theme Integration --- */
@@ -67,6 +71,8 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --font-sans: var(--font-inter);
 }
 
@@ -82,6 +88,8 @@
   --muted: #262626;
   --muted-foreground: #a3a3a3;
   --border: #404040;
+  --popover: #0a0a0a;
+  --popover-foreground: #ededed;
 }
 
 /* --- Base Styles --- */

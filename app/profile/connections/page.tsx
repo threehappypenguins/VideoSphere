@@ -25,6 +25,7 @@ import {
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
 import type { ConnectedAccountPublic } from '@/types';
+import { ConnectButton } from './ConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
@@ -254,28 +255,14 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                 ) : status === 'expired' && account ? (
                   // Token is expired — offer both reconnect and disconnect.
                   <div className="flex items-center gap-2">
-                    {/* Use a plain <a> tag — the connect route returns a 307 to an
-                        external OAuth URL. Next.js <Link> fetches href client-side
-                        and the cross-origin redirect triggers a dev-overlay CORS error. */}
-                    <a
-                      href={meta.connectHref}
-                      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                    >
-                      Reconnect
-                    </a>
+                    <ConnectButton href={meta.connectHref} label="Reconnect" />
                     <DisconnectButton
                       action={disconnectPlatform.bind(null, account.id, platform)}
                       platformLabel={meta.label}
                     />
                   </div>
                 ) : (
-                  // Use a plain <a> tag — same reason as above.
-                  <a
-                    href={meta.connectHref}
-                    className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                  >
-                    Connect
-                  </a>
+                  <ConnectButton href={meta.connectHref} label="Connect" />
                 )}
               </div>
             );

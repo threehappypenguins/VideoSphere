@@ -92,18 +92,21 @@ function getR2Client(): S3Client {
  *
  * @param key - Object key in R2 bucket (e.g., "users/123/videos/abc.mp4")
  * @param contentType - MIME type of file being uploaded (e.g., "video/mp4")
- * @param contentLength - Exact file size in bytes; locked into the URL signature
+ * @param contentLength - Exact file size in bytes (validated server-side after upload via HEAD)
  * @returns Presigned PUT URL that expires in 15 minutes
  *
  * Security:
- * - Content-Type is part of the signature, preventing upload of wrong file types
- * - Content-Length is part of the signature; the PUT must declare the exact byte
- *   count that was signed — a mismatched Content-Length on the PUT request will
- *   fail R2's signature verification and the upload will be rejected
+ * - Content-Type is locked into the signature, preventing upload of wrong file types.
+ * - Content-Length is NOT signed here because browsers treat it as a "forbidden"
+ *   request header and set it automatically from the body. Signing it would cause
+ *   R2 to reject every browser upload with a SignatureDoesNotMatch error.
+ *   Size enforcement is handled server-side in POST /api/uploads/[jobId]/complete
+ *   via a HEAD request that checks the object's actual byte count against the
+ *   declared fileSize (layer 2).
  *
  * @example
  * const url = await getPresignedUploadUrl("users/123/video.mp4", "video/mp4", 1024 * 1024);
- * // Client can now PUT file directly to R2 with this URL
+ * // Client can PUT file directly to R2 with this URL
  * fetch(url, { method: "PUT", body: file, headers: { "content-type": "video/mp4" } })
  */
 export async function getPresignedUploadUrl(
@@ -127,16 +130,18 @@ export async function getPresignedUploadUrl(
     Bucket: process.env.R2_BUCKET_NAME!,
     Key: key,
     ContentType: contentType,
-    ContentLength: contentLength,
+    // ContentLength is intentionally not set on the command: browsers set
+    // Content-Length automatically from the XHR body and will not honour a
+    // manually assigned value, so including it in the signature would cause
+    // every preflight/PUT to fail with SignatureDoesNotMatch.
   });
 
   try {
     const url = await getSignedUrl(client, command, {
       expiresIn: UPLOAD_URL_EXPIRY,
-      // Include both content-type and content-length in the signature:
-      // - content-type: prevents MIME-type abuse
-      // - content-length: binds the URL to the exact declared byte count
-      signableHeaders: new Set([CONTENT_TYPE_HEADER, 'content-length']),
+      // Only sign content-type — prevents MIME-type abuse while keeping the
+      // signature compatible with the browser's forbidden-header restrictions.
+      signableHeaders: new Set([CONTENT_TYPE_HEADER]),
     });
 
     return url;

@@ -14,6 +14,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Toaster } from '@/components/ui/sonner';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', exact: true },
@@ -91,6 +92,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Page content */}
         <div className="flex-1">{children}</div>
       </div>
+      {/* Toaster allows for displaying toast notifications */}
+      <Toaster />
     </div>
   );
 }
