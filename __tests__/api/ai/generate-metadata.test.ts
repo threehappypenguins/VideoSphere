@@ -29,14 +29,18 @@ vi.mock('@/lib/repositories', () => ({
   getUserById: vi.fn(),
 }));
 
-vi.mock('@/lib/ai/openrouter', () => ({
-  generateMetadata: vi.fn(),
-}));
+vi.mock('@/lib/ai/openrouter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ai/openrouter')>();
+  return {
+    generateMetadata: vi.fn(),
+    RateLimitError: actual.RateLimitError,
+  };
+});
 
 import { POST } from '@/app/api/ai/generate-metadata/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
-import { generateMetadata } from '@/lib/ai/openrouter';
+import { generateMetadata, RateLimitError } from '@/lib/ai/openrouter';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -469,9 +473,7 @@ describe('POST /api/ai/generate-metadata', () => {
     });
 
     it('returns 429 when AI raises a rate-limit error', async () => {
-      vi.mocked(generateMetadata).mockRejectedValueOnce(
-        new Error('AI rate limit reached. Please wait a moment and try again.')
-      );
+      vi.mocked(generateMetadata).mockRejectedValueOnce(new RateLimitError());
 
       const res = await POST(makeRequest(validBody));
 
