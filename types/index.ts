@@ -193,7 +193,7 @@ export interface Draft {
   description: string;
   /** Shared tag list for every target platform; stored in `document`. */
   tags: string[];
-  /** Applied when distributing (mapped to each API’s privacy model). */
+  /** Applied when distributing (mapped to each API's privacy model). */
   visibility: PlatformUploadVisibility;
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */
   platforms: DraftPlatforms;

@@ -13,15 +13,31 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'About',
-  description: 'Learn about [Your App Name] — our mission, team, and story.',
+  description: 'Learn about VideoSphere — our mission, team, and story.',
 };
 
-// STUDENT: Replace with your actual team members
+// Core VideoSphere team members
 const team = [
-  { name: '[Team Member 1]', role: '[Role / Title]', bio: '[Short bio about this team member]' },
-  { name: '[Team Member 2]', role: '[Role / Title]', bio: '[Short bio about this team member]' },
-  { name: '[Team Member 3]', role: '[Role / Title]', bio: '[Short bio about this team member]' },
-  { name: '[Team Member 4]', role: '[Role / Title]', bio: '[Short bio about this team member]' },
+  {
+    name: 'Sarah Poulin',
+    role: 'Project Lead & Full-Stack Developer',
+    bio: 'Sarah is passionate about building innovative solutions and leading the team to success.',
+  },
+  {
+    name: 'Sonia Kakkar',
+    role: 'Frontend Developer',
+    bio: 'Sonia is a skilled frontend developer with a keen eye for design and user experience.',
+  },
+  {
+    name: 'Christian Hansen',
+    role: 'Backend & Infrastructure Engineer',
+    bio: 'Christian is an experienced backend developer who ensures our systems run smoothly and efficiently.',
+  },
+  {
+    name: 'Daryan Wynter',
+    role: 'UI/UX Designer',
+    bio: 'Daryan is a creative designer focused on crafting intuitive and engaging user experiences.',
+  },
 ];
 
 export default function AboutPage() {
@@ -31,11 +47,12 @@ export default function AboutPage() {
         {/* --- Mission / Vision --- */}
         <section className="text-center">
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-            About [Your App Name]
+            About VideoSphere
           </h1>
           <p className="mt-6 text-lg text-muted-foreground">
-            [Your mission statement — what problem does your product solve and why does your team
-            care about solving it? Write 2-3 sentences that capture your purpose.]
+            VideoSphere lets video creators upload once and distribute everywhere. We&apos;re
+            building this as our capstone project at NSCC to solve the pain of manually uploading to
+            multiple platforms.
           </p>
         </section>
 
@@ -44,16 +61,13 @@ export default function AboutPage() {
           <h2 className="text-2xl font-bold text-foreground">Our Story</h2>
           <div className="mt-6 space-y-4 text-muted-foreground">
             <p>
-              [Tell the story of how your product came to be. What inspired you to build it? What
-              problem did you see that needed solving?]
+              VideoSphere started as a capstone project at NSCC, born out of a frustration we all
+              shared — spending hours uploading the same video to YouTube, Vimeo, and other
+              platforms one by one.
             </p>
             <p>
-              [Describe your journey — the challenges you faced, the decisions you made, and where
-              you are today. This is your chance to connect with visitors on a personal level.]
-            </p>
-            <p>
-              [Share your vision for the future — where is the product heading? What impact do you
-              want to have?]
+              As a team of four students, we collaborated to design and build a platform that solves
+              this problem by letting creators upload once and distribute everywhere automatically.
             </p>
           </div>
         </section>
@@ -62,7 +76,8 @@ export default function AboutPage() {
         <section className="mt-20">
           <h2 className="text-center text-2xl font-bold text-foreground">Meet the Team</h2>
           <p className="mt-4 text-center text-muted-foreground">
-            [A brief intro about your team — what brings you together and what you&apos;re building]
+            Four NSCC students united by a shared goal — building VideoSphere to make multi-platform
+            video distribution effortless.
           </p>
 
           <div className="mt-12 grid grid-cols-1 gap-8 sm:grid-cols-2">

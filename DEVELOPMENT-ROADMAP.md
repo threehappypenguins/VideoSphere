@@ -421,20 +421,20 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ## Sprint 3 — Draft Management & Video Upload (Mar 8–11)
 
-### Issue #20 · `[FEATURE]` Draft CRUD API Routes
+### ✅ Issue #20 · `[FEATURE]` Draft CRUD API Routes
 
 **User Story:** As a user, I want to create, read, update, and delete video metadata drafts so that I can prepare my videos for distribution.
 
 **Acceptance Criteria:**
 
-- [ ] `POST /api/drafts` creates a new draft (title, description, tags, userId)
-- [ ] `GET /api/drafts` lists all drafts for the authenticated user
-- [ ] `GET /api/drafts/[id]` returns a specific draft (only if owned by the user)
-- [ ] `PATCH /api/drafts/[id]` updates a draft's fields (partial update)
-- [ ] `DELETE /api/drafts/[id]` deletes a draft
-- [ ] All routes require authentication (return 401 if not logged in)
-- [ ] All routes validate input (return 400 on malformed data)
-- [ ] Responses follow the `ApiResponse<T>` type format
+- [x] `POST /api/drafts` creates a new draft (title, description, tags, userId)
+- [x] `GET /api/drafts` lists all drafts for the authenticated user
+- [x] `GET /api/drafts/[id]` returns a specific draft (only if owned by the user)
+- [x] `PATCH /api/drafts/[id]` updates a draft's fields (partial update)
+- [x] `DELETE /api/drafts/[id]` deletes a draft
+- [x] All routes require authentication (return 401 if not logged in)
+- [x] All routes validate input (return 400 on malformed data)
+- [x] Responses follow the `ApiResponse<T>` type format
 
 **Priority:** P0 (High)
 
@@ -466,6 +466,47 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 **T-Shirt Size Estimate:** L (large — several days)
 
 **Additional Context:** PRD refs: DM-01, DM-02, DM-05, DM-07, DM-10, DM-11, DM-12, US-12. Consider using shadcn/ui form components. ⚠️ Depends on Issue #15 (Connected Accounts Repository) for loading the user's connected platforms.
+
+---
+
+### Issue #76 · `[FEATURE]` New Draft Wizard — Multi-Step Modal/Page
+
+**User Story:** As a user, I want to create a new draft through a guided multi-step flow so that I can select my target platforms, enter metadata with AI assistance, and review everything before saving.
+
+**Acceptance Criteria:**
+
+**Step 1 — Platform Selection:**
+
+- [ ] The wizard opens when the user clicks "New Draft" on `/dashboard/drafts`
+- [ ] Step 1 displays each of the user's connected platforms as a selectable card (loaded from `GET /api/connected-accounts`)
+- [ ] Platforms the user has not connected are shown as disabled cards with a "Connect" call-to-action that links to the connections page
+- [ ] User can select one or more platforms by toggling the cards; selected platforms are visually highlighted
+- [ ] A "Next" button is disabled until at least one platform is selected (per DM-12)
+
+**Step 2 — Metadata & AI Generation:**
+
+- [ ] Step 2 displays a short "AI Prompt" text bar (e.g., placeholder: "Describe your video in a few words…") positioned above a "Generate with AI" button
+- [ ] Clicking "Generate with AI" calls `POST /api/ai/generate` with the prompt text and selected platforms; a loading spinner/skeleton is shown in the form fields while waiting
+- [ ] On success, the returned `title`, `description`, and `tags` populate the respective editable form fields (replacing any existing content)
+- [ ] All metadata fields (title required, description, tags) remain fully editable regardless of whether AI was used
+- [ ] User can click "Regenerate" to get a fresh AI suggestion at any time; field values are replaced with the new response
+- [ ] If the AI request fails, a non-blocking error toast is shown and the form fields remain blank/user-editable
+- [ ] A visibility selector (public / unlisted / private) is shown for each selected platform
+- [ ] Inline character count indicators enforce platform-specific title limits (YouTube ≤ 100 chars, Vimeo ≤ 128 chars)
+
+**Navigation & Submission:**
+
+- [ ] A step indicator (e.g., "Step 1 of 2" stepper or progress bar) is visible throughout the wizard
+- [ ] "Back" button on Step 2 returns to Step 1 with previously selected platforms preserved
+- [ ] "Save Draft" button on Step 2 submits to `POST /api/drafts` and redirects to `/dashboard/drafts/[id]` on success
+- [ ] Submitting with an empty title shows an inline validation error
+- [ ] Closing or dismissing the wizard without saving prompts the user with a confirmation dialog if any field has been filled
+
+**Priority:** P0 (High)
+
+**T-Shirt Size Estimate:** L (large — several days)
+
+**Additional Context:** PRD refs: DM-01, DM-02, DM-05, DM-10, DM-11, DM-12, AI-01, AI-02, AI-03, US-12, US-16. Implement as a shadcn/ui `Dialog` with internal step state (or a dedicated wizard page at `/dashboard/drafts/new` if the form is too large for a modal). ⚠️ Depends on Issue #20 (Draft CRUD API), Issue #21 (Draft Creation & Edit UI), and Issue #37 (AI Metadata Endpoint).
 
 ---
 
@@ -627,9 +668,9 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] A `refreshTokenIfNeeded(connectedAccount)` utility checks token expiry
-- [ ] If expired, it uses the platform-specific refresh endpoint to get new tokens
-- [ ] Updated tokens are saved back to `connected_accounts` via the repository
+- [ ] A `refreshTokenIfNeeded(connectedAccount)` utility checks token expiry (YouTube refresh is implemented inline in the distribution flow, not as this standalone helper)
+- [x] If expired, it uses the platform-specific refresh endpoint to get new tokens (YouTube: before upload and on 401 in `POST /api/uploads/distribute`)
+- [x] Updated tokens are saved back to `connected_accounts` via the repository
 - [ ] If refresh fails (e.g., revoked access), the account status is updated and user is notified
 
 **Related Feature / Epic:** Platform Management (PM-05)
@@ -657,18 +698,18 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ## Sprint 5 — Distribution Engine (Mar 15–18)
 
-### Issue #30 · `[FEATURE]` YouTube Upload Adapter
+### ✅ Issue #30 · `[FEATURE]` YouTube Upload Adapter
 
 **User Story:** As a user, I want VideoSphere to upload my video to YouTube so that I don't have to do it manually.
 
 **Acceptance Criteria:**
 
-- [ ] A `lib/platforms/youtube.ts` adapter module implements `uploadVideo(videoStream, metadata, tokens)`
-- [ ] The adapter uses the YouTube Data API v3 `videos.insert` endpoint
-- [ ] Metadata (title, description, tags, visibility) is sent with the upload
-- [ ] On success, the adapter returns the YouTube video ID and URL
-- [ ] On failure, the adapter returns a structured error with details
-- [ ] The adapter handles token refresh before uploading
+- [x] A `lib/platforms/youtube.ts` adapter module implements `uploadVideo(videoStream, metadata, tokens)` (`uploadToYouTube` + resumable `videos.insert` flow)
+- [x] The adapter uses the YouTube Data API v3 `videos.insert` endpoint
+- [x] Metadata (title, description, tags, visibility) is sent with the upload
+- [x] On success, the adapter returns the YouTube video ID and URL
+- [x] On failure, the adapter returns a structured error with details
+- [x] The adapter handles token refresh before uploading (via `refreshYouTubeAccessToken`, used from the distribution route)
 
 **Priority:** P0 (High)
 
@@ -684,12 +725,12 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] A `lib/platforms/vimeo.ts` adapter module implements `uploadVideo(videoStream, metadata, tokens)`
-- [ ] The adapter uses the Vimeo API's tus-based upload flow
-- [ ] Metadata (title, description, tags, visibility) is set after upload
-- [ ] On success, the adapter returns the Vimeo video ID and URL
-- [ ] On failure, the adapter returns a structured error with details
-- [ ] The adapter handles token refresh before uploading
+- [x] A `lib/platforms/vimeo.ts` adapter module implements `uploadVideo(videoStream, metadata, tokens)` (`uploadToVimeo` + tus flow)
+- [x] The adapter uses the Vimeo API's tus-based upload flow
+- [x] Metadata (title, description, tags, visibility) is set after upload
+- [x] On success, the adapter returns the Vimeo video ID and URL
+- [x] On failure, the adapter returns a structured error with details
+- [ ] The adapter handles token refresh before uploading (Vimeo integration uses a stored access token only; refresh is not implemented in `vimeo.ts` — reconnect if expired)
 
 **Priority:** P0 (High)
 
@@ -699,19 +740,19 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #32 · `[FEATURE]` Distribution Engine & API Route
+### ✅ Issue #32 · `[FEATURE]` Distribution Engine & API Route
 
 **User Story:** As a user, I want to click "Distribute" and have my video uploaded to all selected platforms simultaneously.
 
 **Acceptance Criteria:**
 
-- [ ] `POST /api/uploads/distribute` accepts a draft ID, R2 object key, and target platform list
-- [ ] The endpoint creates an `UploadJob` record and a `PlatformUpload` record per target platform
-- [ ] Distribution runs asynchronously — the API responds immediately with the job ID
-- [ ] The distribution engine reads the video from R2 and streams it to each platform adapter in parallel
-- [ ] Each platform upload updates its `PlatformUpload` status independently (a YouTube failure doesn't block Vimeo)
-- [ ] On completion, the `UploadJob` status is set to `completed` (or `failed` if all platforms failed)
-- [ ] Free-tier users are limited to 2 platforms per upload; the API enforces this
+- [x] `POST /api/uploads/distribute` accepts a draft ID, R2 object key, and target platform list
+- [x] The endpoint creates an `UploadJob` record and a `PlatformUpload` record per target platform (`UploadJob` is created during presign/complete; distribute ensures `PlatformUpload` rows per target)
+- [x] Distribution runs asynchronously — the API responds immediately with the job ID
+- [x] The distribution engine reads the video from R2 and streams it to each platform adapter in parallel
+- [x] Each platform upload updates its `PlatformUpload` status independently (a YouTube failure doesn't block Vimeo)
+- [x] On completion, the `UploadJob` status is set to `completed` (or `failed` if all platforms failed)
+- [x] Free-tier users are limited to 2 platforms per upload; the API enforces this
 
 **Priority:** P0 (High)
 
@@ -886,17 +927,17 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #41 · `[FEATURE]` Stripe Checkout Integration
+### ✅ Issue #41 · `[FEATURE]` Stripe Checkout Integration
 
 **User Story:** As a free user, I want to upgrade to Supporter by completing a payment so I can unlock premium features.
 
 **Acceptance Criteria:**
 
-- [ ] Clicking "Upgrade to Supporter" calls `POST /api/payments/checkout` which creates a Stripe Checkout Session
-- [ ] The user is redirected to Stripe's hosted checkout page
-- [ ] The checkout uses **Stripe test mode** (no real payments)
-- [ ] On success, the user is redirected back to `/profile` with a success query param
-- [ ] On cancellation, the user is redirected back to `/pricing`
+- [x] Clicking "Upgrade to Supporter" calls `POST /api/payments/checkout` which creates a Stripe Checkout Session
+- [x] The user is redirected to Stripe's hosted checkout page
+- [x] The checkout uses **Stripe test mode** (no real payments)
+- [x] On success, the user is redirected back to `/profile` with a success query param
+- [x] On cancellation, the user is redirected back to `/pricing`
 
 **Priority:** P0 (High)
 
@@ -906,18 +947,18 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #42 · `[FEATURE]` Stripe Webhook Handler
+### ✅ Issue #42 · `[FEATURE]` Stripe Webhook Handler
 
 **User Story:** As the system, I need to process Stripe webhook events so that user tier upgrades happen reliably server-side.
 
 **Acceptance Criteria:**
 
-- [ ] `POST /api/webhooks/stripe` receives Stripe webhook events
-- [ ] Webhook signature is verified using the Stripe webhook secret (reject unsigned requests)
-- [ ] On `checkout.session.completed`, the handler identifies the user and sets `isSupporter: true` in `user_profiles`
-- [ ] The webhook handler is idempotent (processing the same event twice doesn't cause issues)
-- [ ] Webhook events are logged for debugging
-- [ ] Error responses return appropriate status codes
+- [x] `POST /api/webhooks/stripe` receives Stripe webhook events
+- [x] Webhook signature is verified using the Stripe webhook secret (reject unsigned requests)
+- [x] On `checkout.session.completed`, the handler identifies the user and sets `isSupporter: true` in `user_profiles`
+- [x] The webhook handler is idempotent (processing the same event twice doesn't cause issues)
+- [x] Webhook events are logged for debugging
+- [x] Error responses return appropriate status codes
 
 **Priority:** P0 (High)
 
@@ -937,11 +978,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] `POST /api/uploads/distribute` rejects requests exceeding 2 platforms for free-tier users
-- [ ] `POST /api/uploads/presign` checks monthly usage for free-tier users (10/month limit)
-- [ ] `POST /api/ai/generate-metadata` selects the model based on the user's tier
-- [ ] All checks are server-side (client-side checks are supplementary, not authoritative)
-- [ ] Clear error messages explain tier limitations and prompt upgrade
+- [x] `POST /api/uploads/distribute` rejects requests exceeding 2 platforms for free-tier users
+- [x] `POST /api/uploads/presign` checks monthly usage for free-tier users (10/month limit)
+- [ ] `POST /api/ai/generate-metadata` selects the model based on the user's tier (endpoint not implemented yet)
+- [x] All checks are server-side (client-side checks are supplementary, not authoritative)
+- [x] Clear error messages explain tier limitations and prompt upgrade (where tier gates exist: presign, distribute)
 
 **Related Feature / Epic:** Freemium Model (FP-05, FP-06)
 
@@ -949,17 +990,17 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ## Sprint 8 — Admin Dashboard (Mar 26–28)
 
-### Issue #44 · `[FEATURE]` Admin Dashboard — User Table
+### ✅ Issue #44 · `[FEATURE]` Admin Dashboard — User Table
 
 **User Story:** As an admin, I want to view all users with their roles and subscription status so I can manage the platform.
 
 **Acceptance Criteria:**
 
-- [ ] `/admin/dashboard` page displays a table of all users
-- [ ] Columns: email, role (`user`/`admin`), supporter status, created date
-- [ ] Table supports pagination (or shows up to 50 users with a "Load more" button)
-- [ ] `GET /api/admin/users` returns paginated user list (admin-only route)
-- [ ] Non-admin users receive 403 when calling this endpoint
+- [x] `/admin/dashboard` page displays a table of all users
+- [x] Columns: email, role (`user`/`admin`), supporter status, created date
+- [x] Table supports pagination (or shows up to 50 users with a "Load more" button)
+- [x] `GET /api/admin/users` returns paginated user list (admin-only route)
+- [x] Non-admin users receive 403 when calling this endpoint
 
 **Priority:** P0 (High)
 
@@ -969,16 +1010,16 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-### Issue #45 · `[FEATURE]` Admin Dashboard — System Stats
+### ✅ Issue #45 · `[FEATURE]` Admin Dashboard — System Stats
 
 **User Story:** As an admin, I want to see system health stats so I can monitor the platform at a glance.
 
 **Acceptance Criteria:**
 
-- [ ] Admin dashboard displays stats cards: total users, total supporters, uploads this month, active drafts
-- [ ] `GET /api/admin/stats` aggregates data from Appwrite collections and returns the stats
-- [ ] Stats update each time the admin visits the page (no caching required for MVP)
-- [ ] Route is admin-only (403 for non-admins)
+- [x] Admin dashboard displays stats cards: total users, total supporters, uploads this month, active drafts
+- [x] `GET /api/admin/stats` aggregates data from Appwrite collections and returns the stats
+- [x] Stats update each time the admin visits the page (no caching required for MVP)
+- [x] Route is admin-only (403 for non-admins)
 
 **Priority:** P0 (High)
 
@@ -1182,10 +1223,10 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 **Acceptance Criteria:**
 
 - [x] Navbar shows: Logo/brand, Dashboard link (auth'd), Profile link (auth'd), Login/Signup (unauth'd), Logout button (auth'd)
-- [ ] Navbar highlights the active page
+- [x] Navbar highlights the active page (pathname-based styling on main links)
 - [x] Navbar is mobile-responsive (hamburger menu)
-- [ ] Footer shows: Links to About, Contact, Pricing, GitHub repo link
-- [ ] Admin users see an "Admin" link in the Navbar
+- [x] Footer shows: Links to About, Contact, Pricing, GitHub repo link
+- [ ] Admin users see an "Admin" link in the Navbar (session UI does not yet expose role; use `/admin/dashboard` directly when testing)
 
 **Related Feature / Epic:** Layout Components
 
@@ -1223,12 +1264,12 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Acceptance Criteria:**
 
-- [ ] Auth routes: test successful registration, login, logout, and error cases
-- [ ] Draft routes: test CRUD operations and authorization
-- [ ] Upload routes: test presign URL generation and usage limit checks
-- [ ] AI routes: test model selection based on user tier
-- [ ] Stripe webhook: test signature verification and user update
-- [ ] All tests pass with `pnpm test`
+- [ ] Auth routes: test successful registration, login, logout, and error cases (`__tests__/auth/integration.test.ts` is still placeholder-level)
+- [x] Draft routes: test CRUD operations and authorization
+- [x] Upload routes: test presign URL generation and usage limit checks (plus `complete` / `distribute` coverage)
+- [ ] AI routes: test model selection based on user tier (no `app/api/ai/*` yet)
+- [x] Stripe webhook: test signature verification and user update
+- [x] All tests pass with `pnpm test`
 
 **Related Feature / Epic:** Testing
 
@@ -1329,7 +1370,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 - [x] `pnpm lint` passes with zero errors
 - [x] `pnpm format:check` passes (all files formatted)
 - [x] `pnpm type-check` passes (zero TypeScript errors)
-- [ ] `pnpm build` succeeds
+- [x] `pnpm build` succeeds
 - [x] `pnpm test` runs all tests and they pass
 - [x] GitHub Actions workflow runs green on `main`
 
@@ -1493,7 +1534,7 @@ These issues can be created if the team has capacity after completing all P0 and
 | 0      | Project Setup                            | #1–#3      | 3     |
 | 1      | Auth & Appwrite                          | #4–#11     | 8     |
 | 2      | Data Model & Repositories               | #12–#19    | 8     |
-| 3      | Draft Management & Upload                | #20–#24    | 5     |
+| 3      | Draft Management & Upload                | #20–#24, #76 | 6   |
 | 4      | Platform OAuth                           | #25–#29    | 5     |
 | 5      | Distribution Engine                      | #30–#35    | 6     |
 | 6      | AI Metadata                              | #36–#39    | 4     |
@@ -1504,7 +1545,7 @@ These issues can be created if the team has capacity after completing all P0 and
 | 11     | Testing & Stretch                        | #56–#60    | 5     |
 | 12     | Final Polish & Presentation              | #61–#65    | 5     |
 | —      | Stretch Goals (optional)                 | #66–#75    | 10    |
-| **Total** |                                       |            | **75** |
+| **Total** |                                       |            | **76** |
 
 ---
 

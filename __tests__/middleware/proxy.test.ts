@@ -24,19 +24,15 @@ function createMockRequest(pathname: string, cookies: Record<string, string> = {
 describe('Proxy Middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Use vi.stubGlobal to prevent test isolation issues
     vi.stubGlobal('fetch', vi.fn());
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = '69aae95b002b81fe4fdb';
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.APPWRITE_API_KEY = 'test_api_key';
   });
 
   afterEach(() => {
-    // Restore globals
     vi.unstubAllGlobals();
     delete process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
     delete process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-    delete process.env.APPWRITE_API_KEY;
   });
 
   describe('Session Verification', () => {
@@ -107,43 +103,43 @@ describe('Proxy Middleware', () => {
   });
 
   describe('Admin Role Enforcement', () => {
+    it('should redirect to login when session-role returns 401', async () => {
+      const sessionToken = 'expired_session';
+      const request = createMockRequest('/admin/dashboard', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      const location = result.headers.get('location') || '';
+      expect(location).toContain('/login');
+      expect(location).toContain('redirect=');
+    });
+
     it('should allow admin users to access /admin routes', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/admin/dashboard', {
         a_session_69aae95b002b81fe4fdb: sessionToken,
       });
 
-      // Mock successful session verification
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ $id: 'admin_user_123' }),
-      });
-
-      // Mock admin role lookup
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
+        status: 200,
         json: async () => ({ role: 'admin' }),
       });
 
       const result = await proxy(request);
 
       expect(result.status).toBe(200);
-
-      // Assert fetch was called with correct Appwrite REST API URL and headers
-      const calls = (global.fetch as any).mock.calls;
-      expect(calls.length).toBeGreaterThanOrEqual(2);
-
-      // Second call should be the role lookup
-      const roleCheckCall = calls[1];
-      const roleCheckUrl = roleCheckCall[0].toString();
-      const roleCheckHeaders = roleCheckCall[1]?.headers;
-
-      expect(roleCheckUrl).toContain(
-        '/databases/videosphere/collections/user_profiles/documents/admin_user_123'
-      );
-      expect(roleCheckUrl).not.toContain('/v1/v1'); // Ensure no double /v1
-      expect(roleCheckHeaders['X-Appwrite-Project']).toBe('69aae95b002b81fe4fdb');
-      expect(roleCheckHeaders['X-Appwrite-Key']).toBe('test_api_key');
+      expect((global.fetch as any).mock.calls).toHaveLength(1);
+      const calledUrl = String((global.fetch as any).mock.calls[0][0]);
+      expect(calledUrl).toContain('/api/auth/session-role');
     });
 
     it('should block non-admin users from /admin routes', async () => {
@@ -152,15 +148,9 @@ describe('Proxy Middleware', () => {
         a_session_69aae95b002b81fe4fdb: sessionToken,
       });
 
-      // Mock successful session verification
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ $id: 'regular_user_456' }),
-      });
-
-      // Mock non-admin role lookup
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
+        status: 200,
         json: async () => ({ role: 'user' }),
       });
 
@@ -169,19 +159,7 @@ describe('Proxy Middleware', () => {
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/dashboard');
-
-      // Assert fetch was called with correct Appwrite REST API URL and headers
-      const calls = (global.fetch as any).mock.calls;
-      const roleCheckCall = calls[1];
-      const roleCheckUrl = roleCheckCall[0].toString();
-      const roleCheckHeaders = roleCheckCall[1]?.headers;
-
-      expect(roleCheckUrl).toContain(
-        '/databases/videosphere/collections/user_profiles/documents/regular_user_456'
-      );
-      expect(roleCheckUrl).not.toContain('/v1/v1');
-      expect(roleCheckHeaders['X-Appwrite-Project']).toBe('69aae95b002b81fe4fdb');
-      expect(roleCheckHeaders['X-Appwrite-Key']).toBe('test_api_key');
+      expect((global.fetch as any).mock.calls).toHaveLength(1);
     });
 
     it('should block users with missing role from /admin routes', async () => {
@@ -190,16 +168,10 @@ describe('Proxy Middleware', () => {
         a_session_69aae95b002b81fe4fdb: sessionToken,
       });
 
-      // Mock successful session verification
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ $id: 'user_without_role_789' }),
-      });
-
-      // Mock role lookup returning 404 (no role document)
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        status: 404,
+        status: 200,
+        json: async () => ({ role: 'user' }),
       });
 
       const result = await proxy(request);
@@ -207,6 +179,57 @@ describe('Proxy Middleware', () => {
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/dashboard');
+    });
+
+    it('should redirect to dashboard when session-role returns 503 (profile unavailable)', async () => {
+      const sessionToken = 'user_session_token';
+      const request = createMockRequest('/admin/settings', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      expect(result.headers.get('location') || '').toContain('/dashboard');
+    });
+
+    it('should redirect to dashboard when session-role fetch throws (e.g. network)', async () => {
+      const sessionToken = 'admin_session_token';
+      const request = createMockRequest('/admin/dashboard', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      expect(result.headers.get('location') || '').toContain('/dashboard');
+    });
+
+    it('should redirect to dashboard when session-role response JSON is invalid', async () => {
+      const sessionToken = 'admin_session_token';
+      const request = createMockRequest('/admin/dashboard', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new Error('Invalid JSON');
+        },
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      expect(result.headers.get('location') || '').toContain('/dashboard');
     });
 
     it('should allow admin users to access /dashboard routes', async () => {

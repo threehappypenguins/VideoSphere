@@ -11,7 +11,7 @@
 // concurrent requests cannot lose updates (no read-modify-write race).
 // =============================================================================
 
-import { TablesDB } from 'node-appwrite';
+import { Query, TablesDB } from 'node-appwrite';
 import type { UploadUsage } from '@/types';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, UPLOAD_USAGE_COLLECTION_ID } from '@/lib/appwrite-constants';
@@ -24,6 +24,10 @@ const FREE_TIER_MONTHLY_LIMIT = 10;
 function currentMonth(): string {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export function getCurrentUsageMonth(): string {
+  return currentMonth();
 }
 
 /** Deterministic row ID — one record per user per month. */
@@ -213,4 +217,47 @@ export async function incrementUsageIfAllowed(
 
   // Step 3b: slot is within the cap — permit the upload.
   return { allowed: true, monthlyUsage: newCount };
+}
+
+/**
+ * Sum uploadCount across all users for a given month.
+ *
+ * Only the first `listRows` uses `total: true` so Appwrite counts matching rows once.
+ * Later pages use `total: false` to avoid repeating that work on every page.
+ */
+export async function getTotalUploadsForMonth(month: string = currentMonth()): Promise<number> {
+  const pageSize = 100;
+  let offset = 0;
+  let summed = 0;
+  /** Matching row count from the first response; `-1` if Appwrite omitted `total` (paginate until a short page). */
+  let docTotal: number | null = null;
+
+  while (true) {
+    const result = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_USAGE_COLLECTION_ID,
+      queries: [Query.equal('month', month), Query.limit(pageSize), Query.offset(offset)],
+      total: docTotal === null,
+    });
+
+    const rows = (result.rows ?? []) as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      const value = row.uploadCount;
+      if (typeof value === 'number') {
+        summed += value;
+      }
+    }
+
+    if (docTotal === null) {
+      docTotal = typeof result.total === 'number' ? result.total : -1;
+    }
+
+    offset += pageSize;
+
+    if (rows.length === 0) break;
+    if (rows.length < pageSize) break;
+    if (docTotal >= 0 && offset >= docTotal) break;
+  }
+
+  return summed;
 }
