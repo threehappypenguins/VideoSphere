@@ -34,9 +34,9 @@ const team = [
     bio: 'Christian is an experienced backend developer who ensures our systems run smoothly and efficiently.',
   },
   {
-    name: 'Wynter Daryan',
+    name: 'Daryan Wynter',
     role: 'UI/UX Designer',
-    bio: 'Wynter is a creative designer focused on crafting intuitive and engaging user experiences.',
+    bio: 'Daryan is a creative designer focused on crafting intuitive and engaging user experiences.',
   },
 ];
 
