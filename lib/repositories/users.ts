@@ -63,8 +63,11 @@ export async function createUser(data: CreateUserData): Promise<User> {
 // -----------------------------------------------------------------------------
 
 /**
- * Fetch a user by ID from the Appwrite user_profiles collection.
- * Returns null if not found or on error.
+ * Fetch a user by Auth user `$id` from user_profiles.
+ *
+ * Primary path: row `$id` equals Auth id (`createUser` uses `rowId: data.userId`).
+ * Fallback: `getRow` 404 then `listRows` by `userId` column (console-created or
+ * imported rows where `$id` differs). Requires a unique `userId` index.
  */
 export async function getUserById(userId: string): Promise<User | null> {
   try {
@@ -76,9 +79,17 @@ export async function getUserById(userId: string): Promise<User | null> {
     return rowToUser(row as unknown as Record<string, unknown>);
   } catch (err: unknown) {
     const e = err as { code?: number };
-    if (e.code === 404) return null;
-    throw err;
+    if (e.code !== 404) throw err;
   }
+
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: false,
+  });
+  if (rows.length === 0) return null;
+  return rowToUser(rows[0] as unknown as Record<string, unknown>);
 }
 
 /**
@@ -160,4 +171,34 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
     rowToUser(row as unknown as Record<string, unknown>)
   );
   return { users, total: result.total ?? 0 };
+}
+
+export interface UserCounts {
+  totalUsers: number;
+  totalSupporters: number;
+}
+
+/**
+ * Return aggregate user counts for admin dashboard stats.
+ */
+export async function getUserCounts(): Promise<UserCounts> {
+  const [allUsers, supporterUsers] = await Promise.all([
+    tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: USER_PROFILES_COLLECTION_ID,
+      queries: [Query.limit(1)],
+      total: true,
+    }),
+    tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: USER_PROFILES_COLLECTION_ID,
+      queries: [Query.equal('isSupporter', true), Query.limit(1)],
+      total: true,
+    }),
+  ]);
+
+  return {
+    totalUsers: allUsers.total ?? 0,
+    totalSupporters: supporterUsers.total ?? 0,
+  };
 }
