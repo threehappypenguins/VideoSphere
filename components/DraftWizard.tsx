@@ -614,34 +614,34 @@ export function DraftWizard({ isOpen, onClose }: DraftWizardProps) {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Draft</DialogTitle>
-            <DialogDescription className="space-y-3 pt-2">
-              {/* Step Navigation using Breadcrumb */}
-              <Breadcrumb>
-                <BreadcrumbList>
-                  {STEPS.map((step, idx) => (
-                    <div key={step.id} className="flex items-center gap-0">
-                      <BreadcrumbItem>
-                        {state.step === step.id ? (
-                          <BreadcrumbPage className="font-bold">{step.title}</BreadcrumbPage>
-                        ) : (
-                          <button
-                            onClick={() => handleStepNavigation(step.id as 1 | 2 | 3)}
-                            disabled={uploading}
-                            className={`hover:underline ${
-                              uploading
-                                ? 'cursor-not-allowed opacity-50 pointer-events-none'
-                                : 'cursor-pointer'
-                            }`}
-                          >
-                            {step.title}
-                          </button>
-                        )}
-                      </BreadcrumbItem>
-                      {idx < STEPS.length - 1 && <BreadcrumbSeparator />}
-                    </div>
-                  ))}
-                </BreadcrumbList>
-              </Breadcrumb>
+            {/* Step Navigation using Breadcrumb */}
+            <Breadcrumb>
+              <BreadcrumbList>
+                {STEPS.map((step, idx) => (
+                  <div key={step.id} className="flex items-center gap-0">
+                    <BreadcrumbItem>
+                      {state.step === step.id ? (
+                        <BreadcrumbPage className="font-bold">{step.title}</BreadcrumbPage>
+                      ) : (
+                        <button
+                          onClick={() => handleStepNavigation(step.id as 1 | 2 | 3)}
+                          disabled={uploading}
+                          className={`hover:underline ${
+                            uploading
+                              ? 'cursor-not-allowed opacity-50 pointer-events-none'
+                              : 'cursor-pointer'
+                          }`}
+                        >
+                          {step.title}
+                        </button>
+                      )}
+                    </BreadcrumbItem>
+                    {idx < STEPS.length - 1 && <BreadcrumbSeparator />}
+                  </div>
+                ))}
+              </BreadcrumbList>
+            </Breadcrumb>
+            <DialogDescription className="pt-2">
               <p className="text-xs text-muted-foreground">
                 Step {state.step} of {STEPS.length}
               </p>
