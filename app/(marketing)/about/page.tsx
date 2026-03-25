@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   description: 'Learn about VideoSphere — our mission, team, and story.',
 };
 
-// STUDENT: Replace with your actual team members
+// Core VideoSphere team members
 const team = [
   {
     name: 'Sarah Poulin',
