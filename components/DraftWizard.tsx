@@ -641,10 +641,10 @@ export function DraftWizard({ isOpen, onClose }: DraftWizardProps) {
                 ))}
               </BreadcrumbList>
             </Breadcrumb>
-            <DialogDescription className="pt-2">
-              <p className="text-xs text-muted-foreground">
+            <DialogDescription asChild className="pt-2">
+              <span className="text-xs text-muted-foreground">
                 Step {state.step} of {STEPS.length}
-              </p>
+              </span>
             </DialogDescription>
           </DialogHeader>
 
