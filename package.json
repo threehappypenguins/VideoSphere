@@ -20,8 +20,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "prepare": "husky",
-    "setup:appwrite": "tsx scripts/setup-appwrite.ts",
-    "setup:r2": "tsx scripts/setup-r2.ts"
+    "setup:appwrite": "tsx scripts/setup-appwrite.ts"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
