@@ -101,16 +101,15 @@ const validBody = {
 // ---------------------------------------------------------------------------
 
 describe('POST /api/ai/generate-metadata', () => {
-  const originalEnv = { ...process.env };
-
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.OPENROUTER_FREE_MODEL = 'openrouter/free';
-    process.env.OPENROUTER_PREMIUM_MODEL = 'openai/gpt-4o';
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-test-key');
+    vi.stubEnv('OPENROUTER_FREE_MODEL', 'openrouter/free');
+    vi.stubEnv('OPENROUTER_PREMIUM_MODEL', 'openai/gpt-4o');
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    vi.unstubAllEnvs();
   });
 
   // -----------------------------------------------------------------------
@@ -261,17 +260,40 @@ describe('POST /api/ai/generate-metadata', () => {
     });
 
     it('returns 500 when OPENROUTER_FREE_MODEL is not set', async () => {
-      delete process.env.OPENROUTER_FREE_MODEL;
+      vi.stubEnv('OPENROUTER_FREE_MODEL', undefined);
 
       const res = await POST(makeRequest(validBody));
 
       expect(res.status).toBe(500);
       const body = await res.json();
       expect(body.message).toBe('AI service is not configured');
+      expect(generateMetadata).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when OPENROUTER_API_KEY is not set', async () => {
+      vi.stubEnv('OPENROUTER_API_KEY', undefined);
+
+      const res = await POST(makeRequest(validBody));
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.message).toBe('AI service is not configured');
+      expect(generateMetadata).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when OPENROUTER_API_KEY is only whitespace', async () => {
+      vi.stubEnv('OPENROUTER_API_KEY', '   \t');
+
+      const res = await POST(makeRequest(validBody));
+
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body.message).toBe('AI service is not configured');
+      expect(generateMetadata).not.toHaveBeenCalled();
     });
 
     it('returns 500 when OPENROUTER_PREMIUM_MODEL is not set', async () => {
-      delete process.env.OPENROUTER_PREMIUM_MODEL;
+      vi.stubEnv('OPENROUTER_PREMIUM_MODEL', undefined);
 
       const res = await POST(makeRequest(validBody));
 

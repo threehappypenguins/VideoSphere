@@ -12,7 +12,7 @@
 //   {
 //     fileName:   string           (required, max MAX_GENERATE_METADATA_FILE_NAME_CHARS)
 //     userPrompt: string           (optional, max MAX_GENERATE_METADATA_USER_PROMPT_CHARS)
-//     platforms:  ('youtube' | 'vimeo')[]  (required, non-empty)
+//     platforms:  ConnectedAccountPlatform[]  (required, non-empty; see CONNECTED_ACCOUNT_PLATFORMS)
 //   }
 //
 // Response (200):
@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
 import { generateMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
+import { isConnectedAccountPlatform } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, GeneratedMetadata, ConnectedAccountPlatform } from '@/types';
 import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 
@@ -176,7 +177,7 @@ export async function POST(req: NextRequest) {
   if (
     !Array.isArray(platforms) ||
     platforms.length === 0 ||
-    !platforms.every((p) => CONNECTED_ACCOUNT_PLATFORMS.includes(p as ConnectedAccountPlatform))
+    !platforms.every(isConnectedAccountPlatform)
   ) {
     const errRes: ApiError = {
       error: 'Bad Request',
@@ -200,10 +201,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 404 });
   }
 
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
   const freeModel = process.env.OPENROUTER_FREE_MODEL;
   const premiumModel = process.env.OPENROUTER_PREMIUM_MODEL;
 
-  if (!freeModel || !premiumModel) {
+  if (!openRouterApiKey?.trim() || !freeModel || !premiumModel) {
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'AI service is not configured',

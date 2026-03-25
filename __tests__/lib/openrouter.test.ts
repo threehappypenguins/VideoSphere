@@ -68,17 +68,15 @@ const VALID_METADATA = {
 // ---------------------------------------------------------------------------
 
 describe('generateMetadata (OpenRouter client)', () => {
-  const originalEnv = { ...process.env };
-
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.OPENROUTER_API_KEY = 'sk-test-key';
-    process.env.NEXT_PUBLIC_APP_URL = 'https://test.app';
-    process.env.NEXT_PUBLIC_APP_NAME = 'TestApp';
+    vi.stubEnv('OPENROUTER_API_KEY', 'sk-test-key');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://test.app');
+    vi.stubEnv('NEXT_PUBLIC_APP_NAME', 'TestApp');
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    vi.unstubAllEnvs();
   });
 
   // -----------------------------------------------------------------------
@@ -138,8 +136,8 @@ describe('generateMetadata (OpenRouter client)', () => {
     });
 
     it('uses default app URL and name when env vars are unset', async () => {
-      delete process.env.NEXT_PUBLIC_APP_URL;
-      delete process.env.NEXT_PUBLIC_APP_NAME;
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', undefined);
+      vi.stubEnv('NEXT_PUBLIC_APP_NAME', undefined);
       fetchMock.mockResolvedValueOnce(okResponse(VALID_METADATA));
 
       await generateMetadata('sys', 'usr', 'model');
