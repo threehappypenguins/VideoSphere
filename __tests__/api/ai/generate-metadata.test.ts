@@ -34,13 +34,18 @@ vi.mock('@/lib/ai/openrouter', async (importOriginal) => {
   return {
     generateMetadata: vi.fn(),
     RateLimitError: actual.RateLimitError,
+    OpenRouterTimeoutError: actual.OpenRouterTimeoutError,
   };
 });
 
-import { POST } from '@/app/api/ai/generate-metadata/route';
+import {
+  POST,
+  MAX_GENERATE_METADATA_FILE_NAME_CHARS,
+  MAX_GENERATE_METADATA_USER_PROMPT_CHARS,
+} from '@/app/api/ai/generate-metadata/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
-import { generateMetadata, RateLimitError } from '@/lib/ai/openrouter';
+import { generateMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -198,6 +203,30 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.message).toMatch(/platforms/i);
+    });
+
+    it(`returns 400 when fileName exceeds ${MAX_GENERATE_METADATA_FILE_NAME_CHARS} characters`, async () => {
+      const longName = 'v'.repeat(MAX_GENERATE_METADATA_FILE_NAME_CHARS + 1);
+      const res = await POST(makeRequest({ fileName: longName, platforms: ['youtube'] }));
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toContain(String(MAX_GENERATE_METADATA_FILE_NAME_CHARS));
+      expect(generateMetadata).not.toHaveBeenCalled();
+    });
+
+    it(`returns 400 when userPrompt exceeds ${MAX_GENERATE_METADATA_USER_PROMPT_CHARS} characters`, async () => {
+      const longPrompt = 'p'.repeat(MAX_GENERATE_METADATA_USER_PROMPT_CHARS + 1);
+      const res = await POST(
+        makeRequest({
+          fileName: 'video.mp4',
+          userPrompt: longPrompt,
+          platforms: ['youtube'],
+        })
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toContain(String(MAX_GENERATE_METADATA_USER_PROMPT_CHARS));
+      expect(generateMetadata).not.toHaveBeenCalled();
     });
   });
 
@@ -480,6 +509,17 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(res.status).toBe(429);
       const body = await res.json();
       expect(body.error).toBe('Too Many Requests');
+    });
+
+    it('returns 504 when AI request times out', async () => {
+      vi.mocked(generateMetadata).mockRejectedValueOnce(new OpenRouterTimeoutError());
+
+      const res = await POST(makeRequest(validBody));
+
+      expect(res.status).toBe(504);
+      const body = await res.json();
+      expect(body.error).toBe('Gateway Timeout');
+      expect(body.message).toMatch(/timed out/i);
     });
 
     it('returns 502 for generic AI errors', async () => {

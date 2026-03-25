@@ -10,8 +10,8 @@
 //
 // Request body:
 //   {
-//     fileName:   string           (required)
-//     userPrompt: string           (optional)
+//     fileName:   string           (required, max MAX_GENERATE_METADATA_FILE_NAME_CHARS)
+//     userPrompt: string           (optional, max MAX_GENERATE_METADATA_USER_PROMPT_CHARS)
 //     platforms:  ('youtube' | 'vimeo')[]  (required, non-empty)
 //   }
 //
@@ -22,9 +22,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
-import { generateMetadata, RateLimitError } from '@/lib/ai/openrouter';
+import { generateMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
 import type { ApiResponse, ApiError, GeneratedMetadata, ConnectedAccountPlatform } from '@/types';
 import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
+
+/** Max `fileName` length (raw string) before calling the LLM — caps tokens and latency. */
+export const MAX_GENERATE_METADATA_FILE_NAME_CHARS = 512;
+
+/** Max optional `userPrompt` length (raw string) before calling the LLM. */
+export const MAX_GENERATE_METADATA_USER_PROMPT_CHARS = 4000;
 
 // ---------------------------------------------------------------------------
 // Platform character limits (PRD AI-06)
@@ -137,10 +143,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
+  if (fileName.length > MAX_GENERATE_METADATA_FILE_NAME_CHARS) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: `fileName must be at most ${MAX_GENERATE_METADATA_FILE_NAME_CHARS} characters`,
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
   if (userPrompt !== undefined && typeof userPrompt !== 'string') {
     const errRes: ApiError = {
       error: 'Bad Request',
       message: 'userPrompt must be a string',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
+  if (
+    typeof userPrompt === 'string' &&
+    userPrompt.length > MAX_GENERATE_METADATA_USER_PROMPT_CHARS
+  ) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: `userPrompt must be at most ${MAX_GENERATE_METADATA_USER_PROMPT_CHARS} characters`,
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -221,6 +248,15 @@ export async function POST(req: NextRequest) {
         statusCode: 429,
       };
       return NextResponse.json(errRes, { status: 429 });
+    }
+
+    if (err instanceof OpenRouterTimeoutError) {
+      const errRes: ApiError = {
+        error: 'Gateway Timeout',
+        message: err.message,
+        statusCode: 504,
+      };
+      return NextResponse.json(errRes, { status: 504 });
     }
 
     console.error('[POST /api/ai/generate-metadata]', err);

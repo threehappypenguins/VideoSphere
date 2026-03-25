@@ -14,6 +14,7 @@
  *   - AI content that is not an object (array, null)
  *   - Missing / wrong-type title, description, tags fields
  *   - Network / fetch failure
+ *   - Request timeout (AbortController / OpenRouterTimeoutError)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -25,7 +26,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 const fetchMock = vi.fn();
 vi.stubGlobal('fetch', fetchMock);
 
-import { generateMetadata } from '@/lib/ai/openrouter';
+import {
+  generateMetadata,
+  OpenRouterTimeoutError,
+  OPENROUTER_FETCH_TIMEOUT_MS,
+} from '@/lib/ai/openrouter';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,6 +133,8 @@ describe('generateMetadata (OpenRouter client)', () => {
         ],
         response_format: { type: 'json_object' },
       });
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      expect(init.signal?.aborted).toBe(false);
     });
 
     it('uses default app URL and name when env vars are unset', async () => {
@@ -203,6 +210,55 @@ describe('generateMetadata (OpenRouter client)', () => {
       await expect(generateMetadata('sys', 'usr', 'model')).rejects.toThrow(
         'Failed to connect to OpenRouter API: network down'
       );
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Request timeout
+  // -----------------------------------------------------------------------
+
+  describe('request timeout', () => {
+    it('throws OpenRouterTimeoutError when fetch does not settle before the deadline', async () => {
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockImplementation((_url, init?: RequestInit) => {
+          return new Promise<Response>((resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) {
+              reject(new Error('expected AbortSignal'));
+              return;
+            }
+            if (signal.aborted) {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+              return;
+            }
+            signal.addEventListener('abort', () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          });
+        });
+
+        // Subscribe to generateMetadata before flushing timers so its rejection is never "unhandled"
+        await expect(
+          Promise.all([
+            generateMetadata('sys', 'usr', 'model'),
+            vi.advanceTimersByTimeAsync(OPENROUTER_FETCH_TIMEOUT_MS),
+          ])
+        ).rejects.toThrow(OpenRouterTimeoutError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('maps AbortError from fetch to OpenRouterTimeoutError', async () => {
+      const abortErr = new Error('The operation was aborted') as Error & { name: string };
+      abortErr.name = 'AbortError';
+      fetchMock.mockRejectedValueOnce(abortErr);
+      await expect(generateMetadata('sys', 'usr', 'model')).rejects.toThrow(OpenRouterTimeoutError);
     });
   });
 
