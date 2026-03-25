@@ -670,6 +670,9 @@ export function DraftWizard({ isOpen, onClose }: DraftWizardProps) {
                       return (
                         <Card
                           key={platform}
+                          role="button"
+                          tabIndex={isConnected ? 0 : -1}
+                          aria-pressed={isConnected ? isSelected : undefined}
                           aria-disabled={!isConnected}
                           className={`p-4 transition-all ${
                             isConnected
@@ -680,6 +683,12 @@ export function DraftWizard({ isOpen, onClose }: DraftWizardProps) {
                           }`}
                           onClick={() => {
                             if (isConnected) {
+                              handlePlatformToggle(platform);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (isConnected && (e.key === 'Enter' || e.key === ' ')) {
+                              e.preventDefault();
                               handlePlatformToggle(platform);
                             }
                           }}

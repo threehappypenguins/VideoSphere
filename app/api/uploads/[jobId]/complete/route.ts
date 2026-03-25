@@ -13,8 +13,11 @@
  *
  * Response (200 OK):
  * {
- *   success: true
+ *   success: true,
+ *   distributing: boolean
  * }
+ * Where `distributing` is true if the upload is being automatically distributed to target
+ * platforms, or false if the job is only marked as uploading (e.g., no draft or no targets).
  *
  * Error responses:
  * - 400 Bad Request: UploadJob has no R2 key, or the stored object exceeds 5 GB

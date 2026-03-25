@@ -140,7 +140,7 @@ export default function DraftsPage() {
 interface DraftWizardProps {
   /** Whether the wizard dialog is open */
   isOpen: boolean;
-  
+
   /** Callback fired when the wizard should close (user clicks cancel or successfully saves) */
   onClose: () => void;
 }
@@ -282,13 +282,11 @@ Use the `uploadUrl` from presign response to PUT the file directly.
 ```bash
 curl -X PUT "$uploadUrl" \
   -H "Content-Type: video/mp4" \
-  -H "Content-Length: 1073741824" \
   --data-binary @my-video.mp4
 ```
 
 The presigned URL enforces:
 - Exact Content-Type match
-- Exact Content-Length match (no streaming)
 - 15-minute expiry
 
 ### 6. `POST /api/uploads/[jobId]/complete`
