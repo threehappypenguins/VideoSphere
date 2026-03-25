@@ -17,6 +17,13 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+// Mock Next.js navigation hooks
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => '/',
+}));
+
 // Mock DraftWizard and its hook — the wizard is tested separately
 vi.mock('@/components/DraftWizard', () => ({ DraftWizard: () => null }));
 vi.mock('@/hooks/use-draft-wizard', () => ({

@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { DraftWizard } from '@/components/DraftWizard';
 import { useDraftWizard } from '@/hooks/use-draft-wizard';
 
@@ -19,6 +21,13 @@ const PLACEHOLDER_DRAFTS = [
 
 export default function DraftsPage() {
   const { isOpen, openWizard, closeWizard } = useDraftWizard();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('openWizard') === 'true') {
+      openWizard();
+    }
+  }, [searchParams, openWizard]);
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
