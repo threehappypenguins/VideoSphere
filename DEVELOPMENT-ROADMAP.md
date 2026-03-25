@@ -1551,6 +1551,31 @@ These issues can be created if the team has capacity after completing all P0 and
 
 ---
 
+### Issue #78 · `[FEATURE]` AI Video Content Analysis & Smart Metadata Generation (Supporter Tier)
+
+**User Story:** As a supporter-tier user, I want an AI agent to watch my uploaded video and automatically generate a title, description, tags, and captions based on the actual content — so my metadata is accurate and platform-optimized without manual effort.
+
+**Acceptance Criteria:**
+
+- [ ] A "Analyse Video with AI" button is visible on the draft edit form and Draft Wizard only when `isSupporter: true`; free-tier users see a disabled button with an upgrade prompt tooltip instead
+- [ ] `POST /api/ai/analyse-video` accepts `{ draftId, platforms[] }`, verifies the user is a supporter and owns the draft, retrieves the video's R2 object URL, and submits it to a multimodal model via OpenRouter that can process video input
+- [ ] The endpoint returns a streaming (`text/event-stream`) response so the UI can display a live progress indicator while the model processes the video
+- [ ] The AI response includes: `title`, `description`, `tags` (`string[]`), and a `captions` map keyed by platform (e.g. `{ youtube: "...", vimeo: "..." }`), all grounded in the visual and audio content of the video
+- [ ] The endpoint enforces per-platform character limits on the generated fields (reusing the truncation logic from Issue #39) as a defense-in-depth measure
+- [ ] The UI prefills the draft form fields with the AI suggestions; the user can edit or regenerate individual fields before saving
+- [ ] A "Regenerate" button re-calls the endpoint with the same video; rate-limited to 3 requests per draft per day to prevent abuse
+- [ ] Non-supporter requests to `POST /api/ai/analyse-video` return `403` with a structured `ApiError` response
+- [ ] The selected multimodal model is configurable via an environment variable (`OPENROUTER_VIDEO_MODEL`), defaulting to a capable multimodal model (e.g. `google/gemini-2.0-flash-001`)
+- [ ] Unit tests cover: supporter-gated access, R2 URL construction, response parsing, character-limit truncation, and streaming output format
+
+**Priority:** Low (Stretch Goal)
+
+**T-Shirt Size Estimate:** L (large — several days)
+
+**Additional Context:** Stretch goal — see STRETCH_GOALS.md §9 (AI — Advanced). Requires a multimodal model with video understanding capability available on OpenRouter. The video file must already be uploaded to R2 (Issue #22) before analysis can begin. Use a presigned GET URL from `lib/r2.ts` `getObjectUrl()` to give the model temporary read access. ⚠️ Depends on Issue #18 (R2 Client), Issue #36 (OpenRouter AI Client), Issue #37 (AI Metadata Endpoint — reuse truncation helpers), Issue #39 (Character Limit Enforcement), and Issue #43 (Supporter Tier Enforcement).
+
+---
+
 ---
 
 ## Summary — Issue Count by Sprint
@@ -1570,8 +1595,8 @@ These issues can be created if the team has capacity after completing all P0 and
 | 10     | Responsive Design & Polish               | #52–#55    | 4     |
 | 11     | Testing & Stretch                        | #56–#60    | 5     |
 | 12     | Final Polish & Presentation              | #61–#65    | 5     |
-| —      | Stretch Goals (optional)                 | #66–#75, #77 | 11  |
-| **Total** |                                       |            | **77** |
+| —      | Stretch Goals (optional)                 | #66–#75, #77, #78 | 12  |
+| **Total** |                                       |            | **78** |
 
 ---
 

@@ -110,9 +110,16 @@ export async function generateMetadata(
     throw new Error('OpenRouter returned an empty response');
   }
 
+  // Some models wrap their response in markdown code fences (```json ... ```)
+  // despite instructions not to. Strip them before parsing.
+  const cleaned = rawContent
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(rawContent);
+    parsed = JSON.parse(cleaned);
   } catch {
     throw new Error(`AI response was not valid JSON. Received: ${rawContent.slice(0, 200)}`);
   }

@@ -116,6 +116,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 - [ ] **Retrieval-Augmented Generation (RAG)** — embed user-specific content (documents, notes) as vectors; retrieve relevant chunks at query time to ground AI responses in real data
 - [ ] **AI usage metering** — track per-user token usage; enforce a limit for free-tier users and display remaining quota in the UI
 - [ ] **AI moderation layer** — run user-submitted content through a moderation API (OpenAI Moderation, Perspective API) before storing or displaying it
+- [ ] **Video content analysis & smart metadata generation (Supporter tier)** — for `isSupporter: true` users, send the uploaded video file to a multimodal AI model (e.g. via OpenRouter) that watches the video and generates a title, description, tags, and per-platform captions grounded in what actually happens in the video; gate the feature server-side so free-tier users see an upgrade prompt instead; display a streaming progress indicator while the model processes the video; allow the user to accept, edit, or regenerate the suggestions before saving to the draft
 
 ---
 

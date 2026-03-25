@@ -250,17 +250,33 @@ describe('generateMetadata (OpenRouter client)', () => {
   // -----------------------------------------------------------------------
 
   describe('AI content validation', () => {
+    it('strips markdown code fences (```json) and parses successfully', async () => {
+      const fenced = '```json\n{"title":"T","description":"D","tags":["a"]}\n```';
+      const res = new Response(JSON.stringify({ choices: [{ message: { content: fenced } }] }), {
+        status: 200,
+      });
+      fetchMock.mockResolvedValueOnce(res);
+      const result = await generateMetadata('sys', 'usr', 'model');
+      expect(result).toEqual({ title: 'T', description: 'D', tags: ['a'] });
+    });
+
+    it('strips plain code fences (```) and parses successfully', async () => {
+      const fenced = '```\n{"title":"T","description":"D","tags":["a"]}\n```';
+      const res = new Response(JSON.stringify({ choices: [{ message: { content: fenced } }] }), {
+        status: 200,
+      });
+      fetchMock.mockResolvedValueOnce(res);
+      const result = await generateMetadata('sys', 'usr', 'model');
+      expect(result).toEqual({ title: 'T', description: 'D', tags: ['a'] });
+    });
+
     it('throws when AI returns non-JSON content', async () => {
-      fetchMock.mockResolvedValueOnce(okResponse('This is not JSON at all'));
-      // okResponse wraps as string, but for this test we need literal non-JSON
-      // as the message.content in the response
       const res = new Response(
         JSON.stringify({
           choices: [{ message: { content: 'This is plain text, not JSON' } }],
         }),
         { status: 200 }
       );
-      fetchMock.mockReset();
       fetchMock.mockResolvedValueOnce(res);
       await expect(generateMetadata('sys', 'usr', 'model')).rejects.toThrow(
         'AI response was not valid JSON'
