@@ -427,6 +427,8 @@ export function DraftMetadataModal({
 
   const canSave =
     !isSaving &&
+    !uploading &&
+    !isCancellingUpload &&
     value !== null &&
     value.targets.length > 0 &&
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
@@ -1091,7 +1093,6 @@ export function DraftMetadataModal({
           <button
             type="button"
             onClick={() => {
-              clearPendingVideoSelection();
               void onSave({ closeAfterSave: true });
             }}
             disabled={!canSave}

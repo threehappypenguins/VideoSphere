@@ -36,6 +36,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
 import { POST, GET } from '@/app/api/drafts/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
+import { listUploadJobsByUserForDraftIds } from '@/lib/repositories/upload-jobs';
 import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
 // ---------------------------------------------------------------------------
@@ -420,6 +421,102 @@ describe('GET /api/drafts', () => {
 
       expect(listDraftsByUser).toHaveBeenCalledWith('user-123');
       expect(listDraftsByUser).not.toHaveBeenCalledWith('other-user');
+    });
+  });
+
+  describe('usedInUploadAt backfill (upload_jobs scan)', () => {
+    beforeEach(() => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
+    });
+
+    it('calls listUploadJobsByUserForDraftIds only for drafts missing usedInUploadAt (including whitespace-only)', async () => {
+      vi.mocked(listDraftsByUser).mockResolvedValueOnce([
+        {
+          ...baseDraft,
+          id: 'draft-kept',
+          usedInUploadAt: '2025-06-01T00:00:00.000Z',
+        },
+        { ...baseDraft, id: 'draft-missing-a' },
+        {
+          ...baseDraft,
+          id: 'draft-missing-b',
+          usedInUploadAt: '   ',
+        },
+      ]);
+      vi.mocked(listUploadJobsByUserForDraftIds).mockResolvedValueOnce([]);
+
+      const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'tok' });
+      await GET(req);
+
+      expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledTimes(1);
+      expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledWith('user-123', [
+        'draft-missing-a',
+        'draft-missing-b',
+      ]);
+    });
+
+    it('does not call listUploadJobsByUserForDraftIds when every draft has a non-empty usedInUploadAt', async () => {
+      vi.mocked(listDraftsByUser).mockResolvedValueOnce([
+        {
+          ...baseDraft,
+          id: 'draft-1',
+          usedInUploadAt: '2025-01-01T00:00:00.000Z',
+        },
+        {
+          ...baseDraft,
+          id: 'draft-2',
+          usedInUploadAt: '2025-02-01T00:00:00.000Z',
+        },
+      ]);
+
+      const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'tok' });
+      await GET(req);
+
+      expect(listUploadJobsByUserForDraftIds).not.toHaveBeenCalled();
+    });
+
+    it('merges the first upload job $createdAt per draft into usedInUploadAt when missing', async () => {
+      vi.mocked(listDraftsByUser).mockResolvedValueOnce([
+        {
+          ...baseDraft,
+          id: 'draft-1',
+          usedInUploadAt: '2025-01-01T00:00:00.000Z',
+        },
+        { ...baseDraft, id: 'draft-needs-backfill' },
+      ]);
+      vi.mocked(listUploadJobsByUserForDraftIds).mockResolvedValueOnce([
+        {
+          id: 'job-older',
+          userId: 'user-123',
+          draftId: 'draft-needs-backfill',
+          r2Key: 'k',
+          status: 'completed' as const,
+          errorMessage: null,
+          $createdAt: '2026-01-05T00:00:00.000Z',
+          $updatedAt: '2026-01-05T00:00:00.000Z',
+        },
+        {
+          id: 'job-newer',
+          userId: 'user-123',
+          draftId: 'draft-needs-backfill',
+          r2Key: 'k',
+          status: 'completed' as const,
+          errorMessage: null,
+          $createdAt: '2026-01-20T00:00:00.000Z',
+          $updatedAt: '2026-01-20T00:00:00.000Z',
+        },
+      ]);
+
+      const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'tok' });
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: Array<{ id: string; usedInUploadAt?: string }> };
+      const backfilled = body.data.find((d) => d.id === 'draft-needs-backfill');
+      const preserved = body.data.find((d) => d.id === 'draft-1');
+
+      expect(preserved?.usedInUploadAt).toBe('2025-01-01T00:00:00.000Z');
+      expect(backfilled?.usedInUploadAt).toBe('2026-01-05T00:00:00.000Z');
     });
   });
 
