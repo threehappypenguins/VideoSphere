@@ -215,9 +215,8 @@ describe('uploadToVimeo', () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('VIMEO_UPLOAD_ERROR');
-    }
+    const err1 = (result as { ok: false; error: { code: string } }).error;
+    expect(err1.code).toBe('VIMEO_UPLOAD_ERROR');
   });
 
   it('does not mask likely network errors while required category is not applied', async () => {
@@ -281,8 +280,7 @@ describe('uploadToVimeo', () => {
     });
 
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('VIMEO_UPLOAD_ERROR');
-    }
+    const err2 = (result as { ok: false; error: { code: string } }).error;
+    expect(err2.code).toBe('VIMEO_UPLOAD_ERROR');
   });
 });
