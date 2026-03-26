@@ -12,10 +12,6 @@ import type { ApiResponse, ConnectedAccountPlatform, ConnectedAccountPublic, Dra
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 type DraftView = 'list' | 'cards';
 
-interface DraftUsageResponse {
-  data: Record<string, boolean>;
-}
-
 function formatLastEdited(isoDate: string): string {
   const updatedDate = new Date(isoDate);
   if (Number.isNaN(updatedDate.getTime())) return 'Recently';

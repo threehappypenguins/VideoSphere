@@ -103,7 +103,7 @@ import { getPresignedUploadUrl } from '@/lib/r2';
 import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
-import { getDraftById } from '@/lib/repositories/drafts';
+import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 
 function createRequest(
   body: Record<string, unknown>,
@@ -578,6 +578,10 @@ describe('POST /api/uploads/presign', () => {
       expect(body).toHaveProperty('expiresIn');
       expect(body.expiresIn).toBe(900);
       expect(body).toHaveProperty('uploadJobId', 'job-123');
+      expect(vi.mocked(markDraftUsedInUpload)).toHaveBeenCalledWith(
+        'draft-abc',
+        '2000-01-01T00:00:00.000Z'
+      );
     });
 
     it('should return 400 when draftId is missing', async () => {

@@ -292,6 +292,15 @@ export function DraftMetadataModal({
 
   useEffect(() => {
     if (!draftId) return;
+
+    // Drafts page (and similar parents) may already fetch connections with the same
+    // freshness guarantees; avoid a duplicate request on every modal open.
+    if (initialConnectionsResolved) {
+      setConnectionsError(null);
+      setIsLoadingPlatforms(false);
+      return;
+    }
+
     const controller = new AbortController();
 
     const loadConnections = async () => {
@@ -328,7 +337,7 @@ export function DraftMetadataModal({
 
     void loadConnections();
     return () => controller.abort();
-  }, [draftId]);
+  }, [draftId, initialConnectionsResolved]);
 
   useEffect(() => {
     if (!value) {
@@ -640,6 +649,11 @@ export function DraftMetadataModal({
       }
 
       clearPendingVideoSelection();
+      const draftId = value?.id;
+      if (draftId) {
+        await loadUploadHistory(draftId);
+        setShowUploadHistory(true);
+      }
       toast.success('Upload cancelled');
     } catch (error) {
       toast.error(

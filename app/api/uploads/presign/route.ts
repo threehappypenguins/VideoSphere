@@ -249,7 +249,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
       uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
-      await markDraftUsedInUpload(draftId).catch((err) => {
+      await markDraftUsedInUpload(draftId, uploadJob.$createdAt).catch((err) => {
         console.error(
           `[POST /api/uploads/presign] Failed to mark draft ${draftId} usedInUploadAt:`,
           err
