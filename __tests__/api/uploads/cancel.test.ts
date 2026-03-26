@@ -349,7 +349,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       );
     });
 
-    it('returns 500 when deleteObject fails with a non-not-found error', async () => {
+    it('returns 200 and still marks job cancelled when deleteObject fails with a non-not-found error', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(deleteObject).mockRejectedValueOnce(new Error('R2 unavailable'));
 
@@ -358,11 +358,19 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
         makeParams('job-123')
       );
 
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.error).toBe('Failed to cancel upload');
-      expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
-      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
+      expect(body.success).toBe(true);
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
+        'job-123',
+        'cancelled',
+        'Upload cancelled by user'
+      );
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to delete R2 object'),
+        expect.any(Error)
+      );
       consoleSpy.mockRestore();
     });
   });

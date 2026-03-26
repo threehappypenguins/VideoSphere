@@ -32,22 +32,27 @@ export async function POST(
   }
 
   try {
-    // Resolve tier before R2/status mutations so a failed lookup returns 500 without
-    // leaving the job cancelled (avoids confusing 500 after a successful cancel + 409 on retry).
+    // Resolve tier before mutating the job so a failed lookup returns 500 without
+    // leaving the job cancelled.
     const user = await getUserById(userId);
     const hasUnlimitedUploads = Boolean(user?.isSupporter) || user?.role === 'admin';
 
-    if (job.r2Key) {
-      await deleteObject(job.r2Key).catch((error) => {
-        if (error instanceof R2ObjectNotFoundError) return;
-        throw error;
-      });
-    }
-
+    // Mark cancelled before R2 cleanup so a failed delete does not leave the job
+    // pending/uploading while the blob may already be gone; R2 and quota are best-effort.
     const updated = await updateUploadJobStatus(jobId, 'cancelled', 'Upload cancelled by user');
     if (!updated) {
       // Row deleted or raced with another writer — updateRow returned 404.
       return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
+    }
+
+    if (job.r2Key) {
+      await deleteObject(job.r2Key).catch((error) => {
+        if (error instanceof R2ObjectNotFoundError) return;
+        console.error(
+          `[POST /api/uploads/:jobId/cancel] Failed to delete R2 object for cancelled job ${jobId}:`,
+          error
+        );
+      });
     }
 
     // Presign claims a monthly upload slot for limited users. If the user

@@ -230,6 +230,8 @@ export function DraftMetadataModal({
     if (!draftId) return;
     const controller = new AbortController();
 
+    setUsedPlatforms([]);
+
     const loadUsedPlatforms = async () => {
       try {
         const response = await fetch(`/api/drafts/${draftId}/used-platforms`, {
@@ -241,7 +243,9 @@ export function DraftMetadataModal({
         if (!Array.isArray(payload.data)) return;
         setUsedPlatforms(payload.data);
       } catch {
+        if (controller.signal.aborted) return;
         // Best-effort enhancement; keep modal usable if this request fails.
+        setUsedPlatforms([]);
       }
     };
 
