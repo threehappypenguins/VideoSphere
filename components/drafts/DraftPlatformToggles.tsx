@@ -1,5 +1,10 @@
 import type { ConnectedAccountPlatform } from '@/types';
 
+const PLATFORM_LABELS: Partial<Record<ConnectedAccountPlatform, string>> = {
+  youtube: 'YouTube',
+  vimeo: 'Vimeo',
+};
+
 interface DraftPlatformTogglesProps {
   availablePlatforms: ConnectedAccountPlatform[];
   selectedPlatforms: ConnectedAccountPlatform[];
@@ -7,6 +12,10 @@ interface DraftPlatformTogglesProps {
   connectionsResolved: boolean;
   onToggle: (platform: ConnectedAccountPlatform) => void;
   onConnectClick: () => void;
+}
+
+function labelForPlatform(platform: ConnectedAccountPlatform): string {
+  return PLATFORM_LABELS[platform] ?? platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
 export function DraftPlatformToggles({
@@ -17,8 +26,6 @@ export function DraftPlatformToggles({
   onToggle,
   onConnectClick,
 }: DraftPlatformTogglesProps) {
-  const labelForPlatform = (platform: ConnectedAccountPlatform) =>
-    platform.charAt(0).toUpperCase() + platform.slice(1);
   const connectedSet = new Set(connectedPlatforms);
 
   return (

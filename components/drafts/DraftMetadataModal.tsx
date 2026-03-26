@@ -23,7 +23,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DraftPlatformToggles } from '@/components/drafts/DraftPlatformToggles';
-import type { ApiResponse, ConnectedAccountPlatform, ConnectedAccountPublic, Draft } from '@/types';
+import type {
+  ApiResponse,
+  ConnectedAccountPlatform,
+  ConnectedAccountPublic,
+  Draft,
+  PlatformUploadStatus,
+  UploadJobStatus,
+} from '@/types';
 
 export interface DraftEditorValues {
   id: string;
@@ -72,12 +79,12 @@ interface DraftMetadataModalProps {
 
 interface DraftUploadHistoryItem {
   uploadJobId: string;
-  status: string;
+  status: UploadJobStatus;
   createdAt: string;
   updatedAt: string;
   platforms: Array<{
     platform: ConnectedAccountPlatform;
-    status: 'pending' | 'uploading' | 'completed' | 'failed';
+    status: PlatformUploadStatus;
     updatedAt: string;
   }>;
 }
@@ -607,7 +614,6 @@ export function DraftMetadataModal({
       xhrRef.current = null;
       setUploading(false);
       setCurrentUploadJobId(null);
-      setIsCancellingUpload(false);
     }
   };
 
@@ -678,22 +684,10 @@ export function DraftMetadataModal({
         <DialogHeader className="px-6 pt-6">
           <div className="flex items-start justify-between gap-3">
             <DialogTitle>{mode === 'edit' ? 'Edit draft' : 'Draft details'}</DialogTitle>
-            {mode === 'edit' && onDelete && value ? (
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="inline-flex items-center justify-center rounded-md border border-border bg-background p-1.5 text-foreground transition-colors hover:bg-muted"
-                aria-label="Delete draft"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            ) : null}
           </div>
-          <DialogDescription>
-            {mode === 'edit'
-              ? 'Update the draft metadata without leaving this page.'
-              : 'Configure your draft metadata.'}
-          </DialogDescription>
+          {mode === 'create' ? (
+            <DialogDescription>Configure your draft metadata.</DialogDescription>
+          ) : null}
         </DialogHeader>
 
         {value ? (
@@ -1033,6 +1027,16 @@ export function DraftMetadataModal({
           >
             Cancel
           </button>
+          {mode === 'edit' && onDelete && value ? (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="inline-flex items-center justify-center rounded-md border border-border bg-background p-2 text-foreground transition-colors hover:bg-muted"
+              aria-label="Delete draft"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {

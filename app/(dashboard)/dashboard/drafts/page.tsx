@@ -388,7 +388,7 @@ function DraftActions({
   isDuplicatingId,
 }: DraftActionsProps) {
   return (
-    <div className="inline-flex max-w-full flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+    <div className="pointer-events-none inline-flex max-w-full flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
       <button
         type="button"
         onClick={(event) => {
@@ -396,7 +396,7 @@ function DraftActions({
           onDuplicate(draft);
         }}
         disabled={isDuplicatingId === draft.id}
-        className="whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+        className="pointer-events-auto whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
       >
         {isDuplicatingId === draft.id ? 'Copying...' : 'Duplicate'}
       </button>
@@ -407,7 +407,7 @@ function DraftActions({
           onDelete(draft);
         }}
         disabled={isDeletingId === draft.id}
-        className="inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border bg-background p-1.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+        className="pointer-events-auto inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border bg-background p-1.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60"
         aria-label="Delete draft"
       >
         <Trash2 className="h-4 w-4" />
@@ -447,7 +447,7 @@ function DraftsTable({
 }: DraftCollectionProps) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-background">
-      <table className="w-full table-fixed text-sm">
+      <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
         <thead>
           <tr className="border-b border-border text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <th scope="col" className="w-[30%] px-3 py-3 text-left sm:px-4">
@@ -470,30 +470,63 @@ function DraftsTable({
               key={draft.id}
               className="border-b border-border transition-colors hover:bg-muted/40"
             >
-              <td className="px-3 py-3 align-top sm:px-4">
+              <td className="p-0 align-top">
                 <button
                   type="button"
                   onClick={() => onEdit(draft)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onEdit(draft);
+                    }
+                  }}
                   aria-label={`Edit draft "${draft.title}"`}
-                  className="block w-full cursor-pointer text-left"
+                  className="block w-full px-3 py-3 text-left sm:px-4"
                 >
                   <span className="block max-w-full truncate text-foreground">{draft.title}</span>
                 </button>
               </td>
-              <td className="px-3 py-3 align-top text-muted-foreground sm:px-4">
-                <span className="block truncate">{formatLastEdited(draft.$updatedAt)}</span>
+              <td className="p-0 align-top text-muted-foreground">
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => onEdit(draft)}
+                  aria-label={`Edit draft "${draft.title}"`}
+                  className="block w-full px-3 py-3 text-left sm:px-4"
+                >
+                  <span className="block truncate">{formatLastEdited(draft.$updatedAt)}</span>
+                </button>
               </td>
-              <td className="px-3 py-3 align-top sm:px-4">
-                <UsedIndicator used={Boolean(draftUsage[draft.id])} />
+              <td className="p-0 align-top">
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => onEdit(draft)}
+                  aria-label={`Edit draft "${draft.title}"`}
+                  className="block w-full px-3 py-3 text-left sm:px-4"
+                >
+                  <UsedIndicator used={Boolean(draftUsage[draft.id])} />
+                </button>
               </td>
-              <td className="px-3 py-3 align-top text-right sm:px-4">
-                <DraftActions
-                  draft={draft}
-                  onDelete={onDelete}
-                  onDuplicate={onDuplicate}
-                  isDeletingId={isDeletingId}
-                  isDuplicatingId={isDuplicatingId}
-                />
+              <td className="p-0 align-top text-right">
+                <div className="relative">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => onEdit(draft)}
+                    aria-label={`Edit draft "${draft.title}"`}
+                    className="absolute inset-0"
+                  />
+                  <div className="relative px-3 py-3 sm:px-4 pointer-events-none">
+                    <DraftActions
+                      draft={draft}
+                      onDelete={onDelete}
+                      onDuplicate={onDuplicate}
+                      isDeletingId={isDeletingId}
+                      isDuplicatingId={isDuplicatingId}
+                    />
+                  </div>
+                </div>
               </td>
             </tr>
           ))}
@@ -515,15 +548,17 @@ function DraftCards({
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {drafts.map((draft) => (
-        <article
+        <div
           key={draft.id}
-          className="rounded-xl border border-border bg-background p-4 shadow-sm transition-colors hover:bg-muted/30"
+          className="relative rounded-xl border border-border bg-background shadow-sm transition-colors hover:bg-muted/30"
         >
           <button
             type="button"
             onClick={() => onEdit(draft)}
-            className="w-full cursor-pointer text-left"
-          >
+            aria-label={`Edit draft "${draft.title}"`}
+            className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <div className="relative z-10 p-4 pointer-events-none">
             <div className="space-y-2">
               <h3 className="line-clamp-1 text-sm font-semibold text-foreground">{draft.title}</h3>
               <p className="text-xs text-muted-foreground">
@@ -531,8 +566,8 @@ function DraftCards({
               </p>
               <UsedIndicator used={Boolean(draftUsage[draft.id])} />
             </div>
-          </button>
-          <div className="mt-4">
+          </div>
+          <div className="relative z-20 px-4 pb-4 pointer-events-none">
             <DraftActions
               draft={draft}
               onDelete={onDelete}
@@ -541,7 +576,7 @@ function DraftCards({
               isDuplicatingId={isDuplicatingId}
             />
           </div>
-        </article>
+        </div>
       ))}
     </div>
   );

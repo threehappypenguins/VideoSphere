@@ -7,12 +7,13 @@ import type {
   ApiResponse,
   ConnectedAccountPlatform,
   PlatformUploadStatus,
+  UploadJobStatus,
 } from '@/types';
 import { latestPlatformStatuses } from '@/lib/uploads/status';
 
 interface DraftUploadHistoryItem {
   uploadJobId: string;
-  status: string;
+  status: UploadJobStatus;
   createdAt: string;
   updatedAt: string;
   platforms: Array<{
