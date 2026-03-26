@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById } from '@/lib/repositories/drafts';
-import { getUploadJobsWithPlatformUploads } from '@/lib/repositories/upload-jobs';
+import { getUploadJobsWithPlatformUploadsForDraft } from '@/lib/repositories/upload-jobs';
 import type { ApiError, ApiResponse, ConnectedAccountPlatform } from '@/types';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -27,11 +27,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const jobs = await getUploadJobsWithPlatformUploads(userId);
+    const jobs = await getUploadJobsWithPlatformUploadsForDraft(userId, id);
     const platforms = new Set<ConnectedAccountPlatform>();
 
     for (const job of jobs) {
-      if (job.draftId !== id) continue;
       for (const upload of job.platformUploads) {
         platforms.add(upload.platform);
       }

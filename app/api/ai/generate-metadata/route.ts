@@ -264,9 +264,12 @@ export async function POST(req: NextRequest) {
 
     console.error('[POST /api/ai/generate-metadata]', err);
     const details = err instanceof Error ? err.message : String(err);
+    const isDev = process.env.NODE_ENV === 'development';
     const errRes: ApiError = {
       error: 'Bad Gateway',
-      message: `AI service is temporarily unavailable. Please try again. ${details}`,
+      message: isDev
+        ? `AI service is temporarily unavailable. Please try again. ${details}`
+        : 'AI service is temporarily unavailable. Please try again.',
       statusCode: 502,
     };
     return NextResponse.json(errRes, { status: 502 });

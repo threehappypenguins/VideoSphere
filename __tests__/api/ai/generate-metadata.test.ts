@@ -579,8 +579,8 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(res.status).toBe(502);
       const body = await res.json();
       expect(body.error).toBe('Bad Gateway');
+      // User-facing message is generic in production; details stay server-side.
       expect(body.message).toContain('AI service is temporarily unavailable. Please try again.');
-      expect(body.message).toContain('OpenRouter API error (500)');
     });
 
     it('returns 502 for unknown errors (non-Error throws)', async () => {

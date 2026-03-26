@@ -28,24 +28,13 @@ export function DraftPlatformToggles({
         {availablePlatforms.map((platform) => {
           const isConnected = !connectionsResolved || connectedSet.has(platform);
           const isSelected = selectedPlatforms.includes(platform);
+          const canToggle = isConnected || isSelected;
           const switchId = `draft-platform-toggle-${platform}`;
           return (
             <div
               key={platform}
-              role="button"
-              tabIndex={isConnected ? 0 : -1}
-              onClick={() => {
-                if (isConnected) onToggle(platform);
-              }}
-              onKeyDown={(event) => {
-                if (!isConnected) return;
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onToggle(platform);
-                }
-              }}
               className={`flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 ${
-                isConnected ? 'cursor-pointer' : 'cursor-not-allowed opacity-80'
+                canToggle ? '' : 'opacity-80'
               }`}
             >
               <span className="inline-flex items-center gap-2 text-sm text-foreground">
@@ -68,19 +57,24 @@ export function DraftPlatformToggles({
                   </>
                 ) : null}
               </span>
-              <span className="relative inline-flex items-center">
+              <label
+                htmlFor={switchId}
+                className={`relative inline-flex items-center ${canToggle ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+              >
                 <input
                   id={switchId}
                   type="checkbox"
                   aria-label={`Toggle ${labelForPlatform(platform)} platform`}
-                  checked={isConnected && isSelected}
-                  disabled={!isConnected}
-                  onChange={() => onToggle(platform)}
+                  checked={isSelected}
+                  disabled={!canToggle}
+                  onChange={() => {
+                    if (canToggle) onToggle(platform);
+                  }}
                   className="peer sr-only"
                 />
                 <span className="h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-primary" />
                 <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-5" />
-              </span>
+              </label>
             </div>
           );
         })}

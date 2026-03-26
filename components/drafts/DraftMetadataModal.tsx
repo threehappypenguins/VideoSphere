@@ -40,6 +40,23 @@ const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> =
   { value: 'private', label: 'Private' },
 ];
 
+const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = ['youtube', 'vimeo'];
+
+function comparePlatformsByPreference(
+  a: ConnectedAccountPlatform,
+  b: ConnectedAccountPlatform
+): number {
+  const ai = PREFERRED_PLATFORM_ORDER.indexOf(a);
+  const bi = PREFERRED_PLATFORM_ORDER.indexOf(b);
+  const aKnown = ai !== -1;
+  const bKnown = bi !== -1;
+
+  if (aKnown && bKnown) return ai - bi;
+  if (aKnown) return -1;
+  if (bKnown) return 1;
+  return a.localeCompare(b);
+}
+
 interface DraftMetadataModalProps {
   mode: 'create' | 'edit';
   value: DraftEditorValues | null;
@@ -349,12 +366,28 @@ export function DraftMetadataModal({
 
   const displayPlatforms = useMemo(() => {
     if (!value) return [] as ConnectedAccountPlatform[];
-    const merged = new Set<ConnectedAccountPlatform>([
-      ...value.targets,
-      ...usedPlatforms,
-      ...connectedPlatforms,
+
+    // Keep a stable visual order so toggling platforms does not reshuffle rows.
+    // Priority:
+    // 1) Connected platforms (connection list order)
+    // 2) Selected-but-disconnected platforms (alphabetical)
+    // 3) Used-but-not-yet-listed platforms (alphabetical)
+    const connectedSet = new Set(connectedPlatforms);
+    const connectedOrdered = [...connectedPlatforms].sort(comparePlatformsByPreference);
+
+    const selectedDisconnected = value.targets
+      .filter((platform) => !connectedSet.has(platform))
+      .sort((a, b) => a.localeCompare(b));
+
+    const listedSet = new Set<ConnectedAccountPlatform>([
+      ...connectedOrdered,
+      ...selectedDisconnected,
     ]);
-    return Array.from(merged);
+    const usedRemainder = usedPlatforms
+      .filter((platform) => !listedSet.has(platform))
+      .sort((a, b) => a.localeCompare(b));
+
+    return [...connectedOrdered, ...selectedDisconnected, ...usedRemainder];
   }, [connectedPlatforms, usedPlatforms, value]);
 
   const disconnectedSelectedPlatforms = useMemo(() => {
