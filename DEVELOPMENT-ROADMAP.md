@@ -988,6 +988,31 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
+### Issue #79 · `[FEATURE]` Stripe Payment Front-End Integration & Supporter Upgrade UI
+
+**User Story:** As a free-tier user, I want to click "Upgrade to Supporter" on the pricing page, complete payment via Stripe Checkout, and see my account immediately reflect Supporter status so I can unlock premium features.
+
+**Acceptance Criteria:**
+
+- [ ] Pricing page (`/pricing`) "Upgrade to Supporter" button calls `POST /api/payments/checkout` and redirects the user to the returned Stripe Checkout URL
+- [ ] A loading/spinner state is shown on the CTA button while the checkout session is being created
+- [ ] If the checkout API returns an error, a user-friendly error toast or inline message is displayed
+- [ ] On successful payment, the user is redirected to `/profile?upgrade=success` and sees a success banner (e.g., "Welcome to Supporter! Your account has been upgraded.")
+- [ ] The `/profile` page reads the `?upgrade=success` search param and conditionally renders the success message
+- [ ] The `/profile` page fetches the authenticated user's real `isSupporter` status and displays the current plan: "Free" with an "Upgrade to Supporter" button, or "Supporter" with a badge
+- [ ] The pricing page shows "Current Plan" on the Free column for free-tier users and "You're a Supporter!" badge on the Supporter column for upgraded users (requires reading auth state)
+- [ ] Unauthenticated visitors clicking "Upgrade to Supporter" are redirected to `/login` (or `/signup`) before initiating checkout
+- [ ] The checkout flow is accessible (keyboard-navigable CTA, appropriate ARIA labels, focus management after redirect)
+- [ ] All existing payment-related tests pass and new front-end behavior is covered by unit tests
+
+**Priority:** P0 (High)
+
+**T-Shirt Size Estimate:** M (medium — a day or two)
+
+**Additional Context:** PRD refs: FP-01, FP-02, FP-07, US-28, US-29. The backend API routes (`POST /api/payments/checkout` and `POST /api/webhooks/stripe`) are already implemented in Issues #41 and #42. This issue covers the client-side wiring: calling the checkout API, handling redirects, displaying real subscription status, and upgrade success feedback. ⚠️ Depends on Issue #41 (Stripe Checkout Integration) and Issue #42 (Stripe Webhook Handler).
+
+---
+
 ## Sprint 8 — Admin Dashboard (Mar 26–28)
 
 ### ✅ Issue #44 · `[FEATURE]` Admin Dashboard — User Table
