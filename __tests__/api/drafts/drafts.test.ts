@@ -23,7 +23,6 @@ vi.mock('@/lib/api/auth', () => ({
 vi.mock('@/lib/repositories/drafts', () => ({
   createDraft: vi.fn(),
   listDraftsByUser: vi.fn(),
-  markDraftUsedInUpload: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------

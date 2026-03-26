@@ -147,22 +147,33 @@ export function DraftMetadataModal({
   });
 
   const loadUploadHistory = async (id: string, signal?: AbortSignal) => {
+    const skipIfAborted = () => Boolean(signal?.aborted);
+
     setIsLoadingUploadHistory(true);
     try {
       const response = await fetch(`/api/drafts/${id}/upload-history`, {
         cache: 'no-store',
         signal,
       });
+      if (skipIfAborted()) return;
+
       if (!response.ok) {
+        if (skipIfAborted()) return;
         setUploadHistory([]);
         uploadHistoryCacheRef.current[id] = [];
         return;
       }
       const payload = (await response.json()) as ApiResponse<DraftUploadHistoryItem[]>;
+      if (skipIfAborted()) return;
       const history = Array.isArray(payload.data) ? payload.data : [];
       setUploadHistory(history);
       uploadHistoryCacheRef.current[id] = history;
-    } catch {
+    } catch (error) {
+      if (skipIfAborted()) return;
+      const isAbortError =
+        (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
+      if (isAbortError) return;
+      if (skipIfAborted()) return;
       setUploadHistory([]);
       uploadHistoryCacheRef.current[id] = [];
     } finally {
@@ -648,7 +659,7 @@ export function DraftMetadataModal({
         return;
       }
 
-      clearPendingVideoSelection();
+      clearPendingVideoSelection({ skipServerCancel: true });
       const draftId = value?.id;
       if (draftId) {
         await loadUploadHistory(draftId);
@@ -666,11 +677,20 @@ export function DraftMetadataModal({
     }
   };
 
-  const clearPendingVideoSelection = () => {
+  const clearPendingVideoSelection = (options?: { skipServerCancel?: boolean }) => {
+    const jobId = currentUploadJobId;
+
     if (xhrRef.current) {
       xhrRef.current.abort();
       xhrRef.current = null;
     }
+
+    if (jobId && !options?.skipServerCancel) {
+      void fetch(`/api/uploads/${jobId}/cancel`, { method: 'POST' }).catch(() => {
+        // Best-effort: job may already be completed, cancelled, or past pending/uploading.
+      });
+    }
+
     setVideoFile(null);
     setUploadProgress(0);
     setUploadComplete(false);

@@ -96,20 +96,25 @@ export default function DraftsPage() {
       }
 
       const draftsJson = (await draftsResponse.json()) as ApiResponse<Draft[]>;
-      const connectionsPayload = connectionsResponse.ok
-        ? ((await connectionsResponse.json()) as ApiResponse<ConnectedAccountPublic[]>)
-        : ({ data: [] } as ApiResponse<ConnectedAccountPublic[]>);
-      const platforms = Array.isArray(connectionsPayload.data)
-        ? connectionsPayload.data.map((account) => account.platform)
-        : [];
+
+      let platforms: ConnectedAccountPlatform[] = [];
+      if (connectionsResponse.ok) {
+        const connectionsPayload = (await connectionsResponse.json()) as ApiResponse<
+          ConnectedAccountPublic[]
+        >;
+        platforms = Array.isArray(connectionsPayload.data)
+          ? connectionsPayload.data.map((account) => account.platform)
+          : [];
+      }
+      setConnectedPlatforms(platforms);
+      setHasLoadedConnections(connectionsResponse.ok);
+
       const aiAccessPayload = aiAccessResponse.ok
         ? ((await aiAccessResponse.json()) as { canUseAiMetadata?: boolean })
         : null;
 
       setDrafts(Array.isArray(draftsJson.data) ? draftsJson.data : []);
-      setConnectedPlatforms(platforms);
       setCanUseAiMetadata(Boolean(aiAccessPayload?.canUseAiMetadata));
-      setHasLoadedConnections(true);
     } catch (error) {
       if (signal?.aborted) return;
       const message = error instanceof Error ? error.message : 'Failed to load drafts.';
@@ -117,7 +122,7 @@ export default function DraftsPage() {
       setDrafts([]);
       setConnectedPlatforms([]);
       setCanUseAiMetadata(false);
-      setHasLoadedConnections(true);
+      setHasLoadedConnections(false);
     } finally {
       if (!signal?.aborted) {
         setIsLoading(false);

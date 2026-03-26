@@ -39,7 +39,11 @@ export async function POST(
       });
     }
 
-    await updateUploadJobStatus(jobId, 'cancelled', 'Upload cancelled by user');
+    const updated = await updateUploadJobStatus(jobId, 'cancelled', 'Upload cancelled by user');
+    if (!updated) {
+      // Row deleted or raced with another writer — updateRow returned 404.
+      return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
+    }
 
     // Presign claims a monthly upload slot for limited users. If the user
     // cancels before distribution starts, best-effort release that slot.

@@ -1,7 +1,8 @@
 // =============================================================================
 // UPLOAD JOBS REPOSITORY UNIT TESTS
 // =============================================================================
-// Tests for upload job CRUD and getUploadJobsWithPlatformUploads. Mocks
+// Tests for upload job CRUD, listUploadJobsByUserForDraftIds, and
+// getUploadJobsWithPlatformUploads. Mocks
 // node-appwrite TablesDB so we don't hit a real Appwrite instance.
 // =============================================================================
 
@@ -23,6 +24,7 @@ vi.mock('node-appwrite', () => ({
       Array.isArray(value)
         ? `equal("${attr}",[${value.map((v) => `"${v}"`).join(',')}])`
         : `equal("${attr}","${value}")`,
+    orderAsc: (attr: string) => `orderAsc("${attr}")`,
     orderDesc: (attr: string) => `orderDesc("${attr}")`,
     limit: (n: number) => `limit(${n})`,
     offset: (n: number) => `offset(${n})`,
@@ -44,6 +46,7 @@ import {
   findUploadJobForDistribution,
   getUploadJobById,
   listUploadJobsByUser,
+  listUploadJobsByUserForDraftIds,
   updateUploadJobStatus,
   getUploadJobsWithPlatformUploads,
   getUploadJobsWithPlatformUploadsForDraft,
@@ -204,6 +207,130 @@ describe('upload-jobs repository', () => {
       const result = await listUploadJobsByUser('user-1');
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('listUploadJobsByUserForDraftIds', () => {
+    it('returns [] and does not query when draftIds is empty', async () => {
+      await expect(listUploadJobsByUserForDraftIds('user-1', [])).resolves.toEqual([]);
+      expect(mockListRows).not.toHaveBeenCalled();
+    });
+
+    it('returns [] when all draft ids are blank after filtering', async () => {
+      await expect(listUploadJobsByUserForDraftIds('user-1', ['', ''])).resolves.toEqual([]);
+      expect(mockListRows).not.toHaveBeenCalled();
+    });
+
+    it('queries userId, draftId as IN array, orderAsc($createdAt), limit, and offset', async () => {
+      mockListRows.mockResolvedValue({ rows: [] });
+
+      await listUploadJobsByUserForDraftIds('user-1', ['draft-a', 'draft-b']);
+
+      expect(mockListRows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: 'videosphere',
+          tableId: 'upload_jobs',
+          total: false,
+        })
+      );
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('equal("userId","user-1")');
+      expect(queries).toContain('equal("draftId",["draft-a","draft-b"])');
+      expect(queries).toContain('orderAsc("$createdAt")');
+      expect(queries).toContain('limit(100)');
+      expect(queries).toContain('offset(0)');
+    });
+
+    it('dedupes duplicate draft ids', async () => {
+      mockListRows.mockResolvedValue({ rows: [] });
+
+      await listUploadJobsByUserForDraftIds('user-1', ['x', 'x', 'y']);
+
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('equal("draftId",["x","y"])');
+    });
+
+    it('paginates with increasing offset until a short page ends the loop', async () => {
+      mockListRows
+        .mockResolvedValueOnce({
+          rows: [
+            { ...baseJobRow, $id: 'j1', draftId: 'a' },
+            { ...baseJobRow, $id: 'j2', draftId: 'b' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ ...baseJobRow, $id: 'j3', draftId: 'c' }],
+        });
+
+      const result = await listUploadJobsByUserForDraftIds('user-1', ['a', 'b', 'c'], {
+        pageSize: 2,
+      });
+
+      expect(mockListRows).toHaveBeenCalledTimes(2);
+      const q1 = mockListRows.mock.calls[0][0].queries as string[];
+      const q2 = mockListRows.mock.calls[1][0].queries as string[];
+      expect(q1).toContain('offset(0)');
+      expect(q1).toContain('limit(2)');
+      expect(q2).toContain('offset(2)');
+      expect(q2).toContain('limit(2)');
+      expect(result.map((j) => j.id)).toEqual(['j1', 'j2', 'j3']);
+    });
+
+    it('stops after one page when every draftId has been seen (early exit)', async () => {
+      mockListRows.mockResolvedValueOnce({
+        rows: [
+          { ...baseJobRow, $id: 'j1', draftId: 'a' },
+          { ...baseJobRow, $id: 'j2', draftId: 'b' },
+        ],
+      });
+
+      await listUploadJobsByUserForDraftIds('user-1', ['a', 'b'], { pageSize: 10 });
+
+      expect(mockListRows).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops when a page has fewer rows than the page limit (no more data)', async () => {
+      mockListRows.mockResolvedValueOnce({
+        rows: [{ ...baseJobRow, $id: 'j1', draftId: 'a' }],
+      });
+
+      const result = await listUploadJobsByUserForDraftIds('user-1', ['a', 'b'], {
+        pageSize: 5,
+      });
+
+      expect(mockListRows).toHaveBeenCalledTimes(1);
+      expect(result).toHaveLength(1);
+    });
+
+    it('caps total rows at maxRows and does not fetch another page when the cap is hit', async () => {
+      mockListRows.mockResolvedValueOnce({
+        rows: [
+          { ...baseJobRow, $id: 'j1', draftId: 'a' },
+          { ...baseJobRow, $id: 'j2', draftId: 'a' },
+        ],
+      });
+
+      const result = await listUploadJobsByUserForDraftIds('user-1', ['a', 'b', 'c'], {
+        pageSize: 2,
+        maxRows: 2,
+      });
+
+      expect(result).toHaveLength(2);
+      expect(mockListRows).toHaveBeenCalledTimes(1);
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('limit(2)');
+    });
+
+    it('uses the remaining maxRows budget as the page limit on the first request', async () => {
+      mockListRows.mockResolvedValue({ rows: [] });
+
+      await listUploadJobsByUserForDraftIds('user-1', ['only-one-draft'], {
+        pageSize: 100,
+        maxRows: 3,
+      });
+
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('limit(3)');
     });
   });
 

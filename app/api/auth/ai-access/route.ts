@@ -14,14 +14,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(errRes, { status: 401 });
   }
 
-  const user = await getUserById(userId);
-  const isSupporter = user?.isSupporter ?? false;
-  const isAdmin = user?.role === 'admin';
+  try {
+    const user = await getUserById(userId);
+    const isSupporter = user?.isSupporter ?? false;
+    const isAdmin = user?.role === 'admin';
 
-  return NextResponse.json({
-    // PRD/Roadmap: AI metadata is available to all authenticated users.
-    canUseAiMetadata: true,
-    isSupporter,
-    isAdmin,
-  });
+    return NextResponse.json({
+      // PRD/Roadmap: AI metadata is available to all authenticated users.
+      canUseAiMetadata: true,
+      isSupporter,
+      isAdmin,
+    });
+  } catch (err) {
+    console.error('[GET /api/auth/ai-access] Failed to load user profile:', err);
+    const errRes: ApiError = {
+      error: 'Internal Server Error',
+      message: 'Failed to load user profile',
+      statusCode: 500,
+    };
+    return NextResponse.json(errRes, { status: 500 });
+  }
 }

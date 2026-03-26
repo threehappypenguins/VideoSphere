@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { createDraft, listDraftsByUser, markDraftUsedInUpload } from '@/lib/repositories/drafts';
+import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
 import { listUploadJobsByUserForDraftIds } from '@/lib/repositories/upload-jobs';
 import {
   DraftDocumentTooLargeError,
@@ -179,8 +179,9 @@ export async function GET(req: NextRequest) {
   try {
     const drafts = await listDraftsByUser(userId);
 
-    // Backfill/compute usage for older drafts that predate the denormalized field.
-    // This stays cheap by only scanning upload_jobs for the draft ids we just listed.
+    // Compute usedInUploadAt for older drafts that predate the denormalized field.
+    // Read-only: we scan upload_jobs once per list and merge into the response.
+    // Persistence is handled on upload (POST /api/uploads/presign) via markDraftUsedInUpload.
     const missingUsed = drafts
       .filter((d) => typeof d.usedInUploadAt !== 'string' || d.usedInUploadAt.trim() === '')
       .map((d) => d.id);
@@ -194,13 +195,6 @@ export async function GET(req: NextRequest) {
           earliestUsedByDraftId.set(j.draftId, j.$createdAt);
         }
       }
-
-      // Best-effort persistence so future loads are fast even without this scan.
-      await Promise.allSettled(
-        [...earliestUsedByDraftId.entries()].map(([draftId, usedAtIso]) =>
-          markDraftUsedInUpload(draftId, usedAtIso)
-        )
-      );
     }
 
     const mergedDrafts: Draft[] =
