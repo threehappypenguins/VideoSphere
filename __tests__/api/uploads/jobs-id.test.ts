@@ -163,6 +163,8 @@ describe('GET /api/uploads/jobs/[id]', () => {
       data: {
         uploadJobId: string;
         status: string;
+        createdAt: string;
+        updatedAt: string;
         platforms: Array<{ platform: string; status: string; updatedAt: string }>;
       };
     };
