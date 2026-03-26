@@ -42,9 +42,46 @@ function rowToDraft(row: Record<string, unknown>): Draft {
     tags: doc.tags,
     visibility: doc.visibility,
     platforms: doc.platforms,
+    ...(doc.usedInUploadAt ? { usedInUploadAt: doc.usedInUploadAt } : {}),
     $createdAt,
     $updatedAt,
   };
+}
+
+/**
+ * Mark a draft as having been used in an upload job.
+ * Stored inside the draft `document` JSON (denormalized) to keep Drafts page fast.
+ *
+ * Returns the updated draft, or null if not found.
+ */
+export async function markDraftUsedInUpload(
+  id: string,
+  usedAtIso: string = new Date().toISOString()
+): Promise<Draft | null> {
+  const current = await getDraftById(id);
+  if (!current) return null;
+
+  // Preserve an earlier value so "first used" remains stable.
+  const usedInUploadAt = current.usedInUploadAt ?? usedAtIso;
+
+  const documentJson = stringifyDraftDocumentForStorage({
+    targets: current.targets,
+    title: current.title,
+    description: current.description,
+    visibility: current.visibility,
+    tags: current.tags,
+    platforms: current.platforms,
+    usedInUploadAt,
+  });
+  assertDraftDocumentJsonWithinLimit(documentJson);
+
+  const row = await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: DRAFTS_COLLECTION_ID,
+    rowId: id,
+    data: { document: documentJson },
+  });
+  return rowToDraft(row as unknown as Record<string, unknown>);
 }
 
 // -----------------------------------------------------------------------------

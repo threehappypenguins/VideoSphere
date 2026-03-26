@@ -51,7 +51,6 @@ export default function DraftsPage() {
   const { isOpen, openWizard, closeWizard } = useDraftWizard();
   const searchParams = useSearchParams();
   const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [draftUsage, setDraftUsage] = useState<Record<string, boolean>>({});
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedAccountPlatform[]>([]);
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,29 +74,23 @@ export default function DraftsPage() {
     setHasLoadedConnections(false);
 
     try {
-      const [draftsResponse, usageResponse, connectionsResponse, aiAccessResponse] =
-        await Promise.all([
-          fetch('/api/drafts', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-          fetch('/api/drafts/usage', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-          fetch('/api/platforms/connections', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-          fetch('/api/auth/ai-access', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-        ]);
+      const [draftsResponse, connectionsResponse, aiAccessResponse] = await Promise.all([
+        fetch('/api/drafts', {
+          method: 'GET',
+          signal,
+          cache: 'no-store',
+        }),
+        fetch('/api/platforms/connections', {
+          method: 'GET',
+          signal,
+          cache: 'no-store',
+        }),
+        fetch('/api/auth/ai-access', {
+          method: 'GET',
+          signal,
+          cache: 'no-store',
+        }),
+      ]);
 
       if (!draftsResponse.ok) {
         const errorBody = (await draftsResponse.json().catch(() => null)) as {
@@ -107,9 +100,6 @@ export default function DraftsPage() {
       }
 
       const draftsJson = (await draftsResponse.json()) as ApiResponse<Draft[]>;
-      const usageJson = usageResponse.ok
-        ? ((await usageResponse.json()) as DraftUsageResponse)
-        : ({ data: {} } as DraftUsageResponse);
       const connectionsPayload = connectionsResponse.ok
         ? ((await connectionsResponse.json()) as ApiResponse<ConnectedAccountPublic[]>)
         : ({ data: [] } as ApiResponse<ConnectedAccountPublic[]>);
@@ -121,7 +111,6 @@ export default function DraftsPage() {
         : null;
 
       setDrafts(Array.isArray(draftsJson.data) ? draftsJson.data : []);
-      setDraftUsage(usageJson.data ?? {});
       setConnectedPlatforms(platforms);
       setCanUseAiMetadata(Boolean(aiAccessPayload?.canUseAiMetadata));
       setHasLoadedConnections(true);
@@ -130,7 +119,6 @@ export default function DraftsPage() {
       const message = error instanceof Error ? error.message : 'Failed to load drafts.';
       setErrorMessage(message);
       setDrafts([]);
-      setDraftUsage({});
       setConnectedPlatforms([]);
       setCanUseAiMetadata(false);
       setHasLoadedConnections(true);
@@ -334,7 +322,6 @@ export default function DraftsPage() {
           view === 'list' ? (
             <DraftsTable
               drafts={drafts}
-              draftUsage={draftUsage}
               onEdit={(draft) => setEditingDraft(createEditorValues(draft))}
               onDelete={handleDeleteDraft}
               onDuplicate={handleDuplicateDraft}
@@ -344,7 +331,6 @@ export default function DraftsPage() {
           ) : (
             <DraftCards
               drafts={drafts}
-              draftUsage={draftUsage}
               onEdit={(draft) => setEditingDraft(createEditorValues(draft))}
               onDelete={handleDeleteDraft}
               onDuplicate={handleDuplicateDraft}
@@ -428,7 +414,6 @@ function UsedIndicator({ used }: { used: boolean }) {
 
 interface DraftCollectionProps {
   drafts: Draft[];
-  draftUsage: Record<string, boolean>;
   onEdit: (draft: Draft) => void;
   onDelete: (draft: Draft) => void;
   onDuplicate: (draft: Draft) => void;
@@ -438,7 +423,6 @@ interface DraftCollectionProps {
 
 function DraftsTable({
   drafts,
-  draftUsage,
   onEdit,
   onDelete,
   onDuplicate,
@@ -505,7 +489,7 @@ function DraftsTable({
                   aria-label={`Edit draft "${draft.title}"`}
                   className="block w-full px-3 py-3 text-left sm:px-4"
                 >
-                  <UsedIndicator used={Boolean(draftUsage[draft.id])} />
+                  <UsedIndicator used={typeof draft.usedInUploadAt === 'string'} />
                 </button>
               </td>
               <td className="p-0 align-top text-right">
@@ -538,7 +522,6 @@ function DraftsTable({
 
 function DraftCards({
   drafts,
-  draftUsage,
   onEdit,
   onDelete,
   onDuplicate,
@@ -564,7 +547,7 @@ function DraftCards({
               <p className="text-xs text-muted-foreground">
                 Last edited {formatLastEdited(draft.$updatedAt)}
               </p>
-              <UsedIndicator used={Boolean(draftUsage[draft.id])} />
+              <UsedIndicator used={typeof draft.usedInUploadAt === 'string'} />
             </div>
           </div>
           <div className="relative z-20 px-4 pb-4 pointer-events-none">

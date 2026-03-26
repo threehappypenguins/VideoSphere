@@ -197,6 +197,11 @@ export interface Draft {
   visibility: PlatformUploadVisibility;
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */
   platforms: DraftPlatforms;
+  /**
+   * When this draft was first used to create an upload job.
+   * Stored on the draft (denormalized) to avoid scanning upload job history.
+   */
+  usedInUploadAt?: string;
   /** Appwrite system attribute (ISO string). */
   $createdAt: string;
   /** Appwrite system attribute (ISO string). */

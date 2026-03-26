@@ -45,10 +45,6 @@ describe('DraftsPage', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ data: {} }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
         json: async () => ({ data: [] }),
       } as Response)
       .mockResolvedValueOnce({
@@ -63,9 +59,6 @@ describe('DraftsPage', () => {
       expect(global.fetch).toHaveBeenCalledWith('/api/drafts', expect.any(Object))
     );
     await waitFor(() =>
-      expect(global.fetch).toHaveBeenCalledWith('/api/drafts/usage', expect.any(Object))
-    );
-    await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith('/api/platforms/connections', expect.any(Object))
     );
     await waitFor(() =>
@@ -78,10 +71,6 @@ describe('DraftsPage', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: {} }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
@@ -106,10 +95,6 @@ describe('DraftsPage', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ data: {} }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
         json: async () => ({ data: [] }),
       } as Response)
       .mockResolvedValueOnce({
@@ -120,6 +105,6 @@ describe('DraftsPage', () => {
     render(<DraftsPage />);
 
     expect(screen.getByRole('button', { name: /create draft/i })).toBeInTheDocument();
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
   });
 });

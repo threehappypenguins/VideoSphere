@@ -42,7 +42,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const jobs = await getUploadJobsWithPlatformUploadsForDraft(userId, id);
+    const { searchParams } = new URL(req.url);
+    const rawLimit = searchParams.get('limit');
+    const rawOffset = searchParams.get('offset');
+
+    const limit =
+      rawLimit == null ? 20 : Math.min(100, Math.max(1, Number.parseInt(rawLimit, 10) || 20));
+    const offset = rawOffset == null ? 0 : Math.max(0, Number.parseInt(rawOffset, 10) || 0);
+
+    const jobs = await getUploadJobsWithPlatformUploadsForDraft(userId, id, { limit, offset });
     const history: DraftUploadHistoryItem[] = jobs.map((job) => {
       const latestPlatforms = latestPlatformStatuses(
         job.platformUploads.map((platformUpload) => ({

@@ -77,6 +77,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
     $createdAt: '2000-01-01T00:00:00.000Z',
     $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
+  markDraftUsedInUpload: vi.fn(async () => null),
 }));
 
 // Mock upload-jobs repository

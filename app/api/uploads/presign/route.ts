@@ -59,7 +59,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
-import { getDraftById } from '@/lib/repositories/drafts';
+import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
 const FREE_TIER_LIMIT = 10;
@@ -246,6 +246,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
       uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
+      await markDraftUsedInUpload(draftId).catch((err) => {
+        console.error(
+          `[POST /api/uploads/presign] Failed to mark draft ${draftId} usedInUploadAt:`,
+          err
+        );
+      });
     } catch (err) {
       // Roll back the quota slot so the user isn't charged for a failed presign.
       // Best-effort: log but don't let a rollback failure shadow the original error.

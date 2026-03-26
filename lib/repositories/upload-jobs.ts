@@ -248,11 +248,11 @@ async function getUploadJobsWithPlatformUploadsFromJobs(
 export async function getUploadJobsWithPlatformUploadsForDraft(
   userId: string,
   draftId: string,
-  options?: { limit?: number; pageSize?: number }
+  options?: { limit?: number; offset?: number; pageSize?: number }
 ): Promise<UploadJobWithPlatformUploads[]> {
   const pageSize = options?.pageSize ?? 100;
   const jobs: UploadJob[] = [];
-  let offset = 0;
+  let offset = options?.offset ?? 0;
 
   while (true) {
     const remaining = options?.limit != null ? options.limit - jobs.length : Infinity;

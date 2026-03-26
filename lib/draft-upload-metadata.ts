@@ -291,6 +291,11 @@ export interface DraftDocumentStored {
   visibility: PlatformUploadVisibility;
   tags: string[];
   platforms: DraftPlatforms;
+  /**
+   * When this draft was first used to create an upload job.
+   * Stored in the draft `document` JSON to avoid an expensive usage scan.
+   */
+  usedInUploadAt?: string;
 }
 
 export function stringifyDraftDocumentForStorage(d: DraftDocumentStored): string {
@@ -301,6 +306,9 @@ export function stringifyDraftDocumentForStorage(d: DraftDocumentStored): string
     visibility: d.visibility,
     tags: d.tags,
     platforms: d.platforms,
+    ...(typeof d.usedInUploadAt === 'string' && d.usedInUploadAt.trim() !== ''
+      ? { usedInUploadAt: d.usedInUploadAt }
+      : {}),
   });
 }
 
@@ -331,6 +339,7 @@ export function draftDocumentFromRow(row: Record<string, unknown>): DraftDocumen
       visibility: visibilityFromRow(o.visibility),
       tags: tagsFromDocumentObject(o),
       platforms: normalizeDraftPlatforms(o.platforms),
+      usedInUploadAt: typeof o.usedInUploadAt === 'string' ? o.usedInUploadAt : undefined,
     };
   } catch {
     return { ...EMPTY_DOC };

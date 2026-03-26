@@ -403,11 +403,13 @@ export function DraftMetadataModal({
     return value.targets.filter((platform) => !connectedSet.has(platform));
   }, [connectedPlatforms, value]);
 
+  const connectionsResolvedSuccessfully = hasLoadedConnections && connectionsError === null;
+
   const canSave =
     !isSaving &&
     value !== null &&
     value.targets.length > 0 &&
-    disconnectedSelectedPlatforms.length === 0 &&
+    (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
     value.title.trim() !== '';
   const hasGeneratedMetadata =
     value !== null &&
@@ -651,10 +653,16 @@ export function DraftMetadataModal({
   };
 
   const clearPendingVideoSelection = () => {
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      xhrRef.current = null;
+    }
     setVideoFile(null);
     setUploadProgress(0);
     setUploadComplete(false);
     setCurrentUploadJobId(null);
+    setUploading(false);
+    setIsCancellingUpload(false);
     setUploadLimitState({ reached: false });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -668,6 +676,7 @@ export function DraftMetadataModal({
       const deleted = await onDelete(value.id);
       if (deleted) {
         setShowDeleteConfirm(false);
+        clearPendingVideoSelection();
         onClose();
       }
     } finally {
@@ -676,7 +685,15 @@ export function DraftMetadataModal({
   };
 
   return (
-    <Dialog open={value !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={value !== null}
+      onOpenChange={(open) => {
+        if (!open) {
+          clearPendingVideoSelection();
+          onClose();
+        }
+      }}
+    >
       <DialogContent
         className="flex max-h-[90vh] flex-col p-0"
         onInteractOutside={(event) => event.preventDefault()}
