@@ -163,6 +163,26 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
     });
   });
 
+  describe('User lookup before cancellation', () => {
+    it('returns 500 and does not delete R2 or update job when getUserById fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(getUserById).mockRejectedValueOnce(new Error('Appwrite unavailable'));
+
+      const response = await POST(
+        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toBe('Failed to cancel upload');
+      expect(vi.mocked(deleteObject)).not.toHaveBeenCalled();
+      expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
+      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
+      consoleSpy.mockRestore();
+    });
+  });
+
   describe('disallowed job states', () => {
     const terminalStates = ['distributing', 'completed', 'failed', 'cancelled'] as const;
 

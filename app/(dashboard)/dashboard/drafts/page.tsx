@@ -403,6 +403,11 @@ function DraftActions({
   );
 }
 
+/** True when the draft has a real upload timestamp (aligned with GET /api/drafts backfill). */
+function hasNonEmptyUsedInUploadAt(draft: Draft): boolean {
+  return typeof draft.usedInUploadAt === 'string' && draft.usedInUploadAt.trim() !== '';
+}
+
 function UsedIndicator({ used }: { used: boolean }) {
   return (
     <span
@@ -490,7 +495,7 @@ function DraftsTable({
                   aria-label={`Edit draft "${draft.title}"`}
                   className="block w-full px-3 py-3 text-left sm:px-4"
                 >
-                  <UsedIndicator used={typeof draft.usedInUploadAt === 'string'} />
+                  <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
                 </button>
               </td>
               <td className="p-0 align-top text-right">
@@ -548,7 +553,7 @@ function DraftCards({
               <p className="text-xs text-muted-foreground">
                 Last edited {formatLastEdited(draft.$updatedAt)}
               </p>
-              <UsedIndicator used={typeof draft.usedInUploadAt === 'string'} />
+              <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
             </div>
           </div>
           <div className="relative z-20 px-4 pb-4 pointer-events-none">

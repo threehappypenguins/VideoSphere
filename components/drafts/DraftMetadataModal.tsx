@@ -752,7 +752,7 @@ export function DraftMetadataModal({
               availablePlatforms={displayPlatforms}
               selectedPlatforms={value.targets}
               connectedPlatforms={connectedPlatforms}
-              connectionsResolved={hasLoadedConnections}
+              connectionsResolved={connectionsResolvedSuccessfully}
               onToggle={handleTogglePlatform}
               onConnectClick={() => {
                 void handleConnectAction();
@@ -776,7 +776,7 @@ export function DraftMetadataModal({
                 Could not verify platform connections. Reopen the modal or check your session.
               </p>
             ) : null}
-            {hasLoadedConnections && connectedPlatforms.length === 0 ? (
+            {connectionsResolvedSuccessfully && connectedPlatforms.length === 0 ? (
               <p className="text-xs text-red-600">
                 No connected platforms found.{' '}
                 <Link href="/profile/connections" className="underline underline-offset-2">

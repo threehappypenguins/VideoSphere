@@ -32,6 +32,11 @@ export async function POST(
   }
 
   try {
+    // Resolve tier before R2/status mutations so a failed lookup returns 500 without
+    // leaving the job cancelled (avoids confusing 500 after a successful cancel + 409 on retry).
+    const user = await getUserById(userId);
+    const hasUnlimitedUploads = Boolean(user?.isSupporter) || user?.role === 'admin';
+
     if (job.r2Key) {
       await deleteObject(job.r2Key).catch((error) => {
         if (error instanceof R2ObjectNotFoundError) return;
@@ -47,8 +52,6 @@ export async function POST(
 
     // Presign claims a monthly upload slot for limited users. If the user
     // cancels before distribution starts, best-effort release that slot.
-    const user = await getUserById(userId);
-    const hasUnlimitedUploads = Boolean(user?.isSupporter) || user?.role === 'admin';
     if (!hasUnlimitedUploads) {
       const quotaMonth = usageMonthFromUtcIso(job.$createdAt);
       await decrementUsage(userId, quotaMonth).catch((rollbackErr) => {
