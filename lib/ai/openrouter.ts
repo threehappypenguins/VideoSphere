@@ -51,7 +51,7 @@ interface OpenRouterMessage {
 interface OpenRouterRequest {
   model: string;
   messages: OpenRouterMessage[];
-  response_format: { type: 'json_object' };
+  response_format?: { type: 'json_object' };
 }
 
 interface OpenRouterResponse {
@@ -62,40 +62,59 @@ interface OpenRouterResponse {
   }>;
 }
 
-/**
- * Sends a chat completion request to OpenRouter and parses the response into
- * a typed GeneratedMetadata object with title, description, and tags fields.
- *
- * @param systemPrompt - Instructions for the AI (platform limits, format, etc.)
- * @param userPrompt   - The user-facing content (filename, context)
- * @param model        - OpenRouter model identifier (e.g. "openai/gpt-4o")
- * @throws Error if the API key is missing, the request fails, or the response
- *         is malformed / missing required fields.
- */
-export async function generateMetadata(
-  systemPrompt: string,
-  userPrompt: string,
-  model: string
-): Promise<GeneratedMetadata> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY environment variable is not set');
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}…`;
+}
+
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function formatOpenRouterErrorDetail(rawText: string, statusText: string): string {
+  if (!rawText.trim()) return statusText;
+
+  try {
+    const parsed = JSON.parse(rawText) as {
+      error?: {
+        message?: string;
+        code?: string | number;
+        provider?: string;
+        metadata?: unknown;
+      };
+      [key: string]: unknown;
+    };
+    const top = parsed?.error;
+    const msg = typeof top?.message === 'string' ? top.message : '';
+    const code = top?.code != null ? ` code=${String(top.code)}` : '';
+    const provider = typeof top?.provider === 'string' ? ` provider=${top.provider}` : '';
+    const metadata =
+      top?.metadata !== undefined ? ` metadata=${truncate(JSON.stringify(top.metadata), 500)}` : '';
+
+    const compact = truncate(JSON.stringify(parsed), 700);
+    return `${msg || statusText}${code}${provider}${metadata}` + (compact ? ` raw=${compact}` : '');
+  } catch {
+    return truncate(rawText, 700);
   }
+}
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://videosphere.app';
-  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
+function getTimeoutMsForModel(model: string): number {
+  void model;
+  const envTimeout = Number.parseInt(process.env.OPENROUTER_FETCH_TIMEOUT_MS ?? '', 10);
+  if (Number.isFinite(envTimeout) && envTimeout > 0) {
+    return envTimeout;
+  }
+  return OPENROUTER_FETCH_TIMEOUT_MS;
+}
 
-  const requestBody: OpenRouterRequest = {
-    model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    response_format: { type: 'json_object' },
-  };
-
+async function requestMetadataFromOpenRouter(
+  requestBody: OpenRouterRequest,
+  apiKey: string,
+  appUrl: string,
+  appName: string
+): Promise<GeneratedMetadata> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OPENROUTER_FETCH_TIMEOUT_MS);
+  const timeoutMs = getTimeoutMsForModel(requestBody.model);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     let response: Response;
@@ -115,9 +134,7 @@ export async function generateMetadata(
       if (isAbortError(err)) {
         throw new OpenRouterTimeoutError();
       }
-      throw new Error(
-        `Failed to connect to OpenRouter API: ${err instanceof Error ? err.message : String(err)}`
-      );
+      throw new Error(`Failed to connect to OpenRouter API: ${getErrorMessage(err)}`);
     }
 
     if (response.status === 429) {
@@ -128,13 +145,7 @@ export async function generateMetadata(
       let errorDetail = '';
       try {
         const text = await response.text();
-        try {
-          const errorBody = JSON.parse(text) as { error?: { message?: string } } | null;
-          const msg = errorBody?.error?.message;
-          errorDetail = typeof msg === 'string' ? msg : JSON.stringify(errorBody);
-        } catch {
-          errorDetail = text;
-        }
+        errorDetail = formatOpenRouterErrorDetail(text, response.statusText);
       } catch (err) {
         if (isAbortError(err)) {
           throw new OpenRouterTimeoutError();
@@ -199,4 +210,49 @@ export async function generateMetadata(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function buildOpenRouterRequestBody(
+  model: string,
+  systemPrompt: string,
+  userPrompt: string
+): OpenRouterRequest {
+  return {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    response_format: { type: 'json_object' },
+  };
+}
+
+/**
+ * Sends a chat completion request to OpenRouter and parses the response into
+ * a typed GeneratedMetadata object with title, description, and tags fields.
+ *
+ * @param systemPrompt - Instructions for the AI (platform limits, format, etc.)
+ * @param userPrompt   - The user-facing content (filename, context)
+ * @param model        - OpenRouter model identifier (e.g. "openai/gpt-4o")
+ * @throws Error if the API key is missing, the request fails, or the response
+ *         is malformed / missing required fields.
+ */
+export async function generateMetadata(
+  systemPrompt: string,
+  userPrompt: string,
+  model: string
+): Promise<GeneratedMetadata> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY environment variable is not set');
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://videosphere.app';
+  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
+  return requestMetadataFromOpenRouter(
+    buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
+    apiKey,
+    appUrl,
+    appName
+  );
 }

@@ -159,6 +159,12 @@ export async function getUploadJobsWithPlatformUploads(
   userId: string
 ): Promise<UploadJobWithPlatformUploads[]> {
   const jobs = await listUploadJobsByUser(userId);
+  return getUploadJobsWithPlatformUploadsFromJobs(jobs);
+}
+
+async function getUploadJobsWithPlatformUploadsFromJobs(
+  jobs: UploadJob[]
+): Promise<UploadJobWithPlatformUploads[]> {
   if (jobs.length === 0) return [];
 
   const jobIds = jobs.map((j) => j.id);
@@ -195,6 +201,28 @@ export async function getUploadJobsWithPlatformUploads(
     ...job,
     platformUploads: uploadsByJobId.get(job.id) ?? [],
   }));
+}
+
+/**
+ * List upload jobs for one user and one draft, with platform uploads populated.
+ * Sorted by most recent first.
+ */
+export async function getUploadJobsWithPlatformUploadsForDraft(
+  userId: string,
+  draftId: string
+): Promise<UploadJobWithPlatformUploads[]> {
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_JOBS_COLLECTION_ID,
+    queries: [
+      Query.equal('userId', userId),
+      Query.equal('draftId', draftId),
+      Query.orderDesc('$createdAt'),
+    ],
+    total: false,
+  });
+  const jobs = (rows ?? []).map((r) => rowToUploadJob(r as unknown as Record<string, unknown>));
+  return getUploadJobsWithPlatformUploadsFromJobs(jobs);
 }
 
 // -----------------------------------------------------------------------------

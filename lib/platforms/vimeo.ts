@@ -47,6 +47,12 @@ function toError(
   };
 }
 
+function isLikelyNetworkFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return msg.includes('fetch failed') || msg.includes('network');
+}
+
 function extractVimeoVideoId(uri?: string): string | null {
   if (!uri) return null;
   const parts = uri.split('/').filter(Boolean);
@@ -486,6 +492,9 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     return toError('VIMEO_TOKEN_MISSING', 'Vimeo access token is missing.');
   }
 
+  let createdVideoId: string | null = null;
+  let tusUploadAccepted = false;
+
   try {
     if (!input.contentLength || input.contentLength <= 0) {
       return toError(
@@ -564,6 +573,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     const videoUri = createPayload.uri;
     const videoBasePath = typeof videoUri === 'string' ? vimeoVideoApiBasePath(videoUri) : '';
     const videoId = extractVimeoVideoId(videoUri);
+    createdVideoId = videoId;
 
     if (!uploadLink || !videoId || !videoBasePath) {
       return toError(
@@ -593,6 +603,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         await tusUploadResponse.text().catch(() => undefined)
       );
     }
+    tusUploadAccepted = true;
 
     await fetch(uploadLink, {
       method: 'HEAD',
@@ -656,6 +667,15 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       platformUrl: `https://vimeo.com/${videoId}`,
     };
   } catch (error) {
+    if (tusUploadAccepted && createdVideoId && isLikelyNetworkFetchError(error)) {
+      // Vimeo sometimes succeeds upload/transcode while a later metadata/status fetch fails.
+      // In that case, prefer a successful result over a false-negative failure state.
+      return {
+        ok: true,
+        platformVideoId: createdVideoId,
+        platformUrl: `https://vimeo.com/${createdVideoId}`,
+      };
+    }
     if (error instanceof VimeoIngestWaitFailedError) {
       return toError('VIMEO_INGEST_WAIT_FAILED', error.message, error.statusCode, error.details);
     }

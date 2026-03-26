@@ -119,18 +119,109 @@ export async function incrementUsage(userId: string): Promise<void> {
  * Used as a rollback when a downstream operation fails after a slot was
  * successfully claimed via `incrementUsage` / `incrementUsageIfAllowed`.
  *
- * Uses the same server-side atomic `incrementRowColumn` (value: -1) as the
- * over-cap rollback in `incrementUsageIfAllowed`, so no read-modify-write race.
+ * Prefers server-side atomic decrement when supported by the runtime SDK.
+ * Falls back to atomic increment(value: -1) on older SDKs, and only then to a
+ * read-modify-write safety path if neither atomic API is available.
  */
 export async function decrementUsage(userId: string): Promise<void> {
   const month = currentMonth();
   const rowId = usageRowId(userId, month);
-  await tablesDb.incrementRowColumn({
+
+  const tablesDbWithDecrement = tablesDb as unknown as {
+    decrementRowColumn?: (input: {
+      databaseId: string;
+      tableId: string;
+      rowId: string;
+      column: string;
+      value: number;
+    }) => Promise<unknown>;
+  };
+
+  const tablesDbWithIncrement = tablesDb as unknown as {
+    incrementRowColumn?: (input: {
+      databaseId: string;
+      tableId: string;
+      rowId: string;
+      column: string;
+      value: number;
+    }) => Promise<unknown>;
+  };
+
+  // Prefer native server-side atomic decrement when available.
+  if (typeof tablesDbWithDecrement.decrementRowColumn === 'function') {
+    try {
+      await tablesDbWithDecrement.decrementRowColumn({
+        databaseId: DATABASE_ID,
+        tableId: UPLOAD_USAGE_COLLECTION_ID,
+        rowId,
+        column: 'uploadCount',
+        value: 1,
+      });
+      return;
+    } catch (err: unknown) {
+      const e = err as { code?: number };
+      if (e.code === 404) return;
+      // Fall through to conservative fallback for SDK/server variants
+      // that expose decrementRowColumn but reject it at runtime.
+    }
+  }
+
+  // Older SDKs may only expose incrementRowColumn; use value=-1 if available.
+  if (typeof tablesDbWithIncrement.incrementRowColumn === 'function') {
+    try {
+      await tablesDbWithIncrement.incrementRowColumn({
+        databaseId: DATABASE_ID,
+        tableId: UPLOAD_USAGE_COLLECTION_ID,
+        rowId,
+        column: 'uploadCount',
+        value: -1,
+      });
+      return;
+    } catch (err: unknown) {
+      const e = err as { code?: number };
+      if (e.code === 404) return;
+      // Fall through to the non-atomic fallback for server variants
+      // that reject negative increments.
+    }
+  }
+
+  // Fallback path for environments without native decrement support.
+  // This is less concurrency-safe than server-side atomic decrement, but keeps
+  // behavior correct on older SDK/runtime combinations.
+  let currentCount = 0;
+  try {
+    const row = await tablesDb.getRow({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_USAGE_COLLECTION_ID,
+      rowId,
+    });
+    const record = row as unknown as Record<string, unknown>;
+    currentCount = typeof record.uploadCount === 'number' ? record.uploadCount : 0;
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code === 404) return;
+    throw err;
+  }
+
+  const nextCount = Math.max(0, currentCount - 1);
+  const tablesDbWithUpdate = tablesDb as unknown as {
+    updateRow?: (input: {
+      databaseId: string;
+      tableId: string;
+      rowId: string;
+      data: { uploadCount: number };
+    }) => Promise<unknown>;
+  };
+  if (typeof tablesDbWithUpdate.updateRow !== 'function') {
+    throw new Error(
+      'Upload usage decrement is unavailable: updateRow is not supported by this SDK'
+    );
+  }
+  await tablesDbWithUpdate.updateRow({
     databaseId: DATABASE_ID,
     tableId: UPLOAD_USAGE_COLLECTION_ID,
     rowId,
-    column: 'uploadCount',
-    value: -1,
+    data: { uploadCount: nextCount },
   });
 }
 
@@ -193,13 +284,7 @@ export async function incrementUsageIfAllowed(
     const month = currentMonth();
     const rowId = usageRowId(userId, month);
     try {
-      await tablesDb.incrementRowColumn({
-        databaseId: DATABASE_ID,
-        tableId: UPLOAD_USAGE_COLLECTION_ID,
-        rowId,
-        column: 'uploadCount',
-        value: -1,
-      });
+      await decrementUsage(userId);
     } catch (rollbackErr) {
       console.error(
         `Failed to roll back over-cap quota slot for user ${userId} (month ${month}). ` +
