@@ -23,6 +23,15 @@ vi.mock('@/lib/api/auth', () => ({
 vi.mock('@/lib/repositories/drafts', () => ({
   createDraft: vi.fn(),
   listDraftsByUser: vi.fn(),
+  markDraftUsedInUpload: vi.fn(),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock upload-jobs repository (GET /api/drafts backfill)
+// ---------------------------------------------------------------------------
+
+vi.mock('@/lib/repositories/upload-jobs', () => ({
+  listUploadJobsByUserForDraftIds: vi.fn(async () => []),
 }));
 
 import { POST, GET } from '@/app/api/drafts/route';

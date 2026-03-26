@@ -3,7 +3,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import { getUserById } from '@/lib/repositories/users';
-import { decrementUsage } from '@/lib/repositories/upload-usage';
+import { decrementUsage, usageMonthFromUtcIso } from '@/lib/repositories/upload-usage';
 
 export async function POST(
   req: NextRequest,
@@ -46,7 +46,8 @@ export async function POST(
     const user = await getUserById(userId);
     const hasUnlimitedUploads = Boolean(user?.isSupporter) || user?.role === 'admin';
     if (!hasUnlimitedUploads) {
-      await decrementUsage(userId).catch((rollbackErr) => {
+      const quotaMonth = usageMonthFromUtcIso(job.$createdAt);
+      await decrementUsage(userId, quotaMonth).catch((rollbackErr) => {
         console.error(
           `Failed to roll back quota slot for cancelled upload ${jobId} (user ${userId}):`,
           rollbackErr

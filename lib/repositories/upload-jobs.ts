@@ -102,17 +102,24 @@ export async function getUploadJobById(id: string): Promise<UploadJob | null> {
 export async function listUploadJobsByUser(
   userId: string,
   status?: UploadJobStatus,
-  options?: { pageSize?: number }
+  options?: { pageSize?: number; maxRows?: number }
 ): Promise<UploadJob[]> {
   const pageSize = options?.pageSize ?? 100;
+  // Safety cap: most callers (dashboards, status pages) don't need full history.
+  // Callers that truly need unbounded history should pass maxRows: Infinity.
+  const maxRows = options?.maxRows ?? 1000;
   let offset = 0;
   const jobs: UploadJob[] = [];
 
   while (true) {
+    const remaining = Number.isFinite(maxRows) ? Math.max(0, maxRows - jobs.length) : Infinity;
+    const thisPageLimit = Math.min(pageSize, remaining);
+    if (!Number.isFinite(thisPageLimit) || thisPageLimit <= 0) break;
+
     const queries = [
       Query.equal('userId', userId),
       Query.orderDesc('$createdAt'),
-      Query.limit(pageSize),
+      Query.limit(thisPageLimit),
       Query.offset(offset),
     ];
     if (status != null) {
@@ -131,9 +138,68 @@ export async function listUploadJobsByUser(
     );
     jobs.push(...pageJobs);
 
-    if (pageJobs.length < pageSize) break;
+    if (pageJobs.length < thisPageLimit) break;
     if (pageJobs.length === 0) break;
-    offset += pageSize;
+    offset += thisPageLimit;
+  }
+
+  return jobs;
+}
+
+/**
+ * List upload jobs for a user filtered to a set of draft ids.
+ * Sorted by oldest first so callers can easily pick "first used" timestamps.
+ *
+ * This is intentionally draft-scoped (not a full user scan) so endpoints like
+ * GET /api/drafts can cheaply determine which drafts have ever been used.
+ */
+export async function listUploadJobsByUserForDraftIds(
+  userId: string,
+  draftIds: string[],
+  options?: { pageSize?: number; maxRows?: number }
+): Promise<UploadJob[]> {
+  const uniqueDraftIds = [...new Set(draftIds.filter((id) => typeof id === 'string' && id !== ''))];
+  if (uniqueDraftIds.length === 0) return [];
+
+  const pageSize = options?.pageSize ?? 100;
+  const maxRows = options?.maxRows ?? 5000;
+  let offset = 0;
+  const jobs: UploadJob[] = [];
+  const seenDraftIds = new Set<string>();
+
+  while (true) {
+    const remaining = Number.isFinite(maxRows) ? Math.max(0, maxRows - jobs.length) : Infinity;
+    const thisPageLimit = Math.min(pageSize, remaining);
+    if (!Number.isFinite(thisPageLimit) || thisPageLimit <= 0) break;
+
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_JOBS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        // Appwrite "equal" supports passing an array as an "IN" query.
+        Query.equal('draftId', uniqueDraftIds),
+        Query.orderAsc('$createdAt'),
+        Query.limit(thisPageLimit),
+        Query.offset(offset),
+      ],
+      total: false,
+    });
+
+    const pageJobs = (rows ?? []).map((r) =>
+      rowToUploadJob(r as unknown as Record<string, unknown>)
+    );
+    jobs.push(...pageJobs);
+
+    for (const j of pageJobs) {
+      if (j.draftId) seenDraftIds.add(j.draftId);
+    }
+
+    if (seenDraftIds.size >= uniqueDraftIds.length) break;
+
+    if (pageJobs.length < thisPageLimit) break;
+    if (pageJobs.length === 0) break;
+    offset += thisPageLimit;
   }
 
   return jobs;

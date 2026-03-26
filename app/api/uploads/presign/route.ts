@@ -221,7 +221,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const isSupporter = user?.isSupporter ?? false;
     const isAdmin = user?.role === 'admin';
     const hasUnlimitedUploads = isSupporter || isAdmin;
-    const { allowed, monthlyUsage } = await incrementUsageIfAllowed(userId, hasUnlimitedUploads);
+    const { allowed, monthlyUsage, usageMonth } = await incrementUsageIfAllowed(
+      userId,
+      hasUnlimitedUploads
+    );
 
     if (!allowed) {
       return NextResponse.json(
@@ -255,8 +258,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } catch (err) {
       // Roll back the quota slot so the user isn't charged for a failed presign.
       // Best-effort: log but don't let a rollback failure shadow the original error.
-      if (!hasUnlimitedUploads) {
-        await decrementUsage(userId).catch((rollbackErr) => {
+      if (!hasUnlimitedUploads && usageMonth) {
+        await decrementUsage(userId, usageMonth).catch((rollbackErr) => {
           console.error(
             `Failed to roll back quota slot for user ${userId} after presign error:`,
             rollbackErr

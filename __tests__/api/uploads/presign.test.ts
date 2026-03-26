@@ -57,9 +57,13 @@ vi.mock('@/lib/repositories/users', () => ({
   })),
 }));
 
-// Mock upload-usage repository
+// Mock upload-usage repository (usageMonth must match presign rollback / tests)
 vi.mock('@/lib/repositories/upload-usage', () => ({
-  incrementUsageIfAllowed: vi.fn(async () => ({ allowed: true, monthlyUsage: 5 })),
+  incrementUsageIfAllowed: vi.fn(async () => ({
+    allowed: true,
+    monthlyUsage: 5,
+    usageMonth: '2000-01',
+  })),
   decrementUsage: vi.fn(async () => undefined),
 }));
 
@@ -148,7 +152,11 @@ describe('POST /api/uploads/presign', () => {
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
-    vi.mocked(incrementUsageIfAllowed).mockResolvedValue({ allowed: true, monthlyUsage: 5 });
+    vi.mocked(incrementUsageIfAllowed).mockResolvedValue({
+      allowed: true,
+      monthlyUsage: 5,
+      usageMonth: '2000-01',
+    });
     vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example.com/upload?signed=true');
     vi.mocked(createUploadJob).mockResolvedValue({
       id: 'job-123',
@@ -504,7 +512,11 @@ describe('POST /api/uploads/presign', () => {
     });
 
     it('should allow upload when quota is not exceeded', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({ allowed: true, monthlyUsage: 5 });
+      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
+        allowed: true,
+        monthlyUsage: 5,
+        usageMonth: '2000-01',
+      });
 
       const request = createRequest(
         {
@@ -824,7 +836,7 @@ describe('POST /api/uploads/presign', () => {
       );
       await POST(request);
 
-      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123');
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
     });
 
     it('should roll back the quota slot when createUploadJob throws', async () => {
@@ -841,7 +853,7 @@ describe('POST /api/uploads/presign', () => {
       );
       await POST(request);
 
-      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123');
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
     });
 
     it('should NOT roll back the quota slot for a supporter when R2 throws', async () => {

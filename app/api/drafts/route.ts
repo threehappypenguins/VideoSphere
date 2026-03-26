@@ -9,7 +9,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
+import { createDraft, listDraftsByUser, markDraftUsedInUpload } from '@/lib/repositories/drafts';
+import { listUploadJobsByUserForDraftIds } from '@/lib/repositories/upload-jobs';
 import {
   DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
@@ -177,7 +178,41 @@ export async function GET(req: NextRequest) {
 
   try {
     const drafts = await listDraftsByUser(userId);
-    const response: ApiResponse<Draft[]> = { data: drafts };
+
+    // Backfill/compute usage for older drafts that predate the denormalized field.
+    // This stays cheap by only scanning upload_jobs for the draft ids we just listed.
+    const missingUsed = drafts
+      .filter((d) => typeof d.usedInUploadAt !== 'string' || d.usedInUploadAt.trim() === '')
+      .map((d) => d.id);
+
+    let earliestUsedByDraftId = new Map<string, string>();
+    if (missingUsed.length > 0) {
+      const jobs = await listUploadJobsByUserForDraftIds(userId, missingUsed);
+      for (const j of jobs) {
+        if (!j.draftId) continue;
+        if (!earliestUsedByDraftId.has(j.draftId)) {
+          earliestUsedByDraftId.set(j.draftId, j.$createdAt);
+        }
+      }
+
+      // Best-effort persistence so future loads are fast even without this scan.
+      await Promise.allSettled(
+        [...earliestUsedByDraftId.entries()].map(([draftId, usedAtIso]) =>
+          markDraftUsedInUpload(draftId, usedAtIso)
+        )
+      );
+    }
+
+    const mergedDrafts: Draft[] =
+      earliestUsedByDraftId.size === 0
+        ? drafts
+        : drafts.map((d) => {
+            if (typeof d.usedInUploadAt === 'string' && d.usedInUploadAt.trim() !== '') return d;
+            const usedAt = earliestUsedByDraftId.get(d.id);
+            return usedAt ? { ...d, usedInUploadAt: usedAt } : d;
+          });
+
+    const response: ApiResponse<Draft[]> = { data: mergedDrafts };
     return NextResponse.json(response);
   } catch (err) {
     console.error('[GET /api/drafts]', err);

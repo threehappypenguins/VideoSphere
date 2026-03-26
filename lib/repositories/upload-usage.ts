@@ -35,6 +35,16 @@ function usageRowId(userId: string, month: string): string {
   return `${userId}_${month}`;
 }
 
+/**
+ * UTC calendar month `YYYY-MM` for an ISO 8601 timestamp (e.g. upload job `$createdAt`).
+ * Used so quota rollback targets the same month row as the original presign claim.
+ */
+export function usageMonthFromUtcIso(isoUtc: string): string {
+  const d = new Date(isoUtc);
+  if (Number.isNaN(d.getTime())) return currentMonth();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 // -----------------------------------------------------------------------------
 // Read
 // -----------------------------------------------------------------------------
@@ -43,8 +53,8 @@ function usageRowId(userId: string, month: string): string {
  * Returns the number of uploads made by `userId` in the current calendar month.
  * Returns 0 if no record exists yet.
  */
-export async function getMonthlyUsage(userId: string): Promise<number> {
-  const month = currentMonth();
+export async function getMonthlyUsage(userId: string, monthArg?: string): Promise<number> {
+  const month = monthArg ?? currentMonth();
   try {
     const row = await tablesDb.getRow({
       databaseId: DATABASE_ID,
@@ -71,8 +81,8 @@ export async function getMonthlyUsage(userId: string): Promise<number> {
  * Uses the server-side atomic incrementRowColumn so concurrent requests
  * cannot overwrite each other (no read-modify-write race condition).
  */
-export async function incrementUsage(userId: string): Promise<void> {
-  const month = currentMonth();
+export async function incrementUsage(userId: string, monthArg?: string): Promise<void> {
+  const month = monthArg ?? currentMonth();
   const rowId = usageRowId(userId, month);
 
   try {
@@ -123,8 +133,8 @@ export async function incrementUsage(userId: string): Promise<void> {
  * Falls back to atomic increment(value: -1) on older SDKs, and only then to a
  * read-modify-write safety path if neither atomic API is available.
  */
-export async function decrementUsage(userId: string): Promise<void> {
-  const month = currentMonth();
+export async function decrementUsage(userId: string, monthArg?: string): Promise<void> {
+  const month = monthArg ?? currentMonth();
   const rowId = usageRowId(userId, month);
 
   const tablesDbWithDecrement = tablesDb as unknown as {
@@ -266,14 +276,18 @@ export async function incrementUsageIfAllowed(
   userId: string,
   isSupporter: boolean,
   limit: number = FREE_TIER_MONTHLY_LIMIT
-): Promise<{ allowed: boolean; monthlyUsage: number }> {
+): Promise<{ allowed: boolean; monthlyUsage: number; usageMonth?: string }> {
   if (isSupporter) return { allowed: true, monthlyUsage: 0 };
 
+  // Single UTC month for this entire operation so increment / read-back / rollback
+  // stay consistent if the request crosses a month boundary.
+  const month = currentMonth();
+
   // Step 1: atomically claim a slot.
-  await incrementUsage(userId);
+  await incrementUsage(userId, month);
 
   // Step 2: read back the current count (includes our increment and any concurrent ones).
-  const newCount = await getMonthlyUsage(userId);
+  const newCount = await getMonthlyUsage(userId, month);
 
   if (newCount > limit) {
     // Step 3a: slot is above the cap — release it atomically and reject.
@@ -281,10 +295,8 @@ export async function incrementUsageIfAllowed(
     // error so the caller can surface a 500. This is preferable to silently
     // leaving the counter over-counted, which would incorrectly block future
     // uploads until the month resets.
-    const month = currentMonth();
-    const rowId = usageRowId(userId, month);
     try {
-      await decrementUsage(userId);
+      await decrementUsage(userId, month);
     } catch (rollbackErr) {
       console.error(
         `Failed to roll back over-cap quota slot for user ${userId} (month ${month}). ` +
@@ -301,7 +313,7 @@ export async function incrementUsageIfAllowed(
   }
 
   // Step 3b: slot is within the cap — permit the upload.
-  return { allowed: true, monthlyUsage: newCount };
+  return { allowed: true, monthlyUsage: newCount, usageMonth: month };
 }
 
 /**
