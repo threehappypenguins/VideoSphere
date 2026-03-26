@@ -25,6 +25,7 @@ vi.mock('node-appwrite', () => ({
         : `equal("${attr}","${value}")`,
     orderDesc: (attr: string) => `orderDesc("${attr}")`,
     limit: (n: number) => `limit(${n})`,
+    offset: (n: number) => `offset(${n})`,
   },
   TablesDB: class TablesDB {
     createRow = mockCreateRow;
@@ -45,6 +46,7 @@ import {
   listUploadJobsByUser,
   updateUploadJobStatus,
   getUploadJobsWithPlatformUploads,
+  getUploadJobsWithPlatformUploadsForDraft,
 } from '@/lib/repositories/upload-jobs';
 
 const baseJobRow = {
@@ -394,6 +396,73 @@ describe('upload-jobs repository', () => {
         .mockRejectedValueOnce(new Error('Server error'));
 
       await expect(getUploadJobsWithPlatformUploads('user-1')).rejects.toThrow('Server error');
+    });
+  });
+
+  describe('getUploadJobsWithPlatformUploadsForDraft', () => {
+    it('paginates upload_jobs and aggregates platform_uploads across pages', async () => {
+      const platformUploadRow = {
+        $id: 'pu-1',
+        uploadJobId: 'job-2',
+        platform: 'youtube',
+        status: 'completed',
+        platformVideoId: 'yt-123',
+        platformUrl: 'https://youtube.com/watch?v=yt-123',
+        document: JSON.stringify({
+          title: 'Video',
+          description: 'Desc',
+          tags: [],
+          visibility: 'public',
+        }),
+        scheduledAt: '',
+        errorMessage: '',
+        $createdAt: '2026-01-02T00:00:00.000Z',
+        $updatedAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      mockListRows
+        .mockResolvedValueOnce({
+          // upload_jobs page 1 (pageSize=2)
+          rows: [
+            { ...baseJobRow, $id: 'job-1', $createdAt: '2026-01-03T00:00:00.000Z' },
+            { ...baseJobRow, $id: 'job-2', $createdAt: '2026-01-02T00:00:00.000Z' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          // upload_jobs page 2
+          rows: [{ ...baseJobRow, $id: 'job-3', $createdAt: '2026-01-01T00:00:00.000Z' }],
+        })
+        .mockResolvedValueOnce({
+          // platform_uploads across all jobs found so far
+          rows: [platformUploadRow],
+        });
+
+      const result = await getUploadJobsWithPlatformUploadsForDraft('user-1', 'draft-1', {
+        pageSize: 2,
+      });
+
+      expect(result).toHaveLength(3);
+      expect(result.map((j) => j.id)).toEqual(['job-1', 'job-2', 'job-3']);
+
+      const job2 = result.find((j) => j.id === 'job-2');
+      expect(job2?.platformUploads).toHaveLength(1);
+      expect(job2?.platformUploads[0].platform).toBe('youtube');
+
+      expect(mockListRows).toHaveBeenCalledTimes(3);
+
+      const uploadJobsQueries1 = mockListRows.mock.calls[0][0].queries as string[];
+      expect(uploadJobsQueries1).toContain('offset(0)');
+      expect(uploadJobsQueries1).toContain('limit(2)');
+
+      const uploadJobsQueries2 = mockListRows.mock.calls[1][0].queries as string[];
+      expect(uploadJobsQueries2).toContain('offset(2)');
+      expect(uploadJobsQueries2).toContain('limit(2)');
+
+      const platformQueries = mockListRows.mock.calls[2][0].queries as string[];
+      expect(platformQueries.some((q) => q.startsWith('equal("uploadJobId"'))).toBe(true);
+      expect(platformQueries.join(' ')).toContain('job-1');
+      expect(platformQueries.join(' ')).toContain('job-2');
+      expect(platformQueries.join(' ')).toContain('job-3');
     });
   });
 });

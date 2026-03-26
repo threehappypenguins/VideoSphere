@@ -203,7 +203,13 @@ export interface Draft {
   $updatedAt: string;
 }
 
-export type UploadJobStatus = 'pending' | 'uploading' | 'distributing' | 'completed' | 'failed';
+export type UploadJobStatus =
+  | 'pending'
+  | 'uploading'
+  | 'distributing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 export interface UploadJob {
   id: string;

@@ -468,19 +468,17 @@ function DraftsTable({
           {drafts.map((draft) => (
             <tr
               key={draft.id}
-              role="button"
-              tabIndex={0}
-              className="cursor-pointer border-b border-border transition-colors hover:bg-muted/40"
-              onClick={() => onEdit(draft)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onEdit(draft);
-                }
-              }}
+              className="border-b border-border transition-colors hover:bg-muted/40"
             >
               <td className="px-3 py-3 align-top sm:px-4">
-                <span className="block max-w-full truncate text-foreground">{draft.title}</span>
+                <button
+                  type="button"
+                  onClick={() => onEdit(draft)}
+                  aria-label={`Edit draft "${draft.title}"`}
+                  className="block w-full cursor-pointer text-left"
+                >
+                  <span className="block max-w-full truncate text-foreground">{draft.title}</span>
+                </button>
               </td>
               <td className="px-3 py-3 align-top text-muted-foreground sm:px-4">
                 <span className="block truncate">{formatLastEdited(draft.$updatedAt)}</span>

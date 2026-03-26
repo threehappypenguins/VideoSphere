@@ -494,6 +494,12 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
 
   let createdVideoId: string | null = null;
   let tusUploadAccepted = false;
+  // Downstream metadata steps we must not mask failures for.
+  // These are used to decide whether a likely-network error is safe to treat as success
+  // (only when all required steps have already completed).
+  let ingestWaitDone = true;
+  let tagsDone = true;
+  let categoryDone = true;
 
   try {
     if (!input.contentLength || input.contentLength <= 0) {
@@ -615,9 +621,13 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
 
     const categoryUriRaw = vm?.categoryUri?.trim() || input.metadata.vimeoCategoryUri?.trim();
     const needsIngestWait = safeTags.length > 0 || Boolean(categoryUriRaw);
+    ingestWaitDone = !needsIngestWait;
+    tagsDone = safeTags.length === 0;
+    categoryDone = !Boolean(categoryUriRaw);
 
     if (needsIngestWait) {
       await waitUntilVimeoUploadAndTranscodeComplete(videoBasePath, input.tokens.accessToken);
+      ingestWaitDone = true;
     }
 
     if (safeTags.length > 0) {
@@ -634,6 +644,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
           tagResult.body
         );
       }
+      tagsDone = true;
     }
 
     if (categoryUriRaw) {
@@ -659,6 +670,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
           await catRes.text().catch(() => undefined)
         );
       }
+      categoryDone = true;
     }
 
     return {
@@ -667,17 +679,25 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       platformUrl: `https://vimeo.com/${videoId}`,
     };
   } catch (error) {
-    if (tusUploadAccepted && createdVideoId && isLikelyNetworkFetchError(error)) {
-      // Vimeo sometimes succeeds upload/transcode while a later metadata/status fetch fails.
-      // In that case, prefer a successful result over a false-negative failure state.
+    if (error instanceof VimeoIngestWaitFailedError) {
+      return toError('VIMEO_INGEST_WAIT_FAILED', error.message, error.statusCode, error.details);
+    }
+
+    if (
+      tusUploadAccepted &&
+      createdVideoId &&
+      isLikelyNetworkFetchError(error) &&
+      ingestWaitDone &&
+      tagsDone &&
+      categoryDone
+    ) {
+      // Vimeo can succeed the TUS upload even if a later metadata/status fetch fails transiently.
+      // Only treat that as a success if all required metadata steps already completed.
       return {
         ok: true,
         platformVideoId: createdVideoId,
         platformUrl: `https://vimeo.com/${createdVideoId}`,
       };
-    }
-    if (error instanceof VimeoIngestWaitFailedError) {
-      return toError('VIMEO_INGEST_WAIT_FAILED', error.message, error.statusCode, error.details);
     }
     return toError(
       'VIMEO_UPLOAD_ERROR',

@@ -39,7 +39,7 @@ export async function POST(
       });
     }
 
-    await updateUploadJobStatus(jobId, 'failed', 'Upload cancelled by user');
+    await updateUploadJobStatus(jobId, 'cancelled', 'Upload cancelled by user');
 
     // Presign claims a monthly upload slot for limited users. If the user
     // cancels before distribution starts, best-effort release that slot.

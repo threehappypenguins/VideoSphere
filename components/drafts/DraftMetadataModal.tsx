@@ -618,11 +618,27 @@ export function DraftMetadataModal({
       if (xhrRef.current) {
         xhrRef.current.abort();
       }
-      await fetch(`/api/uploads/${currentUploadJobId}/cancel`, { method: 'POST' });
+      const cancelRes = await fetch(`/api/uploads/${currentUploadJobId}/cancel`, {
+        method: 'POST',
+      });
+      if (!cancelRes.ok) {
+        const errBody = (await cancelRes.json().catch(() => null)) as {
+          message?: string;
+          error?: string;
+        } | null;
+        const details = errBody?.message ?? errBody?.error ?? `(${cancelRes.status})`;
+        toast.error(`Failed to cancel upload. ${details}`);
+        return;
+      }
+
       clearPendingVideoSelection();
       toast.success('Upload cancelled');
-    } catch {
-      toast.error('Failed to cancel upload');
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? `Failed to cancel upload. ${error.message}`
+          : 'Failed to cancel upload'
+      );
     } finally {
       setIsCancellingUpload(false);
     }

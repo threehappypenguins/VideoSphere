@@ -101,19 +101,42 @@ export async function getUploadJobById(id: string): Promise<UploadJob | null> {
  */
 export async function listUploadJobsByUser(
   userId: string,
-  status?: UploadJobStatus
+  status?: UploadJobStatus,
+  options?: { pageSize?: number }
 ): Promise<UploadJob[]> {
-  const queries = [Query.equal('userId', userId), Query.orderDesc('$createdAt')];
-  if (status != null) {
-    queries.push(Query.equal('status', status));
+  const pageSize = options?.pageSize ?? 100;
+  let offset = 0;
+  const jobs: UploadJob[] = [];
+
+  while (true) {
+    const queries = [
+      Query.equal('userId', userId),
+      Query.orderDesc('$createdAt'),
+      Query.limit(pageSize),
+      Query.offset(offset),
+    ];
+    if (status != null) {
+      queries.push(Query.equal('status', status));
+    }
+
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_JOBS_COLLECTION_ID,
+      queries,
+      total: false,
+    });
+
+    const pageJobs = (rows ?? []).map((r) =>
+      rowToUploadJob(r as unknown as Record<string, unknown>)
+    );
+    jobs.push(...pageJobs);
+
+    if (pageJobs.length < pageSize) break;
+    if (pageJobs.length === 0) break;
+    offset += pageSize;
   }
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: UPLOAD_JOBS_COLLECTION_ID,
-    queries,
-    total: false,
-  });
-  return (rows ?? []).map((r) => rowToUploadJob(r as unknown as Record<string, unknown>));
+
+  return jobs;
 }
 
 const UPLOAD_JOB_STATUSES_FOR_DISTRIBUTE: readonly UploadJobStatus[] = [
@@ -171,21 +194,36 @@ async function getUploadJobsWithPlatformUploadsFromJobs(
   let uploadsByJobId = new Map<string, PlatformUpload[]>();
 
   try {
-    const { rows } = await tablesDb.listRows({
-      databaseId: DATABASE_ID,
-      tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-      queries: [Query.equal('uploadJobId', jobIds), Query.orderDesc('$createdAt')],
-      total: false,
-    });
-    const all = (rows ?? []).map((r) =>
-      rowToPlatformUpload(r as unknown as Record<string, unknown>)
-    );
-    for (const pu of all) {
-      const list = uploadsByJobId.get(pu.uploadJobId) ?? [];
-      list.push(pu);
-      uploadsByJobId.set(pu.uploadJobId, list);
+    const pageSize = 100;
+    let offset = 0;
+
+    // Fetch all platform uploads in explicit pages so Appwrite's default paging
+    // can't silently truncate platform status history for drafts with many jobs.
+    while (true) {
+      const { rows } = await tablesDb.listRows({
+        databaseId: DATABASE_ID,
+        tableId: PLATFORM_UPLOADS_COLLECTION_ID,
+        queries: [
+          Query.equal('uploadJobId', jobIds),
+          Query.orderDesc('$createdAt'),
+          Query.limit(pageSize),
+          Query.offset(offset),
+        ],
+        total: false,
+      });
+
+      const pageRows = (rows ?? []) as Array<Record<string, unknown>>;
+      for (const r of pageRows) {
+        const pu = rowToPlatformUpload(r as Record<string, unknown>);
+        const list = uploadsByJobId.get(pu.uploadJobId) ?? [];
+        list.push(pu);
+        uploadsByJobId.set(pu.uploadJobId, list);
+      }
+
+      if (pageRows.length < pageSize) break;
+      offset += pageSize;
+      if (pageRows.length === 0) break;
     }
-    // Per-job list already in $createdAt desc from query; preserve order
   } catch (err: unknown) {
     const e = err as { code?: number };
     if (e.code === 404) {
@@ -209,19 +247,44 @@ async function getUploadJobsWithPlatformUploadsFromJobs(
  */
 export async function getUploadJobsWithPlatformUploadsForDraft(
   userId: string,
-  draftId: string
+  draftId: string,
+  options?: { limit?: number; pageSize?: number }
 ): Promise<UploadJobWithPlatformUploads[]> {
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: UPLOAD_JOBS_COLLECTION_ID,
-    queries: [
-      Query.equal('userId', userId),
-      Query.equal('draftId', draftId),
-      Query.orderDesc('$createdAt'),
-    ],
-    total: false,
-  });
-  const jobs = (rows ?? []).map((r) => rowToUploadJob(r as unknown as Record<string, unknown>));
+  const pageSize = options?.pageSize ?? 100;
+  const jobs: UploadJob[] = [];
+  let offset = 0;
+
+  while (true) {
+    const remaining = options?.limit != null ? options.limit - jobs.length : Infinity;
+    const thisPageLimit = Math.min(pageSize, remaining);
+
+    if (!Number.isFinite(thisPageLimit) || thisPageLimit <= 0) break;
+
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_JOBS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        Query.equal('draftId', draftId),
+        Query.orderDesc('$createdAt'),
+        Query.limit(thisPageLimit),
+        Query.offset(offset),
+      ],
+      total: false,
+    });
+
+    const pageJobs = (rows ?? []).map((r) =>
+      rowToUploadJob(r as unknown as Record<string, unknown>)
+    );
+    jobs.push(...pageJobs);
+
+    if (pageJobs.length < thisPageLimit) break;
+    offset += thisPageLimit;
+
+    if (pageJobs.length === 0) break;
+    if (options?.limit != null && jobs.length >= options.limit) break;
+  }
+
   return getUploadJobsWithPlatformUploadsFromJobs(jobs);
 }
 

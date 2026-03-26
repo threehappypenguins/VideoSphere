@@ -8,6 +8,7 @@ import type {
   ConnectedAccountPlatform,
   PlatformUploadStatus,
 } from '@/types';
+import { latestPlatformStatuses } from '@/lib/uploads/status';
 
 interface DraftUploadHistoryItem {
   uploadJobId: string;
@@ -19,34 +20,6 @@ interface DraftUploadHistoryItem {
     status: PlatformUploadStatus;
     updatedAt: string;
   }>;
-}
-
-function latestPlatformStatuses(
-  platforms: Array<{
-    platform: ConnectedAccountPlatform;
-    status: PlatformUploadStatus;
-    updatedAt: string;
-  }>
-) {
-  const byPlatform = new Map<
-    ConnectedAccountPlatform,
-    { platform: ConnectedAccountPlatform; status: PlatformUploadStatus; updatedAt: string }
-  >();
-
-  for (const item of platforms) {
-    const current = byPlatform.get(item.platform);
-    if (!current) {
-      byPlatform.set(item.platform, item);
-      continue;
-    }
-    const currentTs = Date.parse(current.updatedAt);
-    const nextTs = Date.parse(item.updatedAt);
-    if (Number.isNaN(currentTs) || (!Number.isNaN(nextTs) && nextTs >= currentTs)) {
-      byPlatform.set(item.platform, item);
-    }
-  }
-
-  return Array.from(byPlatform.values());
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
