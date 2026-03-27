@@ -42,9 +42,107 @@ function rowToDraft(row: Record<string, unknown>): Draft {
     tags: doc.tags,
     visibility: doc.visibility,
     platforms: doc.platforms,
+    ...(doc.usedInUploadAt ? { usedInUploadAt: doc.usedInUploadAt } : {}),
     $createdAt,
     $updatedAt,
   };
+}
+
+/**
+ * Mark a draft as having been used in an upload job.
+ * Stored inside the draft `document` JSON (denormalized) to keep Drafts page fast.
+ *
+ * Returns the updated draft, or null if not found.
+ */
+export async function markDraftUsedInUpload(
+  id: string,
+  usedAtIso: string = new Date().toISOString()
+): Promise<Draft | null> {
+  const isNotFoundError = (err: unknown): boolean => {
+    const e = err as { code?: number };
+    return e?.code === 404;
+  };
+
+  const buildDocumentJson = (draft: Draft, normalizedUsedAtIso: string) =>
+    stringifyDraftDocumentForStorage({
+      targets: draft.targets,
+      title: draft.title,
+      description: draft.description,
+      visibility: draft.visibility,
+      tags: draft.tags,
+      platforms: draft.platforms,
+      usedInUploadAt: normalizedUsedAtIso,
+    });
+
+  const current = await getDraftById(id);
+  if (!current) return null;
+
+  const normalizeIso = (value: string | undefined): string | null => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const t = Date.parse(trimmed);
+    if (Number.isNaN(t)) return null;
+    return new Date(t).toISOString();
+  };
+
+  // Keep the earliest valid timestamp so "first used" remains stable even if
+  // calls arrive out of order or prior data was set to a later value.
+  const existingIso = normalizeIso(current.usedInUploadAt);
+  const incomingIso = normalizeIso(usedAtIso) ?? new Date().toISOString();
+  const usedInUploadAt =
+    existingIso === null
+      ? incomingIso
+      : Date.parse(existingIso) <= Date.parse(incomingIso)
+        ? existingIso
+        : incomingIso;
+
+  const documentJson = buildDocumentJson(current, usedInUploadAt);
+  assertDraftDocumentJsonWithinLimit(documentJson);
+
+  let row: unknown;
+  try {
+    row = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      rowId: id,
+      data: { document: documentJson },
+    });
+  } catch (err: unknown) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
+  const updated = rowToDraft(row as unknown as Record<string, unknown>);
+
+  // Best-effort race reconciliation: if a concurrent write stored a later value,
+  // try once more using fresh state so "first used" converges back to earliest.
+  const persistedIso = normalizeIso(updated.usedInUploadAt);
+  if (persistedIso !== null && Date.parse(persistedIso) <= Date.parse(usedInUploadAt)) {
+    return updated;
+  }
+
+  const latest = await getDraftById(id);
+  if (!latest) return updated;
+  const latestIso = normalizeIso(latest.usedInUploadAt);
+  if (latestIso !== null && Date.parse(latestIso) <= Date.parse(usedInUploadAt)) {
+    return latest;
+  }
+
+  const reconcileDocumentJson = buildDocumentJson(latest, usedInUploadAt);
+  assertDraftDocumentJsonWithinLimit(reconcileDocumentJson);
+  let reconciledRow: unknown;
+  try {
+    reconciledRow = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      rowId: id,
+      data: { document: reconcileDocumentJson },
+    });
+  } catch (err: unknown) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
+  return rowToDraft(reconciledRow as unknown as Record<string, unknown>);
 }
 
 // -----------------------------------------------------------------------------
@@ -182,6 +280,8 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
       tags: input.tags ?? current.tags,
       visibility: input.visibility ?? current.visibility,
       platforms: mergedPlatforms,
+      // Denormalized in document JSON; stringify omits empty/whitespace (see markDraftUsedInUpload).
+      usedInUploadAt: current.usedInUploadAt,
     });
     assertDraftDocumentJsonWithinLimit(documentJson);
     data.document = documentJson;

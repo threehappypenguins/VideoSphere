@@ -59,7 +59,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
-import { getDraftById } from '@/lib/repositories/drafts';
+import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
 const FREE_TIER_LIMIT = 10;
@@ -219,7 +219,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // URL expiry naturally bounds how long a slot can be "in flight" without use.
     const user = await getUserById(userId);
     const isSupporter = user?.isSupporter ?? false;
-    const { allowed, monthlyUsage } = await incrementUsageIfAllowed(userId, isSupporter);
+    const isAdmin = user?.role === 'admin';
+    const hasUnlimitedUploads = isSupporter || isAdmin;
+    const { allowed, monthlyUsage, usageMonth } = await incrementUsageIfAllowed(
+      userId,
+      hasUnlimitedUploads
+    );
 
     if (!allowed) {
       return NextResponse.json(
@@ -242,13 +247,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let uploadUrl: string;
     let uploadJob: Awaited<ReturnType<typeof createUploadJob>>;
     try {
+      const quotaClaimMonth = hasUnlimitedUploads ? '' : (usageMonth ?? '');
       uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
-      uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
+      uploadJob = await createUploadJob({ userId, draftId, r2Key: key, quotaClaimMonth });
+      await markDraftUsedInUpload(draftId, uploadJob.$createdAt).catch((err) => {
+        console.error(
+          `[POST /api/uploads/presign] Failed to mark draft ${draftId} usedInUploadAt:`,
+          err
+        );
+      });
     } catch (err) {
       // Roll back the quota slot so the user isn't charged for a failed presign.
       // Best-effort: log but don't let a rollback failure shadow the original error.
-      if (!isSupporter) {
-        await decrementUsage(userId).catch((rollbackErr) => {
+      if (!hasUnlimitedUploads && usageMonth) {
+        await decrementUsage(userId, usageMonth).catch((rollbackErr) => {
           console.error(
             `Failed to roll back quota slot for user ${userId} after presign error:`,
             rollbackErr
