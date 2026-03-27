@@ -19,12 +19,13 @@ export default function ContactPage() {
 
   const validate = () => {
     const newErrors: typeof errors = {};
+    const normalizedEmail = formData.email.trim().toLowerCase();
 
     if (!formData.name.trim()) {
       newErrors.name = 'Name is required';
     }
 
-    if (!formData.email.includes('@') || !formData.email.includes('.')) {
+    if (!normalizedEmail.includes('@') || !normalizedEmail.includes('.')) {
       newErrors.email = 'Enter a valid email address';
     }
 
@@ -63,8 +64,8 @@ export default function ContactPage() {
             Get in Touch
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            Have a question or want to learn more? Fill out the form below and we’ll get back to you
-            as soon as possible.
+            Have a question or want to learn more? Fill out the form below and we&apos;ll get back
+            to you as soon as possible.
           </p>
         </div>
 
@@ -72,7 +73,7 @@ export default function ContactPage() {
         {submitted ? (
           <div className="mt-12 text-center space-y-6">
             <p className="text-lg text-foreground">
-              Thanks for reaching out! We’ll get back to you soon.
+              Thanks for reaching out! We&apos;ll get back to you soon.
             </p>
             <button
               onClick={resetForm}
@@ -83,21 +84,43 @@ export default function ContactPage() {
           </div>
         ) : (
           /* --- Contact Form --- */
-          <form onSubmit={handleSubmit} className="mt-12 space-y-6">
+          <form onSubmit={handleSubmit} noValidate className="mt-12 space-y-6">
             {/* Name Field */}
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-foreground">
                 Name
               </label>
-              <input
-                id="name"
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder="Your name"
-              />
-              {errors.name && <p className="mt-2 text-sm text-red-500">{errors.name}</p>}
+              {errors.name ? (
+                <input
+                  id="name"
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  aria-invalid="true"
+                  aria-describedby="name-error"
+                  className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Your name"
+                />
+              ) : (
+                <input
+                  id="name"
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Your name"
+                />
+              )}
+              {errors.name && (
+                <p
+                  id="name-error"
+                  className="mt-2 text-sm text-red-500"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  {errors.name}
+                </p>
+              )}
             </div>
 
             {/* Email Field */}
@@ -105,15 +128,37 @@ export default function ContactPage() {
               <label htmlFor="email" className="block text-sm font-medium text-foreground">
                 Email
               </label>
-              <input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder="you@example.com"
-              />
-              {errors.email && <p className="mt-2 text-sm text-red-500">{errors.email}</p>}
+              {errors.email ? (
+                <input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  aria-invalid="true"
+                  aria-describedby="email-error"
+                  className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="you@example.com"
+                />
+              ) : (
+                <input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="you@example.com"
+                />
+              )}
+              {errors.email && (
+                <p
+                  id="email-error"
+                  className="mt-2 text-sm text-red-500"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  {errors.email}
+                </p>
+              )}
             </div>
 
             {/* Message Field */}
@@ -121,15 +166,37 @@ export default function ContactPage() {
               <label htmlFor="message" className="block text-sm font-medium text-foreground">
                 Message
               </label>
-              <textarea
-                id="message"
-                rows={5}
-                value={formData.message}
-                onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                placeholder="How can we help you?"
-              />
-              {errors.message && <p className="mt-2 text-sm text-red-500">{errors.message}</p>}
+              {errors.message ? (
+                <textarea
+                  id="message"
+                  rows={5}
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  aria-invalid="true"
+                  aria-describedby="message-error"
+                  className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="How can we help you?"
+                />
+              ) : (
+                <textarea
+                  id="message"
+                  rows={5}
+                  value={formData.message}
+                  onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                  className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="How can we help you?"
+                />
+              )}
+              {errors.message && (
+                <p
+                  id="message-error"
+                  className="mt-2 text-sm text-red-500"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  {errors.message}
+                </p>
+              )}
             </div>
 
             {/* Submit Button */}
