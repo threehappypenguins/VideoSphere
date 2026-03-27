@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
+import { createDraft, listDraftsByUser, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 import { listUploadJobsByUserForDraftIds } from '@/lib/repositories/upload-jobs';
 import {
   DraftDocumentTooLargeError,
@@ -180,8 +180,8 @@ export async function GET(req: NextRequest) {
     const drafts = await listDraftsByUser(userId);
 
     // Compute usedInUploadAt for older drafts that predate the denormalized field.
-    // Read-only: we scan upload_jobs once per list and merge into the response.
-    // Persistence is handled on upload (POST /api/uploads/presign) via markDraftUsedInUpload.
+    // We also best-effort persist the computed earliest value so this scan behaves
+    // like a one-time migration for each draft.
     const missingUsed = drafts
       .filter((d) => typeof d.usedInUploadAt !== 'string' || d.usedInUploadAt.trim() === '')
       .map((d) => d.id);
@@ -210,6 +210,23 @@ export async function GET(req: NextRequest) {
             const usedAt = earliestUsedByDraftId.get(d.id);
             return usedAt ? { ...d, usedInUploadAt: usedAt } : d;
           });
+
+    if (earliestUsedByDraftId.size > 0) {
+      await Promise.allSettled(
+        [...earliestUsedByDraftId.entries()].map(async ([draftId, earliestUsedAt]) => {
+          try {
+            await markDraftUsedInUpload(draftId, earliestUsedAt);
+          } catch (err) {
+            // Best-effort persistence only: listing should still succeed even if
+            // this denormalized backfill write fails for some drafts.
+            console.error(
+              `[GET /api/drafts] Failed to persist usedInUploadAt backfill for draft ${draftId}`,
+              err
+            );
+          }
+        })
+      );
+    }
 
     const response: ApiResponse<Draft[]> = { data: mergedDrafts };
     return NextResponse.json(response);

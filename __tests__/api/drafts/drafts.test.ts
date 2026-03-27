@@ -23,6 +23,7 @@ vi.mock('@/lib/api/auth', () => ({
 vi.mock('@/lib/repositories/drafts', () => ({
   createDraft: vi.fn(),
   listDraftsByUser: vi.fn(),
+  markDraftUsedInUpload: vi.fn(async () => null),
 }));
 
 // ---------------------------------------------------------------------------
@@ -35,7 +36,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
 
 import { POST, GET } from '@/app/api/drafts/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
+import { createDraft, listDraftsByUser, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 import { listUploadJobsByUserForDraftIds } from '@/lib/repositories/upload-jobs';
 import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
@@ -520,6 +521,86 @@ describe('GET /api/drafts', () => {
 
       expect(preserved?.usedInUploadAt).toBe('2025-01-01T00:00:00.000Z');
       expect(backfilled?.usedInUploadAt).toBe('2026-01-05T00:00:00.000Z');
+    });
+
+    it('best-effort persists backfilled usedInUploadAt for missing drafts', async () => {
+      vi.mocked(listDraftsByUser).mockResolvedValueOnce([
+        { ...baseDraft, id: 'draft-missing-a' },
+        { ...baseDraft, id: 'draft-missing-b', usedInUploadAt: '   ' },
+        { ...baseDraft, id: 'draft-kept', usedInUploadAt: '2025-01-01T00:00:00.000Z' },
+      ]);
+      vi.mocked(listUploadJobsByUserForDraftIds).mockResolvedValueOnce([
+        {
+          id: 'job-a',
+          userId: 'user-123',
+          draftId: 'draft-missing-a',
+          r2Key: 'k',
+          status: 'completed' as const,
+          errorMessage: null,
+          quotaClaimMonth: null,
+          $createdAt: '2026-01-05T00:00:00.000Z',
+          $updatedAt: '2026-01-05T00:00:00.000Z',
+        },
+        {
+          id: 'job-b',
+          userId: 'user-123',
+          draftId: 'draft-missing-b',
+          r2Key: 'k',
+          status: 'completed' as const,
+          errorMessage: null,
+          quotaClaimMonth: null,
+          $createdAt: '2026-01-07T00:00:00.000Z',
+          $updatedAt: '2026-01-07T00:00:00.000Z',
+        },
+      ]);
+
+      const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'tok' });
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      expect(markDraftUsedInUpload).toHaveBeenCalledTimes(2);
+      expect(markDraftUsedInUpload).toHaveBeenCalledWith(
+        'draft-missing-a',
+        '2026-01-05T00:00:00.000Z'
+      );
+      expect(markDraftUsedInUpload).toHaveBeenCalledWith(
+        'draft-missing-b',
+        '2026-01-07T00:00:00.000Z'
+      );
+      expect(markDraftUsedInUpload).not.toHaveBeenCalledWith('draft-kept', expect.any(String));
+    });
+
+    it('still returns 200 when persisting backfilled usedInUploadAt fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      vi.mocked(listDraftsByUser).mockResolvedValueOnce([{ ...baseDraft, id: 'draft-missing-a' }]);
+      vi.mocked(listUploadJobsByUserForDraftIds).mockResolvedValueOnce([
+        {
+          id: 'job-a',
+          userId: 'user-123',
+          draftId: 'draft-missing-a',
+          r2Key: 'k',
+          status: 'completed' as const,
+          errorMessage: null,
+          quotaClaimMonth: null,
+          $createdAt: '2026-01-05T00:00:00.000Z',
+          $updatedAt: '2026-01-05T00:00:00.000Z',
+        },
+      ]);
+      vi.mocked(markDraftUsedInUpload).mockRejectedValueOnce(new Error('write failed'));
+
+      const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'tok' });
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      expect(markDraftUsedInUpload).toHaveBeenCalledWith(
+        'draft-missing-a',
+        '2026-01-05T00:00:00.000Z'
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to persist usedInUploadAt backfill'),
+        expect.any(Error)
+      );
+      consoleSpy.mockRestore();
     });
   });
 

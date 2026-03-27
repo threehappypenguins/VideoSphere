@@ -282,7 +282,12 @@ describe('decrementUsage', () => {
     await expect(decrementUsage('user-1')).rejects.toThrow(
       /Upload usage decrement failed: atomic decrement/
     );
-    mockIncrementRowColumn.mockImplementation(originalIncrement ?? null);
+    if (originalIncrement) {
+      mockIncrementRowColumn.mockImplementation(originalIncrement);
+    } else {
+      // Bare vi.fn() often has no base implementation; reset safely instead of passing null.
+      mockIncrementRowColumn.mockReset();
+    }
   });
 
   it('targets the row for an explicit month when provided', async () => {
