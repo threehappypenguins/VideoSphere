@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import Link from 'next/link';
