@@ -93,7 +93,7 @@ describe('ProfileContent', () => {
 
   it('shows loading spinner initially', () => {
     // Never resolve fetch
-    global.fetch = vi.fn(() => new Promise(() => {}));
+    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
 
     render(<ProfileContent />);
 
