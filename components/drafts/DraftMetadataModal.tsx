@@ -238,8 +238,14 @@ export function DraftMetadataModal({
         .map((item) => item.uploadJobId),
     [uploadHistory]
   );
+  const activeUploadJobSetKey = useMemo(
+    () => [...activeUploadJobIds].sort().join('|'),
+    [activeUploadJobIds]
+  );
+  const latestActiveUploadJobIdsRef = useRef<string[]>([]);
+  latestActiveUploadJobIdsRef.current = activeUploadJobIds;
   const latestActiveJobSetKeyRef = useRef('');
-  latestActiveJobSetKeyRef.current = [...activeUploadJobIds].sort().join('|');
+  latestActiveJobSetKeyRef.current = activeUploadJobSetKey;
 
   useEffect(() => {
     if (!draftId) {
@@ -319,7 +325,7 @@ export function DraftMetadataModal({
   }, [draftId]);
 
   useEffect(() => {
-    if (activeUploadJobIds.length === 0) {
+    if (!activeUploadJobSetKey) {
       // If we just transitioned from active -> idle, do one final full refresh
       // to avoid stale "uploading" states from the last targeted poll tick.
       if (hadActiveJobsRef.current && draftId) {
@@ -330,14 +336,16 @@ export function DraftMetadataModal({
     }
     hadActiveJobsRef.current = true;
     const pollDraftId = draftId;
-    const pollJobSetKey = [...activeUploadJobIds].sort().join('|');
+    const pollJobSetKey = activeUploadJobSetKey;
     const controller = new AbortController();
     let disposed = false;
 
     const pollActiveJobs = async () => {
       if (disposed) return;
+      const idsToPoll = latestActiveUploadJobIdsRef.current;
+      if (idsToPoll.length === 0) return;
       const responses = await Promise.all(
-        activeUploadJobIds.map(async (uploadJobId) => {
+        idsToPoll.map(async (uploadJobId) => {
           try {
             const response = await fetch(`/api/uploads/jobs/${uploadJobId}`, {
               cache: 'no-store',
@@ -378,7 +386,7 @@ export function DraftMetadataModal({
       controller.abort();
       window.clearInterval(intervalId);
     };
-  }, [activeUploadJobIds, draftId]);
+  }, [activeUploadJobSetKey, draftId]);
 
   useEffect(() => {
     if (!draftId) return;

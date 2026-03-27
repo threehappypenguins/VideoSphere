@@ -11,21 +11,11 @@ import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vites
 const FIXED_DATE = new Date('2026-03-11T12:00:00.000Z');
 const FIXED_MONTH = '2026-03';
 
-const {
-  mockCreateRow,
-  mockGetRow,
-  mockIncrementRowColumn,
-  mockListRows,
-  mockUpdateRow,
-  sdkUpdateRowSupported,
-} = vi.hoisted(() => ({
+const { mockCreateRow, mockGetRow, mockIncrementRowColumn, mockListRows } = vi.hoisted(() => ({
   mockCreateRow: vi.fn(),
   mockGetRow: vi.fn(),
   mockIncrementRowColumn: vi.fn(),
   mockListRows: vi.fn(),
-  mockUpdateRow: vi.fn(),
-  /** Toggle so we can assert the error path when the SDK has no updateRow. */
-  sdkUpdateRowSupported: { value: true },
 }));
 
 vi.mock('node-appwrite', async (importOriginal) => {
@@ -37,9 +27,6 @@ vi.mock('node-appwrite', async (importOriginal) => {
       getRow = mockGetRow;
       incrementRowColumn = mockIncrementRowColumn;
       listRows = mockListRows;
-      get updateRow() {
-        return sdkUpdateRowSupported.value ? mockUpdateRow : undefined;
-      }
     },
   };
 });
@@ -69,7 +56,6 @@ afterAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sdkUpdateRowSupported.value = true;
 });
 
 describe('usageMonthFromUtcIso', () => {
@@ -276,56 +262,27 @@ describe('decrementUsage', () => {
     });
   });
 
-  it('falls back to getRow + updateRow when atomic decrement paths fail (non-404)', async () => {
+  it('throws when atomic decrement paths fail with non-404 error', async () => {
     mockIncrementRowColumn.mockRejectedValue({
       code: 500,
       message: 'negative increment not supported',
     });
-    mockGetRow.mockResolvedValue({
-      $id: `user-1_${FIXED_MONTH}`,
-      uploadCount: 7,
-    });
-    mockUpdateRow.mockResolvedValue({});
 
-    await decrementUsage('user-1');
-
-    expect(mockGetRow).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'upload_usage',
-      rowId: `user-1_${FIXED_MONTH}`,
-    });
-    expect(mockUpdateRow).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'upload_usage',
-      rowId: `user-1_${FIXED_MONTH}`,
-      data: { uploadCount: 6 },
-    });
-  });
-
-  it('clamps uploadCount at 0 in the updateRow fallback', async () => {
-    mockIncrementRowColumn.mockRejectedValue({
-      code: 500,
-      message: 'negative increment not supported',
-    });
-    mockGetRow.mockResolvedValue({ uploadCount: 0 });
-    mockUpdateRow.mockResolvedValue({});
-
-    await decrementUsage('user-1');
-
-    expect(mockUpdateRow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: { uploadCount: 0 },
-      })
+    await expect(decrementUsage('user-1')).rejects.toThrow(
+      /Upload usage decrement failed: atomic decrement unavailable or rejected by runtime/
     );
   });
 
-  it('throws when updateRow is not supported by the SDK after atomic paths fail', async () => {
-    sdkUpdateRowSupported.value = false;
-    mockIncrementRowColumn.mockRejectedValue({ code: 500, message: 'DB error' });
-    mockGetRow.mockResolvedValue({ uploadCount: 3 });
+  it('throws when no atomic decrement API is available in the runtime', async () => {
+    const originalIncrement = mockIncrementRowColumn.getMockImplementation();
+    mockIncrementRowColumn.mockImplementationOnce(() => {
+      throw new TypeError('incrementRowColumn is not a function');
+    });
 
-    await expect(decrementUsage('user-1')).rejects.toThrow(/Upload usage decrement is unavailable/);
-    expect(mockUpdateRow).not.toHaveBeenCalled();
+    await expect(decrementUsage('user-1')).rejects.toThrow(
+      /Upload usage decrement failed: atomic decrement/
+    );
+    mockIncrementRowColumn.mockImplementation(originalIncrement ?? null);
   });
 
   it('targets the row for an explicit month when provided', async () => {
@@ -449,12 +406,8 @@ describe('incrementUsageIfAllowed', () => {
     mockIncrementRowColumn
       .mockResolvedValueOnce({}) // +1 claim
       .mockRejectedValueOnce({ code: 503, message: 'Service unavailable' }); // -1 rollback fails
-    // getMonthlyUsage read-back: over limit; then decrementUsage fallback reads the row again
-    mockGetRow
-      .mockResolvedValueOnce({ uploadCount: 11 })
-      .mockResolvedValueOnce({ uploadCount: 11 });
-    // Atomic paths failed; updateRow fallback must also fail for decrementUsage to throw
-    mockUpdateRow.mockRejectedValueOnce(new Error('DB unavailable'));
+    // getMonthlyUsage read-back: over limit
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
 
     await expect(incrementUsageIfAllowed('user-1', false)).rejects.toThrow(
       /Quota slot rollback failed/
@@ -466,10 +419,7 @@ describe('incrementUsageIfAllowed', () => {
     mockIncrementRowColumn
       .mockResolvedValueOnce({})
       .mockRejectedValueOnce(new Error('DB unavailable'));
-    mockGetRow
-      .mockResolvedValueOnce({ uploadCount: 11 })
-      .mockResolvedValueOnce({ uploadCount: 11 });
-    mockUpdateRow.mockRejectedValueOnce(new Error('DB unavailable'));
+    mockGetRow.mockResolvedValueOnce({ uploadCount: 11 });
 
     await expect(incrementUsageIfAllowed('user-1', false)).rejects.toThrow();
     expect(consoleSpy).toHaveBeenCalledWith(

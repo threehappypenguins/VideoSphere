@@ -130,8 +130,11 @@ export async function incrementUsage(userId: string, monthArg?: string): Promise
  * successfully claimed via `incrementUsage` / `incrementUsageIfAllowed`.
  *
  * Prefers server-side atomic decrement when supported by the runtime SDK.
- * Falls back to atomic increment(value: -1) on older SDKs, and only then to a
- * read-modify-write safety path if neither atomic API is available.
+ * Falls back to atomic increment(value: -1) on older SDKs.
+ *
+ * If both atomic paths are unavailable/failing, this function fails closed
+ * instead of attempting a non-atomic read-modify-write that can lose
+ * concurrent updates and drift quota enforcement.
  */
 export async function decrementUsage(userId: string, monthArg?: string): Promise<void> {
   const month = monthArg ?? currentMonth();
@@ -171,7 +174,7 @@ export async function decrementUsage(userId: string, monthArg?: string): Promise
     } catch (err: unknown) {
       const e = err as { code?: number };
       if (e.code === 404) return;
-      // Fall through to conservative fallback for SDK/server variants
+      // Fall through to increment(value: -1) for SDK/server variants
       // that expose decrementRowColumn but reject it at runtime.
     }
   }
@@ -190,49 +193,23 @@ export async function decrementUsage(userId: string, monthArg?: string): Promise
     } catch (err: unknown) {
       const e = err as { code?: number };
       if (e.code === 404) return;
-      // Fall through to the non-atomic fallback for server variants
-      // that reject negative increments.
+      // Both atomic paths failed. Fail closed rather than using
+      // non-atomic read-modify-write, which can lose concurrent updates.
+      console.error(
+        `Failed to decrement upload usage atomically for user ${userId} (month ${month}).`,
+        err
+      );
+      throw new Error(
+        'Upload usage decrement failed: atomic decrement unavailable or rejected by runtime'
+      );
     }
   }
-
-  // Fallback path for environments without native decrement support.
-  // This is less concurrency-safe than server-side atomic decrement, but keeps
-  // behavior correct on older SDK/runtime combinations.
-  let currentCount = 0;
-  try {
-    const row = await tablesDb.getRow({
-      databaseId: DATABASE_ID,
-      tableId: UPLOAD_USAGE_COLLECTION_ID,
-      rowId,
-    });
-    const record = row as unknown as Record<string, unknown>;
-    currentCount = typeof record.uploadCount === 'number' ? record.uploadCount : 0;
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code === 404) return;
-    throw err;
-  }
-
-  const nextCount = Math.max(0, currentCount - 1);
-  const tablesDbWithUpdate = tablesDb as unknown as {
-    updateRow?: (input: {
-      databaseId: string;
-      tableId: string;
-      rowId: string;
-      data: { uploadCount: number };
-    }) => Promise<unknown>;
-  };
-  if (typeof tablesDbWithUpdate.updateRow !== 'function') {
-    throw new Error(
-      'Upload usage decrement is unavailable: updateRow is not supported by this SDK'
-    );
-  }
-  await tablesDbWithUpdate.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: UPLOAD_USAGE_COLLECTION_ID,
-    rowId,
-    data: { uploadCount: nextCount },
-  });
+  console.error(
+    `Failed to decrement upload usage atomically for user ${userId} (month ${month}): no atomic API available.`
+  );
+  throw new Error(
+    'Upload usage decrement failed: atomic decrement APIs are unavailable in this runtime'
+  );
 }
 
 // -----------------------------------------------------------------------------
