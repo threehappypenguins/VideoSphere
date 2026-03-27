@@ -89,6 +89,34 @@ interface DraftUploadHistoryItem {
   }>;
 }
 
+/** Bound in-memory cache for instant history when switching drafts; evicts oldest (LRU). */
+const UPLOAD_HISTORY_CACHE_MAX = 8;
+
+function getCachedUploadHistory(
+  map: Map<string, DraftUploadHistoryItem[]>,
+  id: string
+): DraftUploadHistoryItem[] | undefined {
+  const v = map.get(id);
+  if (v === undefined) return undefined;
+  map.delete(id);
+  map.set(id, v);
+  return v;
+}
+
+function setCachedUploadHistory(
+  map: Map<string, DraftUploadHistoryItem[]>,
+  id: string,
+  items: DraftUploadHistoryItem[]
+) {
+  if (map.has(id)) map.delete(id);
+  map.set(id, items);
+  while (map.size > UPLOAD_HISTORY_CACHE_MAX) {
+    const k = map.keys().next().value as string | undefined;
+    if (k === undefined) break;
+    map.delete(k);
+  }
+}
+
 export function DraftMetadataModal({
   mode,
   value,
@@ -137,7 +165,7 @@ export function DraftMetadataModal({
   }>({ reached: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
-  const uploadHistoryCacheRef = useRef<Record<string, DraftUploadHistoryItem[]>>({});
+  const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
   const aiMetadataAbortRef = useRef<AbortController | null>(null);
   /** Tracks the open modal’s draft id so we can ignore stale AI responses after close or draft switch. */
@@ -164,14 +192,14 @@ export function DraftMetadataModal({
       if (!response.ok) {
         if (skipIfAborted()) return;
         setUploadHistory([]);
-        uploadHistoryCacheRef.current[id] = [];
+        setCachedUploadHistory(uploadHistoryCacheRef.current, id, []);
         return;
       }
       const payload = (await response.json()) as ApiResponse<DraftUploadHistoryItem[]>;
       if (skipIfAborted()) return;
       const history = Array.isArray(payload.data) ? payload.data : [];
       setUploadHistory(history);
-      uploadHistoryCacheRef.current[id] = history;
+      setCachedUploadHistory(uploadHistoryCacheRef.current, id, history);
     } catch (error) {
       if (skipIfAborted()) return;
       const isAbortError =
@@ -179,7 +207,7 @@ export function DraftMetadataModal({
       if (isAbortError) return;
       if (skipIfAborted()) return;
       setUploadHistory([]);
-      uploadHistoryCacheRef.current[id] = [];
+      setCachedUploadHistory(uploadHistoryCacheRef.current, id, []);
     } finally {
       if (!signal?.aborted) {
         setIsLoadingUploadHistory(false);
@@ -205,6 +233,7 @@ export function DraftMetadataModal({
 
   useEffect(() => {
     if (!draftId) {
+      uploadHistoryCacheRef.current.clear();
       setUsedPlatforms([]);
       setUploadHistory([]);
       setShowUploadHistory(false);
@@ -213,7 +242,7 @@ export function DraftMetadataModal({
     }
     // Prevent stale history from the previously opened draft from flashing
     // while the current draft's history request is in flight.
-    const cached = uploadHistoryCacheRef.current[draftId];
+    const cached = getCachedUploadHistory(uploadHistoryCacheRef.current, draftId);
     setUploadHistory(cached ?? []);
     setIsLoadingUploadHistory(cached === undefined);
   }, [draftId]);

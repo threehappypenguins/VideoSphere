@@ -171,6 +171,21 @@ describe('GET /api/drafts/[id]/upload-history', () => {
     });
   });
 
+  it('clamps limit 0 to minimum 1 (does not fall back to default 20)', async () => {
+    await GET(
+      createRequest(DRAFT_ID, {
+        cookies: { [SESSION_COOKIE]: 'tok' },
+        searchParams: { limit: '0' },
+      }),
+      makeParams(DRAFT_ID)
+    );
+
+    expect(getUploadJobsWithPlatformUploadsForDraft).toHaveBeenCalledWith('user-123', DRAFT_ID, {
+      limit: 1,
+      offset: 0,
+    });
+  });
+
   it('treats invalid limit values as the default 20', async () => {
     await GET(
       createRequest(DRAFT_ID, {

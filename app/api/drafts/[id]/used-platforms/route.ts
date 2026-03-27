@@ -3,6 +3,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { getUploadJobsWithPlatformUploadsForDraft } from '@/lib/repositories/upload-jobs';
 import type { ApiError, ApiResponse, ConnectedAccountPlatform } from '@/types';
+import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
@@ -36,7 +37,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
-    const response: ApiResponse<ConnectedAccountPlatform[]> = { data: Array.from(platforms) };
+    // Stable order: Set iteration is unspecified; use canonical list order (same as UI toggles).
+    const data = CONNECTED_ACCOUNT_PLATFORMS.filter((p) => platforms.has(p));
+
+    const response: ApiResponse<ConnectedAccountPlatform[]> = { data };
     return NextResponse.json(response);
   } catch (error) {
     console.error('[GET /api/drafts/:id/used-platforms]', error);

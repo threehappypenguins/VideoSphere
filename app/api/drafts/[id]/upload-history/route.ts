@@ -23,6 +23,24 @@ interface DraftUploadHistoryItem {
   }>;
 }
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+const MIN_LIMIT = 1;
+
+function parseLimitParam(raw: string | null): number {
+  if (raw == null) return DEFAULT_LIMIT;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return DEFAULT_LIMIT;
+  return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, parsed));
+}
+
+function parseOffsetParam(raw: string | null): number {
+  if (raw == null) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return 0;
+  return Math.max(0, parsed);
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
@@ -43,12 +61,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   try {
     const { searchParams } = new URL(req.url);
-    const rawLimit = searchParams.get('limit');
-    const rawOffset = searchParams.get('offset');
-
-    const limit =
-      rawLimit == null ? 20 : Math.min(100, Math.max(1, Number.parseInt(rawLimit, 10) || 20));
-    const offset = rawOffset == null ? 0 : Math.max(0, Number.parseInt(rawOffset, 10) || 0);
+    const limit = parseLimitParam(searchParams.get('limit'));
+    const offset = parseOffsetParam(searchParams.get('offset'));
 
     const jobs = await getUploadJobsWithPlatformUploadsForDraft(userId, id, { limit, offset });
     const history: DraftUploadHistoryItem[] = jobs.map((job) => {

@@ -164,4 +164,19 @@ describe('GET /api/drafts/[id]/used-platforms', () => {
     expect(getUploadJobsWithPlatformUploadsForDraft).toHaveBeenCalledWith('user-123', DRAFT_ID);
     expect(body.data).toEqual(['youtube', 'vimeo']);
   });
+
+  it('returns platforms in canonical order regardless of job/upload iteration order', async () => {
+    vi.mocked(getUploadJobsWithPlatformUploadsForDraft).mockResolvedValueOnce([
+      jobWithUploads('job-1', ['vimeo', 'youtube']),
+    ]);
+
+    const res = await GET(
+      createRequest(DRAFT_ID, { cookies: { [SESSION_COOKIE]: 'tok' } }),
+      makeParams(DRAFT_ID)
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: string[] };
+    expect(body.data).toEqual(['youtube', 'vimeo']);
+  });
 });
