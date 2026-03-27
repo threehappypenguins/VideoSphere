@@ -42,11 +42,11 @@ describe('DashboardPage Component', () => {
       expect(screen.getByRole('link', { name: /view drafts/i })).toBeInTheDocument();
     });
 
-    it('should link "New upload" to the drafts wizard', () => {
+    it('should link "New upload" to drafts create modal', () => {
       render(<DashboardPage />);
 
       const newUploadLink = screen.getByRole('link', { name: /new upload/i });
-      expect(newUploadLink).toHaveAttribute('href', '/dashboard/drafts?openWizard=true');
+      expect(newUploadLink).toHaveAttribute('href', '/dashboard/drafts?openCreateDraft=true');
     });
 
     it('should link "View drafts" to /dashboard/drafts', () => {
