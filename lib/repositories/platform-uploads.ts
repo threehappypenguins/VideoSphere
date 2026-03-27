@@ -182,13 +182,34 @@ export async function ensurePlatformUploadsForJobTargets(
  * Return all platform uploads for a given upload job, ordered by `$createdAt` descending.
  */
 export async function getPlatformUploadsByJob(uploadJobId: string): Promise<PlatformUpload[]> {
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-    queries: [Query.equal('uploadJobId', uploadJobId), Query.orderDesc('$createdAt')],
-    total: false,
-  });
-  return (rows ?? []).map((r) => rowToPlatformUpload(r as unknown as Record<string, unknown>));
+  const pageSize = 100;
+  let offset = 0;
+  const uploads: PlatformUpload[] = [];
+
+  while (true) {
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: PLATFORM_UPLOADS_COLLECTION_ID,
+      queries: [
+        Query.equal('uploadJobId', uploadJobId),
+        Query.orderDesc('$createdAt'),
+        Query.limit(pageSize),
+        Query.offset(offset),
+      ],
+      total: false,
+    });
+
+    const pageUploads = (rows ?? []).map((r) =>
+      rowToPlatformUpload(r as unknown as Record<string, unknown>)
+    );
+    uploads.push(...pageUploads);
+
+    if (pageUploads.length < pageSize) break;
+    if (pageUploads.length === 0) break;
+    offset += pageSize;
+  }
+
+  return uploads;
 }
 
 // -----------------------------------------------------------------------------

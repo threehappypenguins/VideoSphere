@@ -58,6 +58,17 @@ export async function markDraftUsedInUpload(
   id: string,
   usedAtIso: string = new Date().toISOString()
 ): Promise<Draft | null> {
+  const buildDocumentJson = (draft: Draft, normalizedUsedAtIso: string) =>
+    stringifyDraftDocumentForStorage({
+      targets: draft.targets,
+      title: draft.title,
+      description: draft.description,
+      visibility: draft.visibility,
+      tags: draft.tags,
+      platforms: draft.platforms,
+      usedInUploadAt: normalizedUsedAtIso,
+    });
+
   const current = await getDraftById(id);
   if (!current) return null;
 
@@ -81,15 +92,7 @@ export async function markDraftUsedInUpload(
         ? existingIso
         : incomingIso;
 
-  const documentJson = stringifyDraftDocumentForStorage({
-    targets: current.targets,
-    title: current.title,
-    description: current.description,
-    visibility: current.visibility,
-    tags: current.tags,
-    platforms: current.platforms,
-    usedInUploadAt,
-  });
+  const documentJson = buildDocumentJson(current, usedInUploadAt);
   assertDraftDocumentJsonWithinLimit(documentJson);
 
   const row = await tablesDb.updateRow({
@@ -98,7 +101,31 @@ export async function markDraftUsedInUpload(
     rowId: id,
     data: { document: documentJson },
   });
-  return rowToDraft(row as unknown as Record<string, unknown>);
+  const updated = rowToDraft(row as unknown as Record<string, unknown>);
+
+  // Best-effort race reconciliation: if a concurrent write stored a later value,
+  // try once more using fresh state so "first used" converges back to earliest.
+  const persistedIso = normalizeIso(updated.usedInUploadAt);
+  if (persistedIso !== null && Date.parse(persistedIso) <= Date.parse(usedInUploadAt)) {
+    return updated;
+  }
+
+  const latest = await getDraftById(id);
+  if (!latest) return updated;
+  const latestIso = normalizeIso(latest.usedInUploadAt);
+  if (latestIso !== null && Date.parse(latestIso) <= Date.parse(usedInUploadAt)) {
+    return latest;
+  }
+
+  const reconcileDocumentJson = buildDocumentJson(latest, usedInUploadAt);
+  assertDraftDocumentJsonWithinLimit(reconcileDocumentJson);
+  const reconciledRow = await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: DRAFTS_COLLECTION_ID,
+    rowId: id,
+    data: { document: reconcileDocumentJson },
+  });
+  return rowToDraft(reconciledRow as unknown as Record<string, unknown>);
 }
 
 // -----------------------------------------------------------------------------

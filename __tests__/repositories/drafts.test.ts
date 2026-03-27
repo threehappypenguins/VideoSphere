@@ -482,6 +482,55 @@ describe('drafts repository', () => {
 
       expect(result?.usedInUploadAt).toBe(usedAt);
     });
+
+    it('reconciles once when a concurrent write stores a later timestamp', async () => {
+      const incomingEarlier = '2026-01-05T00:00:00.000Z';
+      const concurrentLater = '2026-01-20T00:00:00.000Z';
+
+      mockGetRow.mockResolvedValueOnce({ ...baseRow }).mockResolvedValueOnce({
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: concurrentLater,
+        }),
+      });
+
+      mockUpdateRow
+        .mockResolvedValueOnce({
+          ...baseRow,
+          document: stringifyDraftDocumentForStorage({
+            targets: [...publishDefaults.targets],
+            title: publishDefaults.title,
+            description: publishDefaults.description,
+            visibility: publishDefaults.visibility,
+            tags: publishDefaults.tags,
+            platforms: publishDefaults.platforms,
+            usedInUploadAt: concurrentLater,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ...baseRow,
+          document: stringifyDraftDocumentForStorage({
+            targets: [...publishDefaults.targets],
+            title: publishDefaults.title,
+            description: publishDefaults.description,
+            visibility: publishDefaults.visibility,
+            tags: publishDefaults.tags,
+            platforms: publishDefaults.platforms,
+            usedInUploadAt: incomingEarlier,
+          }),
+        });
+
+      const result = await markDraftUsedInUpload('draft-1', incomingEarlier);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(2);
+      expect(result?.usedInUploadAt).toBe(incomingEarlier);
+    });
   });
 
   describe('deleteDraft', () => {

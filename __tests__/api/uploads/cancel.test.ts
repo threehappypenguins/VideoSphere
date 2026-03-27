@@ -229,11 +229,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       expect(body.success).toBe(true);
 
       expect(vi.mocked(deleteObject)).toHaveBeenCalledWith(baseJob.r2Key);
-      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
-        'job-123',
-        'cancelled',
-        'Upload cancelled by user'
-      );
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith('job-123', 'cancelled', null);
       expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
     });
 
@@ -249,11 +245,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       );
 
       expect(response.status).toBe(200);
-      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
-        'job-123',
-        'cancelled',
-        'Upload cancelled by user'
-      );
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith('job-123', 'cancelled', null);
     });
 
     it('skips deleteObject when r2Key is null', async () => {
@@ -269,11 +261,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
 
       expect(response.status).toBe(200);
       expect(vi.mocked(deleteObject)).not.toHaveBeenCalled();
-      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
-        'job-123',
-        'cancelled',
-        'Upload cancelled by user'
-      );
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith('job-123', 'cancelled', null);
     });
 
     it('does not call decrementUsage when presign did not claim quota (quotaClaimMonth empty)', async () => {
@@ -355,11 +343,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.success).toBe(true);
-      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
-        'job-123',
-        'cancelled',
-        'Upload cancelled by user'
-      );
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith('job-123', 'cancelled', null);
     });
 
     it('returns 200 and still marks job cancelled when deleteObject fails with a non-not-found error', async () => {
@@ -374,11 +358,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body.success).toBe(true);
-      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
-        'job-123',
-        'cancelled',
-        'Upload cancelled by user'
-      );
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith('job-123', 'cancelled', null);
       expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.stringContaining('Failed to delete R2 object'),

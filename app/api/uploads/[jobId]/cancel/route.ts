@@ -58,7 +58,8 @@ export async function POST(
 
     // Mark cancelled before R2 cleanup so a failed delete does not leave the job
     // pending/uploading while the blob may already be gone; R2 and quota are best-effort.
-    const updated = await updateUploadJobStatus(jobId, 'cancelled', 'Upload cancelled by user');
+    // Keep errorMessage for actual failures; cancelled is a terminal non-error state.
+    const updated = await updateUploadJobStatus(jobId, 'cancelled', null);
     if (!updated) {
       // Row deleted or raced with another writer — updateRow returned 404.
       return uploadJobNotFound();
