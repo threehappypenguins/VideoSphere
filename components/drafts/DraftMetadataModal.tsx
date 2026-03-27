@@ -532,6 +532,8 @@ export function DraftMetadataModal({
     value.title.trim() === '' &&
     value.description.trim() === '' &&
     value.tags.length === 0 &&
+    tagInput.trim() === '' &&
+    aiPrompt.trim() === '' &&
     videoFile === null &&
     !uploading &&
     currentUploadJobId === null &&
@@ -645,7 +647,21 @@ export function DraftMetadataModal({
 
   const handleConnectClick = async (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
-    if (isCreateDraftEmpty) {
+    const hasPendingTagInput = tagInput.trim() !== '';
+    const isCreateDraftEmptyForConnect =
+      mode === 'create' &&
+      value !== null &&
+      value.title.trim() === '' &&
+      value.description.trim() === '' &&
+      value.tags.length === 0 &&
+      !hasPendingTagInput &&
+      aiPrompt.trim() === '' &&
+      videoFile === null &&
+      !uploading &&
+      currentUploadJobId === null &&
+      !cancelServerFailed;
+    commitTagsFromInput();
+    if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
       return;
@@ -657,7 +673,21 @@ export function DraftMetadataModal({
   };
 
   const handleConnectAction = async () => {
-    if (isCreateDraftEmpty) {
+    const hasPendingTagInput = tagInput.trim() !== '';
+    const isCreateDraftEmptyForConnect =
+      mode === 'create' &&
+      value !== null &&
+      value.title.trim() === '' &&
+      value.description.trim() === '' &&
+      value.tags.length === 0 &&
+      !hasPendingTagInput &&
+      aiPrompt.trim() === '' &&
+      videoFile === null &&
+      !uploading &&
+      currentUploadJobId === null &&
+      !cancelServerFailed;
+    commitTagsFromInput();
+    if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
       return;
