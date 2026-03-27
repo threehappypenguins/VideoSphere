@@ -514,6 +514,10 @@ function DraftsTable({
                     aria-label={`Edit draft "${draft.title}"`}
                     onClick={() => onEdit(draft)}
                     onKeyDown={(event) => {
+                      const target = event.target as HTMLElement | null;
+                      if (target && target.closest('button') && target !== event.currentTarget) {
+                        return;
+                      }
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         onEdit(draft);
@@ -568,19 +572,7 @@ function DraftCards({
               <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
             </div>
           </div>
-          <div
-            className="relative z-20 px-4 pb-4"
-            role="button"
-            tabIndex={0}
-            aria-label={`Edit draft "${draft.title}"`}
-            onClick={() => onEdit(draft)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onEdit(draft);
-              }
-            }}
-          >
+          <div className="relative z-20 px-4 pb-4 pointer-events-none">
             <DraftActions
               draft={draft}
               onDelete={onDelete}

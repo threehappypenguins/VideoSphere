@@ -860,6 +860,23 @@ export function DraftMetadataModal({
     return true;
   };
 
+  const confirmLocalClear = () =>
+    window.confirm(
+      'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
+    );
+
+  const tryCloseModal = async () => {
+    const cleared = await clearPendingVideoSelection();
+    if (cleared) {
+      onClose();
+      return;
+    }
+    if (currentUploadJobId && cancelServerFailed && confirmLocalClear()) {
+      await clearPendingVideoSelection({ skipServerCancel: true });
+      onClose();
+    }
+  };
+
   const handleDeleteDraft = async () => {
     if (!value || !onDelete) return;
     setIsDeleting(true);
@@ -880,10 +897,7 @@ export function DraftMetadataModal({
       open={value !== null}
       onOpenChange={(open) => {
         if (!open) {
-          void (async () => {
-            const cleared = await clearPendingVideoSelection();
-            if (cleared) onClose();
-          })();
+          void tryCloseModal();
         }
       }}
     >
@@ -1173,7 +1187,8 @@ export function DraftMetadataModal({
                       <button
                         type="button"
                         onClick={() => {
-                          void clearPendingVideoSelection();
+                          if (!confirmLocalClear()) return;
+                          void clearPendingVideoSelection({ skipServerCancel: true });
                         }}
                         disabled={isCancellingUpload}
                         className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
@@ -1256,10 +1271,7 @@ export function DraftMetadataModal({
           <button
             type="button"
             onClick={() => {
-              void (async () => {
-                const cleared = await clearPendingVideoSelection();
-                if (cleared) onClose();
-              })();
+              void tryCloseModal();
             }}
             className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
           >
@@ -1289,10 +1301,7 @@ export function DraftMetadataModal({
             type="button"
             onClick={() => {
               if (uploadComplete) {
-                void (async () => {
-                  const cleared = await clearPendingVideoSelection();
-                  if (cleared) onClose();
-                })();
+                void tryCloseModal();
                 return;
               }
               setShowUploadConfirm(true);
