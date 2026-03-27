@@ -6,7 +6,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 // Mock Next.js Link component for testing environment
 vi.mock('next/link', () => ({
@@ -17,17 +17,35 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+let mockSearchParams = new URLSearchParams();
+const mockRouterReplace = vi.fn();
+
 // Mock Next.js navigation hooks
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  usePathname: () => '/',
+  useSearchParams: () => mockSearchParams,
+  useRouter: () => ({ push: vi.fn(), replace: mockRouterReplace }),
+  usePathname: () => '/dashboard/drafts',
+}));
+
+vi.mock('@/components/drafts/DraftMetadataModal', () => ({
+  DraftMetadataModal: ({ mode, value, onClose }: any) => {
+    if (!value) return null;
+    return (
+      <div data-testid={`${mode}-modal-open`}>
+        <button type="button" onClick={onClose}>
+          close-{mode}
+        </button>
+      </div>
+    );
+  },
 }));
 
 import DraftsPage from '@/app/(dashboard)/dashboard/drafts/page';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  mockSearchParams = new URLSearchParams();
+  mockRouterReplace.mockReset();
 });
 
 describe('DraftsPage', () => {
@@ -100,5 +118,98 @@ describe('DraftsPage', () => {
 
     expect(screen.getByRole('button', { name: /create draft/i })).toBeInTheDocument();
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+  });
+
+  it('opens create modal from openCreateDraft query param', async () => {
+    mockSearchParams = new URLSearchParams('openCreateDraft=true');
+
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: ['youtube'] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ canUseAiMetadata: true }),
+      } as Response);
+
+    render(<DraftsPage />);
+
+    expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
+  });
+
+  it('opens edit modal from editDraft query param', async () => {
+    mockSearchParams = new URLSearchParams('editDraft=draft-1');
+
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: 'draft-1',
+              title: 'Test Draft',
+              description: '',
+              tags: [],
+              visibility: 'public',
+              targets: ['youtube'],
+              $updatedAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: ['youtube'] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ canUseAiMetadata: true }),
+      } as Response);
+
+    render(<DraftsPage />);
+
+    expect(await screen.findByTestId('edit-modal-open')).toBeInTheDocument();
+  });
+
+  it('clears editDraft query param when edit modal closes', async () => {
+    mockSearchParams = new URLSearchParams('editDraft=draft-1');
+
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: 'draft-1',
+              title: 'Test Draft',
+              description: '',
+              tags: [],
+              visibility: 'public',
+              targets: ['youtube'],
+              $updatedAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: ['youtube'] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ canUseAiMetadata: true }),
+      } as Response);
+
+    render(<DraftsPage />);
+
+    const closeButton = await screen.findByRole('button', { name: 'close-edit' });
+    fireEvent.click(closeButton);
+
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
   });
 });

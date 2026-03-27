@@ -345,7 +345,9 @@ export default function DraftsPage() {
         });
         if (!response.ok) {
           const err = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(err?.message ?? 'Failed to create draft');
+          throw new Error(
+            err?.message ?? (isExistingDraft ? 'Failed to update draft' : 'Failed to create draft')
+          );
         }
         const payload = (await response.json()) as ApiResponse<Draft>;
         const createdDraft = payload.data;

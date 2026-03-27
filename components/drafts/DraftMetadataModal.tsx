@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { flushSync } from 'react-dom';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -480,6 +481,13 @@ export function DraftMetadataModal({
     setTagInput('');
   };
 
+  const commitTagsBeforeSave = () => {
+    // Ensure tag commit is flushed before any save call reads value.tags.
+    flushSync(() => {
+      commitTagsFromInput();
+    });
+  };
+
   const displayPlatforms = useMemo(() => {
     if (!value) return [] as ConnectedAccountPlatform[];
 
@@ -526,18 +534,6 @@ export function DraftMetadataModal({
   const hasGeneratedMetadata =
     value !== null &&
     (value.title.trim() !== '' || value.description.trim() !== '' || value.tags.length > 0);
-  const isCreateDraftEmpty =
-    mode === 'create' &&
-    value !== null &&
-    value.title.trim() === '' &&
-    value.description.trim() === '' &&
-    value.tags.length === 0 &&
-    tagInput.trim() === '' &&
-    aiPrompt.trim() === '' &&
-    videoFile === null &&
-    !uploading &&
-    currentUploadJobId === null &&
-    !cancelServerFailed;
 
   const applyAiMetadata = (next: Pick<DraftEditorValues, 'title' | 'description' | 'tags'>) => {
     if (!value) return;
@@ -660,7 +656,7 @@ export function DraftMetadataModal({
       !uploading &&
       currentUploadJobId === null &&
       !cancelServerFailed;
-    commitTagsFromInput();
+    commitTagsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
@@ -686,7 +682,7 @@ export function DraftMetadataModal({
       !uploading &&
       currentUploadJobId === null &&
       !cancelServerFailed;
-    commitTagsFromInput();
+    commitTagsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
@@ -701,6 +697,7 @@ export function DraftMetadataModal({
   const handleUploadVideo = async () => {
     if (!value || !videoFile) return;
 
+    commitTagsBeforeSave();
     const saveResult = await onSave({ closeAfterSave: false });
     if (!saveResult.saved) return;
     const draftIdForUpload = saveResult.draftId ?? value.id;
@@ -1348,6 +1345,7 @@ export function DraftMetadataModal({
           <button
             type="button"
             onClick={() => {
+              commitTagsBeforeSave();
               void onSave({ closeAfterSave: true });
             }}
             disabled={!canSave}
