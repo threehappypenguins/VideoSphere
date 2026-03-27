@@ -375,7 +375,7 @@ function DraftActions({
   isDuplicatingId,
 }: DraftActionsProps) {
   return (
-    <div className="pointer-events-none inline-flex max-w-full flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+    <div className="inline-flex max-w-full flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
       <button
         type="button"
         onClick={(event) => {
@@ -505,9 +505,21 @@ function DraftsTable({
                     tabIndex={-1}
                     onClick={() => onEdit(draft)}
                     aria-label={`Edit draft "${draft.title}"`}
-                    className="absolute inset-0"
+                    className="absolute inset-0 z-0"
                   />
-                  <div className="relative px-3 py-3 sm:px-4 pointer-events-none">
+                  <div
+                    className="relative z-10 px-3 py-3 sm:px-4"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Edit draft "${draft.title}"`}
+                    onClick={() => onEdit(draft)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onEdit(draft);
+                      }
+                    }}
+                  >
                     <DraftActions
                       draft={draft}
                       onDelete={onDelete}
@@ -545,9 +557,9 @@ function DraftCards({
             type="button"
             onClick={() => onEdit(draft)}
             aria-label={`Edit draft "${draft.title}"`}
-            className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
-          <div className="relative z-10 p-4 pointer-events-none">
+          <div className="relative z-0 p-4">
             <div className="space-y-2">
               <h3 className="line-clamp-1 text-sm font-semibold text-foreground">{draft.title}</h3>
               <p className="text-xs text-muted-foreground">
@@ -556,7 +568,19 @@ function DraftCards({
               <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
             </div>
           </div>
-          <div className="relative z-20 px-4 pb-4 pointer-events-none">
+          <div
+            className="relative z-20 px-4 pb-4"
+            role="button"
+            tabIndex={0}
+            aria-label={`Edit draft "${draft.title}"`}
+            onClick={() => onEdit(draft)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onEdit(draft);
+              }
+            }}
+          >
             <DraftActions
               draft={draft}
               onDelete={onDelete}
