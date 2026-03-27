@@ -9,7 +9,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { createDraft, listDraftsByUser } from '@/lib/repositories/drafts';
+import { createDraft, listDraftsByUser, markDraftUsedInUpload } from '@/lib/repositories/drafts';
+import { listUploadJobsByUserForDraftIds } from '@/lib/repositories/upload-jobs';
 import {
   DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
@@ -19,6 +20,47 @@ import {
   parseTagsFromRequestBody,
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
+
+const BACKFILL_SCAN_MAX_ROWS = 5000;
+const BACKFILL_SCAN_TIMEOUT_MS = 1500;
+const BACKFILL_PERSIST_CONCURRENCY = 4;
+
+async function withAbortTimeout<T>(
+  task: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number
+): Promise<T | null> {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    return await task(signal);
+  } catch (err: unknown) {
+    if ((err as { name?: string })?.name === 'AbortError') return null;
+    throw err;
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
+async function runWithConcurrencyLimit<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let nextIndex = 0;
+  const workers = Array.from({ length: limit }, async () => {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) return;
+      await worker(items[current]);
+    }
+  });
+  await Promise.all(workers);
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/drafts
@@ -177,7 +219,70 @@ export async function GET(req: NextRequest) {
 
   try {
     const drafts = await listDraftsByUser(userId);
-    const response: ApiResponse<Draft[]> = { data: drafts };
+
+    // Compute usedInUploadAt for older drafts that predate the denormalized field.
+    // We also best-effort persist the computed earliest value so this scan behaves
+    // like a one-time migration for each draft.
+    const missingUsed = drafts
+      .filter((d) => typeof d.usedInUploadAt !== 'string' || d.usedInUploadAt.trim() === '')
+      .map((d) => d.id);
+
+    let earliestUsedByDraftId = new Map<string, string>();
+    if (missingUsed.length > 0) {
+      // Bounded best-effort scan: cap rows/time so GET /api/drafts stays responsive.
+      // This may not discover every missing draft in one request for very large histories,
+      // but successful backfills are persisted and converge over subsequent requests.
+      const jobs = await withAbortTimeout(
+        (signal) =>
+          listUploadJobsByUserForDraftIds(userId, missingUsed, {
+            maxRows: BACKFILL_SCAN_MAX_ROWS,
+            signal,
+          }),
+        BACKFILL_SCAN_TIMEOUT_MS
+      );
+      if (jobs === null) {
+        console.error(
+          `[GET /api/drafts] Upload backfill scan timed out after ${BACKFILL_SCAN_TIMEOUT_MS}ms for user ${userId}`
+        );
+      } else {
+        for (const j of jobs) {
+          if (!j.draftId) continue;
+          if (!earliestUsedByDraftId.has(j.draftId)) {
+            earliestUsedByDraftId.set(j.draftId, j.$createdAt);
+          }
+        }
+      }
+    }
+
+    const mergedDrafts: Draft[] =
+      earliestUsedByDraftId.size === 0
+        ? drafts
+        : drafts.map((d) => {
+            if (typeof d.usedInUploadAt === 'string' && d.usedInUploadAt.trim() !== '') return d;
+            const usedAt = earliestUsedByDraftId.get(d.id);
+            return usedAt ? { ...d, usedInUploadAt: usedAt } : d;
+          });
+
+    if (earliestUsedByDraftId.size > 0) {
+      await runWithConcurrencyLimit(
+        [...earliestUsedByDraftId.entries()],
+        BACKFILL_PERSIST_CONCURRENCY,
+        async ([draftId, earliestUsedAt]) => {
+          try {
+            await markDraftUsedInUpload(draftId, earliestUsedAt);
+          } catch (err) {
+            // Best-effort persistence only: listing should still succeed even if
+            // this denormalized backfill write fails for some drafts.
+            console.error(
+              `[GET /api/drafts] Failed to persist usedInUploadAt backfill for draft ${draftId}`,
+              err
+            );
+          }
+        }
+      );
+    }
+
+    const response: ApiResponse<Draft[]> = { data: mergedDrafts };
     return NextResponse.json(response);
   } catch (err) {
     console.error('[GET /api/drafts]', err);

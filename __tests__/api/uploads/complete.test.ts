@@ -48,6 +48,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
     r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
     status: 'pending',
     errorMessage: null,
+    quotaClaimMonth: null,
     $createdAt: '2000-01-01T00:00:00.000Z',
     $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
@@ -58,6 +59,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
     r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
     status: 'uploading',
     errorMessage: null,
+    quotaClaimMonth: null,
     $createdAt: '2000-01-01T00:00:00.000Z',
     $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
@@ -183,6 +185,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
       status: 'pending',
       errorMessage: null,
+      quotaClaimMonth: null,
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
@@ -193,6 +196,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
       status: 'uploading',
       errorMessage: null,
+      quotaClaimMonth: null,
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
@@ -242,6 +246,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/other-user-999/123/file.mp4',
         status: 'pending',
         errorMessage: null,
+        quotaClaimMonth: null,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });
@@ -302,6 +307,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: null,
         status: 'pending',
         errorMessage: null,
+        quotaClaimMonth: null,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });
@@ -368,6 +374,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
         status: 'uploading',
         errorMessage: null,
+        quotaClaimMonth: null,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });
@@ -391,6 +398,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
         status: 'completed',
         errorMessage: null,
+        quotaClaimMonth: null,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });
@@ -412,6 +420,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
         status: 'failed',
         errorMessage: 'previous failure',
+        quotaClaimMonth: null,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });

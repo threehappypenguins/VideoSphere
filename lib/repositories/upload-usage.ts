@@ -35,6 +35,16 @@ function usageRowId(userId: string, month: string): string {
   return `${userId}_${month}`;
 }
 
+/**
+ * UTC calendar month `YYYY-MM` for an ISO 8601 timestamp (e.g. upload job `$createdAt`).
+ * Used so quota rollback targets the same month row as the original presign claim.
+ */
+export function usageMonthFromUtcIso(isoUtc: string): string {
+  const d = new Date(isoUtc);
+  if (Number.isNaN(d.getTime())) return currentMonth();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 // -----------------------------------------------------------------------------
 // Read
 // -----------------------------------------------------------------------------
@@ -43,8 +53,8 @@ function usageRowId(userId: string, month: string): string {
  * Returns the number of uploads made by `userId` in the current calendar month.
  * Returns 0 if no record exists yet.
  */
-export async function getMonthlyUsage(userId: string): Promise<number> {
-  const month = currentMonth();
+export async function getMonthlyUsage(userId: string, monthArg?: string): Promise<number> {
+  const month = monthArg ?? currentMonth();
   try {
     const row = await tablesDb.getRow({
       databaseId: DATABASE_ID,
@@ -71,8 +81,8 @@ export async function getMonthlyUsage(userId: string): Promise<number> {
  * Uses the server-side atomic incrementRowColumn so concurrent requests
  * cannot overwrite each other (no read-modify-write race condition).
  */
-export async function incrementUsage(userId: string): Promise<void> {
-  const month = currentMonth();
+export async function incrementUsage(userId: string, monthArg?: string): Promise<void> {
+  const month = monthArg ?? currentMonth();
   const rowId = usageRowId(userId, month);
 
   try {
@@ -119,19 +129,87 @@ export async function incrementUsage(userId: string): Promise<void> {
  * Used as a rollback when a downstream operation fails after a slot was
  * successfully claimed via `incrementUsage` / `incrementUsageIfAllowed`.
  *
- * Uses the same server-side atomic `incrementRowColumn` (value: -1) as the
- * over-cap rollback in `incrementUsageIfAllowed`, so no read-modify-write race.
+ * Prefers server-side atomic decrement when supported by the runtime SDK.
+ * Falls back to atomic increment(value: -1) on older SDKs.
+ *
+ * If both atomic paths are unavailable/failing, this function fails closed
+ * instead of attempting a non-atomic read-modify-write that can lose
+ * concurrent updates and drift quota enforcement.
  */
-export async function decrementUsage(userId: string): Promise<void> {
-  const month = currentMonth();
+export async function decrementUsage(userId: string, monthArg?: string): Promise<void> {
+  const month = monthArg ?? currentMonth();
   const rowId = usageRowId(userId, month);
-  await tablesDb.incrementRowColumn({
-    databaseId: DATABASE_ID,
-    tableId: UPLOAD_USAGE_COLLECTION_ID,
-    rowId,
-    column: 'uploadCount',
-    value: -1,
-  });
+
+  const tablesDbWithDecrement = tablesDb as unknown as {
+    decrementRowColumn?: (input: {
+      databaseId: string;
+      tableId: string;
+      rowId: string;
+      column: string;
+      value: number;
+    }) => Promise<unknown>;
+  };
+
+  const tablesDbWithIncrement = tablesDb as unknown as {
+    incrementRowColumn?: (input: {
+      databaseId: string;
+      tableId: string;
+      rowId: string;
+      column: string;
+      value: number;
+    }) => Promise<unknown>;
+  };
+
+  // Prefer native server-side atomic decrement when available.
+  if (typeof tablesDbWithDecrement.decrementRowColumn === 'function') {
+    try {
+      await tablesDbWithDecrement.decrementRowColumn({
+        databaseId: DATABASE_ID,
+        tableId: UPLOAD_USAGE_COLLECTION_ID,
+        rowId,
+        column: 'uploadCount',
+        value: 1,
+      });
+      return;
+    } catch (err: unknown) {
+      const e = err as { code?: number };
+      if (e.code === 404) return;
+      // Fall through to increment(value: -1) for SDK/server variants
+      // that expose decrementRowColumn but reject it at runtime.
+    }
+  }
+
+  // Older SDKs may only expose incrementRowColumn; use value=-1 if available.
+  if (typeof tablesDbWithIncrement.incrementRowColumn === 'function') {
+    try {
+      await tablesDbWithIncrement.incrementRowColumn({
+        databaseId: DATABASE_ID,
+        tableId: UPLOAD_USAGE_COLLECTION_ID,
+        rowId,
+        column: 'uploadCount',
+        value: -1,
+      });
+      return;
+    } catch (err: unknown) {
+      const e = err as { code?: number };
+      if (e.code === 404) return;
+      // Both atomic paths failed. Fail closed rather than using
+      // non-atomic read-modify-write, which can lose concurrent updates.
+      console.error(
+        `Failed to decrement upload usage atomically for user ${userId} (month ${month}).`,
+        err
+      );
+      throw new Error(
+        'Upload usage decrement failed: atomic decrement unavailable or rejected by runtime'
+      );
+    }
+  }
+  console.error(
+    `Failed to decrement upload usage atomically for user ${userId} (month ${month}): no atomic API available.`
+  );
+  throw new Error(
+    'Upload usage decrement failed: atomic decrement APIs are unavailable in this runtime'
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -175,14 +253,18 @@ export async function incrementUsageIfAllowed(
   userId: string,
   isSupporter: boolean,
   limit: number = FREE_TIER_MONTHLY_LIMIT
-): Promise<{ allowed: boolean; monthlyUsage: number }> {
+): Promise<{ allowed: boolean; monthlyUsage: number; usageMonth?: string }> {
   if (isSupporter) return { allowed: true, monthlyUsage: 0 };
 
+  // Single UTC month for this entire operation so increment / read-back / rollback
+  // stay consistent if the request crosses a month boundary.
+  const month = currentMonth();
+
   // Step 1: atomically claim a slot.
-  await incrementUsage(userId);
+  await incrementUsage(userId, month);
 
   // Step 2: read back the current count (includes our increment and any concurrent ones).
-  const newCount = await getMonthlyUsage(userId);
+  const newCount = await getMonthlyUsage(userId, month);
 
   if (newCount > limit) {
     // Step 3a: slot is above the cap — release it atomically and reject.
@@ -190,16 +272,8 @@ export async function incrementUsageIfAllowed(
     // error so the caller can surface a 500. This is preferable to silently
     // leaving the counter over-counted, which would incorrectly block future
     // uploads until the month resets.
-    const month = currentMonth();
-    const rowId = usageRowId(userId, month);
     try {
-      await tablesDb.incrementRowColumn({
-        databaseId: DATABASE_ID,
-        tableId: UPLOAD_USAGE_COLLECTION_ID,
-        rowId,
-        column: 'uploadCount',
-        value: -1,
-      });
+      await decrementUsage(userId, month);
     } catch (rollbackErr) {
       console.error(
         `Failed to roll back over-cap quota slot for user ${userId} (month ${month}). ` +
@@ -216,7 +290,7 @@ export async function incrementUsageIfAllowed(
   }
 
   // Step 3b: slot is within the cap — permit the upload.
-  return { allowed: true, monthlyUsage: newCount };
+  return { allowed: true, monthlyUsage: newCount, usageMonth: month };
 }
 
 /**

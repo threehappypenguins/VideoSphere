@@ -214,7 +214,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 500 });
   }
 
-  const model = user.isSupporter ? premiumModel : freeModel;
+  const isAdmin = user.role === 'admin';
+  const model = user.isSupporter || isAdmin ? premiumModel : freeModel;
 
   // 5. Build prompts and call AI
   const { titleMax, descriptionMax } = getLimits(typedPlatforms);
@@ -262,9 +263,13 @@ export async function POST(req: NextRequest) {
     }
 
     console.error('[POST /api/ai/generate-metadata]', err);
+    const details = err instanceof Error ? err.message : String(err);
+    const isDev = process.env.NODE_ENV === 'development';
     const errRes: ApiError = {
       error: 'Bad Gateway',
-      message: 'AI service is temporarily unavailable. Please try again.',
+      message: isDev
+        ? `AI service is temporarily unavailable. Please try again. ${details}`
+        : 'AI service is temporarily unavailable. Please try again.',
       statusCode: 502,
     };
     return NextResponse.json(errRes, { status: 502 });

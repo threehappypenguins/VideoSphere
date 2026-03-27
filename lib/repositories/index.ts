@@ -24,6 +24,7 @@ export {
   getUploadJobById,
   listUploadJobsByUser,
   getUploadJobsWithPlatformUploads,
+  getUploadJobsWithPlatformUploadsForDraft,
   updateUploadJobStatus,
 } from './upload-jobs';
 export type { CreateUploadJobInput } from './upload-jobs';
