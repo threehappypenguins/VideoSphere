@@ -13,7 +13,7 @@ interface Props {
 
 export default async function DraftUploadPage({ params }: Props) {
   const { id } = await params;
-  const backHref = `/dashboard/drafts/${id}`;
+  const backHref = `/dashboard/drafts?editDraft=${encodeURIComponent(id)}`;
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
