@@ -129,6 +129,8 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       expect(response.status).toBe(401);
       const body = await response.json();
       expect(body.error).toBe('Unauthorized');
+      expect(body.message).toBe('Not authenticated');
+      expect(body.statusCode).toBe(401);
     });
 
     it('returns 404 when upload job does not exist', async () => {
@@ -141,7 +143,9 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
 
       expect(response.status).toBe(404);
       const body = await response.json();
-      expect(body.error).toContain('not found');
+      expect(body.error).toBe('Not Found');
+      expect(body.message).toBe('Upload job not found');
+      expect(body.statusCode).toBe(404);
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
     });
 
@@ -159,7 +163,9 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
 
       expect(response.status).toBe(404);
       const body = await response.json();
-      expect(body.error).toContain('not found');
+      expect(body.error).toBe('Not Found');
+      expect(body.message).toBe('Upload job not found');
+      expect(body.statusCode).toBe(404);
       expect(vi.mocked(deleteObject)).not.toHaveBeenCalled();
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
     });
@@ -178,7 +184,9 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
 
       expect(response.status).toBe(500);
       const body = await response.json();
-      expect(body.error).toBe('Failed to cancel upload');
+      expect(body.error).toBe('Internal Server Error');
+      expect(body.message).toBe('Failed to cancel upload');
+      expect(body.statusCode).toBe(500);
       expect(vi.mocked(deleteObject)).not.toHaveBeenCalled();
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
       expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
@@ -202,7 +210,8 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
 
       expect(response.status).toBe(409);
       const body = await response.json();
-      expect(body.error).toContain(status);
+      expect(body.error).toBe('Conflict');
+      expect(body.message).toContain(status);
       expect(vi.mocked(deleteObject)).not.toHaveBeenCalled();
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
     });
@@ -390,7 +399,8 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
 
       expect(response.status).toBe(404);
       const body = await response.json();
-      expect(body.error).toContain('not found');
+      expect(body.error).toBe('Not Found');
+      expect(body.message).toBe('Upload job not found');
       expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
     });
   });

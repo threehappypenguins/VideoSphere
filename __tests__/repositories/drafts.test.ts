@@ -244,6 +244,50 @@ describe('drafts repository', () => {
       expect(result!.title).toBe('Updated Title');
     });
 
+    it('preserves usedInUploadAt in the stored document when merging other fields', async () => {
+      const usedAt = '2026-01-15T12:00:00.000Z';
+      const rowWithUsed = {
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: usedAt,
+        }),
+      };
+      mockGetRow.mockResolvedValue({ ...rowWithUsed });
+      const expectedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
+        title: 'Updated Title',
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: publishDefaults.tags,
+        platforms: publishDefaults.platforms,
+        usedInUploadAt: usedAt,
+      });
+      mockUpdateRow.mockResolvedValue({ ...rowWithUsed, document: expectedDoc });
+
+      const result = await updateDraft('draft-1', { title: 'Updated Title' });
+
+      expect(mockUpdateRow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { document: expectedDoc },
+        })
+      );
+      expect(
+        (
+          JSON.parse(mockUpdateRow.mock.calls[0][0].data.document as string) as {
+            usedInUploadAt?: string;
+          }
+        ).usedInUploadAt
+      ).toBe(usedAt);
+      expect(result!.usedInUploadAt).toBe(usedAt);
+      expect(result!.title).toBe('Updated Title');
+    });
+
     it('throws before updateRow when merged document exceeds column limit', async () => {
       mockGetRow.mockResolvedValue({ ...baseRow });
       await expect(

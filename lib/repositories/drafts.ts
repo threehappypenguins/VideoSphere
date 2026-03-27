@@ -219,6 +219,8 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
       tags: input.tags ?? current.tags,
       visibility: input.visibility ?? current.visibility,
       platforms: mergedPlatforms,
+      // Denormalized in document JSON; stringify omits empty/whitespace (see markDraftUsedInUpload).
+      usedInUploadAt: current.usedInUploadAt,
     });
     assertDraftDocumentJsonWithinLimit(documentJson);
     data.document = documentJson;

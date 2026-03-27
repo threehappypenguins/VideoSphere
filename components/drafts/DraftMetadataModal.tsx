@@ -139,6 +139,10 @@ export function DraftMetadataModal({
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadHistoryCacheRef = useRef<Record<string, DraftUploadHistoryItem[]>>({});
   const hadActiveJobsRef = useRef(false);
+  const aiMetadataAbortRef = useRef<AbortController | null>(null);
+  /** Tracks the open modal’s draft id so we can ignore stale AI responses after close or draft switch. */
+  const latestDraftIdRef = useRef<string | null>(null);
+  latestDraftIdRef.current = draftId;
 
   const snapshotEditor = (editor: DraftEditorValues): DraftEditorValues => ({
     ...editor,
@@ -212,6 +216,12 @@ export function DraftMetadataModal({
     const cached = uploadHistoryCacheRef.current[draftId];
     setUploadHistory(cached ?? []);
     setIsLoadingUploadHistory(cached === undefined);
+  }, [draftId]);
+
+  useEffect(() => {
+    return () => {
+      aiMetadataAbortRef.current?.abort();
+    };
   }, [draftId]);
 
   useEffect(() => {
@@ -476,6 +486,11 @@ export function DraftMetadataModal({
       return;
     }
 
+    const requestDraftId = value.id;
+    aiMetadataAbortRef.current?.abort();
+    const ac = new AbortController();
+    aiMetadataAbortRef.current = ac;
+
     setIsGeneratingAi(true);
     try {
       const response = await fetch('/api/ai/generate-metadata', {
@@ -486,7 +501,9 @@ export function DraftMetadataModal({
           userPrompt: aiPrompt.trim() || undefined,
           platforms: value.targets,
         }),
+        signal: ac.signal,
       });
+      if (ac.signal.aborted) return;
       if (!response.ok) {
         const errBody = await response.json().catch(() => null);
         throw new Error(errBody?.message ?? 'Failed to generate metadata');
@@ -497,6 +514,9 @@ export function DraftMetadataModal({
         description: string;
         tags: string[];
       }>;
+      if (ac.signal.aborted) return;
+      if (latestDraftIdRef.current !== requestDraftId) return;
+
       applyAiMetadata({
         title: next.data?.title ?? '',
         description: next.data?.description ?? '',
@@ -504,12 +524,20 @@ export function DraftMetadataModal({
       });
       toast.success('Metadata generated successfully');
     } catch (error) {
+      const isAbort =
+        (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
+      if (isAbort) return;
       // Keep UX aligned with DraftWizard messaging without triggering
       // Next.js dev error overlay from client-side console.error.
       console.warn('AI metadata generation failed:', error);
       toast.error('Failed to generate metadata. Please try again.');
     } finally {
-      setIsGeneratingAi(false);
+      // Only clear loading if this is still the active request (avoids a superseded
+      // generation turning off the spinner while a newer one is in flight).
+      if (aiMetadataAbortRef.current === ac) {
+        aiMetadataAbortRef.current = null;
+        setIsGeneratingAi(false);
+      }
     }
   };
 

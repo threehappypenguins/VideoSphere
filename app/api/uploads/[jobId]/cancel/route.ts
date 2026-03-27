@@ -4,6 +4,16 @@ import { deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import { getUserById } from '@/lib/repositories/users';
 import { decrementUsage, usageMonthFromUtcIso } from '@/lib/repositories/upload-usage';
+import type { ApiError } from '@/types';
+
+function uploadJobNotFound(): NextResponse {
+  const errRes: ApiError = {
+    error: 'Not Found',
+    message: 'Upload job not found',
+    statusCode: 404,
+  };
+  return NextResponse.json(errRes, { status: 404 });
+}
 
 export async function POST(
   req: NextRequest,
@@ -11,26 +21,33 @@ export async function POST(
 ): Promise<NextResponse> {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const errRes: ApiError = {
+      error: 'Unauthorized',
+      message: 'Not authenticated',
+      statusCode: 401,
+    };
+    return NextResponse.json(errRes, { status: 401 });
   }
 
   const { jobId } = await params;
   const job = await getUploadJobById(jobId);
   if (!job) {
-    return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
+    return uploadJobNotFound();
   }
   if (job.userId !== userId) {
     // Same response as a missing job (aligns with GET /api/uploads/jobs/[id]) — avoids
     // leaking that a job id exists for another user.
-    return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
+    return uploadJobNotFound();
   }
 
   // Only allow cancellation before distribution starts.
   if (job.status !== 'pending' && job.status !== 'uploading') {
-    return NextResponse.json(
-      { error: `Cannot cancel upload in '${job.status}' state` },
-      { status: 409 }
-    );
+    const errRes: ApiError = {
+      error: 'Conflict',
+      message: `Cannot cancel upload in '${job.status}' state.`,
+      statusCode: 409,
+    };
+    return NextResponse.json(errRes, { status: 409 });
   }
 
   try {
@@ -44,7 +61,7 @@ export async function POST(
     const updated = await updateUploadJobStatus(jobId, 'cancelled', 'Upload cancelled by user');
     if (!updated) {
       // Row deleted or raced with another writer — updateRow returned 404.
-      return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
+      return uploadJobNotFound();
     }
 
     if (job.r2Key) {
@@ -84,6 +101,11 @@ export async function POST(
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[POST /api/uploads/:jobId/cancel]', error);
-    return NextResponse.json({ error: 'Failed to cancel upload' }, { status: 500 });
+    const errRes: ApiError = {
+      error: 'Internal Server Error',
+      message: 'Failed to cancel upload',
+      statusCode: 500,
+    };
+    return NextResponse.json(errRes, { status: 500 });
   }
 }
