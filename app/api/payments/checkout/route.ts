@@ -16,6 +16,15 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 export async function POST(req: NextRequest) {
   try {
     // =========================================================================
+    // 0. CSRF: verify the request originates from our own site
+    // =========================================================================
+    const origin = req.headers.get('origin');
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    if (!origin || new URL(origin).origin !== new URL(appUrl).origin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // =========================================================================
     // 1. Authenticate via shared helper (session cookie → Appwrite)
     // =========================================================================
     const userId = await getAuthenticatedUserId(req);
@@ -40,7 +49,6 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     // Price: $9 one-time payment for Supporter tier
     // client_reference_id: userId so the webhook can identify which user paid
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const stripePriceId = process.env.STRIPE_PRICE_ID?.trim();
 
     // Stripe Checkout sessions require each line item to specify either:

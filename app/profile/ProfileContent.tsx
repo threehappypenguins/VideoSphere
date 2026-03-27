@@ -53,8 +53,8 @@ export function ProfileContent() {
           const profileData: UserProfile = await profileRes.json();
           setProfile(profileData);
         }
-      } catch {
-        // Graceful degradation — page still renders with partial data
+      } catch (err) {
+        console.warn('[ProfileContent] Failed to load user data:', err);
       } finally {
         setLoading(false);
       }
@@ -137,13 +137,6 @@ export function ProfileContent() {
                 className="mt-2 block w-full rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
               />
             </div>
-
-            <button
-              type="button"
-              className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              Save Changes
-            </button>
           </div>
         </section>
 

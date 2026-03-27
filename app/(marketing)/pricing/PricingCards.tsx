@@ -59,22 +59,32 @@ export function PricingCards() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
-    // Fetch session to know if user is logged in
-    fetch('/api/auth/session', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: SessionUser | null) => {
-        setSessionUser(data ?? null);
-        if (data) {
-          // Fetch profile to check supporter status
-          fetch('/api/auth/profile', { credentials: 'include' })
-            .then((res) => (res.ok ? res.json() : null))
-            .then((profile: UserProfile | null) => {
-              if (profile) setIsSupporter(profile.isSupporter);
-            })
-            .catch(() => {});
+    async function loadAuthState() {
+      try {
+        // Fetch session to know if user is logged in
+        const sessionRes = await fetch('/api/auth/session', { credentials: 'include' });
+        if (!sessionRes.ok) return;
+
+        const data: SessionUser = await sessionRes.json();
+        setSessionUser(data);
+
+        // Fetch profile to check supporter status
+        try {
+          const profileRes = await fetch('/api/auth/profile', { credentials: 'include' });
+          if (profileRes.ok) {
+            const profile: UserProfile = await profileRes.json();
+            setIsSupporter(profile.isSupporter);
+          }
+        } catch (err) {
+          console.warn('[PricingCards] Failed to fetch profile:', err);
         }
-      })
-      .catch(() => setSessionUser(null));
+      } catch (err) {
+        console.warn('[PricingCards] Failed to fetch session:', err);
+        setSessionUser(null);
+      }
+    }
+
+    loadAuthState();
   }, []);
 
   const handleCheckout = async () => {
