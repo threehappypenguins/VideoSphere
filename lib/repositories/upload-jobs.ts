@@ -30,6 +30,7 @@ const tablesDb = new TablesDB(appwriteClient);
 /** Map an Appwrite row to the shared UploadJob type. */
 function rowToUploadJob(row: Record<string, unknown>): UploadJob {
   const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+  const quotaRaw = row.quotaClaimMonth;
   return {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
@@ -38,6 +39,7 @@ function rowToUploadJob(row: Record<string, unknown>): UploadJob {
     status: String(row.status) as UploadJobStatus,
     errorMessage:
       row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
+    quotaClaimMonth: quotaRaw === undefined || quotaRaw === null ? null : String(quotaRaw),
     $createdAt,
     $updatedAt,
   };
@@ -52,6 +54,11 @@ export interface CreateUploadJobInput {
   draftId: string | null;
   /** R2 object key for the video file (from the presign step). */
   r2Key: string;
+  /**
+   * Month "YYYY-MM" when a free-tier slot was claimed at presign, or "" if the user
+   * was unlimited at presign (supporter/admin).
+   */
+  quotaClaimMonth: string;
 }
 
 /**
@@ -68,6 +75,7 @@ export async function createUploadJob(input: CreateUploadJobInput): Promise<Uplo
       r2Key: input.r2Key,
       status: 'pending',
       errorMessage: '',
+      quotaClaimMonth: input.quotaClaimMonth,
     },
   });
   return rowToUploadJob(row as unknown as Record<string, unknown>);
@@ -101,19 +109,122 @@ export async function getUploadJobById(id: string): Promise<UploadJob | null> {
  */
 export async function listUploadJobsByUser(
   userId: string,
-  status?: UploadJobStatus
+  status?: UploadJobStatus,
+  options?: { pageSize?: number; maxRows?: number }
 ): Promise<UploadJob[]> {
-  const queries = [Query.equal('userId', userId), Query.orderDesc('$createdAt')];
-  if (status != null) {
-    queries.push(Query.equal('status', status));
+  const pageSize = options?.pageSize ?? 100;
+  // Safety cap: most callers (dashboards, status pages) don't need full history.
+  // Callers that truly need unbounded history should pass maxRows: Infinity.
+  const maxRows = options?.maxRows ?? 1000;
+  let offset = 0;
+  const jobs: UploadJob[] = [];
+
+  while (true) {
+    const remaining = Number.isFinite(maxRows) ? Math.max(0, maxRows - jobs.length) : Infinity;
+    const thisPageLimit = Math.min(pageSize, remaining);
+    if (!Number.isFinite(thisPageLimit) || thisPageLimit <= 0) break;
+
+    const queries = [
+      Query.equal('userId', userId),
+      Query.orderDesc('$createdAt'),
+      Query.limit(thisPageLimit),
+      Query.offset(offset),
+    ];
+    if (status != null) {
+      queries.push(Query.equal('status', status));
+    }
+
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_JOBS_COLLECTION_ID,
+      queries,
+      total: false,
+    });
+
+    const pageJobs = (rows ?? []).map((r) =>
+      rowToUploadJob(r as unknown as Record<string, unknown>)
+    );
+    jobs.push(...pageJobs);
+
+    if (pageJobs.length < thisPageLimit) break;
+    if (pageJobs.length === 0) break;
+    offset += thisPageLimit;
   }
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: UPLOAD_JOBS_COLLECTION_ID,
-    queries,
-    total: false,
-  });
-  return (rows ?? []).map((r) => rowToUploadJob(r as unknown as Record<string, unknown>));
+
+  return jobs;
+}
+
+/**
+ * List upload jobs for a user filtered to a set of draft ids.
+ * Sorted by oldest first so callers can easily pick "first used" timestamps.
+ *
+ * This is intentionally draft-scoped (not a full user scan) so endpoints like
+ * GET /api/drafts can cheaply determine which drafts have ever been used.
+ */
+export async function listUploadJobsByUserForDraftIds(
+  userId: string,
+  draftIds: string[],
+  /** `maxRows` defaults to 5000; pass `Number.POSITIVE_INFINITY` to page until every draft id is seen (e.g. GET /api/drafts backfill). */
+  options?: { pageSize?: number; maxRows?: number; signal?: AbortSignal }
+): Promise<UploadJob[]> {
+  const throwIfAborted = (signal?: AbortSignal) => {
+    if (!signal?.aborted) return;
+    const abortErr = new Error('Upload jobs scan aborted');
+    abortErr.name = 'AbortError';
+    throw abortErr;
+  };
+
+  const uniqueDraftIds = [...new Set(draftIds.filter((id) => typeof id === 'string' && id !== ''))];
+  if (uniqueDraftIds.length === 0) return [];
+
+  const pageSize = options?.pageSize ?? 100;
+  const maxRows = options?.maxRows ?? 5000;
+  const signal = options?.signal;
+  let offset = 0;
+  const jobs: UploadJob[] = [];
+  const seenDraftIds = new Set<string>();
+
+  while (true) {
+    throwIfAborted(signal);
+
+    const remaining = Number.isFinite(maxRows) ? Math.max(0, maxRows - jobs.length) : Infinity;
+    const thisPageLimit = Math.min(pageSize, remaining);
+    if (!Number.isFinite(thisPageLimit) || thisPageLimit <= 0) break;
+
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_JOBS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        // Appwrite "equal" supports passing an array as an "IN" query.
+        Query.equal('draftId', uniqueDraftIds),
+        Query.orderAsc('$createdAt'),
+        Query.limit(thisPageLimit),
+        Query.offset(offset),
+      ],
+      total: false,
+    });
+    // Appwrite SDK does not currently accept AbortSignal for in-flight listRows calls.
+    // Check immediately after each page so timed-out callers stop before the next page.
+    throwIfAborted(signal);
+
+    const pageJobs = (rows ?? []).map((r) =>
+      rowToUploadJob(r as unknown as Record<string, unknown>)
+    );
+    jobs.push(...pageJobs);
+
+    for (const j of pageJobs) {
+      if (j.draftId) seenDraftIds.add(j.draftId);
+    }
+
+    if (seenDraftIds.size >= uniqueDraftIds.length) break;
+
+    if (pageJobs.length < thisPageLimit) break;
+    if (pageJobs.length === 0) break;
+    offset += thisPageLimit;
+  }
+
+  return jobs;
 }
 
 const UPLOAD_JOB_STATUSES_FOR_DISTRIBUTE: readonly UploadJobStatus[] = [
@@ -159,27 +270,48 @@ export async function getUploadJobsWithPlatformUploads(
   userId: string
 ): Promise<UploadJobWithPlatformUploads[]> {
   const jobs = await listUploadJobsByUser(userId);
+  return getUploadJobsWithPlatformUploadsFromJobs(jobs);
+}
+
+async function getUploadJobsWithPlatformUploadsFromJobs(
+  jobs: UploadJob[]
+): Promise<UploadJobWithPlatformUploads[]> {
   if (jobs.length === 0) return [];
 
   const jobIds = jobs.map((j) => j.id);
   let uploadsByJobId = new Map<string, PlatformUpload[]>();
 
   try {
-    const { rows } = await tablesDb.listRows({
-      databaseId: DATABASE_ID,
-      tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-      queries: [Query.equal('uploadJobId', jobIds), Query.orderDesc('$createdAt')],
-      total: false,
-    });
-    const all = (rows ?? []).map((r) =>
-      rowToPlatformUpload(r as unknown as Record<string, unknown>)
-    );
-    for (const pu of all) {
-      const list = uploadsByJobId.get(pu.uploadJobId) ?? [];
-      list.push(pu);
-      uploadsByJobId.set(pu.uploadJobId, list);
+    const pageSize = 100;
+    let offset = 0;
+
+    // Fetch all platform uploads in explicit pages so Appwrite's default paging
+    // can't silently truncate platform status history for drafts with many jobs.
+    while (true) {
+      const { rows } = await tablesDb.listRows({
+        databaseId: DATABASE_ID,
+        tableId: PLATFORM_UPLOADS_COLLECTION_ID,
+        queries: [
+          Query.equal('uploadJobId', jobIds),
+          Query.orderDesc('$createdAt'),
+          Query.limit(pageSize),
+          Query.offset(offset),
+        ],
+        total: false,
+      });
+
+      const pageRows = (rows ?? []) as Array<Record<string, unknown>>;
+      for (const r of pageRows) {
+        const pu = rowToPlatformUpload(r as Record<string, unknown>);
+        const list = uploadsByJobId.get(pu.uploadJobId) ?? [];
+        list.push(pu);
+        uploadsByJobId.set(pu.uploadJobId, list);
+      }
+
+      if (pageRows.length < pageSize) break;
+      offset += pageSize;
+      if (pageRows.length === 0) break;
     }
-    // Per-job list already in $createdAt desc from query; preserve order
   } catch (err: unknown) {
     const e = err as { code?: number };
     if (e.code === 404) {
@@ -195,6 +327,53 @@ export async function getUploadJobsWithPlatformUploads(
     ...job,
     platformUploads: uploadsByJobId.get(job.id) ?? [],
   }));
+}
+
+/**
+ * List upload jobs for one user and one draft, with platform uploads populated.
+ * Sorted by most recent first.
+ */
+export async function getUploadJobsWithPlatformUploadsForDraft(
+  userId: string,
+  draftId: string,
+  options?: { limit?: number; offset?: number; pageSize?: number }
+): Promise<UploadJobWithPlatformUploads[]> {
+  const pageSize = options?.pageSize ?? 100;
+  const jobs: UploadJob[] = [];
+  let offset = options?.offset ?? 0;
+
+  while (true) {
+    const remaining = options?.limit != null ? options.limit - jobs.length : Infinity;
+    const thisPageLimit = Math.min(pageSize, remaining);
+
+    if (!Number.isFinite(thisPageLimit) || thisPageLimit <= 0) break;
+
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: UPLOAD_JOBS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        Query.equal('draftId', draftId),
+        Query.orderDesc('$createdAt'),
+        Query.limit(thisPageLimit),
+        Query.offset(offset),
+      ],
+      total: false,
+    });
+
+    const pageJobs = (rows ?? []).map((r) =>
+      rowToUploadJob(r as unknown as Record<string, unknown>)
+    );
+    jobs.push(...pageJobs);
+
+    if (pageJobs.length < thisPageLimit) break;
+    offset += thisPageLimit;
+
+    if (pageJobs.length === 0) break;
+    if (options?.limit != null && jobs.length >= options.limit) break;
+  }
+
+  return getUploadJobsWithPlatformUploadsFromJobs(jobs);
 }
 
 // -----------------------------------------------------------------------------

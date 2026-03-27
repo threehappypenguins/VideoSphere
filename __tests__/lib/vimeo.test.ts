@@ -1,37 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  buildVimeoCategorySuggestBatchBody,
-  waitUntilVimeoUploadAndTranscodeComplete,
-} from '@/lib/platforms/vimeo';
+import * as vimeo from '@/lib/platforms/vimeo';
 
 describe('buildVimeoCategorySuggestBatchBody', () => {
   it('parses /categories/{slug} into Vimeo batch format', () => {
-    expect(buildVimeoCategorySuggestBatchBody('/categories/animation')).toEqual([
+    expect(vimeo.buildVimeoCategorySuggestBatchBody('/categories/animation')).toEqual([
       { category: 'animation' },
     ]);
   });
 
   it('parses plain slug', () => {
-    expect(buildVimeoCategorySuggestBatchBody('music')).toEqual([{ category: 'music' }]);
+    expect(vimeo.buildVimeoCategorySuggestBatchBody('music')).toEqual([{ category: 'music' }]);
   });
 
   it('parses subcategory path as two batch entries', () => {
-    expect(buildVimeoCategorySuggestBatchBody('/categories/animation/subcategories/2d')).toEqual([
-      { category: 'animation' },
-      { category: '2d' },
-    ]);
+    expect(
+      vimeo.buildVimeoCategorySuggestBatchBody('/categories/animation/subcategories/2d')
+    ).toEqual([{ category: 'animation' }, { category: '2d' }]);
   });
 
   it('parses https://vimeo.com/categories/...', () => {
-    expect(buildVimeoCategorySuggestBatchBody('https://vimeo.com/categories/documentary')).toEqual([
-      { category: 'documentary' },
-    ]);
+    expect(
+      vimeo.buildVimeoCategorySuggestBatchBody('https://vimeo.com/categories/documentary')
+    ).toEqual([{ category: 'documentary' }]);
   });
 
   it('returns null for unrecognizable strings', () => {
-    expect(buildVimeoCategorySuggestBatchBody('')).toBeNull();
-    expect(buildVimeoCategorySuggestBatchBody('   ')).toBeNull();
-    expect(buildVimeoCategorySuggestBatchBody('/foo/bar')).toBeNull();
+    expect(vimeo.buildVimeoCategorySuggestBatchBody('')).toBeNull();
+    expect(vimeo.buildVimeoCategorySuggestBatchBody('   ')).toBeNull();
+    expect(vimeo.buildVimeoCategorySuggestBatchBody('/foo/bar')).toBeNull();
   });
 });
 
@@ -54,7 +50,7 @@ describe('waitUntilVimeoUploadAndTranscodeComplete', () => {
     );
 
     await expect(
-      waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
+      vimeo.waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
         deadlineMs: 5_000,
         pollIntervalMs: 10,
       })
@@ -74,7 +70,7 @@ describe('waitUntilVimeoUploadAndTranscodeComplete', () => {
         )
       );
 
-    const p = waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
+    const p = vimeo.waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
       deadlineMs: 120_000,
       pollIntervalMs: 10,
     });
@@ -90,7 +86,7 @@ describe('waitUntilVimeoUploadAndTranscodeComplete', () => {
     );
 
     await expect(
-      waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
+      vimeo.waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
         deadlineMs: 5_000,
         pollIntervalMs: 10,
       })
@@ -109,7 +105,7 @@ describe('waitUntilVimeoUploadAndTranscodeComplete', () => {
     );
 
     await expect(
-      waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
+      vimeo.waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
         deadlineMs: 5_000,
         pollIntervalMs: 10,
       })
@@ -130,12 +126,161 @@ describe('waitUntilVimeoUploadAndTranscodeComplete', () => {
       )
     );
 
-    const p = waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
+    const p = vimeo.waitUntilVimeoUploadAndTranscodeComplete('videos/1', 'tok', {
       deadlineMs: 80,
       pollIntervalMs: 10,
     });
     const settled = expect(p).rejects.toThrow(/Timed out waiting for Vimeo upload and transcode/);
     await vi.runAllTimersAsync();
     await settled;
+  });
+});
+
+describe('uploadToVimeo', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function makeStream(): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.close();
+      },
+    });
+  }
+
+  it('does not mask likely network errors while required tags are not applied', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+
+    const uploadLink = 'https://tus.example/upload';
+    const videoUri = 'https://api.vimeo.com/videos/12345';
+
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const method = options?.method;
+      const sUrl = String(url);
+
+      if (sUrl.includes('fields=upload.status,transcode.status')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ upload: { status: 'complete' }, transcode: { status: 'complete' } }),
+            { status: 200 }
+          )
+        );
+      }
+
+      if (method === 'POST' && sUrl.includes('me/videos')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              upload: { upload_link: uploadLink },
+              uri: videoUri,
+            }),
+            { status: 201 }
+          )
+        );
+      }
+
+      if (method === 'PATCH') {
+        return Promise.resolve(new Response('', { status: 204 }));
+      }
+
+      if (method === 'HEAD') {
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+
+      if (method === 'PUT' && sUrl.includes('/tags')) {
+        return Promise.reject(new Error('Network fetch failed'));
+      }
+
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await vimeo.uploadToVimeo({
+      videoStream: makeStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        title: 't',
+        description: 'd',
+        tags: ['tag1'],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    expect(result.ok).toBe(false);
+    const err1 = (result as { ok: false; error: { code: string } }).error;
+    expect(err1.code).toBe('VIMEO_UPLOAD_ERROR');
+  });
+
+  it('does not mask likely network errors while required category is not applied', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+
+    const uploadLink = 'https://tus.example/upload';
+    const videoUri = 'https://api.vimeo.com/videos/67890';
+
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const method = options?.method;
+      const sUrl = String(url);
+
+      if (sUrl.includes('fields=upload.status,transcode.status')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ upload: { status: 'complete' }, transcode: { status: 'complete' } }),
+            { status: 200 }
+          )
+        );
+      }
+
+      if (method === 'POST' && sUrl.includes('me/videos')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              upload: { upload_link: uploadLink },
+              uri: videoUri,
+            }),
+            { status: 201 }
+          )
+        );
+      }
+
+      if (method === 'PATCH') {
+        return Promise.resolve(new Response('', { status: 204 }));
+      }
+
+      if (method === 'HEAD') {
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+
+      if (method === 'PUT' && sUrl.includes('/categories')) {
+        return Promise.reject(new Error('Network fetch failed'));
+      }
+
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await vimeo.uploadToVimeo({
+      videoStream: makeStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        title: 't',
+        description: 'd',
+        tags: [],
+        visibility: 'public',
+        vimeoCategoryUri: 'animation',
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    expect(result.ok).toBe(false);
+    const err2 = (result as { ok: false; error: { code: string } }).error;
+    expect(err2.code).toBe('VIMEO_UPLOAD_ERROR');
   });
 });

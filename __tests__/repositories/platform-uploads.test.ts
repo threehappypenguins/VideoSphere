@@ -20,6 +20,8 @@ vi.mock('node-appwrite', () => ({
   Query: {
     equal: (attr: string, value: string) => `equal("${attr}","${value}")`,
     orderDesc: (attr: string) => `orderDesc("${attr}")`,
+    limit: (n: number) => `limit(${n})`,
+    offset: (n: number) => `offset(${n})`,
   },
   TablesDB: class TablesDB {
     createRow = mockCreateRow;
@@ -211,6 +213,8 @@ describe('platform-uploads repository', () => {
       const queries = mockListRows.mock.calls[0][0].queries;
       expect(queries).toContain('equal("uploadJobId","job-1")');
       expect(queries).toContain('orderDesc("$createdAt")');
+      expect(queries).toContain('limit(100)');
+      expect(queries).toContain('offset(0)');
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('pu-1');
       expect(result[0].platform).toBe('youtube');
@@ -248,6 +252,35 @@ describe('platform-uploads repository', () => {
       expect(result[0].visibility).toBe('unlisted');
       expect(result[0].scheduledAt).toBe('2026-03-10T12:00:00.000Z');
       expect(result[0].errorMessage).toBeNull();
+    });
+
+    it('paginates with explicit limit/offset until a short page', async () => {
+      mockListRows
+        .mockResolvedValueOnce({
+          rows: Array.from({ length: 100 }, (_, i) => ({
+            ...basePlatformUploadRow,
+            $id: `pu-${i + 1}`,
+          })),
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              ...basePlatformUploadRow,
+              $id: 'pu-101',
+            },
+          ],
+        });
+
+      const result = await getPlatformUploadsByJob('job-1');
+
+      expect(mockListRows).toHaveBeenCalledTimes(2);
+      const q1 = mockListRows.mock.calls[0][0].queries as string[];
+      const q2 = mockListRows.mock.calls[1][0].queries as string[];
+      expect(q1).toContain('limit(100)');
+      expect(q1).toContain('offset(0)');
+      expect(q2).toContain('limit(100)');
+      expect(q2).toContain('offset(100)');
+      expect(result).toHaveLength(101);
     });
   });
 

@@ -57,9 +57,13 @@ vi.mock('@/lib/repositories/users', () => ({
   })),
 }));
 
-// Mock upload-usage repository
+// Mock upload-usage repository (usageMonth must match presign rollback / tests)
 vi.mock('@/lib/repositories/upload-usage', () => ({
-  incrementUsageIfAllowed: vi.fn(async () => ({ allowed: true, monthlyUsage: 5 })),
+  incrementUsageIfAllowed: vi.fn(async () => ({
+    allowed: true,
+    monthlyUsage: 5,
+    usageMonth: '2000-01',
+  })),
   decrementUsage: vi.fn(async () => undefined),
 }));
 
@@ -77,6 +81,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
     $createdAt: '2000-01-01T00:00:00.000Z',
     $updatedAt: '2000-01-01T00:00:00.000Z',
   })),
+  markDraftUsedInUpload: vi.fn(async () => null),
 }));
 
 // Mock upload-jobs repository
@@ -98,7 +103,7 @@ import { getPresignedUploadUrl } from '@/lib/r2';
 import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
 import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
-import { getDraftById } from '@/lib/repositories/drafts';
+import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 
 function createRequest(
   body: Record<string, unknown>,
@@ -147,7 +152,11 @@ describe('POST /api/uploads/presign', () => {
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
-    vi.mocked(incrementUsageIfAllowed).mockResolvedValue({ allowed: true, monthlyUsage: 5 });
+    vi.mocked(incrementUsageIfAllowed).mockResolvedValue({
+      allowed: true,
+      monthlyUsage: 5,
+      usageMonth: '2000-01',
+    });
     vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example.com/upload?signed=true');
     vi.mocked(createUploadJob).mockResolvedValue({
       id: 'job-123',
@@ -156,6 +165,7 @@ describe('POST /api/uploads/presign', () => {
       r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
       status: 'pending',
       errorMessage: null,
+      quotaClaimMonth: '2000-01',
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
@@ -503,7 +513,11 @@ describe('POST /api/uploads/presign', () => {
     });
 
     it('should allow upload when quota is not exceeded', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({ allowed: true, monthlyUsage: 5 });
+      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
+        allowed: true,
+        monthlyUsage: 5,
+        usageMonth: '2000-01',
+      });
 
       const request = createRequest(
         {
@@ -540,6 +554,11 @@ describe('POST /api/uploads/presign', () => {
       const response = await POST(request);
       expect(response.status).toBe(200);
       expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', true);
+      expect(vi.mocked(createUploadJob)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          quotaClaimMonth: '',
+        })
+      );
     });
   });
 
@@ -565,6 +584,10 @@ describe('POST /api/uploads/presign', () => {
       expect(body).toHaveProperty('expiresIn');
       expect(body.expiresIn).toBe(900);
       expect(body).toHaveProperty('uploadJobId', 'job-123');
+      expect(vi.mocked(markDraftUsedInUpload)).toHaveBeenCalledWith(
+        'draft-abc',
+        '2000-01-01T00:00:00.000Z'
+      );
     });
 
     it('should return 400 when draftId is missing', async () => {
@@ -633,6 +656,7 @@ describe('POST /api/uploads/presign', () => {
         userId: 'user-123',
         draftId: 'draft-abc',
         r2Key: expect.stringContaining('temp/uploads/user-123/'),
+        quotaClaimMonth: '2000-01',
       });
     });
 
@@ -823,7 +847,7 @@ describe('POST /api/uploads/presign', () => {
       );
       await POST(request);
 
-      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123');
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
     });
 
     it('should roll back the quota slot when createUploadJob throws', async () => {
@@ -840,7 +864,7 @@ describe('POST /api/uploads/presign', () => {
       );
       await POST(request);
 
-      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123');
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
     });
 
     it('should NOT roll back the quota slot for a supporter when R2 throws', async () => {

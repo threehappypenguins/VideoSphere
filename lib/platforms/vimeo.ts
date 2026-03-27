@@ -47,6 +47,12 @@ function toError(
   };
 }
 
+function isLikelyNetworkFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return msg.includes('fetch failed') || msg.includes('network');
+}
+
 function extractVimeoVideoId(uri?: string): string | null {
   if (!uri) return null;
   const parts = uri.split('/').filter(Boolean);
@@ -486,6 +492,15 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     return toError('VIMEO_TOKEN_MISSING', 'Vimeo access token is missing.');
   }
 
+  let createdVideoId: string | null = null;
+  let tusUploadAccepted = false;
+  // Downstream metadata steps we must not mask failures for.
+  // These are used to decide whether a likely-network error is safe to treat as success
+  // (only when all required steps have already completed).
+  let ingestWaitDone = true;
+  let tagsDone = true;
+  let categoryDone = true;
+
   try {
     if (!input.contentLength || input.contentLength <= 0) {
       return toError(
@@ -564,6 +579,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     const videoUri = createPayload.uri;
     const videoBasePath = typeof videoUri === 'string' ? vimeoVideoApiBasePath(videoUri) : '';
     const videoId = extractVimeoVideoId(videoUri);
+    createdVideoId = videoId;
 
     if (!uploadLink || !videoId || !videoBasePath) {
       return toError(
@@ -593,6 +609,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         await tusUploadResponse.text().catch(() => undefined)
       );
     }
+    tusUploadAccepted = true;
 
     await fetch(uploadLink, {
       method: 'HEAD',
@@ -604,9 +621,13 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
 
     const categoryUriRaw = vm?.categoryUri?.trim() || input.metadata.vimeoCategoryUri?.trim();
     const needsIngestWait = safeTags.length > 0 || Boolean(categoryUriRaw);
+    ingestWaitDone = !needsIngestWait;
+    tagsDone = safeTags.length === 0;
+    categoryDone = !Boolean(categoryUriRaw);
 
     if (needsIngestWait) {
       await waitUntilVimeoUploadAndTranscodeComplete(videoBasePath, input.tokens.accessToken);
+      ingestWaitDone = true;
     }
 
     if (safeTags.length > 0) {
@@ -623,6 +644,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
           tagResult.body
         );
       }
+      tagsDone = true;
     }
 
     if (categoryUriRaw) {
@@ -648,6 +670,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
           await catRes.text().catch(() => undefined)
         );
       }
+      categoryDone = true;
     }
 
     return {
@@ -658,6 +681,23 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
   } catch (error) {
     if (error instanceof VimeoIngestWaitFailedError) {
       return toError('VIMEO_INGEST_WAIT_FAILED', error.message, error.statusCode, error.details);
+    }
+
+    if (
+      tusUploadAccepted &&
+      createdVideoId &&
+      isLikelyNetworkFetchError(error) &&
+      ingestWaitDone &&
+      tagsDone &&
+      categoryDone
+    ) {
+      // Vimeo can succeed the TUS upload even if a later metadata/status fetch fails transiently.
+      // Only treat that as a success if all required metadata steps already completed.
+      return {
+        ok: true,
+        platformVideoId: createdVideoId,
+        platformUrl: `https://vimeo.com/${createdVideoId}`,
+      };
     }
     return toError(
       'VIMEO_UPLOAD_ERROR',

@@ -42,6 +42,7 @@ import {
   decrementUsage,
   canUpload,
   incrementUsageIfAllowed,
+  usageMonthFromUtcIso,
 } from '@/lib/repositories/upload-usage';
 
 beforeAll(() => {
@@ -55,6 +56,13 @@ afterAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe('usageMonthFromUtcIso', () => {
+  it('returns YYYY-MM in UTC for an ISO timestamp', () => {
+    expect(usageMonthFromUtcIso('2026-01-31T23:00:00.000Z')).toBe('2026-01');
+    expect(usageMonthFromUtcIso('2026-02-01T00:00:00.000Z')).toBe('2026-02');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -100,6 +108,18 @@ describe('getMonthlyUsage', () => {
     mockGetRow.mockRejectedValue({ code: 500, message: 'Internal Server Error' });
 
     await expect(getMonthlyUsage('user-1')).rejects.toMatchObject({ code: 500 });
+  });
+
+  it('uses an explicit month when provided (not necessarily current month)', async () => {
+    mockGetRow.mockResolvedValue({ uploadCount: 3 });
+
+    await getMonthlyUsage('user-1', '2025-12');
+
+    expect(mockGetRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'upload_usage',
+      rowId: 'user-1_2025-12',
+    });
   });
 });
 
@@ -242,10 +262,46 @@ describe('decrementUsage', () => {
     });
   });
 
-  it('rethrows errors from incrementRowColumn', async () => {
-    mockIncrementRowColumn.mockRejectedValue({ code: 500, message: 'DB error' });
+  it('throws when atomic decrement paths fail with non-404 error', async () => {
+    mockIncrementRowColumn.mockRejectedValue({
+      code: 500,
+      message: 'negative increment not supported',
+    });
 
-    await expect(decrementUsage('user-1')).rejects.toMatchObject({ code: 500 });
+    await expect(decrementUsage('user-1')).rejects.toThrow(
+      /Upload usage decrement failed: atomic decrement unavailable or rejected by runtime/
+    );
+  });
+
+  it('throws when no atomic decrement API is available in the runtime', async () => {
+    const originalIncrement = mockIncrementRowColumn.getMockImplementation();
+    mockIncrementRowColumn.mockImplementationOnce(() => {
+      throw new TypeError('incrementRowColumn is not a function');
+    });
+
+    await expect(decrementUsage('user-1')).rejects.toThrow(
+      /Upload usage decrement failed: atomic decrement/
+    );
+    if (originalIncrement) {
+      mockIncrementRowColumn.mockImplementation(originalIncrement);
+    } else {
+      // Bare vi.fn() often has no base implementation; reset safely instead of passing null.
+      mockIncrementRowColumn.mockReset();
+    }
+  });
+
+  it('targets the row for an explicit month when provided', async () => {
+    mockIncrementRowColumn.mockResolvedValue({});
+
+    await decrementUsage('user-1', '2025-11');
+
+    expect(mockIncrementRowColumn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rowId: 'user-1_2025-11',
+        column: 'uploadCount',
+        value: -1,
+      })
+    );
   });
 });
 
@@ -315,7 +371,7 @@ describe('incrementUsageIfAllowed', () => {
 
     const result = await incrementUsageIfAllowed('user-1', false);
 
-    expect(result).toEqual({ allowed: true, monthlyUsage: 5 });
+    expect(result).toEqual({ allowed: true, monthlyUsage: 5, usageMonth: FIXED_MONTH });
     // Only one incrementRowColumn call (no rollback)
     expect(mockIncrementRowColumn).toHaveBeenCalledTimes(1);
     expect(mockIncrementRowColumn).toHaveBeenCalledWith(
@@ -346,7 +402,7 @@ describe('incrementUsageIfAllowed', () => {
 
     const result = await incrementUsageIfAllowed('user-1', false);
 
-    expect(result).toEqual({ allowed: true, monthlyUsage: 10 });
+    expect(result).toEqual({ allowed: true, monthlyUsage: 10, usageMonth: FIXED_MONTH });
     expect(mockIncrementRowColumn).toHaveBeenCalledTimes(1);
   });
 

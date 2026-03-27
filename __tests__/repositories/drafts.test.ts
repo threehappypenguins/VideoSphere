@@ -42,6 +42,7 @@ import {
   createDraft,
   getDraftById,
   listDraftsByUser,
+  markDraftUsedInUpload,
   updateDraft,
   deleteDraft,
 } from '@/lib/repositories/drafts';
@@ -244,6 +245,50 @@ describe('drafts repository', () => {
       expect(result!.title).toBe('Updated Title');
     });
 
+    it('preserves usedInUploadAt in the stored document when merging other fields', async () => {
+      const usedAt = '2026-01-15T12:00:00.000Z';
+      const rowWithUsed = {
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: usedAt,
+        }),
+      };
+      mockGetRow.mockResolvedValue({ ...rowWithUsed });
+      const expectedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
+        title: 'Updated Title',
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: publishDefaults.tags,
+        platforms: publishDefaults.platforms,
+        usedInUploadAt: usedAt,
+      });
+      mockUpdateRow.mockResolvedValue({ ...rowWithUsed, document: expectedDoc });
+
+      const result = await updateDraft('draft-1', { title: 'Updated Title' });
+
+      expect(mockUpdateRow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { document: expectedDoc },
+        })
+      );
+      expect(
+        (
+          JSON.parse(mockUpdateRow.mock.calls[0][0].data.document as string) as {
+            usedInUploadAt?: string;
+          }
+        ).usedInUploadAt
+      ).toBe(usedAt);
+      expect(result!.usedInUploadAt).toBe(usedAt);
+      expect(result!.title).toBe('Updated Title');
+    });
+
     it('throws before updateRow when merged document exceeds column limit', async () => {
       mockGetRow.mockResolvedValue({ ...baseRow });
       await expect(
@@ -315,6 +360,225 @@ describe('drafts repository', () => {
       const result = await updateDraft('draft-1', {});
       expect(mockUpdateRow).not.toHaveBeenCalled();
       expect(result!.id).toBe('draft-1');
+    });
+  });
+
+  describe('markDraftUsedInUpload', () => {
+    it('stores usedAtIso when usedInUploadAt is missing', async () => {
+      mockGetRow.mockResolvedValueOnce({ ...baseRow });
+
+      const usedAt = '2026-01-12T10:00:00.000Z';
+      const expectedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
+        title: publishDefaults.title,
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: publishDefaults.tags,
+        platforms: publishDefaults.platforms,
+        usedInUploadAt: usedAt,
+      });
+      mockUpdateRow.mockResolvedValueOnce({ ...baseRow, document: expectedDoc });
+
+      const result = await markDraftUsedInUpload('draft-1', usedAt);
+
+      expect(mockUpdateRow).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { document: expectedDoc } })
+      );
+      expect(result?.usedInUploadAt).toBe(usedAt);
+    });
+
+    it('keeps earlier existing usedInUploadAt when incoming timestamp is later', async () => {
+      const earlier = '2026-01-10T00:00:00.000Z';
+      const later = '2026-01-20T00:00:00.000Z';
+      const rowWithUsed = {
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: earlier,
+        }),
+      };
+      mockGetRow.mockResolvedValueOnce(rowWithUsed);
+      const expectedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
+        title: publishDefaults.title,
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: publishDefaults.tags,
+        platforms: publishDefaults.platforms,
+        usedInUploadAt: earlier,
+      });
+      mockUpdateRow.mockResolvedValueOnce({ ...rowWithUsed, document: expectedDoc });
+
+      const result = await markDraftUsedInUpload('draft-1', later);
+
+      expect(result?.usedInUploadAt).toBe(earlier);
+    });
+
+    it('corrects later existing usedInUploadAt when incoming timestamp is earlier', async () => {
+      const later = '2026-01-20T00:00:00.000Z';
+      const earlier = '2026-01-10T00:00:00.000Z';
+      const rowWithUsed = {
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: later,
+        }),
+      };
+      mockGetRow.mockResolvedValueOnce(rowWithUsed);
+      const expectedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
+        title: publishDefaults.title,
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: publishDefaults.tags,
+        platforms: publishDefaults.platforms,
+        usedInUploadAt: earlier,
+      });
+      mockUpdateRow.mockResolvedValueOnce({ ...rowWithUsed, document: expectedDoc });
+
+      const result = await markDraftUsedInUpload('draft-1', earlier);
+
+      expect(result?.usedInUploadAt).toBe(earlier);
+    });
+
+    it('ignores invalid/whitespace existing value and uses incoming timestamp', async () => {
+      const rowWithBadUsed = {
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: '   ',
+        }),
+      };
+      mockGetRow.mockResolvedValueOnce(rowWithBadUsed);
+
+      const usedAt = '2026-01-05T00:00:00.000Z';
+      const expectedDoc = stringifyDraftDocumentForStorage({
+        targets: [...publishDefaults.targets],
+        title: publishDefaults.title,
+        description: publishDefaults.description,
+        visibility: publishDefaults.visibility,
+        tags: publishDefaults.tags,
+        platforms: publishDefaults.platforms,
+        usedInUploadAt: usedAt,
+      });
+      mockUpdateRow.mockResolvedValueOnce({ ...rowWithBadUsed, document: expectedDoc });
+
+      const result = await markDraftUsedInUpload('draft-1', usedAt);
+
+      expect(result?.usedInUploadAt).toBe(usedAt);
+    });
+
+    it('reconciles once when a concurrent write stores a later timestamp', async () => {
+      const incomingEarlier = '2026-01-05T00:00:00.000Z';
+      const concurrentLater = '2026-01-20T00:00:00.000Z';
+
+      mockGetRow.mockResolvedValueOnce({ ...baseRow }).mockResolvedValueOnce({
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: concurrentLater,
+        }),
+      });
+
+      mockUpdateRow
+        .mockResolvedValueOnce({
+          ...baseRow,
+          document: stringifyDraftDocumentForStorage({
+            targets: [...publishDefaults.targets],
+            title: publishDefaults.title,
+            description: publishDefaults.description,
+            visibility: publishDefaults.visibility,
+            tags: publishDefaults.tags,
+            platforms: publishDefaults.platforms,
+            usedInUploadAt: concurrentLater,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ...baseRow,
+          document: stringifyDraftDocumentForStorage({
+            targets: [...publishDefaults.targets],
+            title: publishDefaults.title,
+            description: publishDefaults.description,
+            visibility: publishDefaults.visibility,
+            tags: publishDefaults.tags,
+            platforms: publishDefaults.platforms,
+            usedInUploadAt: incomingEarlier,
+          }),
+        });
+
+      const result = await markDraftUsedInUpload('draft-1', incomingEarlier);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(2);
+      expect(result?.usedInUploadAt).toBe(incomingEarlier);
+    });
+
+    it('returns null when draft is deleted between initial read and first updateRow', async () => {
+      mockGetRow.mockResolvedValueOnce({ ...baseRow });
+      const err = new Error('Not found') as Error & { code?: number };
+      err.code = 404;
+      mockUpdateRow.mockRejectedValueOnce(err);
+
+      const result = await markDraftUsedInUpload('draft-1', '2026-01-05T00:00:00.000Z');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when draft is deleted before reconcile updateRow', async () => {
+      const incomingEarlier = '2026-01-05T00:00:00.000Z';
+      const concurrentLater = '2026-01-20T00:00:00.000Z';
+      mockGetRow.mockResolvedValueOnce({ ...baseRow }).mockResolvedValueOnce({
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: concurrentLater,
+        }),
+      });
+      const err = new Error('Not found') as Error & { code?: number };
+      err.code = 404;
+      mockUpdateRow
+        .mockResolvedValueOnce({
+          ...baseRow,
+          document: stringifyDraftDocumentForStorage({
+            targets: [...publishDefaults.targets],
+            title: publishDefaults.title,
+            description: publishDefaults.description,
+            visibility: publishDefaults.visibility,
+            tags: publishDefaults.tags,
+            platforms: publishDefaults.platforms,
+            usedInUploadAt: concurrentLater,
+          }),
+        })
+        .mockRejectedValueOnce(err);
+
+      const result = await markDraftUsedInUpload('draft-1', incomingEarlier);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(2);
+      expect(result).toBeNull();
     });
   });
 

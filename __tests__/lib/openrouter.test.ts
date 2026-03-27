@@ -172,6 +172,39 @@ describe('generateMetadata (OpenRouter client)', () => {
       );
     });
 
+    it('includes provider diagnostic fields when available', async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          errorResponse(502, {
+            error: {
+              message: 'Provider returned error.',
+              code: 'PROVIDER_ERROR',
+              provider: 'openai',
+              metadata: { upstreamStatus: 502, requestId: 'req_123' },
+            },
+          })
+        )
+        .mockResolvedValueOnce(
+          errorResponse(502, {
+            error: {
+              message: 'Provider returned error.',
+              code: 'PROVIDER_ERROR',
+              provider: 'openai',
+              metadata: { upstreamStatus: 502, requestId: 'req_123' },
+            },
+          })
+        );
+
+      try {
+        await generateMetadata('sys', 'usr', 'model');
+        throw new Error('Expected generateMetadata to throw');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        expect(msg).toContain('provider=openai');
+        expect(msg).toContain('code=PROVIDER_ERROR');
+      }
+    });
+
     it('includes stringified body when error.message is missing', async () => {
       fetchMock.mockResolvedValueOnce(errorResponse(500, { detail: 'something went wrong' }));
       await expect(generateMetadata('sys', 'usr', 'model')).rejects.toThrow(
