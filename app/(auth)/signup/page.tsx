@@ -80,16 +80,16 @@ function PasswordStrengthBar({ password }: { password: string }) {
   // Empty segments use muted/border tokens so they adapt in dark mode.
   const filledBarClass = [
     '',
-    'bg-destructive', // 1 – Weak   (red)
-    'bg-orange-500', // 2 – Fair   (orange)
-    'bg-yellow-500', // 3 – Good   (yellow)
-    'bg-green-500', // 4 – Strong (green)
-    'bg-emerald-500', // 5 – Very strong (emerald)
+    'bg-red-500', // 1 – Weak
+    'bg-orange-500', // 2 – Fair
+    'bg-yellow-500', // 3 – Good
+    'bg-green-500', // 4 – Strong
+    'bg-emerald-500', // 5 – Very strong
   ] as const;
 
   const labelClass = [
     '',
-    'text-destructive',
+    'text-red-500',
     'text-orange-500',
     'text-yellow-500',
     'text-green-500',
