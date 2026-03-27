@@ -238,6 +238,8 @@ export function DraftMetadataModal({
         .map((item) => item.uploadJobId),
     [uploadHistory]
   );
+  const latestActiveJobSetKeyRef = useRef('');
+  latestActiveJobSetKeyRef.current = [...activeUploadJobIds].sort().join('|');
 
   useEffect(() => {
     if (!draftId) {
@@ -318,20 +320,33 @@ export function DraftMetadataModal({
       return;
     }
     hadActiveJobsRef.current = true;
+    const pollDraftId = draftId;
+    const pollJobSetKey = [...activeUploadJobIds].sort().join('|');
+    const controller = new AbortController();
+    let disposed = false;
 
     const pollActiveJobs = async () => {
+      if (disposed) return;
       const responses = await Promise.all(
         activeUploadJobIds.map(async (uploadJobId) => {
           try {
-            const response = await fetch(`/api/uploads/jobs/${uploadJobId}`, { cache: 'no-store' });
+            const response = await fetch(`/api/uploads/jobs/${uploadJobId}`, {
+              cache: 'no-store',
+              signal: controller.signal,
+            });
             if (!response.ok) return null;
             const payload = (await response.json()) as ApiResponse<DraftUploadHistoryItem>;
             return payload.data;
           } catch {
+            if (controller.signal.aborted) return null;
             return null;
           }
         })
       );
+
+      if (disposed || controller.signal.aborted) return;
+      if (!pollDraftId || latestDraftIdRef.current !== pollDraftId) return;
+      if (latestActiveJobSetKeyRef.current !== pollJobSetKey) return;
 
       const byId = new Map(
         responses
@@ -349,7 +364,11 @@ export function DraftMetadataModal({
     const intervalId = window.setInterval(() => {
       void pollActiveJobs();
     }, 3000);
-    return () => window.clearInterval(intervalId);
+    return () => {
+      disposed = true;
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
   }, [activeUploadJobIds, draftId]);
 
   useEffect(() => {
@@ -776,7 +795,7 @@ export function DraftMetadataModal({
     }
   };
 
-  const clearPendingVideoSelection = (options?: { skipServerCancel?: boolean }) => {
+  const clearPendingVideoSelection = async (options?: { skipServerCancel?: boolean }) => {
     const jobId = currentUploadJobId;
 
     if (xhrRef.current) {
@@ -785,9 +804,29 @@ export function DraftMetadataModal({
     }
 
     if (jobId && !options?.skipServerCancel) {
-      void fetch(`/api/uploads/${jobId}/cancel`, { method: 'POST' }).catch(() => {
-        // Best-effort: job may already be completed, cancelled, or past pending/uploading.
-      });
+      try {
+        const cancelRes = await fetch(`/api/uploads/${jobId}/cancel`, { method: 'POST' });
+        if (!cancelRes.ok) {
+          const errBody = (await cancelRes.json().catch(() => null)) as {
+            message?: string;
+            error?: string;
+          } | null;
+          const details = errBody?.message ?? errBody?.error ?? `(${cancelRes.status})`;
+          toast.error(`Failed to cancel upload. ${details}`);
+          setUploading(false);
+          setCancelServerFailed(true);
+          return false;
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? `Failed to cancel upload. ${error.message}`
+            : 'Failed to cancel upload'
+        );
+        setUploading(false);
+        setCancelServerFailed(true);
+        return false;
+      }
     }
 
     setVideoFile(null);
@@ -801,6 +840,7 @@ export function DraftMetadataModal({
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+    return true;
   };
 
   const handleDeleteDraft = async () => {
@@ -810,7 +850,7 @@ export function DraftMetadataModal({
       const deleted = await onDelete(value.id);
       if (deleted) {
         setShowDeleteConfirm(false);
-        clearPendingVideoSelection();
+        await clearPendingVideoSelection({ skipServerCancel: true });
         onClose();
       }
     } finally {
@@ -823,8 +863,10 @@ export function DraftMetadataModal({
       open={value !== null}
       onOpenChange={(open) => {
         if (!open) {
-          clearPendingVideoSelection();
-          onClose();
+          void (async () => {
+            const cleared = await clearPendingVideoSelection();
+            if (cleared) onClose();
+          })();
         }
       }}
     >
@@ -1114,7 +1156,7 @@ export function DraftMetadataModal({
                       <button
                         type="button"
                         onClick={() => {
-                          clearPendingVideoSelection();
+                          void clearPendingVideoSelection();
                         }}
                         disabled={isCancellingUpload}
                         className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
@@ -1197,8 +1239,10 @@ export function DraftMetadataModal({
           <button
             type="button"
             onClick={() => {
-              clearPendingVideoSelection();
-              onClose();
+              void (async () => {
+                const cleared = await clearPendingVideoSelection();
+                if (cleared) onClose();
+              })();
             }}
             className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
           >
@@ -1228,8 +1272,10 @@ export function DraftMetadataModal({
             type="button"
             onClick={() => {
               if (uploadComplete) {
-                clearPendingVideoSelection();
-                onClose();
+                void (async () => {
+                  const cleared = await clearPendingVideoSelection();
+                  if (cleared) onClose();
+                })();
                 return;
               }
               setShowUploadConfirm(true);

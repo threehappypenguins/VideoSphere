@@ -61,8 +61,25 @@ export async function markDraftUsedInUpload(
   const current = await getDraftById(id);
   if (!current) return null;
 
-  // Preserve an earlier value so "first used" remains stable.
-  const usedInUploadAt = current.usedInUploadAt ?? usedAtIso;
+  const normalizeIso = (value: string | undefined): string | null => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const t = Date.parse(trimmed);
+    if (Number.isNaN(t)) return null;
+    return new Date(t).toISOString();
+  };
+
+  // Keep the earliest valid timestamp so "first used" remains stable even if
+  // calls arrive out of order or prior data was set to a later value.
+  const existingIso = normalizeIso(current.usedInUploadAt);
+  const incomingIso = normalizeIso(usedAtIso) ?? new Date().toISOString();
+  const usedInUploadAt =
+    existingIso === null
+      ? incomingIso
+      : Date.parse(existingIso) <= Date.parse(incomingIso)
+        ? existingIso
+        : incomingIso;
 
   const documentJson = stringifyDraftDocumentForStorage({
     targets: current.targets,
