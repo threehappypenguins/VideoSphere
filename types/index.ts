@@ -224,6 +224,12 @@ export interface UploadJob {
   r2Key: string | null;
   status: UploadJobStatus;
   errorMessage: string | null;
+  /**
+   * UTC month "YYYY-MM" for which a free-tier quota slot was claimed at presign.
+   * Empty string if the user was unlimited at presign (supporter/admin). `null` for
+   * legacy rows created before this field existed (cancel may fall back to current tier).
+   */
+  quotaClaimMonth: string | null;
   /** Appwrite system attribute (ISO string). */
   $createdAt: string;
   /** Appwrite system attribute (ISO string). */

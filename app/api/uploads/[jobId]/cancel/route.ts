@@ -20,7 +20,9 @@ export async function POST(
     return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
   }
   if (job.userId !== userId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // Same response as a missing job (aligns with GET /api/uploads/jobs/[id]) — avoids
+    // leaking that a job id exists for another user.
+    return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
   }
 
   // Only allow cancellation before distribution starts.
@@ -32,10 +34,10 @@ export async function POST(
   }
 
   try {
-    // Resolve tier before mutating the job so a failed lookup returns 500 without
-    // leaving the job cancelled.
-    const user = await getUserById(userId);
-    const hasUnlimitedUploads = Boolean(user?.isSupporter) || user?.role === 'admin';
+    const q = job.quotaClaimMonth;
+    // Legacy rows (null): tier at cancel time was used historically — still resolve user
+    // before mutating so a failed lookup returns 500 without leaving the job cancelled.
+    const legacyUser = q == null ? await getUserById(userId) : null;
 
     // Mark cancelled before R2 cleanup so a failed delete does not leave the job
     // pending/uploading while the blob may already be gone; R2 and quota are best-effort.
@@ -55,16 +57,28 @@ export async function POST(
       });
     }
 
-    // Presign claims a monthly upload slot for limited users. If the user
-    // cancels before distribution starts, best-effort release that slot.
-    if (!hasUnlimitedUploads) {
-      const quotaMonth = usageMonthFromUtcIso(job.$createdAt);
-      await decrementUsage(userId, quotaMonth).catch((rollbackErr) => {
+    // Roll back the same month that was claimed at presign (stored on the job), not the
+    // user's current tier — avoids quota drift when supporter/admin status changes.
+    const trimmedClaim = q != null && q !== '' ? q.trim() : '';
+    if (trimmedClaim !== '') {
+      await decrementUsage(userId, trimmedClaim).catch((rollbackErr) => {
         console.error(
           `Failed to roll back quota slot for cancelled upload ${jobId} (user ${userId}):`,
           rollbackErr
         );
       });
+    } else if (q == null) {
+      // Legacy jobs: no presign snapshot — fall back to previous behavior.
+      const hasUnlimitedUploads = Boolean(legacyUser?.isSupporter) || legacyUser?.role === 'admin';
+      if (!hasUnlimitedUploads) {
+        const quotaMonth = usageMonthFromUtcIso(job.$createdAt);
+        await decrementUsage(userId, quotaMonth).catch((rollbackErr) => {
+          console.error(
+            `Failed to roll back quota slot for cancelled upload ${jobId} (user ${userId}):`,
+            rollbackErr
+          );
+        });
+      }
     }
 
     return NextResponse.json({ success: true });

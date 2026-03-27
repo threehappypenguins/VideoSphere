@@ -79,6 +79,8 @@ const baseJob = {
   r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
   status: 'pending' as const,
   errorMessage: null,
+  /** Matches presign claim for free-tier rollback tests */
+  quotaClaimMonth: '2000-01' as const,
   $createdAt: '2000-01-15T12:00:00.000Z',
   $updatedAt: '2000-01-15T12:00:00.000Z',
 };
@@ -143,7 +145,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
     });
 
-    it('returns 403 when job belongs to another user', async () => {
+    it('returns 404 when job belongs to another user (same as missing job)', async () => {
       vi.mocked(getUploadJobById).mockResolvedValueOnce({
         ...baseJob,
         id: 'job-other',
@@ -155,18 +157,19 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
         makeParams('job-other')
       );
 
-      expect(response.status).toBe(403);
+      expect(response.status).toBe(404);
       const body = await response.json();
-      expect(body.error).toBe('Forbidden');
+      expect(body.error).toContain('not found');
       expect(vi.mocked(deleteObject)).not.toHaveBeenCalled();
       expect(vi.mocked(updateUploadJobStatus)).not.toHaveBeenCalled();
     });
   });
 
-  describe('User lookup before cancellation', () => {
+  describe('User lookup before cancellation (legacy jobs)', () => {
     it('returns 500 and does not delete R2 or update job when getUserById fails', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.mocked(getUserById).mockRejectedValueOnce(new Error('Appwrite unavailable'));
+      vi.mocked(getUploadJobById).mockResolvedValueOnce({ ...baseJob, quotaClaimMonth: null });
 
       const response = await POST(
         createRequest('job-123', { 'a_session_test-project': 'token' }),
@@ -264,40 +267,41 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       );
     });
 
-    it('does not call decrementUsage for supporters', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce({
-        ...freeUser,
-        isSupporter: true,
-      });
-
-      const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
-    });
-
-    it('does not call decrementUsage for admins', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce({
-        ...freeUser,
-        isSupporter: false,
-        role: 'admin',
-      });
-
-      const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
-    });
-
-    it('targets quota month from job $createdAt for rollback', async () => {
+    it('does not call decrementUsage when presign did not claim quota (quotaClaimMonth empty)', async () => {
       vi.mocked(getUploadJobById).mockResolvedValueOnce({
         ...baseJob,
+        quotaClaimMonth: '',
+      });
+
+      const response = await POST(
+        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
+    });
+
+    it('rolls back quota using quotaClaimMonth from the job (not current tier)', async () => {
+      vi.mocked(getUploadJobById).mockResolvedValueOnce({
+        ...baseJob,
+        quotaClaimMonth: '2025-11',
+        $createdAt: '2025-11-30T23:00:00.000Z',
+      });
+
+      const response = await POST(
+        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2025-11');
+    });
+
+    it('legacy jobs (null quotaClaimMonth) use current tier and $createdAt for rollback', async () => {
+      vi.mocked(getUploadJobById).mockResolvedValueOnce({
+        ...baseJob,
+        quotaClaimMonth: null,
         $createdAt: '2025-11-30T23:00:00.000Z',
       });
 

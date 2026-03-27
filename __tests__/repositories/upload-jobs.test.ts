@@ -59,6 +59,7 @@ const baseJobRow = {
   r2Key: 'temp/uploads/user-1/1234567890/test.mp4',
   status: 'pending',
   errorMessage: '',
+  quotaClaimMonth: '2026-01',
   $createdAt: '2026-01-01T00:00:00.000Z',
   $updatedAt: '2026-01-01T00:00:00.000Z',
 };
@@ -76,6 +77,7 @@ describe('upload-jobs repository', () => {
         userId: 'user-1',
         draftId: 'draft-1',
         r2Key: 'temp/uploads/user-1/1234567890/test.mp4',
+        quotaClaimMonth: '2026-01',
       });
 
       expect(mockCreateRow).toHaveBeenCalledTimes(1);
@@ -88,6 +90,7 @@ describe('upload-jobs repository', () => {
       expect(call.data.r2Key).toBe('temp/uploads/user-1/1234567890/test.mp4');
       expect(call.data.status).toBe('pending');
       expect(call.data.errorMessage).toBe('');
+      expect(call.data.quotaClaimMonth).toBe('2026-01');
       expect(call.data).not.toHaveProperty('createdAt');
       expect(call.data).not.toHaveProperty('updatedAt');
 
@@ -106,6 +109,7 @@ describe('upload-jobs repository', () => {
         userId: 'user-1',
         draftId: null,
         r2Key: 'temp/uploads/user-1/1234567890/test.mp4',
+        quotaClaimMonth: '2026-01',
       });
 
       const call = mockCreateRow.mock.calls[0][0];

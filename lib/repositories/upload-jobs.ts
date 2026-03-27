@@ -30,6 +30,7 @@ const tablesDb = new TablesDB(appwriteClient);
 /** Map an Appwrite row to the shared UploadJob type. */
 function rowToUploadJob(row: Record<string, unknown>): UploadJob {
   const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+  const quotaRaw = row.quotaClaimMonth;
   return {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
@@ -38,6 +39,7 @@ function rowToUploadJob(row: Record<string, unknown>): UploadJob {
     status: String(row.status) as UploadJobStatus,
     errorMessage:
       row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
+    quotaClaimMonth: quotaRaw === undefined || quotaRaw === null ? null : String(quotaRaw),
     $createdAt,
     $updatedAt,
   };
@@ -52,6 +54,11 @@ export interface CreateUploadJobInput {
   draftId: string | null;
   /** R2 object key for the video file (from the presign step). */
   r2Key: string;
+  /**
+   * Month "YYYY-MM" when a free-tier slot was claimed at presign, or "" if the user
+   * was unlimited at presign (supporter/admin).
+   */
+  quotaClaimMonth: string;
 }
 
 /**
@@ -68,6 +75,7 @@ export async function createUploadJob(input: CreateUploadJobInput): Promise<Uplo
       r2Key: input.r2Key,
       status: 'pending',
       errorMessage: '',
+      quotaClaimMonth: input.quotaClaimMonth,
     },
   });
   return rowToUploadJob(row as unknown as Record<string, unknown>);

@@ -247,8 +247,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let uploadUrl: string;
     let uploadJob: Awaited<ReturnType<typeof createUploadJob>>;
     try {
+      const quotaClaimMonth = hasUnlimitedUploads ? '' : (usageMonth ?? '');
       uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
-      uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
+      uploadJob = await createUploadJob({ userId, draftId, r2Key: key, quotaClaimMonth });
       await markDraftUsedInUpload(draftId, uploadJob.$createdAt).catch((err) => {
         console.error(
           `[POST /api/uploads/presign] Failed to mark draft ${draftId} usedInUploadAt:`,

@@ -550,6 +550,8 @@ export function DraftMetadataModal({
     const didSave = await onSave({ closeAfterSave: false });
     if (!didSave) return;
 
+    let activeUploadJobId: string | null = null;
+
     try {
       setUploading(true);
       setUploadProgress(0);
@@ -593,6 +595,7 @@ export function DraftMetadataModal({
         uploadUrl: string;
         uploadJobId: string;
       };
+      activeUploadJobId = uploadJobId;
       setCurrentUploadJobId(uploadJobId);
 
       await new Promise<void>((resolve, reject) => {
@@ -625,7 +628,12 @@ export function DraftMetadataModal({
         throw new Error(err?.message ?? err?.error ?? 'Failed to confirm upload');
       }
 
+      activeUploadJobId = null;
+      setCurrentUploadJobId(null);
       setVideoFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       setUploadProgress(0);
       setUploadComplete(true);
       await loadUploadHistory(value.id);
@@ -635,13 +643,20 @@ export function DraftMetadataModal({
     } catch (error) {
       setUploadProgress(0);
       if (error instanceof Error && error.message === 'UPLOAD_ABORTED') {
+        // Keep currentUploadJobId so handleCancelUpload / clearPendingVideoSelection can
+        // finish server-side cancellation; do not clear in finally.
         return;
       }
+      if (activeUploadJobId) {
+        void fetch(`/api/uploads/${activeUploadJobId}/cancel`, { method: 'POST' }).catch(() => {
+          // Best-effort: release quota / mark cancelled when PUT or complete failed.
+        });
+      }
+      setCurrentUploadJobId(null);
       toast.error(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       xhrRef.current = null;
       setUploading(false);
-      setCurrentUploadJobId(null);
     }
   };
 

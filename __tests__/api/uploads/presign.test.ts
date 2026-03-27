@@ -165,6 +165,7 @@ describe('POST /api/uploads/presign', () => {
       r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
       status: 'pending',
       errorMessage: null,
+      quotaClaimMonth: '2000-01',
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
@@ -553,6 +554,11 @@ describe('POST /api/uploads/presign', () => {
       const response = await POST(request);
       expect(response.status).toBe(200);
       expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', true);
+      expect(vi.mocked(createUploadJob)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          quotaClaimMonth: '',
+        })
+      );
     });
   });
 
@@ -650,6 +656,7 @@ describe('POST /api/uploads/presign', () => {
         userId: 'user-123',
         draftId: 'draft-abc',
         r2Key: expect.stringContaining('temp/uploads/user-123/'),
+        quotaClaimMonth: '2000-01',
       });
     });
 

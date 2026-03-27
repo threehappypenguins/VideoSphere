@@ -197,6 +197,7 @@ const tables: TableConfig[] = [
       { key: 'r2Key', type: 'varchar', size: 1024, required: false },
       { key: 'status', type: 'varchar', size: 64, required: true },
       { key: 'errorMessage', type: 'text', size: 2000, required: false },
+      { key: 'quotaClaimMonth', type: 'varchar', size: 7, required: false },
     ],
   },
   {

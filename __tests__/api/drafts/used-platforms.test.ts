@@ -89,6 +89,7 @@ function jobWithUploads(
     r2Key: 'k',
     status: 'completed',
     errorMessage: null,
+    quotaClaimMonth: null,
     $createdAt: '2026-01-01T00:00:00.000Z',
     $updatedAt: '2026-01-01T00:00:00.000Z',
     platformUploads: platforms.map((p) => minimalPlatformUpload(p)),
