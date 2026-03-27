@@ -71,7 +71,8 @@ interface DraftMetadataModalProps {
   initialConnectionsResolved?: boolean;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (options?: { closeAfterSave?: boolean }) => Promise<boolean>;
+  onSave: (options?: { closeAfterSave?: boolean }) => Promise<{ saved: boolean; draftId?: string }>;
+  onUploadComplete?: () => Promise<void> | void;
   onDelete?: (draftId: string) => Promise<boolean>;
   onChange: (next: DraftEditorValues) => void;
   canUseAiMetadata?: boolean;
@@ -125,6 +126,7 @@ export function DraftMetadataModal({
   isSaving,
   onClose,
   onSave,
+  onUploadComplete,
   onDelete,
   onChange,
   canUseAiMetadata = false,
@@ -524,6 +526,16 @@ export function DraftMetadataModal({
   const hasGeneratedMetadata =
     value !== null &&
     (value.title.trim() !== '' || value.description.trim() !== '' || value.tags.length > 0);
+  const isCreateDraftEmpty =
+    mode === 'create' &&
+    value !== null &&
+    value.title.trim() === '' &&
+    value.description.trim() === '' &&
+    value.tags.length === 0 &&
+    videoFile === null &&
+    !uploading &&
+    currentUploadJobId === null &&
+    !cancelServerFailed;
 
   const applyAiMetadata = (next: Pick<DraftEditorValues, 'title' | 'description' | 'tags'>) => {
     if (!value) return;
@@ -601,7 +613,7 @@ export function DraftMetadataModal({
       const isAbort =
         (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
       if (isAbort) return;
-      // Keep UX aligned with DraftWizard messaging without triggering
+      // Keep UX aligned with existing metadata generation messaging without triggering
       // Next.js dev error overlay from client-side console.error.
       console.warn('AI metadata generation failed:', error);
       toast.error('Failed to generate metadata. Please try again.');
@@ -633,15 +645,25 @@ export function DraftMetadataModal({
 
   const handleConnectClick = async (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
-    const didSave = await onSave({ closeAfterSave: false });
-    if (didSave) {
+    if (isCreateDraftEmpty) {
+      onClose();
+      router.push('/profile/connections');
+      return;
+    }
+    const result = await onSave({ closeAfterSave: false });
+    if (result.saved) {
       router.push('/profile/connections');
     }
   };
 
   const handleConnectAction = async () => {
-    const didSave = await onSave({ closeAfterSave: false });
-    if (didSave) {
+    if (isCreateDraftEmpty) {
+      onClose();
+      router.push('/profile/connections');
+      return;
+    }
+    const result = await onSave({ closeAfterSave: false });
+    if (result.saved) {
       router.push('/profile/connections');
     }
   };
@@ -649,8 +671,13 @@ export function DraftMetadataModal({
   const handleUploadVideo = async () => {
     if (!value || !videoFile) return;
 
-    const didSave = await onSave({ closeAfterSave: false });
-    if (!didSave) return;
+    const saveResult = await onSave({ closeAfterSave: false });
+    if (!saveResult.saved) return;
+    const draftIdForUpload = saveResult.draftId ?? value.id;
+    if (!draftIdForUpload) {
+      toast.error('Please save the draft before uploading.');
+      return;
+    }
 
     let activeUploadJobId: string | null = null;
     let uploadAbortedByUser = false;
@@ -667,7 +694,7 @@ export function DraftMetadataModal({
           fileName: videoFile.name,
           contentType: videoFile.type,
           fileSize: videoFile.size,
-          draftId: value.id,
+          draftId: draftIdForUpload,
         }),
       });
 
@@ -740,7 +767,8 @@ export function DraftMetadataModal({
       }
       setUploadProgress(0);
       setUploadComplete(true);
-      await loadUploadHistory(value.id);
+      await loadUploadHistory(draftIdForUpload);
+      await onUploadComplete?.();
       setShowUploadHistory(true);
       setUploadLimitState({ reached: false });
       toast.success('Video uploaded successfully');

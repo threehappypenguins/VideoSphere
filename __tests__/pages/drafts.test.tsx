@@ -24,12 +24,6 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/',
 }));
 
-// Mock DraftWizard and its hook — the wizard is tested separately
-vi.mock('@/components/DraftWizard', () => ({ DraftWizard: () => null }));
-vi.mock('@/hooks/use-draft-wizard', () => ({
-  useDraftWizard: () => ({ isOpen: false, openWizard: vi.fn(), closeWizard: vi.fn() }),
-}));
-
 import DraftsPage from '@/app/(dashboard)/dashboard/drafts/page';
 
 afterEach(() => {
@@ -87,7 +81,7 @@ describe('DraftsPage', () => {
     expect(await screen.findByText(/create a draft to get started/i)).toBeInTheDocument();
   });
 
-  it('renders a Create draft button that opens the wizard', async () => {
+  it('renders a Create draft button', async () => {
     vi.spyOn(global, 'fetch')
       .mockResolvedValueOnce({
         ok: true,

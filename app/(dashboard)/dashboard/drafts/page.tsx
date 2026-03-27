@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
-import { DraftWizard } from '@/components/DraftWizard';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
-import { useDraftWizard } from '@/hooks/use-draft-wizard';
 import type { ApiResponse, ConnectedAccountPlatform, ConnectedAccountPublic, Draft } from '@/types';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
@@ -43,8 +41,18 @@ function createEditorValues(draft: Draft): DraftEditorValues {
   };
 }
 
+function createNewEditorValues(): DraftEditorValues {
+  return {
+    id: '',
+    title: '',
+    description: '',
+    tags: [],
+    visibility: 'public',
+    targets: [],
+  };
+}
+
 export default function DraftsPage() {
-  const { isOpen, openWizard, closeWizard } = useDraftWizard();
   const searchParams = useSearchParams();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedAccountPlatform[]>([]);
@@ -52,17 +60,21 @@ export default function DraftsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [view, setView] = useState<DraftView>('list');
+  const [creatingDraft, setCreatingDraft] = useState<DraftEditorValues | null>(null);
   const [editingDraft, setEditingDraft] = useState<DraftEditorValues | null>(null);
+  const [isSavingCreate, setIsSavingCreate] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isDuplicatingId, setIsDuplicatingId] = useState<string | null>(null);
   const [canUseAiMetadata, setCanUseAiMetadata] = useState(false);
 
   useEffect(() => {
-    if (searchParams.get('openWizard') === 'true') {
-      openWizard();
+    const shouldOpenCreate =
+      searchParams.get('openCreateDraft') === 'true' || searchParams.get('openWizard') === 'true';
+    if (shouldOpenCreate) {
+      setCreatingDraft((prev) => prev ?? createNewEditorValues());
     }
-  }, [searchParams, openWizard]);
+  }, [searchParams]);
 
   const loadDrafts = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -135,6 +147,30 @@ export default function DraftsPage() {
     void loadDrafts(controller.signal);
     return () => controller.abort();
   }, [loadDrafts]);
+
+  useEffect(() => {
+    const editDraftId = searchParams.get('editDraft');
+    if (!editDraftId || isLoading || editingDraft !== null) return;
+    const draft = drafts.find((item) => item.id === editDraftId);
+    if (draft) {
+      setEditingDraft(createEditorValues(draft));
+    }
+  }, [drafts, editingDraft, isLoading, searchParams]);
+
+  useEffect(() => {
+    if (!creatingDraft) return;
+    if (creatingDraft.targets.length > 0) return;
+    if (connectedPlatforms.length === 0) return;
+
+    // Create mode default: preselect every connected platform.
+    setCreatingDraft((prev) => {
+      if (!prev || prev.targets.length > 0) return prev;
+      return {
+        ...prev,
+        targets: [...connectedPlatforms],
+      };
+    });
+  }, [connectedPlatforms, creatingDraft]);
 
   const handleDeleteDraft = useCallback(
     async (draft: Draft) => {
@@ -213,15 +249,17 @@ export default function DraftsPage() {
   );
 
   const handleSaveEdit = useCallback(
-    async (options?: { closeAfterSave?: boolean }): Promise<boolean> => {
-      if (!editingDraft) return false;
+    async (options?: {
+      closeAfterSave?: boolean;
+    }): Promise<{ saved: boolean; draftId?: string }> => {
+      if (!editingDraft) return { saved: false };
       if (editingDraft.title.trim() === '') {
         toast.error('Title is required');
-        return false;
+        return { saved: false };
       }
       if (editingDraft.targets.length === 0) {
         toast.error('Select at least one target platform');
-        return false;
+        return { saved: false };
       }
 
       setIsSavingEdit(true);
@@ -246,16 +284,81 @@ export default function DraftsPage() {
           setEditingDraft(null);
         }
         await loadDrafts();
-        return true;
+        return { saved: true, draftId: editingDraft.id };
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to update draft');
-        return false;
+        return { saved: false };
       } finally {
         setIsSavingEdit(false);
       }
     },
     [editingDraft, loadDrafts]
   );
+
+  const handleSaveCreate = useCallback(
+    async (options?: {
+      closeAfterSave?: boolean;
+    }): Promise<{ saved: boolean; draftId?: string }> => {
+      if (!creatingDraft) return { saved: false };
+      if (creatingDraft.title.trim() === '') {
+        toast.error('Title is required');
+        return { saved: false };
+      }
+      if (creatingDraft.targets.length === 0) {
+        toast.error('Select at least one target platform');
+        return { saved: false };
+      }
+
+      setIsSavingCreate(true);
+      try {
+        const response = await fetch('/api/drafts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: creatingDraft.title,
+            description: creatingDraft.description,
+            tags: creatingDraft.tags,
+            visibility: creatingDraft.visibility,
+            targets: creatingDraft.targets,
+          }),
+        });
+        if (!response.ok) {
+          const err = (await response.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(err?.message ?? 'Failed to create draft');
+        }
+        const payload = (await response.json()) as ApiResponse<Draft>;
+        const createdDraft = payload.data;
+        if (!createdDraft) {
+          throw new Error('Failed to create draft');
+        }
+
+        setCreatingDraft(createEditorValues(createdDraft));
+        setDrafts((prev) => [
+          createdDraft,
+          ...prev.filter((draft) => draft.id !== createdDraft.id),
+        ]);
+        toast.success('Draft created');
+
+        if (options?.closeAfterSave === true) {
+          setCreatingDraft(null);
+        }
+        return { saved: true, draftId: createdDraft.id };
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to create draft');
+        return { saved: false };
+      } finally {
+        setIsSavingCreate(false);
+      }
+    },
+    [creatingDraft]
+  );
+
+  const handleOpenCreateModal = useCallback(() => {
+    setCreatingDraft({
+      ...createNewEditorValues(),
+      targets: [...connectedPlatforms],
+    });
+  }, [connectedPlatforms]);
 
   const hasDrafts = drafts.length > 0;
   const headingDescription = useMemo(
@@ -277,7 +380,7 @@ export default function DraftsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={openWizard}
+            onClick={handleOpenCreateModal}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             Create draft
@@ -342,7 +445,18 @@ export default function DraftsPage() {
         ) : null}
       </div>
 
-      <DraftWizard isOpen={isOpen} onClose={closeWizard} />
+      <DraftMetadataModal
+        mode="create"
+        value={creatingDraft}
+        initialConnectedPlatforms={connectedPlatforms}
+        initialConnectionsResolved={hasLoadedConnections}
+        onChange={setCreatingDraft}
+        onClose={() => setCreatingDraft(null)}
+        onSave={handleSaveCreate}
+        onUploadComplete={loadDrafts}
+        isSaving={isSavingCreate}
+        canUseAiMetadata={canUseAiMetadata}
+      />
       <DraftMetadataModal
         mode="edit"
         value={editingDraft}
@@ -351,6 +465,7 @@ export default function DraftsPage() {
         onChange={setEditingDraft}
         onClose={() => setEditingDraft(null)}
         onSave={handleSaveEdit}
+        onUploadComplete={loadDrafts}
         onDelete={handleDeleteDraftById}
         isSaving={isSavingEdit}
         canUseAiMetadata={canUseAiMetadata}
