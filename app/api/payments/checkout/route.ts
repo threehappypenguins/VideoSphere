@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       payment_method_types: ['card'],
       line_items: lineItems,
       client_reference_id: userId, // Store userId for webhook verification
-      success_url: `${appUrl}/profile?upgrade=success`,
+      success_url: `${appUrl}/payment/success`,
       cancel_url: `${appUrl}/pricing`,
     });
 

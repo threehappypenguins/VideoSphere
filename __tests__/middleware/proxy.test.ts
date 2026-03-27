@@ -308,6 +308,41 @@ describe('Proxy Middleware', () => {
     });
   });
 
+  describe('Query String Preservation', () => {
+    it('should preserve query params in redirect (e.g. ?upgrade=success)', async () => {
+      const request = createMockRequest('/profile?upgrade=success');
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      const location = result.headers.get('location') || '';
+      expect(location).toContain('/login');
+      // The redirect param should contain the full path with query string
+      const url = new URL(location);
+      const redirect = url.searchParams.get('redirect');
+      expect(redirect).toBe('/profile?upgrade=success');
+    });
+
+    it('should preserve query params when session verification fails', async () => {
+      const sessionToken = 'invalid_token';
+      const request = createMockRequest('/profile?upgrade=success', {
+        a_session_69aae95b002b81fe4fdb: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      const url = new URL(result.headers.get('location') || '');
+      const redirect = url.searchParams.get('redirect');
+      expect(redirect).toBe('/profile?upgrade=success');
+    });
+  });
+
   describe('Route Matching', () => {
     it('should protect /dashboard routes', async () => {
       const request = createMockRequest('/dashboard/videos');

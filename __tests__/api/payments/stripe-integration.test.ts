@@ -169,7 +169,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(checkoutSessionCreateMock).toHaveBeenCalledTimes(1);
       const call = checkoutSessionCreateMock.mock.calls[0]?.[0];
       expect(call.client_reference_id).toBe('user_123');
-      expect(call.success_url).toContain('/profile?upgrade=success');
+      expect(call.success_url).toContain('/payment/success');
       expect(call.cancel_url).toContain('/pricing');
       expect(call.line_items).toEqual([
         {
