@@ -453,7 +453,7 @@ describe('GET /api/drafts', () => {
       expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledWith(
         'user-123',
         ['draft-missing-a', 'draft-missing-b'],
-        { maxRows: 5000 }
+        expect.objectContaining({ maxRows: 5000, signal: expect.any(Object) })
       );
     });
 
@@ -488,7 +488,7 @@ describe('GET /api/drafts', () => {
       expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledWith(
         'user-123',
         ['draft-missing-a'],
-        { maxRows: 5000 }
+        expect.objectContaining({ maxRows: 5000, signal: expect.any(Object) })
       );
     });
 

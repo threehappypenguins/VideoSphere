@@ -25,13 +25,19 @@ const BACKFILL_SCAN_MAX_ROWS = 5000;
 const BACKFILL_SCAN_TIMEOUT_MS = 1500;
 const BACKFILL_PERSIST_CONCURRENCY = 4;
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+async function withAbortTimeout<T>(
+  task: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number
+): Promise<T | null> {
+  const controller = new AbortController();
+  const { signal } = controller;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
-    const timeoutPromise = new Promise<null>((resolve) => {
-      timeoutId = setTimeout(() => resolve(null), timeoutMs);
-    });
-    return await Promise.race([promise, timeoutPromise]);
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    return await task(signal);
+  } catch (err: unknown) {
+    if ((err as { name?: string })?.name === 'AbortError') return null;
+    throw err;
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
   }
@@ -223,13 +229,15 @@ export async function GET(req: NextRequest) {
 
     let earliestUsedByDraftId = new Map<string, string>();
     if (missingUsed.length > 0) {
-      // No maxRows cap: users can have >5k jobs for these drafts; oldest-first pages
-      // could otherwise fill the default 5000-row budget before every draftId appears.
-      // listUploadJobsByUserForDraftIds stops as soon as each draft has been seen once.
-      const jobs = await withTimeout(
-        listUploadJobsByUserForDraftIds(userId, missingUsed, {
-          maxRows: BACKFILL_SCAN_MAX_ROWS,
-        }),
+      // Bounded best-effort scan: cap rows/time so GET /api/drafts stays responsive.
+      // This may not discover every missing draft in one request for very large histories,
+      // but successful backfills are persisted and converge over subsequent requests.
+      const jobs = await withAbortTimeout(
+        (signal) =>
+          listUploadJobsByUserForDraftIds(userId, missingUsed, {
+            maxRows: BACKFILL_SCAN_MAX_ROWS,
+            signal,
+          }),
         BACKFILL_SCAN_TIMEOUT_MS
       );
       if (jobs === null) {

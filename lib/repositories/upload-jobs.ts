@@ -165,18 +165,28 @@ export async function listUploadJobsByUserForDraftIds(
   userId: string,
   draftIds: string[],
   /** `maxRows` defaults to 5000; pass `Number.POSITIVE_INFINITY` to page until every draft id is seen (e.g. GET /api/drafts backfill). */
-  options?: { pageSize?: number; maxRows?: number }
+  options?: { pageSize?: number; maxRows?: number; signal?: AbortSignal }
 ): Promise<UploadJob[]> {
+  const throwIfAborted = (signal?: AbortSignal) => {
+    if (!signal?.aborted) return;
+    const abortErr = new Error('Upload jobs scan aborted');
+    abortErr.name = 'AbortError';
+    throw abortErr;
+  };
+
   const uniqueDraftIds = [...new Set(draftIds.filter((id) => typeof id === 'string' && id !== ''))];
   if (uniqueDraftIds.length === 0) return [];
 
   const pageSize = options?.pageSize ?? 100;
   const maxRows = options?.maxRows ?? 5000;
+  const signal = options?.signal;
   let offset = 0;
   const jobs: UploadJob[] = [];
   const seenDraftIds = new Set<string>();
 
   while (true) {
+    throwIfAborted(signal);
+
     const remaining = Number.isFinite(maxRows) ? Math.max(0, maxRows - jobs.length) : Infinity;
     const thisPageLimit = Math.min(pageSize, remaining);
     if (!Number.isFinite(thisPageLimit) || thisPageLimit <= 0) break;
@@ -194,6 +204,9 @@ export async function listUploadJobsByUserForDraftIds(
       ],
       total: false,
     });
+    // Appwrite SDK does not currently accept AbortSignal for in-flight listRows calls.
+    // Check immediately after each page so timed-out callers stop before the next page.
+    throwIfAborted(signal);
 
     const pageJobs = (rows ?? []).map((r) =>
       rowToUploadJob(r as unknown as Record<string, unknown>)

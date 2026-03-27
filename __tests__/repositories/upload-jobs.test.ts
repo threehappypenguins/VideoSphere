@@ -373,6 +373,34 @@ describe('upload-jobs repository', () => {
       const queries = mockListRows.mock.calls[0][0].queries as string[];
       expect(queries).toContain('limit(3)');
     });
+
+    it('throws AbortError before querying when signal is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        listUploadJobsByUserForDraftIds('user-1', ['a'], { signal: controller.signal })
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      expect(mockListRows).not.toHaveBeenCalled();
+    });
+
+    it('throws AbortError after current page when signal is aborted mid-scan', async () => {
+      const controller = new AbortController();
+      mockListRows.mockImplementationOnce(async () => {
+        controller.abort();
+        return {
+          rows: [{ ...baseJobRow, $id: 'j1', draftId: 'a' }],
+        };
+      });
+
+      await expect(
+        listUploadJobsByUserForDraftIds('user-1', ['a', 'b'], {
+          pageSize: 1,
+          signal: controller.signal,
+        })
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      expect(mockListRows).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('findUploadJobForDistribution', () => {
