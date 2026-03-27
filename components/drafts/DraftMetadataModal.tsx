@@ -264,6 +264,15 @@ export function DraftMetadataModal({
   }, [draftId]);
 
   useEffect(() => {
+    return () => {
+      if (xhrRef.current) {
+        xhrRef.current.abort();
+        xhrRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (initialConnectedPlatforms) {
       setConnectedPlatforms(initialConnectedPlatforms);
     }
