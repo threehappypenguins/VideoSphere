@@ -325,6 +325,43 @@ describe('upload-jobs repository', () => {
       expect(queries).toContain('limit(2)');
     });
 
+    it('with maxRows Infinity, keeps paging until every draft id is seen (cap would stop early)', async () => {
+      mockListRows
+        .mockResolvedValueOnce({
+          rows: [
+            { ...baseJobRow, $id: 'j1', draftId: 'a' },
+            { ...baseJobRow, $id: 'j2', draftId: 'a' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [{ ...baseJobRow, $id: 'j3', draftId: 'b' }],
+        });
+
+      const unbounded = await listUploadJobsByUserForDraftIds('user-1', ['a', 'b'], {
+        pageSize: 2,
+        maxRows: Number.POSITIVE_INFINITY,
+      });
+
+      expect(mockListRows).toHaveBeenCalledTimes(2);
+      expect(unbounded.some((j) => j.draftId === 'b')).toBe(true);
+
+      vi.clearAllMocks();
+      mockListRows.mockResolvedValueOnce({
+        rows: [
+          { ...baseJobRow, $id: 'j1', draftId: 'a' },
+          { ...baseJobRow, $id: 'j2', draftId: 'a' },
+        ],
+      });
+
+      const capped = await listUploadJobsByUserForDraftIds('user-1', ['a', 'b'], {
+        pageSize: 2,
+        maxRows: 2,
+      });
+
+      expect(mockListRows).toHaveBeenCalledTimes(1);
+      expect(capped.some((j) => j.draftId === 'b')).toBe(false);
+    });
+
     it('uses the remaining maxRows budget as the page limit on the first request', async () => {
       mockListRows.mockResolvedValue({ rows: [] });
 

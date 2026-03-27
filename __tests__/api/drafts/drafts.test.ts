@@ -449,10 +449,11 @@ describe('GET /api/drafts', () => {
       await GET(req);
 
       expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledTimes(1);
-      expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledWith('user-123', [
-        'draft-missing-a',
-        'draft-missing-b',
-      ]);
+      expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledWith(
+        'user-123',
+        ['draft-missing-a', 'draft-missing-b'],
+        { maxRows: Number.POSITIVE_INFINITY }
+      );
     });
 
     it('does not call listUploadJobsByUserForDraftIds when every draft has a non-empty usedInUploadAt', async () => {

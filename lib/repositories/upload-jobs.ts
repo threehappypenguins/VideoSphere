@@ -164,6 +164,7 @@ export async function listUploadJobsByUser(
 export async function listUploadJobsByUserForDraftIds(
   userId: string,
   draftIds: string[],
+  /** `maxRows` defaults to 5000; pass `Number.POSITIVE_INFINITY` to page until every draft id is seen (e.g. GET /api/drafts backfill). */
   options?: { pageSize?: number; maxRows?: number }
 ): Promise<UploadJob[]> {
   const uniqueDraftIds = [...new Set(draftIds.filter((id) => typeof id === 'string' && id !== ''))];

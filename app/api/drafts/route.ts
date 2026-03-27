@@ -188,7 +188,12 @@ export async function GET(req: NextRequest) {
 
     let earliestUsedByDraftId = new Map<string, string>();
     if (missingUsed.length > 0) {
-      const jobs = await listUploadJobsByUserForDraftIds(userId, missingUsed);
+      // No maxRows cap: users can have >5k jobs for these drafts; oldest-first pages
+      // could otherwise fill the default 5000-row budget before every draftId appears.
+      // listUploadJobsByUserForDraftIds stops as soon as each draft has been seen once.
+      const jobs = await listUploadJobsByUserForDraftIds(userId, missingUsed, {
+        maxRows: Number.POSITIVE_INFINITY,
+      });
       for (const j of jobs) {
         if (!j.draftId) continue;
         if (!earliestUsedByDraftId.has(j.draftId)) {

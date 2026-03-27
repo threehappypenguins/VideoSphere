@@ -144,6 +144,8 @@ export function DraftMetadataModal({
   const [tagInput, setTagInput] = useState('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  /** True when server cancel failed after XHR abort; keeps retry/clear UI until resolved. */
+  const [cancelServerFailed, setCancelServerFailed] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadComplete, setUploadComplete] = useState(false);
   const [currentUploadJobId, setCurrentUploadJobId] = useState<string | null>(null);
@@ -180,8 +182,14 @@ export function DraftMetadataModal({
 
   const loadUploadHistory = async (id: string, signal?: AbortSignal) => {
     const skipIfAborted = () => Boolean(signal?.aborted);
-
-    setIsLoadingUploadHistory(true);
+    // Background refresh when we already have cached rows for this draft — avoids
+    // flashing the loading UI on draft switches (draftId effect hydrates from cache first).
+    const hadCached = uploadHistoryCacheRef.current.has(id);
+    let showedLoading = false;
+    if (!hadCached) {
+      setIsLoadingUploadHistory(true);
+      showedLoading = true;
+    }
     try {
       const response = await fetch(`/api/drafts/${id}/upload-history`, {
         cache: 'no-store',
@@ -209,7 +217,7 @@ export function DraftMetadataModal({
       setUploadHistory([]);
       setCachedUploadHistory(uploadHistoryCacheRef.current, id, []);
     } finally {
-      if (!signal?.aborted) {
+      if (!signal?.aborted && showedLoading) {
         setIsLoadingUploadHistory(false);
       }
     }
@@ -471,6 +479,7 @@ export function DraftMetadataModal({
   const canSave =
     !isSaving &&
     !uploading &&
+    !cancelServerFailed &&
     !isCancellingUpload &&
     value !== null &&
     value.targets.length > 0 &&
@@ -608,8 +617,10 @@ export function DraftMetadataModal({
     if (!didSave) return;
 
     let activeUploadJobId: string | null = null;
+    let uploadAbortedByUser = false;
 
     try {
+      setCancelServerFailed(false);
       setUploading(true);
       setUploadProgress(0);
 
@@ -700,8 +711,9 @@ export function DraftMetadataModal({
     } catch (error) {
       setUploadProgress(0);
       if (error instanceof Error && error.message === 'UPLOAD_ABORTED') {
-        // Keep currentUploadJobId so handleCancelUpload / clearPendingVideoSelection can
-        // finish server-side cancellation; do not clear in finally.
+        uploadAbortedByUser = true;
+        // Keep currentUploadJobId and uploading=true until handleCancelUpload completes
+        // server-side cancel (or cancelServerFailed); do not clear in finally.
         return;
       }
       if (activeUploadJobId) {
@@ -713,12 +725,16 @@ export function DraftMetadataModal({
       toast.error(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       xhrRef.current = null;
-      setUploading(false);
+      if (!uploadAbortedByUser) {
+        setUploading(false);
+      }
     }
   };
 
   const handleCancelUpload = async () => {
-    if (!uploading || !currentUploadJobId) return;
+    if (!currentUploadJobId) return;
+    if (!uploading && !cancelServerFailed) return; // retry path only when stuck or in-flight
+
     setIsCancellingUpload(true);
     try {
       if (xhrRef.current) {
@@ -734,9 +750,12 @@ export function DraftMetadataModal({
         } | null;
         const details = errBody?.message ?? errBody?.error ?? `(${cancelRes.status})`;
         toast.error(`Failed to cancel upload. ${details}`);
+        setUploading(false);
+        setCancelServerFailed(true);
         return;
       }
 
+      setCancelServerFailed(false);
       clearPendingVideoSelection({ skipServerCancel: true });
       const draftId = value?.id;
       if (draftId) {
@@ -750,6 +769,8 @@ export function DraftMetadataModal({
           ? `Failed to cancel upload. ${error.message}`
           : 'Failed to cancel upload'
       );
+      setUploading(false);
+      setCancelServerFailed(true);
     } finally {
       setIsCancellingUpload(false);
     }
@@ -774,6 +795,7 @@ export function DraftMetadataModal({
     setUploadComplete(false);
     setCurrentUploadJobId(null);
     setUploading(false);
+    setCancelServerFailed(false);
     setIsCancellingUpload(false);
     setUploadLimitState({ reached: false });
     if (fileInputRef.current) {
@@ -1058,23 +1080,49 @@ export function DraftMetadataModal({
                   {videoFile ? videoFile.name : 'No file selected'}
                 </span>
               </div>
-              {uploading ? (
+              {uploading || cancelServerFailed ? (
                 <div className="mt-2 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Uploading...</span>
-                    <span>{uploadProgress}%</span>
+                  {cancelServerFailed && !uploading ? (
+                    <p className="text-xs text-amber-600 dark:text-amber-500">
+                      Could not cancel on the server. Retry or clear this pending upload.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Uploading...</span>
+                        <span>{uploadProgress}%</span>
+                      </div>
+                      <Progress value={uploadProgress} className="h-2" />
+                    </>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleCancelUpload();
+                      }}
+                      disabled={isCancellingUpload}
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                    >
+                      {isCancellingUpload
+                        ? 'Cancelling...'
+                        : cancelServerFailed && !uploading
+                          ? 'Retry cancel'
+                          : 'Cancel upload'}
+                    </button>
+                    {cancelServerFailed && !uploading ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearPendingVideoSelection();
+                        }}
+                        disabled={isCancellingUpload}
+                        className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        Clear pending upload
+                      </button>
+                    ) : null}
                   </div>
-                  <Progress value={uploadProgress} className="h-2" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleCancelUpload();
-                    }}
-                    disabled={isCancellingUpload}
-                    className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                  >
-                    {isCancellingUpload ? 'Cancelling...' : 'Cancel upload'}
-                  </button>
                 </div>
               ) : null}
               {uploadLimitState.reached ? (
@@ -1189,7 +1237,12 @@ export function DraftMetadataModal({
             disabled={
               uploadComplete
                 ? false
-                : !canSave || !videoFile || uploading || isSaving || uploadLimitState.reached
+                : !canSave ||
+                  !videoFile ||
+                  uploading ||
+                  cancelServerFailed ||
+                  isSaving ||
+                  uploadLimitState.reached
             }
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
@@ -1199,7 +1252,9 @@ export function DraftMetadataModal({
                 ? 'Upload limit reached'
                 : uploading
                   ? `Uploading ${uploadProgress}%`
-                  : 'Upload & Save'}
+                  : cancelServerFailed
+                    ? 'Pending upload'
+                    : 'Upload & Save'}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -1245,7 +1300,7 @@ export function DraftMetadataModal({
                 setShowUploadConfirm(false);
                 void handleUploadVideo();
               }}
-              disabled={!canSave || !videoFile || uploading || isSaving}
+              disabled={!canSave || !videoFile || uploading || cancelServerFailed || isSaving}
             >
               Yes, upload
             </AlertDialogAction>
