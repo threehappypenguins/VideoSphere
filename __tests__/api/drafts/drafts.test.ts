@@ -453,7 +453,7 @@ describe('GET /api/drafts', () => {
       expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledWith(
         'user-123',
         ['draft-missing-a', 'draft-missing-b'],
-        { maxRows: Number.POSITIVE_INFINITY }
+        { maxRows: 5000 }
       );
     });
 
@@ -475,6 +475,21 @@ describe('GET /api/drafts', () => {
       await GET(req);
 
       expect(listUploadJobsByUserForDraftIds).not.toHaveBeenCalled();
+    });
+
+    it('uses a bounded backfill scan instead of Infinity', async () => {
+      vi.mocked(listDraftsByUser).mockResolvedValueOnce([{ ...baseDraft, id: 'draft-missing-a' }]);
+      vi.mocked(listUploadJobsByUserForDraftIds).mockResolvedValueOnce([]);
+
+      const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'tok' });
+      const res = await GET(req);
+
+      expect(res.status).toBe(200);
+      expect(listUploadJobsByUserForDraftIds).toHaveBeenCalledWith(
+        'user-123',
+        ['draft-missing-a'],
+        { maxRows: 5000 }
+      );
     });
 
     it('merges the first upload job $createdAt per draft into usedInUploadAt when missing', async () => {

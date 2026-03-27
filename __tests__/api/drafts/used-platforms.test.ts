@@ -62,9 +62,14 @@ function minimalPlatformUpload(platform: PlatformUpload['platform']): PlatformUp
 
 function createRequest(
   draftId: string,
-  options: { cookies?: Record<string, string> } = {}
+  options: { cookies?: Record<string, string>; searchParams?: Record<string, string> } = {}
 ): NextRequest {
   const url = new URL(`http://localhost:3000/api/drafts/${draftId}/used-platforms`);
+  if (options.searchParams) {
+    for (const [k, v] of Object.entries(options.searchParams)) {
+      url.searchParams.set(k, v);
+    }
+  }
   const cookieHeader = Object.entries(options.cookies ?? {})
     .map(([k, v]) => `${k}=${v}`)
     .join('; ');
@@ -161,7 +166,10 @@ describe('GET /api/drafts/[id]/used-platforms', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: string[] };
 
-    expect(getUploadJobsWithPlatformUploadsForDraft).toHaveBeenCalledWith('user-123', DRAFT_ID);
+    expect(getUploadJobsWithPlatformUploadsForDraft).toHaveBeenCalledWith('user-123', DRAFT_ID, {
+      limit: 100,
+      offset: 0,
+    });
     expect(body.data).toEqual(['youtube', 'vimeo']);
   });
 
@@ -178,5 +186,22 @@ describe('GET /api/drafts/[id]/used-platforms', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: string[] };
     expect(body.data).toEqual(['youtube', 'vimeo']);
+  });
+
+  it('passes explicit limit/offset and clamps invalid values', async () => {
+    vi.mocked(getUploadJobsWithPlatformUploadsForDraft).mockResolvedValueOnce([]);
+
+    await GET(
+      createRequest(DRAFT_ID, {
+        cookies: { [SESSION_COOKIE]: 'tok' },
+        searchParams: { limit: '500', offset: '-10' },
+      }),
+      makeParams(DRAFT_ID)
+    );
+
+    expect(getUploadJobsWithPlatformUploadsForDraft).toHaveBeenCalledWith('user-123', DRAFT_ID, {
+      limit: 300,
+      offset: 0,
+    });
   });
 });

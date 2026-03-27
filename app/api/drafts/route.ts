@@ -21,6 +21,41 @@ import {
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
+const BACKFILL_SCAN_MAX_ROWS = 5000;
+const BACKFILL_SCAN_TIMEOUT_MS = 1500;
+const BACKFILL_PERSIST_CONCURRENCY = 4;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timeoutId = setTimeout(() => resolve(null), timeoutMs);
+    });
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
+async function runWithConcurrencyLimit<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let nextIndex = 0;
+  const workers = Array.from({ length: limit }, async () => {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) return;
+      await worker(items[current]);
+    }
+  });
+  await Promise.all(workers);
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/drafts
 // ---------------------------------------------------------------------------
@@ -191,13 +226,22 @@ export async function GET(req: NextRequest) {
       // No maxRows cap: users can have >5k jobs for these drafts; oldest-first pages
       // could otherwise fill the default 5000-row budget before every draftId appears.
       // listUploadJobsByUserForDraftIds stops as soon as each draft has been seen once.
-      const jobs = await listUploadJobsByUserForDraftIds(userId, missingUsed, {
-        maxRows: Number.POSITIVE_INFINITY,
-      });
-      for (const j of jobs) {
-        if (!j.draftId) continue;
-        if (!earliestUsedByDraftId.has(j.draftId)) {
-          earliestUsedByDraftId.set(j.draftId, j.$createdAt);
+      const jobs = await withTimeout(
+        listUploadJobsByUserForDraftIds(userId, missingUsed, {
+          maxRows: BACKFILL_SCAN_MAX_ROWS,
+        }),
+        BACKFILL_SCAN_TIMEOUT_MS
+      );
+      if (jobs === null) {
+        console.error(
+          `[GET /api/drafts] Upload backfill scan timed out after ${BACKFILL_SCAN_TIMEOUT_MS}ms for user ${userId}`
+        );
+      } else {
+        for (const j of jobs) {
+          if (!j.draftId) continue;
+          if (!earliestUsedByDraftId.has(j.draftId)) {
+            earliestUsedByDraftId.set(j.draftId, j.$createdAt);
+          }
         }
       }
     }
@@ -212,8 +256,10 @@ export async function GET(req: NextRequest) {
           });
 
     if (earliestUsedByDraftId.size > 0) {
-      await Promise.allSettled(
-        [...earliestUsedByDraftId.entries()].map(async ([draftId, earliestUsedAt]) => {
+      await runWithConcurrencyLimit(
+        [...earliestUsedByDraftId.entries()],
+        BACKFILL_PERSIST_CONCURRENCY,
+        async ([draftId, earliestUsedAt]) => {
           try {
             await markDraftUsedInUpload(draftId, earliestUsedAt);
           } catch (err) {
@@ -224,7 +270,7 @@ export async function GET(req: NextRequest) {
               err
             );
           }
-        })
+        }
       );
     }
 

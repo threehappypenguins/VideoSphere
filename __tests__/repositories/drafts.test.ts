@@ -531,6 +531,55 @@ describe('drafts repository', () => {
       expect(mockUpdateRow).toHaveBeenCalledTimes(2);
       expect(result?.usedInUploadAt).toBe(incomingEarlier);
     });
+
+    it('returns null when draft is deleted between initial read and first updateRow', async () => {
+      mockGetRow.mockResolvedValueOnce({ ...baseRow });
+      const err = new Error('Not found') as Error & { code?: number };
+      err.code = 404;
+      mockUpdateRow.mockRejectedValueOnce(err);
+
+      const result = await markDraftUsedInUpload('draft-1', '2026-01-05T00:00:00.000Z');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when draft is deleted before reconcile updateRow', async () => {
+      const incomingEarlier = '2026-01-05T00:00:00.000Z';
+      const concurrentLater = '2026-01-20T00:00:00.000Z';
+      mockGetRow.mockResolvedValueOnce({ ...baseRow }).mockResolvedValueOnce({
+        ...baseRow,
+        document: stringifyDraftDocumentForStorage({
+          targets: [...publishDefaults.targets],
+          title: publishDefaults.title,
+          description: publishDefaults.description,
+          visibility: publishDefaults.visibility,
+          tags: publishDefaults.tags,
+          platforms: publishDefaults.platforms,
+          usedInUploadAt: concurrentLater,
+        }),
+      });
+      const err = new Error('Not found') as Error & { code?: number };
+      err.code = 404;
+      mockUpdateRow
+        .mockResolvedValueOnce({
+          ...baseRow,
+          document: stringifyDraftDocumentForStorage({
+            targets: [...publishDefaults.targets],
+            title: publishDefaults.title,
+            description: publishDefaults.description,
+            visibility: publishDefaults.visibility,
+            tags: publishDefaults.tags,
+            platforms: publishDefaults.platforms,
+            usedInUploadAt: concurrentLater,
+          }),
+        })
+        .mockRejectedValueOnce(err);
+
+      const result = await markDraftUsedInUpload('draft-1', incomingEarlier);
+
+      expect(mockUpdateRow).toHaveBeenCalledTimes(2);
+      expect(result).toBeNull();
+    });
   });
 
   describe('deleteDraft', () => {

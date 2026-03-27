@@ -58,6 +58,11 @@ export async function markDraftUsedInUpload(
   id: string,
   usedAtIso: string = new Date().toISOString()
 ): Promise<Draft | null> {
+  const isNotFoundError = (err: unknown): boolean => {
+    const e = err as { code?: number };
+    return e?.code === 404;
+  };
+
   const buildDocumentJson = (draft: Draft, normalizedUsedAtIso: string) =>
     stringifyDraftDocumentForStorage({
       targets: draft.targets,
@@ -95,12 +100,18 @@ export async function markDraftUsedInUpload(
   const documentJson = buildDocumentJson(current, usedInUploadAt);
   assertDraftDocumentJsonWithinLimit(documentJson);
 
-  const row = await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: DRAFTS_COLLECTION_ID,
-    rowId: id,
-    data: { document: documentJson },
-  });
+  let row: unknown;
+  try {
+    row = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      rowId: id,
+      data: { document: documentJson },
+    });
+  } catch (err: unknown) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
   const updated = rowToDraft(row as unknown as Record<string, unknown>);
 
   // Best-effort race reconciliation: if a concurrent write stored a later value,
@@ -119,12 +130,18 @@ export async function markDraftUsedInUpload(
 
   const reconcileDocumentJson = buildDocumentJson(latest, usedInUploadAt);
   assertDraftDocumentJsonWithinLimit(reconcileDocumentJson);
-  const reconciledRow = await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: DRAFTS_COLLECTION_ID,
-    rowId: id,
-    data: { document: reconcileDocumentJson },
-  });
+  let reconciledRow: unknown;
+  try {
+    reconciledRow = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      rowId: id,
+      data: { document: reconcileDocumentJson },
+    });
+  } catch (err: unknown) {
+    if (isNotFoundError(err)) return null;
+    throw err;
+  }
   return rowToDraft(reconciledRow as unknown as Record<string, unknown>);
 }
 

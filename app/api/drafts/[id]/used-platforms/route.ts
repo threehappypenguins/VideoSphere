@@ -5,6 +5,9 @@ import { getUploadJobsWithPlatformUploadsForDraft } from '@/lib/repositories/upl
 import type { ApiError, ApiResponse, ConnectedAccountPlatform } from '@/types';
 import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 
+const USED_PLATFORMS_DEFAULT_LIMIT = 100;
+const USED_PLATFORMS_MAX_LIMIT = 300;
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
@@ -28,13 +31,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const jobs = await getUploadJobsWithPlatformUploadsForDraft(userId, id);
+    const limitParam = Number.parseInt(req.nextUrl.searchParams.get('limit') ?? '', 10);
+    const offsetParam = Number.parseInt(req.nextUrl.searchParams.get('offset') ?? '', 10);
+    const limit = Number.isFinite(limitParam)
+      ? Math.max(1, Math.min(limitParam, USED_PLATFORMS_MAX_LIMIT))
+      : USED_PLATFORMS_DEFAULT_LIMIT;
+    const offset = Number.isFinite(offsetParam) ? Math.max(0, offsetParam) : 0;
+
+    const jobs = await getUploadJobsWithPlatformUploadsForDraft(userId, id, { limit, offset });
     const platforms = new Set<ConnectedAccountPlatform>();
 
+    const targetCount = CONNECTED_ACCOUNT_PLATFORMS.length;
     for (const job of jobs) {
       for (const upload of job.platformUploads) {
         platforms.add(upload.platform);
+        if (platforms.size >= targetCount) break;
       }
+      if (platforms.size >= targetCount) break;
     }
 
     // Stable order: Set iteration is unspecified; use canonical list order (same as UI toggles).
