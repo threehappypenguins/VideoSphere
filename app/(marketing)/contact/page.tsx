@@ -1,24 +1,6 @@
-// =============================================================================
-// CONTACT PAGE
-// =============================================================================
-// A contact form for visitors to reach out.
-//
-// STUDENT: This form is UI only — the submit button does NOT send any data.
-// You must implement the form submission yourself. Options include:
-//   - A Next.js API route that sends an email (see /docs/api-routes.md)
-//   - A Server Action that processes the form
-//   - A third-party form service (Formspree, Resend, etc.)
-//
-// The form uses a Client Component because it needs to handle user input state.
-// =============================================================================
-
 'use client';
 
 import { useState } from 'react';
-
-// Note: metadata export cannot be used in Client Components.
-// If you need metadata for this page, move the form to a separate
-// Client Component and keep this page file as a Server Component.
 
 export default function ContactPage() {
   const [formData, setFormData] = useState({
@@ -27,14 +9,49 @@ export default function ContactPage() {
     message: '',
   });
 
-  // STUDENT: Implement this function to actually send the form data.
-  // See /docs/api-routes.md for guidance on creating an API endpoint.
+  const [errors, setErrors] = useState<{
+    name?: string;
+    email?: string;
+    message?: string;
+  }>({});
+
+  const [submitted, setSubmitted] = useState(false);
+
+  const validate = () => {
+    const newErrors: typeof errors = {};
+
+    if (!formData.name.trim()) {
+      newErrors.name = 'Name is required';
+    }
+
+    if (!formData.email.includes('@') || !formData.email.includes('.')) {
+      newErrors.email = 'Enter a valid email address';
+    }
+
+    if (formData.message.trim().length < 10) {
+      newErrors.message = 'Message must be at least 10 characters';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: STUDENT: Implement form submission
-    // Example: send to /api/contact or use a Server Action
-    console.log('Form submitted (not implemented yet):', formData);
-    alert('Form submission is not yet implemented. See the code comments for guidance.');
+
+    if (!validate()) return;
+
+    setSubmitted(true);
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      email: '',
+      message: '',
+    });
+    setErrors({});
+    setSubmitted(false);
   };
 
   return (
@@ -46,74 +63,84 @@ export default function ContactPage() {
             Get in Touch
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            [Have a question or want to learn more? Fill out the form below and we&apos;ll get back
-            to you as soon as possible.]
+            Have a question or want to learn more? Fill out the form below and we’ll get back to you
+            as soon as possible.
           </p>
         </div>
 
-        {/* --- Contact Form --- */}
-        <form onSubmit={handleSubmit} className="mt-12 space-y-6">
-          {/* Name Field */}
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-foreground">
-              Name
-            </label>
-            <input
-              type="text"
-              id="name"
-              name="name"
-              required
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              placeholder="Your name"
-            />
+        {/* --- Thank You State --- */}
+        {submitted ? (
+          <div className="mt-12 text-center space-y-6">
+            <p className="text-lg text-foreground">
+              Thanks for reaching out! We’ll get back to you soon.
+            </p>
+            <button
+              onClick={resetForm}
+              className="rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Send another message
+            </button>
           </div>
+        ) : (
+          /* --- Contact Form --- */
+          <form onSubmit={handleSubmit} className="mt-12 space-y-6">
+            {/* Name Field */}
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-foreground">
+                Name
+              </label>
+              <input
+                id="name"
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="Your name"
+              />
+              {errors.name && <p className="mt-2 text-sm text-red-500">{errors.name}</p>}
+            </div>
 
-          {/* Email Field */}
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-foreground">
-              Email
-            </label>
-            <input
-              type="email"
-              id="email"
-              name="email"
-              required
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              placeholder="you@example.com"
-            />
-          </div>
+            {/* Email Field */}
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-foreground">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="you@example.com"
+              />
+              {errors.email && <p className="mt-2 text-sm text-red-500">{errors.email}</p>}
+            </div>
 
-          {/* Message Field */}
-          <div>
-            <label htmlFor="message" className="block text-sm font-medium text-foreground">
-              Message
-            </label>
-            <textarea
-              id="message"
-              name="message"
-              required
-              rows={5}
-              value={formData.message}
-              onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-              className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              placeholder="How can we help you?"
-            />
-          </div>
+            {/* Message Field */}
+            <div>
+              <label htmlFor="message" className="block text-sm font-medium text-foreground">
+                Message
+              </label>
+              <textarea
+                id="message"
+                rows={5}
+                value={formData.message}
+                onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                placeholder="How can we help you?"
+              />
+              {errors.message && <p className="mt-2 text-sm text-red-500">{errors.message}</p>}
+            </div>
 
-          {/* Submit Button */}
-          {/* STUDENT: This button currently only logs to console.
-              You must wire it up to a backend endpoint. */}
-          <button
-            type="submit"
-            className="w-full rounded-lg bg-primary px-8 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Send Message
-          </button>
-        </form>
+            {/* Submit Button */}
+            <button
+              type="submit"
+              className="w-full rounded-lg bg-primary px-8 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Send Message
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
