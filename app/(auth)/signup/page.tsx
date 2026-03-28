@@ -91,7 +91,7 @@ function PasswordStrengthBar({ password }: { password: string }) {
     '',
     'text-red-500',
     'text-orange-500',
-    'text-yellow-500',
+    'text-yellow-700 dark:text-yellow-400',
     'text-green-500',
     'text-emerald-500',
   ] as const;
