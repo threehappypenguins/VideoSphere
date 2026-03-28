@@ -16,6 +16,28 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 export async function POST(req: NextRequest) {
   try {
     // =========================================================================
+    // 0. CSRF: verify the request originates from our own site
+    // =========================================================================
+    const origin = req.headers.get('origin');
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+    let isAllowedOrigin = false;
+    if (origin) {
+      try {
+        const requestOrigin = new URL(origin).origin;
+        const allowedOrigin = new URL(appUrl).origin;
+        isAllowedOrigin = requestOrigin === allowedOrigin;
+      } catch {
+        // Malformed Origin or appUrl; treat as forbidden rather than throwing.
+        isAllowedOrigin = false;
+      }
+    }
+
+    if (!isAllowedOrigin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // =========================================================================
     // 1. Authenticate via shared helper (session cookie → Appwrite)
     // =========================================================================
     const userId = await getAuthenticatedUserId(req);
@@ -40,7 +62,6 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     // Price: $9 one-time payment for Supporter tier
     // client_reference_id: userId so the webhook can identify which user paid
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const stripePriceId = process.env.STRIPE_PRICE_ID?.trim();
 
     // Stripe Checkout sessions require each line item to specify either:
@@ -67,7 +88,7 @@ export async function POST(req: NextRequest) {
       payment_method_types: ['card'],
       line_items: lineItems,
       client_reference_id: userId, // Store userId for webhook verification
-      success_url: `${appUrl}/profile?upgrade=success`,
+      success_url: `${appUrl}/payment/success`,
       cancel_url: `${appUrl}/pricing`,
     });
 

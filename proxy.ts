@@ -59,9 +59,19 @@ async function getSessionRoleForAdminGate(
   }
 }
 
+/**
+ * Build the original path including query string so redirects preserve
+ * parameters like ?upgrade=success after login.
+ */
+function getFullPath(request: NextRequest): string {
+  const { pathname, search } = request.nextUrl;
+  return search ? `${pathname}${search}` : pathname;
+}
+
 export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
+    const fullPath = getFullPath(request);
 
     // Use NEXT_PUBLIC_APPWRITE_PROJECT_ID to match /api/auth/session precedence
     const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
@@ -71,7 +81,7 @@ export async function proxy(request: NextRequest) {
     // No session cookie — redirect to login
     if (!sessionToken) {
       const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', pathname);
+      loginUrl.searchParams.set('redirect', fullPath);
       return NextResponse.redirect(loginUrl);
     }
 
@@ -79,7 +89,7 @@ export async function proxy(request: NextRequest) {
       const gate = await getSessionRoleForAdminGate(request);
       if (gate === 'unauthenticated') {
         const loginUrl = new URL('/login', request.url);
-        loginUrl.searchParams.set('redirect', pathname);
+        loginUrl.searchParams.set('redirect', fullPath);
         return NextResponse.redirect(loginUrl);
       }
       if (gate !== 'admin') {
@@ -92,7 +102,7 @@ export async function proxy(request: NextRequest) {
 
     if (!user) {
       const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', pathname);
+      loginUrl.searchParams.set('redirect', fullPath);
       return NextResponse.redirect(loginUrl);
     }
 
@@ -100,9 +110,8 @@ export async function proxy(request: NextRequest) {
   } catch (error) {
     // Fail closed: on error, redirect to login instead of allowing through
     const loginUrl = new URL('/login', request.url);
-    // Preserve the original pathname as the redirect parameter if possible
-    const pathname = request.nextUrl.pathname ?? '/';
-    loginUrl.searchParams.set('redirect', pathname);
+    const fullPath = getFullPath(request);
+    loginUrl.searchParams.set('redirect', fullPath);
     return NextResponse.redirect(loginUrl);
   }
 }
