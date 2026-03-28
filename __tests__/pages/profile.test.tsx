@@ -41,22 +41,26 @@ describe('ProfilePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock fetch to return a free-tier authenticated user
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ $id: 'user_1', name: 'Test', email: 'test@test.com' }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ userId: 'user_1', email: 'test@test.com', isSupporter: false }),
-      } as Response);
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ $id: 'user_1', name: 'Test', email: 'test@test.com' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ userId: 'user_1', email: 'test@test.com', isSupporter: false }),
+        } as Response)
+    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('renders the Free plan badge', async () => {

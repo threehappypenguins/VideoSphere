@@ -48,26 +48,43 @@ vi.mock('sonner', () => ({
 }));
 
 // Mock window.history.replaceState
+let originalHistory: History;
 const replaceStateMock = vi.fn();
-Object.defineProperty(window, 'history', {
-  writable: true,
-  value: { replaceState: replaceStateMock },
+
+beforeEach(() => {
+  originalHistory = window.history;
+  Object.defineProperty(window, 'history', {
+    writable: true,
+    value: { replaceState: replaceStateMock },
+    configurable: true,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(window, 'history', {
+    writable: true,
+    value: originalHistory,
+    configurable: true,
+  });
 });
 
 import { ProfileContent } from '@/app/profile/ProfileContent';
 
 function mockFetchResponses(responses: Array<{ ok: boolean; data?: unknown }>) {
   const iter = responses[Symbol.iterator]();
-  global.fetch = vi.fn(() => {
-    const next = iter.next();
-    if (next.done) return Promise.reject(new Error('No more mocked responses'));
-    const { ok, data } = next.value;
-    return Promise.resolve({
-      ok,
-      status: ok ? 200 : 401,
-      json: () => Promise.resolve(data ?? {}),
-    } as Response);
-  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      const next = iter.next();
+      if (next.done) return Promise.reject(new Error('No more mocked responses'));
+      const { ok, data } = next.value;
+      return Promise.resolve({
+        ok,
+        status: ok ? 200 : 401,
+        json: () => Promise.resolve(data ?? {}),
+      } as Response);
+    })
+  );
 }
 
 describe('ProfileContent', () => {

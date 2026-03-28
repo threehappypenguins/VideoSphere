@@ -53,16 +53,19 @@ import { PricingCards } from '@/app/(marketing)/pricing/PricingCards';
 // Helper to mock fetch responses
 function mockFetchResponses(responses: Array<{ ok: boolean; data?: unknown; status?: number }>) {
   const iter = responses[Symbol.iterator]();
-  global.fetch = vi.fn(() => {
-    const next = iter.next();
-    if (next.done) return Promise.reject(new Error('No more mocked responses'));
-    const { ok, data, status } = next.value;
-    return Promise.resolve({
-      ok,
-      status: status ?? (ok ? 200 : 401),
-      json: () => Promise.resolve(data ?? {}),
-    } as Response);
-  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => {
+      const next = iter.next();
+      if (next.done) return Promise.reject(new Error('No more mocked responses'));
+      const { ok, data, status } = next.value;
+      return Promise.resolve({
+        ok,
+        status: status ?? (ok ? 200 : 401),
+        json: () => Promise.resolve(data ?? {}),
+      } as Response);
+    })
+  );
 }
 
 describe('PricingCards', () => {

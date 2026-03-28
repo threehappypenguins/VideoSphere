@@ -6,8 +6,8 @@
 // that it loads even with sameSite: 'strict' cookies (which the browser
 // withholds on cross-site navigations from checkout.stripe.com).
 //
-// Once the page loads in the browser it performs a same-site navigation to
-// /profile?upgrade=success, at which point the session cookie is sent normally.
+// From here we immediately issue a server-side redirect to /profile?upgrade=success.
+// That follow-up request is same-site, so the session cookie is sent normally.
 // =============================================================================
 
 import type { Metadata } from 'next';

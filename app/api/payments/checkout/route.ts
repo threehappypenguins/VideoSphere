@@ -20,7 +20,20 @@ export async function POST(req: NextRequest) {
     // =========================================================================
     const origin = req.headers.get('origin');
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    if (!origin || new URL(origin).origin !== new URL(appUrl).origin) {
+
+    let isAllowedOrigin = false;
+    if (origin) {
+      try {
+        const requestOrigin = new URL(origin).origin;
+        const allowedOrigin = new URL(appUrl).origin;
+        isAllowedOrigin = requestOrigin === allowedOrigin;
+      } catch {
+        // Malformed Origin or appUrl; treat as forbidden rather than throwing.
+        isAllowedOrigin = false;
+      }
+    }
+
+    if (!isAllowedOrigin) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
