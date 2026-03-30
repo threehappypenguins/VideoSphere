@@ -138,4 +138,23 @@ describe('refreshTokenIfNeeded', () => {
     expect(out.accessToken).toBe('vimeo-access');
     expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
   });
+
+  it('throws a clear error when Vimeo access token is blank', async () => {
+    const acc: ConnectedAccount = {
+      id: 'acc-v',
+      userId: 'user-1',
+      platform: 'vimeo',
+      accessToken: '   ',
+      refreshToken: '',
+      tokenExpiry: new Date(Date.now() + 60_000).toISOString(),
+      hasRefreshToken: false,
+      platformUserId: 'p1',
+      platformName: 'V',
+      $createdAt: '2020-01-01T00:00:00.000Z',
+      $updatedAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    await expect(refreshTokenIfNeeded(acc)).rejects.toThrow(/Reconnect your Vimeo account/i);
+    expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
+  });
 });

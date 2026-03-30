@@ -5,17 +5,14 @@
  */
 
 import type { ConnectedAccount } from '@/types';
+import type { PlatformUploadTokens } from '@/lib/platforms/types';
 import { updateTokens } from '@/lib/repositories/connected-accounts';
 import { refreshYouTubeAccessToken } from '@/lib/platforms/youtube';
 
 /** Refresh if access token expires within this window (ms). */
 export const TOKEN_REFRESH_LEAD_MS = 5 * 60 * 1000;
 
-export type PlatformTokens = {
-  accessToken: string;
-  refreshToken: string;
-  tokenExpiry: string;
-};
+export type PlatformTokens = Required<PlatformUploadTokens>;
 
 /**
  * Returns true when the access token is missing, the expiry is invalid,
@@ -48,6 +45,9 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
   }
 
   if (account.platform === 'vimeo') {
+    if (!account.accessToken.trim()) {
+      throw new Error('Vimeo access token is missing. Reconnect your Vimeo account to continue.');
+    }
     return {
       accessToken: account.accessToken,
       refreshToken: account.refreshToken,

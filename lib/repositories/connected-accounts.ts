@@ -42,7 +42,13 @@ function hasRefreshTokenFromStoredRow(row: Record<string, unknown>): boolean {
   if (!raw) return false;
   try {
     return decryptToken(raw).length > 0;
-  } catch {
+  } catch (error) {
+    const rowId = String(row.$id ?? row.id ?? 'unknown');
+    const platform = String(row.platform ?? 'unknown');
+    console.error(
+      `[connected-accounts] Failed to decrypt refreshToken for row ${rowId} (${platform})`,
+      error
+    );
     return false;
   }
 }
