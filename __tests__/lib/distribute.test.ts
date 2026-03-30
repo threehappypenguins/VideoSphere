@@ -49,10 +49,8 @@ vi.mock('@/lib/platforms/vimeo', () => ({
   uploadToVimeo: (...args: unknown[]) => mockUploadToVimeo(...args),
 }));
 
-import {
-  assessPlatformUploadRetryability,
-  runDistributionInBackground,
-} from '@/lib/api/distribute';
+import { runDistributionInBackground } from '@/lib/api/distribute';
+import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 
 const TWENTY_MIN_MS = 20 * 60 * 1000;
 const TIMEOUT_MSG_SECONDS = Math.floor(TWENTY_MIN_MS / 1000);

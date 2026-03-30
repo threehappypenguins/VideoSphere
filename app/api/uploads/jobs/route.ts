@@ -13,7 +13,7 @@ import type {
   UploadJobStatus,
 } from '@/types';
 import { headObject, R2ObjectNotFoundError } from '@/lib/r2';
-import { assessPlatformUploadRetryability } from '@/lib/api/distribute';
+import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 interface UploadHistoryPlatformItem {

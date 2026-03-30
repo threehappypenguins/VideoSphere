@@ -9,10 +9,10 @@ import { getDraftById } from '@/lib/repositories/drafts';
 import { headObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import {
-  assessPlatformUploadRetryability,
   distributeCreatePlatformUploadInput,
   runDistributionInBackground,
 } from '@/lib/api/distribute';
+import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 export async function POST(
