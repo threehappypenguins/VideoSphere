@@ -26,7 +26,11 @@ export async function POST(req: NextRequest) {
       try {
         const requestOrigin = new URL(origin).origin;
         const allowedOrigin = new URL(appUrl).origin;
-        isAllowedOrigin = requestOrigin === allowedOrigin;
+        // Also accept the Host-derived origin so forwarded environments
+        // (Codespaces, devcontainers, tunnels) are not rejected.
+        const host = req.headers.get('host');
+        const hostOrigin = host ? new URL(`${req.nextUrl.protocol}//${host}`).origin : '';
+        isAllowedOrigin = requestOrigin === allowedOrigin || requestOrigin === hostOrigin;
       } catch {
         // Malformed Origin or appUrl; treat as forbidden rather than throwing.
         isAllowedOrigin = false;
