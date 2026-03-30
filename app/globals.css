@@ -31,19 +31,19 @@
    Change these to match your project's brand. */
 :root {
   /* App background color (page background) */
-  --background: #ffffff;
+  --background: #fafeff;
 
   /* Default text color used across the app */
-  --foreground: #171717;
+  --foreground: #110606;
 
   /* Primary brand color (buttons, links, accents) */
-  --primary: #2563eb;
+  --primary: #161f40;
 
   /* Text color displayed on primary backgrounds */
   --primary-foreground: #ffffff;
 
   /* Secondary surface color used for hover states and subtle UI backgrounds */
-  --secondary: #f5f5f5;
+  --secondary: #bf501c;
 
   /* Muted background for subtle sections or UI surfaces */
   --muted: #f5f5f5;
@@ -81,12 +81,12 @@
    The .dark class is applied to the root when the user selects dark or system+dark. */
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --primary: #3b82f6;
+  --background: #110606;
+  --foreground: #fafeff;
+  --primary: #bf501c;
   --primary-foreground: #ffffff;
-  --secondary: #1f1f1f;
-  --muted: #262626;
+  --secondary: #161f40;
+  --muted: #161f40;
   --muted-foreground: #a3a3a3;
   --border: #404040;
   --popover: #0a0a0a;
