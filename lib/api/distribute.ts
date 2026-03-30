@@ -385,21 +385,25 @@ export async function runDistributionInBackground(
       const draftForThumb = await getDraftById(draftIdForThumb);
       const thumbKey = draftForThumb?.thumbnailR2Key;
       if (thumbKey && draftForThumb?.userId === userId) {
-        await deleteObject(thumbKey).catch((thumbErr) => {
-          console.error(
-            `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
-            thumbErr
-          );
-        });
-        await updateDraft(draftIdForThumb, {
-          thumbnailR2Key: null,
-          thumbnailContentType: null,
-        }).catch((docErr) => {
+        try {
+          const updated = await updateDraft(draftIdForThumb, {
+            thumbnailR2Key: null,
+            thumbnailContentType: null,
+          });
+          if (updated) {
+            await deleteObject(thumbKey).catch((thumbErr) => {
+              console.error(
+                `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
+                thumbErr
+              );
+            });
+          }
+        } catch (docErr) {
           console.error(
             `[distribute] Failed to clear draft thumbnail fields for ${draftIdForThumb}:`,
             docErr
           );
-        });
+        }
       }
     }
 

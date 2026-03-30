@@ -2,7 +2,8 @@
 // DRAFTS PAGE COMPONENT TESTS
 // =============================================================================
 // Basic UI rendering tests for the Drafts page: verify header, empty state,
-// and primary CTA link render correctly.
+// and primary CTA link render correctly. Initial load uses three GETs (drafts,
+// connections, ai-access); edit-from-query also GETs /api/drafts/:id after openEditDraft.
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -47,6 +48,24 @@ afterEach(() => {
   mockSearchParams = new URLSearchParams();
   mockRouterReplace.mockReset();
 });
+
+/** Full draft body returned by GET /api/drafts/:id (used when openEditDraft refetches). */
+function draft1DetailPayload() {
+  return {
+    data: {
+      id: 'draft-1',
+      userId: 'user-1',
+      title: 'Test Draft',
+      description: '',
+      tags: [],
+      visibility: 'public' as const,
+      targets: ['youtube'],
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-02T00:00:00.000Z',
+    },
+  };
+}
 
 describe('DraftsPage', () => {
   it('renders the Drafts page heading', async () => {
@@ -186,11 +205,18 @@ describe('DraftsPage', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ canUseAiMetadata: true }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => draft1DetailPayload(),
       } as Response);
 
     render(<DraftsPage />);
 
     expect(await screen.findByTestId('edit-modal-open')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith('/api/drafts/draft-1', expect.any(Object))
+    );
   });
 
   it('clears editDraft query param when edit modal closes', async () => {
@@ -220,6 +246,10 @@ describe('DraftsPage', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ canUseAiMetadata: true }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => draft1DetailPayload(),
       } as Response);
 
     render(<DraftsPage />);

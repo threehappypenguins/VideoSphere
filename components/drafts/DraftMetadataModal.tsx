@@ -1354,7 +1354,7 @@ export function DraftMetadataModal({
                     <div className="relative inline-block max-w-full">
                       <Image
                         src={value.thumbnailPreviewUrl}
-                        alt=""
+                        alt="Draft thumbnail preview"
                         width={800}
                         height={450}
                         unoptimized

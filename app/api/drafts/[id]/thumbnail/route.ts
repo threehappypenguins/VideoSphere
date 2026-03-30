@@ -29,12 +29,10 @@ export async function DELETE(
     );
   }
 
-  const key = draft.thumbnailR2Key;
-  if (key && isDraftThumbnailFinalKeyForUser(key, userId, draftId)) {
-    await deleteObject(key).catch((e) => {
-      console.error('[DELETE /api/drafts/:id/thumbnail]', e);
-    });
-  }
+  const key =
+    draft.thumbnailR2Key && isDraftThumbnailFinalKeyForUser(draft.thumbnailR2Key, userId, draftId)
+      ? draft.thumbnailR2Key
+      : null;
 
   try {
     const updated = await updateDraft(draftId, {
@@ -46,6 +44,11 @@ export async function DELETE(
         { error: 'Not Found', message: 'Draft not found', statusCode: 404 },
         { status: 404 }
       );
+    }
+    if (key) {
+      await deleteObject(key).catch((e) => {
+        console.error('[DELETE /api/drafts/:id/thumbnail] delete object', e);
+      });
     }
     return NextResponse.json({ data: updated, message: 'Thumbnail removed' });
   } catch (err) {

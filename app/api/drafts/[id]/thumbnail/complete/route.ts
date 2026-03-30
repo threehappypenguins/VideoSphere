@@ -14,6 +14,7 @@ import {
   getObjectUrl,
   headObjectMetadata,
   isDraftThumbnailPendingKeyForUser,
+  R2ObjectNotFoundError,
   isDraftThumbnailFinalKeyForUser,
 } from '@/lib/r2';
 import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
@@ -68,10 +69,25 @@ export async function POST(
     const meta = await headObjectMetadata(pendingKey);
     size = meta.contentLength;
     headContentType = meta.contentType?.trim().toLowerCase();
-  } catch {
+  } catch (err) {
+    if (err instanceof R2ObjectNotFoundError) {
+      return NextResponse.json(
+        {
+          error: 'Bad Request',
+          message: 'Uploaded thumbnail not found in storage',
+          statusCode: 400,
+        },
+        { status: 400 }
+      );
+    }
+    console.error('[POST /api/drafts/:id/thumbnail/complete] headObjectMetadata', err);
     return NextResponse.json(
-      { error: 'Bad Request', message: 'Uploaded thumbnail not found in storage', statusCode: 400 },
-      { status: 400 }
+      {
+        error: 'Internal Server Error',
+        message: 'Failed to verify thumbnail in storage',
+        statusCode: 500,
+      },
+      { status: 500 }
     );
   }
 
@@ -124,16 +140,6 @@ export async function POST(
     console.error('[POST /api/drafts/:id/thumbnail/complete] delete pending', e);
   });
 
-  if (
-    previousKey &&
-    previousKey !== finalKey &&
-    isDraftThumbnailFinalKeyForUser(previousKey, userId, draftId)
-  ) {
-    await deleteObject(previousKey).catch((e) => {
-      console.error('[POST /api/drafts/:id/thumbnail/complete] delete previous', e);
-    });
-  }
-
   try {
     const updated = await updateDraft(draftId, {
       thumbnailR2Key: finalKey,
@@ -146,6 +152,17 @@ export async function POST(
         { status: 404 }
       );
     }
+
+    if (
+      previousKey &&
+      previousKey !== finalKey &&
+      isDraftThumbnailFinalKeyForUser(previousKey, userId, draftId)
+    ) {
+      await deleteObject(previousKey).catch((e) => {
+        console.error('[POST /api/drafts/:id/thumbnail/complete] delete previous', e);
+      });
+    }
+
     let thumbnailPreviewUrl: string | undefined;
     try {
       thumbnailPreviewUrl = await getObjectUrl(finalKey);

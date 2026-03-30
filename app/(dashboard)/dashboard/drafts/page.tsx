@@ -10,6 +10,16 @@ import type { ApiResponse, ConnectedAccountPlatform, ConnectedAccountPublic, Dra
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 type DraftView = 'list' | 'cards';
 
+function draftTargetsEqual(
+  a: readonly ConnectedAccountPlatform[],
+  b: readonly ConnectedAccountPlatform[]
+): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
+}
+
 function formatLastEdited(isoDate: string): string {
   const updatedDate = new Date(isoDate);
   if (Number.isNaN(updatedDate.getTime())) return 'Recently';
@@ -76,6 +86,8 @@ export default function DraftsPage() {
   const [isOpeningCreate, setIsOpeningCreate] = useState(false);
   /** True after the user successfully saves a draft that was opened via minimal create. */
   const [createDraftSaved, setCreateDraftSaved] = useState(false);
+  /** Baseline targets when minimal create opened (updated if auto-fill effect adds platforms). */
+  const createModalBaselineTargetsRef = useRef<ConnectedAccountPlatform[] | null>(null);
 
   const loadDrafts = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -194,9 +206,11 @@ export default function DraftsPage() {
     // Create mode default: preselect every connected platform.
     setCreatingDraft((prev) => {
       if (!prev || prev.targets.length > 0) return prev;
+      const nextTargets = [...connectedPlatforms];
+      createModalBaselineTargetsRef.current = nextTargets;
       return {
         ...prev,
-        targets: [...connectedPlatforms],
+        targets: nextTargets,
       };
     });
   }, [connectedPlatforms, creatingDraft]);
@@ -413,9 +427,11 @@ export default function DraftsPage() {
       if (!d) {
         throw new Error('Failed to create draft');
       }
+      const initialTargets = connectedPlatforms.length > 0 ? [...connectedPlatforms] : [];
+      createModalBaselineTargetsRef.current = initialTargets;
       setCreatingDraft({
         ...createEditorValues(d),
-        targets: connectedPlatforms.length > 0 ? [...connectedPlatforms] : [],
+        targets: initialTargets,
       });
       setCreateDraftSaved(false);
     } catch (error) {
@@ -442,11 +458,15 @@ export default function DraftsPage() {
   const handleCloseCreateModal = useCallback(async () => {
     if (creatingDraft?.id) {
       if (!createDraftSaved) {
+        const baselineTargets = createModalBaselineTargetsRef.current;
+        const hasTargetsChanged =
+          baselineTargets !== null && !draftTargetsEqual(creatingDraft.targets, baselineTargets);
         const hasMeaningful =
           creatingDraft.title.trim() !== '' ||
           creatingDraft.description.trim() !== '' ||
           creatingDraft.tags.length > 0 ||
-          Boolean(creatingDraft.thumbnailR2Key || creatingDraft.thumbnailPreviewUrl);
+          Boolean(creatingDraft.thumbnailR2Key || creatingDraft.thumbnailPreviewUrl) ||
+          hasTargetsChanged;
         if (hasMeaningful) {
           const ok = window.confirm(
             'Discard draft? Unsaved changes will be lost and this draft will be deleted.'
@@ -462,6 +482,7 @@ export default function DraftsPage() {
         }
       }
     }
+    createModalBaselineTargetsRef.current = null;
     setCreatingDraft(null);
     setCreateDraftSaved(false);
   }, [creatingDraft, createDraftSaved, loadDrafts]);
