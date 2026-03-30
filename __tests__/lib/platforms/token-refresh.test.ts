@@ -37,18 +37,23 @@ function youtubeAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAcc
 }
 
 describe('tokenNeedsRefresh', () => {
+  it('returns true when access token is missing', () => {
+    const t = new Date(Date.now() + TOKEN_REFRESH_LEAD_MS + 60_000).toISOString();
+    expect(tokenNeedsRefresh(t, Date.now(), '')).toBe(true);
+  });
+
   it('returns false when expiry is beyond the lead window', () => {
     const t = new Date(Date.now() + TOKEN_REFRESH_LEAD_MS + 60_000).toISOString();
-    expect(tokenNeedsRefresh(t)).toBe(false);
+    expect(tokenNeedsRefresh(t, Date.now(), 'access')).toBe(false);
   });
 
   it('returns true when expiry is within the lead window', () => {
     const t = new Date(Date.now() + TOKEN_REFRESH_LEAD_MS - 1000).toISOString();
-    expect(tokenNeedsRefresh(t)).toBe(true);
+    expect(tokenNeedsRefresh(t, Date.now(), 'access')).toBe(true);
   });
 
   it('returns true for invalid ISO strings', () => {
-    expect(tokenNeedsRefresh('not-a-date')).toBe(true);
+    expect(tokenNeedsRefresh('not-a-date', Date.now(), 'access')).toBe(true);
   });
 });
 
@@ -86,6 +91,21 @@ describe('refreshTokenIfNeeded', () => {
       refreshToken: 'new-refresh',
       tokenExpiry: newExpiry,
     });
+  });
+
+  it('throws when refreshed tokens cannot be persisted', async () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    const newExpiry = new Date(Date.now() + 3600_000).toISOString();
+    mockRefreshYouTubeAccessToken.mockResolvedValue({
+      ok: true,
+      accessToken: 'new-access',
+      refreshToken: 'new-refresh',
+      tokenExpiry: newExpiry,
+    });
+    mockUpdateTokens.mockResolvedValue(null);
+
+    const acc = youtubeAccount({ tokenExpiry: past });
+    await expect(refreshTokenIfNeeded(acc)).rejects.toThrow(/connected account no longer exists/i);
   });
 
   it('throws when YouTube refresh fails', async () => {

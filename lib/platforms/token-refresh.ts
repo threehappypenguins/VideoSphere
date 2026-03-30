@@ -18,10 +18,15 @@ export type PlatformTokens = {
 };
 
 /**
- * Returns true when the access token is missing, invalid, or expires at or before
- * `now + TOKEN_REFRESH_LEAD_MS`.
+ * Returns true when the access token is missing, the expiry is invalid,
+ * or the token expires at or before `now + TOKEN_REFRESH_LEAD_MS`.
  */
-export function tokenNeedsRefresh(tokenExpiryIso: string, nowMs = Date.now()): boolean {
+export function tokenNeedsRefresh(
+  tokenExpiryIso: string,
+  nowMs = Date.now(),
+  accessToken?: string
+): boolean {
+  if (!accessToken?.trim()) return true;
   const expiry = Date.parse(tokenExpiryIso);
   if (Number.isNaN(expiry)) return true;
   return expiry <= nowMs + TOKEN_REFRESH_LEAD_MS;
@@ -34,7 +39,7 @@ export function tokenNeedsRefresh(tokenExpiryIso: string, nowMs = Date.now()): b
  * @throws Clear Error when YouTube refresh fails (e.g. the user revoked access).
  */
 export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<PlatformTokens> {
-  if (!tokenNeedsRefresh(account.tokenExpiry)) {
+  if (!tokenNeedsRefresh(account.tokenExpiry, Date.now(), account.accessToken)) {
     return {
       accessToken: account.accessToken,
       refreshToken: account.refreshToken,
@@ -64,12 +69,17 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
       throw new Error(`${refreshed.error.code}: ${refreshed.error.message}${details}`);
     }
 
-    await updateTokens(
+    const persisted = await updateTokens(
       account.id,
       refreshed.accessToken,
       refreshed.refreshToken,
       refreshed.tokenExpiry
     );
+    if (persisted === null) {
+      throw new Error(
+        'Failed to persist refreshed YouTube tokens because the connected account no longer exists.'
+      );
+    }
 
     return {
       accessToken: refreshed.accessToken,
