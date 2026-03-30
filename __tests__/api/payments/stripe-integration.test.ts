@@ -61,17 +61,23 @@ import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route';
 function createCheckoutRequest({
   projectId,
   cookies,
+  origin = 'http://localhost:3000',
 }: {
   projectId: string;
   cookies?: Record<string, string>;
+  origin?: string | null;
 }): NextRequest {
   const cookieName = `a_session_${projectId}`;
   const cookieHeader = cookies ? `${cookieName}=${cookies[cookieName]}` : '';
   const url = new URL('http://localhost:3000/api/payments/checkout');
 
+  const headers: Record<string, string> = {};
+  if (cookieHeader) headers['Cookie'] = cookieHeader;
+  if (origin) headers['Origin'] = origin;
+
   return new NextRequest(url, {
     method: 'POST',
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    headers,
     body: undefined,
   });
 }
@@ -115,6 +121,28 @@ describe('Stripe integration (checkout + webhook)', () => {
   });
 
   describe('Checkout Route (POST /api/payments/checkout)', () => {
+    it('returns 403 when Origin header is missing', async () => {
+      const req = createCheckoutRequest({
+        projectId: 'test-project',
+        origin: null,
+      });
+
+      const res = await checkoutPOST(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'Forbidden' });
+    });
+
+    it('returns 403 when Origin does not match app URL', async () => {
+      const req = createCheckoutRequest({
+        projectId: 'test-project',
+        origin: 'https://evil-site.com',
+      });
+
+      const res = await checkoutPOST(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: 'Forbidden' });
+    });
+
     it('returns 401 when session cookie is missing', async () => {
       vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
       vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
@@ -169,7 +197,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(checkoutSessionCreateMock).toHaveBeenCalledTimes(1);
       const call = checkoutSessionCreateMock.mock.calls[0]?.[0];
       expect(call.client_reference_id).toBe('user_123');
-      expect(call.success_url).toContain('/profile?upgrade=success');
+      expect(call.success_url).toContain('/payment/success');
       expect(call.cancel_url).toContain('/pricing');
       expect(call.line_items).toEqual([
         {

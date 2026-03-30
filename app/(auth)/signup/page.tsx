@@ -75,7 +75,26 @@ function PasswordStrengthBar({ password }: { password: string }) {
   })();
 
   const labels = ['', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'];
-  const colors = ['', '#ef4444', '#f97316', '#eab308', '#22c55e', '#10b981'];
+
+  // Tailwind classes keyed by score — no hard-coded hex values.
+  // Empty segments use muted/border tokens so they adapt in dark mode.
+  const filledBarClass = [
+    '',
+    'bg-red-500', // 1 – Weak
+    'bg-orange-500', // 2 – Fair
+    'bg-yellow-500', // 3 – Good
+    'bg-green-500', // 4 – Strong
+    'bg-emerald-500', // 5 – Very strong
+  ] as const;
+
+  const labelClass = [
+    '',
+    'text-red-500',
+    'text-orange-500',
+    'text-yellow-700 dark:text-yellow-400',
+    'text-green-500',
+    'text-emerald-500',
+  ] as const;
 
   if (!password) return null;
 
@@ -85,16 +104,14 @@ function PasswordStrengthBar({ password }: { password: string }) {
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className="h-1 flex-1 rounded-full transition-all duration-300"
-            style={{
-              backgroundColor: i <= score ? colors[score] : '#e5e7eb',
-            }}
+            className={[
+              'h-1 flex-1 rounded-full transition-all duration-300',
+              i <= score ? filledBarClass[score] : 'bg-muted',
+            ].join(' ')}
           />
         ))}
       </div>
-      <p className="text-xs" style={{ color: colors[score] }}>
-        {labels[score]}
-      </p>
+      <p className={`text-xs ${labelClass[score]}`}>{labels[score]}</p>
     </div>
   );
 }
