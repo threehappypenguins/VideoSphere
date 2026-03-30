@@ -38,6 +38,9 @@ interface UploadHistoryResponse extends ApiResponse<UploadHistoryJobItem[]> {
   };
 }
 
+/** Must match GET /api/uploads/jobs default `limit`. */
+const UPLOAD_HISTORY_PAGE_SIZE = 20;
+
 function isJobActive(job: UploadHistoryJobItem): boolean {
   return (
     job.status === 'pending' ||
@@ -52,15 +55,17 @@ export function UploadHistoryClient() {
   const [isLoading, setIsLoading] = useState(true);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
-  const [limit] = useState(20);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
 
   const loadHistory = useCallback(async () => {
     try {
-      const response = await fetch(`/api/uploads/jobs?limit=${limit}&offset=${offset}`, {
-        cache: 'no-store',
-      });
+      const response = await fetch(
+        `/api/uploads/jobs?limit=${UPLOAD_HISTORY_PAGE_SIZE}&offset=${offset}`,
+        {
+          cache: 'no-store',
+        }
+      );
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         throw new Error(payload?.message ?? 'Failed to load upload history');
@@ -73,7 +78,7 @@ export function UploadHistoryClient() {
     } finally {
       setIsLoading(false);
     }
-  }, [limit, offset]);
+  }, [offset]);
 
   useEffect(() => {
     void loadHistory();
@@ -260,7 +265,7 @@ export function UploadHistoryClient() {
       <div className="flex items-center justify-end gap-2 pt-1">
         <button
           type="button"
-          onClick={() => setOffset((prev) => Math.max(0, prev - limit))}
+          onClick={() => setOffset((prev) => Math.max(0, prev - UPLOAD_HISTORY_PAGE_SIZE))}
           disabled={!canPrev}
           className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
         >
@@ -268,7 +273,7 @@ export function UploadHistoryClient() {
         </button>
         <button
           type="button"
-          onClick={() => setOffset((prev) => prev + limit)}
+          onClick={() => setOffset((prev) => prev + UPLOAD_HISTORY_PAGE_SIZE)}
           disabled={!canNext}
           className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
         >
