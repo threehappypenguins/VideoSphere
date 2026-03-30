@@ -161,6 +161,7 @@ export function DraftMetadataModal({
   const [uploadHistory, setUploadHistory] = useState<DraftUploadHistoryItem[]>([]);
   const [isLoadingUploadHistory, setIsLoadingUploadHistory] = useState(false);
   const [showUploadHistory, setShowUploadHistory] = useState(false);
+  const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
@@ -258,6 +259,7 @@ export function DraftMetadataModal({
       setUsedPlatforms([]);
       setUploadHistory([]);
       setShowUploadHistory(false);
+      setExpandedUploadHistoryIds(new Set());
       setIsLoadingUploadHistory(false);
       return;
     }
@@ -949,6 +951,18 @@ export function DraftMetadataModal({
     }
   };
 
+  const toggleUploadHistoryItem = (uploadJobId: string) => {
+    setExpandedUploadHistoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(uploadJobId)) {
+        next.delete(uploadJobId);
+      } else {
+        next.add(uploadJobId);
+      }
+      return next;
+    });
+  };
+
   return (
     <Dialog
       open={value !== null}
@@ -1271,53 +1285,93 @@ export function DraftMetadataModal({
               ) : null}
             </div>
             <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isLoadingUploadHistory) {
-                    setShowUploadHistory((prev) => !prev);
-                  }
-                }}
-                className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
-              >
-                {isLoadingUploadHistory ? (
-                  <ChevronRight className="h-4 w-4 opacity-50" />
-                ) : showUploadHistory ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-                Upload history
-                {isLoadingUploadHistory ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                ) : (
-                  <span>({uploadHistory.length})</span>
-                )}
-              </button>
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isLoadingUploadHistory) {
+                      setShowUploadHistory((prev) => !prev);
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
+                >
+                  {isLoadingUploadHistory ? (
+                    <ChevronRight className="h-4 w-4 opacity-50" />
+                  ) : showUploadHistory ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                  Upload history
+                  {isLoadingUploadHistory ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  ) : (
+                    <span>({uploadHistory.length})</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    router.push('/dashboard/history');
+                  }}
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Open full history
+                </button>
+              </div>
               {!isLoadingUploadHistory && showUploadHistory && uploadHistory.length > 0 ? (
                 <div className="space-y-2">
-                  {uploadHistory.map((item) => (
-                    <div
-                      key={item.uploadJobId}
-                      className="rounded-md border border-border bg-background p-3"
-                    >
-                      <p className="text-xs text-muted-foreground">
-                        Upload: {new Date(item.createdAt).toLocaleString()}
-                      </p>
-                      <p className="mt-1 text-xs text-foreground">Job status: {item.status}</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {item.platforms.map((platform) => (
-                          <span
-                            key={`${item.uploadJobId}-${platform.platform}`}
-                            className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
-                          >
-                            {platform.platform}: {platform.status} (
-                            {new Date(platform.updatedAt).toLocaleString()})
-                          </span>
-                        ))}
+                  {uploadHistory.map((item) => {
+                    const uploadHistoryExpanded = expandedUploadHistoryIds.has(item.uploadJobId);
+                    const uploadHistoryPanelId = `draft-upload-history-panel-${item.uploadJobId}`;
+                    const uploadHistoryAriaExpanded: 'true' | 'false' = uploadHistoryExpanded
+                      ? 'true'
+                      : 'false';
+                    return (
+                      <div
+                        key={item.uploadJobId}
+                        className="rounded-md border border-border bg-background p-3"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleUploadHistoryItem(item.uploadJobId)}
+                          className="flex w-full items-center justify-between gap-2 text-left"
+                          aria-expanded={uploadHistoryAriaExpanded}
+                          aria-controls={uploadHistoryPanelId}
+                        >
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              Upload: {new Date(item.createdAt).toLocaleString()}
+                            </p>
+                            <p className="mt-1 text-xs text-foreground">
+                              Job status: {item.status}
+                            </p>
+                          </div>
+                          {uploadHistoryExpanded ? (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                        </button>
+                        <div
+                          id={uploadHistoryPanelId}
+                          hidden={!uploadHistoryExpanded}
+                          className="mt-2 flex flex-wrap gap-2"
+                        >
+                          {item.platforms.map((platform) => (
+                            <span
+                              key={`${item.uploadJobId}-${platform.platform}`}
+                              className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                            >
+                              {platform.platform}: {platform.status} (
+                              {new Date(platform.updatedAt).toLocaleString()})
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

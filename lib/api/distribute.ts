@@ -15,6 +15,7 @@ import type {
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { deleteObject, getObjectWebStream } from '@/lib/r2';
+import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
 import { refreshTokenIfNeeded, type PlatformTokens } from '@/lib/platforms/token-refresh';
 import { updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
@@ -25,6 +26,33 @@ import {
 } from '@/lib/repositories/platform-uploads';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
+import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
+
+export type { RetryabilityAssessment } from '@/lib/utils/retryability';
+export { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
+
+const PLATFORM_UPLOAD_TIMEOUT_MS = 20 * 60 * 1000;
+
+/**
+ * Aborts `signal` when the deadline elapses so R2 reads and platform `fetch` bodies stop.
+ * (Plain `Promise.race` would reject without cancelling the underlying upload.)
+ */
+async function runUploadWithDeadline<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutError = new Error(`${label} timed out after ${Math.floor(timeoutMs / 1000)}s`);
+  const timeoutId = setTimeout(() => {
+    controller.abort(timeoutError);
+  }, timeoutMs);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,14 +155,34 @@ async function runSinglePlatformUpload(
 
     // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
     // we never buffer multi‑GB files in RAM (unlike a shared presigned fetch() body).
-    const executeUpload = async () => {
-      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey);
+    const executeUpload = async (signal: AbortSignal) => {
+      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
+        signal,
+      });
       return platformUpload.platform === 'youtube'
-        ? uploadToYouTube({ videoStream: stream, contentLength, contentType, metadata, tokens })
-        : uploadToVimeo({ videoStream: stream, contentLength, contentType, metadata, tokens });
+        ? uploadToYouTube({
+            videoStream: stream,
+            contentLength,
+            contentType,
+            metadata,
+            tokens,
+            signal,
+          })
+        : uploadToVimeo({
+            videoStream: stream,
+            contentLength,
+            contentType,
+            metadata,
+            tokens,
+            signal,
+          });
     };
 
-    let uploadResult = await executeUpload();
+    let uploadResult = await runUploadWithDeadline(
+      executeUpload,
+      PLATFORM_UPLOAD_TIMEOUT_MS,
+      `${platformUpload.platform} upload`
+    );
 
     if (
       platformUpload.platform === 'youtube' &&
@@ -180,7 +228,11 @@ async function runSinglePlatformUpload(
         return;
       }
 
-      uploadResult = await executeUpload();
+      uploadResult = await runUploadWithDeadline(
+        executeUpload,
+        PLATFORM_UPLOAD_TIMEOUT_MS,
+        `${platformUpload.platform} upload`
+      );
     }
 
     if ('error' in uploadResult) {
@@ -207,7 +259,7 @@ async function runSinglePlatformUpload(
       null
     );
   } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Unexpected platform upload error';
+    const detail = messageFromThrown(error);
     const marked = await updatePlatformUploadStatus(
       platformUpload.id,
       'failed',
@@ -228,6 +280,16 @@ async function runSinglePlatformUpload(
 // Background orchestrator
 // ---------------------------------------------------------------------------
 
+export interface RunDistributionInBackgroundOptions {
+  /**
+   * Set for **subset** retries (e.g. POST .../jobs/[id]/retry): only `platformUploads` are
+   * re-run, but job completion and R2 deletion must reflect **all** platforms on the job
+   * (latest row per platform). Otherwise a successful partial retry could mark the job
+   * completed and delete R2 while another platform is still failed.
+   */
+  subsetRetry?: boolean;
+}
+
 /**
  * Run distribution for all platform uploads in parallel, then clean up R2.
  * Called via Next.js `after()` so the HTTP response returns immediately.
@@ -237,9 +299,11 @@ export async function runDistributionInBackground(
   userId: string,
   r2ObjectKey: string,
   platformUploads: PlatformUpload[],
-  metadataByPlatformId: Map<string, PlatformUploadMetadata>
+  metadataByPlatformId: Map<string, PlatformUploadMetadata>,
+  options?: RunDistributionInBackgroundOptions
 ): Promise<void> {
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
+  const subsetRetry = options?.subsetRetry === true;
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -288,6 +352,22 @@ export async function runDistributionInBackground(
         `Platform upload(s) not in completed state: ${nonCompleted.map((u) => `${u.platform}=${u.status}`).join('; ')}`
       );
       return;
+    }
+
+    if (subsetRetry) {
+      const allLatest = latestPlatformUploadsPerPlatform(finalPlatformUploads);
+      const stillIncomplete = allLatest.filter((u) => u.status !== 'completed');
+      if (stillIncomplete.length > 0) {
+        const errorDetails = stillIncomplete
+          .map((u) => `${u.platform}: ${u.status}${u.errorMessage ? ` — ${u.errorMessage}` : ''}`)
+          .join('; ');
+        await updateUploadJobStatus(
+          jobId,
+          'failed',
+          `After retry, ${stillIncomplete.length} platform upload(s) still not completed: ${errorDetails}`
+        );
+        return;
+      }
     }
 
     // All platform uploads succeeded — clean up the temporary R2 object.

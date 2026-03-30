@@ -1,4 +1,5 @@
 import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
+import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadMetadata,
   PlatformUploadResult,
@@ -11,6 +12,8 @@ interface UploadToVimeoInput {
   contentType?: string;
   metadata: PlatformUploadMetadata;
   tokens: PlatformUploadTokens;
+  /** When set (e.g. distribute deadline), aborts R2-backed fetches and polling so timeouts stop real work. */
+  signal?: AbortSignal;
 }
 
 interface VimeoCreateResponse {
@@ -74,6 +77,29 @@ function vimeoVideoApiBasePath(uri: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Like `delay` but rejects promptly when `signal` aborts (used under upload deadlines). */
+function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return delay(ms);
+  if (signal.aborted) {
+    return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('Aborted'));
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    const id = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(id);
+      cleanup();
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 const vimeoJsonHeaders = (accessToken: string) => ({
@@ -194,10 +220,11 @@ function vimeoStatusProbeNetworkRetryDelayMs(consecutiveNetworkFailures: number)
 export async function waitUntilVimeoUploadAndTranscodeComplete(
   videoBasePath: string,
   accessToken: string,
-  opts?: { deadlineMs?: number; pollIntervalMs?: number }
+  opts?: { deadlineMs?: number; pollIntervalMs?: number; signal?: AbortSignal }
 ): Promise<void> {
   const deadlineMs = opts?.deadlineMs ?? 300_000;
   const pollIntervalMs = opts?.pollIntervalMs ?? 2000;
+  const signal = opts?.signal;
   const deadline = Date.now() + deadlineMs;
   let probeNonOkStreak = 0;
   let networkFailStreak = 0;
@@ -207,7 +234,10 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
     try {
       res = await fetch(
         `https://api.vimeo.com/${videoBasePath}?fields=upload.status,transcode.status`,
-        { headers: vimeoReadHeaders(accessToken) }
+        {
+          headers: vimeoReadHeaders(accessToken),
+          ...(signal ? { signal } : {}),
+        }
       );
     } catch {
       networkFailStreak++;
@@ -218,7 +248,7 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
           'Timed out waiting for Vimeo upload/transcode status (network errors while polling).'
         );
       }
-      await delay(waitMs);
+      await delayOrAbort(waitMs, signal);
       continue;
     }
 
@@ -234,7 +264,7 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
           { statusCode: res.status, details }
         );
       }
-      await delay(waitMs);
+      await delayOrAbort(waitMs, signal);
       continue;
     }
 
@@ -265,7 +295,7 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
     if (Date.now() + pollIntervalMs >= deadline) {
       break;
     }
-    await delay(pollIntervalMs);
+    await delayOrAbort(pollIntervalMs, signal);
   }
 
   throw new VimeoIngestWaitFailedError(
@@ -317,14 +347,16 @@ function wantedTagsArePresentOnVideo(wanted: string[], onVideo: string[]): boole
 async function verifyVimeoTagsApplied(
   videoBasePath: string,
   accessToken: string,
-  wanted: string[]
+  wanted: string[],
+  signal?: AbortSignal
 ): Promise<boolean> {
   const attempts = 8;
   for (let i = 0; i < attempts; i++) {
-    if (i > 0) await delay(750);
+    if (i > 0) await delayOrAbort(750, signal);
     // Avoid `?per_page=` here — some API builds respond 405 on GET …/tags with unknown query params.
     const res = await fetch(`https://api.vimeo.com/${videoBasePath}/tags`, {
       headers: vimeoReadHeaders(accessToken),
+      ...(signal ? { signal } : {}),
     });
     if (!res.ok) continue;
     const json: unknown = await res.json().catch(() => null);
@@ -345,7 +377,8 @@ async function verifyVimeoTagsApplied(
 async function setVimeoVideoTagsAllStrategies(
   videoBasePath: string,
   accessToken: string,
-  tags: string[]
+  tags: string[],
+  signal?: AbortSignal
 ): Promise<
   { ok: true } | { ok: false; status: number; body: string | undefined; retryAfterMs: number }
 > {
@@ -363,6 +396,7 @@ async function setVimeoVideoTagsAllStrategies(
       method,
       headers: h,
       ...(body !== undefined ? { body } : {}),
+      ...(signal ? { signal } : {}),
     });
   };
 
@@ -384,7 +418,7 @@ async function setVimeoVideoTagsAllStrategies(
   if (res.status === 429 || res.status === 503) {
     return asRateLimitError(res, 0);
   }
-  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags))) {
+  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal))) {
     return { ok: true };
   }
 
@@ -399,7 +433,7 @@ async function setVimeoVideoTagsAllStrategies(
     if (res.status === 429 || res.status === 503) {
       return asRateLimitError(res, 0);
     }
-    if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags))) {
+    if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal))) {
       return { ok: true };
     }
   }
@@ -409,7 +443,7 @@ async function setVimeoVideoTagsAllStrategies(
   if (res.status === 429 || res.status === 503) {
     return asRateLimitError(res, 0);
   }
-  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags))) {
+  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal))) {
     return { ok: true };
   }
 
@@ -439,11 +473,14 @@ async function setVimeoVideoTagsAllStrategies(
     }
   }
 
-  if (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags)) {
+  if (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal)) {
     return { ok: true };
   }
 
-  const probe = await fetch(url, { headers: vimeoReadHeaders(accessToken) });
+  const probe = await fetch(url, {
+    headers: vimeoReadHeaders(accessToken),
+    ...(signal ? { signal } : {}),
+  });
   const listed = probe.ok ? await probe.text().catch(() => '') : '';
   return {
     ok: false,
@@ -460,13 +497,14 @@ const VIMEO_TAG_MAX_ATTEMPTS = 5;
 async function setVimeoVideoTagsWithRetry(
   videoBasePath: string,
   accessToken: string,
-  tags: string[]
+  tags: string[],
+  signal?: AbortSignal
 ): Promise<{ ok: true } | { ok: false; status: number; body: string | undefined }> {
   let lastStatus = 0;
   let lastBody: string | undefined;
 
   for (let attempt = 0; attempt < VIMEO_TAG_MAX_ATTEMPTS; attempt++) {
-    const r = await setVimeoVideoTagsAllStrategies(videoBasePath, accessToken, tags);
+    const r = await setVimeoVideoTagsAllStrategies(videoBasePath, accessToken, tags, signal);
     if (r.ok === false) {
       lastStatus = r.status;
       lastBody = r.body;
@@ -477,7 +515,7 @@ async function setVimeoVideoTagsWithRetry(
       }
 
       if (attempt < VIMEO_TAG_MAX_ATTEMPTS - 1) {
-        await delay(r.retryAfterMs);
+        await delayOrAbort(r.retryAfterMs, signal);
       }
       continue;
     }
@@ -491,6 +529,8 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
   if (!input.tokens.accessToken) {
     return toError('VIMEO_TOKEN_MISSING', 'Vimeo access token is missing.');
   }
+
+  const { signal } = input;
 
   let createdVideoId: string | null = null;
   let tusUploadAccepted = false;
@@ -563,6 +603,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         Accept: 'application/vnd.vimeo.*+json;version=3.4',
       },
       body: JSON.stringify(createBody),
+      ...(signal ? { signal } : {}),
     });
 
     if (!createResponse.ok) {
@@ -598,6 +639,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       },
       body: videoSource.stream,
       duplex: 'half',
+      ...(signal ? { signal } : {}),
     };
 
     const tusUploadResponse = await fetch(uploadLink, tusUploadInit);
@@ -617,6 +659,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         'Tus-Resumable': '1.0.0',
         Accept: 'application/vnd.vimeo.*+json;version=3.4',
       },
+      ...(signal ? { signal } : {}),
     }).catch(() => undefined);
 
     const categoryUriRaw = vm?.categoryUri?.trim() || input.metadata.vimeoCategoryUri?.trim();
@@ -626,7 +669,9 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     categoryDone = !Boolean(categoryUriRaw);
 
     if (needsIngestWait) {
-      await waitUntilVimeoUploadAndTranscodeComplete(videoBasePath, input.tokens.accessToken);
+      await waitUntilVimeoUploadAndTranscodeComplete(videoBasePath, input.tokens.accessToken, {
+        signal,
+      });
       ingestWaitDone = true;
     }
 
@@ -634,7 +679,8 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       const tagResult = await setVimeoVideoTagsWithRetry(
         videoBasePath,
         input.tokens.accessToken,
-        safeTags
+        safeTags,
+        signal
       );
       if (tagResult.ok === false) {
         return toError(
@@ -659,6 +705,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         method: 'PUT',
         headers: vimeoCategorySuggestHeaders(input.tokens.accessToken),
         body: JSON.stringify(batchBody),
+        ...(signal ? { signal } : {}),
       });
       if (!catRes.ok) {
         const tagsNote =
@@ -703,7 +750,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       'VIMEO_UPLOAD_ERROR',
       'Unexpected Vimeo upload error.',
       500,
-      error instanceof Error ? error.message : String(error)
+      messageFromThrown(error)
     );
   }
 }

@@ -21,7 +21,10 @@ vi.mock('node-appwrite', () => ({
     unique: () => 'draft-id-123',
   },
   Query: {
-    equal: (attr: string, value: string) => `equal("${attr}","${value}")`,
+    equal: (attr: string, value: string | string[]) =>
+      Array.isArray(value)
+        ? `equal("${attr}",[${value.map((v) => `"${v}"`).join(',')}])`
+        : `equal("${attr}","${value}")`,
     orderDesc: (attr: string) => `orderDesc("${attr}")`,
     limit: (n: number) => `limit(${n})`,
   },
@@ -41,6 +44,7 @@ vi.mock('@/lib/appwrite', () => ({
 import {
   createDraft,
   getDraftById,
+  getDraftTitlesByIdsForUser,
   listDraftsByUser,
   markDraftUsedInUpload,
   updateDraft,
@@ -196,6 +200,44 @@ describe('drafts repository', () => {
     it('rethrows non-404 errors', async () => {
       mockGetRow.mockRejectedValue(new Error('Server error'));
       await expect(getDraftById('draft-1')).rejects.toThrow('Server error');
+    });
+  });
+
+  describe('getDraftTitlesByIdsForUser', () => {
+    it('batch-fetches titles with one listRows per chunk', async () => {
+      mockListRows.mockResolvedValue({
+        rows: [{ ...baseRow, $id: 'd1', userId: 'user-1' }],
+      });
+
+      const map = await getDraftTitlesByIdsForUser('user-1', ['d1', 'd1', null, '']);
+
+      expect(mockListRows).toHaveBeenCalledTimes(1);
+      expect(mockListRows.mock.calls[0][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'equal("$id",["d1"])',
+        'limit(1)',
+      ]);
+      expect(map.get('d1')).toBe('My Video');
+    });
+
+    it('chunks ids when above batch size', async () => {
+      const ids = Array.from({ length: 101 }, (_, i) => `d${i}`);
+      mockListRows
+        .mockResolvedValueOnce({ rows: [{ ...baseRow, $id: 'd0', userId: 'user-1' }] })
+        .mockResolvedValueOnce({ rows: [{ ...baseRow, $id: 'd100', userId: 'user-1' }] });
+
+      await getDraftTitlesByIdsForUser('user-1', ids);
+
+      expect(mockListRows).toHaveBeenCalledTimes(2);
+      expect(mockListRows.mock.calls[0][0].queries[1]).toMatch(/^equal\("\$id",\[/);
+      const firstChunk = mockListRows.mock.calls[0][0].queries[1] as string;
+      expect((firstChunk.match(/"d\d+"/g) ?? []).length).toBe(100);
+      expect(mockListRows.mock.calls[1][0].queries[1]).toBe('equal("$id",["d100"])');
+    });
+
+    it('returns empty map when no ids', async () => {
+      expect(await getDraftTitlesByIdsForUser('user-1', [])).toEqual(new Map());
+      expect(mockListRows).not.toHaveBeenCalled();
     });
   });
 

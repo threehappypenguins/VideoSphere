@@ -617,7 +617,10 @@ describe('POST /api/uploads/distribute', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(mockGetObjectWebStream).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
+    expect(mockGetObjectWebStream).toHaveBeenCalledWith(
+      'temp/uploads/user-123/video.mp4',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     expect(mockUploadToYouTube).toHaveBeenCalledTimes(1);
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
