@@ -198,14 +198,36 @@ async function runSinglePlatformUpload(
           tokenExpiry: refreshed.tokenExpiry,
         };
 
-        await updateTokens(
+        const persisted = await updateTokens(
           connectedAccount.id,
           refreshed.accessToken,
           refreshed.refreshToken,
           refreshed.tokenExpiry
         );
+        if (persisted === null) {
+          await requireUpdatePlatformUploadStatus(
+            platformUpload.id,
+            'failed',
+            undefined,
+            undefined,
+            'Failed to persist refreshed YouTube tokens because the connected account no longer exists.'
+          );
+          return;
+        }
 
         uploadResult = await executeUpload();
+      } else {
+        const statusSuffix =
+          refreshed.error.statusCode != null ? ` (HTTP ${refreshed.error.statusCode})` : '';
+        const detailsSuffix = refreshed.error.details ? ` Details: ${refreshed.error.details}` : '';
+        await requireUpdatePlatformUploadStatus(
+          platformUpload.id,
+          'failed',
+          undefined,
+          undefined,
+          `${refreshed.error.code}: ${refreshed.error.message}${statusSuffix}${detailsSuffix}`
+        );
+        return;
       }
     }
 
