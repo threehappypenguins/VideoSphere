@@ -26,10 +26,26 @@ export async function POST(req: NextRequest) {
       try {
         const requestOrigin = new URL(origin).origin;
         const allowedOrigin = new URL(appUrl).origin;
-        // Also accept the Host-derived origin so forwarded environments
-        // (Codespaces, devcontainers, tunnels) are not rejected.
+        // Host-derived fallback: allow in development, or in production only via trusted forwarded headers
         const host = req.headers.get('host');
-        const hostOrigin = host ? new URL(`${req.nextUrl.protocol}//${host}`).origin : '';
+        const isProduction = process.env.NODE_ENV === 'production';
+        let hostOrigin = '';
+
+        if (host && !isProduction) {
+          // Development: allow Host-derived origin for devcontainers/local environments
+          hostOrigin = new URL(`${req.nextUrl.protocol}//${host}`).origin;
+        } else if (host && isProduction) {
+          // Production: only allow known forwarded host patterns (e.g., *.app.github.dev)
+          const forwardedHost = req.headers.get('x-forwarded-host');
+          const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
+
+          if (forwardedHost) {
+            // Use x-forwarded-host/proto if present (trusted proxy scenario)
+            hostOrigin = new URL(`${forwardedProto}://${forwardedHost}`).origin;
+          }
+          // Otherwise, hostOrigin remains empty to reject non-allowlisted origins
+        }
+
         isAllowedOrigin = requestOrigin === allowedOrigin || requestOrigin === hostOrigin;
       } catch {
         // Malformed Origin or appUrl; treat as forbidden rather than throwing.
