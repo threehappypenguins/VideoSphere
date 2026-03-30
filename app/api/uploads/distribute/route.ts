@@ -30,6 +30,7 @@ import {
 } from '@/lib/platform-upload-document';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
+import { runDistributionInBackground as runDistributionInBackgroundShared } from '@/lib/api/distribute';
 
 const FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT = 2;
 
@@ -470,7 +471,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // alive until this work finishes (Next `after` → waitUntil-style semantics). For
     // multi-minute uploads or guaranteed delivery across crashes, use a queue/worker.
     after(() =>
-      runDistributionInBackground(
+      runDistributionInBackgroundShared(
         uploadJob.id,
         userId,
         r2ObjectKey,
