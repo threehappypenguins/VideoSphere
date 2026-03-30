@@ -71,6 +71,7 @@ const MOCK_ACCOUNT = {
   platformUserId: 'yt-user-123',
   platformName: 'Test Channel',
   tokenExpiry: new Date(Date.now() + 1_000_000).toISOString(),
+  hasRefreshToken: true,
 };
 
 // ---------------------------------------------------------------------------

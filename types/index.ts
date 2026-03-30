@@ -271,6 +271,8 @@ export interface ConnectedAccountPublic {
   userId: string;
   platform: ConnectedAccountPlatform;
   tokenExpiry: string;
+  /** True when a non-empty refresh token is stored (encrypted at rest). */
+  hasRefreshToken: boolean;
   platformUserId: string;
   platformName: string;
   /** Appwrite system attribute (ISO string). */
