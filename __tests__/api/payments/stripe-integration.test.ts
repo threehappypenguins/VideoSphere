@@ -62,20 +62,24 @@ function createCheckoutRequest({
   projectId,
   cookies,
   origin = 'http://localhost:3000',
+  url,
+  extraHeaders,
 }: {
   projectId: string;
   cookies?: Record<string, string>;
   origin?: string | null;
+  url?: string;
+  extraHeaders?: Record<string, string>;
 }): NextRequest {
   const cookieName = `a_session_${projectId}`;
   const cookieHeader = cookies ? `${cookieName}=${cookies[cookieName]}` : '';
-  const url = new URL('http://localhost:3000/api/payments/checkout');
+  const requestUrl = new URL(url ?? 'http://localhost:3000/api/payments/checkout');
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...extraHeaders };
   if (cookieHeader) headers['Cookie'] = cookieHeader;
   if (origin) headers['Origin'] = origin;
 
-  return new NextRequest(url, {
+  return new NextRequest(requestUrl, {
     method: 'POST',
     headers,
     body: undefined,
@@ -141,6 +145,81 @@ describe('Stripe integration (checkout + webhook)', () => {
       const res = await checkoutPOST(req);
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: 'Forbidden' });
+    });
+
+    describe('CSRF – forwarded host (Codespaces / devcontainers)', () => {
+      const CODESPACE_HOST = 'psychic-tribble-q7ggrwvq9gxv29q7p.app.github.dev';
+
+      it('accepts a *.app.github.dev Origin via Host header in non-production mode', async () => {
+        // NODE_ENV is 'test' (not 'production'), so the dev path is taken.
+        // The handler derives hostOrigin from req.nextUrl.protocol + Host header.
+        // CSRF passes → handler falls through to auth and returns 401 (no cookie), not 403.
+        const req = createCheckoutRequest({
+          projectId: 'test-project',
+          url: `https://${CODESPACE_HOST}/api/payments/checkout`,
+          origin: `https://${CODESPACE_HOST}`,
+          extraHeaders: { host: CODESPACE_HOST },
+        });
+
+        const res = await checkoutPOST(req);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: 'Not authenticated' });
+      });
+
+      it('accepts a *.app.github.dev Origin via x-forwarded-host in production mode', async () => {
+        vi.stubEnv('NODE_ENV', 'production');
+
+        const req = createCheckoutRequest({
+          projectId: 'test-project',
+          origin: `https://${CODESPACE_HOST}`,
+          extraHeaders: {
+            host: CODESPACE_HOST,
+            'x-forwarded-host': CODESPACE_HOST,
+            'x-forwarded-proto': 'https',
+          },
+        });
+
+        // CSRF passes → 401 (no session cookie), not 403.
+        const res = await checkoutPOST(req);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: 'Not authenticated' });
+      });
+
+      it('rejects an x-forwarded-host that does not match the *.app.github.dev allowlist', async () => {
+        vi.stubEnv('NODE_ENV', 'production');
+
+        const req = createCheckoutRequest({
+          projectId: 'test-project',
+          origin: 'https://evil.domain.com',
+          extraHeaders: {
+            host: 'evil.domain.com',
+            'x-forwarded-host': 'evil.domain.com',
+            'x-forwarded-proto': 'https',
+          },
+        });
+
+        const res = await checkoutPOST(req);
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({ error: 'Forbidden' });
+      });
+
+      it('rejects a matching x-forwarded-host when x-forwarded-proto is not https', async () => {
+        vi.stubEnv('NODE_ENV', 'production');
+
+        const req = createCheckoutRequest({
+          projectId: 'test-project',
+          origin: `http://${CODESPACE_HOST}`,
+          extraHeaders: {
+            host: CODESPACE_HOST,
+            'x-forwarded-host': CODESPACE_HOST,
+            'x-forwarded-proto': 'http',
+          },
+        });
+
+        const res = await checkoutPOST(req);
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({ error: 'Forbidden' });
+      });
     });
 
     it('returns 401 when session cookie is missing', async () => {
