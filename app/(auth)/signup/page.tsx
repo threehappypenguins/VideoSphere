@@ -447,6 +447,7 @@ export default function SignUpPage() {
                 className="relative w-full rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-violet-200 transition-all duration-200
                   hover:from-violet-500 hover:to-indigo-500 hover:shadow-lg hover:shadow-violet-300 hover:-translate-y-0.5
                   active:translate-y-0 active:shadow-md
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 dark:focus-visible:ring-violet-500
                   disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0"
               >
                 {isLoading ? (
@@ -485,7 +486,7 @@ export default function SignUpPage() {
             type="button"
             onClick={handleGoogleSignup}
             disabled={isGoogleLoading || isLoading}
-            className="w-full flex items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-semibold text-slate-800 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 dark:focus-visible:ring-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path
