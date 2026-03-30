@@ -39,6 +39,8 @@ interface UploadHistoryJobItem {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const MIN_LIMIT = 1;
+/** Max parallel R2 HEAD calls per request (unique keys, after retryability filter). */
+const R2_HEAD_CONCURRENCY = 8;
 
 function parseLimitParam(raw: string | null): number {
   if (raw == null) return DEFAULT_LIMIT;
@@ -70,6 +72,21 @@ async function checkR2Availability(key: string, cache: Map<string, boolean>): Pr
   }
 }
 
+/** Run async work on `items` with at most `limit` concurrent executions. */
+async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  if (items.length === 0) return;
+  const cap = Math.min(Math.max(1, limit), items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: cap }, () => worker()));
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
@@ -91,45 +108,55 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       userId,
       pagedJobs.map((j) => j.draftId)
     );
-    const r2AvailabilityByKey = new Map<string, boolean>();
 
-    const data: UploadHistoryJobItem[] = await Promise.all(
-      pagedJobs.map(async (job) => {
-        const latestPlatforms = latestPlatformUploadsPerPlatform(job.platformUploads);
-        const platformItems: UploadHistoryPlatformItem[] = latestPlatforms.map((platformUpload) => {
-          const retryability = assessPlatformUploadRetryability(platformUpload.errorMessage);
-          return {
-            platform: platformUpload.platform,
-            status: job.status === 'completed' ? 'completed' : platformUpload.status,
-            updatedAt: platformUpload.$updatedAt,
-            errorMessage: platformUpload.errorMessage,
-            retryable: platformUpload.status === 'failed' ? retryability.retryable : false,
-            retryReason: platformUpload.status === 'failed' ? retryability.reason : '',
-          };
-        });
-
-        const hasFailedPlatform = platformItems.some((p) => p.status === 'failed');
-        let r2FileAvailable: boolean | null = null;
-        if (hasFailedPlatform) {
-          if (job.r2Key) {
-            r2FileAvailable = await checkR2Availability(job.r2Key, r2AvailabilityByKey);
-          } else {
-            r2FileAvailable = false;
-          }
-        }
-
+    const perJob = pagedJobs.map((job) => {
+      const latestPlatforms = latestPlatformUploadsPerPlatform(job.platformUploads);
+      const platformItems: UploadHistoryPlatformItem[] = latestPlatforms.map((platformUpload) => {
+        const retryability = assessPlatformUploadRetryability(platformUpload.errorMessage);
         return {
-          uploadJobId: job.id,
-          draftId: job.draftId,
-          draftTitle: job.draftId ? (draftTitleById.get(job.draftId) ?? null) : null,
-          status: job.status,
-          createdAt: job.$createdAt,
-          updatedAt: job.$updatedAt,
-          r2FileAvailable,
-          platforms: platformItems,
+          platform: platformUpload.platform,
+          status: job.status === 'completed' ? 'completed' : platformUpload.status,
+          updatedAt: platformUpload.$updatedAt,
+          errorMessage: platformUpload.errorMessage,
+          retryable: platformUpload.status === 'failed' ? retryability.retryable : false,
+          retryReason: platformUpload.status === 'failed' ? retryability.reason : '',
         };
-      })
-    );
+      });
+      const needsR2Head = platformItems.some((p) => p.status === 'failed' && p.retryable);
+      return { job, platformItems, needsR2Head };
+    });
+
+    const r2AvailabilityByKey = new Map<string, boolean>();
+    const keysToHead = [
+      ...new Set(
+        perJob.filter((p) => p.needsR2Head && p.job.r2Key).map((p) => p.job.r2Key as string)
+      ),
+    ];
+    await runWithConcurrency(keysToHead, R2_HEAD_CONCURRENCY, async (key) => {
+      await checkR2Availability(key, r2AvailabilityByKey);
+    });
+
+    const data: UploadHistoryJobItem[] = perJob.map(({ job, platformItems, needsR2Head }) => {
+      let r2FileAvailable: boolean | null = null;
+      if (needsR2Head) {
+        if (job.r2Key) {
+          r2FileAvailable = r2AvailabilityByKey.get(job.r2Key) ?? false;
+        } else {
+          r2FileAvailable = false;
+        }
+      }
+
+      return {
+        uploadJobId: job.id,
+        draftId: job.draftId,
+        draftTitle: job.draftId ? (draftTitleById.get(job.draftId) ?? null) : null,
+        status: job.status,
+        createdAt: job.$createdAt,
+        updatedAt: job.$updatedAt,
+        r2FileAvailable,
+        platforms: platformItems,
+      };
+    });
 
     const res: ApiResponse<UploadHistoryJobItem[]> & {
       meta: { total: number; limit: number; offset: number };

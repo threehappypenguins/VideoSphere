@@ -211,9 +211,12 @@ export async function getDraftById(id: string): Promise<Draft | null> {
   }
 }
 
+/** Max draft IDs per `listRows` call (Appwrite `equal` with an array is an IN query). */
+const DRAFT_TITLES_BY_IDS_BATCH = 100;
+
 /**
  * Titles for drafts referenced by upload jobs on the current page.
- * Only IDs that exist and belong to `userId` are included (parallel `getRow` per id).
+ * Only IDs that exist and belong to `userId` are included — one batched `listRows` per chunk of ids.
  */
 export async function getDraftTitlesByIdsForUser(
   userId: string,
@@ -224,17 +227,24 @@ export async function getDraftTitlesByIdsForUser(
   ];
   if (unique.length === 0) return new Map();
 
-  const pairs = await Promise.all(
-    unique.map(async (id) => {
-      const draft = await getDraftById(id);
-      if (!draft || draft.userId !== userId) return null;
-      return [id, draft.title] as const;
-    })
-  );
-
   const map = new Map<string, string>();
-  for (const p of pairs) {
-    if (p) map.set(p[0], p[1]);
+  for (let i = 0; i < unique.length; i += DRAFT_TITLES_BY_IDS_BATCH) {
+    const chunk = unique.slice(i, i + DRAFT_TITLES_BY_IDS_BATCH);
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        Query.equal('$id', chunk),
+        Query.limit(chunk.length),
+      ],
+      total: false,
+    });
+    for (const r of rows ?? []) {
+      const row = r as Record<string, unknown>;
+      const draft = rowToDraft(row);
+      map.set(draft.id, draft.title);
+    }
   }
   return map;
 }

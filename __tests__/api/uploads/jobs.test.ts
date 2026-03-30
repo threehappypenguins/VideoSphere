@@ -1,7 +1,7 @@
 /**
  * Tests for GET /api/uploads/jobs
  *
- * History list: pagination meta, draft titles, R2 availability for failed jobs, retry flags.
+ * History list: pagination meta, draft titles, R2 availability for retryable failures, retry flags.
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -225,11 +225,67 @@ describe('GET /api/uploads/jobs', () => {
     expect(mockHeadObject).not.toHaveBeenCalled();
   });
 
-  it('sets r2FileAvailable true when a platform failed and R2 object exists', async () => {
+  it('sets r2FileAvailable true when a retryable platform failed and R2 object exists', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
     vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-fail', {
+        status: 'failed',
+        r2Key: 'temp/uploads/user-123/k/file.mp4',
+        platformUploads: [
+          makePlatformUpload({
+            status: 'failed',
+            errorMessage: 'fetch failed: network timeout',
+          }),
+        ],
+      }),
+    ]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
+
+    const res = await GET(createRequest());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ r2FileAvailable: boolean | null }> };
+    expect(body.data[0].r2FileAvailable).toBe(true);
+    expect(mockHeadObject).toHaveBeenCalledWith('temp/uploads/user-123/k/file.mp4');
+  });
+
+  it('still runs R2 HEAD when any failed platform is retryable (mixed with non-retryable)', async () => {
+    vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
+      makeJob('job-mixed', {
+        status: 'failed',
+        r2Key: 'temp/uploads/user-123/k/mixed.mp4',
+        platformUploads: [
+          makePlatformUpload({
+            platform: 'youtube',
+            status: 'failed',
+            errorMessage: 'quota exceeded',
+          }),
+          makePlatformUpload({
+            platform: 'vimeo',
+            status: 'failed',
+            errorMessage: 'fetch failed: network',
+          }),
+        ],
+      }),
+    ]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
+
+    const res = await GET(createRequest());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ r2FileAvailable: boolean | null }> };
+    expect(body.data[0].r2FileAvailable).toBe(true);
+    expect(mockHeadObject).toHaveBeenCalledWith('temp/uploads/user-123/k/mixed.mp4');
+  });
+
+  it('skips R2 HEAD and leaves r2FileAvailable null when failures are only non-retryable', async () => {
+    vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
+      makeJob('job-quota', {
         status: 'failed',
         r2Key: 'temp/uploads/user-123/k/file.mp4',
         platformUploads: [
@@ -246,8 +302,8 @@ describe('GET /api/uploads/jobs', () => {
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ r2FileAvailable: boolean | null }> };
-    expect(body.data[0].r2FileAvailable).toBe(true);
-    expect(mockHeadObject).toHaveBeenCalledWith('temp/uploads/user-123/k/file.mp4');
+    expect(body.data[0].r2FileAvailable).toBeNull();
+    expect(mockHeadObject).not.toHaveBeenCalled();
   });
 
   it('sets r2FileAvailable false when R2 object is missing', async () => {
