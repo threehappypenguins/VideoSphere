@@ -409,7 +409,7 @@ describe('GET /api/uploads/jobs', () => {
     expect(body.data[0].platforms[0].retryable).toBe(false);
   });
 
-  it('normalizes platform status to completed when job status is completed', async () => {
+  it('normalizes platform fields when job status is completed (stale rows)', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
     vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
@@ -430,8 +430,19 @@ describe('GET /api/uploads/jobs', () => {
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      data: Array<{ platforms: Array<{ status: string }> }>;
+      data: Array<{
+        platforms: Array<{
+          status: string;
+          errorMessage: string | null;
+          retryable: boolean;
+          retryReason: string;
+        }>;
+      }>;
     };
-    expect(body.data[0].platforms[0].status).toBe('completed');
+    const p = body.data[0].platforms[0];
+    expect(p.status).toBe('completed');
+    expect(p.errorMessage).toBeNull();
+    expect(p.retryable).toBe(false);
+    expect(p.retryReason).toBe('');
   });
 });
