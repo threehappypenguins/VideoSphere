@@ -29,7 +29,7 @@ function rowToConnectedAccount(row: Record<string, unknown>): ConnectedAccount {
     accessToken: String(row.accessToken),
     refreshToken: refresh,
     tokenExpiry: String(row.tokenExpiry),
-    hasRefreshToken: refresh.length > 0,
+    hasRefreshToken: refresh.trim().length > 0,
     platformUserId: String(row.platformUserId),
     platformName: String(row.platformName),
     $createdAt,

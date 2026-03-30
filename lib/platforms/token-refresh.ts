@@ -56,17 +56,23 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
   }
 
   if (account.platform === 'youtube') {
-    if (!account.refreshToken) {
+    const refreshToken = account.refreshToken.trim();
+    if (!refreshToken) {
       throw new Error(
         'YouTube access token is expired or near expiry and no refresh token is stored. Reconnect your YouTube account.'
       );
     }
 
-    const refreshed = await refreshYouTubeAccessToken({ refreshToken: account.refreshToken });
+    const refreshed = await refreshYouTubeAccessToken({ refreshToken });
     if ('error' in refreshed) {
-      const d = refreshed.error.details;
-      const details = d != null ? ` ${typeof d === 'string' ? d : JSON.stringify(d)}` : '';
-      throw new Error(`${refreshed.error.code}: ${refreshed.error.message}${details}`);
+      const statusSuffix =
+        refreshed.error.statusCode != null ? ` (HTTP ${refreshed.error.statusCode})` : '';
+      const detailsSuffix = refreshed.error.details
+        ? ` Details: ${typeof refreshed.error.details === 'string' ? refreshed.error.details : JSON.stringify(refreshed.error.details)}`
+        : '';
+      throw new Error(
+        `${refreshed.error.code}: ${refreshed.error.message}${statusSuffix}${detailsSuffix}`
+      );
     }
 
     const persisted = await updateTokens(

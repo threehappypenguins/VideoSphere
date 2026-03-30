@@ -143,32 +143,7 @@ async function runSinglePlatformUpload(
       tokens.refreshToken
     ) {
       const refreshed = await refreshYouTubeAccessToken({ refreshToken: tokens.refreshToken });
-      if (refreshed.ok) {
-        tokens = {
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken,
-          tokenExpiry: refreshed.tokenExpiry,
-        };
-
-        const persisted = await updateTokens(
-          connectedAccount.id,
-          refreshed.accessToken,
-          refreshed.refreshToken,
-          refreshed.tokenExpiry
-        );
-        if (persisted === null) {
-          await requireUpdatePlatformUploadStatus(
-            platformUpload.id,
-            'failed',
-            undefined,
-            undefined,
-            'Failed to persist refreshed YouTube tokens because the connected account no longer exists.'
-          );
-          return;
-        }
-
-        uploadResult = await executeUpload();
-      } else {
+      if ('error' in refreshed) {
         const statusSuffix =
           refreshed.error.statusCode != null ? ` (HTTP ${refreshed.error.statusCode})` : '';
         const detailsSuffix = refreshed.error.details ? ` Details: ${refreshed.error.details}` : '';
@@ -181,6 +156,31 @@ async function runSinglePlatformUpload(
         );
         return;
       }
+
+      tokens = {
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        tokenExpiry: refreshed.tokenExpiry,
+      };
+
+      const persisted = await updateTokens(
+        connectedAccount.id,
+        refreshed.accessToken,
+        refreshed.refreshToken,
+        refreshed.tokenExpiry
+      );
+      if (persisted === null) {
+        await requireUpdatePlatformUploadStatus(
+          platformUpload.id,
+          'failed',
+          undefined,
+          undefined,
+          'Failed to persist refreshed YouTube tokens because the connected account no longer exists.'
+        );
+        return;
+      }
+
+      uploadResult = await executeUpload();
     }
 
     if ('error' in uploadResult) {
