@@ -13,26 +13,7 @@ import {
   distributeCreatePlatformUploadInput,
   runDistributionInBackground,
 } from '@/lib/api/distribute';
-import type { ConnectedAccountPlatform } from '@/types';
-
-function latestPlatformUploadsPerPlatform<
-  T extends { platform: ConnectedAccountPlatform; $updatedAt: string },
->(platformUploads: T[]): T[] {
-  const byPlatform = new Map<ConnectedAccountPlatform, T>();
-  for (const item of platformUploads) {
-    const current = byPlatform.get(item.platform);
-    if (!current) {
-      byPlatform.set(item.platform, item);
-      continue;
-    }
-    const currentTs = Date.parse(current.$updatedAt);
-    const nextTs = Date.parse(item.$updatedAt);
-    if (Number.isNaN(currentTs) || (!Number.isNaN(nextTs) && nextTs >= currentTs)) {
-      byPlatform.set(item.platform, item);
-    }
-  }
-  return [...byPlatform.values()];
-}
+import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 export async function POST(
   request: NextRequest,
@@ -54,6 +35,16 @@ export async function POST(
     if (job.status === 'distributing') {
       return NextResponse.json(
         { error: 'Upload job is currently distributing. Please wait for it to finish.' },
+        { status: 409 }
+      );
+    }
+
+    if (job.status !== 'failed') {
+      return NextResponse.json(
+        {
+          error:
+            'Retries are only allowed for failed upload jobs. This job is not in a failed state.',
+        },
         { status: 409 }
       );
     }

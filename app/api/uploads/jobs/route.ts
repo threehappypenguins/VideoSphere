@@ -12,6 +12,7 @@ import type {
 } from '@/types';
 import { headObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { assessPlatformUploadRetryability } from '@/lib/api/distribute';
+import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 interface UploadHistoryPlatformItem {
   platform: ConnectedAccountPlatform;
@@ -49,23 +50,6 @@ function parseOffsetParam(raw: string | null): number {
   const parsed = Number.parseInt(raw, 10);
   if (Number.isNaN(parsed)) return 0;
   return Math.max(0, parsed);
-}
-
-function latestPlatformUploadsPerPlatform(platformUploads: PlatformUpload[]): PlatformUpload[] {
-  const byPlatform = new Map<ConnectedAccountPlatform, PlatformUpload>();
-  for (const item of platformUploads) {
-    const current = byPlatform.get(item.platform);
-    if (!current) {
-      byPlatform.set(item.platform, item);
-      continue;
-    }
-    const currentTs = Date.parse(current.$updatedAt);
-    const nextTs = Date.parse(item.$updatedAt);
-    if (Number.isNaN(currentTs) || (!Number.isNaN(nextTs) && nextTs >= currentTs)) {
-      byPlatform.set(item.platform, item);
-    }
-  }
-  return [...byPlatform.values()];
 }
 
 async function checkR2Availability(key: string, cache: Map<string, boolean>): Promise<boolean> {

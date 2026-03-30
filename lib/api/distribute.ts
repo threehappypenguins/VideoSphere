@@ -26,6 +26,7 @@ import {
 } from '@/lib/repositories/platform-uploads';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
+import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 const PLATFORM_UPLOAD_TIMEOUT_MS = 20 * 60 * 1000;
 
@@ -364,24 +365,6 @@ async function runSinglePlatformUpload(
 // ---------------------------------------------------------------------------
 // Background orchestrator
 // ---------------------------------------------------------------------------
-
-/** Newest row per platform (by `$updatedAt`) when multiple `platform_upload` rows exist. */
-function latestPlatformUploadsPerPlatform(platformUploads: PlatformUpload[]): PlatformUpload[] {
-  const byPlatform = new Map<ConnectedAccountPlatform, PlatformUpload>();
-  for (const item of platformUploads) {
-    const current = byPlatform.get(item.platform);
-    if (!current) {
-      byPlatform.set(item.platform, item);
-      continue;
-    }
-    const currentTs = Date.parse(current.$updatedAt);
-    const nextTs = Date.parse(item.$updatedAt);
-    if (Number.isNaN(currentTs) || (!Number.isNaN(nextTs) && nextTs >= currentTs)) {
-      byPlatform.set(item.platform, item);
-    }
-  }
-  return [...byPlatform.values()];
-}
 
 export interface RunDistributionInBackgroundOptions {
   /**

@@ -69,6 +69,7 @@ import type {
   Draft,
   PlatformUpload,
   PlatformUploadStatus,
+  UploadJobStatus,
 } from '@/types';
 
 const SESSION_COOKIE = 'a_session_test-project';
@@ -233,6 +234,26 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     expect(body.error).toMatch(/currently distributing/i);
     expect(mockHeadObject).not.toHaveBeenCalled();
   });
+
+  it.each(['pending', 'uploading', 'completed', 'cancelled'] as const)(
+    'returns 409 when the job status is %s (only failed jobs may be retried)',
+    async (status: UploadJobStatus) => {
+      vi.mocked(getUploadJobById).mockResolvedValueOnce({
+        ...baseJob,
+        status,
+      });
+
+      const res = await POST(
+        createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }),
+        makeParams('job-abc')
+      );
+
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error).toMatch(/only allowed for failed upload jobs|not in a failed state/i);
+      expect(mockHeadObject).not.toHaveBeenCalled();
+    }
+  );
 
   it('returns 404 when the job has no R2 key (source file already cleared)', async () => {
     vi.mocked(getUploadJobById).mockResolvedValueOnce({
