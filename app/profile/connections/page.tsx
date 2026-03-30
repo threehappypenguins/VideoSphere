@@ -75,13 +75,16 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
 
 const ALL_PLATFORMS = ['youtube', 'vimeo'] as const;
 
-/** Derive connection status from tokenExpiry. */
+/** Derive connection status from tokenExpiry and whether a refresh token exists. */
 function getConnectionStatus(
   account: ConnectedAccountPublic | undefined
 ): 'connected' | 'expired' | 'not-connected' {
   if (!account) return 'not-connected';
-  const expiry = new Date(account.tokenExpiry).getTime();
-  return expiry > Date.now() ? 'connected' : 'expired';
+  const expiryMs = new Date(account.tokenExpiry).getTime();
+  if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
+  // YouTube: short-lived access tokens; a stored refresh token means the link can be renewed.
+  if (account.platform === 'youtube' && account.hasRefreshToken) return 'connected';
+  return 'expired';
 }
 
 function StatusBadge({ status }: { status: 'connected' | 'expired' | 'not-connected' }) {

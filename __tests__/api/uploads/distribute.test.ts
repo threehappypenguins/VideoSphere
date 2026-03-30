@@ -66,6 +66,7 @@ const mockGetObjectWebStream = vi.fn();
 const mockDeleteObject = vi.fn();
 const mockUploadToYouTube = vi.fn();
 const mockRefreshYouTubeAccessToken = vi.fn();
+const mockRefreshTokenIfNeeded = vi.fn();
 const mockUploadToVimeo = vi.fn();
 const mockGetPlatformUploadsByJob = vi.fn();
 const mockUpdatePlatformUploadStatus = vi.fn();
@@ -114,6 +115,11 @@ vi.mock('@/lib/platforms/youtube', async (importOriginal) => {
     refreshYouTubeAccessToken: (...args: unknown[]) => mockRefreshYouTubeAccessToken(...args),
   };
 });
+
+vi.mock('@/lib/platforms/token-refresh', () => ({
+  refreshTokenIfNeeded: (...args: unknown[]) => mockRefreshTokenIfNeeded(...args),
+  TOKEN_REFRESH_LEAD_MS: 300000,
+}));
 
 vi.mock('@/lib/platforms/vimeo', () => ({
   uploadToVimeo: (...args: unknown[]) => mockUploadToVimeo(...args),
@@ -236,6 +242,7 @@ describe('POST /api/uploads/distribute', () => {
       userId: 'user-123',
       platform: 'youtube',
       tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
+      hasRefreshToken: true,
       platformUserId: 'channel-1',
       platformName: 'Test Channel',
       $createdAt: '2000-01-01T00:00:00.000Z',
@@ -248,6 +255,17 @@ describe('POST /api/uploads/distribute', () => {
       refreshToken: 'refresh-token',
       tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
     });
+
+    mockRefreshTokenIfNeeded.mockImplementation(
+      async (account: { accessToken: string; refreshToken: string; tokenExpiry: string }) => ({
+        accessToken: account.accessToken,
+        refreshToken: account.refreshToken,
+        tokenExpiry:
+          account.tokenExpiry?.trim() !== ''
+            ? account.tokenExpiry
+            : new Date(Date.now() + 3600_000).toISOString(),
+      })
+    );
 
     mockGetObjectWebStream.mockResolvedValue({
       stream: new ReadableStream({
@@ -267,6 +285,7 @@ describe('POST /api/uploads/distribute', () => {
       accessToken: 'token',
       refreshToken: '',
       tokenExpiry: '',
+      hasRefreshToken: false,
       platformUserId: 'p1',
       platformName: 'n1',
       $createdAt: '2000-01-01T00:00:00.000Z',
@@ -726,6 +745,7 @@ describe('POST /api/uploads/distribute', () => {
         accessToken: 'token',
         refreshToken: '',
         tokenExpiry: '',
+        hasRefreshToken: false,
         platformUserId: 'p1',
         platformName: 'n1',
         $createdAt: '2000-01-01T00:00:00.000Z',
