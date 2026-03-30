@@ -212,6 +212,34 @@ export async function getDraftById(id: string): Promise<Draft | null> {
 }
 
 /**
+ * Titles for drafts referenced by upload jobs on the current page.
+ * Only IDs that exist and belong to `userId` are included (parallel `getRow` per id).
+ */
+export async function getDraftTitlesByIdsForUser(
+  userId: string,
+  draftIds: Array<string | null | undefined>
+): Promise<Map<string, string>> {
+  const unique = [
+    ...new Set(draftIds.filter((id): id is string => typeof id === 'string' && id !== '')),
+  ];
+  if (unique.length === 0) return new Map();
+
+  const pairs = await Promise.all(
+    unique.map(async (id) => {
+      const draft = await getDraftById(id);
+      if (!draft || draft.userId !== userId) return null;
+      return [id, draft.title] as const;
+    })
+  );
+
+  const map = new Map<string, string>();
+  for (const p of pairs) {
+    if (p) map.set(p[0], p[1]);
+  }
+  return map;
+}
+
+/**
  * List drafts for a user, sorted by most recent (`$updatedAt` descending).
  */
 export async function listDraftsByUser(userId: string): Promise<Draft[]> {

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUploadJobsWithPlatformUploads } from '@/lib/repositories/upload-jobs';
-import { listDraftsByUser } from '@/lib/repositories/drafts';
+import {
+  countUploadJobsByUser,
+  getUploadJobsWithPlatformUploadsPage,
+} from '@/lib/repositories/upload-jobs';
+import { getDraftTitlesByIdsForUser } from '@/lib/repositories/drafts';
 import type {
   ApiError,
   ApiResponse,
   ConnectedAccountPlatform,
-  PlatformUpload,
   PlatformUploadStatus,
   UploadJobStatus,
 } from '@/types';
@@ -80,12 +82,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const limit = parseLimitParam(searchParams.get('limit'));
     const offset = parseOffsetParam(searchParams.get('offset'));
 
-    const [jobs, drafts] = await Promise.all([
-      getUploadJobsWithPlatformUploads(userId, { maxRows: Number.POSITIVE_INFINITY }),
-      listDraftsByUser(userId),
+    const [total, pagedJobs] = await Promise.all([
+      countUploadJobsByUser(userId),
+      getUploadJobsWithPlatformUploadsPage(userId, { limit, offset }),
     ]);
-    const draftTitleById = new Map(drafts.map((draft) => [draft.id, draft.title]));
-    const pagedJobs = jobs.slice(offset, offset + limit);
+
+    const draftTitleById = await getDraftTitlesByIdsForUser(
+      userId,
+      pagedJobs.map((j) => j.draftId)
+    );
     const r2AvailabilityByKey = new Map<string, boolean>();
 
     const data: UploadHistoryJobItem[] = await Promise.all(
@@ -131,7 +136,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     } = {
       data,
       meta: {
-        total: jobs.length,
+        total,
         limit,
         offset,
       },

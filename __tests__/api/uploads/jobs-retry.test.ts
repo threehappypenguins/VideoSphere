@@ -503,6 +503,19 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     expect(callInputs).toHaveLength(1);
     expect(callInputs[0].platform).toBe('vimeo');
   });
+
+  it('returns 404 and does not schedule distribution when updateUploadJobStatus returns null', async () => {
+    vi.mocked(updateUploadJobStatus).mockResolvedValueOnce(null);
+
+    const res = await POST(
+      createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }),
+      makeParams('job-abc')
+    );
+
+    expect(res.status).toBe(404);
+    expect(await bodyError(res)).toBe('Upload job not found');
+    expect(mockRunDistributionInBackground).not.toHaveBeenCalled();
+  });
 });
 
 async function bodyError(res: Response): Promise<string> {

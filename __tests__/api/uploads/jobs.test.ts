@@ -12,11 +12,12 @@ vi.mock('@/lib/api/auth', () => ({
 }));
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
-  getUploadJobsWithPlatformUploads: vi.fn(),
+  countUploadJobsByUser: vi.fn(),
+  getUploadJobsWithPlatformUploadsPage: vi.fn(),
 }));
 
 vi.mock('@/lib/repositories/drafts', () => ({
-  listDraftsByUser: vi.fn(),
+  getDraftTitlesByIdsForUser: vi.fn(),
 }));
 
 const mockHeadObject = vi.fn();
@@ -31,8 +32,11 @@ vi.mock('@/lib/r2', async (importOriginal) => {
 
 import { GET } from '@/app/api/uploads/jobs/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUploadJobsWithPlatformUploads } from '@/lib/repositories/upload-jobs';
-import { listDraftsByUser } from '@/lib/repositories/drafts';
+import {
+  countUploadJobsByUser,
+  getUploadJobsWithPlatformUploadsPage,
+} from '@/lib/repositories/upload-jobs';
+import { getDraftTitlesByIdsForUser } from '@/lib/repositories/drafts';
 import { R2ObjectNotFoundError } from '@/lib/r2';
 import type { PlatformUpload, UploadJobWithPlatformUploads } from '@/types';
 
@@ -99,26 +103,15 @@ describe('GET /api/uploads/jobs', () => {
     const res = await GET(createRequest());
 
     expect(res.status).toBe(401);
-    expect(getUploadJobsWithPlatformUploads).not.toHaveBeenCalled();
+    expect(countUploadJobsByUser).not.toHaveBeenCalled();
+    expect(getUploadJobsWithPlatformUploadsPage).not.toHaveBeenCalled();
   });
 
   it('returns data, meta.total, and default limit/offset', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([makeJob('job-a')]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([
-      {
-        id: 'draft-1',
-        userId: 'user-123',
-        targets: ['youtube'],
-        title: 'My draft',
-        description: '',
-        tags: [],
-        visibility: 'public',
-        platforms: {},
-        $createdAt: '2026-01-01T00:00:00.000Z',
-        $updatedAt: '2026-01-01T00:00:00.000Z',
-      },
-    ]);
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([makeJob('job-a')]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map([['draft-1', 'My draft']]));
 
     const res = await GET(createRequest());
 
@@ -133,13 +126,18 @@ describe('GET /api/uploads/jobs', () => {
     expect(body.meta.total).toBe(1);
     expect(body.meta.limit).toBe(20);
     expect(body.meta.offset).toBe(0);
+    expect(getUploadJobsWithPlatformUploadsPage).toHaveBeenCalledWith('user-123', {
+      limit: 20,
+      offset: 0,
+    });
   });
 
   it('applies limit and offset slicing; meta.total reflects full list', async () => {
-    const jobs = ['j0', 'j1', 'j2', 'j3', 'j4'].map((id) => makeJob(id, { draftId: 'd1' }));
+    const page = ['j2', 'j3'].map((id) => makeJob(id, { draftId: 'd1' }));
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce(jobs);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(5);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce(page);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest('?limit=2&offset=2'));
 
@@ -152,13 +150,18 @@ describe('GET /api/uploads/jobs', () => {
     expect(body.meta.total).toBe(5);
     expect(body.meta.limit).toBe(2);
     expect(body.meta.offset).toBe(2);
+    expect(getUploadJobsWithPlatformUploadsPage).toHaveBeenCalledWith('user-123', {
+      limit: 2,
+      offset: 2,
+    });
   });
 
   it('caps limit at 100', async () => {
     const jobs = Array.from({ length: 3 }, (_, i) => makeJob(`job-${i}`));
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce(jobs);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(3);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce(jobs);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest('?limit=500'));
 
@@ -166,12 +169,17 @@ describe('GET /api/uploads/jobs', () => {
     const body = (await res.json()) as { meta: { limit: number }; data: unknown[] };
     expect(body.meta.limit).toBe(100);
     expect(body.data).toHaveLength(3);
+    expect(getUploadJobsWithPlatformUploadsPage).toHaveBeenCalledWith('user-123', {
+      limit: 100,
+      offset: 0,
+    });
   });
 
   it('uses default limit when limit param is not a number', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([makeJob('only')]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([makeJob('only')]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest('?limit=not-a-number'));
 
@@ -180,12 +188,13 @@ describe('GET /api/uploads/jobs', () => {
     expect(body.meta.limit).toBe(20);
   });
 
-  it('sets draftTitle to null when draft id is not in listDraftsByUser (deleted / missing)', async () => {
+  it('sets draftTitle to null when draft id is missing or not returned for the user', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-x', { draftId: 'orphan-draft-id' }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 
@@ -199,13 +208,14 @@ describe('GET /api/uploads/jobs', () => {
 
   it('sets r2FileAvailable to null when no platform is failed', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-ok', {
         status: 'completed',
         platformUploads: [makePlatformUpload({ status: 'completed' })],
       }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 
@@ -217,7 +227,8 @@ describe('GET /api/uploads/jobs', () => {
 
   it('sets r2FileAvailable true when a platform failed and R2 object exists', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-fail', {
         status: 'failed',
         r2Key: 'temp/uploads/user-123/k/file.mp4',
@@ -229,7 +240,7 @@ describe('GET /api/uploads/jobs', () => {
         ],
       }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 
@@ -244,7 +255,8 @@ describe('GET /api/uploads/jobs', () => {
     mockHeadObject.mockRejectedValueOnce(
       new R2ObjectNotFoundError('temp/uploads/user-123/k/file.mp4')
     );
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-expired', {
         status: 'failed',
         r2Key: 'temp/uploads/user-123/k/file.mp4',
@@ -256,7 +268,7 @@ describe('GET /api/uploads/jobs', () => {
         ],
       }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 
@@ -267,7 +279,8 @@ describe('GET /api/uploads/jobs', () => {
 
   it('sets r2FileAvailable false when a platform failed but job has no r2Key', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-no-key', {
         status: 'failed',
         r2Key: null,
@@ -279,7 +292,7 @@ describe('GET /api/uploads/jobs', () => {
         ],
       }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 
@@ -291,7 +304,8 @@ describe('GET /api/uploads/jobs', () => {
 
   it('maps retryable true for failed uploads with transient-looking errors', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-retry', {
         status: 'failed',
         platformUploads: [
@@ -302,7 +316,7 @@ describe('GET /api/uploads/jobs', () => {
         ],
       }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 
@@ -316,7 +330,8 @@ describe('GET /api/uploads/jobs', () => {
 
   it('maps retryable false for failed uploads with quota-style errors', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-quota', {
         status: 'failed',
         platformUploads: [
@@ -327,7 +342,7 @@ describe('GET /api/uploads/jobs', () => {
         ],
       }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 
@@ -340,7 +355,8 @@ describe('GET /api/uploads/jobs', () => {
 
   it('normalizes platform status to completed when job status is completed', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    vi.mocked(getUploadJobsWithPlatformUploads).mockResolvedValueOnce([
+    vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
+    vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
       makeJob('job-done', {
         status: 'completed',
         platformUploads: [
@@ -352,7 +368,7 @@ describe('GET /api/uploads/jobs', () => {
         ],
       }),
     ]);
-    vi.mocked(listDraftsByUser).mockResolvedValueOnce([]);
+    vi.mocked(getDraftTitlesByIdsForUser).mockResolvedValueOnce(new Map());
 
     const res = await GET(createRequest());
 

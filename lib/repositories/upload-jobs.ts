@@ -261,6 +261,43 @@ export async function findUploadJobForDistribution(input: {
   return rowToUploadJob(row as unknown as Record<string, unknown>);
 }
 
+/**
+ * Total number of upload jobs for a user (for pagination `meta.total`).
+ * Uses a single `listRows` with `total: true` and `limit: 1`.
+ */
+export async function countUploadJobsByUser(userId: string): Promise<number> {
+  const result = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_JOBS_COLLECTION_ID,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: true,
+  });
+  return typeof result.total === 'number' ? result.total : 0;
+}
+
+/**
+ * One page of upload jobs for a user (newest first) with platform uploads populated.
+ * Does not load the full job list into memory.
+ */
+export async function getUploadJobsWithPlatformUploadsPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<UploadJobWithPlatformUploads[]> {
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_JOBS_COLLECTION_ID,
+    queries: [
+      Query.equal('userId', userId),
+      Query.orderDesc('$createdAt'),
+      Query.limit(options.limit),
+      Query.offset(options.offset),
+    ],
+    total: false,
+  });
+  const jobs = (rows ?? []).map((r) => rowToUploadJob(r as unknown as Record<string, unknown>));
+  return getUploadJobsWithPlatformUploadsFromJobs(jobs);
+}
+
 /** Options for {@link getUploadJobsWithPlatformUploads}. */
 export interface GetUploadJobsWithPlatformUploadsOptions {
   /** Forwarded to {@link listUploadJobsByUser} `pageSize`. */

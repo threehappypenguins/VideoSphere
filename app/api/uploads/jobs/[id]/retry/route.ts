@@ -101,7 +101,10 @@ export async function POST(
       )
     );
 
-    await updateUploadJobStatus(job.id, 'distributing', null);
+    const updatedJob = await updateUploadJobStatus(job.id, 'distributing', null);
+    if (updatedJob === null) {
+      return NextResponse.json({ error: 'Upload job not found' }, { status: 404 });
+    }
 
     const metadataByPlatformId = new Map<string, ReturnType<typeof buildMetadataForPlatform>>();
     for (const pu of platformUploads) {
