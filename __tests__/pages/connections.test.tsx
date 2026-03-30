@@ -159,6 +159,7 @@ describe('ConnectionsPage', () => {
           userId: 'user-123',
           platform: 'youtube',
           tokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(),
+          hasRefreshToken: true,
           platformUserId: 'UCtest123',
           platformName: 'My Test Channel',
           $createdAt: new Date().toISOString(),
@@ -169,6 +170,26 @@ describe('ConnectionsPage', () => {
       render(page);
       expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
       expect(screen.getByText('My Test Channel')).toBeInTheDocument();
+    });
+
+    it('shows Connected (not Expired) when access token is past but a refresh token exists', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'account-1',
+          userId: 'user-123',
+          platform: 'youtube',
+          tokenExpiry: new Date(Date.now() - 1000).toISOString(),
+          hasRefreshToken: true,
+          platformUserId: 'UCtest123',
+          platformName: 'My Test Channel',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText('Connected')).toBeInTheDocument();
+      expect(screen.queryByText(/expired/i)).not.toBeInTheDocument();
     });
   });
 

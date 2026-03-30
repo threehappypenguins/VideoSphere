@@ -16,6 +16,7 @@ import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { deleteObject, getObjectWebStream } from '@/lib/r2';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
+import { refreshTokenIfNeeded, type PlatformTokens } from '@/lib/platforms/token-refresh';
 import { updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import {
   type CreatePlatformUploadInput,
@@ -109,45 +110,19 @@ async function runSinglePlatformUpload(
       return;
     }
 
-    let tokens = {
-      accessToken: connectedAccount.accessToken,
-      refreshToken: connectedAccount.refreshToken,
-      tokenExpiry: connectedAccount.tokenExpiry,
-    };
-
-    const shouldRefreshYouTubeToken =
-      platformUpload.platform === 'youtube' &&
-      (() => {
-        const expiry = Date.parse(tokens.tokenExpiry ?? '');
-        if (Number.isNaN(expiry)) return false;
-        return expiry <= Date.now() + 60_000;
-      })();
-
-    if (shouldRefreshYouTubeToken) {
-      const refreshed = await refreshYouTubeAccessToken({ refreshToken: tokens.refreshToken });
-      if ('error' in refreshed) {
-        await requireUpdatePlatformUploadStatus(
-          platformUpload.id,
-          'failed',
-          undefined,
-          undefined,
-          `${refreshed.error.code}: ${refreshed.error.message}${refreshed.error.details ? ` Details: ${refreshed.error.details}` : ''}`
-        );
-        return;
-      }
-
-      tokens = {
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        tokenExpiry: refreshed.tokenExpiry,
-      };
-
-      await updateTokens(
-        connectedAccount.id,
-        refreshed.accessToken,
-        refreshed.refreshToken,
-        refreshed.tokenExpiry
+    let tokens: PlatformTokens;
+    try {
+      tokens = await refreshTokenIfNeeded(connectedAccount);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await requireUpdatePlatformUploadStatus(
+        platformUpload.id,
+        'failed',
+        undefined,
+        undefined,
+        message
       );
+      return;
     }
 
     // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and

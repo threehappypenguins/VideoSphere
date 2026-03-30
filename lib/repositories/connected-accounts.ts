@@ -21,18 +21,30 @@ const tablesDb = new TablesDB(appwriteClient);
 /** Map row to full type (includes tokens). Use only for server-side token retrieval. */
 function rowToConnectedAccount(row: Record<string, unknown>): ConnectedAccount {
   const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+  const refresh = String(row.refreshToken ?? '');
   return {
     id: String(row.$id ?? row.id),
     userId: String(row.userId),
     platform: row.platform as ConnectedAccountPlatform,
     accessToken: String(row.accessToken),
-    refreshToken: String(row.refreshToken),
+    refreshToken: refresh,
     tokenExpiry: String(row.tokenExpiry),
+    hasRefreshToken: refresh.length > 0,
     platformUserId: String(row.platformUserId),
     platformName: String(row.platformName),
     $createdAt,
     $updatedAt,
   };
+}
+
+function hasRefreshTokenFromStoredRow(row: Record<string, unknown>): boolean {
+  const raw = String(row.refreshToken ?? '').trim();
+  if (!raw) return false;
+  try {
+    return decryptToken(raw).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Map row to public type (no tokens). Safe for API responses and UI. */
@@ -43,6 +55,7 @@ function rowToConnectedAccountPublic(row: Record<string, unknown>): ConnectedAcc
     userId: String(row.userId),
     platform: row.platform as ConnectedAccountPlatform,
     tokenExpiry: String(row.tokenExpiry),
+    hasRefreshToken: hasRefreshTokenFromStoredRow(row),
     platformUserId: String(row.platformUserId),
     platformName: String(row.platformName),
     $createdAt,
