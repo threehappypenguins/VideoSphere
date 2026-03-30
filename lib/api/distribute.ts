@@ -15,6 +15,7 @@ import type {
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { deleteObject, getObjectWebStream } from '@/lib/r2';
+import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
 import { refreshTokenIfNeeded, type PlatformTokens } from '@/lib/platforms/token-refresh';
 import { updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
@@ -117,21 +118,24 @@ export function assessPlatformUploadRetryability(
   return { retryable: false, reason: 'Failure does not match known transient retry conditions.' };
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+/**
+ * Aborts `signal` when the deadline elapses so R2 reads and platform `fetch` bodies stop.
+ * (Plain `Promise.race` would reject without cancelling the underlying upload.)
+ */
+async function runUploadWithDeadline<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutError = new Error(`${label} timed out after ${Math.floor(timeoutMs / 1000)}s`);
+  const timeoutId = setTimeout(() => {
+    controller.abort(timeoutError);
+  }, timeoutMs);
   try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error(`${label} timed out after ${Math.floor(timeoutMs / 1000)}s`));
-        }, timeoutMs);
-      }),
-    ]);
+    return await fn(controller.signal);
   } finally {
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
+    clearTimeout(timeoutId);
   }
 }
 
@@ -236,15 +240,31 @@ async function runSinglePlatformUpload(
 
     // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
     // we never buffer multi‑GB files in RAM (unlike a shared presigned fetch() body).
-    const executeUpload = async () => {
-      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey);
+    const executeUpload = async (signal: AbortSignal) => {
+      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
+        signal,
+      });
       return platformUpload.platform === 'youtube'
-        ? uploadToYouTube({ videoStream: stream, contentLength, contentType, metadata, tokens })
-        : uploadToVimeo({ videoStream: stream, contentLength, contentType, metadata, tokens });
+        ? uploadToYouTube({
+            videoStream: stream,
+            contentLength,
+            contentType,
+            metadata,
+            tokens,
+            signal,
+          })
+        : uploadToVimeo({
+            videoStream: stream,
+            contentLength,
+            contentType,
+            metadata,
+            tokens,
+            signal,
+          });
     };
 
-    let uploadResult = await withTimeout(
-      executeUpload(),
+    let uploadResult = await runUploadWithDeadline(
+      executeUpload,
       PLATFORM_UPLOAD_TIMEOUT_MS,
       `${platformUpload.platform} upload`
     );
@@ -293,8 +313,8 @@ async function runSinglePlatformUpload(
         return;
       }
 
-      uploadResult = await withTimeout(
-        executeUpload(),
+      uploadResult = await runUploadWithDeadline(
+        executeUpload,
         PLATFORM_UPLOAD_TIMEOUT_MS,
         `${platformUpload.platform} upload`
       );
@@ -324,7 +344,7 @@ async function runSinglePlatformUpload(
       null
     );
   } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Unexpected platform upload error';
+    const detail = messageFromThrown(error);
     const marked = await updatePlatformUploadStatus(
       platformUpload.id,
       'failed',
@@ -345,6 +365,34 @@ async function runSinglePlatformUpload(
 // Background orchestrator
 // ---------------------------------------------------------------------------
 
+/** Newest row per platform (by `$updatedAt`) when multiple `platform_upload` rows exist. */
+function latestPlatformUploadsPerPlatform(platformUploads: PlatformUpload[]): PlatformUpload[] {
+  const byPlatform = new Map<ConnectedAccountPlatform, PlatformUpload>();
+  for (const item of platformUploads) {
+    const current = byPlatform.get(item.platform);
+    if (!current) {
+      byPlatform.set(item.platform, item);
+      continue;
+    }
+    const currentTs = Date.parse(current.$updatedAt);
+    const nextTs = Date.parse(item.$updatedAt);
+    if (Number.isNaN(currentTs) || (!Number.isNaN(nextTs) && nextTs >= currentTs)) {
+      byPlatform.set(item.platform, item);
+    }
+  }
+  return [...byPlatform.values()];
+}
+
+export interface RunDistributionInBackgroundOptions {
+  /**
+   * Set for **subset** retries (e.g. POST .../jobs/[id]/retry): only `platformUploads` are
+   * re-run, but job completion and R2 deletion must reflect **all** platforms on the job
+   * (latest row per platform). Otherwise a successful partial retry could mark the job
+   * completed and delete R2 while another platform is still failed.
+   */
+  subsetRetry?: boolean;
+}
+
 /**
  * Run distribution for all platform uploads in parallel, then clean up R2.
  * Called via Next.js `after()` so the HTTP response returns immediately.
@@ -354,9 +402,11 @@ export async function runDistributionInBackground(
   userId: string,
   r2ObjectKey: string,
   platformUploads: PlatformUpload[],
-  metadataByPlatformId: Map<string, PlatformUploadMetadata>
+  metadataByPlatformId: Map<string, PlatformUploadMetadata>,
+  options?: RunDistributionInBackgroundOptions
 ): Promise<void> {
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
+  const subsetRetry = options?.subsetRetry === true;
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -405,6 +455,22 @@ export async function runDistributionInBackground(
         `Platform upload(s) not in completed state: ${nonCompleted.map((u) => `${u.platform}=${u.status}`).join('; ')}`
       );
       return;
+    }
+
+    if (subsetRetry) {
+      const allLatest = latestPlatformUploadsPerPlatform(finalPlatformUploads);
+      const stillIncomplete = allLatest.filter((u) => u.status !== 'completed');
+      if (stillIncomplete.length > 0) {
+        const errorDetails = stillIncomplete
+          .map((u) => `${u.platform}: ${u.status}${u.errorMessage ? ` — ${u.errorMessage}` : ''}`)
+          .join('; ');
+        await updateUploadJobStatus(
+          jobId,
+          'failed',
+          `After retry, ${stillIncomplete.length} platform upload(s) still not completed: ${errorDetails}`
+        );
+        return;
+      }
     }
 
     // All platform uploads succeeded — clean up the temporary R2 object.

@@ -27,7 +27,7 @@ export {
   getUploadJobsWithPlatformUploadsForDraft,
   updateUploadJobStatus,
 } from './upload-jobs';
-export type { CreateUploadJobInput } from './upload-jobs';
+export type { CreateUploadJobInput, GetUploadJobsWithPlatformUploadsOptions } from './upload-jobs';
 
 export {
   createPlatformUpload,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
@@ -56,7 +56,7 @@ export function UploadHistoryClient() {
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       const response = await fetch(`/api/uploads/jobs?limit=${limit}&offset=${offset}`, {
         cache: 'no-store',
@@ -73,11 +73,11 @@ export function UploadHistoryClient() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [limit, offset]);
 
   useEffect(() => {
     void loadHistory();
-  }, [limit, offset]);
+  }, [loadHistory]);
 
   const hasActiveJobs = useMemo(() => jobs.some(isJobActive), [jobs]);
 
@@ -87,7 +87,7 @@ export function UploadHistoryClient() {
       void loadHistory();
     }, 3000);
     return () => window.clearInterval(id);
-  }, [hasActiveJobs]);
+  }, [hasActiveJobs, loadHistory]);
 
   useEffect(() => {
     setExpandedJobIds(new Set());
@@ -174,39 +174,44 @@ export function UploadHistoryClient() {
         </div>
       </div>
 
-      {jobs.map((job) => (
-        <div
-          key={job.uploadJobId}
-          className="rounded-xl border border-border bg-background p-4"
-          title={
-            job.draftTitle && job.draftTitle.trim() !== '' ? job.draftTitle : '(Deleted draft)'
-          }
-        >
-          <button
-            type="button"
-            onClick={() => toggleExpanded(job.uploadJobId)}
-            className="flex w-full items-center justify-between gap-3 text-left"
+      {jobs.map((job) => {
+        const jobExpanded = expandedJobIds.has(job.uploadJobId);
+        const jobPanelId = `upload-history-job-panel-${job.uploadJobId}`;
+        const jobAriaExpanded: 'true' | 'false' = jobExpanded ? 'true' : 'false';
+        return (
+          <div
+            key={job.uploadJobId}
+            className="rounded-xl border border-border bg-background p-4"
+            title={
+              job.draftTitle && job.draftTitle.trim() !== '' ? job.draftTitle : '(Deleted draft)'
+            }
           >
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold text-foreground">
-                {job.draftTitle && job.draftTitle.trim() !== ''
-                  ? job.draftTitle
-                  : '(Deleted draft)'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Upload: {new Date(job.createdAt).toLocaleString()}
-              </p>
-              <p className="text-xs text-muted-foreground">Job status: {job.status}</p>
-            </div>
-            {expandedJobIds.has(job.uploadJobId) ? (
-              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={() => toggleExpanded(job.uploadJobId)}
+              className="flex w-full items-center justify-between gap-3 text-left"
+              aria-expanded={jobAriaExpanded}
+              aria-controls={jobPanelId}
+            >
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold text-foreground">
+                  {job.draftTitle && job.draftTitle.trim() !== ''
+                    ? job.draftTitle
+                    : '(Deleted draft)'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Upload: {new Date(job.createdAt).toLocaleString()}
+                </p>
+                <p className="text-xs text-muted-foreground">Job status: {job.status}</p>
+              </div>
+              {jobExpanded ? (
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              )}
+            </button>
 
-          {expandedJobIds.has(job.uploadJobId) ? (
-            <div className="mt-3 space-y-2">
+            <div id={jobPanelId} hidden={!jobExpanded} className="mt-3 space-y-2">
               {job.platforms.map((platform) => {
                 const showRetry = platform.status === 'failed' && platform.retryable;
                 const isExpired = platform.status === 'failed' && job.r2FileAvailable === false;
@@ -248,9 +253,9 @@ export function UploadHistoryClient() {
                 );
               })}
             </div>
-          ) : null}
-        </div>
-      ))}
+          </div>
+        );
+      })}
 
       <div className="flex items-center justify-end gap-2 pt-1">
         <button

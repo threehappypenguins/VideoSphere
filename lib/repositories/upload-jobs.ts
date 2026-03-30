@@ -261,15 +261,31 @@ export async function findUploadJobForDistribution(input: {
   return rowToUploadJob(row as unknown as Record<string, unknown>);
 }
 
+/** Options for {@link getUploadJobsWithPlatformUploads}. */
+export interface GetUploadJobsWithPlatformUploadsOptions {
+  /** Forwarded to {@link listUploadJobsByUser} `pageSize`. */
+  pageSize?: number;
+  /**
+   * Max upload job rows to load. Defaults to 1000 (same as {@link listUploadJobsByUser}).
+   * Full-history callers (e.g. dashboard upload history) should pass `Number.POSITIVE_INFINITY`
+   * so `meta.total` and pagination are not silently truncated.
+   */
+  maxRows?: number;
+}
+
 /**
  * List upload jobs for a user with their related platform uploads populated.
  * Sorted by most recent first. Fetches all platform_uploads for the user's jobs
  * in a single query and groups in memory to avoid N+1.
  */
 export async function getUploadJobsWithPlatformUploads(
-  userId: string
+  userId: string,
+  options?: GetUploadJobsWithPlatformUploadsOptions
 ): Promise<UploadJobWithPlatformUploads[]> {
-  const jobs = await listUploadJobsByUser(userId);
+  const jobs = await listUploadJobsByUser(userId, undefined, {
+    pageSize: options?.pageSize,
+    maxRows: options?.maxRows ?? 1000,
+  });
   return getUploadJobsWithPlatformUploadsFromJobs(jobs);
 }
 

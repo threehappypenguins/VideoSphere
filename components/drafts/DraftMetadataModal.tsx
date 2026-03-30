@@ -1322,30 +1322,43 @@ export function DraftMetadataModal({
               </div>
               {!isLoadingUploadHistory && showUploadHistory && uploadHistory.length > 0 ? (
                 <div className="space-y-2">
-                  {uploadHistory.map((item) => (
-                    <div
-                      key={item.uploadJobId}
-                      className="rounded-md border border-border bg-background p-3"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleUploadHistoryItem(item.uploadJobId)}
-                        className="flex w-full items-center justify-between gap-2 text-left"
+                  {uploadHistory.map((item) => {
+                    const uploadHistoryExpanded = expandedUploadHistoryIds.has(item.uploadJobId);
+                    const uploadHistoryPanelId = `draft-upload-history-panel-${item.uploadJobId}`;
+                    const uploadHistoryAriaExpanded: 'true' | 'false' = uploadHistoryExpanded
+                      ? 'true'
+                      : 'false';
+                    return (
+                      <div
+                        key={item.uploadJobId}
+                        className="rounded-md border border-border bg-background p-3"
                       >
-                        <div>
-                          <p className="text-xs text-muted-foreground">
-                            Upload: {new Date(item.createdAt).toLocaleString()}
-                          </p>
-                          <p className="mt-1 text-xs text-foreground">Job status: {item.status}</p>
-                        </div>
-                        {expandedUploadHistoryIds.has(item.uploadJobId) ? (
-                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                      </button>
-                      {expandedUploadHistoryIds.has(item.uploadJobId) ? (
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleUploadHistoryItem(item.uploadJobId)}
+                          className="flex w-full items-center justify-between gap-2 text-left"
+                          aria-expanded={uploadHistoryAriaExpanded}
+                          aria-controls={uploadHistoryPanelId}
+                        >
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              Upload: {new Date(item.createdAt).toLocaleString()}
+                            </p>
+                            <p className="mt-1 text-xs text-foreground">
+                              Job status: {item.status}
+                            </p>
+                          </div>
+                          {uploadHistoryExpanded ? (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                        </button>
+                        <div
+                          id={uploadHistoryPanelId}
+                          hidden={!uploadHistoryExpanded}
+                          className="mt-2 flex flex-wrap gap-2"
+                        >
                           {item.platforms.map((platform) => (
                             <span
                               key={`${item.uploadJobId}-${platform.platform}`}
@@ -1356,9 +1369,9 @@ export function DraftMetadataModal({
                             </span>
                           ))}
                         </div>
-                      ) : null}
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

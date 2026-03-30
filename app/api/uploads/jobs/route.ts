@@ -97,7 +97,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const offset = parseOffsetParam(searchParams.get('offset'));
 
     const [jobs, drafts] = await Promise.all([
-      getUploadJobsWithPlatformUploads(userId),
+      getUploadJobsWithPlatformUploads(userId, { maxRows: Number.POSITIVE_INFINITY }),
       listDraftsByUser(userId),
     ]);
     const draftTitleById = new Map(drafts.map((draft) => [draft.id, draft.title]));
@@ -120,10 +120,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         });
 
         const hasFailedPlatform = platformItems.some((p) => p.status === 'failed');
-        const r2FileAvailable =
-          hasFailedPlatform && job.r2Key
-            ? await checkR2Availability(job.r2Key, r2AvailabilityByKey)
-            : null;
+        let r2FileAvailable: boolean | null = null;
+        if (hasFailedPlatform) {
+          if (job.r2Key) {
+            r2FileAvailable = await checkR2Availability(job.r2Key, r2AvailabilityByKey);
+          } else {
+            r2FileAvailable = false;
+          }
+        }
 
         return {
           uploadJobId: job.id,

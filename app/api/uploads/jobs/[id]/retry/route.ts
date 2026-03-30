@@ -104,7 +104,16 @@ export async function POST(
     }
 
     after(() =>
-      runDistributionInBackground(job.id, userId, job.r2Key!, platformUploads, metadataByPlatformId)
+      runDistributionInBackground(
+        job.id,
+        userId,
+        job.r2Key!,
+        platformUploads,
+        metadataByPlatformId,
+        {
+          subsetRetry: true,
+        }
+      )
     );
 
     return NextResponse.json(

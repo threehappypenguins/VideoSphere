@@ -234,7 +234,7 @@ export async function deleteObject(key: string): Promise<void> {
  * @throws {R2ObjectNotFoundError} When the object does not exist in R2
  * @throws {Error} When the HEAD request fails for any other reason
  */
-export async function headObject(key: string): Promise<number> {
+export async function headObject(key: string, options?: { signal?: AbortSignal }): Promise<number> {
   if (!key) {
     throw new Error('Object key is required');
   }
@@ -247,7 +247,10 @@ export async function headObject(key: string): Promise<number> {
   });
 
   try {
-    const response = await client.send(command);
+    const response = await client.send(
+      command,
+      options?.signal ? { abortSignal: options.signal } : {}
+    );
     return response.ContentLength ?? 0;
   } catch (error) {
     const status =
@@ -273,7 +276,10 @@ export async function headObject(key: string): Promise<number> {
  * single fetch() Response body (which can trigger "body disturbed or locked"), and
  * without buffering the entire object in memory (important for multi‑GB files).
  */
-export async function getObjectWebStream(key: string): Promise<{
+export async function getObjectWebStream(
+  key: string,
+  options?: { signal?: AbortSignal }
+): Promise<{
   stream: ReadableStream<Uint8Array>;
   contentLength: number;
   contentType: string;
@@ -290,7 +296,8 @@ export async function getObjectWebStream(key: string): Promise<{
       new GetObjectCommand({
         Bucket: process.env.R2_BUCKET_NAME!,
         Key: key,
-      })
+      }),
+      options?.signal ? { abortSignal: options.signal } : {}
     );
   } catch (error) {
     const status =
@@ -318,7 +325,7 @@ export async function getObjectWebStream(key: string): Promise<{
 
   let contentLength = response.ContentLength ?? 0;
   if (!Number.isFinite(contentLength) || contentLength <= 0) {
-    contentLength = await headObject(key);
+    contentLength = await headObject(key, { signal: options?.signal });
   }
   if (contentLength <= 0) {
     throw new Error(`R2 object has invalid or unknown size for key "${key}"`);
