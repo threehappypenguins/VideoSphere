@@ -86,9 +86,16 @@ function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
     return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('Aborted'));
   }
   return new Promise((resolve, reject) => {
-    const id = setTimeout(resolve, ms);
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    const id = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
     const onAbort = () => {
       clearTimeout(id);
+      cleanup();
       reject(signal.reason instanceof Error ? signal.reason : new Error('Aborted'));
     };
     signal.addEventListener('abort', onAbort, { once: true });

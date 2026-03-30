@@ -381,18 +381,21 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
         platform: 'youtube',
         status: 'failed',
         errorMessage: 'network error',
+        $updatedAt: '2026-01-03T10:00:00.000Z',
       }),
       makePlatformUpload({
         id: 'pu-vm',
         platform: 'vimeo',
         status: 'failed',
         errorMessage: 'Permission denied (HTTP 403)',
+        $updatedAt: '2026-01-03T10:00:00.000Z',
       }),
       makePlatformUpload({
         id: 'pu-yt-old',
         platform: 'youtube',
         status: 'completed',
         errorMessage: null,
+        $updatedAt: '2026-01-02T10:00:00.000Z',
       }),
     ]);
 
@@ -430,6 +433,54 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     expect(rdArgs[2]).toBe(baseJob.r2Key);
     expect(rdArgs[3]).toBe(created);
     expect(rdArgs[5]).toEqual({ subsetRetry: true });
+  });
+
+  it('uses latest row by $updatedAt per platform when deciding retry targets', async () => {
+    vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
+      makePlatformUpload({
+        id: 'pu-yt-older-failed',
+        platform: 'youtube',
+        status: 'failed',
+        errorMessage: 'network error',
+        $updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      makePlatformUpload({
+        id: 'pu-yt-newer-completed',
+        platform: 'youtube',
+        status: 'completed',
+        errorMessage: null,
+        $updatedAt: '2026-01-03T00:00:00.000Z',
+      }),
+      makePlatformUpload({
+        id: 'pu-vm-failed',
+        platform: 'vimeo',
+        status: 'failed',
+        errorMessage: 'fetch failed',
+        $updatedAt: '2026-01-02T00:00:00.000Z',
+      }),
+    ]);
+
+    const created = [
+      makePlatformUpload({
+        id: 'pu-vimeo-new',
+        platform: 'vimeo',
+        status: 'pending',
+        errorMessage: null,
+      }),
+    ];
+    vi.mocked(ensurePlatformUploadsForJobTargets).mockResolvedValueOnce(created);
+
+    const res = await POST(
+      createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }),
+      makeParams('job-abc')
+    );
+
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { retriedPlatforms: string[] };
+    expect(body.retriedPlatforms).toEqual(['vimeo']);
+    const callInputs = vi.mocked(ensurePlatformUploadsForJobTargets).mock.calls[0][0];
+    expect(callInputs).toHaveLength(1);
+    expect(callInputs[0].platform).toBe('vimeo');
   });
 });
 

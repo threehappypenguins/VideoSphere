@@ -15,6 +15,25 @@ import {
 } from '@/lib/api/distribute';
 import type { ConnectedAccountPlatform } from '@/types';
 
+function latestPlatformUploadsPerPlatform<
+  T extends { platform: ConnectedAccountPlatform; $updatedAt: string },
+>(platformUploads: T[]): T[] {
+  const byPlatform = new Map<ConnectedAccountPlatform, T>();
+  for (const item of platformUploads) {
+    const current = byPlatform.get(item.platform);
+    if (!current) {
+      byPlatform.set(item.platform, item);
+      continue;
+    }
+    const currentTs = Date.parse(current.$updatedAt);
+    const nextTs = Date.parse(item.$updatedAt);
+    if (Number.isNaN(currentTs) || (!Number.isNaN(nextTs) && nextTs >= currentTs)) {
+      byPlatform.set(item.platform, item);
+    }
+  }
+  return [...byPlatform.values()];
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -71,14 +90,9 @@ export async function POST(
     }
 
     const allUploads = await getPlatformUploadsByJob(job.id);
-    const latestByPlatform = new Map<ConnectedAccountPlatform, (typeof allUploads)[number]>();
-    for (const upload of allUploads) {
-      if (!latestByPlatform.has(upload.platform)) {
-        latestByPlatform.set(upload.platform, upload);
-      }
-    }
+    const latestByPlatform = latestPlatformUploadsPerPlatform(allUploads);
 
-    const retryableFailedPlatforms = [...latestByPlatform.values()]
+    const retryableFailedPlatforms = latestByPlatform
       .filter((upload) => upload.status === 'failed')
       .filter((upload) => assessPlatformUploadRetryability(upload.errorMessage).retryable)
       .map((upload) => upload.platform);
