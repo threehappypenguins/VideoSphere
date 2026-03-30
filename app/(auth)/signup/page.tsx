@@ -152,8 +152,9 @@ function InputField({
           placeholder={placeholder}
           autoComplete={autoComplete}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full rounded-xl border px-4 py-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all duration-200
+          className={`w-full rounded-xl border px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 placeholder:transition-opacity placeholder:duration-200 outline-none transition-all duration-200
             focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500
+            focus:placeholder:opacity-50
             ${
               error
                 ? 'border-red-400 bg-red-50 focus:ring-red-300/30 focus:border-red-400'
