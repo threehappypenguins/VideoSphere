@@ -1,4 +1,5 @@
 import type { PlatformUploadVisibility } from '@/types';
+import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadError,
@@ -27,7 +28,10 @@ interface GoogleRefreshTokenResponse {
 
 const YOUTUBE_RESUMABLE_URL =
   'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
+
+const MAX_CUSTOM_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DEFAULT_YOUTUBE_CATEGORY_ID = '22';
 
@@ -802,6 +806,62 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
           'YOUTUBE_PLAYLIST_ITEM_FAILED',
           `Video uploaded but adding it to playlist "${playlistId}" failed.`,
           plRes.status,
+          details
+        );
+      }
+    }
+
+    const thumbKey = m.thumbnailR2Key?.trim();
+    if (thumbKey) {
+      const rawCt = m.thumbnailContentType?.trim().toLowerCase() || 'image/jpeg';
+      if (rawCt !== 'image/jpeg' && rawCt !== 'image/png') {
+        return toError(
+          'YOUTUBE_THUMBNAIL_FORMAT',
+          'YouTube custom thumbnails must be JPEG or PNG.',
+          400
+        );
+      }
+      let thumbStream: ReadableStream<Uint8Array>;
+      let thumbLen: number;
+      try {
+        const opened = await getObjectWebStream(thumbKey, { signal });
+        thumbStream = opened.stream;
+        thumbLen = opened.contentLength;
+      } catch (err) {
+        return toError(
+          'YOUTUBE_THUMBNAIL_R2_FAILED',
+          'Could not read thumbnail from storage for YouTube.',
+          500,
+          messageFromThrown(err)
+        );
+      }
+      if (thumbLen > MAX_CUSTOM_THUMBNAIL_BYTES) {
+        return toError(
+          'YOUTUBE_THUMBNAIL_TOO_LARGE',
+          'Thumbnail exceeds the maximum size allowed for upload.',
+          400
+        );
+      }
+      const thumbBody = await new Response(thumbStream).arrayBuffer();
+      const thumbRes = await fetch(
+        `${YOUTUBE_THUMBNAILS_SET_URL}?videoId=${encodeURIComponent(videoId)}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${input.tokens.accessToken}`,
+            'Content-Type': rawCt,
+            'Content-Length': String(thumbBody.byteLength),
+          },
+          body: thumbBody,
+          ...(signal ? { signal } : {}),
+        }
+      );
+      if (!thumbRes.ok) {
+        const details = await readApiErrorDetails(thumbRes);
+        return toError(
+          'YOUTUBE_THUMBNAIL_SET_FAILED',
+          'Video uploaded but setting the custom thumbnail on YouTube failed.',
+          thumbRes.status,
           details
         );
       }

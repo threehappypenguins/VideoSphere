@@ -15,10 +15,11 @@ import type {
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { deleteObject, getObjectWebStream } from '@/lib/r2';
+import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
 import { refreshTokenIfNeeded, type PlatformTokens } from '@/lib/platforms/token-refresh';
-import { updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
+import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import {
   type CreatePlatformUploadInput,
   getPlatformUploadsByJob,
@@ -377,6 +378,30 @@ export async function runDistributionInBackground(
         cleanupError
       );
     });
+
+    const jobRow = await getUploadJobById(jobId);
+    const draftIdForThumb = jobRow?.draftId ?? null;
+    if (draftIdForThumb) {
+      const draftForThumb = await getDraftById(draftIdForThumb);
+      const thumbKey = draftForThumb?.thumbnailR2Key;
+      if (thumbKey && draftForThumb?.userId === userId) {
+        await deleteObject(thumbKey).catch((thumbErr) => {
+          console.error(
+            `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
+            thumbErr
+          );
+        });
+        await updateDraft(draftIdForThumb, {
+          thumbnailR2Key: null,
+          thumbnailContentType: null,
+        }).catch((docErr) => {
+          console.error(
+            `[distribute] Failed to clear draft thumbnail fields for ${draftIdForThumb}:`,
+            docErr
+          );
+        });
+      }
+    }
 
     await updateUploadJobStatus(jobId, 'completed', null);
   } catch (error) {

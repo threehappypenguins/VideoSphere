@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getObjectUrl, deleteObject, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
 import {
   DraftDocumentTooLargeError,
@@ -46,7 +47,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    const response: ApiResponse<Draft> = { data: draft };
+    let thumbnailPreviewUrl: string | undefined;
+    if (draft.thumbnailR2Key) {
+      try {
+        thumbnailPreviewUrl = await getObjectUrl(draft.thumbnailR2Key);
+      } catch {
+        thumbnailPreviewUrl = undefined;
+      }
+    }
+
+    const response: ApiResponse<Draft> = {
+      data: {
+        ...draft,
+        ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
+      },
+    };
     return NextResponse.json(response);
   } catch (err) {
     console.error('[GET /api/drafts/:id]', err);
@@ -233,7 +248,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    const response: ApiResponse<Draft> = { data: updated, message: 'Draft updated' };
+    let thumbnailPreviewUrl: string | undefined;
+    if (updated.thumbnailR2Key) {
+      try {
+        thumbnailPreviewUrl = await getObjectUrl(updated.thumbnailR2Key);
+      } catch {
+        thumbnailPreviewUrl = undefined;
+      }
+    }
+
+    const response: ApiResponse<Draft> = {
+      data: {
+        ...updated,
+        ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
+      },
+      message: 'Draft updated',
+    };
     return NextResponse.json(response);
   } catch (err) {
     if (err instanceof DraftDocumentTooLargeError) {
@@ -288,6 +318,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!existing || existing.userId !== userId) {
     const errRes: ApiError = { error: 'Not Found', message: 'Draft not found', statusCode: 404 };
     return NextResponse.json(errRes, { status: 404 });
+  }
+
+  const thumbKey = existing.thumbnailR2Key;
+  if (thumbKey && isDraftThumbnailFinalKeyForUser(thumbKey, userId, id)) {
+    await deleteObject(thumbKey).catch((e) => {
+      console.error('[DELETE /api/drafts/:id] thumbnail cleanup', e);
+    });
   }
 
   try {

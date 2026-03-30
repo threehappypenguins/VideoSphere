@@ -198,6 +198,18 @@ export interface Draft {
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */
   platforms: DraftPlatforms;
   /**
+   * R2 object key for a custom thumbnail image (JPG or PNG), or undefined if none.
+   * Cleared after successful distribution consumes the file.
+   */
+  thumbnailR2Key?: string;
+  /** MIME type of the thumbnail object (for platform upload and preview). */
+  thumbnailContentType?: string;
+  /**
+   * Ephemeral presigned GET URL for the draft form preview (GET /api/drafts/[id] only).
+   * Not stored in Appwrite.
+   */
+  thumbnailPreviewUrl?: string;
+  /**
    * When this draft was first used to create an upload job.
    * Stored on the draft (denormalized) to avoid scanning upload job history.
    */

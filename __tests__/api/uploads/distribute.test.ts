@@ -70,9 +70,12 @@ const mockRefreshTokenIfNeeded = vi.fn();
 const mockUploadToVimeo = vi.fn();
 const mockGetPlatformUploadsByJob = vi.fn();
 const mockUpdatePlatformUploadStatus = vi.fn();
+const mockGetUploadJobById = vi.fn();
+const mockUpdateDraft = vi.fn();
 
 vi.mock('@/lib/repositories/drafts', () => ({
   getDraftById: (...args: unknown[]) => mockGetDraftById(...args),
+  updateDraft: (...args: unknown[]) => mockUpdateDraft(...args),
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
@@ -83,6 +86,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
   createUploadJob: (...args: unknown[]) => mockCreateUploadJob(...args),
   findUploadJobForDistribution: (...args: unknown[]) => mockFindUploadJobForDistribution(...args),
   updateUploadJobStatus: (...args: unknown[]) => mockUpdateUploadJobStatus(...args),
+  getUploadJobById: (...args: unknown[]) => mockGetUploadJobById(...args),
 }));
 
 vi.mock('@/lib/repositories/platform-uploads', () => ({
@@ -211,6 +215,20 @@ describe('POST /api/uploads/distribute', () => {
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
+
+    mockGetUploadJobById.mockResolvedValue({
+      id: 'job-123',
+      userId: 'user-123',
+      draftId: 'draft-1',
+      r2Key: 'temp/uploads/user-123/video.mp4',
+      status: 'distributing',
+      errorMessage: null,
+      quotaClaimMonth: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockUpdateDraft.mockResolvedValue(null);
 
     mockCreatePlatformUpload.mockImplementation(
       async (data: {

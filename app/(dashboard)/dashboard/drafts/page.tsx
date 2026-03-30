@@ -38,6 +38,9 @@ function createEditorValues(draft: Draft): DraftEditorValues {
     tags: draft.tags,
     visibility: draft.visibility,
     targets: [...draft.targets],
+    ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
+    ...(draft.thumbnailContentType ? { thumbnailContentType: draft.thumbnailContentType } : {}),
+    ...(draft.thumbnailPreviewUrl ? { thumbnailPreviewUrl: draft.thumbnailPreviewUrl } : {}),
   };
 }
 
@@ -70,14 +73,9 @@ export default function DraftsPage() {
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isDuplicatingId, setIsDuplicatingId] = useState<string | null>(null);
   const [canUseAiMetadata, setCanUseAiMetadata] = useState(false);
-
-  useEffect(() => {
-    const shouldOpenCreate =
-      searchParams.get('openCreateDraft') === 'true' || searchParams.get('openWizard') === 'true';
-    if (shouldOpenCreate) {
-      setCreatingDraft((prev) => prev ?? createNewEditorValues());
-    }
-  }, [searchParams]);
+  const [isOpeningCreate, setIsOpeningCreate] = useState(false);
+  /** True after the user successfully saves a draft that was opened via minimal create. */
+  const [createDraftSaved, setCreateDraftSaved] = useState(false);
 
   const loadDrafts = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -151,6 +149,20 @@ export default function DraftsPage() {
     return () => controller.abort();
   }, [loadDrafts]);
 
+  const openEditDraft = useCallback(async (draft: Draft) => {
+    try {
+      const res = await fetch(`/api/drafts/${draft.id}`, { cache: 'no-store' });
+      if (!res.ok) {
+        setEditingDraft(createEditorValues(draft));
+        return;
+      }
+      const payload = (await res.json()) as ApiResponse<Draft>;
+      setEditingDraft(createEditorValues(payload.data ?? draft));
+    } catch {
+      setEditingDraft(createEditorValues(draft));
+    }
+  }, []);
+
   useEffect(() => {
     const editDraftId = searchParams.get('editDraft');
     if (!editDraftId) {
@@ -161,10 +173,10 @@ export default function DraftsPage() {
     if (!editDraftId || isLoading || editingDraft !== null) return;
     const draft = drafts.find((item) => item.id === editDraftId);
     if (draft) {
-      setEditingDraft(createEditorValues(draft));
       handledEditDraftIdRef.current = editDraftId;
+      void openEditDraft(draft);
     }
-  }, [drafts, editingDraft, isLoading, searchParams]);
+  }, [drafts, editingDraft, isLoading, searchParams, openEditDraft]);
 
   const clearEditDraftQuery = useCallback(() => {
     const nextParams = new URLSearchParams(searchParams.toString());
@@ -361,9 +373,11 @@ export default function DraftsPage() {
           ...prev.filter((draft) => draft.id !== createdDraft.id),
         ]);
         toast.success(isExistingDraft ? 'Draft updated' : 'Draft created');
+        setCreateDraftSaved(true);
 
         if (options?.closeAfterSave === true) {
           setCreatingDraft(null);
+          setCreateDraftSaved(false);
         }
         return { saved: true, draftId: createdDraft.id };
       } catch (error) {
@@ -382,12 +396,75 @@ export default function DraftsPage() {
     [creatingDraft]
   );
 
-  const handleOpenCreateModal = useCallback(() => {
-    setCreatingDraft({
-      ...createNewEditorValues(),
-      targets: [...connectedPlatforms],
-    });
+  const handleOpenCreateModal = useCallback(async () => {
+    setIsOpeningCreate(true);
+    try {
+      const response = await fetch('/api/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minimal: true }),
+      });
+      if (!response.ok) {
+        const err = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message ?? 'Failed to create draft');
+      }
+      const payload = (await response.json()) as ApiResponse<Draft>;
+      const d = payload.data;
+      if (!d) {
+        throw new Error('Failed to create draft');
+      }
+      setCreatingDraft({
+        ...createEditorValues(d),
+        targets: connectedPlatforms.length > 0 ? [...connectedPlatforms] : [],
+      });
+      setCreateDraftSaved(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to create draft');
+    } finally {
+      setIsOpeningCreate(false);
+    }
   }, [connectedPlatforms]);
+
+  useEffect(() => {
+    const shouldOpenCreate =
+      searchParams.get('openCreateDraft') === 'true' || searchParams.get('openWizard') === 'true';
+    if (!shouldOpenCreate || creatingDraft) return;
+
+    void handleOpenCreateModal();
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete('openCreateDraft');
+    nextParams.delete('openWizard');
+    const q = nextParams.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname);
+  }, [searchParams, creatingDraft, handleOpenCreateModal, pathname, router]);
+
+  const handleCloseCreateModal = useCallback(async () => {
+    if (creatingDraft?.id) {
+      if (!createDraftSaved) {
+        const hasMeaningful =
+          creatingDraft.title.trim() !== '' ||
+          creatingDraft.description.trim() !== '' ||
+          creatingDraft.tags.length > 0 ||
+          Boolean(creatingDraft.thumbnailR2Key || creatingDraft.thumbnailPreviewUrl);
+        if (hasMeaningful) {
+          const ok = window.confirm(
+            'Discard draft? Unsaved changes will be lost and this draft will be deleted.'
+          );
+          if (!ok) return;
+        }
+        try {
+          await fetch(`/api/drafts/${creatingDraft.id}`, { method: 'DELETE' });
+          await loadDrafts();
+        } catch {
+          toast.error('Failed to discard draft');
+          return;
+        }
+      }
+    }
+    setCreatingDraft(null);
+    setCreateDraftSaved(false);
+  }, [creatingDraft, createDraftSaved, loadDrafts]);
 
   const hasDrafts = drafts.length > 0;
   const headingDescription = useMemo(
@@ -409,10 +486,13 @@ export default function DraftsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={handleOpenCreateModal}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={() => {
+              void handleOpenCreateModal();
+            }}
+            disabled={isOpeningCreate || creatingDraft !== null}
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60"
           >
-            Create draft
+            {isOpeningCreate ? 'Creating…' : 'Create draft'}
           </button>
           <div className="inline-flex items-center rounded-md border border-border bg-background p-1 text-xs">
             <button
@@ -455,7 +535,9 @@ export default function DraftsPage() {
           view === 'list' ? (
             <DraftsTable
               drafts={drafts}
-              onEdit={(draft) => setEditingDraft(createEditorValues(draft))}
+              onEdit={(draft) => {
+                void openEditDraft(draft);
+              }}
               onDelete={handleDeleteDraft}
               onDuplicate={handleDuplicateDraft}
               isDeletingId={isDeletingId}
@@ -464,7 +546,9 @@ export default function DraftsPage() {
           ) : (
             <DraftCards
               drafts={drafts}
-              onEdit={(draft) => setEditingDraft(createEditorValues(draft))}
+              onEdit={(draft) => {
+                void openEditDraft(draft);
+              }}
               onDelete={handleDeleteDraft}
               onDuplicate={handleDuplicateDraft}
               isDeletingId={isDeletingId}
@@ -480,7 +564,9 @@ export default function DraftsPage() {
         initialConnectedPlatforms={connectedPlatforms}
         initialConnectionsResolved={hasLoadedConnections}
         onChange={setCreatingDraft}
-        onClose={() => setCreatingDraft(null)}
+        onClose={() => {
+          void handleCloseCreateModal();
+        }}
         onSave={handleSaveCreate}
         onUploadComplete={loadDrafts}
         isSaving={isSavingCreate}
@@ -620,7 +706,9 @@ function DraftsTable({
                   aria-label={`Edit draft "${draft.title}"`}
                   className="block w-full px-3 py-3 text-left sm:px-4"
                 >
-                  <span className="block max-w-full truncate text-foreground">{draft.title}</span>
+                  <span className="block max-w-full truncate text-foreground">
+                    {draft.title.trim() || 'Untitled draft'}
+                  </span>
                 </button>
               </td>
               <td className="p-0 align-top text-muted-foreground">
@@ -712,7 +800,9 @@ function DraftCards({
           />
           <div className="relative z-0 p-4">
             <div className="space-y-2">
-              <h3 className="line-clamp-1 text-sm font-semibold text-foreground">{draft.title}</h3>
+              <h3 className="line-clamp-1 text-sm font-semibold text-foreground">
+                {draft.title.trim() || 'Untitled draft'}
+              </h3>
               <p className="text-xs text-muted-foreground">
                 Last edited {formatLastEdited(draft.$updatedAt)}
               </p>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -42,6 +43,9 @@ export interface DraftEditorValues {
   tags: string[];
   visibility: Draft['visibility'];
   targets: ConnectedAccountPlatform[];
+  thumbnailR2Key?: string;
+  thumbnailContentType?: string;
+  thumbnailPreviewUrl?: string;
 }
 
 const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> = [
@@ -172,6 +176,10 @@ export function DraftMetadataModal({
     limit?: number;
   }>({ reached: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState(0);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
@@ -184,6 +192,13 @@ export function DraftMetadataModal({
     ...editor,
     tags: [...editor.tags],
     targets: [...editor.targets],
+    ...(editor.thumbnailR2Key !== undefined ? { thumbnailR2Key: editor.thumbnailR2Key } : {}),
+    ...(editor.thumbnailContentType !== undefined
+      ? { thumbnailContentType: editor.thumbnailContentType }
+      : {}),
+    ...(editor.thumbnailPreviewUrl !== undefined
+      ? { thumbnailPreviewUrl: editor.thumbnailPreviewUrl }
+      : {}),
   });
 
   const loadUploadHistory = async (id: string, signal?: AbortSignal) => {
@@ -281,6 +296,10 @@ export function DraftMetadataModal({
       if (xhrRef.current) {
         xhrRef.current.abort();
         xhrRef.current = null;
+      }
+      if (thumbnailXhrRef.current) {
+        thumbnailXhrRef.current.abort();
+        thumbnailXhrRef.current = null;
       }
     };
   }, []);
@@ -531,6 +550,7 @@ export function DraftMetadataModal({
     !uploading &&
     !cancelServerFailed &&
     !isCancellingUpload &&
+    !thumbnailUploading &&
     value !== null &&
     value.targets.length > 0 &&
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
@@ -659,7 +679,8 @@ export function DraftMetadataModal({
       videoFile === null &&
       !uploading &&
       currentUploadJobId === null &&
-      !cancelServerFailed;
+      !cancelServerFailed &&
+      !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
     commitTagsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
@@ -685,7 +706,8 @@ export function DraftMetadataModal({
       videoFile === null &&
       !uploading &&
       currentUploadJobId === null &&
-      !cancelServerFailed;
+      !cancelServerFailed &&
+      !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
     commitTagsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
@@ -868,6 +890,126 @@ export function DraftMetadataModal({
       setCancelServerFailed(true);
     } finally {
       setIsCancellingUpload(false);
+    }
+  };
+
+  const handleThumbnailFile = async (file: File) => {
+    if (!value || !draftId) return;
+    const maxBytes = 2 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      toast.error('Thumbnail must be 2 MB or smaller');
+      return;
+    }
+    const allowed = ['image/jpeg', 'image/png'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Only JPG or PNG images are allowed');
+      return;
+    }
+    setThumbnailUploading(true);
+    setThumbnailUploadProgress(0);
+    try {
+      const presignRes = await fetch(`/api/drafts/${draftId}/thumbnail/presign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentType: file.type, fileSize: file.size }),
+      });
+      if (!presignRes.ok) {
+        const err = (await presignRes.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message ?? 'Failed to start thumbnail upload');
+      }
+      const { uploadUrl, pendingKey } = (await presignRes.json()) as {
+        uploadUrl: string;
+        pendingKey: string;
+      };
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        thumbnailXhrRef.current = xhr;
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            setThumbnailUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        });
+        xhr.addEventListener('load', () => {
+          thumbnailXhrRef.current = null;
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setThumbnailUploadProgress(100);
+            resolve();
+          } else {
+            reject(new Error(`Failed to upload thumbnail to storage (${xhr.status})`));
+          }
+        });
+        xhr.addEventListener('error', () => {
+          thumbnailXhrRef.current = null;
+          reject(new Error('Failed to upload thumbnail to storage'));
+        });
+        xhr.addEventListener('abort', () => {
+          thumbnailXhrRef.current = null;
+          reject(new Error('THUMBNAIL_UPLOAD_ABORTED'));
+        });
+        xhr.send(file);
+      });
+
+      const completeRes = await fetch(`/api/drafts/${draftId}/thumbnail/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pendingKey }),
+      });
+      if (!completeRes.ok) {
+        const err = (await completeRes.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message ?? 'Failed to finalize thumbnail');
+      }
+      const payload = (await completeRes.json()) as ApiResponse<
+        Draft & { thumbnailPreviewUrl?: string }
+      >;
+      const d = payload.data;
+      if (!d) {
+        throw new Error('Invalid response');
+      }
+      onChange({
+        ...value,
+        thumbnailR2Key: d.thumbnailR2Key,
+        thumbnailContentType: d.thumbnailContentType,
+        thumbnailPreviewUrl: d.thumbnailPreviewUrl,
+      });
+      toast.success('Thumbnail uploaded');
+    } catch (e) {
+      if (e instanceof Error && e.message === 'THUMBNAIL_UPLOAD_ABORTED') {
+        return;
+      }
+      toast.error(e instanceof Error ? e.message : 'Thumbnail upload failed');
+    } finally {
+      thumbnailXhrRef.current = null;
+      setThumbnailUploading(false);
+      setThumbnailUploadProgress(0);
+      if (thumbnailInputRef.current) {
+        thumbnailInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemoveThumbnail = async () => {
+    if (!value || !draftId) return;
+    setThumbnailUploading(true);
+    try {
+      const res = await fetch(`/api/drafts/${draftId}/thumbnail`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message ?? 'Failed to remove thumbnail');
+      }
+      onChange({
+        ...value,
+        thumbnailR2Key: undefined,
+        thumbnailContentType: undefined,
+        thumbnailPreviewUrl: undefined,
+      });
+      toast.success('Thumbnail removed');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove thumbnail');
+    } finally {
+      setThumbnailUploading(false);
     }
   };
 
@@ -1195,6 +1337,80 @@ export function DraftMetadataModal({
               <p className="mt-1 text-xs text-muted-foreground">
                 Press Enter or comma to add tags.
               </p>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/30 p-3">
+              <p className="text-sm font-medium text-foreground">Thumbnail</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                JPG or PNG, max 2 MB. Shown on platforms that support custom thumbnails when you
+                distribute.
+              </p>
+              {!draftId ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Create draft first to add a thumbnail.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {value.thumbnailPreviewUrl ? (
+                    <div className="relative inline-block max-w-full">
+                      <Image
+                        src={value.thumbnailPreviewUrl}
+                        alt=""
+                        width={800}
+                        height={450}
+                        unoptimized
+                        className="max-h-40 max-w-full rounded-md border border-border object-contain"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={thumbnailInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          void handleThumbnailFile(file);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={thumbnailUploading}
+                      onClick={() => thumbnailInputRef.current?.click()}
+                      className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                    >
+                      {thumbnailUploading
+                        ? 'Uploading…'
+                        : value.thumbnailPreviewUrl
+                          ? 'Replace'
+                          : 'Upload'}
+                    </button>
+                    {value.thumbnailR2Key || value.thumbnailPreviewUrl ? (
+                      <button
+                        type="button"
+                        disabled={thumbnailUploading}
+                        onClick={() => {
+                          void handleRemoveThumbnail();
+                        }}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  {thumbnailUploading ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Uploading thumbnail…</span>
+                        <span>{thumbnailUploadProgress}%</span>
+                      </div>
+                      <Progress value={thumbnailUploadProgress} className="h-2" />
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
             <div className="rounded-lg border border-border bg-muted/30 p-3">
               <p className="text-sm font-medium text-foreground">Upload video</p>

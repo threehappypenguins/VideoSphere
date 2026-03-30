@@ -130,11 +130,28 @@ describe('DraftsPage', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ data: ['youtube'] }),
+        json: async () => ({ data: [] }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ canUseAiMetadata: true }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'draft-from-minimal',
+            userId: 'user-1',
+            title: '',
+            description: '',
+            tags: [],
+            visibility: 'private',
+            targets: [],
+            platforms: {},
+            $createdAt: '2000-01-01T00:00:00.000Z',
+            $updatedAt: '2000-01-01T00:00:00.000Z',
+          },
+        }),
       } as Response);
 
     render(<DraftsPage />);
