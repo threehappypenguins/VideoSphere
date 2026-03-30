@@ -71,8 +71,26 @@ export function UploadHistoryClient() {
         throw new Error(payload?.message ?? 'Failed to load upload history');
       }
       const payload = (await response.json()) as UploadHistoryResponse;
-      setJobs(Array.isArray(payload.data) ? payload.data : []);
-      setTotal(payload.meta?.total ?? 0);
+      const data = Array.isArray(payload.data) ? payload.data : [];
+      const totalCount = payload.meta?.total ?? 0;
+      const pageSize = UPLOAD_HISTORY_PAGE_SIZE;
+
+      if (totalCount === 0) {
+        setJobs([]);
+        setTotal(0);
+        if (offset > 0) setOffset(0);
+        return;
+      }
+
+      setTotal(totalCount);
+
+      const lastPageOffset = Math.max(0, Math.floor((totalCount - 1) / pageSize) * pageSize);
+      if (offset > lastPageOffset) {
+        setOffset(lastPageOffset);
+        return;
+      }
+
+      setJobs(data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load upload history');
     } finally {
@@ -142,7 +160,7 @@ export function UploadHistoryClient() {
     return <p className="mt-8 text-sm text-muted-foreground">Loading upload history...</p>;
   }
 
-  if (jobs.length === 0) {
+  if (jobs.length === 0 && total === 0) {
     return (
       <div className="mt-8 rounded-xl border border-border bg-muted/50 p-12 text-center">
         <p className="font-medium text-foreground">No upload history yet</p>
@@ -157,7 +175,9 @@ export function UploadHistoryClient() {
     <div className="mt-8 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
-          Showing {jobs.length === 0 ? 0 : offset + 1}-{offset + jobs.length} of {total}
+          Showing{' '}
+          {jobs.length === 0 ? (total === 0 ? '0' : '—') : `${offset + 1}-${offset + jobs.length}`}{' '}
+          of {total}
         </p>
         <div className="flex items-center gap-2">
           <button
