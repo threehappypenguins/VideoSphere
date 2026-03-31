@@ -8,10 +8,10 @@ import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
  * DELETE /api/drafts/[id]/thumbnail — remove custom thumbnail from draft and delete R2 object.
  */
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
-  const userId = await getAuthenticatedUserId(_req);
+  const userId = await getAuthenticatedUserId(req);
   if (!userId) {
     return NextResponse.json(
       { error: 'Unauthorized', message: 'Not authenticated', statusCode: 401 },

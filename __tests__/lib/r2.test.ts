@@ -10,6 +10,8 @@ import {
   isTempUploadObjectKeyForUser,
   buildDraftThumbnailPendingKey,
   buildDraftThumbnailFinalKey,
+  isDraftThumbnailPendingKeyForUser,
+  isDraftThumbnailFinalKeyForUser,
 } from '../../lib/r2';
 
 /**
@@ -286,8 +288,11 @@ describe('R2 Storage - Validation & Utilities', () => {
     it('builds keys that pass isDraftThumbnail* when inputs are valid', () => {
       const pending = buildDraftThumbnailPendingKey('u1', 'd1', 'uuid', 'jpg');
       expect(pending).toBe('temp/draft-thumbnail-pending/u1/d1/uuid.jpg');
+      expect(isDraftThumbnailPendingKeyForUser(pending, 'u1', 'd1')).toBe(true);
+
       const finalKey = buildDraftThumbnailFinalKey('u1', 'd1', 'uuid', '.png');
       expect(finalKey).toBe('draft-thumbnails/u1/d1/uuid.png');
+      expect(isDraftThumbnailFinalKeyForUser(finalKey, 'u1', 'd1')).toBe(true);
     });
 
     it('throws when userId or draftId contain path metacharacters', () => {
