@@ -405,40 +405,43 @@ export async function runDistributionInBackground(
         return;
       }
 
-      let thumbnailDeleted = false;
-      try {
-        await deleteObject(thumbKey);
-        thumbnailDeleted = true;
-      } catch (thumbErr) {
-        console.error(`[distribute] Failed to delete draft thumbnail for job ${jobId}:`, thumbErr);
-      }
-      if (!thumbnailDeleted) {
-        // Retain key/type so future cleanup can retry and avoid orphaning storage objects.
-        return;
-      }
-
-      // Retry updateDraft: if this single write fails the draft will hold a stale key pointing at
-      // a now-deleted R2 object, breaking preview and distribution retries.
+      // Clear draft fields first (DB-first ordering, consistent with DELETE /api/drafts/:id/thumbnail).
+      // If updateDraft fails, the draft retains the key and the R2 object is still intact,
+      // so there is no stale-key corruption. If deleteObject later fails, the draft is already
+      // clean and the orphaned object can be swept up later.
       const MAX_UPDATE_DRAFT_ATTEMPTS = 3;
+      let draftCleared = false;
       for (let attempt = 1; attempt <= MAX_UPDATE_DRAFT_ATTEMPTS; attempt++) {
         try {
           await updateDraft(draftIdForThumb, {
             thumbnailR2Key: null,
             thumbnailContentType: null,
           });
+          draftCleared = true;
           break;
         } catch (updateErr) {
           if (attempt < MAX_UPDATE_DRAFT_ATTEMPTS) {
             await new Promise<void>((resolve) => setTimeout(resolve, 500 * attempt));
           } else {
             console.error(
-              `[distribute] STALE THUMBNAIL KEY: draft ${draftIdForThumb} still references ` +
-                `deleted R2 key "${thumbKey}" after ${MAX_UPDATE_DRAFT_ATTEMPTS} updateDraft ` +
-                `attempts failed (job ${jobId}). Manual DB cleanup required.`,
+              `[distribute] Failed to clear thumbnail fields on draft ${draftIdForThumb} ` +
+                `(key "${thumbKey}") after ${MAX_UPDATE_DRAFT_ATTEMPTS} attempts ` +
+                `(job ${jobId}); retaining R2 key for retry.`,
               updateErr
             );
           }
         }
+      }
+      if (!draftCleared) {
+        // Retain key/type so the next cleanup attempt can still find and delete the R2 object.
+        return;
+      }
+
+      // Best-effort R2 delete after confirmed DB clear.
+      try {
+        await deleteObject(thumbKey);
+      } catch (thumbErr) {
+        console.error(`[distribute] Failed to delete draft thumbnail for job ${jobId}:`, thumbErr);
       }
     } catch (thumbCleanupErr) {
       console.error(

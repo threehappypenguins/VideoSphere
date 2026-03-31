@@ -718,7 +718,7 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
 
-  it('deletes draft thumbnail before clearing draft thumbnail fields after successful distribution', async () => {
+  it('clears draft thumbnail fields before deleting R2 object after successful distribution', async () => {
     mockGetDraftById.mockResolvedValue({
       id: 'draft-1',
       userId: 'user-123',
@@ -768,12 +768,14 @@ describe('POST /api/uploads/distribute', () => {
       thumbnailR2Key: null,
       thumbnailContentType: null,
     });
-    const deleteCallOrder = mockDeleteObject.mock.invocationCallOrder[1];
+    // updateDraft (DB clear) must happen before deleteObject (R2 cleanup) so a failed
+    // Appwrite write leaves the object intact rather than creating a stale key.
     const updateCallOrder = mockUpdateDraft.mock.invocationCallOrder[0];
-    expect(deleteCallOrder).toBeLessThan(updateCallOrder);
+    const deleteCallOrder = mockDeleteObject.mock.invocationCallOrder[1];
+    expect(updateCallOrder).toBeLessThan(deleteCallOrder);
   });
 
-  it('retains draft thumbnail fields when thumbnail delete fails', async () => {
+  it('retains draft thumbnail fields when updateDraft fails during thumbnail cleanup', async () => {
     mockGetDraftById.mockResolvedValue({
       id: 'draft-1',
       userId: 'user-123',
@@ -789,12 +791,7 @@ describe('POST /api/uploads/distribute', () => {
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
-    mockDeleteObject.mockImplementation(async (key: string) => {
-      if (key === 'draft-thumbnails/user-123/draft-1/thumb-2.jpg') {
-        throw new Error('r2 delete failed');
-      }
-      return undefined;
-    });
+    mockUpdateDraft.mockRejectedValue(new Error('appwrite error'));
 
     const response = await POST(
       createRequest(
@@ -810,14 +807,13 @@ describe('POST /api/uploads/distribute', () => {
     expect(response.status).toBe(202);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(mockDeleteObject).toHaveBeenCalledWith('draft-thumbnails/user-123/draft-1/thumb-2.jpg');
-    expect(mockUpdateDraft).not.toHaveBeenCalledWith('draft-1', {
-      thumbnailR2Key: null,
-      thumbnailContentType: null,
-    });
+    // R2 delete must NOT have been called — draft retains its key so cleanup can be retried.
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(
+      'draft-thumbnails/user-123/draft-1/thumb-2.jpg'
+    );
   });
 
-  it('retries updateDraft after thumbnail delete when first attempt fails transiently', async () => {
+  it('retries updateDraft for thumbnail cleanup when first attempt fails transiently', async () => {
     vi.useFakeTimers();
     const thumbKey = 'draft-thumbnails/user-123/draft-1/thumb-retry.jpg';
 
@@ -864,16 +860,18 @@ describe('POST /api/uploads/distribute', () => {
 
     await vi.runAllTimersAsync();
 
-    expect(mockUpdateDraft).toHaveBeenCalledTimes(2);
-    expect(mockUpdateDraft).toHaveBeenLastCalledWith('draft-1', {
-      thumbnailR2Key: null,
-      thumbnailContentType: null,
-    });
-
-    vi.useRealTimers();
+    try {
+      expect(mockUpdateDraft).toHaveBeenCalledTimes(2);
+      expect(mockUpdateDraft).toHaveBeenLastCalledWith('draft-1', {
+        thumbnailR2Key: null,
+        thumbnailContentType: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('logs stale key error when all updateDraft retry attempts fail after thumbnail delete', async () => {
+  it('logs error and retains R2 object when all updateDraft retry attempts fail during thumbnail cleanup', async () => {
     vi.useFakeTimers();
     const errLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const thumbKey = 'draft-thumbnails/user-123/draft-1/thumb-stale.jpg';
@@ -908,16 +906,20 @@ describe('POST /api/uploads/distribute', () => {
 
     await vi.runAllTimersAsync();
 
-    expect(mockUpdateDraft).toHaveBeenCalledTimes(3);
-    const staleLog = errLog.mock.calls.find(
-      (args) => typeof args[0] === 'string' && args[0].includes('STALE THUMBNAIL KEY')
-    );
-    expect(staleLog).toBeDefined();
-    expect(staleLog![0]).toContain('draft-1');
-    expect(staleLog![0]).toContain(thumbKey);
-
-    errLog.mockRestore();
-    vi.useRealTimers();
+    try {
+      expect(mockUpdateDraft).toHaveBeenCalledTimes(3);
+      // deleteObject must not have been called — R2 object is retained since draft fields were not cleared.
+      expect(mockDeleteObject).not.toHaveBeenCalledWith(thumbKey);
+      const retainLog = errLog.mock.calls.find(
+        (args) => typeof args[0] === 'string' && args[0].includes('retaining R2 key for retry')
+      );
+      expect(retainLog).toBeDefined();
+      expect(retainLog![0]).toContain('draft-1');
+      expect(retainLog![0]).toContain(thumbKey);
+    } finally {
+      errLog.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('updates platform statuses independently and marks job failed when any platform fails', async () => {
