@@ -1,5 +1,8 @@
 import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
-import { isAllowedDraftThumbnailContentType } from '@/lib/draft-thumbnail';
+import {
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
@@ -27,7 +30,7 @@ interface VimeoCreateResponse {
 
 const VIMEO_CREATE_VIDEO_URL = 'https://api.vimeo.com/me/videos';
 
-const MAX_VIMEO_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+const MAX_VIMEO_THUMBNAIL_BYTES = MAX_DRAFT_THUMBNAIL_BYTES;
 
 /**
  * PUT to Vimeo's thumbnail upload_link must use image/jpeg or image/png. R2 may report

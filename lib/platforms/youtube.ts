@@ -1,5 +1,8 @@
 import type { PlatformUploadVisibility } from '@/types';
-import { isAllowedDraftThumbnailContentType } from '@/lib/draft-thumbnail';
+import {
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
@@ -32,7 +35,7 @@ const YOUTUBE_RESUMABLE_URL =
 const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
 
-const MAX_CUSTOM_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+const MAX_CUSTOM_THUMBNAIL_BYTES = MAX_DRAFT_THUMBNAIL_BYTES;
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DEFAULT_YOUTUBE_CATEGORY_ID = '22';
 
