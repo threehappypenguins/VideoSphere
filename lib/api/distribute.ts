@@ -14,7 +14,7 @@ import type {
 } from '@/types';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
-import { deleteObject, getObjectWebStream } from '@/lib/r2';
+import { deleteObject, getObjectWebStream, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
 import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
@@ -385,18 +385,29 @@ export async function runDistributionInBackground(
       const draftForThumb = await getDraftById(draftIdForThumb);
       const thumbKey = draftForThumb?.thumbnailR2Key;
       if (thumbKey && draftForThumb?.userId === userId) {
+        const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(
+          thumbKey,
+          userId,
+          draftIdForThumb
+        );
         try {
           const updated = await updateDraft(draftIdForThumb, {
             thumbnailR2Key: null,
             thumbnailContentType: null,
           });
           if (updated) {
-            await deleteObject(thumbKey).catch((thumbErr) => {
-              console.error(
-                `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
-                thumbErr
+            if (keyMatchesDraftThumbnailPrefix) {
+              await deleteObject(thumbKey).catch((thumbErr) => {
+                console.error(
+                  `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
+                  thumbErr
+                );
+              });
+            } else {
+              console.warn(
+                `[distribute] Skipped R2 delete for draft ${draftIdForThumb} thumbnail key (unexpected prefix; job ${jobId})`
               );
-            });
+            }
           }
         } catch (docErr) {
           console.error(

@@ -391,6 +391,31 @@ function safeUserDraftSegments(userId: string, draftId: string): boolean {
 }
 
 /**
+ * Same rules as {@link safeUserDraftSegments} plus safe filename suffix segments, so
+ * generated keys always satisfy {@link isDraftThumbnailPendingKeyForUser} /
+ * {@link isDraftThumbnailFinalKeyForUser}.
+ */
+function assertDraftThumbnailKeyInputs(
+  userId: string,
+  draftId: string,
+  uniqueId: string,
+  extension: string
+): void {
+  if (!safeUserDraftSegments(userId, draftId)) {
+    throw new Error(
+      'Invalid userId or draftId for draft thumbnail key (must not be empty or contain /, \\, or ..)'
+    );
+  }
+  if (!uniqueId || uniqueId.includes('/') || uniqueId.includes('\\') || uniqueId.includes('..')) {
+    throw new Error('Invalid unique id for draft thumbnail key (must not contain /, \\, or ..)');
+  }
+  const rawExt = extension.startsWith('.') ? extension.slice(1) : extension;
+  if (!rawExt || !/^[a-z0-9]+$/i.test(rawExt) || rawExt.length > 16) {
+    throw new Error('Invalid file extension for draft thumbnail key');
+  }
+}
+
+/**
  * Pending thumbnail key after presign (before complete). Use bucket lifecycle rules on
  * `temp/draft-thumbnail-pending/` to prune abandoned uploads.
  */
@@ -400,6 +425,7 @@ export function buildDraftThumbnailPendingKey(
   uniqueId: string,
   extension: string
 ): string {
+  assertDraftThumbnailKeyInputs(userId, draftId, uniqueId, extension);
   const ext = extension.startsWith('.') ? extension : `.${extension}`;
   return `${DRAFT_THUMBNAIL_PENDING_PREFIX}${userId}/${draftId}/${uniqueId}${ext}`;
 }
@@ -410,6 +436,7 @@ export function buildDraftThumbnailFinalKey(
   uniqueId: string,
   extension: string
 ): string {
+  assertDraftThumbnailKeyInputs(userId, draftId, uniqueId, extension);
   const ext = extension.startsWith('.') ? extension : `.${extension}`;
   return `${DRAFT_THUMBNAIL_FINAL_PREFIX}${userId}/${draftId}/${uniqueId}${ext}`;
 }

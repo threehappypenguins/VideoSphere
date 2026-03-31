@@ -8,6 +8,8 @@ import {
   getBucketName,
   getR2Endpoint,
   isTempUploadObjectKeyForUser,
+  buildDraftThumbnailPendingKey,
+  buildDraftThumbnailFinalKey,
 } from '../../lib/r2';
 
 /**
@@ -277,6 +279,32 @@ describe('R2 Storage - Validation & Utilities', () => {
 
     it('rejects key equal to prefix only', () => {
       expect(isTempUploadObjectKeyForUser('temp/uploads/user-123/', 'user-123')).toBe(false);
+    });
+  });
+
+  describe('buildDraftThumbnailPendingKey / buildDraftThumbnailFinalKey', () => {
+    it('builds keys that pass isDraftThumbnail* when inputs are valid', () => {
+      const pending = buildDraftThumbnailPendingKey('u1', 'd1', 'uuid', 'jpg');
+      expect(pending).toBe('temp/draft-thumbnail-pending/u1/d1/uuid.jpg');
+      const finalKey = buildDraftThumbnailFinalKey('u1', 'd1', 'uuid', '.png');
+      expect(finalKey).toBe('draft-thumbnails/u1/d1/uuid.png');
+    });
+
+    it('throws when userId or draftId contain path metacharacters', () => {
+      expect(() => buildDraftThumbnailPendingKey('a/b', 'd1', 'u', 'jpg')).toThrow(
+        /userId or draftId/i
+      );
+      expect(() => buildDraftThumbnailFinalKey('u1', '..', 'u', 'jpg')).toThrow(
+        /userId or draftId/i
+      );
+    });
+
+    it('throws when uniqueId is unsafe', () => {
+      expect(() => buildDraftThumbnailPendingKey('u1', 'd1', '../x', 'jpg')).toThrow(/unique id/i);
+    });
+
+    it('throws when extension is unsafe', () => {
+      expect(() => buildDraftThumbnailPendingKey('u1', 'd1', 'u', 'jp/g')).toThrow(/extension/i);
     });
   });
 });

@@ -23,6 +23,41 @@ import {
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
+/**
+ * Only presign thumbnail preview URLs for keys under this user/draft prefix (same check as
+ * DELETE thumbnail cleanup). Used for both GET and PATCH responses. If the stored key is
+ * missing or invalid, omit preview and strip thumbnail fields from the JSON.
+ */
+async function draftResponseWithThumbnailPreview(
+  draft: Draft,
+  userId: string,
+  draftId: string
+): Promise<Draft & { thumbnailPreviewUrl?: string }> {
+  const key = draft.thumbnailR2Key;
+  if (!key) {
+    return draft;
+  }
+  if (!isDraftThumbnailFinalKeyForUser(key, userId, draftId)) {
+    return {
+      ...draft,
+      thumbnailR2Key: undefined,
+      thumbnailContentType: undefined,
+    };
+  }
+
+  let thumbnailPreviewUrl: string | undefined;
+  try {
+    thumbnailPreviewUrl = await getObjectUrl(key);
+  } catch {
+    thumbnailPreviewUrl = undefined;
+  }
+
+  return {
+    ...draft,
+    ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/drafts/[id]
 // ---------------------------------------------------------------------------
@@ -47,21 +82,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    let thumbnailPreviewUrl: string | undefined;
-    if (draft.thumbnailR2Key) {
-      try {
-        thumbnailPreviewUrl = await getObjectUrl(draft.thumbnailR2Key);
-      } catch {
-        thumbnailPreviewUrl = undefined;
-      }
-    }
-
-    const response: ApiResponse<Draft> = {
-      data: {
-        ...draft,
-        ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
-      },
-    };
+    const data = await draftResponseWithThumbnailPreview(draft, userId, id);
+    const response: ApiResponse<Draft> = { data };
     return NextResponse.json(response);
   } catch (err) {
     console.error('[GET /api/drafts/:id]', err);
@@ -248,20 +270,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    let thumbnailPreviewUrl: string | undefined;
-    if (updated.thumbnailR2Key) {
-      try {
-        thumbnailPreviewUrl = await getObjectUrl(updated.thumbnailR2Key);
-      } catch {
-        thumbnailPreviewUrl = undefined;
-      }
-    }
-
+    // Presign only if updated.thumbnailR2Key passes isDraftThumbnailFinalKeyForUser (see helper).
+    const data = await draftResponseWithThumbnailPreview(updated, userId, id);
     const response: ApiResponse<Draft> = {
-      data: {
-        ...updated,
-        ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
-      },
+      data,
       message: 'Draft updated',
     };
     return NextResponse.json(response);
