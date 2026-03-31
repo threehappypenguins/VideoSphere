@@ -25,8 +25,10 @@ import type { ApiResponse, ApiError, Draft } from '@/types';
 
 /**
  * Only presign thumbnail preview URLs for keys under this user/draft prefix (same check as
- * DELETE thumbnail cleanup). Used for both GET and PATCH responses. If the stored key is
- * missing or invalid, omit preview and strip thumbnail fields from the JSON.
+ * DELETE thumbnail cleanup). Used for both GET and PATCH responses.
+ * - Key absent: return draft as-is (no thumbnail fields, no preview).
+ * - Key fails prefix check: strip thumbnailR2Key/thumbnailContentType and omit preview.
+ * - Key valid but presign fails (transient R2 error): retain thumbnail fields, omit preview URL.
  */
 async function draftResponseWithThumbnailPreview(
   draft: Draft,
