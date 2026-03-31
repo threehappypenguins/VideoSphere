@@ -1049,11 +1049,12 @@ export function DraftMetadataModal({
       }
       toast.error(e instanceof Error ? e.message : 'Thumbnail upload failed');
     } finally {
+      const stale = isStale();
       if (thumbnailRequestAbortRef.current === ac) {
         thumbnailRequestAbortRef.current = null;
       }
       thumbnailXhrRef.current = null;
-      if (!isStale()) {
+      if (!stale) {
         setThumbnailUploading(false);
         setThumbnailUploadProgress(0);
         if (thumbnailInputRef.current) {
