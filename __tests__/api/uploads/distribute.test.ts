@@ -860,6 +860,62 @@ describe('POST /api/uploads/distribute', () => {
     });
   });
 
+  it('skips thumbnail cleanup when the job snapshot had no thumbnail (draft had none at distribution start)', async () => {
+    const addedAfterKey = 'draft-thumbnails/user-123/draft-1/thumb-added-after.jpg';
+
+    // First call: route handler fetches draft with no thumbnail — metadata snapshot captures undefined.
+    mockGetDraftById.mockResolvedValueOnce({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: undefined,
+      thumbnailContentType: undefined,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+    // Cleanup call: user added a thumbnail after distribution started.
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: addedAfterKey,
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The thumbnail the user added after distribution must not be touched.
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(addedAfterKey);
+    expect(mockUpdateDraft).not.toHaveBeenCalledWith('draft-1', {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
+  });
+
   it('retries updateDraft for thumbnail cleanup when first attempt fails transiently', async () => {
     vi.useFakeTimers();
     const thumbKey = 'draft-thumbnails/user-123/draft-1/thumb-retry.jpg';

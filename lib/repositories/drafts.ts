@@ -296,8 +296,13 @@ export interface UpdateDraftInput {
   visibility?: PlatformUploadVisibility;
   /** Partial platforms object from PATCH; merged without wiping omitted fields. */
   platformsPatch?: unknown;
-  /** Set to null to clear thumbnail fields on the document. */
+  /**
+   * Pass `null` to atomically clear both `thumbnailR2Key` and `thumbnailContentType`.
+   * Pass a string to set/replace the key (pair with `thumbnailContentType`).
+   * Omit to leave the existing key unchanged.
+   */
   thumbnailR2Key?: string | null;
+  /** Ignored when `thumbnailR2Key` is `null` (both fields are cleared together). */
   thumbnailContentType?: string | null;
 }
 

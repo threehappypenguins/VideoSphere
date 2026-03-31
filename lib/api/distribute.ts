@@ -398,9 +398,14 @@ export async function runDistributionInBackground(
       if (!thumbKey || draftForThumb?.userId !== userId) {
         return;
       }
+      // If this job had no thumbnail, there is nothing to clean up — and we must not delete
+      // a thumbnail the user added after distribution started.
+      if (!distributedThumbKey) {
+        return;
+      }
       // If the user replaced the thumbnail while distribution was running, the current key will
       // differ from the one that was actually distributed; skip cleanup to avoid deleting it.
-      if (distributedThumbKey && thumbKey !== distributedThumbKey) {
+      if (thumbKey !== distributedThumbKey) {
         return;
       }
       const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(
