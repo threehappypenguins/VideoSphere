@@ -447,6 +447,7 @@ export function isDraftThumbnailPendingKeyForUser(
   draftId: string
 ): boolean {
   if (!safeUserDraftSegments(userId, draftId)) return false;
+  if (key.includes('..') || key.includes('\\')) return false;
   const prefix = `${DRAFT_THUMBNAIL_PENDING_PREFIX}${userId}/${draftId}/`;
   return key.startsWith(prefix) && key.length > prefix.length;
 }
@@ -457,6 +458,7 @@ export function isDraftThumbnailFinalKeyForUser(
   draftId: string
 ): boolean {
   if (!safeUserDraftSegments(userId, draftId)) return false;
+  if (key.includes('..') || key.includes('\\')) return false;
   const prefix = `${DRAFT_THUMBNAIL_FINAL_PREFIX}${userId}/${draftId}/`;
   return key.startsWith(prefix) && key.length > prefix.length;
 }

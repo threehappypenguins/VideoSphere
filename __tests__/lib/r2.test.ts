@@ -311,5 +311,29 @@ describe('R2 Storage - Validation & Utilities', () => {
     it('throws when extension is unsafe', () => {
       expect(() => buildDraftThumbnailPendingKey('u1', 'd1', 'u', 'jp/g')).toThrow(/extension/i);
     });
+
+    it('rejects pending/final keys containing path metacharacters', () => {
+      expect(
+        isDraftThumbnailPendingKeyForUser(
+          'temp/draft-thumbnail-pending/u1/d1/../uuid.jpg',
+          'u1',
+          'd1'
+        )
+      ).toBe(false);
+      expect(
+        isDraftThumbnailPendingKeyForUser(
+          'temp/draft-thumbnail-pending/u1/d1/uuid\\x.jpg',
+          'u1',
+          'd1'
+        )
+      ).toBe(false);
+
+      expect(
+        isDraftThumbnailFinalKeyForUser('draft-thumbnails/u1/d1/../uuid.jpg', 'u1', 'd1')
+      ).toBe(false);
+      expect(
+        isDraftThumbnailFinalKeyForUser('draft-thumbnails/u1/d1/uuid\\x.jpg', 'u1', 'd1')
+      ).toBe(false);
+    });
   });
 });

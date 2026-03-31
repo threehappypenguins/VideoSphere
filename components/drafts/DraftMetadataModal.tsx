@@ -938,7 +938,8 @@ export function DraftMetadataModal({
     if (!value || !draftId) return;
     const requestDraftId = draftId;
     const ac = new AbortController();
-    thumbnailRequestAbortRef.current?.abort();
+    // Starting a new thumbnail upload must cancel both prior fetches and any in-flight PUT XHR.
+    abortThumbnailUploadFlow();
     thumbnailRequestAbortRef.current = ac;
     const isStale = () =>
       ac.signal.aborted ||
