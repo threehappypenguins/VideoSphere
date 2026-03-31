@@ -398,24 +398,29 @@ export async function runDistributionInBackground(
         userId,
         draftIdForThumb
       );
-      const updated = await updateDraft(draftIdForThumb, {
+      if (!keyMatchesDraftThumbnailPrefix) {
+        console.warn(
+          `[distribute] Skipped draft thumbnail cleanup for draft ${draftIdForThumb} (unexpected key prefix; job ${jobId}); retaining key for later manual cleanup.`
+        );
+        return;
+      }
+
+      let thumbnailDeleted = false;
+      try {
+        await deleteObject(thumbKey);
+        thumbnailDeleted = true;
+      } catch (thumbErr) {
+        console.error(`[distribute] Failed to delete draft thumbnail for job ${jobId}:`, thumbErr);
+      }
+      if (!thumbnailDeleted) {
+        // Retain key/type so future cleanup can retry and avoid orphaning storage objects.
+        return;
+      }
+
+      await updateDraft(draftIdForThumb, {
         thumbnailR2Key: null,
         thumbnailContentType: null,
       });
-      if (updated) {
-        if (keyMatchesDraftThumbnailPrefix) {
-          await deleteObject(thumbKey).catch((thumbErr) => {
-            console.error(
-              `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
-              thumbErr
-            );
-          });
-        } else {
-          console.warn(
-            `[distribute] Skipped R2 delete for draft ${draftIdForThumb} thumbnail key (unexpected prefix; job ${jobId})`
-          );
-        }
-      }
     } catch (thumbCleanupErr) {
       console.error(
         `[distribute] Draft thumbnail cleanup failed after job ${jobId} completed (non-fatal):`,

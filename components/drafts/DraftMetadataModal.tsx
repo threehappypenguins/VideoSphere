@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -188,12 +188,14 @@ export function DraftMetadataModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
   const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
+  const thumbnailRequestAbortRef = useRef<AbortController | null>(null);
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState(0);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
   const aiMetadataAbortRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
   /** Tracks the open modal’s draft id so we can ignore stale AI responses after close or draft switch. */
   const latestDraftIdRef = useRef<string | null>(null);
   latestDraftIdRef.current = draftId;
@@ -202,6 +204,21 @@ export function DraftMetadataModal({
   useEffect(() => {
     latestValueRef.current = value ?? null;
   }, [value]);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const abortThumbnailUploadFlow = useCallback(() => {
+    thumbnailRequestAbortRef.current?.abort();
+    thumbnailRequestAbortRef.current = null;
+    if (thumbnailXhrRef.current) {
+      thumbnailXhrRef.current.abort();
+      thumbnailXhrRef.current = null;
+    }
+  }, []);
 
   const snapshotEditor = (editor: DraftEditorValues): DraftEditorValues => ({
     ...editor,
@@ -312,12 +329,15 @@ export function DraftMetadataModal({
         xhrRef.current.abort();
         xhrRef.current = null;
       }
-      if (thumbnailXhrRef.current) {
-        thumbnailXhrRef.current.abort();
-        thumbnailXhrRef.current = null;
-      }
+      abortThumbnailUploadFlow();
     };
-  }, []);
+  }, [abortThumbnailUploadFlow]);
+
+  useEffect(() => {
+    return () => {
+      abortThumbnailUploadFlow();
+    };
+  }, [abortThumbnailUploadFlow, draftId]);
 
   useEffect(() => {
     if (initialConnectedPlatforms) {
@@ -480,6 +500,12 @@ export function DraftMetadataModal({
 
   useEffect(() => {
     if (!value) {
+      abortThumbnailUploadFlow();
+      setThumbnailUploading(false);
+      setThumbnailUploadProgress(0);
+      if (thumbnailInputRef.current) {
+        thumbnailInputRef.current.value = '';
+      }
       setPlatformWarning(null);
       setTagInput('');
       setUploadComplete(false);
@@ -488,7 +514,7 @@ export function DraftMetadataModal({
     if (value.targets.length > 0) {
       setPlatformWarning(null);
     }
-  }, [value]);
+  }, [abortThumbnailUploadFlow, value]);
 
   useEffect(() => {
     if (!draftId) {
@@ -910,6 +936,16 @@ export function DraftMetadataModal({
 
   const handleThumbnailFile = async (file: File) => {
     if (!value || !draftId) return;
+    const requestDraftId = draftId;
+    const ac = new AbortController();
+    thumbnailRequestAbortRef.current?.abort();
+    thumbnailRequestAbortRef.current = ac;
+    const isStale = () =>
+      ac.signal.aborted ||
+      !isMountedRef.current ||
+      latestDraftIdRef.current !== requestDraftId ||
+      thumbnailRequestAbortRef.current !== ac;
+
     if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
       toast.error(draftThumbnailMaxSizeExceededMessage());
       return;
@@ -925,7 +961,9 @@ export function DraftMetadataModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contentType: file.type, fileSize: file.size }),
+        signal: ac.signal,
       });
+      if (isStale()) return;
       if (!presignRes.ok) {
         const err = (await presignRes.json().catch(() => null)) as { message?: string } | null;
         throw new Error(err?.message ?? 'Failed to start thumbnail upload');
@@ -969,7 +1007,9 @@ export function DraftMetadataModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pendingKey }),
+        signal: ac.signal,
       });
+      if (isStale()) return;
       if (!completeRes.ok) {
         const err = (await completeRes.json().catch(() => null)) as { message?: string } | null;
         throw new Error(err?.message ?? 'Failed to finalize thumbnail');
@@ -981,6 +1021,7 @@ export function DraftMetadataModal({
       if (!d) {
         throw new Error('Invalid response');
       }
+      if (isStale()) return;
       const latest = latestValueRef.current ?? value;
       if (!latest) return;
       onChange({
@@ -989,18 +1030,30 @@ export function DraftMetadataModal({
         thumbnailContentType: d.thumbnailContentType,
         thumbnailPreviewUrl: d.thumbnailPreviewUrl,
       });
+      if (isStale()) return;
       toast.success('Thumbnail uploaded');
     } catch (e) {
+      const isAbort =
+        ac.signal.aborted ||
+        ((e instanceof DOMException || e instanceof Error) && e.name === 'AbortError');
+      if (isAbort || isStale()) {
+        return;
+      }
       if (e instanceof Error && e.message === 'THUMBNAIL_UPLOAD_ABORTED') {
         return;
       }
       toast.error(e instanceof Error ? e.message : 'Thumbnail upload failed');
     } finally {
+      if (thumbnailRequestAbortRef.current === ac) {
+        thumbnailRequestAbortRef.current = null;
+      }
       thumbnailXhrRef.current = null;
-      setThumbnailUploading(false);
-      setThumbnailUploadProgress(0);
-      if (thumbnailInputRef.current) {
-        thumbnailInputRef.current.value = '';
+      if (!isStale()) {
+        setThumbnailUploading(false);
+        setThumbnailUploadProgress(0);
+        if (thumbnailInputRef.current) {
+          thumbnailInputRef.current.value = '';
+        }
       }
     }
   };
@@ -1127,6 +1180,7 @@ export function DraftMetadataModal({
       open={value !== null}
       onOpenChange={(open) => {
         if (!open) {
+          abortThumbnailUploadFlow();
           void tryCloseModal();
         }
       }}

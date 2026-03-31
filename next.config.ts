@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: '*.r2.cloudflarestorage.com',
+        // R2 presigned URLs can be virtual-hosted style (e.g. bucket.account.r2...).
+        hostname: '**.r2.cloudflarestorage.com',
         pathname: '/**',
       },
     ],

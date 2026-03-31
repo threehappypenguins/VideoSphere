@@ -718,6 +718,105 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
 
+  it('deletes draft thumbnail before clearing draft thumbnail fields after successful distribution', async () => {
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {},
+      thumbnailR2Key: 'draft-thumbnails/user-123/draft-1/thumb-1.jpg',
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockUpdateDraft.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {},
+      thumbnailR2Key: undefined,
+      thumbnailContentType: undefined,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockDeleteObject).toHaveBeenCalledWith('draft-thumbnails/user-123/draft-1/thumb-1.jpg');
+    expect(mockUpdateDraft).toHaveBeenCalledWith('draft-1', {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
+    const deleteCallOrder = mockDeleteObject.mock.invocationCallOrder[1];
+    const updateCallOrder = mockUpdateDraft.mock.invocationCallOrder[0];
+    expect(deleteCallOrder).toBeLessThan(updateCallOrder);
+  });
+
+  it('retains draft thumbnail fields when thumbnail delete fails', async () => {
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {},
+      thumbnailR2Key: 'draft-thumbnails/user-123/draft-1/thumb-2.jpg',
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockDeleteObject.mockImplementation(async (key: string) => {
+      if (key === 'draft-thumbnails/user-123/draft-1/thumb-2.jpg') {
+        throw new Error('r2 delete failed');
+      }
+      return undefined;
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockDeleteObject).toHaveBeenCalledWith('draft-thumbnails/user-123/draft-1/thumb-2.jpg');
+    expect(mockUpdateDraft).not.toHaveBeenCalledWith('draft-1', {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
+  });
+
   it('updates platform statuses independently and marks job failed when any platform fails', async () => {
     mockCreatePlatformUpload.mockImplementation(
       async (data: {
