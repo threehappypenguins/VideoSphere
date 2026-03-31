@@ -949,10 +949,14 @@ export function DraftMetadataModal({
 
     if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
       toast.error(draftThumbnailMaxSizeExceededMessage());
+      thumbnailRequestAbortRef.current = null;
+      if (thumbnailInputRef.current) thumbnailInputRef.current.value = '';
       return;
     }
     if (!isAllowedDraftThumbnailContentType(file.type)) {
       toast.error(DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE);
+      thumbnailRequestAbortRef.current = null;
+      if (thumbnailInputRef.current) thumbnailInputRef.current.value = '';
       return;
     }
     setThumbnailUploading(true);

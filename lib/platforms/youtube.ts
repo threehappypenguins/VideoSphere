@@ -836,6 +836,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
         );
       }
       if (thumbLen > MAX_CUSTOM_THUMBNAIL_BYTES) {
+        await thumbStream.cancel().catch(() => undefined);
         return toError(
           'YOUTUBE_THUMBNAIL_TOO_LARGE',
           'Thumbnail exceeds the maximum size allowed for upload.',

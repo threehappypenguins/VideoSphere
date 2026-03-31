@@ -340,6 +340,75 @@ describe('uploadToVimeo', () => {
     expect(err.statusCode).toBe(503);
   });
 
+  it('cancels the R2 stream when thumbnail exceeds MAX_VIMEO_THUMBNAIL_BYTES', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+    const uploadLink = 'https://tus.example/upload-size-test';
+    const videoUri = '/videos/size-test-99999';
+
+    const cancelSpy = vi.fn().mockResolvedValue(undefined);
+    const oversizedStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+        controller.close();
+      },
+      cancel: cancelSpy,
+    });
+
+    mockGetObjectWebStream.mockResolvedValueOnce({
+      stream: oversizedStream,
+      contentLength: 2 * 1024 * 1024 + 1,
+      contentType: 'image/jpeg',
+    });
+
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const method = options?.method;
+      const sUrl = String(url);
+
+      if (method === 'POST' && sUrl === 'https://api.vimeo.com/me/videos') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ upload: { upload_link: uploadLink }, uri: videoUri }), {
+            status: 200,
+          })
+        );
+      }
+      if (sUrl === uploadLink) {
+        return Promise.resolve(
+          new Response(null, { status: 204, headers: { 'upload-offset': '3' } })
+        );
+      }
+      if (sUrl.includes('fields=upload.status,transcode.status')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ upload: { status: 'complete' }, transcode: { status: 'complete' } }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await vimeo.uploadToVimeo({
+      videoStream: makeStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        title: 'size guard test',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        thumbnailR2Key: 'drafts/draft-size/thumb.jpg',
+        thumbnailContentType: 'image/jpeg',
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    expect(result.ok).toBe(false);
+    const err = (result as { ok: false; error: { code: string; statusCode?: number } }).error;
+    expect(err.code).toBe('VIMEO_THUMBNAIL_TOO_LARGE');
+    expect(err.statusCode).toBe(400);
+    expect(cancelSpy).toHaveBeenCalledOnce();
+  });
+
   it('does not mask likely network errors while required tags are not applied', async () => {
     const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
 

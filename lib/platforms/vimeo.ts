@@ -769,6 +769,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         );
       }
       if (thumbLen > MAX_VIMEO_THUMBNAIL_BYTES) {
+        await thumbStream.cancel().catch(() => undefined);
         return toError(
           'VIMEO_THUMBNAIL_TOO_LARGE',
           'Thumbnail exceeds the maximum size allowed for upload.',

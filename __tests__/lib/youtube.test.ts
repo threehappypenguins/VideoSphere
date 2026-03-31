@@ -213,8 +213,17 @@ describe('uploadToYouTube thumbnail path', () => {
     const sessionUrl = 'https://upload.youtube.test/session/jkl';
     let thumbnailSetCalled = false;
 
+    const cancelSpy = vi.fn().mockResolvedValue(undefined);
+    const thumbStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([9, 8, 7, 6]));
+        controller.close();
+      },
+      cancel: cancelSpy,
+    });
+
     mockGetObjectWebStream.mockResolvedValue({
-      stream: makeThumbnailStream(),
+      stream: thumbStream,
       contentLength: 2 * 1024 * 1024 + 1,
       contentType: 'image/jpeg',
     });
@@ -263,5 +272,6 @@ describe('uploadToYouTube thumbnail path', () => {
     expect(err.code).toBe('YOUTUBE_THUMBNAIL_TOO_LARGE');
     expect(err.statusCode).toBe(400);
     expect(thumbnailSetCalled).toBe(false);
+    expect(cancelSpy).toHaveBeenCalledOnce();
   });
 });
