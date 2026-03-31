@@ -197,6 +197,11 @@ export function DraftMetadataModal({
   /** Tracks the open modal’s draft id so we can ignore stale AI responses after close or draft switch. */
   const latestDraftIdRef = useRef<string | null>(null);
   latestDraftIdRef.current = draftId;
+  /** Avoid stale closures in async flows (e.g. thumbnail upload). */
+  const latestValueRef = useRef<DraftEditorValues | null>(null);
+  useEffect(() => {
+    latestValueRef.current = value ?? null;
+  }, [value]);
 
   const snapshotEditor = (editor: DraftEditorValues): DraftEditorValues => ({
     ...editor,
@@ -976,8 +981,10 @@ export function DraftMetadataModal({
       if (!d) {
         throw new Error('Invalid response');
       }
+      const latest = latestValueRef.current ?? value;
+      if (!latest) return;
       onChange({
-        ...value,
+        ...latest,
         thumbnailR2Key: d.thumbnailR2Key,
         thumbnailContentType: d.thumbnailContentType,
         thumbnailPreviewUrl: d.thumbnailPreviewUrl,
@@ -1007,8 +1014,10 @@ export function DraftMetadataModal({
         const err = (await res.json().catch(() => null)) as { message?: string } | null;
         throw new Error(err?.message ?? 'Failed to remove thumbnail');
       }
+      const latest = latestValueRef.current ?? value;
+      if (!latest) return;
       onChange({
-        ...value,
+        ...latest,
         thumbnailR2Key: undefined,
         thumbnailContentType: undefined,
         thumbnailPreviewUrl: undefined,

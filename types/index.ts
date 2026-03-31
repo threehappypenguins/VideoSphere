@@ -205,7 +205,9 @@ export interface Draft {
   /** MIME type of the thumbnail object (for platform upload and preview). */
   thumbnailContentType?: string;
   /**
-   * Ephemeral presigned GET URL for the draft form preview (GET /api/drafts/[id] only).
+   * Ephemeral presigned GET URL for the draft form preview.
+   * Returned by endpoints that include draft payloads (e.g. GET/PATCH /api/drafts/[id],
+   * and thumbnail complete) when a valid thumbnail exists.
    * Not stored in Appwrite.
    */
   thumbnailPreviewUrl?: string;
