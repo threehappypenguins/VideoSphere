@@ -180,11 +180,12 @@ describe('uploadToVimeo', () => {
     const videoUri = 'https://api.vimeo.com/videos/99999';
     const pictureUploadLink = 'https://i.vimeocdn.com/custom-thumbnail-upload';
     const pictureUri = '/videos/99999/pictures/1234567';
+    let capturedPutContentType: string | undefined;
 
     mockGetObjectWebStream.mockResolvedValue({
       stream: makeThumbnailStream(),
       contentLength: 4,
-      contentType: 'image/webp',
+      contentType: 'image/jpeg',
     });
 
     fetchMock.mockImplementation((url: unknown, options?: any) => {
@@ -224,6 +225,7 @@ describe('uploadToVimeo', () => {
       }
 
       if (method === 'PUT' && sUrl === pictureUploadLink) {
+        capturedPutContentType = (options?.headers as Record<string, string>)?.['Content-Type'];
         return Promise.resolve(new Response('', { status: 200 }));
       }
 
@@ -243,16 +245,17 @@ describe('uploadToVimeo', () => {
         description: 'with thumbnail',
         tags: [],
         visibility: 'public',
-        thumbnailR2Key: 'drafts/draft-1/thumbnail.webp',
-        thumbnailContentType: 'image/webp',
+        thumbnailR2Key: 'drafts/draft-1/thumbnail.jpg',
+        thumbnailContentType: 'image/jpeg',
       },
       tokens: { accessToken: 'tok' },
     });
 
     expect(result.ok).toBe(true);
-    expect(mockGetObjectWebStream).toHaveBeenCalledWith('drafts/draft-1/thumbnail.webp', {
+    expect(mockGetObjectWebStream).toHaveBeenCalledWith('drafts/draft-1/thumbnail.jpg', {
       signal: undefined,
     });
+    expect(capturedPutContentType).toBe('image/jpeg');
   });
 
   it('fails when thumbnail activation retries are exhausted', async () => {

@@ -1,4 +1,5 @@
 import type { PlatformUploadVisibility } from '@/types';
+import { isAllowedDraftThumbnailContentType } from '@/lib/draft-thumbnail';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
@@ -813,8 +814,11 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
 
     const thumbKey = m.thumbnailR2Key?.trim();
     if (thumbKey) {
-      const rawCt = m.thumbnailContentType?.trim().toLowerCase() || 'image/jpeg';
-      if (rawCt !== 'image/jpeg' && rawCt !== 'image/png') {
+      // Pre-validate an explicitly provided content type; a missing/empty field is resolved against
+      // the R2 object's content-type header after the stream is opened (so a PNG stored without
+      // draft metadata is not incorrectly declared as JPEG to YouTube).
+      const draftCt = m.thumbnailContentType?.trim().toLowerCase();
+      if (draftCt && !isAllowedDraftThumbnailContentType(draftCt)) {
         return toError(
           'YOUTUBE_THUMBNAIL_FORMAT',
           'YouTube custom thumbnails must be JPEG or PNG.',
@@ -823,10 +827,12 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       }
       let thumbStream: ReadableStream<Uint8Array>;
       let thumbLen: number;
+      let thumbR2Ct: string;
       try {
         const opened = await getObjectWebStream(thumbKey, { signal });
         thumbStream = opened.stream;
         thumbLen = opened.contentLength;
+        thumbR2Ct = opened.contentType?.trim().toLowerCase() ?? '';
       } catch (err) {
         return toError(
           'YOUTUBE_THUMBNAIL_R2_FAILED',
@@ -835,6 +841,10 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
           messageFromThrown(err)
         );
       }
+      // Prefer validated draft CT, fall back to R2 CT, last resort jpeg (matching Vimeo pattern).
+      const rawCt =
+        (draftCt && isAllowedDraftThumbnailContentType(draftCt) ? draftCt : null) ??
+        (isAllowedDraftThumbnailContentType(thumbR2Ct) ? thumbR2Ct : 'image/jpeg');
       if (thumbLen > MAX_CUSTOM_THUMBNAIL_BYTES) {
         await thumbStream.cancel().catch(() => undefined);
         return toError(

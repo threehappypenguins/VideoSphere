@@ -274,4 +274,56 @@ describe('uploadToYouTube thumbnail path', () => {
     expect(thumbnailSetCalled).toBe(false);
     expect(cancelSpy).toHaveBeenCalledOnce();
   });
+
+  it('uses R2 content-type as fallback when thumbnailContentType is absent', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+    const sessionUrl = 'https://upload.youtube.test/session/r2ct';
+    const videoId = 'yt-video-r2ct';
+
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: makeThumbnailStream(),
+      contentLength: 4,
+      contentType: 'image/png', // R2 reports PNG; no draft thumbnailContentType
+    });
+
+    let capturedContentType: string | undefined;
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const sUrl = String(url);
+      const method = options?.method;
+
+      if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { location: sessionUrl } })
+        );
+      }
+      if (method === 'PUT' && sUrl === sessionUrl) {
+        return Promise.resolve(new Response(JSON.stringify({ id: videoId }), { status: 200 }));
+      }
+      if (method === 'POST' && sUrl.includes('/upload/youtube/v3/thumbnails/set?videoId=')) {
+        capturedContentType = (options?.headers as Record<string, string>)?.['Content-Type'];
+        return Promise.resolve(
+          new Response(JSON.stringify({ kind: 'youtube#thumbnailSetResponse' }), { status: 200 })
+        );
+      }
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await youtube.uploadToYouTube({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        title: 't',
+        description: 'd',
+        tags: [],
+        visibility: 'public',
+        thumbnailR2Key: 'drafts/draft-5/thumb.png',
+        thumbnailContentType: undefined, // missing — should fall back to R2's image/png
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(capturedContentType).toBe('image/png');
+  });
 });

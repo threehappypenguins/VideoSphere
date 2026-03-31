@@ -333,15 +333,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   const thumbKey = existing.thumbnailR2Key;
-  if (thumbKey && isDraftThumbnailFinalKeyForUser(thumbKey, userId, id)) {
-    await deleteObject(thumbKey).catch((e) => {
-      console.error('[DELETE /api/drafts/:id] thumbnail cleanup', e);
-    });
-  }
 
   try {
     await deleteDraft(id);
-    return NextResponse.json({ data: null, message: 'Draft deleted' }, { status: 200 });
   } catch (err) {
     console.error('[DELETE /api/drafts/:id]', err);
     const errRes: ApiError = {
@@ -351,4 +345,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     };
     return NextResponse.json(errRes, { status: 500 });
   }
+
+  // Best-effort R2 cleanup after confirmed DB delete. A failed deleteObject leaves an
+  // orphaned object (storage cost only); doing it before deleteDraft risks a deleted
+  // thumbnail on a still-existing draft if deleteDraft throws.
+  if (thumbKey && isDraftThumbnailFinalKeyForUser(thumbKey, userId, id)) {
+    await deleteObject(thumbKey).catch((e) => {
+      console.error('[DELETE /api/drafts/:id] thumbnail cleanup', e);
+    });
+  }
+
+  return NextResponse.json({ data: null, message: 'Draft deleted' }, { status: 200 });
 }

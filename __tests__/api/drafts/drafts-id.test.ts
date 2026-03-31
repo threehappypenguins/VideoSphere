@@ -26,9 +26,19 @@ vi.mock('@/lib/repositories/drafts', () => ({
   deleteDraft: vi.fn(),
 }));
 
+vi.mock('@/lib/r2', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/r2')>();
+  return {
+    ...actual,
+    deleteObject: vi.fn(),
+    getObjectUrl: vi.fn(),
+  };
+});
+
 import { GET, PATCH, DELETE } from '@/app/api/drafts/[id]/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
+import { deleteObject, buildDraftThumbnailFinalKey } from '@/lib/r2';
 import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
 // ---------------------------------------------------------------------------
@@ -616,6 +626,56 @@ describe('DELETE /api/drafts/[id]', () => {
         makeParams()
       );
       expect(res.status).toBe(500);
+    });
+
+    it('retains R2 thumbnail when deleteDraft throws (thumbnail not deleted)', async () => {
+      const thumbKey = buildDraftThumbnailFinalKey('user-123', DRAFT_ID, 'u1', 'jpg');
+      vi.mocked(getDraftById).mockResolvedValue({
+        ...baseDraft,
+        thumbnailR2Key: thumbKey,
+        thumbnailContentType: 'image/jpeg',
+      });
+      vi.mocked(deleteDraft).mockRejectedValueOnce(new Error('DB error'));
+
+      const res = await DELETE(
+        makeRequest('DELETE', undefined, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+
+      expect(res.status).toBe(500);
+      expect(deleteObject).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Thumbnail cleanup ordering', () => {
+    beforeEach(() => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
+      vi.mocked(deleteDraft).mockResolvedValue(undefined);
+      vi.mocked(deleteObject).mockResolvedValue(undefined);
+    });
+
+    it('deletes draft from DB before cleaning up R2 thumbnail', async () => {
+      const thumbKey = buildDraftThumbnailFinalKey('user-123', DRAFT_ID, 'u1', 'jpg');
+      vi.mocked(getDraftById).mockResolvedValue({
+        ...baseDraft,
+        thumbnailR2Key: thumbKey,
+        thumbnailContentType: 'image/jpeg',
+      });
+
+      const res = await DELETE(
+        makeRequest('DELETE', undefined, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+
+      expect(res.status).toBe(200);
+      expect(deleteDraft).toHaveBeenCalledWith(DRAFT_ID);
+      expect(deleteObject).toHaveBeenCalledWith(thumbKey);
+
+      // DB delete must precede R2 cleanup so an Appwrite failure leaves the
+      // thumbnail intact (draft still exists) rather than breaking a live draft.
+      const dbOrder = vi.mocked(deleteDraft).mock.invocationCallOrder[0];
+      const r2Order = vi.mocked(deleteObject).mock.invocationCallOrder[0];
+      expect(dbOrder).toBeLessThan(r2Order);
     });
   });
 });
