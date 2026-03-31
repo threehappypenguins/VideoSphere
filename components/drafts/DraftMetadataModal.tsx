@@ -1049,12 +1049,22 @@ export function DraftMetadataModal({
       }
       toast.error(e instanceof Error ? e.message : 'Thumbnail upload failed');
     } finally {
-      const stale = isStale();
+      // Capture whether a newer upload has taken over before modifying refs.
+      const supersededByNewUpload =
+        thumbnailRequestAbortRef.current !== ac && thumbnailRequestAbortRef.current !== null;
       if (thumbnailRequestAbortRef.current === ac) {
         thumbnailRequestAbortRef.current = null;
       }
       thumbnailXhrRef.current = null;
-      if (!stale) {
+      // Reset UI unless a newer upload is already in progress (which owns the uploading state).
+      // Intentionally does NOT check ac.signal.aborted: an externally-aborted request that is
+      // still the latest for this mounted draft (e.g. onOpenChange abort that was blocked by
+      // tryCloseModal) must still clear the uploading indicator to avoid a stuck "Uploading…" state.
+      if (
+        !supersededByNewUpload &&
+        isMountedRef.current &&
+        latestDraftIdRef.current === requestDraftId
+      ) {
         setThumbnailUploading(false);
         setThumbnailUploadProgress(0);
         if (thumbnailInputRef.current) {
