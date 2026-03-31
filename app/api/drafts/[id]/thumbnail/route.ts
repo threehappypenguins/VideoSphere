@@ -34,24 +34,10 @@ export async function DELETE(
       ? draft.thumbnailR2Key
       : null;
 
-  // Delete from R2 first so the draft retains its key reference if deletion fails,
-  // allowing the client to retry rather than losing the cleanup pointer permanently.
-  if (key) {
-    try {
-      await deleteObject(key);
-    } catch (e) {
-      console.error('[DELETE /api/drafts/:id/thumbnail] delete object', e);
-      return NextResponse.json(
-        {
-          error: 'Internal Server Error',
-          message: 'Failed to remove thumbnail from storage. Please try again.',
-          statusCode: 500,
-        },
-        { status: 500 }
-      );
-    }
-  }
-
+  // Clear the draft fields first. If updateDraft fails the R2 object is still intact and the
+  // client can retry. The reverse ordering (R2 delete first) is worse: a successful R2 delete
+  // followed by a failed updateDraft leaves the draft referencing a now-deleted object, breaking
+  // preview and distribution with no retry path. An orphaned R2 object is far less harmful.
   try {
     const updated = await updateDraft(draftId, {
       thumbnailR2Key: null,
@@ -62,6 +48,11 @@ export async function DELETE(
         { error: 'Not Found', message: 'Draft not found', statusCode: 404 },
         { status: 404 }
       );
+    }
+    if (key) {
+      await deleteObject(key).catch((e) => {
+        console.error('[DELETE /api/drafts/:id/thumbnail] delete object', e);
+      });
     }
     return NextResponse.json({ data: updated, message: 'Thumbnail removed' });
   } catch (err) {

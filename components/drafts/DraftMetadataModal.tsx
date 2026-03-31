@@ -984,14 +984,14 @@ export function DraftMetadataModal({
         xhr.open('PUT', uploadUrl);
         xhr.setRequestHeader('Content-Type', file.type);
         xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable && event.total > 0) {
+          if (!isStale() && event.lengthComputable && event.total > 0) {
             setThumbnailUploadProgress(Math.round((event.loaded / event.total) * 100));
           }
         });
         xhr.addEventListener('load', () => {
           thumbnailXhrRef.current = null;
           if (xhr.status >= 200 && xhr.status < 300) {
-            setThumbnailUploadProgress(100);
+            if (!isStale()) setThumbnailUploadProgress(100);
             resolve();
           } else {
             reject(new Error(`Failed to upload thumbnail to storage (${xhr.status})`));

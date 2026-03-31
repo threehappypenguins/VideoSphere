@@ -131,10 +131,11 @@ describe('DELETE /api/drafts/[id]/thumbnail', () => {
     expect(json.message).toBe('Thumbnail removed');
     expect(deleteObject).toHaveBeenCalledWith(goodKey);
 
-    // R2 delete must happen before draft fields are cleared.
-    const deleteOrder = vi.mocked(deleteObject).mock.invocationCallOrder[0];
+    // Draft fields must be cleared before the R2 delete so a failed deleteObject
+    // leaves an orphaned object rather than a stale key in the draft.
     const updateOrder = vi.mocked(updateDraft).mock.invocationCallOrder[0];
-    expect(deleteOrder).toBeLessThan(updateOrder);
+    const deleteOrder = vi.mocked(deleteObject).mock.invocationCallOrder[0];
+    expect(updateOrder).toBeLessThan(deleteOrder);
   });
 
   it('clears draft but skips deleteObject when stored key does not match final prefix', async () => {
@@ -186,7 +187,7 @@ describe('DELETE /api/drafts/[id]/thumbnail', () => {
     );
   });
 
-  it('returns 500 and retains draft key when deleteObject rejects', async () => {
+  it('returns 200 and logs error when deleteObject rejects (best-effort cleanup)', async () => {
     const errLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const goodKey = buildDraftThumbnailFinalKey(USER_ID, DRAFT_ID, 'u1', 'jpg');
     vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(USER_ID);
@@ -195,14 +196,18 @@ describe('DELETE /api/drafts/[id]/thumbnail', () => {
       thumbnailR2Key: goodKey,
       thumbnailContentType: 'image/jpeg',
     });
+    vi.mocked(updateDraft).mockResolvedValueOnce({ ...baseDraft });
     vi.mocked(deleteObject).mockRejectedValueOnce(new Error('R2 delete failed'));
 
     const res = await DELETE(makeRequest({ [SESSION_COOKIE]: 'tok' }), makeParams());
     errLog.mockRestore();
 
-    // Draft fields must NOT be cleared so the client can retry later.
-    expect(res.status).toBe(500);
+    // Draft is already cleared; R2 failure is logged but must not surface as an error.
+    expect(res.status).toBe(200);
+    expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
     expect(deleteObject).toHaveBeenCalledWith(goodKey);
-    expect(updateDraft).not.toHaveBeenCalled();
   });
 });
