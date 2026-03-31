@@ -417,10 +417,29 @@ export async function runDistributionInBackground(
         return;
       }
 
-      await updateDraft(draftIdForThumb, {
-        thumbnailR2Key: null,
-        thumbnailContentType: null,
-      });
+      // Retry updateDraft: if this single write fails the draft will hold a stale key pointing at
+      // a now-deleted R2 object, breaking preview and distribution retries.
+      const MAX_UPDATE_DRAFT_ATTEMPTS = 3;
+      for (let attempt = 1; attempt <= MAX_UPDATE_DRAFT_ATTEMPTS; attempt++) {
+        try {
+          await updateDraft(draftIdForThumb, {
+            thumbnailR2Key: null,
+            thumbnailContentType: null,
+          });
+          break;
+        } catch (updateErr) {
+          if (attempt < MAX_UPDATE_DRAFT_ATTEMPTS) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 500 * attempt));
+          } else {
+            console.error(
+              `[distribute] STALE THUMBNAIL KEY: draft ${draftIdForThumb} still references ` +
+                `deleted R2 key "${thumbKey}" after ${MAX_UPDATE_DRAFT_ATTEMPTS} updateDraft ` +
+                `attempts failed (job ${jobId}). Manual DB cleanup required.`,
+              updateErr
+            );
+          }
+        }
+      }
     } catch (thumbCleanupErr) {
       console.error(
         `[distribute] Draft thumbnail cleanup failed after job ${jobId} completed (non-fatal):`,

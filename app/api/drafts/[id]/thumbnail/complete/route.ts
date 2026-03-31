@@ -136,10 +136,6 @@ export async function POST(
     );
   }
 
-  await deleteObject(pendingKey).catch((e) => {
-    console.error('[POST /api/drafts/:id/thumbnail/complete] delete pending', e);
-  });
-
   try {
     const updated = await updateDraft(draftId, {
       thumbnailR2Key: finalKey,
@@ -152,6 +148,12 @@ export async function POST(
         { status: 404 }
       );
     }
+
+    // Pending object cleaned up only after the draft update is confirmed so that
+    // a transient Appwrite failure leaves the pending key intact for a retry.
+    await deleteObject(pendingKey).catch((e) => {
+      console.error('[POST /api/drafts/:id/thumbnail/complete] delete pending', e);
+    });
 
     if (
       previousKey &&

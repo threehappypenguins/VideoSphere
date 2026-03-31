@@ -817,6 +817,109 @@ describe('POST /api/uploads/distribute', () => {
     });
   });
 
+  it('retries updateDraft after thumbnail delete when first attempt fails transiently', async () => {
+    vi.useFakeTimers();
+    const thumbKey = 'draft-thumbnails/user-123/draft-1/thumb-retry.jpg';
+
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: thumbKey,
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+    mockUpdateDraft
+      .mockRejectedValueOnce(new Error('transient appwrite error'))
+      .mockResolvedValueOnce({
+        id: 'draft-1',
+        userId: 'user-123',
+        targets: ['youtube'],
+        title: 'My title',
+        description: 'My description',
+        visibility: 'private',
+        tags: [],
+        platforms: {},
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+    expect(response.status).toBe(202);
+
+    await vi.runAllTimersAsync();
+
+    expect(mockUpdateDraft).toHaveBeenCalledTimes(2);
+    expect(mockUpdateDraft).toHaveBeenLastCalledWith('draft-1', {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
+
+    vi.useRealTimers();
+  });
+
+  it('logs stale key error when all updateDraft retry attempts fail after thumbnail delete', async () => {
+    vi.useFakeTimers();
+    const errLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const thumbKey = 'draft-thumbnails/user-123/draft-1/thumb-stale.jpg';
+
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: thumbKey,
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+    mockUpdateDraft.mockRejectedValue(new Error('appwrite down'));
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+    expect(response.status).toBe(202);
+
+    await vi.runAllTimersAsync();
+
+    expect(mockUpdateDraft).toHaveBeenCalledTimes(3);
+    const staleLog = errLog.mock.calls.find(
+      (args) => typeof args[0] === 'string' && args[0].includes('STALE THUMBNAIL KEY')
+    );
+    expect(staleLog).toBeDefined();
+    expect(staleLog![0]).toContain('draft-1');
+    expect(staleLog![0]).toContain(thumbKey);
+
+    errLog.mockRestore();
+    vi.useRealTimers();
+  });
+
   it('updates platform statuses independently and marks job failed when any platform fails', async () => {
     mockCreatePlatformUpload.mockImplementation(
       async (data: {

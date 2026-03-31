@@ -231,6 +231,7 @@ describe('POST /api/drafts/[id]/thumbnail/complete', () => {
     const res = await POST(makeRequest({ pendingKey }, { [SESSION_COOKIE]: 'tok' }), makeParams());
     expect(res.status).toBe(404);
     expect(deleteObject).toHaveBeenCalledWith(finalKeyFromCopyMock());
+    expect(deleteObject).not.toHaveBeenCalledWith(pendingKey);
   });
 
   it('returns 400 when updateDraft throws DraftDocumentTooLargeError', async () => {
@@ -247,6 +248,7 @@ describe('POST /api/drafts/[id]/thumbnail/complete', () => {
     const res = await POST(makeRequest({ pendingKey }, { [SESSION_COOKIE]: 'tok' }), makeParams());
     expect(res.status).toBe(400);
     expect(deleteObject).toHaveBeenCalledWith(finalKeyFromCopyMock());
+    expect(deleteObject).not.toHaveBeenCalledWith(pendingKey);
   });
 
   it('succeeds: copies, deletes pending, updates draft, deletes previous thumbnail, returns preview URL', async () => {
@@ -285,6 +287,12 @@ describe('POST /api/drafts/[id]/thumbnail/complete', () => {
 
     expect(deleteObject).toHaveBeenCalledWith(pendingKey);
     expect(deleteObject).toHaveBeenCalledWith(previousKey);
+
+    // updateDraft must complete before pendingKey is deleted so a transient
+    // Appwrite failure leaves the pending object available for a retry.
+    const updateOrder = vi.mocked(updateDraft).mock.invocationCallOrder[0];
+    const pendingDeleteOrder = vi.mocked(deleteObject).mock.invocationCallOrder[0];
+    expect(updateOrder).toBeLessThan(pendingDeleteOrder);
   });
 
   it('succeeds without preview URL when getObjectUrl fails', async () => {
