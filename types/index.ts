@@ -199,7 +199,7 @@ export interface Draft {
   platforms: DraftPlatforms;
   /**
    * R2 object key for a custom thumbnail image (JPG or PNG), or undefined if none.
-   * Cleared after successful distribution consumes the file.
+   * Best-effort cleared after distribution completes (retained if the cleanup DB write fails).
    */
   thumbnailR2Key?: string;
   /** MIME type of the thumbnail object (for platform upload and preview). */
