@@ -11,14 +11,16 @@ This is a categorized checklist of stretch goals — things worth building beyon
 
 > Items are grouped by discipline. Attempt items across multiple categories to demonstrate well-rounded understanding.
 
+Note: ✅ denotes instructor sign-off on that particular stretch goal.
+
 ---
 
 ## 1. UI & User Experience
 
-- [x] **Dark / light mode toggle** — detect `prefers-color-scheme` by default; allow manual override; persist preference in `localStorage`
+- [x] **Dark / light mode toggle** — detect `prefers-color-scheme` by default; allow manual override; persist preference in `localStorage` ✅
 - [ ] **Animated page transitions** — smooth enter/exit transitions between routes using Framer Motion or the View Transitions API
 - [ ] **Skeleton loading states** — replace blank loading areas with accurately shaped content skeletons for all async data views
-- [x] **Toast / snackbar notification system** — global, accessible toast queue for success, error, warning, and info messages
+- [x] **Toast / snackbar notification system** — global, accessible toast queue for success, error, warning, and info messages ✅
 - [x] **Modal and dialog system** — reusable, accessible modal component with focus trap, `Escape` to close, and scroll lock
 - [ ] **Drawer / side-panel navigation** — slide-in drawer for mobile navigation or detail panels; no JavaScript libraries beyond React
 - [ ] **Onboarding flow** — step-by-step guided tour for new users that highlights key features and can be dismissed or replayed
@@ -46,7 +48,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 
 > These build on top of the mandatory basic auth requirement.
 
-- [x] **Social / OAuth login** — add at least one OAuth provider (Google, GitHub, etc.) via your chosen auth library
+- [x] **Social / OAuth login** — add at least one OAuth provider (Google, GitHub, etc.) via your chosen auth library ✅
 - [ ] **Magic link / passwordless login** — email a one-time login link as an alternative sign-in method
 - [ ] **Multi-factor authentication (MFA)** — TOTP-based MFA (e.g. Google Authenticator) as an opt-in account security feature
 - [ ] **Password reset flow** — fully functional "Forgot password" → email link → reset form → confirmation flow
