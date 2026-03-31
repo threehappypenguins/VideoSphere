@@ -35,6 +35,16 @@ import type {
   PlatformUploadStatus,
   UploadJobStatus,
 } from '@/types';
+import {
+  DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
+  DRAFT_THUMBNAIL_MAX_SIZE_LABEL,
+  draftThumbnailFileInputAccept,
+  draftThumbnailMaxSizeExceededMessage,
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
+
+const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
 export interface DraftEditorValues {
   id: string;
@@ -895,14 +905,12 @@ export function DraftMetadataModal({
 
   const handleThumbnailFile = async (file: File) => {
     if (!value || !draftId) return;
-    const maxBytes = 2 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      toast.error('Thumbnail must be 2 MB or smaller');
+    if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
+      toast.error(draftThumbnailMaxSizeExceededMessage());
       return;
     }
-    const allowed = ['image/jpeg', 'image/png'];
-    if (!allowed.includes(file.type)) {
-      toast.error('Only JPG or PNG images are allowed');
+    if (!isAllowedDraftThumbnailContentType(file.type)) {
+      toast.error(DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE);
       return;
     }
     setThumbnailUploading(true);
@@ -1341,8 +1349,8 @@ export function DraftMetadataModal({
             <div className="rounded-lg border border-border bg-muted/30 p-3">
               <p className="text-sm font-medium text-foreground">Thumbnail</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                JPG or PNG, max 2 MB. Shown on platforms that support custom thumbnails when you
-                distribute.
+                JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}. Shown on platforms that support
+                custom thumbnails when you distribute.
               </p>
               {!draftId ? (
                 <p className="mt-2 text-xs text-muted-foreground">
@@ -1366,7 +1374,7 @@ export function DraftMetadataModal({
                     <input
                       ref={thumbnailInputRef}
                       type="file"
-                      accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+                      accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
                       className="hidden"
                       onChange={(event) => {
                         const file = event.target.files?.[0];

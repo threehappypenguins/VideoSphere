@@ -379,46 +379,49 @@ export async function runDistributionInBackground(
       );
     });
 
-    const jobRow = await getUploadJobById(jobId);
-    const draftIdForThumb = jobRow?.draftId ?? null;
-    if (draftIdForThumb) {
+    await updateUploadJobStatus(jobId, 'completed', null);
+
+    // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
+    try {
+      const jobRow = await getUploadJobById(jobId);
+      const draftIdForThumb = jobRow?.draftId ?? null;
+      if (!draftIdForThumb) {
+        return;
+      }
       const draftForThumb = await getDraftById(draftIdForThumb);
       const thumbKey = draftForThumb?.thumbnailR2Key;
-      if (thumbKey && draftForThumb?.userId === userId) {
-        const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(
-          thumbKey,
-          userId,
-          draftIdForThumb
-        );
-        try {
-          const updated = await updateDraft(draftIdForThumb, {
-            thumbnailR2Key: null,
-            thumbnailContentType: null,
+      if (!thumbKey || draftForThumb?.userId !== userId) {
+        return;
+      }
+      const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(
+        thumbKey,
+        userId,
+        draftIdForThumb
+      );
+      const updated = await updateDraft(draftIdForThumb, {
+        thumbnailR2Key: null,
+        thumbnailContentType: null,
+      });
+      if (updated) {
+        if (keyMatchesDraftThumbnailPrefix) {
+          await deleteObject(thumbKey).catch((thumbErr) => {
+            console.error(
+              `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
+              thumbErr
+            );
           });
-          if (updated) {
-            if (keyMatchesDraftThumbnailPrefix) {
-              await deleteObject(thumbKey).catch((thumbErr) => {
-                console.error(
-                  `[distribute] Failed to delete draft thumbnail for job ${jobId}:`,
-                  thumbErr
-                );
-              });
-            } else {
-              console.warn(
-                `[distribute] Skipped R2 delete for draft ${draftIdForThumb} thumbnail key (unexpected prefix; job ${jobId})`
-              );
-            }
-          }
-        } catch (docErr) {
-          console.error(
-            `[distribute] Failed to clear draft thumbnail fields for ${draftIdForThumb}:`,
-            docErr
+        } else {
+          console.warn(
+            `[distribute] Skipped R2 delete for draft ${draftIdForThumb} thumbnail key (unexpected prefix; job ${jobId})`
           );
         }
       }
+    } catch (thumbCleanupErr) {
+      console.error(
+        `[distribute] Draft thumbnail cleanup failed after job ${jobId} completed (non-fatal):`,
+        thumbCleanupErr
+      );
     }
-
-    await updateUploadJobStatus(jobId, 'completed', null);
   } catch (error) {
     console.error(`[distribute] Background distribution failed for job ${jobId}:`, error);
     await updateUploadJobStatus(

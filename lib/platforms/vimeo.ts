@@ -1,4 +1,5 @@
 import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
+import { isAllowedDraftThumbnailContentType } from '@/lib/draft-thumbnail';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
@@ -27,6 +28,25 @@ interface VimeoCreateResponse {
 const VIMEO_CREATE_VIDEO_URL = 'https://api.vimeo.com/me/videos';
 
 const MAX_VIMEO_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+
+/**
+ * PUT to Vimeo's thumbnail upload_link must use image/jpeg or image/png. R2 may report
+ * application/octet-stream; prefer draft metadata (validated at upload) then R2 if valid.
+ */
+function vimeoThumbnailPutContentType(
+  metadataCt: string | undefined,
+  r2ContentType: string
+): string {
+  const meta = metadataCt?.trim().toLowerCase();
+  if (meta && isAllowedDraftThumbnailContentType(meta)) {
+    return meta;
+  }
+  const fromR2 = r2ContentType.trim().toLowerCase();
+  if (isAllowedDraftThumbnailContentType(fromR2)) {
+    return fromR2;
+  }
+  return 'image/jpeg';
+}
 
 function visibilityToVimeoPrivacy(
   visibility: PlatformUploadVisibility
@@ -799,11 +819,15 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
           502
         );
       }
+      const putThumbContentType = vimeoThumbnailPutContentType(
+        input.metadata.thumbnailContentType,
+        thumbCt
+      );
       const putThumb = await fetch(uploadLink, {
         method: 'PUT',
         body: imageBuf,
         headers: {
-          'Content-Type': thumbCt || 'image/jpeg',
+          'Content-Type': putThumbContentType,
           'Content-Length': String(imageBuf.byteLength),
         },
         ...(signal ? { signal } : {}),

@@ -474,7 +474,12 @@ export default function DraftsPage() {
           if (!ok) return;
         }
         try {
-          await fetch(`/api/drafts/${creatingDraft.id}`, { method: 'DELETE' });
+          const res = await fetch(`/api/drafts/${creatingDraft.id}`, { method: 'DELETE' });
+          if (!res.ok) {
+            const err = (await res.json().catch(() => null)) as { message?: string } | null;
+            toast.error(err?.message ?? 'Failed to discard draft');
+            return;
+          }
           await loadDrafts();
         } catch {
           toast.error('Failed to discard draft');
