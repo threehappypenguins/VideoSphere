@@ -382,6 +382,11 @@ export async function runDistributionInBackground(
     await updateUploadJobStatus(jobId, 'completed', null);
 
     // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
+    // Capture the thumbnail key from the metadata snapshot used for this distribution so that
+    // a replacement uploaded during the (potentially multi-minute) job is not accidentally deleted.
+    const distributedThumbKey = [...metadataByPlatformId.values()].find(
+      (m) => m.thumbnailR2Key
+    )?.thumbnailR2Key;
     try {
       const jobRow = await getUploadJobById(jobId);
       const draftIdForThumb = jobRow?.draftId ?? null;
@@ -391,6 +396,11 @@ export async function runDistributionInBackground(
       const draftForThumb = await getDraftById(draftIdForThumb);
       const thumbKey = draftForThumb?.thumbnailR2Key;
       if (!thumbKey || draftForThumb?.userId !== userId) {
+        return;
+      }
+      // If the user replaced the thumbnail while distribution was running, the current key will
+      // differ from the one that was actually distributed; skip cleanup to avoid deleting it.
+      if (distributedThumbKey && thumbKey !== distributedThumbKey) {
         return;
       }
       const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(

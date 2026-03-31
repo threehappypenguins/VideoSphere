@@ -714,89 +714,92 @@ function DraftsTable({
           </tr>
         </thead>
         <tbody>
-          {drafts.map((draft) => (
-            <tr
-              key={draft.id}
-              className="border-b border-border transition-colors hover:bg-muted/40"
-            >
-              <td className="p-0 align-top">
-                <button
-                  type="button"
-                  onClick={() => onEdit(draft)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onEdit(draft);
-                    }
-                  }}
-                  aria-label={`Edit draft "${draft.title}"`}
-                  className="block w-full px-3 py-3 text-left sm:px-4"
-                >
-                  <span className="block max-w-full truncate text-foreground">
-                    {draft.title.trim() || 'Untitled draft'}
-                  </span>
-                </button>
-              </td>
-              <td className="p-0 align-top text-muted-foreground">
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => onEdit(draft)}
-                  aria-label={`Edit draft "${draft.title}"`}
-                  className="block w-full px-3 py-3 text-left sm:px-4"
-                >
-                  <span className="block truncate">{formatLastEdited(draft.$updatedAt)}</span>
-                </button>
-              </td>
-              <td className="p-0 align-top">
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => onEdit(draft)}
-                  aria-label={`Edit draft "${draft.title}"`}
-                  className="block w-full px-3 py-3 text-left sm:px-4"
-                >
-                  <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
-                </button>
-              </td>
-              <td className="p-0 align-top text-right">
-                <div className="relative">
+          {drafts.map((draft) => {
+            const displayTitle = draft.title.trim() || 'Untitled draft';
+            return (
+              <tr
+                key={draft.id}
+                className="border-b border-border transition-colors hover:bg-muted/40"
+              >
+                <td className="p-0 align-top">
                   <button
                     type="button"
-                    tabIndex={-1}
-                    onClick={() => onEdit(draft)}
-                    aria-label={`Edit draft "${draft.title}"`}
-                    className="absolute inset-0 z-0"
-                  />
-                  <div
-                    className="relative z-10 px-3 py-3 sm:px-4"
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Edit draft "${draft.title}"`}
                     onClick={() => onEdit(draft)}
                     onKeyDown={(event) => {
-                      const target = event.target as HTMLElement | null;
-                      if (target && target.closest('button') && target !== event.currentTarget) {
-                        return;
-                      }
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         onEdit(draft);
                       }
                     }}
+                    aria-label={`Edit draft "${displayTitle}"`}
+                    className="block w-full px-3 py-3 text-left sm:px-4"
                   >
-                    <DraftActions
-                      draft={draft}
-                      onDelete={onDelete}
-                      onDuplicate={onDuplicate}
-                      isDeletingId={isDeletingId}
-                      isDuplicatingId={isDuplicatingId}
+                    <span className="block max-w-full truncate text-foreground">
+                      {displayTitle}
+                    </span>
+                  </button>
+                </td>
+                <td className="p-0 align-top text-muted-foreground">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => onEdit(draft)}
+                    aria-label={`Edit draft "${displayTitle}"`}
+                    className="block w-full px-3 py-3 text-left sm:px-4"
+                  >
+                    <span className="block truncate">{formatLastEdited(draft.$updatedAt)}</span>
+                  </button>
+                </td>
+                <td className="p-0 align-top">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => onEdit(draft)}
+                    aria-label={`Edit draft "${displayTitle}"`}
+                    className="block w-full px-3 py-3 text-left sm:px-4"
+                  >
+                    <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
+                  </button>
+                </td>
+                <td className="p-0 align-top text-right">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => onEdit(draft)}
+                      aria-label={`Edit draft "${displayTitle}"`}
+                      className="absolute inset-0 z-0"
                     />
+                    <div
+                      className="relative z-10 px-3 py-3 sm:px-4"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Edit draft "${displayTitle}"`}
+                      onClick={() => onEdit(draft)}
+                      onKeyDown={(event) => {
+                        const target = event.target as HTMLElement | null;
+                        if (target && target.closest('button') && target !== event.currentTarget) {
+                          return;
+                        }
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onEdit(draft);
+                        }
+                      }}
+                    >
+                      <DraftActions
+                        draft={draft}
+                        onDelete={onDelete}
+                        onDuplicate={onDuplicate}
+                        isDeletingId={isDeletingId}
+                        isDuplicatingId={isDuplicatingId}
+                      />
+                    </div>
                   </div>
-                </div>
-              </td>
-            </tr>
-          ))}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -813,39 +816,42 @@ function DraftCards({
 }: DraftCollectionProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      {drafts.map((draft) => (
-        <div
-          key={draft.id}
-          className="relative rounded-xl border border-border bg-background shadow-sm transition-colors hover:bg-muted/30"
-        >
-          <button
-            type="button"
-            onClick={() => onEdit(draft)}
-            aria-label={`Edit draft "${draft.title}"`}
-            className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          <div className="relative z-0 p-4">
-            <div className="space-y-2">
-              <h3 className="line-clamp-1 text-sm font-semibold text-foreground">
-                {draft.title.trim() || 'Untitled draft'}
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Last edited {formatLastEdited(draft.$updatedAt)}
-              </p>
-              <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
+      {drafts.map((draft) => {
+        const displayTitle = draft.title.trim() || 'Untitled draft';
+        return (
+          <div
+            key={draft.id}
+            className="relative rounded-xl border border-border bg-background shadow-sm transition-colors hover:bg-muted/30"
+          >
+            <button
+              type="button"
+              onClick={() => onEdit(draft)}
+              aria-label={`Edit draft "${displayTitle}"`}
+              className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <div className="relative z-0 p-4">
+              <div className="space-y-2">
+                <h3 className="line-clamp-1 text-sm font-semibold text-foreground">
+                  {displayTitle}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Last edited {formatLastEdited(draft.$updatedAt)}
+                </p>
+                <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
+              </div>
+            </div>
+            <div className="relative z-20 px-4 pb-4 pointer-events-none">
+              <DraftActions
+                draft={draft}
+                onDelete={onDelete}
+                onDuplicate={onDuplicate}
+                isDeletingId={isDeletingId}
+                isDuplicatingId={isDuplicatingId}
+              />
             </div>
           </div>
-          <div className="relative z-20 px-4 pb-4 pointer-events-none">
-            <DraftActions
-              draft={draft}
-              onDelete={onDelete}
-              onDuplicate={onDuplicate}
-              isDeletingId={isDeletingId}
-              isDuplicatingId={isDuplicatingId}
-            />
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
