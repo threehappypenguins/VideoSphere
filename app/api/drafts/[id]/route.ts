@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getObjectUrl, deleteObject, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
 import {
   DraftDocumentTooLargeError,
@@ -21,6 +22,43 @@ import {
   parseTagsFromRequestBody,
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
+
+/**
+ * Only presign thumbnail preview URLs for keys under this user/draft prefix (same check as
+ * DELETE thumbnail cleanup). Used for both GET and PATCH responses.
+ * - Key absent: return draft as-is (no thumbnail fields, no preview).
+ * - Key fails prefix check: strip thumbnailR2Key/thumbnailContentType and omit preview.
+ * - Key valid but presign fails (transient R2 error): retain thumbnail fields, omit preview URL.
+ */
+async function draftResponseWithThumbnailPreview(
+  draft: Draft,
+  userId: string,
+  draftId: string
+): Promise<Draft & { thumbnailPreviewUrl?: string }> {
+  const key = draft.thumbnailR2Key;
+  if (!key) {
+    return draft;
+  }
+  if (!isDraftThumbnailFinalKeyForUser(key, userId, draftId)) {
+    return {
+      ...draft,
+      thumbnailR2Key: undefined,
+      thumbnailContentType: undefined,
+    };
+  }
+
+  let thumbnailPreviewUrl: string | undefined;
+  try {
+    thumbnailPreviewUrl = await getObjectUrl(key);
+  } catch {
+    thumbnailPreviewUrl = undefined;
+  }
+
+  return {
+    ...draft,
+    ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/drafts/[id]
@@ -46,7 +84,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    const response: ApiResponse<Draft> = { data: draft };
+    const data = await draftResponseWithThumbnailPreview(draft, userId, id);
+    const response: ApiResponse<Draft> = { data };
     return NextResponse.json(response);
   } catch (err) {
     console.error('[GET /api/drafts/:id]', err);
@@ -233,7 +272,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    const response: ApiResponse<Draft> = { data: updated, message: 'Draft updated' };
+    // Presign only if updated.thumbnailR2Key passes isDraftThumbnailFinalKeyForUser (see helper).
+    const data = await draftResponseWithThumbnailPreview(updated, userId, id);
+    const response: ApiResponse<Draft> = {
+      data,
+      message: 'Draft updated',
+    };
     return NextResponse.json(response);
   } catch (err) {
     if (err instanceof DraftDocumentTooLargeError) {
@@ -290,9 +334,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json(errRes, { status: 404 });
   }
 
+  const thumbKey = existing.thumbnailR2Key;
+
   try {
     await deleteDraft(id);
-    return NextResponse.json({ data: null, message: 'Draft deleted' }, { status: 200 });
   } catch (err) {
     console.error('[DELETE /api/drafts/:id]', err);
     const errRes: ApiError = {
@@ -302,4 +347,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     };
     return NextResponse.json(errRes, { status: 500 });
   }
+
+  // Best-effort R2 cleanup after confirmed DB delete. A failed deleteObject leaves an
+  // orphaned object (storage cost only); doing it before deleteDraft risks a deleted
+  // thumbnail on a still-existing draft if deleteDraft throws.
+  if (thumbKey && isDraftThumbnailFinalKeyForUser(thumbKey, userId, id)) {
+    await deleteObject(thumbKey).catch((e) => {
+      console.error('[DELETE /api/drafts/:id] thumbnail cleanup', e);
+    });
+  }
+
+  return NextResponse.json({ data: null, message: 'Draft deleted' }, { status: 200 });
 }

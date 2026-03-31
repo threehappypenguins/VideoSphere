@@ -14,11 +14,12 @@ import type {
 } from '@/types';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
-import { deleteObject, getObjectWebStream } from '@/lib/r2';
+import { deleteObject, getObjectWebStream, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
+import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
 import { refreshTokenIfNeeded, type PlatformTokens } from '@/lib/platforms/token-refresh';
-import { updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
+import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import {
   type CreatePlatformUploadInput,
   getPlatformUploadsByJob,
@@ -379,6 +380,90 @@ export async function runDistributionInBackground(
     });
 
     await updateUploadJobStatus(jobId, 'completed', null);
+
+    // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
+    // Capture the thumbnail key from the metadata snapshot used for this distribution so that
+    // a replacement uploaded during the (potentially multi-minute) job is not accidentally deleted.
+    const distributedThumbKey = [...metadataByPlatformId.values()].find(
+      (m) => m.thumbnailR2Key
+    )?.thumbnailR2Key;
+    try {
+      const jobRow = await getUploadJobById(jobId);
+      const draftIdForThumb = jobRow?.draftId ?? null;
+      if (!draftIdForThumb) {
+        return;
+      }
+      const draftForThumb = await getDraftById(draftIdForThumb);
+      const thumbKey = draftForThumb?.thumbnailR2Key;
+      if (!thumbKey || draftForThumb?.userId !== userId) {
+        return;
+      }
+      // If this job had no thumbnail, there is nothing to clean up — and we must not delete
+      // a thumbnail the user added after distribution started.
+      if (!distributedThumbKey) {
+        return;
+      }
+      // If the user replaced the thumbnail while distribution was running, the current key will
+      // differ from the one that was actually distributed; skip cleanup to avoid deleting it.
+      if (thumbKey !== distributedThumbKey) {
+        return;
+      }
+      const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(
+        thumbKey,
+        userId,
+        draftIdForThumb
+      );
+      if (!keyMatchesDraftThumbnailPrefix) {
+        console.warn(
+          `[distribute] Skipped draft thumbnail cleanup for draft ${draftIdForThumb} (unexpected key prefix; job ${jobId}); retaining key for later manual cleanup.`
+        );
+        return;
+      }
+
+      // Clear draft fields first (DB-first ordering, consistent with DELETE /api/drafts/:id/thumbnail).
+      // If updateDraft fails, the draft retains the key and the R2 object is still intact,
+      // so there is no stale-key corruption. If deleteObject later fails, the draft is already
+      // clean and the orphaned object can be swept up later.
+      const MAX_UPDATE_DRAFT_ATTEMPTS = 3;
+      let draftCleared = false;
+      for (let attempt = 1; attempt <= MAX_UPDATE_DRAFT_ATTEMPTS; attempt++) {
+        try {
+          await updateDraft(draftIdForThumb, {
+            thumbnailR2Key: null,
+            thumbnailContentType: null,
+          });
+          draftCleared = true;
+          break;
+        } catch (updateErr) {
+          if (attempt < MAX_UPDATE_DRAFT_ATTEMPTS) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 500 * attempt));
+          } else {
+            console.error(
+              `[distribute] Failed to clear thumbnail fields on draft ${draftIdForThumb} ` +
+                `(key "${thumbKey}") after ${MAX_UPDATE_DRAFT_ATTEMPTS} attempts ` +
+                `(job ${jobId}); retaining R2 key for retry.`,
+              updateErr
+            );
+          }
+        }
+      }
+      if (!draftCleared) {
+        // Retain key/type so the next cleanup attempt can still find and delete the R2 object.
+        return;
+      }
+
+      // Best-effort R2 delete after confirmed DB clear.
+      try {
+        await deleteObject(thumbKey);
+      } catch (thumbErr) {
+        console.error(`[distribute] Failed to delete draft thumbnail for job ${jobId}:`, thumbErr);
+      }
+    } catch (thumbCleanupErr) {
+      console.error(
+        `[distribute] Draft thumbnail cleanup failed after job ${jobId} completed (non-fatal):`,
+        thumbCleanupErr
+      );
+    }
   } catch (error) {
     console.error(`[distribute] Background distribution failed for job ${jobId}:`, error);
     await updateUploadJobStatus(

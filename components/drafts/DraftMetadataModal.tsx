@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -34,6 +35,16 @@ import type {
   PlatformUploadStatus,
   UploadJobStatus,
 } from '@/types';
+import {
+  DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
+  DRAFT_THUMBNAIL_MAX_SIZE_LABEL,
+  draftThumbnailFileInputAccept,
+  draftThumbnailMaxSizeExceededMessage,
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
+
+const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
 export interface DraftEditorValues {
   id: string;
@@ -42,6 +53,9 @@ export interface DraftEditorValues {
   tags: string[];
   visibility: Draft['visibility'];
   targets: ConnectedAccountPlatform[];
+  thumbnailR2Key?: string;
+  thumbnailContentType?: string;
+  thumbnailPreviewUrl?: string;
 }
 
 const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> = [
@@ -172,18 +186,51 @@ export function DraftMetadataModal({
     limit?: number;
   }>({ reached: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
+  const thumbnailRequestAbortRef = useRef<AbortController | null>(null);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState(0);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
   const aiMetadataAbortRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
   /** Tracks the open modal’s draft id so we can ignore stale AI responses after close or draft switch. */
   const latestDraftIdRef = useRef<string | null>(null);
   latestDraftIdRef.current = draftId;
+  /** Avoid stale closures in async flows (e.g. thumbnail upload). */
+  const latestValueRef = useRef<DraftEditorValues | null>(null);
+  useEffect(() => {
+    latestValueRef.current = value ?? null;
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const abortThumbnailUploadFlow = useCallback(() => {
+    thumbnailRequestAbortRef.current?.abort();
+    thumbnailRequestAbortRef.current = null;
+    if (thumbnailXhrRef.current) {
+      thumbnailXhrRef.current.abort();
+      thumbnailXhrRef.current = null;
+    }
+  }, []);
 
   const snapshotEditor = (editor: DraftEditorValues): DraftEditorValues => ({
     ...editor,
     tags: [...editor.tags],
     targets: [...editor.targets],
+    ...(editor.thumbnailR2Key !== undefined ? { thumbnailR2Key: editor.thumbnailR2Key } : {}),
+    ...(editor.thumbnailContentType !== undefined
+      ? { thumbnailContentType: editor.thumbnailContentType }
+      : {}),
+    ...(editor.thumbnailPreviewUrl !== undefined
+      ? { thumbnailPreviewUrl: editor.thumbnailPreviewUrl }
+      : {}),
   });
 
   const loadUploadHistory = async (id: string, signal?: AbortSignal) => {
@@ -282,8 +329,15 @@ export function DraftMetadataModal({
         xhrRef.current.abort();
         xhrRef.current = null;
       }
+      abortThumbnailUploadFlow();
     };
-  }, []);
+  }, [abortThumbnailUploadFlow]);
+
+  useEffect(() => {
+    return () => {
+      abortThumbnailUploadFlow();
+    };
+  }, [abortThumbnailUploadFlow, draftId]);
 
   useEffect(() => {
     if (initialConnectedPlatforms) {
@@ -446,6 +500,12 @@ export function DraftMetadataModal({
 
   useEffect(() => {
     if (!value) {
+      abortThumbnailUploadFlow();
+      setThumbnailUploading(false);
+      setThumbnailUploadProgress(0);
+      if (thumbnailInputRef.current) {
+        thumbnailInputRef.current.value = '';
+      }
       setPlatformWarning(null);
       setTagInput('');
       setUploadComplete(false);
@@ -454,7 +514,7 @@ export function DraftMetadataModal({
     if (value.targets.length > 0) {
       setPlatformWarning(null);
     }
-  }, [value]);
+  }, [abortThumbnailUploadFlow, value]);
 
   useEffect(() => {
     if (!draftId) {
@@ -531,6 +591,7 @@ export function DraftMetadataModal({
     !uploading &&
     !cancelServerFailed &&
     !isCancellingUpload &&
+    !thumbnailUploading &&
     value !== null &&
     value.targets.length > 0 &&
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
@@ -659,7 +720,8 @@ export function DraftMetadataModal({
       videoFile === null &&
       !uploading &&
       currentUploadJobId === null &&
-      !cancelServerFailed;
+      !cancelServerFailed &&
+      !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
     commitTagsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
@@ -685,7 +747,8 @@ export function DraftMetadataModal({
       videoFile === null &&
       !uploading &&
       currentUploadJobId === null &&
-      !cancelServerFailed;
+      !cancelServerFailed &&
+      !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
     commitTagsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
@@ -871,6 +934,171 @@ export function DraftMetadataModal({
     }
   };
 
+  const handleThumbnailFile = async (file: File) => {
+    if (!value || !draftId) return;
+    const requestDraftId = draftId;
+    const ac = new AbortController();
+    // Starting a new thumbnail upload must cancel both prior fetches and any in-flight PUT XHR.
+    abortThumbnailUploadFlow();
+    thumbnailRequestAbortRef.current = ac;
+    const isStale = () =>
+      ac.signal.aborted ||
+      !isMountedRef.current ||
+      latestDraftIdRef.current !== requestDraftId ||
+      thumbnailRequestAbortRef.current !== ac;
+
+    if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
+      toast.error(draftThumbnailMaxSizeExceededMessage());
+      thumbnailRequestAbortRef.current = null;
+      if (thumbnailInputRef.current) thumbnailInputRef.current.value = '';
+      return;
+    }
+    if (!isAllowedDraftThumbnailContentType(file.type)) {
+      toast.error(DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE);
+      thumbnailRequestAbortRef.current = null;
+      if (thumbnailInputRef.current) thumbnailInputRef.current.value = '';
+      return;
+    }
+    setThumbnailUploading(true);
+    setThumbnailUploadProgress(0);
+    try {
+      const presignRes = await fetch(`/api/drafts/${draftId}/thumbnail/presign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contentType: file.type, fileSize: file.size }),
+        signal: ac.signal,
+      });
+      if (isStale()) return;
+      if (!presignRes.ok) {
+        const err = (await presignRes.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message ?? 'Failed to start thumbnail upload');
+      }
+      const { uploadUrl, pendingKey } = (await presignRes.json()) as {
+        uploadUrl: string;
+        pendingKey: string;
+      };
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        thumbnailXhrRef.current = xhr;
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.upload.addEventListener('progress', (event) => {
+          if (!isStale() && event.lengthComputable && event.total > 0) {
+            setThumbnailUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        });
+        xhr.addEventListener('load', () => {
+          thumbnailXhrRef.current = null;
+          if (xhr.status >= 200 && xhr.status < 300) {
+            if (!isStale()) setThumbnailUploadProgress(100);
+            resolve();
+          } else {
+            reject(new Error(`Failed to upload thumbnail to storage (${xhr.status})`));
+          }
+        });
+        xhr.addEventListener('error', () => {
+          thumbnailXhrRef.current = null;
+          reject(new Error('Failed to upload thumbnail to storage'));
+        });
+        xhr.addEventListener('abort', () => {
+          thumbnailXhrRef.current = null;
+          reject(new Error('THUMBNAIL_UPLOAD_ABORTED'));
+        });
+        xhr.send(file);
+      });
+
+      const completeRes = await fetch(`/api/drafts/${draftId}/thumbnail/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pendingKey }),
+        signal: ac.signal,
+      });
+      if (isStale()) return;
+      if (!completeRes.ok) {
+        const err = (await completeRes.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message ?? 'Failed to finalize thumbnail');
+      }
+      const payload = (await completeRes.json()) as ApiResponse<
+        Draft & { thumbnailPreviewUrl?: string }
+      >;
+      const d = payload.data;
+      if (!d) {
+        throw new Error('Invalid response');
+      }
+      if (isStale()) return;
+      const latest = latestValueRef.current ?? value;
+      if (!latest) return;
+      onChange({
+        ...latest,
+        thumbnailR2Key: d.thumbnailR2Key,
+        thumbnailContentType: d.thumbnailContentType,
+        thumbnailPreviewUrl: d.thumbnailPreviewUrl,
+      });
+      if (isStale()) return;
+      toast.success('Thumbnail uploaded');
+    } catch (e) {
+      const isAbort =
+        ac.signal.aborted ||
+        ((e instanceof DOMException || e instanceof Error) && e.name === 'AbortError');
+      if (isAbort || isStale()) {
+        return;
+      }
+      if (e instanceof Error && e.message === 'THUMBNAIL_UPLOAD_ABORTED') {
+        return;
+      }
+      toast.error(e instanceof Error ? e.message : 'Thumbnail upload failed');
+    } finally {
+      // Capture whether a newer upload has taken over before modifying refs.
+      const supersededByNewUpload =
+        thumbnailRequestAbortRef.current !== ac && thumbnailRequestAbortRef.current !== null;
+      if (thumbnailRequestAbortRef.current === ac) {
+        thumbnailRequestAbortRef.current = null;
+      }
+      thumbnailXhrRef.current = null;
+      // Reset UI unless a newer upload is already in progress (which owns the uploading state).
+      // Intentionally does NOT check ac.signal.aborted: an externally-aborted request that is
+      // still the latest for this mounted draft (e.g. onOpenChange abort that was blocked by
+      // tryCloseModal) must still clear the uploading indicator to avoid a stuck "Uploading…" state.
+      if (
+        !supersededByNewUpload &&
+        isMountedRef.current &&
+        latestDraftIdRef.current === requestDraftId
+      ) {
+        setThumbnailUploading(false);
+        setThumbnailUploadProgress(0);
+        if (thumbnailInputRef.current) {
+          thumbnailInputRef.current.value = '';
+        }
+      }
+    }
+  };
+
+  const handleRemoveThumbnail = async () => {
+    if (!value || !draftId) return;
+    setThumbnailUploading(true);
+    try {
+      const res = await fetch(`/api/drafts/${draftId}/thumbnail`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message ?? 'Failed to remove thumbnail');
+      }
+      const latest = latestValueRef.current ?? value;
+      if (!latest) return;
+      onChange({
+        ...latest,
+        thumbnailR2Key: undefined,
+        thumbnailContentType: undefined,
+        thumbnailPreviewUrl: undefined,
+      });
+      toast.success('Thumbnail removed');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to remove thumbnail');
+    } finally {
+      setThumbnailUploading(false);
+    }
+  };
+
   const clearPendingVideoSelection = async (options?: { skipServerCancel?: boolean }) => {
     const jobId = currentUploadJobId;
 
@@ -968,6 +1196,7 @@ export function DraftMetadataModal({
       open={value !== null}
       onOpenChange={(open) => {
         if (!open) {
+          abortThumbnailUploadFlow();
           void tryCloseModal();
         }
       }}
@@ -1195,6 +1424,80 @@ export function DraftMetadataModal({
               <p className="mt-1 text-xs text-muted-foreground">
                 Press Enter or comma to add tags.
               </p>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/30 p-3">
+              <p className="text-sm font-medium text-foreground">Thumbnail</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}. Shown on platforms that support
+                custom thumbnails when you distribute.
+              </p>
+              {!draftId ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Create draft first to add a thumbnail.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {value.thumbnailPreviewUrl ? (
+                    <div className="relative inline-block max-w-full">
+                      <Image
+                        src={value.thumbnailPreviewUrl}
+                        alt="Draft thumbnail preview"
+                        width={800}
+                        height={450}
+                        unoptimized
+                        className="max-h-40 max-w-full rounded-md border border-border object-contain"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={thumbnailInputRef}
+                      type="file"
+                      accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          void handleThumbnailFile(file);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={thumbnailUploading}
+                      onClick={() => thumbnailInputRef.current?.click()}
+                      className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                    >
+                      {thumbnailUploading
+                        ? 'Uploading…'
+                        : value.thumbnailPreviewUrl
+                          ? 'Replace'
+                          : 'Upload'}
+                    </button>
+                    {value.thumbnailR2Key || value.thumbnailPreviewUrl ? (
+                      <button
+                        type="button"
+                        disabled={thumbnailUploading}
+                        onClick={() => {
+                          void handleRemoveThumbnail();
+                        }}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  {thumbnailUploading ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Uploading thumbnail…</span>
+                        <span>{thumbnailUploadProgress}%</span>
+                      </div>
+                      <Progress value={thumbnailUploadProgress} className="h-2" />
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
             <div className="rounded-lg border border-border bg-muted/30 p-3">
               <p className="text-sm font-medium text-foreground">Upload video</p>

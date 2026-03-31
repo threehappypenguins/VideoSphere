@@ -15,6 +15,7 @@ import {
   DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
   MAX_DRAFT_TITLE_LENGTH,
+  parseDraftTargetsAllowEmpty,
   parseDraftTargetsFromRequestBody,
   parsePlatformsFromRequestBody,
   parseTagsFromRequestBody,
@@ -98,12 +99,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const { title, description, visibility, targets, platforms, tags } = body as Record<
+  const { title, description, visibility, targets, platforms, tags, minimal } = body as Record<
     string,
     unknown
   >;
 
-  const targetsParse = parseDraftTargetsFromRequestBody(targets);
+  const isMinimal = minimal === true;
+
+  const targetsParse = isMinimal
+    ? parseDraftTargetsAllowEmpty(targets ?? [])
+    : parseDraftTargetsFromRequestBody(targets);
   if (targetsParse.ok === false) {
     const errRes: ApiError = {
       error: 'Bad Request',
@@ -113,7 +118,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (!title || typeof title !== 'string' || title.trim() === '') {
+  const trimmedTitle = typeof title === 'string' ? title.trim() : '';
+
+  if (!isMinimal && trimmedTitle === '') {
     const errRes: ApiError = {
       error: 'Bad Request',
       message: 'title is required',
@@ -122,7 +129,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const trimmedTitle = title.trim();
   if (trimmedTitle.length > MAX_DRAFT_TITLE_LENGTH) {
     const errRes: ApiError = {
       error: 'Bad Request',

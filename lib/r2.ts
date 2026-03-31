@@ -21,6 +21,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -235,6 +236,14 @@ export async function deleteObject(key: string): Promise<void> {
  * @throws {Error} When the HEAD request fails for any other reason
  */
 export async function headObject(key: string, options?: { signal?: AbortSignal }): Promise<number> {
+  const meta = await headObjectMetadata(key, options);
+  return meta.contentLength;
+}
+
+export async function headObjectMetadata(
+  key: string,
+  options?: { signal?: AbortSignal }
+): Promise<{ contentLength: number; contentType?: string }> {
   if (!key) {
     throw new Error('Object key is required');
   }
@@ -251,7 +260,12 @@ export async function headObject(key: string, options?: { signal?: AbortSignal }
       command,
       options?.signal ? { abortSignal: options.signal } : {}
     );
-    return response.ContentLength ?? 0;
+    const contentLength = response.ContentLength ?? 0;
+    const ct = response.ContentType?.trim();
+    return {
+      contentLength,
+      ...(ct ? { contentType: ct } : {}),
+    };
   } catch (error) {
     const status =
       error != null &&
@@ -353,6 +367,118 @@ export function isTempUploadObjectKeyForUser(r2ObjectKey: string, userId: string
   const prefix = `temp/uploads/${userId}/`;
   if (!r2ObjectKey.startsWith(prefix)) return false;
   return r2ObjectKey.length > prefix.length;
+}
+
+/** Staging prefix for draft thumbnail PUTs before `complete` attaches them (lifecycle may expire orphans). */
+const DRAFT_THUMBNAIL_PENDING_PREFIX = 'temp/draft-thumbnail-pending/';
+
+/** Final prefix for thumbnails bound to a draft document. */
+const DRAFT_THUMBNAIL_FINAL_PREFIX = 'draft-thumbnails/';
+
+function safeUserDraftSegments(userId: string, draftId: string): boolean {
+  if (!userId || !draftId) return false;
+  if (
+    userId.includes('/') ||
+    userId.includes('\\') ||
+    userId.includes('..') ||
+    draftId.includes('/') ||
+    draftId.includes('\\') ||
+    draftId.includes('..')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Same rules as {@link safeUserDraftSegments} plus safe filename suffix segments, so
+ * generated keys always satisfy {@link isDraftThumbnailPendingKeyForUser} /
+ * {@link isDraftThumbnailFinalKeyForUser}.
+ */
+function assertDraftThumbnailKeyInputs(
+  userId: string,
+  draftId: string,
+  uniqueId: string,
+  extension: string
+): void {
+  if (!safeUserDraftSegments(userId, draftId)) {
+    throw new Error(
+      'Invalid userId or draftId for draft thumbnail key (must not be empty or contain /, \\, or ..)'
+    );
+  }
+  if (!uniqueId || uniqueId.includes('/') || uniqueId.includes('\\') || uniqueId.includes('..')) {
+    throw new Error('Invalid unique id for draft thumbnail key (must not contain /, \\, or ..)');
+  }
+  const rawExt = extension.startsWith('.') ? extension.slice(1) : extension;
+  if (!rawExt || !/^[a-z0-9]+$/i.test(rawExt) || rawExt.length > 16) {
+    throw new Error('Invalid file extension for draft thumbnail key');
+  }
+}
+
+/**
+ * Pending thumbnail key after presign (before complete). Use bucket lifecycle rules on
+ * `temp/draft-thumbnail-pending/` to prune abandoned uploads.
+ */
+export function buildDraftThumbnailPendingKey(
+  userId: string,
+  draftId: string,
+  uniqueId: string,
+  extension: string
+): string {
+  assertDraftThumbnailKeyInputs(userId, draftId, uniqueId, extension);
+  const ext = extension.startsWith('.') ? extension : `.${extension}`;
+  return `${DRAFT_THUMBNAIL_PENDING_PREFIX}${userId}/${draftId}/${uniqueId}${ext}`;
+}
+
+export function buildDraftThumbnailFinalKey(
+  userId: string,
+  draftId: string,
+  uniqueId: string,
+  extension: string
+): string {
+  assertDraftThumbnailKeyInputs(userId, draftId, uniqueId, extension);
+  const ext = extension.startsWith('.') ? extension : `.${extension}`;
+  return `${DRAFT_THUMBNAIL_FINAL_PREFIX}${userId}/${draftId}/${uniqueId}${ext}`;
+}
+
+export function isDraftThumbnailPendingKeyForUser(
+  key: string,
+  userId: string,
+  draftId: string
+): boolean {
+  if (!safeUserDraftSegments(userId, draftId)) return false;
+  if (key.includes('..') || key.includes('\\')) return false;
+  const prefix = `${DRAFT_THUMBNAIL_PENDING_PREFIX}${userId}/${draftId}/`;
+  return key.startsWith(prefix) && key.length > prefix.length;
+}
+
+export function isDraftThumbnailFinalKeyForUser(
+  key: string,
+  userId: string,
+  draftId: string
+): boolean {
+  if (!safeUserDraftSegments(userId, draftId)) return false;
+  if (key.includes('..') || key.includes('\\')) return false;
+  const prefix = `${DRAFT_THUMBNAIL_FINAL_PREFIX}${userId}/${draftId}/`;
+  return key.startsWith(prefix) && key.length > prefix.length;
+}
+
+/**
+ * Server-side copy within the same bucket (pending → final thumbnail key).
+ */
+export async function copyObjectInBucket(sourceKey: string, destKey: string): Promise<void> {
+  if (!sourceKey || !destKey) {
+    throw new Error('Object keys are required');
+  }
+  const client = getR2Client();
+  const bucket = process.env.R2_BUCKET_NAME!;
+  await client.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      Key: destKey,
+      CopySource: `${bucket}/${sourceKey}`,
+    })
+  );
 }
 
 /**

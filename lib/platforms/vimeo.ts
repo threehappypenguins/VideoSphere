@@ -1,4 +1,9 @@
 import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
+import {
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
+import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadMetadata,
@@ -24,6 +29,27 @@ interface VimeoCreateResponse {
 }
 
 const VIMEO_CREATE_VIDEO_URL = 'https://api.vimeo.com/me/videos';
+
+const MAX_VIMEO_THUMBNAIL_BYTES = MAX_DRAFT_THUMBNAIL_BYTES;
+
+/**
+ * PUT to Vimeo's thumbnail upload_link must use image/jpeg or image/png. R2 may report
+ * application/octet-stream; prefer draft metadata (validated at upload) then R2 if valid.
+ */
+function vimeoThumbnailPutContentType(
+  metadataCt: string | undefined,
+  r2ContentType: string
+): string {
+  const meta = metadataCt?.trim().toLowerCase();
+  if (meta && isAllowedDraftThumbnailContentType(meta)) {
+    return meta;
+  }
+  const fromR2 = r2ContentType.trim().toLowerCase();
+  if (isAllowedDraftThumbnailContentType(fromR2)) {
+    return fromR2;
+  }
+  return 'image/jpeg';
+}
 
 function visibilityToVimeoPrivacy(
   visibility: PlatformUploadVisibility
@@ -60,6 +86,13 @@ function extractVimeoVideoId(uri?: string): string | null {
   if (!uri) return null;
   const parts = uri.split('/').filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : null;
+}
+
+/** `uri` from a picture or video resource — full `https://api.vimeo.com/...` URL. */
+function vimeoApiAbsoluteUrl(pathOrUrl: string): string {
+  const s = pathOrUrl.trim();
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  return `https://api.vimeo.com${s.startsWith('/') ? s : `/${s}`}`;
 }
 
 /** API path `videos/{id}` — handles `uri` as `/videos/…` or absolute `https://api.vimeo.com/videos/…`. */
@@ -718,6 +751,144 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         );
       }
       categoryDone = true;
+    }
+
+    const thumbKey = input.metadata.thumbnailR2Key?.trim();
+    if (thumbKey) {
+      let thumbStream: ReadableStream<Uint8Array>;
+      let thumbLen: number;
+      let thumbCt: string;
+      try {
+        const opened = await getObjectWebStream(thumbKey, { signal });
+        thumbStream = opened.stream;
+        thumbLen = opened.contentLength;
+        thumbCt = opened.contentType;
+      } catch (err) {
+        return toError(
+          'VIMEO_THUMBNAIL_R2_FAILED',
+          'Could not read thumbnail from storage for Vimeo.',
+          500,
+          messageFromThrown(err)
+        );
+      }
+      if (thumbLen > MAX_VIMEO_THUMBNAIL_BYTES) {
+        await thumbStream.cancel().catch(() => undefined);
+        return toError(
+          'VIMEO_THUMBNAIL_TOO_LARGE',
+          'Thumbnail exceeds the maximum size allowed for upload.',
+          400
+        );
+      }
+      const imageBuf = await new Response(thumbStream).arrayBuffer();
+      // Thumbnail workflow (Vimeo API 3.4): POST picture resource → PUT binary → PATCH same
+      // picture `uri` with `{ "active": true }`. POST `{ active: true }` does not select the image
+      // until after upload; activation is a separate step.
+      // @see https://developer.vimeo.com/api/upload/thumbnails
+      const pictureCreate = await fetch(`https://api.vimeo.com/${videoBasePath}/pictures`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${input.tokens.accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.vimeo.*+json;version=3.4',
+        },
+        body: JSON.stringify({}),
+        ...(signal ? { signal } : {}),
+      });
+      if (!pictureCreate.ok) {
+        return toError(
+          'VIMEO_THUMBNAIL_CREATE_FAILED',
+          'Vimeo upload succeeded but creating a thumbnail slot failed.',
+          pictureCreate.status,
+          await pictureCreate.text().catch(() => undefined)
+        );
+      }
+      const picPayload = (await pictureCreate.json().catch(() => ({}))) as {
+        uri?: string;
+        link?: string;
+        upload_link?: string;
+      };
+      const uploadLink = picPayload.link ?? picPayload.upload_link;
+      const pictureUri = typeof picPayload.uri === 'string' ? picPayload.uri.trim() : '';
+      if (!uploadLink) {
+        return toError(
+          'VIMEO_THUMBNAIL_LINK_MISSING',
+          'Vimeo did not return a thumbnail upload URL.',
+          502
+        );
+      }
+      if (!pictureUri) {
+        return toError(
+          'VIMEO_THUMBNAIL_URI_MISSING',
+          'Vimeo did not return a picture URI for the custom thumbnail (cannot activate).',
+          502
+        );
+      }
+      const putThumbContentType = vimeoThumbnailPutContentType(
+        input.metadata.thumbnailContentType,
+        thumbCt
+      );
+      const putThumb = await fetch(uploadLink, {
+        method: 'PUT',
+        body: imageBuf,
+        headers: {
+          'Content-Type': putThumbContentType,
+          'Content-Length': String(imageBuf.byteLength),
+        },
+        ...(signal ? { signal } : {}),
+      });
+      if (!putThumb.ok) {
+        return toError(
+          'VIMEO_THUMBNAIL_UPLOAD_FAILED',
+          'Vimeo upload succeeded but uploading the custom thumbnail failed.',
+          putThumb.status,
+          await putThumb.text().catch(() => undefined)
+        );
+      }
+
+      const activateUrl = vimeoApiAbsoluteUrl(pictureUri);
+      const maxActivateAttempts = 5;
+      const activateDelayMs = 2000;
+      let activated = false;
+      let lastActivateStatus = 0;
+      let lastActivateBody: string | undefined;
+
+      for (let attempt = 0; attempt < maxActivateAttempts; attempt++) {
+        if (attempt > 0) {
+          await delayOrAbort(activateDelayMs, signal);
+        }
+        const patchThumb = await fetch(activateUrl, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${input.tokens.accessToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/vnd.vimeo.*+json;version=3.4',
+          },
+          body: JSON.stringify({ active: true }),
+          ...(signal ? { signal } : {}),
+        });
+        lastActivateStatus = patchThumb.status;
+        lastActivateBody = await patchThumb.text().catch(() => undefined);
+
+        if (patchThumb.ok) {
+          activated = true;
+          break;
+        }
+
+        const permanentFailure =
+          patchThumb.status === 401 || patchThumb.status === 404 || patchThumb.status === 405;
+        if (permanentFailure || attempt === maxActivateAttempts - 1) {
+          break;
+        }
+      }
+
+      if (!activated) {
+        return toError(
+          'VIMEO_THUMBNAIL_ACTIVATE_FAILED',
+          'Vimeo received the thumbnail but setting it as the active thumbnail failed. You can pick it manually in Vimeo video settings.',
+          lastActivateStatus || 502,
+          lastActivateBody
+        );
+      }
     }
 
     return {

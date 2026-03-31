@@ -11,6 +11,9 @@ export interface SharedPlatformUploadMetadata {
   description: string;
   tags: string[];
   visibility: PlatformUploadVisibility;
+  /** R2 key for custom thumbnail image (optional). */
+  thumbnailR2Key?: string;
+  thumbnailContentType?: string;
 }
 
 /** YouTube Data API upload–specific fields (omit unused keys for Vimeo-only jobs). */
