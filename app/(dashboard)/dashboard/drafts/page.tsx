@@ -168,6 +168,9 @@ export default function DraftsPage() {
     const isOnboarding = searchParams.get('onboardingFlow') === 'true';
     if (isOnboarding && creatingDraft?.id) {
       setOnboardingDraftId(creatingDraft.id);
+    } else {
+      // Clear stale draft ID when onboarding ends or draft is cleared
+      setOnboardingDraftId(null);
     }
   }, [creatingDraft?.id, searchParams, setOnboardingDraftId]);
 
