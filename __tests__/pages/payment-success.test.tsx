@@ -5,7 +5,7 @@
  * Stripe's cross-site redirect resolves into a same-site navigation that
  * carries the session cookie.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const redirectMock = vi.fn();
 const retrieveCheckoutSessionMock = vi.hoisted(() => vi.fn());
@@ -40,9 +40,18 @@ vi.mock('next/navigation', () => ({
 import PaymentSuccessPage from '@/app/payment/success/page';
 
 describe('PaymentSuccessPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('redirects to /profile?upgrade=success', async () => {
     await expect(PaymentSuccessPage({})).rejects.toThrow('NEXT_REDIRECT');
     expect(redirectMock).toHaveBeenCalledWith('/profile?upgrade=success');
+    expect(retrieveCheckoutSessionMock).not.toHaveBeenCalled();
   });
 
   it('reconciles supporter status when paid session_id is present', async () => {
@@ -81,5 +90,47 @@ describe('PaymentSuccessPage', () => {
 
     expect(getUserByEmailMock).toHaveBeenCalledWith('test@test.com');
     expect(setSupporterStatusMock).toHaveBeenCalledWith('user_by_email', true);
+  });
+
+  it('skips Stripe API call for invalid session_id format', async () => {
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
+
+    await expect(
+      PaymentSuccessPage({ searchParams: Promise.resolve({ session_id: 'not-a-checkout-id' }) })
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(retrieveCheckoutSessionMock).not.toHaveBeenCalled();
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('skips reconciliation in production unless explicitly enabled', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('STRIPE_SUCCESS_RECONCILE', 'false');
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
+
+    await expect(
+      PaymentSuccessPage({ searchParams: Promise.resolve({ session_id: 'cs_test_789' }) })
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(retrieveCheckoutSessionMock).not.toHaveBeenCalled();
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('allows reconciliation in production when explicitly enabled', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('STRIPE_SUCCESS_RECONCILE', 'true');
+    vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
+    retrieveCheckoutSessionMock.mockResolvedValueOnce({
+      client_reference_id: 'user_999',
+      payment_status: 'paid',
+      metadata: {},
+    });
+
+    await expect(
+      PaymentSuccessPage({ searchParams: Promise.resolve({ session_id: 'cs_test_999' }) })
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(retrieveCheckoutSessionMock).toHaveBeenCalledWith('cs_test_999');
+    expect(setSupporterStatusMock).toHaveBeenCalledWith('user_999', true);
   });
 });

@@ -53,15 +53,24 @@ function mockFetchResponses(responses: Array<{ ok: boolean; data?: unknown; stat
 }
 
 describe('PricingPage', () => {
+  let originalLocation: Location;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    originalLocation = window.location;
     Object.defineProperty(window, 'location', {
+      configurable: true,
       writable: true,
       value: { href: '' },
     });
   });
 
   afterEach(() => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: originalLocation,
+    });
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });

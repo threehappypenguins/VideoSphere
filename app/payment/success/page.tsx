@@ -25,13 +25,20 @@ interface PaymentSuccessPageProps {
   }>;
 }
 
+const STRIPE_CHECKOUT_SESSION_ID_REGEX = /^cs_(test|live)_[A-Za-z0-9]+$/;
+
 export default async function PaymentSuccessPage({ searchParams }: PaymentSuccessPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const checkoutSessionId = resolvedSearchParams?.session_id;
+  const shouldReconcileSupporterStatus =
+    process.env.STRIPE_SUCCESS_RECONCILE === 'true' || process.env.NODE_ENV !== 'production';
+  const hasPlausibleCheckoutSessionId = Boolean(
+    checkoutSessionId && STRIPE_CHECKOUT_SESSION_ID_REGEX.test(checkoutSessionId)
+  );
 
   // Best-effort reconciliation: if webhook delivery is delayed or not running locally,
   // confirm the checkout session and update supporter status before redirecting.
-  if (checkoutSessionId) {
+  if (shouldReconcileSupporterStatus && hasPlausibleCheckoutSessionId && checkoutSessionId) {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (stripeSecretKey) {
       try {
