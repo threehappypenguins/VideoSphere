@@ -207,6 +207,7 @@ const tables: TableConfig[] = [
       { key: 'userId', type: 'varchar', size: 255, required: true },
       { key: 'email', type: 'varchar', size: 255, required: true },
       { key: 'isSupporter', type: 'boolean', required: true },
+      { key: 'hasCompletedOnboarding', type: 'boolean', required: true },
       { key: 'role', type: 'varchar', size: 32, required: true },
     ],
   },

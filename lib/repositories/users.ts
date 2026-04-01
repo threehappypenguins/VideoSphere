@@ -22,6 +22,7 @@ function rowToUser(row: Record<string, unknown>): User {
     userId: String(row.userId ?? row.$id),
     email: String(row.email),
     isSupporter: Boolean(row.isSupporter),
+    hasCompletedOnboarding: Boolean(row.hasCompletedOnboarding),
     role: (row.role as UserRole) ?? 'user',
     $createdAt,
     $updatedAt,
@@ -36,6 +37,7 @@ export interface CreateUserData {
   userId: string;
   email: string;
   isSupporter?: boolean;
+  hasCompletedOnboarding?: boolean;
   role?: UserRole;
 }
 
@@ -52,6 +54,7 @@ export async function createUser(data: CreateUserData): Promise<User> {
       userId: data.userId,
       email: data.email.trim().toLowerCase(),
       isSupporter: data.isSupporter ?? false,
+      hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
       role: data.role ?? 'user',
     },
   });
@@ -115,6 +118,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 
 export interface UpdateUserData {
   isSupporter?: boolean;
+  hasCompletedOnboarding?: boolean;
   role?: UserRole;
 }
 
@@ -123,10 +127,45 @@ export interface UpdateUserData {
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   const payload: Record<string, unknown> = { ...data };
+  try {
+    const row = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: USER_PROFILES_COLLECTION_ID,
+      rowId: userId,
+      data: payload,
+    });
+    return rowToUser(row as unknown as Record<string, unknown>);
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code !== 404) throw err;
+  }
+
+  // Legacy fallback: some rows were created/imported with a generated row ID.
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: false,
+  });
+
+  if (rows.length === 0) {
+    const notFound = new Error(`User profile not found for userId=${userId}`) as Error & {
+      code?: number;
+    };
+    notFound.code = 404;
+    throw notFound;
+  }
+
+  const fallbackRowId = String((rows[0] as Record<string, unknown>).$id ?? '');
+  if (!fallbackRowId) {
+    const invalidRow = new Error(`User profile row missing $id for userId=${userId}`);
+    throw invalidRow;
+  }
+
   const row = await tablesDb.updateRow({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
-    rowId: userId,
+    rowId: fallbackRowId,
     data: payload,
   });
   return rowToUser(row as unknown as Record<string, unknown>);

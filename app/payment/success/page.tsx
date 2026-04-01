@@ -11,12 +11,51 @@
 // =============================================================================
 
 import type { Metadata } from 'next';
+import Stripe from 'stripe';
 import { redirect } from 'next/navigation';
+import { getUserByEmail, setSupporterStatus } from '@/lib/repositories/users';
 
 export const metadata: Metadata = {
   title: 'Payment Successful — VideoSphere',
 };
 
-export default function PaymentSuccessPage() {
+interface PaymentSuccessPageProps {
+  searchParams?: Promise<{
+    session_id?: string;
+  }>;
+}
+
+export default async function PaymentSuccessPage({ searchParams }: PaymentSuccessPageProps) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const checkoutSessionId = resolvedSearchParams?.session_id;
+
+  // Best-effort reconciliation: if webhook delivery is delayed or not running locally,
+  // confirm the checkout session and update supporter status before redirecting.
+  if (checkoutSessionId) {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (stripeSecretKey) {
+      try {
+        const stripe = new Stripe(stripeSecretKey, {});
+        const session = await stripe.checkout.sessions.retrieve(checkoutSessionId);
+        let userId =
+          session.client_reference_id ||
+          (session.metadata?.userId ? String(session.metadata.userId) : null);
+        const customerEmail = session.customer_details?.email?.trim().toLowerCase();
+        const isCompleted = session.status === 'complete' || session.payment_status === 'paid';
+
+        if (!userId && customerEmail) {
+          const user = await getUserByEmail(customerEmail);
+          userId = user?.userId ?? null;
+        }
+
+        if (userId && isCompleted) {
+          await setSupporterStatus(userId, true);
+        }
+      } catch (err) {
+        console.error('[PaymentSuccessPage] Failed to reconcile supporter status:', err);
+      }
+    }
+  }
+
   redirect('/profile?upgrade=success');
 }
