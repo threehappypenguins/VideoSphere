@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@anthropic-ai/claude-code':
-        specifier: ^2.1.87
-        version: 2.1.87
       '@aws-sdk/client-s3':
         specifier: ^3.1006.0
         version: 3.1006.0
@@ -75,6 +72,9 @@ importers:
         specifier: ^3.5.0
         version: 3.5.0
     devDependencies:
+      '@anthropic-ai/claude-code':
+        specifier: ^2.1.87
+        version: 2.1.87
       '@commitlint/cli':
         specifier: ^20
         version: 20.4.2(@types/node@20.19.33)(typescript@5.9.3)
