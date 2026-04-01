@@ -29,7 +29,6 @@ export function ProfileContent() {
   const onboardingState = useOnboardingState({ userId: sessionUser?.$id ?? null });
 
   const handleReplayTour = () => {
-    onboardingState.reset();
     router.push('/dashboard?onboarding=1');
   };
 

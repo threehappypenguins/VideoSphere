@@ -8,8 +8,7 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById, updateUser } from '@/lib/repositories/users';
 
 /**
@@ -17,24 +16,11 @@ import { getUserById, updateUser } from '@/lib/repositories/users';
  * Returns the current user's onboarding completion state.
  */
 export async function GET(req: NextRequest) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const cookieName = projectId ? getSessionCookieName(projectId) : null;
-  const sessionSecret = cookieName ? req.cookies.get(cookieName)?.value : null;
-
-  if (!endpoint || !projectId || !sessionSecret) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
-
   try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-
-    const account = new Account(client);
-    const authUser = await account.get();
-    const userId = authUser.$id;
+    const userId = await getAuthenticatedUserId(req);
+    if (!userId) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
 
     // Fetch user profile with onboarding state
     const user = await getUserById(userId);
@@ -48,7 +34,7 @@ export async function GET(req: NextRequest) {
     );
   } catch (err) {
     console.error('[GET /api/auth/onboarding-state]', err);
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
@@ -58,16 +44,12 @@ export async function GET(req: NextRequest) {
  * Body: { hasCompletedOnboarding: boolean }
  */
 export async function POST(req: NextRequest) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const cookieName = projectId ? getSessionCookieName(projectId) : null;
-  const sessionSecret = cookieName ? req.cookies.get(cookieName)?.value : null;
-
-  if (!endpoint || !projectId || !sessionSecret) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
-
   try {
+    const userId = await getAuthenticatedUserId(req);
+    if (!userId) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     let body: unknown;
     try {
       body = await req.json();
@@ -88,15 +70,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-
-    const account = new Account(client);
-    const authUser = await account.get();
-    const userId = authUser.$id;
-
     // Update user profile
     const updatedUser = await updateUser(userId, {
       hasCompletedOnboarding: rawHasCompleted,
@@ -108,6 +81,6 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     console.error('[POST /api/auth/onboarding-state]', err);
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

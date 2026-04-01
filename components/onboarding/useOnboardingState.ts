@@ -21,7 +21,9 @@ function readHasCompletedOnboarding(userId: string): boolean {
   try {
     return window.localStorage.getItem(getOnboardingStorageKey(userId)) === 'true';
   } catch {
-    return true;
+    // If storage is unavailable (e.g. private mode), treat as not completed
+    // so onboarding can still run for the current session.
+    return false;
   }
 }
 

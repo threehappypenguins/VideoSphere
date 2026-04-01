@@ -100,9 +100,13 @@ export function OnboardingTour() {
   const { isReady, shouldAutoRun, markCompleted } = useOnboardingState();
   const { cleanupOnboardingDraft } = useOnboardingContext();
   const [stepIndex, setStepIndex] = useState(0);
+  const [hasReplayStarted, setHasReplayStarted] = useState(false);
 
   const shouldReplay = useMemo(() => searchParams.get('onboarding') === '1', [searchParams]);
-  const isOnboarding = useMemo(() => shouldReplay || shouldAutoRun, [shouldAutoRun, shouldReplay]);
+  const isOnboarding = useMemo(
+    () => shouldReplay || shouldAutoRun || hasReplayStarted,
+    [hasReplayStarted, shouldAutoRun, shouldReplay]
+  );
   const isConnectionsWithFlow = useMemo(
     () => pathname === '/profile/connections' && searchParams.has('onboardingFlow'),
     [pathname, searchParams]
@@ -121,13 +125,18 @@ export function OnboardingTour() {
 
   const stopTourAsCompleted = useCallback(async () => {
     setStepIndex(0);
+    setHasReplayStarted(false);
     await cleanupOnboardingDraft();
-    markCompleted();
+    await markCompleted();
     router.push('/dashboard');
   }, [cleanupOnboardingDraft, markCompleted, router]);
 
   const handleEvent = useCallback(
     ({ action, origin, status, type }: EventData) => {
+      if (shouldReplay && !hasReplayStarted && (type === 'tour:start' || type === 'step:before')) {
+        setHasReplayStarted(true);
+      }
+
       const currentStep = onboardingSteps[stepIndex];
 
       if (type === EVENTS.TARGET_NOT_FOUND) {
@@ -192,19 +201,19 @@ export function OnboardingTour() {
         void stopTourAsCompleted();
       }
     },
-    [router, stepIndex, stopTourAsCompleted]
+    [hasReplayStarted, router, shouldReplay, stepIndex, stopTourAsCompleted]
   );
 
   // Handle URL cleanup for replay
   useEffect(() => {
     if (pathname !== '/dashboard') return;
-    if (!isReady || !shouldReplay) return;
+    if (!isReady || !shouldReplay || !hasReplayStarted) return;
 
     const nextParams = new URLSearchParams(searchParams.toString());
     nextParams.delete('onboarding');
     const nextQuery = nextParams.toString();
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
-  }, [isReady, pathname, router, searchParams, shouldReplay]);
+  }, [hasReplayStarted, isReady, pathname, router, searchParams, shouldReplay]);
 
   if (
     pathname !== '/dashboard' &&

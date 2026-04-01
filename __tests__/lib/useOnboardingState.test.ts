@@ -79,4 +79,20 @@ describe('useOnboardingState', () => {
     expect(result.current.hasCompletedOnboarding).toBe(true);
     expect(result.current.shouldAutoRun).toBe(false);
   });
+
+  it('defaults to not completed when storage is unavailable and API read fails', async () => {
+    global.fetch = vi.fn(() => Promise.reject(new Error('Network down')));
+    vi.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => {
+      throw new Error('Storage blocked');
+    });
+
+    const { result } = renderHook(() => useOnboardingState({ userId }));
+
+    await waitFor(() => {
+      expect(result.current.isReady).toBe(true);
+    });
+
+    expect(result.current.hasCompletedOnboarding).toBe(false);
+    expect(result.current.shouldAutoRun).toBe(true);
+  });
 });

@@ -57,6 +57,20 @@ vi.mock('react-joyride', () => {
           onClick={() =>
             onEvent?.({
               action: 'next',
+              index: 0,
+              origin: null,
+              status: 'running',
+              type: 'step:after',
+            })
+          }
+        >
+          Advance Step
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            onEvent?.({
+              action: 'next',
               index: 3,
               origin: null,
               status: 'running',
@@ -98,6 +112,11 @@ describe('OnboardingTour', () => {
     await waitFor(() => {
       expect(screen.getByTestId('joyride-run-state')).toHaveTextContent('true');
     });
+
+    // Move from dashboard-overview to a draft/modal wait step first.
+    for (let i = 0; i < 5; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Advance Step' }));
+    }
 
     fireEvent.click(screen.getByRole('button', { name: 'Missing Target' }));
 
