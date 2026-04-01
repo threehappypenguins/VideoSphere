@@ -516,7 +516,7 @@ export default function DraftsPage() {
       <div className="mx-auto max-w-5xl space-y-8">
         <header>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Drafts</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{headingDescription}</p>
+          <p className="mt-2 text-lg text-foreground text-shadow-bg">{headingDescription}</p>
         </header>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -548,7 +548,7 @@ export default function DraftsPage() {
             </button>
           </div>
           {isLoading ? (
-            <span className="text-sm text-muted-foreground">Loading drafts...</span>
+            <span className="text-sm text-muted-foreground text-shadow-bg">Loading drafts...</span>
           ) : null}
         </div>
 

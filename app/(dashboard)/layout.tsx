@@ -37,7 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* ------------------------------------------------------------------ */}
       {/* Desktop sidebar — hidden on mobile                                  */}
       {/* ------------------------------------------------------------------ */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-border md:flex sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4">
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-border md:flex sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4 bg-background/50">
         <nav aria-label="Dashboard navigation">
           {NAV_ITEMS.map(({ label, href, exact }) => {
             const active = isActive(pathname, href, exact);
@@ -48,9 +48,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 aria-current={active ? 'page' : undefined}
                 {...(label === 'Drafts' ? { 'data-tour': 'drafts-nav-link' } : {})}
                 className={[
-                  'flex items-center border-l-2 px-4 py-2 text-sm transition-colors rounded-r-md',
+                  'flex items-center border-l-2 px-4 py-2 text-lg transition-colors rounded-r-md',
                   active
-                    ? 'border-primary bg-primary/10 font-medium text-primary'
+                    ? 'border-primary bg-primary/10 font-extrabold text-primary'
                     : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
                 ].join(' ')}
               >

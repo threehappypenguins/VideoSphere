@@ -30,7 +30,7 @@ export default function DashboardPage() {
         {/* --- Header --- */}
         <div data-tour="dashboard-overview">
           <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-          <p className="mt-2 text-muted-foreground">
+          <p className="mt-2 text-lg text-foreground text-shadow-bg">
             Welcome back! Here&apos;s an overview of your account.
           </p>
         </div>
@@ -57,7 +57,7 @@ export default function DashboardPage() {
 
         {/* --- Quick Actions --- */}
         <div className="mt-8">
-          <h2 className="text-lg font-semibold text-foreground">Quick actions</h2>
+          <h2 className="text-xl font-semibold text-foreground text-shadow-bg">Quick actions</h2>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link
               href="/dashboard/drafts?openCreateDraft=true"
@@ -69,7 +69,7 @@ export default function DashboardPage() {
             <Link
               href="/dashboard/drafts"
               data-tour="ai-metadata-hint"
-              className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+              className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors bg-background/70 hover:bg-muted"
             >
               View drafts
             </Link>
