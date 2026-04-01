@@ -140,7 +140,7 @@ export function PricingCards() {
               <span
                 className={`mb-4 inline-block rounded-full px-3 py-1 text-xs font-medium ${tier.highlighted ? 'bg-green-400/10 text-green-300' : 'bg-success/15 text-success'}`}
               >
-                {isSupporter && !isFree ? "You're a Supporter!" : 'Current Plan'}
+                {isSupporter && !isFree ? 'Your Plan' : 'Current Plan'}
               </span>
             )}
             <h3

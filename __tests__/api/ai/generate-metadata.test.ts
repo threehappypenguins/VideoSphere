@@ -79,6 +79,7 @@ const freeUser = {
   userId: 'user-123',
   email: 'free@example.com',
   isSupporter: false,
+  hasCompletedOnboarding: true,
   role: 'user' as const,
   $createdAt: '2026-01-01T00:00:00.000Z',
   $updatedAt: '2026-01-01T00:00:00.000Z',
