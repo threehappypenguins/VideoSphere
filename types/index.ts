@@ -30,8 +30,8 @@ export interface User {
   userId: string;
   email: string;
   isSupporter: boolean;
-  role: UserRole;
   hasCompletedOnboarding: boolean;
+  role: UserRole;
   /** Appwrite system attribute on `user_profiles` rows (ISO string). */
   $createdAt: string;
   /** Appwrite system attribute on `user_profiles` rows (ISO string). */

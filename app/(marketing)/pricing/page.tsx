@@ -26,7 +26,7 @@ export default function PricingPage() {
           </p>
         </div>
 
-        {/* --- Pricing Cards (client component for checkout interaction) --- */}
+        {/* --- Pricing Cards (client component for session and checkout interaction) --- */}
         <PricingCards />
 
         {/* --- FAQ note --- */}

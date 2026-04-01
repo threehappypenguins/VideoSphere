@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       payment_method_types: ['card'],
       line_items: lineItems,
       client_reference_id: userId, // Store userId for webhook verification
-      success_url: `${appUrl}/payment/success`,
+      success_url: `${appUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/pricing`,
     });
 
