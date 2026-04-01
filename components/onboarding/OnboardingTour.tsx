@@ -136,6 +136,7 @@ export function OnboardingTour() {
     }
 
     hasCompletionStartedRef.current = true;
+    targetNotFoundRetryCountsRef.current = {};
     setStepIndex(0);
     setHasReplayStarted(false);
     await cleanupOnboardingDraft();
@@ -146,6 +147,7 @@ export function OnboardingTour() {
   useEffect(() => {
     if (!run) {
       hasCompletionStartedRef.current = false;
+      targetNotFoundRetryCountsRef.current = {};
     }
   }, [run]);
 

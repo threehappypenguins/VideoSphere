@@ -128,7 +128,9 @@ export interface UpdateUserData {
  * `$id !== userId`), resolves the actual row `$id` via listRows and retries.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
-  const payload: Record<string, unknown> = { ...data };
+  const payload: Record<string, unknown> = Object.fromEntries(
+    Object.entries(data).filter(([, v]) => v !== undefined)
+  );
 
   try {
     const row = await tablesDb.updateRow({
