@@ -159,7 +159,11 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
     throw notFound;
   }
 
-  const actualRowId = String((rows[0] as unknown as Record<string, unknown>).$id ?? userId);
+  const actualRowId = String((rows[0] as unknown as Record<string, unknown>).$id ?? '');
+  if (!actualRowId) {
+    throw new Error('User profile row missing $id');
+  }
+
   const updatedRow = await tablesDb.updateRow({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
