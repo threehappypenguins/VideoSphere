@@ -130,7 +130,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
           }
           return;
         }
-      } catch (err) {
+      } catch {
         // API call failed, fall through to localStorage
       }
 

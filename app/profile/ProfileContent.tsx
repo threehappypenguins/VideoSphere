@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { useOnboardingState } from '@/components/onboarding/useOnboardingState';
 
 interface SessionUser {
   $id: string;
@@ -26,7 +25,6 @@ export function ProfileContent() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [upgradeSuccess, setUpgradeSuccess] = useState(false);
-  const onboardingState = useOnboardingState({ userId: sessionUser?.$id ?? null });
 
   const handleReplayTour = () => {
     router.push('/dashboard?onboarding=1');

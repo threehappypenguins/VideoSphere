@@ -14,10 +14,10 @@ describe('useOnboardingState', () => {
     window.localStorage.clear();
 
     // Mock fetch for onboarding-state API
-    global.fetch = vi.fn((url: string, opts?: Record<string, unknown>) => {
+    global.fetch = vi.fn((url: string, opts?: RequestInit) => {
       if (typeof url === 'string' && url.includes('/api/auth/onboarding-state')) {
-        if (opts?.method === 'POST') {
-          const body = JSON.parse(opts.body as string);
+        if (opts && opts.method === 'POST') {
+          const body = JSON.parse((opts.body as string) ?? '{}');
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ hasCompletedOnboarding: body.hasCompletedOnboarding }),
