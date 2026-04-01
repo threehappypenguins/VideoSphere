@@ -262,14 +262,67 @@ export async function findUploadJobForDistribution(input: {
 }
 
 /**
+ * Total number of upload jobs for a user (for pagination `meta.total`).
+ * Uses a single `listRows` with `total: true` and `limit: 1`.
+ */
+export async function countUploadJobsByUser(userId: string): Promise<number> {
+  const result = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_JOBS_COLLECTION_ID,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: true,
+  });
+  return typeof result.total === 'number' ? result.total : 0;
+}
+
+/**
+ * One page of upload jobs for a user (newest first) with platform uploads populated.
+ * Does not load the full job list into memory.
+ */
+export async function getUploadJobsWithPlatformUploadsPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<UploadJobWithPlatformUploads[]> {
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_JOBS_COLLECTION_ID,
+    queries: [
+      Query.equal('userId', userId),
+      Query.orderDesc('$createdAt'),
+      Query.limit(options.limit),
+      Query.offset(options.offset),
+    ],
+    total: false,
+  });
+  const jobs = (rows ?? []).map((r) => rowToUploadJob(r as unknown as Record<string, unknown>));
+  return getUploadJobsWithPlatformUploadsFromJobs(jobs);
+}
+
+/** Options for {@link getUploadJobsWithPlatformUploads}. */
+export interface GetUploadJobsWithPlatformUploadsOptions {
+  /** Forwarded to {@link listUploadJobsByUser} `pageSize`. */
+  pageSize?: number;
+  /**
+   * Max upload job rows to load. Defaults to 1000 (same as {@link listUploadJobsByUser}).
+   * Full-history callers (e.g. dashboard upload history) should pass `Number.POSITIVE_INFINITY`
+   * so `meta.total` and pagination are not silently truncated.
+   */
+  maxRows?: number;
+}
+
+/**
  * List upload jobs for a user with their related platform uploads populated.
  * Sorted by most recent first. Fetches all platform_uploads for the user's jobs
  * in a single query and groups in memory to avoid N+1.
  */
 export async function getUploadJobsWithPlatformUploads(
-  userId: string
+  userId: string,
+  options?: GetUploadJobsWithPlatformUploadsOptions
 ): Promise<UploadJobWithPlatformUploads[]> {
-  const jobs = await listUploadJobsByUser(userId);
+  const jobs = await listUploadJobsByUser(userId, undefined, {
+    pageSize: options?.pageSize,
+    maxRows: options?.maxRows ?? 1000,
+  });
   return getUploadJobsWithPlatformUploadsFromJobs(jobs);
 }
 

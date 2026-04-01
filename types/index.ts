@@ -198,6 +198,20 @@ export interface Draft {
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */
   platforms: DraftPlatforms;
   /**
+   * R2 object key for a custom thumbnail image (JPG or PNG), or undefined if none.
+   * Best-effort cleared after distribution completes (retained if the cleanup DB write fails).
+   */
+  thumbnailR2Key?: string;
+  /** MIME type of the thumbnail object (for platform upload and preview). */
+  thumbnailContentType?: string;
+  /**
+   * Ephemeral presigned GET URL for the draft form preview.
+   * Returned by endpoints that include draft payloads (e.g. GET/PATCH /api/drafts/[id],
+   * and thumbnail complete) when a valid thumbnail exists.
+   * Not stored in Appwrite.
+   */
+  thumbnailPreviewUrl?: string;
+  /**
    * When this draft was first used to create an upload job.
    * Stored on the draft (denormalized) to avoid scanning upload job history.
    */
@@ -271,6 +285,8 @@ export interface ConnectedAccountPublic {
   userId: string;
   platform: ConnectedAccountPlatform;
   tokenExpiry: string;
+  /** True when a non-empty refresh token is stored (encrypted at rest). */
+  hasRefreshToken: boolean;
   platformUserId: string;
   platformName: string;
   /** Appwrite system attribute (ISO string). */

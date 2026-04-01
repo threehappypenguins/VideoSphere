@@ -66,12 +66,16 @@ const mockGetObjectWebStream = vi.fn();
 const mockDeleteObject = vi.fn();
 const mockUploadToYouTube = vi.fn();
 const mockRefreshYouTubeAccessToken = vi.fn();
+const mockRefreshTokenIfNeeded = vi.fn();
 const mockUploadToVimeo = vi.fn();
 const mockGetPlatformUploadsByJob = vi.fn();
 const mockUpdatePlatformUploadStatus = vi.fn();
+const mockGetUploadJobById = vi.fn();
+const mockUpdateDraft = vi.fn();
 
 vi.mock('@/lib/repositories/drafts', () => ({
   getDraftById: (...args: unknown[]) => mockGetDraftById(...args),
+  updateDraft: (...args: unknown[]) => mockUpdateDraft(...args),
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
@@ -82,6 +86,7 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
   createUploadJob: (...args: unknown[]) => mockCreateUploadJob(...args),
   findUploadJobForDistribution: (...args: unknown[]) => mockFindUploadJobForDistribution(...args),
   updateUploadJobStatus: (...args: unknown[]) => mockUpdateUploadJobStatus(...args),
+  getUploadJobById: (...args: unknown[]) => mockGetUploadJobById(...args),
 }));
 
 vi.mock('@/lib/repositories/platform-uploads', () => ({
@@ -114,6 +119,11 @@ vi.mock('@/lib/platforms/youtube', async (importOriginal) => {
     refreshYouTubeAccessToken: (...args: unknown[]) => mockRefreshYouTubeAccessToken(...args),
   };
 });
+
+vi.mock('@/lib/platforms/token-refresh', () => ({
+  refreshTokenIfNeeded: (...args: unknown[]) => mockRefreshTokenIfNeeded(...args),
+  TOKEN_REFRESH_LEAD_MS: 300000,
+}));
 
 vi.mock('@/lib/platforms/vimeo', () => ({
   uploadToVimeo: (...args: unknown[]) => mockUploadToVimeo(...args),
@@ -206,6 +216,20 @@ describe('POST /api/uploads/distribute', () => {
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
+    mockGetUploadJobById.mockResolvedValue({
+      id: 'job-123',
+      userId: 'user-123',
+      draftId: 'draft-1',
+      r2Key: 'temp/uploads/user-123/video.mp4',
+      status: 'distributing',
+      errorMessage: null,
+      quotaClaimMonth: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockUpdateDraft.mockResolvedValue(null);
+
     mockCreatePlatformUpload.mockImplementation(
       async (data: {
         platform: string;
@@ -236,6 +260,7 @@ describe('POST /api/uploads/distribute', () => {
       userId: 'user-123',
       platform: 'youtube',
       tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
+      hasRefreshToken: true,
       platformUserId: 'channel-1',
       platformName: 'Test Channel',
       $createdAt: '2000-01-01T00:00:00.000Z',
@@ -248,6 +273,17 @@ describe('POST /api/uploads/distribute', () => {
       refreshToken: 'refresh-token',
       tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
     });
+
+    mockRefreshTokenIfNeeded.mockImplementation(
+      async (account: { accessToken: string; refreshToken: string; tokenExpiry: string }) => ({
+        accessToken: account.accessToken,
+        refreshToken: account.refreshToken,
+        tokenExpiry:
+          account.tokenExpiry?.trim() !== ''
+            ? account.tokenExpiry
+            : new Date(Date.now() + 3600_000).toISOString(),
+      })
+    );
 
     mockGetObjectWebStream.mockResolvedValue({
       stream: new ReadableStream({
@@ -267,6 +303,7 @@ describe('POST /api/uploads/distribute', () => {
       accessToken: 'token',
       refreshToken: '',
       tokenExpiry: '',
+      hasRefreshToken: false,
       platformUserId: 'p1',
       platformName: 'n1',
       $createdAt: '2000-01-01T00:00:00.000Z',
@@ -598,7 +635,10 @@ describe('POST /api/uploads/distribute', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(mockGetObjectWebStream).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
+    expect(mockGetObjectWebStream).toHaveBeenCalledWith(
+      'temp/uploads/user-123/video.mp4',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     expect(mockUploadToYouTube).toHaveBeenCalledTimes(1);
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
@@ -678,6 +718,313 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
 
+  it('clears draft thumbnail fields before deleting R2 object after successful distribution', async () => {
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {},
+      thumbnailR2Key: 'draft-thumbnails/user-123/draft-1/thumb-1.jpg',
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockUpdateDraft.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {},
+      thumbnailR2Key: undefined,
+      thumbnailContentType: undefined,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockDeleteObject).toHaveBeenCalledWith('draft-thumbnails/user-123/draft-1/thumb-1.jpg');
+    expect(mockUpdateDraft).toHaveBeenCalledWith('draft-1', {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
+    // updateDraft (DB clear) must happen before deleteObject (R2 cleanup) so a failed
+    // Appwrite write leaves the object intact rather than creating a stale key.
+    const updateCallOrder = mockUpdateDraft.mock.invocationCallOrder[0];
+    const deleteCallOrder = mockDeleteObject.mock.invocationCallOrder[1];
+    expect(updateCallOrder).toBeLessThan(deleteCallOrder);
+  });
+
+  it('retains draft thumbnail fields when updateDraft fails during thumbnail cleanup', async () => {
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {},
+      thumbnailR2Key: 'draft-thumbnails/user-123/draft-1/thumb-2.jpg',
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockUpdateDraft.mockRejectedValue(new Error('appwrite error'));
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // R2 delete must NOT have been called — draft retains its key so cleanup can be retried.
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(
+      'draft-thumbnails/user-123/draft-1/thumb-2.jpg'
+    );
+  });
+
+  it('skips thumbnail cleanup when draft key changed during distribution (user replaced thumbnail)', async () => {
+    const originalKey = 'draft-thumbnails/user-123/draft-1/thumb-original.jpg';
+    const replacedKey = 'draft-thumbnails/user-123/draft-1/thumb-replaced.jpg';
+
+    const baseDraft = {
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    // First call: route handler fetches the draft to build metadata — original key is captured
+    // into the metadataByPlatformId snapshot (buildMetadataForPlatform reads draft.thumbnailR2Key).
+    mockGetDraftById.mockResolvedValueOnce({ ...baseDraft, thumbnailR2Key: originalKey });
+    // Subsequent calls (cleanup after distribution): user has already replaced the thumbnail.
+    mockGetDraftById.mockResolvedValue({ ...baseDraft, thumbnailR2Key: replacedKey });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Neither the original nor the replaced thumbnail should be deleted.
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(originalKey);
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(replacedKey);
+    expect(mockUpdateDraft).not.toHaveBeenCalledWith('draft-1', {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
+  });
+
+  it('skips thumbnail cleanup when the job snapshot had no thumbnail (draft had none at distribution start)', async () => {
+    const addedAfterKey = 'draft-thumbnails/user-123/draft-1/thumb-added-after.jpg';
+
+    // First call: route handler fetches draft with no thumbnail — metadata snapshot captures undefined.
+    mockGetDraftById.mockResolvedValueOnce({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: undefined,
+      thumbnailContentType: undefined,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+    // Cleanup call: user added a thumbnail after distribution started.
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: addedAfterKey,
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The thumbnail the user added after distribution must not be touched.
+    expect(mockDeleteObject).not.toHaveBeenCalledWith(addedAfterKey);
+    expect(mockUpdateDraft).not.toHaveBeenCalledWith('draft-1', {
+      thumbnailR2Key: null,
+      thumbnailContentType: null,
+    });
+  });
+
+  it('retries updateDraft for thumbnail cleanup when first attempt fails transiently', async () => {
+    vi.useFakeTimers();
+    const thumbKey = 'draft-thumbnails/user-123/draft-1/thumb-retry.jpg';
+
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: thumbKey,
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+    mockUpdateDraft
+      .mockRejectedValueOnce(new Error('transient appwrite error'))
+      .mockResolvedValueOnce({
+        id: 'draft-1',
+        userId: 'user-123',
+        targets: ['youtube'],
+        title: 'My title',
+        description: 'My description',
+        visibility: 'private',
+        tags: [],
+        platforms: {},
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+    expect(response.status).toBe(202);
+
+    await vi.runAllTimersAsync();
+
+    try {
+      expect(mockUpdateDraft).toHaveBeenCalledTimes(2);
+      expect(mockUpdateDraft).toHaveBeenLastCalledWith('draft-1', {
+        thumbnailR2Key: null,
+        thumbnailContentType: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('logs error and retains R2 object when all updateDraft retry attempts fail during thumbnail cleanup', async () => {
+    vi.useFakeTimers();
+    const errLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const thumbKey = 'draft-thumbnails/user-123/draft-1/thumb-stale.jpg';
+
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: [],
+      platforms: {},
+      thumbnailR2Key: thumbKey,
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+    mockUpdateDraft.mockRejectedValue(new Error('appwrite down'));
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+    expect(response.status).toBe(202);
+
+    await vi.runAllTimersAsync();
+
+    try {
+      expect(mockUpdateDraft).toHaveBeenCalledTimes(3);
+      // deleteObject must not have been called — R2 object is retained since draft fields were not cleared.
+      expect(mockDeleteObject).not.toHaveBeenCalledWith(thumbKey);
+      const retainLog = errLog.mock.calls.find(
+        (args) => typeof args[0] === 'string' && args[0].includes('retaining R2 key for retry')
+      );
+      expect(retainLog).toBeDefined();
+      expect(retainLog![0]).toContain('draft-1');
+      expect(retainLog![0]).toContain(thumbKey);
+    } finally {
+      errLog.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('updates platform statuses independently and marks job failed when any platform fails', async () => {
     mockCreatePlatformUpload.mockImplementation(
       async (data: {
@@ -726,6 +1073,7 @@ describe('POST /api/uploads/distribute', () => {
         accessToken: 'token',
         refreshToken: '',
         tokenExpiry: '',
+        hasRefreshToken: false,
         platformUserId: 'p1',
         platformName: 'n1',
         $createdAt: '2000-01-01T00:00:00.000Z',

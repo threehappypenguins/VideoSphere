@@ -1,4 +1,10 @@
 import type { PlatformUploadVisibility } from '@/types';
+import {
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
+import { getObjectWebStream } from '@/lib/r2';
+import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadError,
   PlatformUploadMetadata,
@@ -14,6 +20,8 @@ interface UploadToYouTubeInput {
   contentType?: string;
   metadata: PlatformUploadMetadata;
   tokens: PlatformUploadTokens;
+  /** When set (e.g. distribute deadline), aborts R2-backed fetches so timeouts stop real work. */
+  signal?: AbortSignal;
 }
 
 interface GoogleRefreshTokenResponse {
@@ -24,7 +32,10 @@ interface GoogleRefreshTokenResponse {
 
 const YOUTUBE_RESUMABLE_URL =
   'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
+
+const MAX_CUSTOM_THUMBNAIL_BYTES = MAX_DRAFT_THUMBNAIL_BYTES;
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DEFAULT_YOUTUBE_CATEGORY_ID = '22';
 
@@ -121,7 +132,8 @@ function uniqueTrimmedPlaylistIds(ids: string[]): string[] {
 
 async function youtubeFetchPlaylistsPage(
   accessToken: string,
-  pageToken?: string
+  pageToken?: string,
+  signal?: AbortSignal
 ): Promise<
   | {
       ok: true;
@@ -138,6 +150,7 @@ async function youtubeFetchPlaylistsPage(
 
   const res = await fetch(u.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
+    ...(signal ? { signal } : {}),
   });
   if (!res.ok) {
     const details = await readApiErrorDetails(res);
@@ -163,14 +176,15 @@ async function youtubeFetchPlaylistsPage(
 
 async function findYouTubePlaylistIdByTitle(
   accessToken: string,
-  wantedTitle: string
+  wantedTitle: string,
+  signal?: AbortSignal
 ): Promise<{ ok: true; id: string } | { ok: true; notFound: true } | PlatformUploadFailure> {
   const key = youtubePlaylistTitleKey(wantedTitle);
   if (!key) return { ok: true, notFound: true };
 
   let pageToken: string | undefined;
   for (;;) {
-    const page = await youtubeFetchPlaylistsPage(accessToken, pageToken);
+    const page = await youtubeFetchPlaylistsPage(accessToken, pageToken, signal);
     if (page.ok === false) return page;
     for (const it of page.items) {
       if (youtubePlaylistTitleKey(it.title) === key) {
@@ -186,7 +200,8 @@ async function findYouTubePlaylistIdByTitle(
 async function createYouTubePlaylist(
   accessToken: string,
   title: string,
-  privacyStatus: 'public' | 'unlisted' | 'private'
+  privacyStatus: 'public' | 'unlisted' | 'private',
+  signal?: AbortSignal
 ): Promise<{ ok: true; id: string } | PlatformUploadFailure> {
   const safeTitle = title.trim() || 'Untitled playlist';
   const url = `${YOUTUBE_PLAYLISTS_URL}?part=snippet,status`;
@@ -200,6 +215,7 @@ async function createYouTubePlaylist(
       snippet: { title: safeTitle },
       status: { privacyStatus },
     }),
+    ...(signal ? { signal } : {}),
   });
   if (!res.ok) {
     let details = await readApiErrorDetails(res);
@@ -226,17 +242,18 @@ async function createYouTubePlaylist(
 async function resolveYouTubePlaylistNameToId(
   accessToken: string,
   displayTitle: string,
-  privacyStatus: 'public' | 'unlisted' | 'private'
+  privacyStatus: 'public' | 'unlisted' | 'private',
+  signal?: AbortSignal
 ): Promise<{ ok: true; id: string } | PlatformUploadFailure> {
   const trimmed = displayTitle.trim();
   if (!trimmed) {
     return toError('YOUTUBE_PLAYLIST_NAME_EMPTY', 'Playlist name was empty after trimming.');
   }
 
-  const found = await findYouTubePlaylistIdByTitle(accessToken, trimmed);
+  const found = await findYouTubePlaylistIdByTitle(accessToken, trimmed, signal);
   if (found.ok === false) return found;
   if ('notFound' in found) {
-    return createYouTubePlaylist(accessToken, trimmed, privacyStatus);
+    return createYouTubePlaylist(accessToken, trimmed, privacyStatus, signal);
   }
   return { ok: true, id: found.id };
 }
@@ -376,14 +393,23 @@ async function uploadYouTubeResumableInChunks(input: {
   stream: ReadableStream<Uint8Array>;
   totalBytes: number;
   contentType: string;
+  signal?: AbortSignal;
 }): Promise<PlatformUploadResult> {
   const reader = input.stream.getReader();
   let carry: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   let offset = 0;
-  const { sessionUrl, accessToken, contentType, totalBytes: total } = input;
+  const { sessionUrl, accessToken, contentType, totalBytes: total, signal } = input;
 
   try {
     while (offset < total) {
+      if (signal?.aborted) {
+        const reason = signal.reason;
+        return toError(
+          'YOUTUBE_UPLOAD_ABORTED',
+          reason instanceof Error ? reason.message : 'YouTube upload was aborted.',
+          499
+        );
+      }
       const remaining = total - offset;
       const chunkSize = nextYouTubeChunkSize(remaining);
       let chunk: Uint8Array<ArrayBufferLike>;
@@ -421,6 +447,7 @@ async function uploadYouTubeResumableInChunks(input: {
             'Content-Range': contentRange,
           },
           body: chunk as BodyInit,
+          ...(signal ? { signal } : {}),
         });
 
         if (res.status === 408 || (res.status >= 500 && res.status < 600)) {
@@ -517,6 +544,7 @@ async function uploadYouTubeResumableSinglePut(input: {
   stream: ReadableStream<Uint8Array>;
   contentLength?: number;
   contentType: string;
+  signal?: AbortSignal;
 }): Promise<PlatformUploadResult> {
   const uploadRequestInit: RequestInit & { duplex: 'half' } = {
     method: 'PUT',
@@ -529,6 +557,7 @@ async function uploadYouTubeResumableSinglePut(input: {
     },
     body: input.stream,
     duplex: 'half',
+    ...(input.signal ? { signal: input.signal } : {}),
   };
 
   const uploadResponse = await fetch(input.sessionUrl, uploadRequestInit);
@@ -649,6 +678,8 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     return toError('YOUTUBE_TOKEN_MISSING', 'YouTube access token is missing.');
   }
 
+  const { signal } = input;
+
   try {
     const videoSource = {
       stream: input.videoStream,
@@ -694,6 +725,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
           : {}),
       },
       body: JSON.stringify({ snippet, status }),
+      ...(signal ? { signal } : {}),
     });
 
     if (!initResponse.ok) {
@@ -719,6 +751,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
             stream: videoSource.stream,
             totalBytes: videoSource.contentLength,
             contentType: videoSource.contentType,
+            signal,
           })
         : await uploadYouTubeResumableSinglePut({
             sessionUrl: resumableUploadUrl,
@@ -726,6 +759,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
             stream: videoSource.stream,
             contentLength: videoSource.contentLength,
             contentType: videoSource.contentType,
+            signal,
           });
 
     if (!uploadResult.ok) {
@@ -742,7 +776,8 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       const resolved = await resolveYouTubePlaylistNameToId(
         input.tokens.accessToken,
         name,
-        videoPrivacy
+        videoPrivacy,
+        signal
       );
       if (resolved.ok === false) {
         return resolved;
@@ -766,6 +801,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
               resourceId: { kind: 'youtube#video', videoId },
             },
           }),
+          ...(signal ? { signal } : {}),
         }
       );
       if (!plRes.ok) {
@@ -774,6 +810,72 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
           'YOUTUBE_PLAYLIST_ITEM_FAILED',
           `Video uploaded but adding it to playlist "${playlistId}" failed.`,
           plRes.status,
+          details
+        );
+      }
+    }
+
+    const thumbKey = m.thumbnailR2Key?.trim();
+    if (thumbKey) {
+      // Pre-validate an explicitly provided content type; a missing/empty field is resolved against
+      // the R2 object's content-type header after the stream is opened (so a PNG stored without
+      // draft metadata is not incorrectly declared as JPEG to YouTube).
+      const draftCt = m.thumbnailContentType?.trim().toLowerCase();
+      if (draftCt && !isAllowedDraftThumbnailContentType(draftCt)) {
+        return toError(
+          'YOUTUBE_THUMBNAIL_FORMAT',
+          'YouTube custom thumbnails must be JPEG or PNG.',
+          400
+        );
+      }
+      let thumbStream: ReadableStream<Uint8Array>;
+      let thumbLen: number;
+      let thumbR2Ct: string;
+      try {
+        const opened = await getObjectWebStream(thumbKey, { signal });
+        thumbStream = opened.stream;
+        thumbLen = opened.contentLength;
+        thumbR2Ct = opened.contentType?.trim().toLowerCase() ?? '';
+      } catch (err) {
+        return toError(
+          'YOUTUBE_THUMBNAIL_R2_FAILED',
+          'Could not read thumbnail from storage for YouTube.',
+          500,
+          messageFromThrown(err)
+        );
+      }
+      // Prefer validated draft CT, fall back to R2 CT, last resort jpeg (matching Vimeo pattern).
+      const rawCt =
+        (draftCt && isAllowedDraftThumbnailContentType(draftCt) ? draftCt : null) ??
+        (isAllowedDraftThumbnailContentType(thumbR2Ct) ? thumbR2Ct : 'image/jpeg');
+      if (thumbLen > MAX_CUSTOM_THUMBNAIL_BYTES) {
+        await thumbStream.cancel().catch(() => undefined);
+        return toError(
+          'YOUTUBE_THUMBNAIL_TOO_LARGE',
+          'Thumbnail exceeds the maximum size allowed for upload.',
+          400
+        );
+      }
+      const thumbBody = await new Response(thumbStream).arrayBuffer();
+      const thumbRes = await fetch(
+        `${YOUTUBE_THUMBNAILS_SET_URL}?videoId=${encodeURIComponent(videoId)}`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${input.tokens.accessToken}`,
+            'Content-Type': rawCt,
+            'Content-Length': String(thumbBody.byteLength),
+          },
+          body: thumbBody,
+          ...(signal ? { signal } : {}),
+        }
+      );
+      if (!thumbRes.ok) {
+        const details = await readApiErrorDetails(thumbRes);
+        return toError(
+          'YOUTUBE_THUMBNAIL_SET_FAILED',
+          'Video uploaded but setting the custom thumbnail on YouTube failed.',
+          thumbRes.status,
           details
         );
       }
@@ -789,7 +891,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       'YOUTUBE_UPLOAD_ERROR',
       'Unexpected YouTube upload error.',
       500,
-      error instanceof Error ? error.message : String(error)
+      messageFromThrown(error)
     );
   }
 }

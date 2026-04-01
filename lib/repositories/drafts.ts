@@ -42,6 +42,8 @@ function rowToDraft(row: Record<string, unknown>): Draft {
     tags: doc.tags,
     visibility: doc.visibility,
     platforms: doc.platforms,
+    ...(doc.thumbnailR2Key ? { thumbnailR2Key: doc.thumbnailR2Key } : {}),
+    ...(doc.thumbnailContentType ? { thumbnailContentType: doc.thumbnailContentType } : {}),
     ...(doc.usedInUploadAt ? { usedInUploadAt: doc.usedInUploadAt } : {}),
     $createdAt,
     $updatedAt,
@@ -71,6 +73,8 @@ export async function markDraftUsedInUpload(
       visibility: draft.visibility,
       tags: draft.tags,
       platforms: draft.platforms,
+      ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
+      ...(draft.thumbnailContentType ? { thumbnailContentType: draft.thumbnailContentType } : {}),
       usedInUploadAt: normalizedUsedAtIso,
     });
 
@@ -158,6 +162,8 @@ export interface CreateDraftInput {
   tags?: string[];
   visibility?: PlatformUploadVisibility;
   platforms?: DraftPlatforms;
+  thumbnailR2Key?: string;
+  thumbnailContentType?: string;
 }
 
 /**
@@ -174,6 +180,8 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
     visibility,
     tags,
     platforms,
+    ...(input.thumbnailR2Key ? { thumbnailR2Key: input.thumbnailR2Key } : {}),
+    ...(input.thumbnailContentType ? { thumbnailContentType: input.thumbnailContentType } : {}),
   });
   assertDraftDocumentJsonWithinLimit(documentJson);
 
@@ -209,6 +217,44 @@ export async function getDraftById(id: string): Promise<Draft | null> {
     if (e.code === 404) return null;
     throw err;
   }
+}
+
+/** Max draft IDs per `listRows` call (Appwrite `equal` with an array is an IN query). */
+const DRAFT_TITLES_BY_IDS_BATCH = 100;
+
+/**
+ * Titles for drafts referenced by upload jobs on the current page.
+ * Only IDs that exist and belong to `userId` are included — one batched `listRows` per chunk of ids.
+ */
+export async function getDraftTitlesByIdsForUser(
+  userId: string,
+  draftIds: Array<string | null | undefined>
+): Promise<Map<string, string>> {
+  const unique = [
+    ...new Set(draftIds.filter((id): id is string => typeof id === 'string' && id !== '')),
+  ];
+  if (unique.length === 0) return new Map();
+
+  const map = new Map<string, string>();
+  for (let i = 0; i < unique.length; i += DRAFT_TITLES_BY_IDS_BATCH) {
+    const chunk = unique.slice(i, i + DRAFT_TITLES_BY_IDS_BATCH);
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        Query.equal('$id', chunk),
+        Query.limit(chunk.length),
+      ],
+      total: false,
+    });
+    for (const r of rows ?? []) {
+      const row = r as Record<string, unknown>;
+      const draft = rowToDraft(row);
+      map.set(draft.id, draft.title);
+    }
+  }
+  return map;
 }
 
 /**
@@ -250,6 +296,14 @@ export interface UpdateDraftInput {
   visibility?: PlatformUploadVisibility;
   /** Partial platforms object from PATCH; merged without wiping omitted fields. */
   platformsPatch?: unknown;
+  /**
+   * Pass `null` to atomically clear both `thumbnailR2Key` and `thumbnailContentType`.
+   * Pass a string to set/replace the key (pair with `thumbnailContentType`).
+   * Omit to leave the existing key unchanged.
+   */
+  thumbnailR2Key?: string | null;
+  /** Ignored when `thumbnailR2Key` is `null` (both fields are cleared together). */
+  thumbnailContentType?: string | null;
 }
 
 /**
@@ -262,7 +316,9 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     input.description !== undefined ||
     input.tags !== undefined ||
     input.visibility !== undefined ||
-    input.platformsPatch !== undefined;
+    input.platformsPatch !== undefined ||
+    input.thumbnailR2Key !== undefined ||
+    input.thumbnailContentType !== undefined;
 
   const data: Record<string, unknown> = {};
 
@@ -273,6 +329,28 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
       input.platformsPatch !== undefined
         ? mergeDraftPlatformsPatch(current.platforms, input.platformsPatch)
         : current.platforms;
+    let nextThumbKey: string | undefined;
+    let nextThumbType: string | undefined;
+    if (input.thumbnailR2Key === null) {
+      nextThumbKey = undefined;
+      nextThumbType = undefined;
+    } else if (input.thumbnailR2Key !== undefined) {
+      nextThumbKey = input.thumbnailR2Key;
+      nextThumbType =
+        input.thumbnailContentType === undefined
+          ? current.thumbnailContentType
+          : input.thumbnailContentType === null
+            ? undefined
+            : input.thumbnailContentType;
+    } else {
+      nextThumbKey = current.thumbnailR2Key;
+      nextThumbType =
+        input.thumbnailContentType === undefined
+          ? current.thumbnailContentType
+          : input.thumbnailContentType === null
+            ? undefined
+            : input.thumbnailContentType;
+    }
     const documentJson = stringifyDraftDocumentForStorage({
       targets: input.targets ?? current.targets,
       title: input.title ?? current.title,
@@ -280,6 +358,8 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
       tags: input.tags ?? current.tags,
       visibility: input.visibility ?? current.visibility,
       platforms: mergedPlatforms,
+      ...(nextThumbKey !== undefined ? { thumbnailR2Key: nextThumbKey } : {}),
+      ...(nextThumbType !== undefined ? { thumbnailContentType: nextThumbType } : {}),
       // Denormalized in document JSON; stringify omits empty/whitespace (see markDraftUsedInUpload).
       usedInUploadAt: current.usedInUploadAt,
     });

@@ -7,6 +7,7 @@ import {
   MAX_DRAFT_DOCUMENT_CHARS,
   mergeDraftPlatforms,
   mergeDraftPlatformsPatch,
+  parseDraftTargetsAllowEmpty,
   parseDraftTargetsFromRequestBody,
   parseDraftPlatformsPatchBody,
   parsePlatformsFromRequestBody,
@@ -109,6 +110,31 @@ describe('draft-upload-metadata', () => {
     expect(parseDraftTargetsFromRequestBody(['youtube', 'youtube'])).toEqual({
       ok: true,
       value: ['youtube'],
+    });
+  });
+
+  it('parseDraftTargetsAllowEmpty rejects non-array values', () => {
+    expect(parseDraftTargetsAllowEmpty('x')).toEqual({
+      ok: false,
+      error: 'targets must be an array of platform ids',
+    });
+  });
+
+  it('parseDraftTargetsAllowEmpty rejects unknown platform ids', () => {
+    expect(parseDraftTargetsAllowEmpty(['youtube', 'tiktok'])).toEqual({
+      ok: false,
+      error: 'targets contains unknown platform ids',
+    });
+  });
+
+  it('parseDraftTargetsAllowEmpty dedupes and allows an empty list', () => {
+    expect(parseDraftTargetsAllowEmpty(['youtube', 'youtube', 'vimeo'])).toEqual({
+      ok: true,
+      value: ['youtube', 'vimeo'],
+    });
+    expect(parseDraftTargetsAllowEmpty([])).toEqual({
+      ok: true,
+      value: [],
     });
   });
 

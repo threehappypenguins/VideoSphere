@@ -11,15 +11,17 @@ This is a categorized checklist of stretch goals — things worth building beyon
 
 > Items are grouped by discipline. Attempt items across multiple categories to demonstrate well-rounded understanding.
 
+Note: ✅ denotes instructor sign-off on that particular stretch goal.
+
 ---
 
 ## 1. UI & User Experience
 
-- [ ] **Dark / light mode toggle** — detect `prefers-color-scheme` by default; allow manual override; persist preference in `localStorage`
+- [x] **Dark / light mode toggle** — detect `prefers-color-scheme` by default; allow manual override; persist preference in `localStorage` ✅
 - [ ] **Animated page transitions** — smooth enter/exit transitions between routes using Framer Motion or the View Transitions API
 - [ ] **Skeleton loading states** — replace blank loading areas with accurately shaped content skeletons for all async data views
-- [ ] **Toast / snackbar notification system** — global, accessible toast queue for success, error, warning, and info messages
-- [ ] **Modal and dialog system** — reusable, accessible modal component with focus trap, `Escape` to close, and scroll lock
+- [x] **Toast / snackbar notification system** — global, accessible toast queue for success, error, warning, and info messages ✅
+- [x] **Modal and dialog system** — reusable, accessible modal component with focus trap, `Escape` to close, and scroll lock
 - [ ] **Drawer / side-panel navigation** — slide-in drawer for mobile navigation or detail panels; no JavaScript libraries beyond React
 - [ ] **Onboarding flow** — step-by-step guided tour for new users that highlights key features and can be dismissed or replayed
 - [ ] **Empty state designs** — purpose-built empty state UI (illustration + message + CTA) for every list or data view with no results
@@ -33,7 +35,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 ## 2. Frontend Architecture & Component Design
 
 - [ ] **Component library with Storybook** — install and configure Storybook; document every reusable UI component with stories, props table, and usage examples
-- [ ] **Design token system** — define a consistent set of Tailwind CSS theme tokens (colours, spacing, typography scale, border radii) in `tailwind.config.ts` — used uniformly across all pages
+- [x] **Design token system** — define a consistent set of Tailwind CSS theme tokens (colours, spacing, typography scale, border radii) in `tailwind.config.ts` — used uniformly across all pages
 - [ ] **Compound component pattern** — implement at least one feature (e.g. Tabs, Accordion, Select) using the compound component pattern for a composable API
 - [ ] **Custom React hooks** — extract at least three pieces of reusable stateful logic into named custom hooks in `/hooks` with corresponding unit tests
 - [ ] **Form library integration** — integrate React Hook Form (or equivalent) with Zod for schema-based validation on all user-facing forms; display per-field error messages
@@ -46,7 +48,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 
 > These build on top of the mandatory basic auth requirement.
 
-- [ ] **Social / OAuth login** — add at least one OAuth provider (Google, GitHub, etc.) via your chosen auth library
+- [x] **Social / OAuth login** — add at least one OAuth provider (Google, GitHub, etc.) via your chosen auth library ✅
 - [ ] **Magic link / passwordless login** — email a one-time login link as an alternative sign-in method
 - [ ] **Multi-factor authentication (MFA)** — TOTP-based MFA (e.g. Google Authenticator) as an opt-in account security feature
 - [ ] **Password reset flow** — fully functional "Forgot password" → email link → reset form → confirmation flow
@@ -65,7 +67,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 - [ ] **Server Actions** — replace at least two client-side `fetch` calls with Next.js Server Actions; document the tradeoffs vs route handlers in a code comment
 - [ ] **Database migrations** — manage schema changes with a versioned migration system (e.g. Supabase migrations, Drizzle, or Prisma migrate); never alter the schema by hand
 - [ ] **Database seeding script** — a `pnpm db:seed` script that populates the database with realistic development data
-- [ ] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling
+- [x] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling
 - [ ] **Response caching strategy** — apply appropriate caching to at least two routes or data-fetching functions (ISR `revalidate`, `unstable_cache`, or HTTP `Cache-Control`); document the chosen strategy and why
 
 ---
@@ -85,7 +87,7 @@ This is a categorized checklist of stretch goals — things worth building beyon
 - [ ] **Avatar upload and crop** — profile photo upload with in-browser crop/resize before upload; stored in cloud storage
 - [ ] **Image optimisation pipeline** — all user-uploaded images are resized and converted to WebP/AVIF on upload; served via a CDN
 - [ ] **File download** — allow authenticated users to download their own uploaded files; enforce access control so users cannot download other users' private files
-- [ ] **Thumbnail upload for drafts** — allow users to upload a custom thumbnail image (JPG/PNG/WebP, max 2 MB) for a draft; store in Cloudflare R2; display a preview in the draft form; include the R2 thumbnail URL in the draft document so it can be submitted alongside video metadata on distribution
+- [x] **Thumbnail upload for drafts** — allow users to upload a custom thumbnail image (JPG/PNG/WebP, max 2 MB) for a draft; store in Cloudflare R2; display a preview in the draft form; include the R2 thumbnail URL in the draft document so it can be submitted alongside video metadata on distribution
 
 ---
 
@@ -190,11 +192,11 @@ This is a categorized checklist of stretch goals — things worth building beyon
 - [ ] **WCAG 2.1 AA audit** — run a full audit using axe DevTools or Lighthouse; document every identified violation and resolve all Level A and AA issues
 - [ ] **Keyboard navigation throughout** — every interactive element is reachable and operable using the keyboard alone; focus order is logical; no focus traps outside intentional modals
 - [ ] **Skip navigation link** — a "Skip to main content" link is the first focusable element on every page; visible on focus
-- [ ] **Focus management in modals** — focus moves to the first focusable element when a modal opens; focus is restored to the trigger element on close; Tab key cycles within the modal
+- [x] **Focus management in modals** — focus moves to the first focusable element when a modal opens; focus is restored to the trigger element on close; Tab key cycles within the modal
 - [ ] **Colour contrast compliance** — all text and interactive element foreground/background combinations meet WCAG AA contrast ratios (4.5:1 for normal text, 3:1 for large text)
 - [ ] **`prefers-reduced-motion` support** — all animations and transitions are disabled or reduced when the user has `prefers-reduced-motion: reduce` set in their OS
 - [ ] **Meaningful image alt text** — every `<Image>` or `<img>` has descriptive alt text; purely decorative images use `alt=""`
-- [ ] **Live region announcements** — asynchronous status changes (form submission success, toast messages, loading complete) are announced to screen readers via `aria-live`
+- [x] **Live region announcements** — asynchronous status changes (form submission success, toast messages, loading complete) are announced to screen readers via `aria-live`
 
 ---
 

@@ -55,8 +55,8 @@ const baseRow = {
   $id: 'row-1',
   userId: 'user-1',
   platform: 'youtube',
-  accessToken: 'access',
-  refreshToken: 'refresh',
+  accessToken: encryptToken('access'),
+  refreshToken: encryptToken('refresh'),
   tokenExpiry: '2026-12-31T00:00:00.000Z',
   platformUserId: 'yt-123',
   platformName: 'My Channel',
@@ -105,6 +105,7 @@ describe('connected-accounts repository', () => {
       expect(result.platform).toBe('youtube');
       expect(result.platformName).toBe('My Channel');
       expect(result.tokenExpiry).toBe('2026-12-31T00:00:00.000Z');
+      expect(result.hasRefreshToken).toBe(true);
       expect(result).not.toHaveProperty('accessToken');
       expect(result).not.toHaveProperty('refreshToken');
     });
@@ -132,6 +133,8 @@ describe('connected-accounts repository', () => {
       expect(result[0].platform).toBe('youtube');
       expect(result[1].platform).toBe('vimeo');
       expect(result[1].platformName).toBe('Vimeo User');
+      expect(result[0].hasRefreshToken).toBe(true);
+      expect(result[1].hasRefreshToken).toBe(true);
       result.forEach((account) => {
         expect(account).not.toHaveProperty('accessToken');
         expect(account).not.toHaveProperty('refreshToken');
@@ -291,6 +294,7 @@ describe('connected-accounts repository', () => {
       expect(data.accessToken).toMatch(/^[A-Za-z0-9+/=]+$/);
       expect(result).not.toBeNull();
       expect(result!.tokenExpiry).toBe('2027-01-01T00:00:00.000Z');
+      expect(result!.hasRefreshToken).toBe(true);
       expect(result).not.toHaveProperty('accessToken');
       expect(result).not.toHaveProperty('refreshToken');
     });

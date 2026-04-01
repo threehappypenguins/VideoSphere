@@ -291,6 +291,9 @@ export interface DraftDocumentStored {
   visibility: PlatformUploadVisibility;
   tags: string[];
   platforms: DraftPlatforms;
+  /** R2 key for draft thumbnail; omitted when unset. */
+  thumbnailR2Key?: string;
+  thumbnailContentType?: string;
   /**
    * When this draft was first used to create an upload job.
    * Stored in the draft `document` JSON to avoid an expensive usage scan.
@@ -306,6 +309,14 @@ export function stringifyDraftDocumentForStorage(d: DraftDocumentStored): string
     visibility: d.visibility,
     tags: d.tags,
     platforms: d.platforms,
+    ...(typeof d.thumbnailR2Key === 'string' && d.thumbnailR2Key.trim() !== ''
+      ? {
+          thumbnailR2Key: d.thumbnailR2Key.trim(),
+          ...(typeof d.thumbnailContentType === 'string' && d.thumbnailContentType.trim() !== ''
+            ? { thumbnailContentType: d.thumbnailContentType.trim() }
+            : {}),
+        }
+      : {}),
     ...(typeof d.usedInUploadAt === 'string' && d.usedInUploadAt.trim() !== ''
       ? { usedInUploadAt: d.usedInUploadAt }
       : {}),
@@ -332,6 +343,14 @@ export function draftDocumentFromRow(row: Record<string, unknown>): DraftDocumen
     if (!isPlainObject(o)) {
       return { ...EMPTY_DOC };
     }
+    const thumbKey =
+      typeof o.thumbnailR2Key === 'string' && o.thumbnailR2Key.trim() !== ''
+        ? o.thumbnailR2Key.trim()
+        : undefined;
+    const thumbType =
+      typeof o.thumbnailContentType === 'string' && o.thumbnailContentType.trim() !== ''
+        ? o.thumbnailContentType.trim()
+        : undefined;
     return {
       targets: parseTargetsFromDocument(o.targets),
       title: typeof o.title === 'string' ? o.title : '',
@@ -339,6 +358,8 @@ export function draftDocumentFromRow(row: Record<string, unknown>): DraftDocumen
       visibility: visibilityFromRow(o.visibility),
       tags: tagsFromDocumentObject(o),
       platforms: normalizeDraftPlatforms(o.platforms),
+      ...(thumbKey !== undefined ? { thumbnailR2Key: thumbKey } : {}),
+      ...(thumbType !== undefined ? { thumbnailContentType: thumbType } : {}),
       usedInUploadAt: typeof o.usedInUploadAt === 'string' ? o.usedInUploadAt : undefined,
     };
   } catch {
@@ -364,6 +385,20 @@ export function parseDraftTargetsFromRequestBody(
     };
   }
   return { ok: true, value: unique };
+}
+
+/** Targets for minimal draft creation or PATCH that allows an empty selection until save. */
+export function parseDraftTargetsAllowEmpty(
+  value: unknown
+): { ok: true; value: ConnectedAccountPlatform[] } | { ok: false; error: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, error: 'targets must be an array of platform ids' };
+  }
+  const platforms = value.filter(isConnectedAccountPlatform);
+  if (platforms.length !== value.length) {
+    return { ok: false, error: 'targets contains unknown platform ids' };
+  }
+  return { ok: true, value: [...new Set(platforms)] };
 }
 
 /** Optional `tags` array on API bodies: strings only; unknown entries dropped. */
@@ -553,6 +588,8 @@ export function buildMetadataForPlatform(
       description: draft.description,
       tags,
       visibility,
+      thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
+      thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
       categoryId: yt?.categoryId?.trim() || undefined,
       madeForKids: yt?.madeForKids,
       defaultLanguage: yt?.defaultLanguage,
@@ -572,6 +609,8 @@ export function buildMetadataForPlatform(
     description: draft.description,
     tags,
     visibility,
+    thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
+    thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
     vimeoCategoryUri: vm?.categoryUri?.trim() || undefined,
     vimeo: vm,
   };

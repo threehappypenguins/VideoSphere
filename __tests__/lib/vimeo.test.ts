@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+const mockGetObjectWebStream = vi.fn();
+
+vi.mock('@/lib/r2', () => ({
+  getObjectWebStream: (...args: unknown[]) => mockGetObjectWebStream(...args),
+}));
+
 import * as vimeo from '@/lib/platforms/vimeo';
 
 describe('buildVimeoCategorySuggestBatchBody', () => {
@@ -139,9 +146,11 @@ describe('waitUntilVimeoUploadAndTranscodeComplete', () => {
 describe('uploadToVimeo', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    mockGetObjectWebStream.mockReset();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -154,6 +163,254 @@ describe('uploadToVimeo', () => {
       },
     });
   }
+
+  function makeThumbnailStream(): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([9, 8, 7, 6]));
+        controller.close();
+      },
+    });
+  }
+
+  it('uploads and activates a Vimeo thumbnail from R2', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+
+    const uploadLink = 'https://tus.example/upload';
+    const videoUri = 'https://api.vimeo.com/videos/99999';
+    const pictureUploadLink = 'https://i.vimeocdn.com/custom-thumbnail-upload';
+    const pictureUri = '/videos/99999/pictures/1234567';
+    let capturedPutContentType: string | undefined;
+
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: makeThumbnailStream(),
+      contentLength: 4,
+      contentType: 'image/jpeg',
+    });
+
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const method = options?.method;
+      const sUrl = String(url);
+
+      if (method === 'POST' && sUrl.includes('me/videos')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              upload: { upload_link: uploadLink },
+              uri: videoUri,
+            }),
+            { status: 201 }
+          )
+        );
+      }
+
+      if (method === 'PATCH' && sUrl === uploadLink) {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      if (method === 'HEAD' && sUrl === uploadLink) {
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+
+      if (method === 'POST' && sUrl.includes('/videos/99999/pictures')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              uri: pictureUri,
+              link: pictureUploadLink,
+            }),
+            { status: 201 }
+          )
+        );
+      }
+
+      if (method === 'PUT' && sUrl === pictureUploadLink) {
+        capturedPutContentType = (options?.headers as Record<string, string>)?.['Content-Type'];
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+
+      if (method === 'PATCH' && sUrl === 'https://api.vimeo.com/videos/99999/pictures/1234567') {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await vimeo.uploadToVimeo({
+      videoStream: makeStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        title: 'thumbnail test',
+        description: 'with thumbnail',
+        tags: [],
+        visibility: 'public',
+        thumbnailR2Key: 'drafts/draft-1/thumbnail.jpg',
+        thumbnailContentType: 'image/jpeg',
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mockGetObjectWebStream).toHaveBeenCalledWith('drafts/draft-1/thumbnail.jpg', {
+      signal: undefined,
+    });
+    expect(capturedPutContentType).toBe('image/jpeg');
+  });
+
+  it('fails when thumbnail activation retries are exhausted', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+
+    const uploadLink = 'https://tus.example/upload';
+    const videoUri = 'https://api.vimeo.com/videos/11111';
+    const pictureUploadLink = 'https://i.vimeocdn.com/custom-thumbnail-upload-2';
+    const pictureUri = '/videos/11111/pictures/7654321';
+
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: makeThumbnailStream(),
+      contentLength: 4,
+      contentType: 'image/png',
+    });
+
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const method = options?.method;
+      const sUrl = String(url);
+
+      if (method === 'POST' && sUrl.includes('me/videos')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              upload: { upload_link: uploadLink },
+              uri: videoUri,
+            }),
+            { status: 201 }
+          )
+        );
+      }
+
+      if (method === 'PATCH' && sUrl === uploadLink) {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      if (method === 'HEAD' && sUrl === uploadLink) {
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+
+      if (method === 'POST' && sUrl.includes('/videos/11111/pictures')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              uri: pictureUri,
+              link: pictureUploadLink,
+            }),
+            { status: 201 }
+          )
+        );
+      }
+
+      if (method === 'PUT' && sUrl === pictureUploadLink) {
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+
+      if (method === 'PATCH' && sUrl === 'https://api.vimeo.com/videos/11111/pictures/7654321') {
+        return Promise.resolve(new Response('still processing', { status: 503 }));
+      }
+
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const uploadPromise = vimeo.uploadToVimeo({
+      videoStream: makeStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        title: 'thumbnail activation fails',
+        description: 'retry exhaustion',
+        tags: [],
+        visibility: 'public',
+        thumbnailR2Key: 'drafts/draft-2/thumbnail.png',
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    await vi.runAllTimersAsync();
+    const result = await uploadPromise;
+
+    expect(result.ok).toBe(false);
+    const err = (result as { ok: false; error: { code: string; statusCode?: number } }).error;
+    expect(err.code).toBe('VIMEO_THUMBNAIL_ACTIVATE_FAILED');
+    expect(err.statusCode).toBe(503);
+  });
+
+  it('cancels the R2 stream when thumbnail exceeds MAX_VIMEO_THUMBNAIL_BYTES', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+    const uploadLink = 'https://tus.example/upload-size-test';
+    const videoUri = '/videos/size-test-99999';
+
+    const cancelSpy = vi.fn().mockResolvedValue(undefined);
+    const oversizedStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+        controller.close();
+      },
+      cancel: cancelSpy,
+    });
+
+    mockGetObjectWebStream.mockResolvedValueOnce({
+      stream: oversizedStream,
+      contentLength: 2 * 1024 * 1024 + 1,
+      contentType: 'image/jpeg',
+    });
+
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const method = options?.method;
+      const sUrl = String(url);
+
+      if (method === 'POST' && sUrl === 'https://api.vimeo.com/me/videos') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ upload: { upload_link: uploadLink }, uri: videoUri }), {
+            status: 200,
+          })
+        );
+      }
+      if (sUrl === uploadLink) {
+        return Promise.resolve(
+          new Response(null, { status: 204, headers: { 'upload-offset': '3' } })
+        );
+      }
+      if (sUrl.includes('fields=upload.status,transcode.status')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ upload: { status: 'complete' }, transcode: { status: 'complete' } }),
+            { status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await vimeo.uploadToVimeo({
+      videoStream: makeStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        title: 'size guard test',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        thumbnailR2Key: 'drafts/draft-size/thumb.jpg',
+        thumbnailContentType: 'image/jpeg',
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    expect(result.ok).toBe(false);
+    const err = (result as { ok: false; error: { code: string; statusCode?: number } }).error;
+    expect(err.code).toBe('VIMEO_THUMBNAIL_TOO_LARGE');
+    expect(err.statusCode).toBe(400);
+    expect(cancelSpy).toHaveBeenCalledOnce();
+  });
 
   it('does not mask likely network errors while required tags are not applied', async () => {
     const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);

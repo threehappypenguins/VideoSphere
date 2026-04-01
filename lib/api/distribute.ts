@@ -14,9 +14,12 @@ import type {
 } from '@/types';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
-import { deleteObject, getObjectWebStream } from '@/lib/r2';
+import { deleteObject, getObjectWebStream, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
+import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
+import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
-import { updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
+import { refreshTokenIfNeeded, type PlatformTokens } from '@/lib/platforms/token-refresh';
+import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import {
   type CreatePlatformUploadInput,
   getPlatformUploadsByJob,
@@ -24,6 +27,33 @@ import {
 } from '@/lib/repositories/platform-uploads';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
+import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
+
+export type { RetryabilityAssessment } from '@/lib/utils/retryability';
+export { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
+
+const PLATFORM_UPLOAD_TIMEOUT_MS = 20 * 60 * 1000;
+
+/**
+ * Aborts `signal` when the deadline elapses so R2 reads and platform `fetch` bodies stop.
+ * (Plain `Promise.race` would reject without cancelling the underlying upload.)
+ */
+async function runUploadWithDeadline<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutError = new Error(`${label} timed out after ${Math.floor(timeoutMs / 1000)}s`);
+  const timeoutId = setTimeout(() => {
+    controller.abort(timeoutError);
+  }, timeoutMs);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,29 +139,69 @@ async function runSinglePlatformUpload(
       return;
     }
 
-    let tokens = {
-      accessToken: connectedAccount.accessToken,
-      refreshToken: connectedAccount.refreshToken,
-      tokenExpiry: connectedAccount.tokenExpiry,
+    let tokens: PlatformTokens;
+    try {
+      tokens = await refreshTokenIfNeeded(connectedAccount);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await requireUpdatePlatformUploadStatus(
+        platformUpload.id,
+        'failed',
+        undefined,
+        undefined,
+        message
+      );
+      return;
+    }
+
+    // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
+    // we never buffer multi‑GB files in RAM (unlike a shared presigned fetch() body).
+    const executeUpload = async (signal: AbortSignal) => {
+      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
+        signal,
+      });
+      return platformUpload.platform === 'youtube'
+        ? uploadToYouTube({
+            videoStream: stream,
+            contentLength,
+            contentType,
+            metadata,
+            tokens,
+            signal,
+          })
+        : uploadToVimeo({
+            videoStream: stream,
+            contentLength,
+            contentType,
+            metadata,
+            tokens,
+            signal,
+          });
     };
 
-    const shouldRefreshYouTubeToken =
-      platformUpload.platform === 'youtube' &&
-      (() => {
-        const expiry = Date.parse(tokens.tokenExpiry ?? '');
-        if (Number.isNaN(expiry)) return false;
-        return expiry <= Date.now() + 60_000;
-      })();
+    let uploadResult = await runUploadWithDeadline(
+      executeUpload,
+      PLATFORM_UPLOAD_TIMEOUT_MS,
+      `${platformUpload.platform} upload`
+    );
 
-    if (shouldRefreshYouTubeToken) {
+    if (
+      platformUpload.platform === 'youtube' &&
+      'error' in uploadResult &&
+      uploadResult.error.statusCode === 401 &&
+      tokens.refreshToken
+    ) {
       const refreshed = await refreshYouTubeAccessToken({ refreshToken: tokens.refreshToken });
       if ('error' in refreshed) {
+        const statusSuffix =
+          refreshed.error.statusCode != null ? ` (HTTP ${refreshed.error.statusCode})` : '';
+        const detailsSuffix = refreshed.error.details ? ` Details: ${refreshed.error.details}` : '';
         await requireUpdatePlatformUploadStatus(
           platformUpload.id,
           'failed',
           undefined,
           undefined,
-          `${refreshed.error.code}: ${refreshed.error.message}${refreshed.error.details ? ` Details: ${refreshed.error.details}` : ''}`
+          `${refreshed.error.code}: ${refreshed.error.message}${statusSuffix}${detailsSuffix}`
         );
         return;
       }
@@ -142,48 +212,28 @@ async function runSinglePlatformUpload(
         tokenExpiry: refreshed.tokenExpiry,
       };
 
-      await updateTokens(
+      const persisted = await updateTokens(
         connectedAccount.id,
         refreshed.accessToken,
         refreshed.refreshToken,
         refreshed.tokenExpiry
       );
-    }
-
-    // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
-    // we never buffer multi‑GB files in RAM (unlike a shared presigned fetch() body).
-    const executeUpload = async () => {
-      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey);
-      return platformUpload.platform === 'youtube'
-        ? uploadToYouTube({ videoStream: stream, contentLength, contentType, metadata, tokens })
-        : uploadToVimeo({ videoStream: stream, contentLength, contentType, metadata, tokens });
-    };
-
-    let uploadResult = await executeUpload();
-
-    if (
-      platformUpload.platform === 'youtube' &&
-      'error' in uploadResult &&
-      uploadResult.error.statusCode === 401 &&
-      tokens.refreshToken
-    ) {
-      const refreshed = await refreshYouTubeAccessToken({ refreshToken: tokens.refreshToken });
-      if (refreshed.ok) {
-        tokens = {
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken,
-          tokenExpiry: refreshed.tokenExpiry,
-        };
-
-        await updateTokens(
-          connectedAccount.id,
-          refreshed.accessToken,
-          refreshed.refreshToken,
-          refreshed.tokenExpiry
+      if (persisted === null) {
+        await requireUpdatePlatformUploadStatus(
+          platformUpload.id,
+          'failed',
+          undefined,
+          undefined,
+          'Failed to persist refreshed YouTube tokens because the connected account no longer exists.'
         );
-
-        uploadResult = await executeUpload();
+        return;
       }
+
+      uploadResult = await runUploadWithDeadline(
+        executeUpload,
+        PLATFORM_UPLOAD_TIMEOUT_MS,
+        `${platformUpload.platform} upload`
+      );
     }
 
     if ('error' in uploadResult) {
@@ -210,7 +260,7 @@ async function runSinglePlatformUpload(
       null
     );
   } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Unexpected platform upload error';
+    const detail = messageFromThrown(error);
     const marked = await updatePlatformUploadStatus(
       platformUpload.id,
       'failed',
@@ -231,6 +281,16 @@ async function runSinglePlatformUpload(
 // Background orchestrator
 // ---------------------------------------------------------------------------
 
+export interface RunDistributionInBackgroundOptions {
+  /**
+   * Set for **subset** retries (e.g. POST .../jobs/[id]/retry): only `platformUploads` are
+   * re-run, but job completion and R2 deletion must reflect **all** platforms on the job
+   * (latest row per platform). Otherwise a successful partial retry could mark the job
+   * completed and delete R2 while another platform is still failed.
+   */
+  subsetRetry?: boolean;
+}
+
 /**
  * Run distribution for all platform uploads in parallel, then clean up R2.
  * Called via Next.js `after()` so the HTTP response returns immediately.
@@ -240,9 +300,11 @@ export async function runDistributionInBackground(
   userId: string,
   r2ObjectKey: string,
   platformUploads: PlatformUpload[],
-  metadataByPlatformId: Map<string, PlatformUploadMetadata>
+  metadataByPlatformId: Map<string, PlatformUploadMetadata>,
+  options?: RunDistributionInBackgroundOptions
 ): Promise<void> {
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
+  const subsetRetry = options?.subsetRetry === true;
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -293,6 +355,22 @@ export async function runDistributionInBackground(
       return;
     }
 
+    if (subsetRetry) {
+      const allLatest = latestPlatformUploadsPerPlatform(finalPlatformUploads);
+      const stillIncomplete = allLatest.filter((u) => u.status !== 'completed');
+      if (stillIncomplete.length > 0) {
+        const errorDetails = stillIncomplete
+          .map((u) => `${u.platform}: ${u.status}${u.errorMessage ? ` — ${u.errorMessage}` : ''}`)
+          .join('; ');
+        await updateUploadJobStatus(
+          jobId,
+          'failed',
+          `After retry, ${stillIncomplete.length} platform upload(s) still not completed: ${errorDetails}`
+        );
+        return;
+      }
+    }
+
     // All platform uploads succeeded — clean up the temporary R2 object.
     await deleteObject(r2ObjectKey).catch((cleanupError) => {
       console.error(
@@ -302,6 +380,90 @@ export async function runDistributionInBackground(
     });
 
     await updateUploadJobStatus(jobId, 'completed', null);
+
+    // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
+    // Capture the thumbnail key from the metadata snapshot used for this distribution so that
+    // a replacement uploaded during the (potentially multi-minute) job is not accidentally deleted.
+    const distributedThumbKey = [...metadataByPlatformId.values()].find(
+      (m) => m.thumbnailR2Key
+    )?.thumbnailR2Key;
+    try {
+      const jobRow = await getUploadJobById(jobId);
+      const draftIdForThumb = jobRow?.draftId ?? null;
+      if (!draftIdForThumb) {
+        return;
+      }
+      const draftForThumb = await getDraftById(draftIdForThumb);
+      const thumbKey = draftForThumb?.thumbnailR2Key;
+      if (!thumbKey || draftForThumb?.userId !== userId) {
+        return;
+      }
+      // If this job had no thumbnail, there is nothing to clean up — and we must not delete
+      // a thumbnail the user added after distribution started.
+      if (!distributedThumbKey) {
+        return;
+      }
+      // If the user replaced the thumbnail while distribution was running, the current key will
+      // differ from the one that was actually distributed; skip cleanup to avoid deleting it.
+      if (thumbKey !== distributedThumbKey) {
+        return;
+      }
+      const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(
+        thumbKey,
+        userId,
+        draftIdForThumb
+      );
+      if (!keyMatchesDraftThumbnailPrefix) {
+        console.warn(
+          `[distribute] Skipped draft thumbnail cleanup for draft ${draftIdForThumb} (unexpected key prefix; job ${jobId}); retaining key for later manual cleanup.`
+        );
+        return;
+      }
+
+      // Clear draft fields first (DB-first ordering, consistent with DELETE /api/drafts/:id/thumbnail).
+      // If updateDraft fails, the draft retains the key and the R2 object is still intact,
+      // so there is no stale-key corruption. If deleteObject later fails, the draft is already
+      // clean and the orphaned object can be swept up later.
+      const MAX_UPDATE_DRAFT_ATTEMPTS = 3;
+      let draftCleared = false;
+      for (let attempt = 1; attempt <= MAX_UPDATE_DRAFT_ATTEMPTS; attempt++) {
+        try {
+          await updateDraft(draftIdForThumb, {
+            thumbnailR2Key: null,
+            thumbnailContentType: null,
+          });
+          draftCleared = true;
+          break;
+        } catch (updateErr) {
+          if (attempt < MAX_UPDATE_DRAFT_ATTEMPTS) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 500 * attempt));
+          } else {
+            console.error(
+              `[distribute] Failed to clear thumbnail fields on draft ${draftIdForThumb} ` +
+                `(key "${thumbKey}") after ${MAX_UPDATE_DRAFT_ATTEMPTS} attempts ` +
+                `(job ${jobId}); retaining R2 key for retry.`,
+              updateErr
+            );
+          }
+        }
+      }
+      if (!draftCleared) {
+        // Retain key/type so the next cleanup attempt can still find and delete the R2 object.
+        return;
+      }
+
+      // Best-effort R2 delete after confirmed DB clear.
+      try {
+        await deleteObject(thumbKey);
+      } catch (thumbErr) {
+        console.error(`[distribute] Failed to delete draft thumbnail for job ${jobId}:`, thumbErr);
+      }
+    } catch (thumbCleanupErr) {
+      console.error(
+        `[distribute] Draft thumbnail cleanup failed after job ${jobId} completed (non-fatal):`,
+        thumbCleanupErr
+      );
+    }
   } catch (error) {
     console.error(`[distribute] Background distribution failed for job ${jobId}:`, error);
     await updateUploadJobStatus(

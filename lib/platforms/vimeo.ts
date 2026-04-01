@@ -1,4 +1,10 @@
 import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
+import {
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
+import { getObjectWebStream } from '@/lib/r2';
+import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadMetadata,
   PlatformUploadResult,
@@ -11,6 +17,8 @@ interface UploadToVimeoInput {
   contentType?: string;
   metadata: PlatformUploadMetadata;
   tokens: PlatformUploadTokens;
+  /** When set (e.g. distribute deadline), aborts R2-backed fetches and polling so timeouts stop real work. */
+  signal?: AbortSignal;
 }
 
 interface VimeoCreateResponse {
@@ -21,6 +29,27 @@ interface VimeoCreateResponse {
 }
 
 const VIMEO_CREATE_VIDEO_URL = 'https://api.vimeo.com/me/videos';
+
+const MAX_VIMEO_THUMBNAIL_BYTES = MAX_DRAFT_THUMBNAIL_BYTES;
+
+/**
+ * PUT to Vimeo's thumbnail upload_link must use image/jpeg or image/png. R2 may report
+ * application/octet-stream; prefer draft metadata (validated at upload) then R2 if valid.
+ */
+function vimeoThumbnailPutContentType(
+  metadataCt: string | undefined,
+  r2ContentType: string
+): string {
+  const meta = metadataCt?.trim().toLowerCase();
+  if (meta && isAllowedDraftThumbnailContentType(meta)) {
+    return meta;
+  }
+  const fromR2 = r2ContentType.trim().toLowerCase();
+  if (isAllowedDraftThumbnailContentType(fromR2)) {
+    return fromR2;
+  }
+  return 'image/jpeg';
+}
 
 function visibilityToVimeoPrivacy(
   visibility: PlatformUploadVisibility
@@ -59,6 +88,13 @@ function extractVimeoVideoId(uri?: string): string | null {
   return parts.length > 0 ? parts[parts.length - 1] : null;
 }
 
+/** `uri` from a picture or video resource — full `https://api.vimeo.com/...` URL. */
+function vimeoApiAbsoluteUrl(pathOrUrl: string): string {
+  const s = pathOrUrl.trim();
+  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  return `https://api.vimeo.com${s.startsWith('/') ? s : `/${s}`}`;
+}
+
 /** API path `videos/{id}` — handles `uri` as `/videos/…` or absolute `https://api.vimeo.com/videos/…`. */
 function vimeoVideoApiBasePath(uri: string): string {
   const s = uri.trim();
@@ -74,6 +110,29 @@ function vimeoVideoApiBasePath(uri: string): string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Like `delay` but rejects promptly when `signal` aborts (used under upload deadlines). */
+function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return delay(ms);
+  if (signal.aborted) {
+    return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('Aborted'));
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    const id = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(id);
+      cleanup();
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 const vimeoJsonHeaders = (accessToken: string) => ({
@@ -194,10 +253,11 @@ function vimeoStatusProbeNetworkRetryDelayMs(consecutiveNetworkFailures: number)
 export async function waitUntilVimeoUploadAndTranscodeComplete(
   videoBasePath: string,
   accessToken: string,
-  opts?: { deadlineMs?: number; pollIntervalMs?: number }
+  opts?: { deadlineMs?: number; pollIntervalMs?: number; signal?: AbortSignal }
 ): Promise<void> {
   const deadlineMs = opts?.deadlineMs ?? 300_000;
   const pollIntervalMs = opts?.pollIntervalMs ?? 2000;
+  const signal = opts?.signal;
   const deadline = Date.now() + deadlineMs;
   let probeNonOkStreak = 0;
   let networkFailStreak = 0;
@@ -207,7 +267,10 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
     try {
       res = await fetch(
         `https://api.vimeo.com/${videoBasePath}?fields=upload.status,transcode.status`,
-        { headers: vimeoReadHeaders(accessToken) }
+        {
+          headers: vimeoReadHeaders(accessToken),
+          ...(signal ? { signal } : {}),
+        }
       );
     } catch {
       networkFailStreak++;
@@ -218,7 +281,7 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
           'Timed out waiting for Vimeo upload/transcode status (network errors while polling).'
         );
       }
-      await delay(waitMs);
+      await delayOrAbort(waitMs, signal);
       continue;
     }
 
@@ -234,7 +297,7 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
           { statusCode: res.status, details }
         );
       }
-      await delay(waitMs);
+      await delayOrAbort(waitMs, signal);
       continue;
     }
 
@@ -265,7 +328,7 @@ export async function waitUntilVimeoUploadAndTranscodeComplete(
     if (Date.now() + pollIntervalMs >= deadline) {
       break;
     }
-    await delay(pollIntervalMs);
+    await delayOrAbort(pollIntervalMs, signal);
   }
 
   throw new VimeoIngestWaitFailedError(
@@ -317,14 +380,16 @@ function wantedTagsArePresentOnVideo(wanted: string[], onVideo: string[]): boole
 async function verifyVimeoTagsApplied(
   videoBasePath: string,
   accessToken: string,
-  wanted: string[]
+  wanted: string[],
+  signal?: AbortSignal
 ): Promise<boolean> {
   const attempts = 8;
   for (let i = 0; i < attempts; i++) {
-    if (i > 0) await delay(750);
+    if (i > 0) await delayOrAbort(750, signal);
     // Avoid `?per_page=` here — some API builds respond 405 on GET …/tags with unknown query params.
     const res = await fetch(`https://api.vimeo.com/${videoBasePath}/tags`, {
       headers: vimeoReadHeaders(accessToken),
+      ...(signal ? { signal } : {}),
     });
     if (!res.ok) continue;
     const json: unknown = await res.json().catch(() => null);
@@ -345,7 +410,8 @@ async function verifyVimeoTagsApplied(
 async function setVimeoVideoTagsAllStrategies(
   videoBasePath: string,
   accessToken: string,
-  tags: string[]
+  tags: string[],
+  signal?: AbortSignal
 ): Promise<
   { ok: true } | { ok: false; status: number; body: string | undefined; retryAfterMs: number }
 > {
@@ -363,6 +429,7 @@ async function setVimeoVideoTagsAllStrategies(
       method,
       headers: h,
       ...(body !== undefined ? { body } : {}),
+      ...(signal ? { signal } : {}),
     });
   };
 
@@ -384,7 +451,7 @@ async function setVimeoVideoTagsAllStrategies(
   if (res.status === 429 || res.status === 503) {
     return asRateLimitError(res, 0);
   }
-  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags))) {
+  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal))) {
     return { ok: true };
   }
 
@@ -399,7 +466,7 @@ async function setVimeoVideoTagsAllStrategies(
     if (res.status === 429 || res.status === 503) {
       return asRateLimitError(res, 0);
     }
-    if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags))) {
+    if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal))) {
       return { ok: true };
     }
   }
@@ -409,7 +476,7 @@ async function setVimeoVideoTagsAllStrategies(
   if (res.status === 429 || res.status === 503) {
     return asRateLimitError(res, 0);
   }
-  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags))) {
+  if (res.ok && (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal))) {
     return { ok: true };
   }
 
@@ -439,11 +506,14 @@ async function setVimeoVideoTagsAllStrategies(
     }
   }
 
-  if (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags)) {
+  if (await verifyVimeoTagsApplied(videoBasePath, accessToken, tags, signal)) {
     return { ok: true };
   }
 
-  const probe = await fetch(url, { headers: vimeoReadHeaders(accessToken) });
+  const probe = await fetch(url, {
+    headers: vimeoReadHeaders(accessToken),
+    ...(signal ? { signal } : {}),
+  });
   const listed = probe.ok ? await probe.text().catch(() => '') : '';
   return {
     ok: false,
@@ -460,13 +530,14 @@ const VIMEO_TAG_MAX_ATTEMPTS = 5;
 async function setVimeoVideoTagsWithRetry(
   videoBasePath: string,
   accessToken: string,
-  tags: string[]
+  tags: string[],
+  signal?: AbortSignal
 ): Promise<{ ok: true } | { ok: false; status: number; body: string | undefined }> {
   let lastStatus = 0;
   let lastBody: string | undefined;
 
   for (let attempt = 0; attempt < VIMEO_TAG_MAX_ATTEMPTS; attempt++) {
-    const r = await setVimeoVideoTagsAllStrategies(videoBasePath, accessToken, tags);
+    const r = await setVimeoVideoTagsAllStrategies(videoBasePath, accessToken, tags, signal);
     if (r.ok === false) {
       lastStatus = r.status;
       lastBody = r.body;
@@ -477,7 +548,7 @@ async function setVimeoVideoTagsWithRetry(
       }
 
       if (attempt < VIMEO_TAG_MAX_ATTEMPTS - 1) {
-        await delay(r.retryAfterMs);
+        await delayOrAbort(r.retryAfterMs, signal);
       }
       continue;
     }
@@ -491,6 +562,8 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
   if (!input.tokens.accessToken) {
     return toError('VIMEO_TOKEN_MISSING', 'Vimeo access token is missing.');
   }
+
+  const { signal } = input;
 
   let createdVideoId: string | null = null;
   let tusUploadAccepted = false;
@@ -563,6 +636,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         Accept: 'application/vnd.vimeo.*+json;version=3.4',
       },
       body: JSON.stringify(createBody),
+      ...(signal ? { signal } : {}),
     });
 
     if (!createResponse.ok) {
@@ -598,6 +672,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       },
       body: videoSource.stream,
       duplex: 'half',
+      ...(signal ? { signal } : {}),
     };
 
     const tusUploadResponse = await fetch(uploadLink, tusUploadInit);
@@ -617,6 +692,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         'Tus-Resumable': '1.0.0',
         Accept: 'application/vnd.vimeo.*+json;version=3.4',
       },
+      ...(signal ? { signal } : {}),
     }).catch(() => undefined);
 
     const categoryUriRaw = vm?.categoryUri?.trim() || input.metadata.vimeoCategoryUri?.trim();
@@ -626,7 +702,9 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     categoryDone = !Boolean(categoryUriRaw);
 
     if (needsIngestWait) {
-      await waitUntilVimeoUploadAndTranscodeComplete(videoBasePath, input.tokens.accessToken);
+      await waitUntilVimeoUploadAndTranscodeComplete(videoBasePath, input.tokens.accessToken, {
+        signal,
+      });
       ingestWaitDone = true;
     }
 
@@ -634,7 +712,8 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       const tagResult = await setVimeoVideoTagsWithRetry(
         videoBasePath,
         input.tokens.accessToken,
-        safeTags
+        safeTags,
+        signal
       );
       if (tagResult.ok === false) {
         return toError(
@@ -659,6 +738,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         method: 'PUT',
         headers: vimeoCategorySuggestHeaders(input.tokens.accessToken),
         body: JSON.stringify(batchBody),
+        ...(signal ? { signal } : {}),
       });
       if (!catRes.ok) {
         const tagsNote =
@@ -671,6 +751,144 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         );
       }
       categoryDone = true;
+    }
+
+    const thumbKey = input.metadata.thumbnailR2Key?.trim();
+    if (thumbKey) {
+      let thumbStream: ReadableStream<Uint8Array>;
+      let thumbLen: number;
+      let thumbCt: string;
+      try {
+        const opened = await getObjectWebStream(thumbKey, { signal });
+        thumbStream = opened.stream;
+        thumbLen = opened.contentLength;
+        thumbCt = opened.contentType;
+      } catch (err) {
+        return toError(
+          'VIMEO_THUMBNAIL_R2_FAILED',
+          'Could not read thumbnail from storage for Vimeo.',
+          500,
+          messageFromThrown(err)
+        );
+      }
+      if (thumbLen > MAX_VIMEO_THUMBNAIL_BYTES) {
+        await thumbStream.cancel().catch(() => undefined);
+        return toError(
+          'VIMEO_THUMBNAIL_TOO_LARGE',
+          'Thumbnail exceeds the maximum size allowed for upload.',
+          400
+        );
+      }
+      const imageBuf = await new Response(thumbStream).arrayBuffer();
+      // Thumbnail workflow (Vimeo API 3.4): POST picture resource → PUT binary → PATCH same
+      // picture `uri` with `{ "active": true }`. POST `{ active: true }` does not select the image
+      // until after upload; activation is a separate step.
+      // @see https://developer.vimeo.com/api/upload/thumbnails
+      const pictureCreate = await fetch(`https://api.vimeo.com/${videoBasePath}/pictures`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${input.tokens.accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/vnd.vimeo.*+json;version=3.4',
+        },
+        body: JSON.stringify({}),
+        ...(signal ? { signal } : {}),
+      });
+      if (!pictureCreate.ok) {
+        return toError(
+          'VIMEO_THUMBNAIL_CREATE_FAILED',
+          'Vimeo upload succeeded but creating a thumbnail slot failed.',
+          pictureCreate.status,
+          await pictureCreate.text().catch(() => undefined)
+        );
+      }
+      const picPayload = (await pictureCreate.json().catch(() => ({}))) as {
+        uri?: string;
+        link?: string;
+        upload_link?: string;
+      };
+      const uploadLink = picPayload.link ?? picPayload.upload_link;
+      const pictureUri = typeof picPayload.uri === 'string' ? picPayload.uri.trim() : '';
+      if (!uploadLink) {
+        return toError(
+          'VIMEO_THUMBNAIL_LINK_MISSING',
+          'Vimeo did not return a thumbnail upload URL.',
+          502
+        );
+      }
+      if (!pictureUri) {
+        return toError(
+          'VIMEO_THUMBNAIL_URI_MISSING',
+          'Vimeo did not return a picture URI for the custom thumbnail (cannot activate).',
+          502
+        );
+      }
+      const putThumbContentType = vimeoThumbnailPutContentType(
+        input.metadata.thumbnailContentType,
+        thumbCt
+      );
+      const putThumb = await fetch(uploadLink, {
+        method: 'PUT',
+        body: imageBuf,
+        headers: {
+          'Content-Type': putThumbContentType,
+          'Content-Length': String(imageBuf.byteLength),
+        },
+        ...(signal ? { signal } : {}),
+      });
+      if (!putThumb.ok) {
+        return toError(
+          'VIMEO_THUMBNAIL_UPLOAD_FAILED',
+          'Vimeo upload succeeded but uploading the custom thumbnail failed.',
+          putThumb.status,
+          await putThumb.text().catch(() => undefined)
+        );
+      }
+
+      const activateUrl = vimeoApiAbsoluteUrl(pictureUri);
+      const maxActivateAttempts = 5;
+      const activateDelayMs = 2000;
+      let activated = false;
+      let lastActivateStatus = 0;
+      let lastActivateBody: string | undefined;
+
+      for (let attempt = 0; attempt < maxActivateAttempts; attempt++) {
+        if (attempt > 0) {
+          await delayOrAbort(activateDelayMs, signal);
+        }
+        const patchThumb = await fetch(activateUrl, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${input.tokens.accessToken}`,
+            'Content-Type': 'application/json',
+            Accept: 'application/vnd.vimeo.*+json;version=3.4',
+          },
+          body: JSON.stringify({ active: true }),
+          ...(signal ? { signal } : {}),
+        });
+        lastActivateStatus = patchThumb.status;
+        lastActivateBody = await patchThumb.text().catch(() => undefined);
+
+        if (patchThumb.ok) {
+          activated = true;
+          break;
+        }
+
+        const permanentFailure =
+          patchThumb.status === 401 || patchThumb.status === 404 || patchThumb.status === 405;
+        if (permanentFailure || attempt === maxActivateAttempts - 1) {
+          break;
+        }
+      }
+
+      if (!activated) {
+        return toError(
+          'VIMEO_THUMBNAIL_ACTIVATE_FAILED',
+          'Vimeo received the thumbnail but setting it as the active thumbnail failed. You can pick it manually in Vimeo video settings.',
+          lastActivateStatus || 502,
+          lastActivateBody
+        );
+      }
     }
 
     return {
@@ -703,7 +921,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       'VIMEO_UPLOAD_ERROR',
       'Unexpected Vimeo upload error.',
       500,
-      error instanceof Error ? error.message : String(error)
+      messageFromThrown(error)
     );
   }
 }
