@@ -4,6 +4,7 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { CardNoiseBackground, PAGE_SEEDS } from '@/components/ui/GaussianNoiseBackground';
 
 export const metadata: Metadata = {
   title: 'VideoSphere — Upload Once, Distribute Everywhere',
@@ -228,7 +229,8 @@ export default function HomePage() {
 
           <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-3">
             {/* Testimonial 1 */}
-            <div className="rounded-xl border border-border p-8">
+            <div className="relative isolate overflow-hidden rounded-xl border border-border bg-background p-8">
+              <CardNoiseBackground seed={PAGE_SEEDS['/']} />
               <p className="text-sm text-muted-foreground">
                 &ldquo;VideoSphere cut my upload workflow in half. I used to spend an hour copying
                 descriptions between platforms — now it takes five minutes.&rdquo;
@@ -240,7 +242,8 @@ export default function HomePage() {
             </div>
 
             {/* Testimonial 2 */}
-            <div className="rounded-xl border border-border p-8">
+            <div className="relative isolate overflow-hidden rounded-xl border border-border bg-background p-8">
+              <CardNoiseBackground seed={PAGE_SEEDS['/']} />
               <p className="text-sm text-muted-foreground">
                 &ldquo;The AI metadata suggestions are surprisingly good. They save me from staring
                 at a blank description field every single upload.&rdquo;
@@ -252,7 +255,8 @@ export default function HomePage() {
             </div>
 
             {/* Testimonial 3 */}
-            <div className="rounded-xl border border-border p-8">
+            <div className="relative isolate overflow-hidden rounded-xl border border-border bg-background p-8">
+              <CardNoiseBackground seed={PAGE_SEEDS['/']} />
               <p className="text-sm text-muted-foreground">
                 &ldquo;Having all my platform analytics in one place finally gives me a clear
                 picture of which content actually resonates with my audience.&rdquo;

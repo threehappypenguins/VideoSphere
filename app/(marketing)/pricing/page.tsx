@@ -20,7 +20,7 @@ export default function PricingPage() {
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
             Simple, transparent pricing
           </h1>
-          <p className="mt-4 text-lg text-muted-foreground">
+          <p className="text-shadow-bg mt-4 text-lg font-medium text-foreground">
             VideoSphere is free to start. Upgrade to Supporter whenever you&apos;re ready to unlock
             unlimited uploads and premium features — no subscription required.
           </p>

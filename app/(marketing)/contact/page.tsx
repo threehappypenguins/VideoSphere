@@ -63,7 +63,7 @@ export default function ContactPage() {
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
             Get in Touch
           </h1>
-          <p className="mt-4 text-lg text-muted-foreground">
+          <p className="text-shadow-bg mt-4 text-lg font-medium text-foreground">
             Have a question or want to learn more? Fill out the form below and we&apos;ll get back
             to you as soon as possible.
           </p>

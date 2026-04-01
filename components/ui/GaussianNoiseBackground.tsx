@@ -88,6 +88,137 @@ interface GaussianNoiseBackgroundProps {
   grainBrightness?: number;
 }
 
+// ── Card / Modal variant ───────────────────────────────────────────────────────
+// Same noise pipeline as GaussianNoiseBackground but:
+//  • Positioned absolute (fills its nearest positioned ancestor — card, modal…)
+//  • Perlin cloud and grain layers are coloured with --secondary instead of the
+//    foreground, so the noise blends from the page background to the secondary
+//    brand colour.
+//  • rounded-[inherit] so the noise is clipped to the parent's border-radius.
+//
+// Usage: place as the *first* child of a card/modal and ensure the parent has
+// `relative isolate overflow-hidden`. The `isolate` creates a stacking context
+// so the component's `-z-10` is scoped inside the card, not the page.
+//
+//   <div className="relative overflow-hidden rounded-xl …">
+//     <CardNoiseBackground seed={PAGE_SEEDS['/dashboard']} />
+//     {/* card content */}
+//   </div>
+
+export function CardNoiseBackground({
+  className = '',
+  seed = 42,
+  blendMode = 'soft-light',
+  cloudOpacity = 1,
+  grainOpacity = 1,
+  harmony = 3,
+  amplitude = 1,
+  spread = 0.0013,
+  contrast = 3,
+  brightness = -0.4,
+  ditherStrength = 0.08,
+  grainHarmony = 4,
+  grainSpread = 0.6,
+  grainContrast = 5,
+  grainBrightness = -0.2,
+}: GaussianNoiseBackgroundProps) {
+  const clampedHarmony = Math.max(1, Math.min(8, Math.round(harmony)));
+  const clampedGrainHarmony = Math.max(1, Math.min(8, Math.round(grainHarmony)));
+  const clampedAmplitude = Math.max(0, Math.min(1, amplitude));
+  const clampedDitherStrength = Math.max(0, Math.min(0.25, ditherStrength));
+  const safeBlend = ALLOWED_BLEND_MODES.has(blendMode) ? blendMode : 'soft-light';
+
+  const cloudIntercept = (1 - contrast) / 2 + brightness;
+  const grainIntercept = (1 - grainContrast) / 2 + grainBrightness;
+
+  const cloudFilterId = `card-perlin-${seed}`;
+  const grainFilterId = `card-grain-${seed}`;
+
+  return (
+    <div
+      className={`absolute inset-0 -z-10 overflow-hidden rounded-[inherit] ${className}`}
+      aria-hidden="true"
+    >
+      {/* Perlin cloud layer — secondary-coloured, masked by fractal noise */}
+      <svg
+        className="absolute inset-0 h-full w-full text-[var(--card-noise-color)]"
+        style={{ opacity: cloudOpacity * clampedAmplitude }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <filter id={cloudFilterId} x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency={spread}
+              numOctaves={clampedHarmony}
+              seed={seed}
+              stitchTiles="stitch"
+              result="turb"
+            />
+            <feColorMatrix type="luminanceToAlpha" in="turb" result="alpha" />
+            <feComponentTransfer in="alpha" result="curved">
+              <feFuncA type="linear" slope={contrast} intercept={cloudIntercept} />
+            </feComponentTransfer>
+            <feGaussianBlur in="curved" stdDeviation="3" result="smooth" />
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="1.6"
+              numOctaves="1"
+              seed={seed + 2000}
+              stitchTiles="stitch"
+              result="dither"
+            />
+            <feColorMatrix type="luminanceToAlpha" in="dither" result="ditherAlpha" />
+            <feComponentTransfer in="ditherAlpha" result="ditherCentered">
+              <feFuncA
+                type="linear"
+                slope={clampedDitherStrength}
+                intercept={-clampedDitherStrength / 2}
+              />
+            </feComponentTransfer>
+            <feComposite
+              in="smooth"
+              in2="ditherCentered"
+              operator="arithmetic"
+              k2="1"
+              k3="1"
+              result="dithered"
+            />
+            <feComposite in="SourceGraphic" in2="dithered" operator="in" />
+          </filter>
+        </defs>
+        <rect width="100%" height="100%" fill="currentColor" filter={`url(#${cloudFilterId})`} />
+      </svg>
+
+      {/* Gaussian grain layer — secondary-coloured fine noise, blended onto clouds */}
+      <svg
+        className="absolute inset-0 h-full w-full text-[var(--card-noise-color)]"
+        style={{ mixBlendMode: safeBlend, opacity: grainOpacity }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <filter id={grainFilterId} x="0%" y="0%" width="100%" height="100%">
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency={grainSpread}
+              numOctaves={clampedGrainHarmony}
+              seed={seed + 1000}
+              stitchTiles="stitch"
+              result="turb"
+            />
+            <feColorMatrix type="luminanceToAlpha" in="turb" result="alpha" />
+            <feComponentTransfer in="alpha" result="curved">
+              <feFuncA type="linear" slope={grainContrast} intercept={grainIntercept} />
+            </feComponentTransfer>
+            <feComposite in="SourceGraphic" in2="curved" operator="in" />
+          </filter>
+        </defs>
+        <rect width="100%" height="100%" fill="currentColor" filter={`url(#${grainFilterId})`} />
+      </svg>
+    </div>
+  );
+}
+
 // ── Component (Server) ────────────────────────────────────────────────────────
 // Fully server-rendered via SVG feTurbulence — no client JS, no canvas,
 // no useEffect. The browser's SVG filter pipeline handles noise generation

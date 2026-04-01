@@ -10,7 +10,7 @@ export default function ScheduledUploadsPage() {
     <div className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-2xl font-bold text-foreground">Scheduled Uploads</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-lg text-foreground text-shadow-bg">
           Plan and review videos queued for future publishing across your connected platforms.
         </p>
 
