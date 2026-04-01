@@ -47,6 +47,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
   const pathname = usePathname();
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(explicitUserId ?? null);
   const [isResolvingUser, setIsResolvingUser] = useState(explicitUserId === undefined);
+  const [hasResolvedSession, setHasResolvedSession] = useState(explicitUserId !== undefined);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
 
@@ -54,6 +55,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
     if (explicitUserId !== undefined) {
       setResolvedUserId(explicitUserId ?? null);
       setIsResolvingUser(false);
+      setHasResolvedSession(true);
     }
   }, [explicitUserId]);
 
@@ -63,7 +65,11 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
     let isMounted = true;
 
     async function loadSessionUserId() {
-      setIsResolvingUser(true);
+      const shouldGateReady = !hasResolvedSession;
+
+      if (shouldGateReady) {
+        setIsResolvingUser(true);
+      }
 
       try {
         const response = await fetch('/api/auth/session', {
@@ -88,7 +94,10 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
         setResolvedUserId(null);
       } finally {
         if (isMounted) {
-          setIsResolvingUser(false);
+          if (shouldGateReady) {
+            setIsResolvingUser(false);
+          }
+          setHasResolvedSession(true);
         }
       }
     }
@@ -98,7 +107,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
     return () => {
       isMounted = false;
     };
-  }, [explicitUserId, pathname]);
+  }, [explicitUserId, hasResolvedSession, pathname]);
 
   // Load onboarding state from API (or localStorage fallback)
   useEffect(() => {

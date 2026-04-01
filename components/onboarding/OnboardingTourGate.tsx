@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { OnboardingTour } from './OnboardingTour';
 
@@ -11,12 +11,13 @@ import { OnboardingTour } from './OnboardingTour';
  */
 export function OnboardingTourGate() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  // Keep this list aligned with OnboardingTour route checks.
+  // Keep this predicate aligned with OnboardingTour route/query checks.
   const isOnboardingRoute =
     pathname === '/dashboard' ||
-    pathname === '/dashboard/drafts' ||
-    pathname === '/profile/connections';
+    (pathname === '/dashboard/drafts' && searchParams.has('onboardingFlow')) ||
+    (pathname === '/profile/connections' && searchParams.has('onboardingFlow'));
   if (!isOnboardingRoute) return null;
 
   return (
