@@ -76,6 +76,8 @@ interface GaussianNoiseBackgroundProps {
   contrast?: number;
   /** Brightness shift for the cloud noise after contrast is applied (−1 to 1, default 0). Negative = darker. */
   brightness?: number;
+  /** Strength of subtle alpha dithering for cloud mask anti-banding (0–0.25). */
+  ditherStrength?: number;
   /** Number of octaves for the grain noise (1–8). More octaves = finer detail. */
   grainHarmony?: number;
   /** Base frequency of the grain noise — higher = finer grain (e.g. 0.5–2.0). */
@@ -97,11 +99,12 @@ export function GaussianNoiseBackground({
   blendMode = 'soft-light',
   cloudOpacity = 1,
   grainOpacity = 1,
-  harmony = 0,
+  harmony = 3,
   amplitude = 1,
   spread = 0.0013,
   contrast = 3,
   brightness = -0.4,
+  ditherStrength = 0.08,
   grainHarmony = 4,
   grainSpread = 0.6,
   grainContrast = 5,
@@ -110,6 +113,7 @@ export function GaussianNoiseBackground({
   const clampedHarmony = Math.max(1, Math.min(8, Math.round(harmony)));
   const clampedGrainHarmony = Math.max(1, Math.min(8, Math.round(grainHarmony)));
   const clampedAmplitude = Math.max(0, Math.min(1, amplitude));
+  const clampedDitherStrength = Math.max(0, Math.min(0.25, ditherStrength));
   const safeBlend = ALLOWED_BLEND_MODES.has(blendMode) ? blendMode : 'soft-light';
 
   // Linear transfer: output = slope * input + intercept
@@ -143,7 +147,31 @@ export function GaussianNoiseBackground({
               <feFuncA type="linear" slope={contrast} intercept={cloudIntercept} />
             </feComponentTransfer>
             <feGaussianBlur in="curved" stdDeviation="3" result="smooth" />
-            <feComposite in="SourceGraphic" in2="smooth" operator="in" />
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="1.6"
+              numOctaves="1"
+              seed={seed + 2000}
+              stitchTiles="stitch"
+              result="dither"
+            />
+            <feColorMatrix type="luminanceToAlpha" in="dither" result="ditherAlpha" />
+            <feComponentTransfer in="ditherAlpha" result="ditherCentered">
+              <feFuncA
+                type="linear"
+                slope={clampedDitherStrength}
+                intercept={-clampedDitherStrength / 2}
+              />
+            </feComponentTransfer>
+            <feComposite
+              in="smooth"
+              in2="ditherCentered"
+              operator="arithmetic"
+              k2="1"
+              k3="1"
+              result="dithered"
+            />
+            <feComposite in="SourceGraphic" in2="dithered" operator="in" />
           </filter>
         </defs>
         <rect width="100%" height="100%" fill="currentColor" filter={`url(#${cloudFilterId})`} />
