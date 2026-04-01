@@ -3,12 +3,24 @@
 // pattern. These are resolved at build time — no client JS required.
 
 export const PAGE_SEEDS: Record<string, number> = {
+  // Marketing
   '/': 42,
-  '/dashboard': 137,
-  '/profile': 256,
-  '/upload': 389,
-  '/settings': 512,
+  '/about': 498,
+  '/pricing': 317,
+  '/contact': 455,
   '/test-background': 77,
+  // Auth
+  '/login': 603,
+  '/signup': 721,
+  // Dashboard
+  '/dashboard': 137,
+  '/dashboard/upload': 844,
+  '/dashboard/scheduled': 966,
+  '/dashboard/drafts': 1088,
+  '/dashboard/history': 1201,
+  // Profile
+  '/profile': 256,
+  '/profile/connections': 1345,
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────────

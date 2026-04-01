@@ -24,6 +24,7 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
+import { ThemedBackground } from '@/components/ui/ThemedBackground';
 
 // --- Font Configuration ---
 // next/font automatically optimizes fonts — no external requests at runtime.
@@ -65,6 +66,7 @@ export default function RootLayout({
       <head></head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system">
+          <ThemedBackground />
           <Navbar />
           <main className="min-h-screen">{children}</main>
           <Footer />
