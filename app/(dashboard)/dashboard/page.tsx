@@ -28,7 +28,7 @@ export default function DashboardPage() {
     <div className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         {/* --- Header --- */}
-        <div>
+        <div data-tour="dashboard-overview">
           <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
           <p className="mt-2 text-lg text-foreground text-shadow-bg">
             Welcome back! Here&apos;s an overview of your account.
@@ -61,21 +61,33 @@ export default function DashboardPage() {
           <div className="mt-4 flex flex-wrap gap-3">
             <Link
               href="/dashboard/drafts?openCreateDraft=true"
+              data-tour="go-to-drafts-help"
               className="rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               New upload
             </Link>
             <Link
               href="/dashboard/drafts"
+              data-tour="ai-metadata-hint"
               className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors bg-background/70 hover:bg-muted"
             >
               View drafts
+            </Link>
+            <Link
+              href="/profile/connections"
+              data-tour="connected-accounts-link"
+              className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Connected accounts
             </Link>
           </div>
         </div>
 
         {/* --- Upload Jobs --- */}
-        <div className="mt-8 rounded-xl border border-border bg-background p-8">
+        <div
+          data-tour="distribution-jobs"
+          className="mt-8 rounded-xl border border-border bg-background p-8"
+        >
           <h2 className="text-xl font-semibold text-foreground">Upload jobs</h2>
           <div className="mt-6 overflow-x-auto">
             <table className="w-full text-sm">

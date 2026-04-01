@@ -1,20 +1,8 @@
-// =============================================================================
-// DASHBOARD LAYOUT
-// =============================================================================
-// Wraps all routes under app/(dashboard)/ with a responsive navigation shell.
-//
-// Desktop (≥ md): sticky left sidebar (w-56).
-// Mobile (< md):  horizontally-scrollable tab bar above page content.
-//
-// Active route is highlighted via usePathname().
-// Route protection is handled by middleware/proxy.ts — no auth checks here.
-// =============================================================================
-
 'use client';
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Toaster } from '@/components/ui/sonner';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', exact: true },
@@ -25,26 +13,20 @@ const NAV_ITEMS = [
     tourIdDesktop: 'drafts-nav-link-desktop',
     tourIdMobile: 'drafts-nav-link-mobile',
   },
-  { label: 'Upload', href: '/dashboard/upload', exact: false },
-  { label: 'Scheduled', href: '/dashboard/scheduled', exact: false },
-  { label: 'History', href: '/dashboard/history', exact: false },
 ] as const;
 
-// checks for which link to highlight based on comparing the href with the pathname. Needs ternary operator to check for the base /dashboard as it otherwise would highlight in all cases.
 function isActive(pathname: string, href: string, exact: boolean): boolean {
   return exact ? pathname === href : pathname.startsWith(href);
 }
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function ProfileLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)]">
-      {/* ------------------------------------------------------------------ */}
-      {/* Desktop sidebar — hidden on mobile                                  */}
-      {/* ------------------------------------------------------------------ */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-border md:flex sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4 bg-background/50">
-        <nav aria-label="Dashboard navigation">
+      {/* Desktop sidebar */}
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-border md:flex sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4">
+        <nav aria-label="Navigation">
           {NAV_ITEMS.map((item) => {
             const { label, href, exact } = item;
             const tourId = 'tourIdDesktop' in item ? item.tourIdDesktop : undefined;
@@ -56,9 +38,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 aria-current={active ? 'page' : undefined}
                 {...(tourId ? { 'data-tour': tourId } : {})}
                 className={[
-                  'flex items-center border-l-2 px-4 py-2 text-lg transition-colors rounded-r-md',
+                  'flex items-center border-l-2 px-4 py-2 text-sm transition-colors rounded-r-md',
                   active
-                    ? 'border-primary bg-primary/10 font-extrabold text-primary'
+                    ? 'border-primary bg-primary/10 font-medium text-primary'
                     : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
                 ].join(' ')}
               >
@@ -69,13 +51,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
       </aside>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Content column (contains mobile tabs + page content)               */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Mobile tab bar */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile tab bar — hidden on desktop */}
         <nav
-          aria-label="Dashboard navigation"
+          aria-label="Navigation"
           className="flex overflow-x-auto border-b border-border md:hidden shrink-0"
         >
           {NAV_ITEMS.map((item) => {
@@ -101,11 +80,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           })}
         </nav>
 
-        {/* Page content */}
         <div className="flex-1">{children}</div>
       </div>
-      {/* Toaster allows for displaying toast notifications */}
-      <Toaster />
     </div>
   );
 }

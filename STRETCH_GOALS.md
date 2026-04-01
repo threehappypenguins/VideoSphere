@@ -23,7 +23,8 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [x] **Toast / snackbar notification system** — global, accessible toast queue for success, error, warning, and info messages ✅
 - [x] **Modal and dialog system** — reusable, accessible modal component with focus trap, `Escape` to close, and scroll lock
 - [ ] **Drawer / side-panel navigation** — slide-in drawer for mobile navigation or detail panels; no JavaScript libraries beyond React
-- [ ] **Onboarding flow** — step-by-step guided tour for new users that highlights key features and can be dismissed or replayed
+- [x] **Onboarding flow** — step-by-step guided tour for new users that highlights key features and can be dismissed or replayed
+- [x] **Server-rendered visual effects** — GPU-rendered decorative backgrounds (e.g., Perlin/Gaussian noise via SVG `feTurbulence`) applied to key pages and components; include text legibility utilities (e.g., text shadows) for readability over textured backgrounds; support design tokens for theme-aware visual harmony; ensure zero client-side JavaScript overhead and no layout shift on load
 - [ ] **Empty state designs** — purpose-built empty state UI (illustration + message + CTA) for every list or data view with no results
 - [ ] **Command palette** — keyboard-activated command palette (`⌘K`) for quick navigation and actions (cmdk or custom implementation)
 - [ ] **Breadcrumb navigation** — dynamic, accessible breadcrumb component reflecting the current route hierarchy on all inner pages

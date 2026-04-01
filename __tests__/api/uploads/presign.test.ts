@@ -148,9 +148,9 @@ describe('POST /api/uploads/presign', () => {
     vi.mocked(getUserById).mockResolvedValue({
       userId: 'user-123',
       isSupporter: false,
-      hasCompletedOnboarding: true,
       email: 'test@example.com',
       role: 'user',
+      hasCompletedOnboarding: false,
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
@@ -538,9 +538,9 @@ describe('POST /api/uploads/presign', () => {
       vi.mocked(getUserById).mockResolvedValueOnce({
         userId: 'user-123',
         isSupporter: true,
-        hasCompletedOnboarding: true,
         email: 'supporter@example.com',
         role: 'user',
+        hasCompletedOnboarding: false,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });
@@ -874,9 +874,9 @@ describe('POST /api/uploads/presign', () => {
       vi.mocked(getUserById).mockResolvedValueOnce({
         userId: 'user-123',
         isSupporter: true,
-        hasCompletedOnboarding: true,
         email: 'test@example.com',
         role: 'user',
+        hasCompletedOnboarding: false,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });

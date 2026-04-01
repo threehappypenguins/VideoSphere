@@ -31,8 +31,8 @@ const adminProfile: User = {
   userId: 'admin-auth-id',
   email: 'admin@example.com',
   isSupporter: true,
-  hasCompletedOnboarding: true,
   role: 'admin',
+  hasCompletedOnboarding: false,
   $createdAt: '2026-01-01T00:00:00.000Z',
   $updatedAt: '2026-01-02T00:00:00.000Z',
 };
@@ -41,8 +41,8 @@ const listedUser: User = {
   userId: 'user-a',
   email: 'alice@example.com',
   isSupporter: false,
-  hasCompletedOnboarding: true,
   role: 'user',
+  hasCompletedOnboarding: false,
   $createdAt: '2026-03-01T12:00:00.000Z',
   $updatedAt: '2026-03-01T12:00:00.000Z',
 };

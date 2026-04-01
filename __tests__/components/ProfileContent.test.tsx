@@ -19,6 +19,7 @@ let mockSearchParams = new URLSearchParams();
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
 // Mock next/link

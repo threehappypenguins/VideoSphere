@@ -188,4 +188,15 @@ describe('updateUser', () => {
     });
     expect(user.isSupporter).toBe(true);
   });
+
+  it('throws a clear error when fallback row is missing $id', async () => {
+    mockUpdateRow.mockRejectedValueOnce({ code: 404 });
+    mockListRows.mockResolvedValue({
+      rows: [profileRow({ $id: undefined, userId: 'auth-user-1' })],
+    });
+
+    await expect(updateUser('auth-user-1', { isSupporter: true })).rejects.toThrow(
+      'User profile row missing $id'
+    );
+  });
 });

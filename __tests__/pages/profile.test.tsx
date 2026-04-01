@@ -15,6 +15,7 @@ import ProfilePage from '@/app/profile/page';
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
 vi.mock('next/link', () => ({

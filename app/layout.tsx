@@ -25,6 +25,8 @@ import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
+import { OnboardingProvider } from '@/components/onboarding/OnboardingContext';
+import { OnboardingTourGate } from '@/components/onboarding/OnboardingTourGate';
 import { ThemedBackground } from '@/components/ui/ThemedBackground';
 
 // --- Font Configuration ---
@@ -83,11 +85,14 @@ export default function RootLayout({
       <head></head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system">
-          <ThemedBackground />
-          <Navbar />
-          <main className="min-h-screen">{children}</main>
-          <Footer />
-          <Toaster />
+          <OnboardingProvider>
+            <ThemedBackground />
+            <Navbar />
+            <main className="min-h-screen">{children}</main>
+            <Footer />
+            <OnboardingTourGate />
+            <Toaster />
+          </OnboardingProvider>
         </ThemeProvider>
       </body>
     </html>

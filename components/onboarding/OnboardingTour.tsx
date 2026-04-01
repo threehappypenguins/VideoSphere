@@ -1,0 +1,300 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import {
+  ACTIONS,
+  EVENTS,
+  ORIGIN,
+  STATUS,
+  Joyride,
+  type EventData,
+  type TooltipRenderProps,
+} from 'react-joyride';
+import { onboardingSteps } from '@/components/onboarding/onboarding-steps';
+import { useOnboardingState } from '@/components/onboarding/useOnboardingState';
+import { useOnboardingContext } from '@/components/onboarding/OnboardingContext';
+
+const CREATE_DRAFT_BUTTON_SELECTOR = '[data-tour="drafts-create-draft-button"]';
+const WAIT_FOR_TARGET_STEP_IDS = new Set([
+  'first-connect-button',
+  'drafts-nav-link',
+  'create-draft-button',
+  'draft-platforms',
+  'draft-title-input',
+  'draft-upload-section',
+  'draft-save',
+]);
+const DEFAULT_TARGET_NOT_FOUND_MAX_RETRIES = 10;
+const TARGET_NOT_FOUND_MAX_RETRIES_BY_STEP_ID: Partial<Record<string, number>> = {
+  // This target is conditional (can be replaced by Disconnect), so skip quickly if absent.
+  'first-connect-button': 3,
+};
+
+function TourTooltip({
+  backProps,
+  closeProps,
+  index,
+  isLastStep,
+  primaryProps,
+  size,
+  skipProps,
+  step,
+  tooltipProps,
+}: TooltipRenderProps) {
+  return (
+    <div
+      {...tooltipProps}
+      className="w-[min(92vw,26rem)] rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl"
+    >
+      <div className="mb-2 text-xs font-medium text-muted-foreground">
+        Step {index + 1} of {size}
+      </div>
+
+      {step.title ? (
+        <h3 className="text-base font-semibold text-foreground">{step.title}</h3>
+      ) : null}
+
+      <div className="mt-2 text-sm text-muted-foreground">{step.content}</div>
+
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <button
+          {...skipProps}
+          className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
+          type="button"
+        >
+          Skip
+        </button>
+
+        <div className="flex items-center gap-2">
+          {index > 0 ? (
+            <button
+              {...backProps}
+              className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
+              type="button"
+            >
+              Back
+            </button>
+          ) : null}
+
+          <button
+            {...primaryProps}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            type="button"
+          >
+            {isLastStep ? 'Finish' : 'Next'}
+          </button>
+
+          <button
+            {...closeProps}
+            aria-label="Close onboarding tour"
+            className="rounded-md border border-border px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function OnboardingTour() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { isReady, shouldAutoRun, markCompleted } = useOnboardingState();
+  const { cleanupOnboardingDraft } = useOnboardingContext();
+  const [stepIndex, setStepIndex] = useState(0);
+  const [hasReplayStarted, setHasReplayStarted] = useState(false);
+  const targetNotFoundRetryCountsRef = useRef<Record<string, number>>({});
+  const hasCompletionStartedRef = useRef(false);
+
+  const shouldReplay = useMemo(() => searchParams.get('onboarding') === '1', [searchParams]);
+  const hasOnboardingFlow = useMemo(
+    () => searchParams.get('onboardingFlow') === 'true',
+    [searchParams]
+  );
+  const isOnboarding = useMemo(
+    () => shouldReplay || shouldAutoRun || hasReplayStarted,
+    [hasReplayStarted, shouldAutoRun, shouldReplay]
+  );
+  const isConnectionsWithFlow = useMemo(
+    () => pathname === '/profile/connections' && hasOnboardingFlow,
+    [hasOnboardingFlow, pathname]
+  );
+  const isDraftsWithFlow = useMemo(
+    () => pathname === '/dashboard/drafts' && hasOnboardingFlow,
+    [hasOnboardingFlow, pathname]
+  );
+  const run = useMemo(
+    () =>
+      isReady &&
+      isOnboarding &&
+      (pathname === '/dashboard' || isConnectionsWithFlow || isDraftsWithFlow),
+    [isReady, isOnboarding, isConnectionsWithFlow, isDraftsWithFlow, pathname]
+  );
+
+  const stopTourAsCompleted = useCallback(async () => {
+    if (hasCompletionStartedRef.current) {
+      return;
+    }
+
+    hasCompletionStartedRef.current = true;
+    targetNotFoundRetryCountsRef.current = {};
+    setStepIndex(0);
+    setHasReplayStarted(false);
+    await cleanupOnboardingDraft();
+    await markCompleted();
+    router.push('/dashboard');
+  }, [cleanupOnboardingDraft, markCompleted, router]);
+
+  useEffect(() => {
+    if (!run) {
+      hasCompletionStartedRef.current = false;
+      targetNotFoundRetryCountsRef.current = {};
+    }
+  }, [run]);
+
+  const handleEvent = useCallback(
+    ({ action, index, origin, status, step, type }: EventData) => {
+      if (shouldReplay && !hasReplayStarted && (type === 'tour:start' || type === 'step:before')) {
+        setHasReplayStarted(true);
+      }
+
+      const eventIndex = typeof index === 'number' ? index : stepIndex;
+      const currentStep = step ?? onboardingSteps[eventIndex];
+      const currentStepId = String(currentStep?.id ?? '');
+
+      if (type === EVENTS.TARGET_NOT_FOUND) {
+        const missingStepId = currentStepId;
+        // Block async/modal steps briefly so they can mount, but never stall forever.
+        if (missingStepId && WAIT_FOR_TARGET_STEP_IDS.has(missingStepId)) {
+          const maxRetries =
+            TARGET_NOT_FOUND_MAX_RETRIES_BY_STEP_ID[missingStepId] ??
+            DEFAULT_TARGET_NOT_FOUND_MAX_RETRIES;
+          const nextCount = (targetNotFoundRetryCountsRef.current[missingStepId] ?? 0) + 1;
+          targetNotFoundRetryCountsRef.current[missingStepId] = nextCount;
+
+          if (nextCount <= maxRetries) {
+            return;
+          }
+
+          delete targetNotFoundRetryCountsRef.current[missingStepId];
+        }
+
+        if (missingStepId) {
+          delete targetNotFoundRetryCountsRef.current[missingStepId];
+        }
+      }
+
+      if (type === EVENTS.STEP_AFTER && currentStepId) {
+        delete targetNotFoundRetryCountsRef.current[currentStepId];
+      }
+
+      if (type === EVENTS.STEP_AFTER || type === EVENTS.TARGET_NOT_FOUND) {
+        const isLastStep = eventIndex >= onboardingSteps.length - 1;
+
+        // Complete the tour when the last step is advanced or its target is never found.
+        if (isLastStep && action !== ACTIONS.PREV) {
+          void stopTourAsCompleted();
+          return;
+        }
+      }
+
+      if (type === EVENTS.STEP_AFTER || type === EVENTS.TARGET_NOT_FOUND) {
+        // When advancing from connected-accounts-link, navigate there.
+        if (
+          type === EVENTS.STEP_AFTER &&
+          action !== ACTIONS.PREV &&
+          currentStepId === 'connected-accounts-link'
+        ) {
+          router.push('/profile/connections?onboardingFlow=true');
+        }
+
+        // When advancing from the drafts sidebar link, navigate to the drafts page.
+        if (
+          type === EVENTS.STEP_AFTER &&
+          action !== ACTIONS.PREV &&
+          currentStepId === 'drafts-nav-link'
+        ) {
+          router.push('/dashboard/drafts?onboardingFlow=true');
+        }
+
+        // When advancing from create-draft button step, auto-click it to open the modal.
+        if (
+          type === EVENTS.STEP_AFTER &&
+          action !== ACTIONS.PREV &&
+          currentStepId === 'create-draft-button'
+        ) {
+          const createDraftButton = document.querySelector<HTMLButtonElement>(
+            CREATE_DRAFT_BUTTON_SELECTOR
+          );
+          createDraftButton?.click();
+        }
+
+        setStepIndex(() => {
+          const delta = action === ACTIONS.PREV ? -1 : 1;
+          return Math.max(0, Math.min(eventIndex + delta, onboardingSteps.length - 1));
+        });
+      }
+
+      if (action === ACTIONS.CLOSE && origin === ORIGIN.KEYBOARD) {
+        void stopTourAsCompleted();
+        return;
+      }
+
+      if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
+        void stopTourAsCompleted();
+      }
+    },
+    [hasReplayStarted, router, shouldReplay, stepIndex, stopTourAsCompleted]
+  );
+
+  // Handle URL cleanup for replay
+  useEffect(() => {
+    if (pathname !== '/dashboard') return;
+    if (!isReady || !shouldReplay || !hasReplayStarted) return;
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete('onboarding');
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  }, [hasReplayStarted, isReady, pathname, router, searchParams, shouldReplay]);
+
+  if (
+    pathname !== '/dashboard' &&
+    pathname !== '/profile/connections' &&
+    pathname !== '/dashboard/drafts'
+  ) {
+    return null;
+  }
+
+  return (
+    <Joyride
+      continuous
+      floatingOptions={{
+        shiftOptions: { padding: 10 },
+      }}
+      onEvent={handleEvent}
+      options={{
+        buttons: ['back', 'close', 'primary', 'skip'],
+        closeButtonAction: 'skip',
+        dismissKeyAction: 'close',
+        overlayClickAction: false,
+        overlayColor: 'rgba(15, 23, 42, 0.55)',
+        primaryColor: 'var(--primary)',
+        backgroundColor: 'var(--popover)',
+        textColor: 'var(--popover-foreground)',
+        showProgress: false,
+        spotlightRadius: 8,
+        zIndex: 10000,
+      }}
+      run={run}
+      scrollToFirstStep
+      stepIndex={stepIndex}
+      steps={onboardingSteps}
+      tooltipComponent={TourTooltip}
+    />
+  );
+}

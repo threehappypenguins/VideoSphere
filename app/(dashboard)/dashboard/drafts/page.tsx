@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
+import { useOnboardingContext } from '@/components/onboarding/OnboardingContext';
 import type { ApiResponse, ConnectedAccountPlatform, ConnectedAccountPublic, Draft } from '@/types';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
@@ -69,6 +70,7 @@ export default function DraftsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { setOnboardingDraftId } = useOnboardingContext();
   const handledEditDraftIdRef = useRef<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedAccountPlatform[]>([]);
@@ -160,6 +162,17 @@ export default function DraftsPage() {
     void loadDrafts(controller.signal);
     return () => controller.abort();
   }, [loadDrafts]);
+
+  // Track onboarding draft in context so tour can clean it up
+  useEffect(() => {
+    const isOnboarding = searchParams.get('onboardingFlow') === 'true';
+    if (isOnboarding && creatingDraft?.id) {
+      setOnboardingDraftId(creatingDraft.id);
+    } else {
+      // Clear stale draft ID when onboarding ends or draft is cleared
+      setOnboardingDraftId(null);
+    }
+  }, [creatingDraft?.id, searchParams, setOnboardingDraftId]);
 
   const openEditDraft = useCallback(async (draft: Draft) => {
     try {
@@ -512,6 +525,7 @@ export default function DraftsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
+            data-tour="drafts-create-draft-button"
             onClick={() => {
               void handleOpenCreateModal();
             }}
@@ -597,6 +611,7 @@ export default function DraftsPage() {
         onUploadComplete={loadDrafts}
         isSaving={isSavingCreate}
         canUseAiMetadata={canUseAiMetadata}
+        disableInteractionLock={searchParams.get('onboardingFlow') === 'true'}
       />
       <DraftMetadataModal
         mode="edit"

@@ -124,9 +124,15 @@ export interface UpdateUserData {
 
 /**
  * Update user_profiles fields (e.g. isSupporter, role). Only provided fields are updated.
+ *
+ * Mirrors getUserById's fallback: if updateRow 404s (console-created rows where
+ * `$id !== userId`), resolves the actual row `$id` via listRows and retries.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
-  const payload: Record<string, unknown> = { ...data };
+  const payload: Record<string, unknown> = Object.fromEntries(
+    Object.entries(data).filter(([, v]) => v !== undefined)
+  );
+
   try {
     const row = await tablesDb.updateRow({
       databaseId: DATABASE_ID,
@@ -140,7 +146,7 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
     if (e.code !== 404) throw err;
   }
 
-  // Legacy fallback: some rows were created/imported with a generated row ID.
+  // Primary row id differs from Auth id — resolve via userId column and retry.
   const { rows } = await tablesDb.listRows({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
@@ -149,26 +155,22 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
   });
 
   if (rows.length === 0) {
-    const notFound = new Error(`User profile not found for userId=${userId}`) as Error & {
-      code?: number;
-    };
-    notFound.code = 404;
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
     throw notFound;
   }
 
-  const fallbackRowId = String((rows[0] as Record<string, unknown>).$id ?? '');
-  if (!fallbackRowId) {
-    const invalidRow = new Error(`User profile row missing $id for userId=${userId}`);
-    throw invalidRow;
+  const actualRowId = String((rows[0] as unknown as Record<string, unknown>).$id ?? '');
+  if (!actualRowId) {
+    throw new Error('User profile row missing $id');
   }
 
-  const row = await tablesDb.updateRow({
+  const updatedRow = await tablesDb.updateRow({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
-    rowId: fallbackRowId,
+    rowId: actualRowId,
     data: payload,
   });
-  return rowToUser(row as unknown as Record<string, unknown>);
+  return rowToUser(updatedRow as unknown as Record<string, unknown>);
 }
 
 /**
