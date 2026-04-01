@@ -80,6 +80,10 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
+    const appwriteErr = err as { code?: number };
+    if (appwriteErr?.code === 404) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    }
     console.error('[POST /api/auth/onboarding-state]', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

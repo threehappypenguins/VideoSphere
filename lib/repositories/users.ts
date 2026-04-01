@@ -123,16 +123,47 @@ export interface UpdateUserData {
 
 /**
  * Update user_profiles fields (e.g. isSupporter, role). Only provided fields are updated.
+ *
+ * Mirrors getUserById's fallback: if updateRow 404s (console-created rows where
+ * `$id !== userId`), resolves the actual row `$id` via listRows and retries.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   const payload: Record<string, unknown> = { ...data };
-  const row = await tablesDb.updateRow({
+
+  try {
+    const row = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: USER_PROFILES_COLLECTION_ID,
+      rowId: userId,
+      data: payload,
+    });
+    return rowToUser(row as unknown as Record<string, unknown>);
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code !== 404) throw err;
+  }
+
+  // Primary row id differs from Auth id — resolve via userId column and retry.
+  const { rows } = await tablesDb.listRows({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
-    rowId: userId,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: false,
+  });
+
+  if (rows.length === 0) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+
+  const actualRowId = String((rows[0] as unknown as Record<string, unknown>).$id ?? userId);
+  const updatedRow = await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    rowId: actualRowId,
     data: payload,
   });
-  return rowToUser(row as unknown as Record<string, unknown>);
+  return rowToUser(updatedRow as unknown as Record<string, unknown>);
 }
 
 /**

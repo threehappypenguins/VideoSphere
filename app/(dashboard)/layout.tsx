@@ -46,7 +46,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                {...(label === 'Drafts' ? { 'data-tour': 'drafts-nav-link' } : {})}
+                {...(label === 'Drafts' ? { 'data-tour': 'drafts-nav-link-desktop' } : {})}
                 className={[
                   'flex items-center border-l-2 px-4 py-2 text-lg transition-colors rounded-r-md',
                   active
@@ -77,7 +77,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
-                {...(label === 'Drafts' ? { 'data-tour': 'drafts-nav-link' } : {})}
+                {...(label === 'Drafts' ? { 'data-tour': 'drafts-nav-link-mobile' } : {})}
                 className={[
                   'whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors',
                   active

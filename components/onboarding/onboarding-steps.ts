@@ -30,7 +30,7 @@ export const onboardingSteps: Step[] = [
   },
   {
     id: 'drafts-nav-link',
-    target: '[data-tour="drafts-nav-link"]',
+    target: '[data-tour="drafts-nav-link-desktop"], [data-tour="drafts-nav-link-mobile"]',
     skipBeacon: true,
     placement: 'right',
     title: 'Go to Drafts',

@@ -6,7 +6,13 @@ import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', exact: true },
-  { label: 'Drafts', href: '/dashboard/drafts', exact: false, tourId: 'drafts-nav-link' },
+  {
+    label: 'Drafts',
+    href: '/dashboard/drafts',
+    exact: false,
+    tourIdDesktop: 'drafts-nav-link-desktop',
+    tourIdMobile: 'drafts-nav-link-mobile',
+  },
 ] as const;
 
 function isActive(pathname: string, href: string, exact: boolean): boolean {
@@ -23,7 +29,7 @@ export default function ProfileLayout({ children }: { children: ReactNode }) {
         <nav aria-label="Navigation">
           {NAV_ITEMS.map((item) => {
             const { label, href, exact } = item;
-            const tourId = 'tourId' in item ? item.tourId : undefined;
+            const tourId = 'tourIdDesktop' in item ? item.tourIdDesktop : undefined;
             const active = isActive(pathname, href, exact);
             return (
               <Link
@@ -53,7 +59,7 @@ export default function ProfileLayout({ children }: { children: ReactNode }) {
         >
           {NAV_ITEMS.map((item) => {
             const { label, href, exact } = item;
-            const tourId = 'tourId' in item ? item.tourId : undefined;
+            const tourId = 'tourIdMobile' in item ? item.tourIdMobile : undefined;
             const active = isActive(pathname, href, exact);
             return (
               <Link
