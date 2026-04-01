@@ -1206,6 +1206,7 @@ export function DraftMetadataModal({
       }}
     >
       <DialogContent
+        showOverlay={!disableInteractionLock}
         className="flex max-h-[90vh] flex-col p-0"
         onInteractOutside={(event) => event.preventDefault()}
       >
