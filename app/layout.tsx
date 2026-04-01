@@ -19,11 +19,14 @@
 
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import { Suspense } from 'react';
 import './globals.css';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
+import { OnboardingProvider } from '@/components/onboarding/OnboardingContext';
+import { OnboardingTour } from '@/components/onboarding/OnboardingTour';
 
 // --- Font Configuration ---
 // next/font automatically optimizes fonts — no external requests at runtime.
@@ -56,10 +59,15 @@ export default function RootLayout({
       <head></head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system">
-          <Navbar />
-          <main className="min-h-screen">{children}</main>
-          <Footer />
-          <Toaster />
+          <OnboardingProvider>
+            <Navbar />
+            <main className="min-h-screen">{children}</main>
+            <Footer />
+            <Suspense fallback={null}>
+              <OnboardingTour />
+            </Suspense>
+            <Toaster />
+          </OnboardingProvider>
         </ThemeProvider>
       </body>
     </html>

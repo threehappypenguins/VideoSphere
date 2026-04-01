@@ -46,6 +46,7 @@ function profileRow(overrides: Record<string, unknown> = {}) {
     email: 'a@example.com',
     isSupporter: false,
     role: 'user',
+    hasCompletedOnboarding: false,
     ...timestamps,
     ...overrides,
   };
@@ -72,6 +73,7 @@ describe('getUserById', () => {
       email: 'a@example.com',
       isSupporter: false,
       role: 'user',
+      hasCompletedOnboarding: false,
       $createdAt: timestamps.$createdAt,
       $updatedAt: timestamps.$updatedAt,
     });

@@ -41,6 +41,14 @@ vi.mock('@/components/drafts/DraftMetadataModal', () => ({
   },
 }));
 
+vi.mock('@/components/onboarding/OnboardingContext', () => ({
+  useOnboardingContext: () => ({
+    onboardingDraftId: null,
+    setOnboardingDraftId: vi.fn(),
+    cleanupOnboardingDraft: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
 import DraftsPage from '@/app/(dashboard)/dashboard/drafts/page';
 
 afterEach(() => {

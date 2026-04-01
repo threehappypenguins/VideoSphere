@@ -4,6 +4,7 @@ interface ConnectButtonProps {
   href: string;
   label: string;
   className?: string;
+  'data-tour'?: string;
 }
 
 /**
@@ -14,10 +15,16 @@ interface ConnectButtonProps {
  * fetch that CORS blocks, leaving async message-channel listeners unresolved.
  * Using window.location.assign() bypasses the router entirely.
  */
-export function ConnectButton({ href, label, className }: ConnectButtonProps) {
+export function ConnectButton({
+  href,
+  label,
+  className,
+  'data-tour': dataTour,
+}: ConnectButtonProps) {
   return (
     <a
       href={href}
+      {...(dataTour ? { 'data-tour': dataTour } : {})}
       onClick={(e) => {
         // Only override unmodified left-clicks; let the browser handle
         // modified clicks (cmd/ctrl/middle-click, etc.) normally.

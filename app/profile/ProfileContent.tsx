@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { useOnboardingState } from '@/components/onboarding/useOnboardingState';
 
 interface SessionUser {
   $id: string;
@@ -19,11 +20,18 @@ interface UserProfile {
 }
 
 export function ProfileContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [upgradeSuccess, setUpgradeSuccess] = useState(false);
+  const onboardingState = useOnboardingState({ userId: sessionUser?.$id ?? null });
+
+  const handleReplayTour = () => {
+    onboardingState.reset();
+    router.push('/dashboard?onboarding=1');
+  };
 
   useEffect(() => {
     // Check for upgrade success param
@@ -173,13 +181,22 @@ export function ProfileContent() {
                 </Link>
               </>
             )}
-            <div className="mt-4">
+            <div data-tour="profile-connect-platforms" className="mt-4">
               <Link
                 href="/profile/connections"
                 className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 Manage connected accounts
               </Link>
+            </div>
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={handleReplayTour}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                Replay tour
+              </button>
             </div>
           </div>
         </section>

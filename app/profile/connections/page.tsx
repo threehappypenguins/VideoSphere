@@ -265,7 +265,13 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                     />
                   </div>
                 ) : (
-                  <ConnectButton href={meta.connectHref} label="Connect" />
+                  <ConnectButton
+                    href={meta.connectHref}
+                    label="Connect"
+                    {...(platform === ALL_PLATFORMS[0]
+                      ? { 'data-tour': 'first-connect-button' }
+                      : {})}
+                  />
                 )}
               </div>
             );

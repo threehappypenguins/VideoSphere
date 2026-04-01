@@ -149,6 +149,7 @@ describe('POST /api/uploads/presign', () => {
       isSupporter: false,
       email: 'test@example.com',
       role: 'user',
+      hasCompletedOnboarding: false,
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
@@ -538,6 +539,7 @@ describe('POST /api/uploads/presign', () => {
         isSupporter: true,
         email: 'supporter@example.com',
         role: 'user',
+        hasCompletedOnboarding: false,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });
@@ -873,6 +875,7 @@ describe('POST /api/uploads/presign', () => {
         isSupporter: true,
         email: 'test@example.com',
         role: 'user',
+        hasCompletedOnboarding: false,
         $createdAt: '2000-01-01T00:00:00.000Z',
         $updatedAt: '2000-01-01T00:00:00.000Z',
       });

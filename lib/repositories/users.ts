@@ -23,6 +23,7 @@ function rowToUser(row: Record<string, unknown>): User {
     email: String(row.email),
     isSupporter: Boolean(row.isSupporter),
     role: (row.role as UserRole) ?? 'user',
+    hasCompletedOnboarding: Boolean(row.hasCompletedOnboarding),
     $createdAt,
     $updatedAt,
   };
@@ -53,6 +54,7 @@ export async function createUser(data: CreateUserData): Promise<User> {
       email: data.email.trim().toLowerCase(),
       isSupporter: data.isSupporter ?? false,
       role: data.role ?? 'user',
+      hasCompletedOnboarding: false,
     },
   });
   return rowToUser(row as unknown as Record<string, unknown>);
@@ -116,6 +118,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 export interface UpdateUserData {
   isSupporter?: boolean;
   role?: UserRole;
+  hasCompletedOnboarding?: boolean;
 }
 
 /**

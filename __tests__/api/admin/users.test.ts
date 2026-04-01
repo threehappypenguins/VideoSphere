@@ -32,6 +32,7 @@ const adminProfile: User = {
   email: 'admin@example.com',
   isSupporter: true,
   role: 'admin',
+  hasCompletedOnboarding: false,
   $createdAt: '2026-01-01T00:00:00.000Z',
   $updatedAt: '2026-01-02T00:00:00.000Z',
 };
@@ -41,6 +42,7 @@ const listedUser: User = {
   email: 'alice@example.com',
   isSupporter: false,
   role: 'user',
+  hasCompletedOnboarding: false,
   $createdAt: '2026-03-01T12:00:00.000Z',
   $updatedAt: '2026-03-01T12:00:00.000Z',
 };
