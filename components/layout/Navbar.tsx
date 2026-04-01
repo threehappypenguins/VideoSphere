@@ -93,7 +93,10 @@ function ThemeDropdown({
 interface SessionUser {
   name?: string;
   email?: string;
-  labels?: string[];
+}
+
+interface SessionRoleResponse {
+  role?: 'user' | 'admin';
 }
 
 export default function Navbar() {
@@ -101,6 +104,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
+  const [hasAdminRole, setHasAdminRole] = useState(false);
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
@@ -120,14 +124,30 @@ export default function Navbar() {
       credentials: 'include',
       signal: controller.signal,
     })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: SessionUser | null) => {
+      .then(async (res) => {
+        if (!res.ok) return { user: null, roleAdmin: false };
+
+        const data = (await res.json()) as SessionUser;
+
+        const roleRes = await fetch('/api/auth/session-role', {
+          credentials: 'include',
+          signal: controller.signal,
+        });
+
+        if (!roleRes.ok) return { user: data, roleAdmin: false };
+
+        const roleData = (await roleRes.json()) as SessionRoleResponse;
+        return { user: data, roleAdmin: roleData.role === 'admin' };
+      })
+      .then(({ user, roleAdmin }) => {
         if (controller.signal.aborted) return;
-        setSessionUser(data ?? null);
+        setSessionUser(user);
+        setHasAdminRole(roleAdmin);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setSessionUser(null);
+        setHasAdminRole(false);
       });
     return () => controller.abort();
   }, [pathname]);
@@ -158,7 +178,7 @@ export default function Navbar() {
 
   const isLoggedIn = sessionUser !== null && sessionUser !== 'loading';
   const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
-  const isAdminUser = isLoggedIn && sessionUser.labels?.includes('admin') === true;
+  const isAdminUser = isLoggedIn && hasAdminRole;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
