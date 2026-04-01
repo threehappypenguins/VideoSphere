@@ -108,6 +108,9 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
       return;
     }
 
+    // Reset loading state when userId changes to prevent stale state during transition
+    setHasLoadedStorage(false);
+
     let isMounted = true;
 
     async function loadOnboardingState() {

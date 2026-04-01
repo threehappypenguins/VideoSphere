@@ -119,7 +119,7 @@ async function ensureColumn(
         key: col.key,
         size: stringColumnSize(col),
         required: col.required,
-        default: typeof col.defaultValue === 'string' ? col.defaultValue : undefined,
+        xdefault: typeof col.defaultValue === 'string' ? col.defaultValue : undefined,
       });
     } else if (col.type === 'datetime') {
       await db.createDatetimeColumn({
@@ -127,7 +127,7 @@ async function ensureColumn(
         tableId,
         key: col.key,
         required: col.required,
-        default: typeof col.defaultValue === 'string' ? col.defaultValue : undefined,
+        xdefault: typeof col.defaultValue === 'string' ? col.defaultValue : undefined,
       });
     } else if (col.type === 'boolean') {
       await db.createBooleanColumn({
@@ -135,7 +135,7 @@ async function ensureColumn(
         tableId,
         key: col.key,
         required: col.required,
-        default: typeof col.defaultValue === 'boolean' ? col.defaultValue : undefined,
+        xdefault: typeof col.defaultValue === 'boolean' ? col.defaultValue : undefined,
       });
     } else if (col.type === 'integer') {
       await db.createIntegerColumn({
@@ -143,7 +143,7 @@ async function ensureColumn(
         tableId,
         key: col.key,
         required: col.required,
-        default: typeof col.defaultValue === 'number' ? col.defaultValue : undefined,
+        xdefault: typeof col.defaultValue === 'number' ? col.defaultValue : undefined,
       });
     } else {
       log('Skipping unknown column type: ' + col.type + ' (key: ' + col.key + ')');
