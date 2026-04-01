@@ -19,6 +19,7 @@ const CREATE_DRAFT_BUTTON_SELECTOR = '[data-tour="drafts-create-draft-button"]';
 const WAIT_FOR_TARGET_STEP_IDS = new Set([
   'first-connect-button',
   'drafts-nav-link',
+  'create-draft-button',
   'draft-platforms',
   'draft-title-input',
   'draft-upload-section',

@@ -46,6 +46,7 @@ vi.mock('react-joyride', () => {
     }) => (
       <div>
         <p data-testid="joyride-run-state">{String(Boolean(run))}</p>
+        <p data-testid="joyride-step-index">{stepIndex}</p>
         <button
           type="button"
           onClick={() =>
@@ -130,6 +131,27 @@ describe('OnboardingTour', () => {
 
     await waitFor(() => {
       expect(markCompletedMock).toHaveBeenCalledTimes(0);
+    });
+  });
+
+  it('does not skip create-draft-button when its target is missing', async () => {
+    render(<OnboardingTour />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('joyride-run-state')).toHaveTextContent('true');
+    });
+
+    // Advance to create-draft-button (index 4).
+    for (let i = 0; i < 4; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Advance Step' }));
+    }
+
+    expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('4');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Missing Target' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('4');
     });
   });
 });
