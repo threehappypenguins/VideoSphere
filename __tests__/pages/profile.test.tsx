@@ -18,10 +18,6 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
-vi.mock('@/components/onboarding/useOnboardingState', () => ({
-  useOnboardingState: () => ({ reset: vi.fn() }),
-}));
-
 vi.mock('next/link', () => ({
   default: ({
     children,

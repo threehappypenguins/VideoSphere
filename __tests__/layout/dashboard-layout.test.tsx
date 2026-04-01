@@ -28,9 +28,6 @@ vi.mock('next/link', () => ({
 // Mock Sonner Toaster to avoid window.matchMedia dependency in tests
 vi.mock('@/components/ui/sonner', () => ({ Toaster: () => null }));
 
-// Keep layout tests focused on shell/navigation behavior.
-vi.mock('@/components/onboarding/OnboardingTour', () => ({ OnboardingTour: () => null }));
-
 import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
