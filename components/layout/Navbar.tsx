@@ -91,6 +91,7 @@ function ThemeDropdown({
 
 /** User shape returned by GET /api/auth/session (Appwrite User). */
 interface SessionUser {
+  $id?: string;
   name?: string;
   email?: string;
 }
@@ -109,6 +110,7 @@ export default function Navbar() {
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
   const mobileThemeRef = useRef<HTMLDivElement>(null);
+  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(null);
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -125,29 +127,41 @@ export default function Navbar() {
       signal: controller.signal,
     })
       .then(async (res) => {
-        if (!res.ok) return { user: null, roleAdmin: false };
+        if (!res.ok) return { user: null, isAdmin: false };
 
         const data = (await res.json()) as SessionUser;
+
+        if (data.$id && adminRoleCacheRef.current?.userId === data.$id) {
+          return { user: data, isAdmin: adminRoleCacheRef.current.isAdmin };
+        }
 
         const roleRes = await fetch('/api/auth/session-role', {
           credentials: 'include',
           signal: controller.signal,
         });
 
-        if (!roleRes.ok) return { user: data, roleAdmin: false };
+        if (!roleRes.ok) return { user: data, isAdmin: false, userId: data.$id };
 
         const roleData = (await roleRes.json()) as SessionRoleResponse;
-        return { user: data, roleAdmin: roleData.role === 'admin' };
+        return { user: data, isAdmin: roleData.role === 'admin', userId: data.$id };
       })
-      .then(({ user, roleAdmin }) => {
+      .then(({ user, isAdmin, userId }) => {
         if (controller.signal.aborted) return;
         setSessionUser(user);
-        setHasAdminRole(roleAdmin);
+        setHasAdminRole(isAdmin);
+        if (!user) {
+          adminRoleCacheRef.current = null;
+          return;
+        }
+        if (typeof userId === 'string') {
+          adminRoleCacheRef.current = { userId, isAdmin };
+        }
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setSessionUser(null);
         setHasAdminRole(false);
+        adminRoleCacheRef.current = null;
       });
     return () => controller.abort();
   }, [pathname]);
@@ -172,6 +186,8 @@ export default function Navbar() {
   const handleLogout = async () => {
     await logout();
     setSessionUser(null);
+    setHasAdminRole(false);
+    adminRoleCacheRef.current = null;
     setMobileMenuOpen(false);
     router.push('/');
   };
