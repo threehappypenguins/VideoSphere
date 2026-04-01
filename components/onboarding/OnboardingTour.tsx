@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   ACTIONS,
@@ -24,6 +24,11 @@ const WAIT_FOR_TARGET_STEP_IDS = new Set([
   'draft-upload-section',
   'draft-save',
 ]);
+const DEFAULT_TARGET_NOT_FOUND_MAX_RETRIES = 10;
+const TARGET_NOT_FOUND_MAX_RETRIES_BY_STEP_ID: Partial<Record<string, number>> = {
+  // This target is conditional (can be replaced by Disconnect), so skip quickly if absent.
+  'first-connect-button': 3,
+};
 
 function TourTooltip({
   backProps,
@@ -101,6 +106,8 @@ export function OnboardingTour() {
   const { cleanupOnboardingDraft } = useOnboardingContext();
   const [stepIndex, setStepIndex] = useState(0);
   const [hasReplayStarted, setHasReplayStarted] = useState(false);
+  const targetNotFoundRetryCountsRef = useRef<Record<string, number>>({});
+  const hasCompletionStartedRef = useRef(false);
 
   const shouldReplay = useMemo(() => searchParams.get('onboarding') === '1', [searchParams]);
   const isOnboarding = useMemo(
@@ -124,6 +131,11 @@ export function OnboardingTour() {
   );
 
   const stopTourAsCompleted = useCallback(async () => {
+    if (hasCompletionStartedRef.current) {
+      return;
+    }
+
+    hasCompletionStartedRef.current = true;
     setStepIndex(0);
     setHasReplayStarted(false);
     await cleanupOnboardingDraft();
@@ -131,36 +143,64 @@ export function OnboardingTour() {
     router.push('/dashboard');
   }, [cleanupOnboardingDraft, markCompleted, router]);
 
+  useEffect(() => {
+    if (!run) {
+      hasCompletionStartedRef.current = false;
+    }
+  }, [run]);
+
   const handleEvent = useCallback(
-    ({ action, origin, status, type }: EventData) => {
+    ({ action, index, origin, status, step, type }: EventData) => {
       if (shouldReplay && !hasReplayStarted && (type === 'tour:start' || type === 'step:before')) {
         setHasReplayStarted(true);
       }
 
-      const currentStep = onboardingSteps[stepIndex];
+      const eventIndex = typeof index === 'number' ? index : stepIndex;
+      const currentStep = step ?? onboardingSteps[eventIndex];
+      const currentStepId = String(currentStep?.id ?? '');
 
       if (type === EVENTS.TARGET_NOT_FOUND) {
-        const missingStep = onboardingSteps[stepIndex];
-        // Block async modal steps so the tour waits for them to mount.
-        if (missingStep && WAIT_FOR_TARGET_STEP_IDS.has(String(missingStep.id))) {
-          return;
+        const missingStepId = currentStepId;
+        // Block async/modal steps briefly so they can mount, but never stall forever.
+        if (missingStepId && WAIT_FOR_TARGET_STEP_IDS.has(missingStepId)) {
+          const maxRetries =
+            TARGET_NOT_FOUND_MAX_RETRIES_BY_STEP_ID[missingStepId] ??
+            DEFAULT_TARGET_NOT_FOUND_MAX_RETRIES;
+          const nextCount = (targetNotFoundRetryCountsRef.current[missingStepId] ?? 0) + 1;
+          targetNotFoundRetryCountsRef.current[missingStepId] = nextCount;
+
+          if (nextCount <= maxRetries) {
+            return;
+          }
+
+          delete targetNotFoundRetryCountsRef.current[missingStepId];
+        }
+
+        if (missingStepId) {
+          delete targetNotFoundRetryCountsRef.current[missingStepId];
         }
       }
 
+      if (type === EVENTS.STEP_AFTER && currentStepId) {
+        delete targetNotFoundRetryCountsRef.current[currentStepId];
+      }
+
       if (type === EVENTS.STEP_AFTER || type === EVENTS.TARGET_NOT_FOUND) {
-        const isLastStep = stepIndex >= onboardingSteps.length - 1;
+        const isLastStep = eventIndex >= onboardingSteps.length - 1;
 
         // Complete the tour when the last step is advanced or its target is never found.
         if (isLastStep && action !== ACTIONS.PREV) {
           void stopTourAsCompleted();
           return;
         }
+      }
 
+      if (type === EVENTS.STEP_AFTER || type === EVENTS.TARGET_NOT_FOUND) {
         // When advancing from connected-accounts-link, navigate there.
         if (
           type === EVENTS.STEP_AFTER &&
           action !== ACTIONS.PREV &&
-          currentStep?.id === 'connected-accounts-link'
+          currentStepId === 'connected-accounts-link'
         ) {
           router.push('/profile/connections?onboardingFlow=true');
         }
@@ -169,7 +209,7 @@ export function OnboardingTour() {
         if (
           type === EVENTS.STEP_AFTER &&
           action !== ACTIONS.PREV &&
-          currentStep?.id === 'drafts-nav-link'
+          currentStepId === 'drafts-nav-link'
         ) {
           router.push('/dashboard/drafts?onboardingFlow=true');
         }
@@ -178,7 +218,7 @@ export function OnboardingTour() {
         if (
           type === EVENTS.STEP_AFTER &&
           action !== ACTIONS.PREV &&
-          currentStep?.id === 'create-draft-button'
+          currentStepId === 'create-draft-button'
         ) {
           const createDraftButton = document.querySelector<HTMLButtonElement>(
             CREATE_DRAFT_BUTTON_SELECTOR
@@ -186,9 +226,9 @@ export function OnboardingTour() {
           createDraftButton?.click();
         }
 
-        setStepIndex((currentIndex) => {
+        setStepIndex(() => {
           const delta = action === ACTIONS.PREV ? -1 : 1;
-          return Math.max(0, Math.min(currentIndex + delta, onboardingSteps.length - 1));
+          return Math.max(0, Math.min(eventIndex + delta, onboardingSteps.length - 1));
         });
       }
 
