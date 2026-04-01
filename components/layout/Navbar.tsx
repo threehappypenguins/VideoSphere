@@ -93,6 +93,7 @@ function ThemeDropdown({
 interface SessionUser {
   name?: string;
   email?: string;
+  labels?: string[];
 }
 
 export default function Navbar() {
@@ -157,6 +158,7 @@ export default function Navbar() {
 
   const isLoggedIn = sessionUser !== null && sessionUser !== 'loading';
   const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
+  const isAdminUser = isLoggedIn && sessionUser.labels?.includes('admin') === true;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
@@ -229,6 +231,14 @@ export default function Navbar() {
                 >
                   Profile
                 </Link>
+                {isAdminUser && (
+                  <Link
+                    href="/admin/dashboard"
+                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                  >
+                    Admin
+                  </Link>
+                )}
                 <span className="text-sm text-muted-foreground" title={sessionUser?.email}>
                   {userLabel}
                 </span>
@@ -362,6 +372,15 @@ export default function Navbar() {
                   >
                     Profile
                   </Link>
+                  {isAdminUser && (
+                    <Link
+                      href="/admin/dashboard"
+                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Admin
+                    </Link>
+                  )}
                   <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
                   <button
                     type="button"
