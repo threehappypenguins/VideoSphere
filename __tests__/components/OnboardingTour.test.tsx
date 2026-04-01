@@ -35,7 +35,15 @@ vi.mock('react-joyride', () => {
     EVENTS: { STEP_AFTER: 'step:after', TARGET_NOT_FOUND: 'error:target_not_found' },
     ORIGIN: { KEYBOARD: 'keyboard' },
     STATUS: { FINISHED: 'finished', SKIPPED: 'skipped' },
-    Joyride: ({ onEvent, run }: { onEvent?: (data: any) => void; run?: boolean }) => (
+    Joyride: ({
+      onEvent,
+      run,
+      stepIndex = 0,
+    }: {
+      onEvent?: (data: any) => void;
+      run?: boolean;
+      stepIndex?: number;
+    }) => (
       <div>
         <p data-testid="joyride-run-state">{String(Boolean(run))}</p>
         <button
@@ -43,7 +51,7 @@ vi.mock('react-joyride', () => {
           onClick={() =>
             onEvent?.({
               action: 'skip',
-              index: 0,
+              index: stepIndex,
               origin: null,
               status: 'skipped',
               type: 'tour:status',
@@ -57,7 +65,7 @@ vi.mock('react-joyride', () => {
           onClick={() =>
             onEvent?.({
               action: 'next',
-              index: 0,
+              index: stepIndex,
               origin: null,
               status: 'running',
               type: 'step:after',
@@ -71,7 +79,7 @@ vi.mock('react-joyride', () => {
           onClick={() =>
             onEvent?.({
               action: 'next',
-              index: 3,
+              index: stepIndex,
               origin: null,
               status: 'running',
               type: 'error:target_not_found',
