@@ -117,7 +117,7 @@ export function PricingCards() {
   };
 
   return (
-    <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-2">
+    <div className="mt-16 grid grid-cols-1 gap-8 font-sans md:grid-cols-2">
       {tiers.map((tier) => {
         const isFree = tier.name === 'Free';
         const isCurrentPlan = isFree ? sessionUser && !isSupporter : isSupporter;
@@ -137,7 +137,7 @@ export function PricingCards() {
               </span>
             )}
             {isCurrentPlan && (
-              <span className="mb-4 inline-block rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+              <span className="mb-4 inline-block rounded-full bg-success/15 px-3 py-1 text-xs font-medium text-success">
                 {isSupporter && !isFree ? "You're a Supporter!" : 'Current Plan'}
               </span>
             )}
@@ -175,7 +175,7 @@ export function PricingCards() {
                 {sessionUser ? 'Go to Dashboard' : tier.cta}
               </Link>
             ) : isSupporter ? (
-              <span className="mt-8 block w-full rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-center text-sm font-medium text-green-800 dark:border-green-700 dark:bg-green-900/30 dark:text-green-200">
+              <span className="mt-8 block w-full rounded-lg border border-success/40 bg-success/10 px-4 py-3 text-center text-sm font-medium text-success">
                 ✓ Supporter Active
               </span>
             ) : (

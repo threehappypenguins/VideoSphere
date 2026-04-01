@@ -18,6 +18,7 @@
 // =============================================================================
 
 import type { Metadata } from 'next';
+import localFont from 'next/font/local';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import Navbar from '@/components/layout/Navbar';
@@ -32,6 +33,18 @@ import { ThemedBackground } from '@/components/ui/ThemedBackground';
 const inter = Inter({
   variable: '--font-inter',
   subsets: ['latin'],
+  display: 'swap',
+});
+
+const apfelGrotezk = localFont({
+  src: [
+    { path: './fonts/ApfelGrotezk-Brukt.otf', weight: '350', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Regular.otf', weight: '400', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Mittel.otf', weight: '500', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Fett.otf', weight: '700', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Satt.otf', weight: '900', style: 'normal' },
+  ],
+  variable: '--font-apfel-grotezk',
   display: 'swap',
 });
 
@@ -62,7 +75,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${apfelGrotezk.variable} ${inter.variable}`}
+      suppressHydrationWarning
+    >
       <head></head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system">

@@ -56,7 +56,7 @@ export default function ContactPage() {
   };
 
   return (
-    <div className="px-4 py-20 sm:px-6 lg:px-8">
+    <div className="px-4 py-20 font-sans sm:px-6 lg:px-8">
       <div className="mx-auto max-w-2xl">
         {/* --- Header --- */}
         <div className="text-center">
@@ -114,7 +114,7 @@ export default function ContactPage() {
               {errors.name && (
                 <p
                   id="name-error"
-                  className="mt-2 text-sm text-red-500"
+                  className="mt-2 text-sm text-destructive"
                   role="alert"
                   aria-live="polite"
                 >
@@ -152,7 +152,7 @@ export default function ContactPage() {
               {errors.email && (
                 <p
                   id="email-error"
-                  className="mt-2 text-sm text-red-500"
+                  className="mt-2 text-sm text-destructive"
                   role="alert"
                   aria-live="polite"
                 >
@@ -190,7 +190,7 @@ export default function ContactPage() {
               {errors.message && (
                 <p
                   id="message-error"
-                  className="mt-2 text-sm text-red-500"
+                  className="mt-2 text-sm text-destructive"
                   role="alert"
                   aria-live="polite"
                 >

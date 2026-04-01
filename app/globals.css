@@ -49,10 +49,16 @@
   --muted: #f5f5f5;
 
   /* Muted text color for secondary text */
-  --muted-foreground: #737373;
+  --muted-foreground: #141313;
 
   /* Border color used for dividers and inputs */
   --border: #e5e5e5;
+
+  /* Success color for positive status and validation messaging */
+  --success: #15803d;
+
+  /* Destructive color for errors and critical feedback */
+  --destructive: #dc2626;
 
   /* Popover/dropdown background (must be opaque to avoid overlap) */
   --popover: #ffffff;
@@ -71,9 +77,11 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-apfel-grotezk), var(--font-inter), Arial, Helvetica, sans-serif;
 }
 
 /* --- Dark Mode --- */
@@ -87,8 +95,10 @@
   --primary-foreground: #ffffff;
   --secondary: #161f40;
   --muted: #161f40;
-  --muted-foreground: #a3a3a3;
+  --muted-foreground: #e5ebec;
   --border: #404040;
+  --success: #4ade80;
+  --destructive: #f87171;
   --popover: #0a0a0a;
   --popover-foreground: #ededed;
 }
@@ -97,5 +107,26 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  font-family: var(--font-apfel-grotezk), var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+h1,
+h2 {
+  font-weight: 700;
+}
+
+button,
+h3 {
+  font-weight: 500;
+}
+
+p,
+span,
+li,
+a,
+label,
+input,
+textarea,
+small {
+  font-weight: 400;
 }
