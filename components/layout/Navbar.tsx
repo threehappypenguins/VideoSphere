@@ -64,7 +64,7 @@ function ThemeDropdown({
       </button>
       {isOpen && (
         <div
-          className={`absolute top-full z-50 mt-1 min-w-40 rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
+          className={`absolute top-full z-50 mt-1 min-w-[10rem] rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
           role="menu"
         >
           {THEME_OPTIONS.map(({ value, label, Icon }) => (
