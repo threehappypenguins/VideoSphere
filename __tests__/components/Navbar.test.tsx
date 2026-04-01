@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import Navbar from '@/components/layout/Navbar';
 
 const mockPush = vi.fn();
@@ -19,7 +20,9 @@ vi.mock('next/link', () => ({
 }));
 
 vi.mock('next/image', () => ({
-  default: ({ alt, priority: _priority, ...rest }: any) => <img alt={alt} {...rest} />,
+  default: ({ alt, priority: _priority, ...rest }: any) => (
+    <span role="img" aria-label={alt} {...rest} />
+  ),
 }));
 
 vi.mock('next-themes', () => ({
@@ -107,5 +110,48 @@ describe('Navbar admin link visibility', () => {
     });
 
     expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+  });
+
+  it('shows Admin in mobile menu and closes menu on click', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ $id: 'user_admin_2', name: 'Admin User', email: 'admin@test.com' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ role: 'admin' }),
+        } as Response)
+    );
+
+    render(<Navbar />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Admin User')).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    const menuToggle = screen.getByRole('button', { name: 'Toggle navigation menu' });
+    expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(menuToggle);
+    expect(menuToggle).toHaveAttribute('aria-expanded', 'true');
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(2);
+    });
+
+    const adminLinks = screen.getAllByRole('link', { name: 'Admin' });
+    await user.click(adminLinks[1]);
+
+    await waitFor(() => {
+      expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(1);
+    });
   });
 });

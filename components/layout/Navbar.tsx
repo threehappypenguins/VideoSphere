@@ -135,15 +135,24 @@ export default function Navbar() {
           return { user: data, isAdmin: adminRoleCacheRef.current.isAdmin };
         }
 
-        const roleRes = await fetch('/api/auth/session-role', {
-          credentials: 'include',
-          signal: controller.signal,
-        });
+        try {
+          const roleRes = await fetch('/api/auth/session-role', {
+            credentials: 'include',
+            signal: controller.signal,
+          });
 
-        if (!roleRes.ok) return { user: data, isAdmin: false, userId: data.$id };
+          if (!roleRes.ok) {
+            // Keep authenticated session state, but do not cache fallback role on transient failures.
+            return { user: data, isAdmin: false };
+          }
 
-        const roleData = (await roleRes.json()) as SessionRoleResponse;
-        return { user: data, isAdmin: roleData.role === 'admin', userId: data.$id };
+          const roleData = (await roleRes.json()) as SessionRoleResponse;
+          return { user: data, isAdmin: roleData.role === 'admin', userId: data.$id };
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') throw err;
+          // Role lookup failure should not log out an authenticated user.
+          return { user: data, isAdmin: false };
+        }
       })
       .then(({ user, isAdmin, userId }) => {
         if (controller.signal.aborted) return;
