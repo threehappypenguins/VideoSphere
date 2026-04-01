@@ -27,7 +27,7 @@ import Footer from '@/components/layout/Footer';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { OnboardingProvider } from '@/components/onboarding/OnboardingContext';
-import { OnboardingTour } from '@/components/onboarding/OnboardingTour';
+import { OnboardingTourGate } from '@/components/onboarding/OnboardingTourGate';
 import { ThemedBackground } from '@/components/ui/ThemedBackground';
 
 // --- Font Configuration ---
@@ -91,9 +91,7 @@ export default function RootLayout({
             <Navbar />
             <main className="min-h-screen">{children}</main>
             <Footer />
-            <Suspense fallback={null}>
-              <OnboardingTour />
-            </Suspense>
+            <OnboardingTourGate />
             <Toaster />
           </OnboardingProvider>
         </ThemeProvider>
