@@ -6,14 +6,17 @@ import { OnboardingTour } from './OnboardingTour';
 
 /**
  * Client-side gate for OnboardingTour that only renders on routes where
- * onboarding can run (/dashboard, /profile). This prevents unnecessary
- * API calls and network requests on other pages.
+ * onboarding can run. This prevents unnecessary API calls and network
+ * requests on other pages.
  */
 export function OnboardingTourGate() {
   const pathname = usePathname();
 
-  // Only render tour on authenticated pages where onboarding can run.
-  const isOnboardingRoute = pathname.startsWith('/dashboard') || pathname.startsWith('/profile');
+  // Keep this list aligned with OnboardingTour route checks.
+  const isOnboardingRoute =
+    pathname === '/dashboard' ||
+    pathname === '/dashboard/drafts' ||
+    pathname === '/profile/connections';
   if (!isOnboardingRoute) return null;
 
   return (
