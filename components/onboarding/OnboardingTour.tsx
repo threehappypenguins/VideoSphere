@@ -110,17 +110,21 @@ export function OnboardingTour() {
   const hasCompletionStartedRef = useRef(false);
 
   const shouldReplay = useMemo(() => searchParams.get('onboarding') === '1', [searchParams]);
+  const hasOnboardingFlow = useMemo(
+    () => searchParams.get('onboardingFlow') === 'true',
+    [searchParams]
+  );
   const isOnboarding = useMemo(
     () => shouldReplay || shouldAutoRun || hasReplayStarted,
     [hasReplayStarted, shouldAutoRun, shouldReplay]
   );
   const isConnectionsWithFlow = useMemo(
-    () => pathname === '/profile/connections' && searchParams.has('onboardingFlow'),
-    [pathname, searchParams]
+    () => pathname === '/profile/connections' && hasOnboardingFlow,
+    [hasOnboardingFlow, pathname]
   );
   const isDraftsWithFlow = useMemo(
-    () => pathname === '/dashboard/drafts' && searchParams.has('onboardingFlow'),
-    [pathname, searchParams]
+    () => pathname === '/dashboard/drafts' && hasOnboardingFlow,
+    [hasOnboardingFlow, pathname]
   );
   const run = useMemo(
     () =>

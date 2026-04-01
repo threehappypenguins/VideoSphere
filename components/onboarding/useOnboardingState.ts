@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 
 const ONBOARDING_STORAGE_PREFIX = 'videosphere:onboarding:';
@@ -47,7 +47,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
   const pathname = usePathname();
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(explicitUserId ?? null);
   const [isResolvingUser, setIsResolvingUser] = useState(explicitUserId === undefined);
-  const [hasResolvedSession, setHasResolvedSession] = useState(explicitUserId !== undefined);
+  const shouldGateReadyRef = useRef(explicitUserId === undefined);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
   const [hasLoadedStorage, setHasLoadedStorage] = useState(false);
 
@@ -55,7 +55,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
     if (explicitUserId !== undefined) {
       setResolvedUserId(explicitUserId ?? null);
       setIsResolvingUser(false);
-      setHasResolvedSession(true);
+      shouldGateReadyRef.current = false;
     }
   }, [explicitUserId]);
 
@@ -65,7 +65,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
     let isMounted = true;
 
     async function loadSessionUserId() {
-      const shouldGateReady = !hasResolvedSession;
+      const shouldGateReady = shouldGateReadyRef.current;
 
       if (shouldGateReady) {
         setIsResolvingUser(true);
@@ -97,7 +97,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
           if (shouldGateReady) {
             setIsResolvingUser(false);
           }
-          setHasResolvedSession(true);
+          shouldGateReadyRef.current = false;
         }
       }
     }
@@ -107,7 +107,7 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
     return () => {
       isMounted = false;
     };
-  }, [explicitUserId, hasResolvedSession, pathname]);
+  }, [explicitUserId, pathname]);
 
   // Load onboarding state from API (or localStorage fallback)
   useEffect(() => {
