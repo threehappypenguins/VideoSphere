@@ -40,6 +40,7 @@ const adminProfile: User = {
   userId: 'admin-auth-id',
   email: 'admin@example.com',
   isSupporter: false,
+  hasCompletedOnboarding: true,
   role: 'admin',
   $createdAt: '2026-01-01T00:00:00.000Z',
   $updatedAt: '2026-01-02T00:00:00.000Z',
