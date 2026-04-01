@@ -117,7 +117,7 @@ export function PricingCards() {
   };
 
   return (
-    <div className="mt-16 grid grid-cols-1 gap-8 md:grid-cols-2">
+    <div className="mt-16 grid grid-cols-1 gap-8 font-sans md:grid-cols-2">
       {tiers.map((tier) => {
         const isFree = tier.name === 'Free';
         const isCurrentPlan = isFree ? sessionUser && !isSupporter : isSupporter;
@@ -127,7 +127,7 @@ export function PricingCards() {
             key={tier.name}
             className={`rounded-xl border p-8 ${
               tier.highlighted
-                ? 'border-primary bg-primary/5 shadow-lg'
+                ? 'border-primary bg-primary/70 shadow-lg'
                 : 'border-border bg-background'
             }`}
           >
@@ -137,23 +137,48 @@ export function PricingCards() {
               </span>
             )}
             {isCurrentPlan && (
-              <span className="mb-4 inline-block rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+              <span
+                className={`mb-4 inline-block rounded-full px-3 py-1 text-xs font-medium ${tier.highlighted ? 'bg-green-400/10 text-green-300' : 'bg-success/15 text-success'}`}
+              >
                 {isSupporter && !isFree ? "You're a Supporter!" : 'Current Plan'}
               </span>
             )}
-            <h3 className="text-xl font-semibold text-foreground">{tier.name}</h3>
-            <p className="mt-2 text-sm text-muted-foreground">{tier.description}</p>
+            <h3
+              className={`text-xl font-semibold ${tier.highlighted ? 'text-primary-foreground' : 'text-foreground'}`}
+            >
+              {tier.name}
+            </h3>
+            <p
+              className={`mt-2 text-sm ${tier.highlighted ? 'text-primary-foreground/80 [text-shadow:0_1px_3px_rgba(0,0,0,0.4)]' : 'text-muted-foreground'}`}
+            >
+              {tier.description}
+            </p>
 
             <div className="mt-6">
-              <span className="text-4xl font-bold text-foreground">{tier.price}</span>
-              <span className="text-muted-foreground">{tier.period}</span>
+              <span
+                className={`text-4xl font-bold ${tier.highlighted ? 'text-primary-foreground' : 'text-foreground'}`}
+              >
+                {tier.price}
+              </span>
+              <span
+                className={
+                  tier.highlighted
+                    ? 'text-primary-foreground/70 [text-shadow:0_1px_3px_rgba(0,0,0,0.4)]'
+                    : 'text-muted-foreground'
+                }
+              >
+                {tier.period}
+              </span>
             </div>
 
             <ul className="mt-8 space-y-3">
               {tier.features.map((feature, index) => (
-                <li key={index} className="flex items-start gap-3 text-sm text-muted-foreground">
+                <li
+                  key={index}
+                  className={`flex items-start gap-3 text-sm ${tier.highlighted ? 'text-primary-foreground/80 [text-shadow:0_1px_3px_rgba(0,0,0,0.4)]' : 'text-muted-foreground'}`}
+                >
                   <svg
-                    className="mt-0.5 h-5 w-5 shrink-0 text-primary"
+                    className={`mt-0.5 h-5 w-5 shrink-0 ${tier.highlighted ? 'text-primary-foreground' : 'text-primary'}`}
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth={2}
@@ -175,7 +200,9 @@ export function PricingCards() {
                 {sessionUser ? 'Go to Dashboard' : tier.cta}
               </Link>
             ) : isSupporter ? (
-              <span className="mt-8 block w-full rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-center text-sm font-medium text-green-800 dark:border-green-700 dark:bg-green-900/30 dark:text-green-200">
+              <span
+                className={`mt-8 block w-full rounded-lg border px-4 py-3 text-center text-sm font-medium ${tier.highlighted ? 'border-green-400/30 bg-green-400/10 text-green-300' : 'border-success/40 bg-success/10 text-success'}`}
+              >
                 ✓ Supporter Active
               </span>
             ) : (

@@ -55,6 +55,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-code": "^2.1.87",
     "@commitlint/cli": "^20",
     "@commitlint/config-conventional": "^20",
     "@tailwindcss/postcss": "^4",

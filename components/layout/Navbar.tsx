@@ -166,7 +166,14 @@ export default function Navbar() {
         <div className="flex h-16 items-center justify-between">
           {/* --- Logo --- */}
           <Link href="/" className="flex items-center gap-2">
-            <Image src="/logo.svg" alt="[Your App Name] logo" width={120} height={40} priority />
+            <Image
+              src="/rawFaviconVideoSphere.png"
+              alt="VideoSphere logo"
+              width={40}
+              height={40}
+              priority
+            />
+            <span className="text-xl font-black sm:text-2xl">VideoSphere</span>
           </Link>
 
           {/* --- Desktop Navigation --- */}
