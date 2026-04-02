@@ -50,11 +50,13 @@
     "node-appwrite": "^22.1.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-joyride": "^3.0.1",
     "sonner": "^2.0.7",
     "stripe": "^20.4.1",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-code": "^2.1.87",
     "@commitlint/cli": "^20",
     "@commitlint/config-conventional": "^20",
     "@tailwindcss/postcss": "^4",

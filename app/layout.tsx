@@ -18,12 +18,16 @@
 // =============================================================================
 
 import type { Metadata } from 'next';
+import localFont from 'next/font/local';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
+import { OnboardingProvider } from '@/components/onboarding/OnboardingContext';
+import { OnboardingTourGate } from '@/components/onboarding/OnboardingTourGate';
+import { ThemedBackground } from '@/components/ui/ThemedBackground';
 
 // --- Font Configuration ---
 // next/font automatically optimizes fonts — no external requests at runtime.
@@ -31,6 +35,18 @@ import { Toaster } from '@/components/ui/sonner';
 const inter = Inter({
   variable: '--font-inter',
   subsets: ['latin'],
+  display: 'swap',
+});
+
+const apfelGrotezk = localFont({
+  src: [
+    { path: './fonts/ApfelGrotezk-Brukt.otf', weight: '350', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Regular.otf', weight: '400', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Mittel.otf', weight: '500', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Fett.otf', weight: '700', style: 'normal' },
+    { path: './fonts/ApfelGrotezk-Satt.otf', weight: '900', style: 'normal' },
+  ],
+  variable: '--font-apfel-grotezk',
   display: 'swap',
 });
 
@@ -44,6 +60,15 @@ export const metadata: Metadata = {
   },
   description:
     'Upload once, distribute everywhere. VideoSphere lets creators distribute videos to YouTube, Vimeo, and more from a single dashboard.',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '48x48' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-96x96.png', sizes: '96x96', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
+  manifest: '/site.webmanifest',
 };
 
 export default function RootLayout({
@@ -52,14 +77,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${apfelGrotezk.variable} ${inter.variable}`}
+      suppressHydrationWarning
+    >
       <head></head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system">
-          <Navbar />
-          <main className="min-h-screen">{children}</main>
-          <Footer />
-          <Toaster />
+          <OnboardingProvider>
+            <ThemedBackground />
+            <Navbar />
+            <main className="min-h-screen">{children}</main>
+            <Footer />
+            <OnboardingTourGate />
+            <Toaster />
+          </OnboardingProvider>
         </ThemeProvider>
       </body>
     </html>

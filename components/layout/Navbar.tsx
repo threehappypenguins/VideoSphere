@@ -91,8 +91,13 @@ function ThemeDropdown({
 
 /** User shape returned by GET /api/auth/session (Appwrite User). */
 interface SessionUser {
+  $id?: string;
   name?: string;
   email?: string;
+}
+
+interface SessionRoleResponse {
+  role?: 'user' | 'admin';
 }
 
 export default function Navbar() {
@@ -100,10 +105,12 @@ export default function Navbar() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
+  const [hasAdminRole, setHasAdminRole] = useState(false);
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
   const mobileThemeRef = useRef<HTMLDivElement>(null);
+  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(null);
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -119,14 +126,51 @@ export default function Navbar() {
       credentials: 'include',
       signal: controller.signal,
     })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: SessionUser | null) => {
+      .then(async (res) => {
+        if (!res.ok) return { user: null, isAdmin: false };
+
+        const data = (await res.json()) as SessionUser;
+
+        if (data.$id && adminRoleCacheRef.current?.userId === data.$id) {
+          return { user: data, isAdmin: adminRoleCacheRef.current.isAdmin };
+        }
+
+        try {
+          const roleRes = await fetch('/api/auth/session-role', {
+            credentials: 'include',
+            signal: controller.signal,
+          });
+
+          if (!roleRes.ok) {
+            // Keep authenticated session state, but do not cache fallback role on transient failures.
+            return { user: data, isAdmin: false };
+          }
+
+          const roleData = (await roleRes.json()) as SessionRoleResponse;
+          return { user: data, isAdmin: roleData.role === 'admin', userId: data.$id };
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') throw err;
+          // Role lookup failure should not log out an authenticated user.
+          return { user: data, isAdmin: false };
+        }
+      })
+      .then(({ user, isAdmin, userId }) => {
         if (controller.signal.aborted) return;
-        setSessionUser(data ?? null);
+        setSessionUser(user);
+        setHasAdminRole(isAdmin);
+        if (!user) {
+          adminRoleCacheRef.current = null;
+          return;
+        }
+        if (typeof userId === 'string') {
+          adminRoleCacheRef.current = { userId, isAdmin };
+        }
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setSessionUser(null);
+        setHasAdminRole(false);
+        adminRoleCacheRef.current = null;
       });
     return () => controller.abort();
   }, [pathname]);
@@ -151,12 +195,15 @@ export default function Navbar() {
   const handleLogout = async () => {
     await logout();
     setSessionUser(null);
+    setHasAdminRole(false);
+    adminRoleCacheRef.current = null;
     setMobileMenuOpen(false);
     router.push('/');
   };
 
   const isLoggedIn = sessionUser !== null && sessionUser !== 'loading';
   const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
+  const isAdminUser = isLoggedIn && hasAdminRole;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
@@ -164,7 +211,14 @@ export default function Navbar() {
         <div className="flex h-16 items-center justify-between">
           {/* --- Logo --- */}
           <Link href="/" className="flex items-center gap-2">
-            <Image src="/logo.svg" alt="[Your App Name] logo" width={120} height={40} priority />
+            <Image
+              src="/rawFaviconVideoSphere.png"
+              alt="VideoSphere logo"
+              width={40}
+              height={40}
+              priority
+            />
+            <span className="text-xl font-black sm:text-2xl">VideoSphere</span>
           </Link>
 
           {/* --- Desktop Navigation --- */}
@@ -229,6 +283,14 @@ export default function Navbar() {
                 >
                   Profile
                 </Link>
+                {isAdminUser && (
+                  <Link
+                    href="/admin/dashboard"
+                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                  >
+                    Admin
+                  </Link>
+                )}
                 <span className="text-sm text-muted-foreground" title={sessionUser?.email}>
                   {userLabel}
                 </span>
@@ -362,6 +424,15 @@ export default function Navbar() {
                   >
                     Profile
                   </Link>
+                  {isAdminUser && (
+                    <Link
+                      href="/admin/dashboard"
+                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      Admin
+                    </Link>
+                  )}
                   <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
                   <button
                     type="button"

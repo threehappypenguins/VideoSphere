@@ -13,6 +13,15 @@
 @import 'tailwindcss';
 
 /* Upload progress bar fill — driven by --upload-progress CSS variable */
+.text-shadow-bg {
+  text-shadow:
+    0 0 5px var(--background),
+    3px 3px 5px var(--background),
+    -3px -3px 5px var(--background),
+    3px -3px 5px var(--background),
+    -3px 3px 5px var(--background);
+}
+
 .upload-progress-fill {
   height: 100%;
   border-radius: 9999px;
@@ -31,32 +40,41 @@
    Change these to match your project's brand. */
 :root {
   /* App background color (page background) */
-  --background: #ffffff;
+  --background: #fafeff;
 
   /* Default text color used across the app */
-  --foreground: #171717;
+  --foreground: #110606;
 
   /* Primary brand color (buttons, links, accents) */
-  --primary: #2563eb;
+  --primary: #161f40;
 
   /* Text color displayed on primary backgrounds */
   --primary-foreground: #ffffff;
 
   /* Secondary surface color used for hover states and subtle UI backgrounds */
-  --secondary: #f5f5f5;
+  --secondary: #bf501c;
 
   /* Muted background for subtle sections or UI surfaces */
   --muted: #f5f5f5;
 
   /* Muted text color for secondary text */
-  --muted-foreground: #737373;
+  --muted-foreground: #141313;
 
   /* Border color used for dividers and inputs */
   --border: #e5e5e5;
 
+  /* Success color for positive status and validation messaging */
+  --success: #15803d;
+
+  /* Destructive color for errors and critical feedback */
+  --destructive: #dc2626;
+
   /* Popover/dropdown background (must be opaque to avoid overlap) */
   --popover: #ffffff;
   --popover-foreground: #171717;
+
+  /* Card noise overlay color — primary hue shifted toward background hue for harmony */
+  --card-noise-color: #d7dee2;
 }
 
 /* --- Tailwind Theme Integration --- */
@@ -71,9 +89,11 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-apfel-grotezk), var(--font-inter), Arial, Helvetica, sans-serif;
 }
 
 /* --- Dark Mode --- */
@@ -81,21 +101,47 @@
    The .dark class is applied to the root when the user selects dark or system+dark. */
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --primary: #3b82f6;
+  --background: #110606;
+  --foreground: #fafeff;
+  --primary: #bf501c;
   --primary-foreground: #ffffff;
-  --secondary: #1f1f1f;
-  --muted: #262626;
-  --muted-foreground: #a3a3a3;
+  --secondary: #161f40;
+  --muted: #161f40;
+  --muted-foreground: #e5ebec;
   --border: #404040;
+  --success: #4ade80;
+  --destructive: #f87171;
   --popover: #0a0a0a;
   --popover-foreground: #ededed;
+
+  /* Card noise overlay color — primary hue shifted toward background hue for harmony */
+  --card-noise-color: #250f05;
 }
 
 /* --- Base Styles --- */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  font-family: var(--font-apfel-grotezk), var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+h1,
+h2 {
+  font-weight: 700;
+}
+
+button,
+h3 {
+  font-weight: 500;
+}
+
+p,
+span,
+li,
+a,
+label,
+input,
+textarea,
+small {
+  font-weight: 400;
 }

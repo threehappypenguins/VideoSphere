@@ -210,7 +210,7 @@ describe('PricingCards', () => {
     render(<PricingCards />);
 
     await waitFor(() => {
-      expect(screen.getByText("You're a Supporter!")).toBeInTheDocument();
+      expect(screen.getByText('Your Plan')).toBeInTheDocument();
       expect(screen.getByText('✓ Supporter Active')).toBeInTheDocument();
     });
 

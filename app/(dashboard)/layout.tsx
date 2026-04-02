@@ -18,7 +18,13 @@ import { Toaster } from '@/components/ui/sonner';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', exact: true },
-  { label: 'Drafts', href: '/dashboard/drafts', exact: false },
+  {
+    label: 'Drafts',
+    href: '/dashboard/drafts',
+    exact: false,
+    tourIdDesktop: 'drafts-nav-link-desktop',
+    tourIdMobile: 'drafts-nav-link-mobile',
+  },
   { label: 'Upload', href: '/dashboard/upload', exact: false },
   { label: 'Scheduled', href: '/dashboard/scheduled', exact: false },
   { label: 'History', href: '/dashboard/history', exact: false },
@@ -37,19 +43,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* ------------------------------------------------------------------ */}
       {/* Desktop sidebar — hidden on mobile                                  */}
       {/* ------------------------------------------------------------------ */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-border md:flex sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4">
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-border md:flex sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4 bg-background/50">
         <nav aria-label="Dashboard navigation">
-          {NAV_ITEMS.map(({ label, href, exact }) => {
+          {NAV_ITEMS.map((item) => {
+            const { label, href, exact } = item;
+            const tourId = 'tourIdDesktop' in item ? item.tourIdDesktop : undefined;
             const active = isActive(pathname, href, exact);
             return (
               <Link
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
+                {...(tourId ? { 'data-tour': tourId } : {})}
                 className={[
-                  'flex items-center border-l-2 px-4 py-2 text-sm transition-colors rounded-r-md',
+                  'flex items-center border-l-2 px-4 py-2 text-lg transition-colors rounded-r-md',
                   active
-                    ? 'border-primary bg-primary/10 font-medium text-primary'
+                    ? 'border-primary bg-primary/10 font-extrabold text-primary'
                     : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
                 ].join(' ')}
               >
@@ -69,13 +78,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           aria-label="Dashboard navigation"
           className="flex overflow-x-auto border-b border-border md:hidden shrink-0"
         >
-          {NAV_ITEMS.map(({ label, href, exact }) => {
+          {NAV_ITEMS.map((item) => {
+            const { label, href, exact } = item;
+            const tourId = 'tourIdMobile' in item ? item.tourIdMobile : undefined;
             const active = isActive(pathname, href, exact);
             return (
               <Link
                 key={href}
                 href={href}
                 aria-current={active ? 'page' : undefined}
+                {...(tourId ? { 'data-tour': tourId } : {})}
                 className={[
                   'whitespace-nowrap border-b-2 px-4 py-3 text-sm transition-colors',
                   active

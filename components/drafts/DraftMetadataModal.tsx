@@ -93,6 +93,8 @@ interface DraftMetadataModalProps {
   onDelete?: (draftId: string) => Promise<boolean>;
   onChange: (next: DraftEditorValues) => void;
   canUseAiMetadata?: boolean;
+  /** Disable Dialog focus trap and scroll lock, e.g. when an onboarding tour overlay is active. */
+  disableInteractionLock?: boolean;
 }
 
 interface DraftUploadHistoryItem {
@@ -147,6 +149,7 @@ export function DraftMetadataModal({
   onDelete,
   onChange,
   canUseAiMetadata = false,
+  disableInteractionLock = false,
 }: DraftMetadataModalProps) {
   const router = useRouter();
   const draftId = value?.id ?? null;
@@ -1194,6 +1197,7 @@ export function DraftMetadataModal({
   return (
     <Dialog
       open={value !== null}
+      modal={!disableInteractionLock}
       onOpenChange={(open) => {
         if (!open) {
           abortThumbnailUploadFlow();
@@ -1202,6 +1206,7 @@ export function DraftMetadataModal({
       }}
     >
       <DialogContent
+        showOverlay={!disableInteractionLock}
         className="flex max-h-[90vh] flex-col p-0"
         onInteractOutside={(event) => event.preventDefault()}
       >
@@ -1219,16 +1224,18 @@ export function DraftMetadataModal({
             {isLoadingPlatforms && displayPlatforms.length === 0 ? (
               <p className="text-xs text-muted-foreground">Loading connected platforms...</p>
             ) : null}
-            <DraftPlatformToggles
-              availablePlatforms={displayPlatforms}
-              selectedPlatforms={value.targets}
-              connectedPlatforms={connectedPlatforms}
-              connectionsResolved={connectionsResolvedSuccessfully}
-              onToggle={handleTogglePlatform}
-              onConnectClick={() => {
-                void handleConnectAction();
-              }}
-            />
+            <div data-tour="draft-platforms">
+              <DraftPlatformToggles
+                availablePlatforms={displayPlatforms}
+                selectedPlatforms={value.targets}
+                connectedPlatforms={connectedPlatforms}
+                connectionsResolved={connectionsResolvedSuccessfully}
+                onToggle={handleTogglePlatform}
+                onConnectClick={() => {
+                  void handleConnectAction();
+                }}
+              />
+            </div>
             {connectedPlatforms.length > 0 ? (
               <p className="text-xs text-muted-foreground">
                 Don&apos;t see a specific platform?{' '}
@@ -1330,6 +1337,7 @@ export function DraftMetadataModal({
               </label>
               <input
                 id="edit-title"
+                data-tour="draft-title-input"
                 value={value.title}
                 onChange={(event) => onChange({ ...value, title: event.target.value })}
                 className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
@@ -1499,7 +1507,10 @@ export function DraftMetadataModal({
                 </div>
               )}
             </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div
+              data-tour="draft-upload-section"
+              className="rounded-lg border border-border bg-muted/30 p-3"
+            >
               <p className="text-sm font-medium text-foreground">Upload video</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Choose a video file, then upload it for this draft.
@@ -1703,6 +1714,7 @@ export function DraftMetadataModal({
           ) : null}
           <button
             type="button"
+            data-tour="draft-save-button"
             onClick={() => {
               commitTagsBeforeSave();
               void onSave({ closeAfterSave: true });

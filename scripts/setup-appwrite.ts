@@ -119,6 +119,7 @@ async function ensureColumn(
         key: col.key,
         size: stringColumnSize(col),
         required: col.required,
+        xdefault: typeof col.defaultValue === 'string' ? col.defaultValue : undefined,
       });
     } else if (col.type === 'datetime') {
       await db.createDatetimeColumn({
@@ -126,6 +127,7 @@ async function ensureColumn(
         tableId,
         key: col.key,
         required: col.required,
+        xdefault: typeof col.defaultValue === 'string' ? col.defaultValue : undefined,
       });
     } else if (col.type === 'boolean') {
       await db.createBooleanColumn({
@@ -133,6 +135,7 @@ async function ensureColumn(
         tableId,
         key: col.key,
         required: col.required,
+        xdefault: typeof col.defaultValue === 'boolean' ? col.defaultValue : undefined,
       });
     } else if (col.type === 'integer') {
       await db.createIntegerColumn({
@@ -140,6 +143,7 @@ async function ensureColumn(
         tableId,
         key: col.key,
         required: col.required,
+        xdefault: typeof col.defaultValue === 'number' ? col.defaultValue : undefined,
       });
     } else {
       log('Skipping unknown column type: ' + col.type + ' (key: ' + col.key + ')');
@@ -170,6 +174,10 @@ interface TableColumn {
    */
   size?: number;
   required: boolean;
+  /**
+   * Optional server-side default for safer migrations on tables with existing rows.
+   */
+  defaultValue?: string | number | boolean;
 }
 
 interface TableConfig {
@@ -206,8 +214,9 @@ const tables: TableConfig[] = [
     columns: [
       { key: 'userId', type: 'varchar', size: 255, required: true },
       { key: 'email', type: 'varchar', size: 255, required: true },
-      { key: 'isSupporter', type: 'boolean', required: true },
+      { key: 'isSupporter', type: 'boolean', required: true, defaultValue: false },
       { key: 'role', type: 'varchar', size: 32, required: true },
+      { key: 'hasCompletedOnboarding', type: 'boolean', required: true, defaultValue: false },
     ],
   },
   {

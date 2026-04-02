@@ -11,6 +11,8 @@
 
 import type { Metadata } from 'next';
 
+import { CardNoiseBackground, PAGE_SEEDS } from '@/components/ui/GaussianNoiseBackground';
+
 export const metadata: Metadata = {
   title: 'About',
   description: 'Learn about VideoSphere — our mission, team, and story.',
@@ -30,19 +32,19 @@ const team = [
   },
   {
     name: 'Christian Hansen',
-    role: 'Backend & Infrastructure Engineer',
-    bio: 'Christian is an experienced backend developer who ensures our systems run smoothly and efficiently.',
+    role: 'Full-Stack Developer',
+    bio: 'Christian is a full-stack developer who has a passion for building fun and engaging web applications.',
   },
   {
     name: 'Daryan Wynter',
-    role: 'UI/UX Designer',
-    bio: 'Daryan is a creative designer focused on crafting intuitive and engaging user experiences.',
+    role: 'Frontend Developer',
+    bio: 'Daryan is a creative frontend developer focused on crafting intuitive and engaging user experiences.',
   },
 ];
 
 export default function AboutPage() {
   return (
-    <div className="px-4 py-20 sm:px-6 lg:px-8">
+    <div className="px-4 py-20 font-sans sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
         {/* --- Mission / Vision --- */}
         <section className="text-center">
@@ -82,13 +84,17 @@ export default function AboutPage() {
 
           <div className="mt-12 grid grid-cols-1 gap-8 sm:grid-cols-2">
             {team.map((member) => (
-              <div key={member.name} className="rounded-xl border border-border p-6 text-center">
+              <div
+                key={member.name}
+                className="relative isolate overflow-hidden rounded-xl border border-border bg-background p-6 text-center"
+              >
+                <CardNoiseBackground seed={PAGE_SEEDS['/about']} />
                 {/* STUDENT: Replace this placeholder with actual team photos */}
                 <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-muted text-2xl">
                   👤
                 </div>
                 <h3 className="mt-4 text-lg font-semibold text-foreground">{member.name}</h3>
-                <p className="text-sm font-medium text-primary">{member.role}</p>
+                <p className="text-lg font-bold text-primary">{member.role}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{member.bio}</p>
               </div>
             ))}

@@ -11,7 +11,7 @@ export default function HistoryPage() {
     <div className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-2xl font-bold text-foreground">Upload History</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <p className="mt-2 text-lg text-foreground text-shadow-bg">
           A record of all your completed and failed video distributions.
         </p>
         <UploadHistoryClient />

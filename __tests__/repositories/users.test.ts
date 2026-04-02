@@ -7,10 +7,11 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockGetRow, mockListRows, mockCreateRow } = vi.hoisted(() => ({
+const { mockGetRow, mockListRows, mockCreateRow, mockUpdateRow } = vi.hoisted(() => ({
   mockGetRow: vi.fn(),
   mockListRows: vi.fn(),
   mockCreateRow: vi.fn(),
+  mockUpdateRow: vi.fn(),
 }));
 
 vi.mock('node-appwrite', () => ({
@@ -25,6 +26,7 @@ vi.mock('node-appwrite', () => ({
     getRow = mockGetRow;
     listRows = mockListRows;
     createRow = mockCreateRow;
+    updateRow = mockUpdateRow;
   },
 }));
 
@@ -32,7 +34,7 @@ vi.mock('@/lib/appwrite', () => ({
   default: {},
 }));
 
-import { getUserById } from '@/lib/repositories/users';
+import { createUser, getUserById, updateUser } from '@/lib/repositories/users';
 
 const timestamps = {
   $createdAt: '2026-01-01T00:00:00.000Z',
@@ -45,6 +47,7 @@ function profileRow(overrides: Record<string, unknown> = {}) {
     userId: 'auth-user-1',
     email: 'a@example.com',
     isSupporter: false,
+    hasCompletedOnboarding: false,
     role: 'user',
     ...timestamps,
     ...overrides,
@@ -71,6 +74,7 @@ describe('getUserById', () => {
       userId: 'auth-user-1',
       email: 'a@example.com',
       isSupporter: false,
+      hasCompletedOnboarding: false,
       role: 'user',
       $createdAt: timestamps.$createdAt,
       $updatedAt: timestamps.$updatedAt,
@@ -115,5 +119,84 @@ describe('getUserById', () => {
 
     await expect(getUserById('auth-user-1')).rejects.toMatchObject({ code: 500 });
     expect(mockListRows).not.toHaveBeenCalled();
+  });
+});
+
+describe('createUser', () => {
+  it('creates a profile row with required schema defaults', async () => {
+    mockCreateRow.mockResolvedValue(profileRow());
+
+    const user = await createUser({
+      userId: 'auth-user-1',
+      email: 'A@example.com',
+    });
+
+    expect(mockCreateRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'user_profiles',
+      rowId: 'auth-user-1',
+      data: {
+        userId: 'auth-user-1',
+        email: 'a@example.com',
+        isSupporter: false,
+        hasCompletedOnboarding: false,
+        role: 'user',
+      },
+    });
+    expect(user.hasCompletedOnboarding).toBe(false);
+  });
+});
+
+describe('updateUser', () => {
+  it('updates directly when row id equals userId', async () => {
+    mockUpdateRow.mockResolvedValue(profileRow({ isSupporter: true }));
+
+    const user = await updateUser('auth-user-1', { isSupporter: true });
+
+    expect(mockUpdateRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'user_profiles',
+      rowId: 'auth-user-1',
+      data: { isSupporter: true },
+    });
+    expect(user.isSupporter).toBe(true);
+  });
+
+  it('falls back to userId query when direct update returns 404', async () => {
+    mockUpdateRow
+      .mockRejectedValueOnce({ code: 404 })
+      .mockResolvedValueOnce(
+        profileRow({ $id: 'legacy-row-id', userId: 'auth-user-1', isSupporter: true })
+      );
+    mockListRows.mockResolvedValue({
+      rows: [profileRow({ $id: 'legacy-row-id', userId: 'auth-user-1' })],
+    });
+
+    const user = await updateUser('auth-user-1', { isSupporter: true });
+
+    expect(mockListRows).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'user_profiles',
+      queries: ['equal("userId","auth-user-1")', 'limit(1)'],
+      total: false,
+    });
+    expect(mockUpdateRow).toHaveBeenNthCalledWith(2, {
+      databaseId: 'videosphere',
+      tableId: 'user_profiles',
+      rowId: 'legacy-row-id',
+      data: { isSupporter: true },
+    });
+    expect(user.isSupporter).toBe(true);
+  });
+
+  it('throws a clear error when fallback row is missing $id', async () => {
+    mockUpdateRow.mockRejectedValueOnce({ code: 404 });
+    mockListRows.mockResolvedValue({
+      rows: [profileRow({ $id: undefined, userId: 'auth-user-1' })],
+    });
+
+    await expect(updateUser('auth-user-1', { isSupporter: true })).rejects.toThrow(
+      'User profile row missing $id'
+    );
   });
 });

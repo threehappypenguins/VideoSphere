@@ -22,6 +22,7 @@ function rowToUser(row: Record<string, unknown>): User {
     userId: String(row.userId ?? row.$id),
     email: String(row.email),
     isSupporter: Boolean(row.isSupporter),
+    hasCompletedOnboarding: Boolean(row.hasCompletedOnboarding),
     role: (row.role as UserRole) ?? 'user',
     $createdAt,
     $updatedAt,
@@ -36,6 +37,7 @@ export interface CreateUserData {
   userId: string;
   email: string;
   isSupporter?: boolean;
+  hasCompletedOnboarding?: boolean;
   role?: UserRole;
 }
 
@@ -52,6 +54,7 @@ export async function createUser(data: CreateUserData): Promise<User> {
       userId: data.userId,
       email: data.email.trim().toLowerCase(),
       isSupporter: data.isSupporter ?? false,
+      hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
       role: data.role ?? 'user',
     },
   });
@@ -115,21 +118,59 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 
 export interface UpdateUserData {
   isSupporter?: boolean;
+  hasCompletedOnboarding?: boolean;
   role?: UserRole;
 }
 
 /**
  * Update user_profiles fields (e.g. isSupporter, role). Only provided fields are updated.
+ *
+ * Mirrors getUserById's fallback: if updateRow 404s (console-created rows where
+ * `$id !== userId`), resolves the actual row `$id` via listRows and retries.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
-  const payload: Record<string, unknown> = { ...data };
-  const row = await tablesDb.updateRow({
+  const payload: Record<string, unknown> = Object.fromEntries(
+    Object.entries(data).filter(([, v]) => v !== undefined)
+  );
+
+  try {
+    const row = await tablesDb.updateRow({
+      databaseId: DATABASE_ID,
+      tableId: USER_PROFILES_COLLECTION_ID,
+      rowId: userId,
+      data: payload,
+    });
+    return rowToUser(row as unknown as Record<string, unknown>);
+  } catch (err: unknown) {
+    const e = err as { code?: number };
+    if (e.code !== 404) throw err;
+  }
+
+  // Primary row id differs from Auth id — resolve via userId column and retry.
+  const { rows } = await tablesDb.listRows({
     databaseId: DATABASE_ID,
     tableId: USER_PROFILES_COLLECTION_ID,
-    rowId: userId,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: false,
+  });
+
+  if (rows.length === 0) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+
+  const actualRowId = String((rows[0] as unknown as Record<string, unknown>).$id ?? '');
+  if (!actualRowId) {
+    throw new Error('User profile row missing $id');
+  }
+
+  const updatedRow = await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: USER_PROFILES_COLLECTION_ID,
+    rowId: actualRowId,
     data: payload,
   });
-  return rowToUser(row as unknown as Record<string, unknown>);
+  return rowToUser(updatedRow as unknown as Record<string, unknown>);
 }
 
 /**
