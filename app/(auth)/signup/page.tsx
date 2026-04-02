@@ -198,9 +198,22 @@ export default function SignUpPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
+  // Map error codes to user-friendly messages
+  const getErrorMessage = (message: string) => {
+    const errorMap: Record<string, string> = {
+      oauth_initiation_failed: 'Failed to start Google sign-up. Please try again.',
+      oauth_missing_params: 'OAuth callback was incomplete. Please try again.',
+      oauth_auth_failed: 'Failed to complete Google authentication. Please try again.',
+      oauth_callback_failed: 'An error occurred during Google sign-up. Please try again.',
+      oauth_failed: 'Google sign-up failed. Please try again.',
+    };
+    return errorMap[message] || message;
+  };
+
   useEffect(() => {
-    if (searchParams.get('error')) {
-      setServerError('Google sign-up failed. Please try again.');
+    const error = searchParams.get('error');
+    if (error) {
+      setServerError(getErrorMessage(error));
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [searchParams]);
@@ -218,7 +231,11 @@ export default function SignUpPage() {
     event.preventDefault();
 
     const errors = validate(form);
-    if (Object.keys(errors).length) return setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setFieldErrors(errors);
+      setServerError('');
+      return;
+    }
 
     setIsLoading(true);
     setServerError('');
@@ -267,6 +284,7 @@ export default function SignUpPage() {
   };
 
   const handleGoogleSignup = () => {
+    setServerError('');
     setIsGoogleLoading(true);
     window.location.href = '/api/auth/oauth/google';
   };
