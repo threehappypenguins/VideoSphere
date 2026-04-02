@@ -43,7 +43,6 @@ const tiers = [
       'Unlimited uploads',
       'Distribute to all platforms',
       'Premium AI-generated metadata',
-      'Scheduled publishing',
       'Priority processing',
       'Early access to new platforms',
     ],

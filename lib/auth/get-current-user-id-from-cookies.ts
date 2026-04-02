@@ -13,7 +13,7 @@ export interface NavbarAuthStateFromCookies {
   hasAdminRole: boolean;
 }
 
-async function getSessionUserFromCookies(): Promise<SessionUserFromCookies | null> {
+export async function getSessionUserFromCookies(): Promise<SessionUserFromCookies | null> {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   if (!endpoint || !projectId) return null;

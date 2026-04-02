@@ -296,18 +296,27 @@ function isDraftReadyToUpload(draft: Draft): boolean {
  * Because `usedInUploadAt` is stored inside the draft `document` JSON, Appwrite cannot
  * currently count "ready to upload" drafts server-side with an indexed query. We page
  * through rows and keep only the count plus the first few ready drafts needed for preview.
+ *
+ * To prevent runaway queries on large draft histories, we stop after scanning `maxRowsScanned`
+ * rows (default 500). For users with fewer than this threshold, the count is exact; for those
+ * with larger histories, it's an approximation based on the scanned prefix.
+ *
+ * Future: Move `usedInUploadAt` to an indexed column to enable bounded queries server-side.
  */
 export async function getDraftDashboardSummaryByUser(
   userId: string,
-  options?: { previewLimit?: number; pageSize?: number }
+  options?: { previewLimit?: number; pageSize?: number; maxRowsScanned?: number }
 ): Promise<DraftDashboardSummary> {
   const previewLimit = Math.max(0, options?.previewLimit ?? 5);
   const pageSize = Math.max(1, options?.pageSize ?? 100);
+  const maxRowsScanned = Math.max(1, options?.maxRowsScanned ?? 500);
+
   let offset = 0;
+  let rowsScanned = 0;
   let readyDraftCount = 0;
   const previewDrafts: Draft[] = [];
 
-  while (true) {
+  while (rowsScanned < maxRowsScanned) {
     const { rows } = await tablesDb.listRows({
       databaseId: DATABASE_ID,
       tableId: DRAFTS_COLLECTION_ID,
@@ -330,6 +339,7 @@ export async function getDraftDashboardSummaryByUser(
       }
     }
 
+    rowsScanned += pageDrafts.length;
     if (pageDrafts.length < pageSize) break;
     if (pageDrafts.length === 0) break;
     offset += pageSize;

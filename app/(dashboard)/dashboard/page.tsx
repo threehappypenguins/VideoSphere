@@ -16,7 +16,6 @@ import { DashboardQuickActions } from '@/components/dashboard/DashboardQuickActi
 import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 import { countDraftsByUser, getDraftDashboardSummaryByUser } from '@/lib/repositories/drafts';
 import { countUploadJobsByUserWithStatuses } from '@/lib/repositories/upload-jobs';
-import type { Draft } from '@/types';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
