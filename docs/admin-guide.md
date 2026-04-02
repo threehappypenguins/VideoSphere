@@ -70,29 +70,21 @@ At a high level it:
 4. For `/admin/*`, calls `/api/auth/session-role` once (session check + `user_profiles.role` via the server repository — no Appwrite admin SDK imported in `proxy.ts`, so middleware stays fetch-only and does not require `APPWRITE_API_KEY` at module load for the proxy bundle)
 5. Redirects non-admin users to `/dashboard`; **401** from session-role to `/login`; other failures (503, network/JSON errors on the internal fetch) to `/dashboard` so transient or profile/DB issues are not shown as a full logout
 
-### 2. Server Components (Check Role Server-Side)
+### 2. Admin Page Strategy (Current Project)
 
-In the admin page itself, verify the user's role before rendering content:
+In this project, `app/(dashboard)/admin/dashboard/page.tsx` is a **client component** shell, so it does not do server-component role gating directly.
 
-```tsx
-// app/(dashboard)/admin/dashboard/page.tsx
-import { redirect } from 'next/navigation';
+Current protection strategy:
 
-export default async function AdminDashboard() {
-  const user = await getAuthenticatedUser();
+1. `proxy.ts` blocks non-admin users from reaching `/admin/*`
+2. Admin API routes enforce role checks server-side (for example via shared `requireAdmin` guards)
+3. The admin page consumes only those protected APIs
 
-  if (!user || user.role !== 'admin') {
-    redirect('/');
-  }
-
-  // Only admins reach this point
-  return <div>{/* Admin dashboard content */}</div>;
-}
-```
+If you later convert the admin page to a server component, you can add an additional page-level role check there as defense in depth.
 
 ### 3. API Routes (Verify Before Returning Data)
 
-Every API route that serves admin data must independently verify the user's role:
+Every API route that serves admin data must independently verify the user's role. In this codebase, use the shared `requireAdmin` pattern so checks are consistent across all `/api/admin/*` handlers:
 
 ```typescript
 // app/api/admin/users/route.ts
@@ -185,8 +177,8 @@ These are features your team should implement (they are not in the template):
 - [ ] Choose an auth/BaaS provider (Supabase, Firebase, Clerk, etc.)
 - [ ] Set up user roles in your auth system
 - [x] Admin routes are protected via `proxy.ts` (already implemented — see project root)
-- [ ] Add server-side role checks in admin pages
-- [ ] Protect all admin API routes
+- [x] Admin page access strategy is `proxy.ts` + protected admin APIs (current implementation)
+- [ ] Protect all admin API routes with shared `requireAdmin` checks
 - [ ] Replace placeholder data with real database queries
 - [ ] Add user management functionality
 - [ ] Test that non-admin users cannot access admin routes
