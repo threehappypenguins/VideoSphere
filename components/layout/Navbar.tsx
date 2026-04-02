@@ -16,6 +16,10 @@ import { useRouter, usePathname } from 'next/navigation';
 import { logout } from '@/lib/auth-client';
 import { useTheme } from 'next-themes';
 import { SunIcon, MoonIcon, ComputerDesktopIcon, CheckIcon } from '@heroicons/react/24/outline';
+import {
+  getBackgroundGrainEnabled,
+  setBackgroundGrainEnabled,
+} from '@/lib/ui/background-preference';
 
 const THEME_OPTIONS = [
   { value: 'system' as const, label: 'System', Icon: ComputerDesktopIcon },
@@ -32,6 +36,8 @@ function ThemeDropdown({
   onClose,
   theme,
   setTheme,
+  grainEnabled,
+  onToggleGrain,
   resolvedTheme,
   mounted,
   dropdownClassName,
@@ -42,6 +48,8 @@ function ThemeDropdown({
   onClose: () => void;
   theme: string | undefined;
   setTheme: (theme: 'system' | 'light' | 'dark') => void;
+  grainEnabled: boolean;
+  onToggleGrain: () => void;
   resolvedTheme: string | undefined;
   mounted: boolean;
   dropdownClassName: string;
@@ -52,7 +60,7 @@ function ThemeDropdown({
       <button
         type="button"
         aria-label="Change color theme"
-        aria-expanded={isOpen}
+        aria-expanded={isOpen ? 'true' : 'false'}
         onClick={onToggle}
         className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
       >
@@ -83,6 +91,28 @@ function ThemeDropdown({
               {selectedTheme === value && <CheckIcon className="ml-auto h-4 w-4 text-primary" />}
             </button>
           ))}
+          <div className="my-1 border-t border-border" />
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={grainEnabled ? 'true' : 'false'}
+            onClick={onToggleGrain}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+          >
+            <span>Film texture</span>
+            <span
+              className={`ml-auto inline-flex h-5 w-9 items-center rounded-full border transition-colors ${
+                grainEnabled ? 'border-primary bg-primary/20' : 'border-border bg-muted'
+              }`}
+              aria-hidden
+            >
+              <span
+                className={`h-3.5 w-3.5 rounded-full bg-foreground transition-transform ${
+                  grainEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+          </button>
         </div>
       )}
     </div>
@@ -114,6 +144,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
   );
   const [hasAdminRole, setHasAdminRole] = useState(initialHasAdminRole);
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
+  const [grainEnabled, setGrainEnabled] = useState(() => getBackgroundGrainEnabled());
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
   const mobileThemeRef = useRef<HTMLDivElement>(null);
@@ -216,6 +247,12 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
   const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
   const isAdminUser = isLoggedIn && hasAdminRole;
 
+  const handleToggleGrain = () => {
+    const next = !grainEnabled;
+    setGrainEnabled(next);
+    setBackgroundGrainEnabled(next);
+  };
+
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -273,6 +310,8 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
               onClose={() => setThemeDropdownOpen(false)}
               theme={theme}
               setTheme={setTheme}
+              grainEnabled={grainEnabled}
+              onToggleGrain={handleToggleGrain}
               resolvedTheme={resolvedTheme}
               mounted={mounted}
               dropdownClassName="right-0"
@@ -341,7 +380,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
             type="button"
             className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground md:hidden"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-expanded={mobileMenuOpen}
+            aria-expanded={mobileMenuOpen ? 'true' : 'false'}
             aria-label="Toggle navigation menu"
           >
             {mobileMenuOpen ? (
@@ -388,6 +427,8 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   onClose={() => setThemeDropdownOpen(false)}
                   theme={theme}
                   setTheme={setTheme}
+                  grainEnabled={grainEnabled}
+                  onToggleGrain={handleToggleGrain}
                   resolvedTheme={resolvedTheme}
                   mounted={mounted}
                   dropdownClassName="left-3 right-3"
