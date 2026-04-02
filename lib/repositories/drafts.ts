@@ -286,6 +286,8 @@ export interface DraftDashboardSummary {
   previewDrafts: Draft[];
 }
 
+const APPWRITE_LIST_ROWS_MAX_LIMIT = 100;
+
 function isDraftReadyToUpload(draft: Draft): boolean {
   return typeof draft.usedInUploadAt !== 'string' || draft.usedInUploadAt.trim() === '';
 }
@@ -308,7 +310,10 @@ export async function getDraftDashboardSummaryByUser(
   options?: { previewLimit?: number; pageSize?: number; maxRowsScanned?: number }
 ): Promise<DraftDashboardSummary> {
   const previewLimit = Math.max(0, options?.previewLimit ?? 5);
-  const pageSize = Math.max(1, options?.pageSize ?? 100);
+  const pageSize = Math.min(
+    Math.max(1, options?.pageSize ?? APPWRITE_LIST_ROWS_MAX_LIMIT),
+    APPWRITE_LIST_ROWS_MAX_LIMIT
+  );
   const maxRowsScanned = Math.max(1, options?.maxRowsScanned ?? 500);
 
   let offset = 0;
@@ -343,9 +348,9 @@ export async function getDraftDashboardSummaryByUser(
     }
 
     rowsScanned += pageDrafts.length;
-    if (pageDrafts.length < pageSize) break;
+    if (pageDrafts.length < limitForThisPage) break;
     if (pageDrafts.length === 0) break;
-    offset += pageSize;
+    offset += limitForThisPage;
   }
 
   return { readyDraftCount, previewDrafts };

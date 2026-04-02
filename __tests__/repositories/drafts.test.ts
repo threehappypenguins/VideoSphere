@@ -338,6 +338,37 @@ describe('drafts repository', () => {
         'offset(2)',
       ]);
     });
+
+    it('clamps pageSize to Appwrite max and increments offset by actual per-page limit', async () => {
+      mockListRows
+        .mockResolvedValueOnce({
+          rows: Array.from({ length: 100 }, (_, idx) => ({
+            ...baseRow,
+            $id: `ready-bulk-${idx + 1}`,
+            $updatedAt: '2026-01-03T00:00:00.000Z',
+          })),
+        })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await getDraftDashboardSummaryByUser('user-1', {
+        pageSize: 500,
+        maxRowsScanned: 150,
+      });
+
+      expect(mockListRows).toHaveBeenCalledTimes(2);
+      expect(mockListRows.mock.calls[0][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'orderDesc("$updatedAt")',
+        'limit(100)',
+        'offset(0)',
+      ]);
+      expect(mockListRows.mock.calls[1][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'orderDesc("$updatedAt")',
+        'limit(50)',
+        'offset(100)',
+      ]);
+    });
   });
 
   describe('updateDraft', () => {
