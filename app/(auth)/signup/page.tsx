@@ -153,7 +153,7 @@ function InputField({
             focus:placeholder:opacity-50
             ${
               error
-                ? 'border-red-400 bg-red-50 dark:bg-red-950 focus:ring-red-300/30 focus:border-red-400'
+                ? 'border-destructive bg-destructive/10 focus:ring-destructive/30 focus:border-destructive'
                 : 'border-border bg-background'
             }
             ${isPassword ? 'pr-11' : ''}
@@ -207,7 +207,7 @@ export default function SignUpPage() {
       oauth_callback_failed: 'An error occurred during Google sign-up. Please try again.',
       oauth_failed: 'Google sign-up failed. Please try again.',
     };
-    return errorMap[message] || message;
+    return errorMap[message] || 'An error occurred. Please try again.';
   };
 
   useEffect(() => {
@@ -298,7 +298,7 @@ export default function SignUpPage() {
         </div>
 
         {serverError && (
-          <p className="mt-6 text-sm font-medium text-red-600 dark:text-red-400" role="alert">
+          <p className="mt-6 text-sm font-medium text-destructive" role="alert">
             {serverError}
           </p>
         )}
