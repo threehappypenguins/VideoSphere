@@ -130,7 +130,7 @@ describe('PricingCards', () => {
       // Session: authenticated
       { ok: true, data: { $id: 'user_123', email: 'test@test.com' } },
       // Profile: free tier
-      { ok: true, data: { isSupporter: false } },
+      { ok: true, data: { isSupporter: false, role: 'user' } },
     ]);
 
     render(<PricingCards />);
@@ -147,7 +147,7 @@ describe('PricingCards', () => {
       // Session
       { ok: true, data: { $id: 'user_123', email: 'test@test.com' } },
       // Profile
-      { ok: true, data: { isSupporter: false } },
+      { ok: true, data: { isSupporter: false, role: 'user' } },
     ]);
 
     render(<PricingCards />);
@@ -175,7 +175,7 @@ describe('PricingCards', () => {
       // Session
       { ok: true, data: { $id: 'user_123', email: 'test@test.com' } },
       // Profile
-      { ok: true, data: { isSupporter: false } },
+      { ok: true, data: { isSupporter: false, role: 'user' } },
     ]);
 
     render(<PricingCards />);
@@ -204,7 +204,7 @@ describe('PricingCards', () => {
       // Session
       { ok: true, data: { $id: 'user_123', email: 'test@test.com' } },
       // Profile: supporter
-      { ok: true, data: { isSupporter: true } },
+      { ok: true, data: { isSupporter: true, role: 'user' } },
     ]);
 
     render(<PricingCards />);
@@ -215,6 +215,28 @@ describe('PricingCards', () => {
     });
 
     // Should not show a checkout button
+    expect(screen.queryByRole('button', { name: /upgrade to supporter/i })).not.toBeInTheDocument();
+  });
+
+  it('disables supporter upgrade action for admin users', async () => {
+    mockFetchResponses([
+      { ok: true, data: { $id: 'admin_123', email: 'admin@test.com' } },
+      { ok: true, data: { isSupporter: false, role: 'admin' } },
+    ]);
+
+    render(<PricingCards />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /upgrade unavailable for admin users/i })
+      ).toBeInTheDocument();
+    });
+
+    const adminButton = screen.getByRole('button', {
+      name: /upgrade unavailable for admin users/i,
+    });
+    expect(adminButton).toBeDisabled();
+    expect(adminButton).toHaveTextContent('You are an admin');
     expect(screen.queryByRole('button', { name: /upgrade to supporter/i })).not.toBeInTheDocument();
   });
 });

@@ -12,7 +12,7 @@
 // STUDENT: You can also create route-specific loading states by adding a
 // loading.tsx file in any route segment directory. For example:
 //   - app/(dashboard)/dashboard/loading.tsx — loading state for the dashboard
-//   - app/(admin)/admin/dashboard/loading.tsx — loading state for admin
+//   - app/(dashboard)/admin/dashboard/loading.tsx — loading state for admin
 //
 // See Next.js docs: https://nextjs.org/docs/app/building-your-application/routing/loading-ui-and-streaming
 // =============================================================================

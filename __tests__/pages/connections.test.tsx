@@ -64,7 +64,7 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
   deleteConnectedAccount: vi.fn(),
 }));
 
-import ConnectionsPage from '@/app/profile/connections/page';
+import ConnectionsPage from '@/app/(dashboard)/profile/connections/page';
 import { redirect } from 'next/navigation';
 
 // ---------------------------------------------------------------------------

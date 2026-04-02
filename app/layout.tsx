@@ -21,8 +21,6 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import Navbar from '@/components/layout/Navbar';
-import Footer from '@/components/layout/Footer';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { OnboardingProvider } from '@/components/onboarding/OnboardingContext';
@@ -87,9 +85,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system">
           <OnboardingProvider>
             <ThemedBackground />
-            <Navbar />
-            <main className="min-h-screen">{children}</main>
-            <Footer />
+            {children}
             <OnboardingTourGate />
             <Toaster />
           </OnboardingProvider>

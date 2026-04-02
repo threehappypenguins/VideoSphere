@@ -66,12 +66,24 @@ function createNewEditorValues(): DraftEditorValues {
   };
 }
 
+function isMinimalCreateDraft(draft: Draft): boolean {
+  return (
+    draft.title.trim() === '' &&
+    draft.description.trim() === '' &&
+    draft.tags.length === 0 &&
+    draft.targets.length === 0 &&
+    !draft.thumbnailR2Key &&
+    !draft.thumbnailPreviewUrl
+  );
+}
+
 export default function DraftsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { setOnboardingDraftId } = useOnboardingContext();
   const handledEditDraftIdRef = useRef<string | null>(null);
+  const handledCreateDraftIdRef = useRef<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedAccountPlatform[]>([]);
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false);
@@ -88,6 +100,8 @@ export default function DraftsPage() {
   const [isOpeningCreate, setIsOpeningCreate] = useState(false);
   /** True after the user successfully saves a draft that was opened via minimal create. */
   const [createDraftSaved, setCreateDraftSaved] = useState(false);
+  /** True only when closing the create modal should delete the backing draft row. */
+  const shouldDeleteCreateDraftOnCancelRef = useRef(false);
   /** Baseline targets when minimal create opened (updated if auto-fill effect adds platforms). */
   const createModalBaselineTargetsRef = useRef<ConnectedAccountPlatform[] | null>(null);
 
@@ -447,12 +461,52 @@ export default function DraftsPage() {
         targets: initialTargets,
       });
       setCreateDraftSaved(false);
+      shouldDeleteCreateDraftOnCancelRef.current = true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to create draft');
     } finally {
       setIsOpeningCreate(false);
     }
   }, [connectedPlatforms]);
+
+  const openExistingCreateDraft = useCallback(
+    async (draftId: string) => {
+      setIsOpeningCreate(true);
+      try {
+        const response = await fetch(`/api/drafts/${draftId}`, { cache: 'no-store' });
+        if (!response.ok) {
+          const err = (await response.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(err?.message ?? 'Failed to open draft');
+        }
+
+        const payload = (await response.json()) as ApiResponse<Draft>;
+        const draft = payload.data;
+        if (!draft) {
+          throw new Error('Failed to open draft');
+        }
+
+        const draftWasMinimal = isMinimalCreateDraft(draft);
+        const initialTargets =
+          draft.targets.length > 0
+            ? [...draft.targets]
+            : connectedPlatforms.length > 0
+              ? [...connectedPlatforms]
+              : [];
+        createModalBaselineTargetsRef.current = initialTargets;
+        setCreatingDraft({
+          ...createEditorValues(draft),
+          targets: initialTargets,
+        });
+        setCreateDraftSaved(!draftWasMinimal);
+        shouldDeleteCreateDraftOnCancelRef.current = draftWasMinimal;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to open draft');
+      } finally {
+        setIsOpeningCreate(false);
+      }
+    },
+    [connectedPlatforms]
+  );
 
   useEffect(() => {
     const shouldOpenCreate =
@@ -468,9 +522,27 @@ export default function DraftsPage() {
     router.replace(q ? `${pathname}?${q}` : pathname);
   }, [searchParams, creatingDraft, handleOpenCreateModal, pathname, router]);
 
+  useEffect(() => {
+    const createDraftId = searchParams.get('createDraftId');
+    if (!createDraftId) {
+      handledCreateDraftIdRef.current = null;
+      return;
+    }
+    if (handledCreateDraftIdRef.current === createDraftId) return;
+    if (creatingDraft || isOpeningCreate) return;
+
+    handledCreateDraftIdRef.current = createDraftId;
+    void openExistingCreateDraft(createDraftId);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete('createDraftId');
+    const q = nextParams.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname);
+  }, [searchParams, creatingDraft, isOpeningCreate, openExistingCreateDraft, pathname, router]);
+
   const handleCloseCreateModal = useCallback(async () => {
     if (creatingDraft?.id) {
-      if (!createDraftSaved) {
+      if (!createDraftSaved && shouldDeleteCreateDraftOnCancelRef.current) {
         const baselineTargets = createModalBaselineTargetsRef.current;
         const hasTargetsChanged =
           baselineTargets !== null && !draftTargetsEqual(creatingDraft.targets, baselineTargets);
@@ -501,6 +573,7 @@ export default function DraftsPage() {
       }
     }
     createModalBaselineTargetsRef.current = null;
+    shouldDeleteCreateDraftOnCancelRef.current = false;
     setCreatingDraft(null);
     setCreateDraftSaved(false);
   }, [creatingDraft, createDraftSaved, loadDrafts]);

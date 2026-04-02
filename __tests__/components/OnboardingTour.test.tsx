@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const markCompletedMock = vi.hoisted(() => vi.fn());
+const toastErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => {
   const params = new URLSearchParams();
@@ -27,6 +28,12 @@ vi.mock('@/components/onboarding/OnboardingContext', () => ({
     setOnboardingDraftId: vi.fn(),
     cleanupOnboardingDraft: vi.fn().mockResolvedValue(undefined),
   }),
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: toastErrorMock,
+  },
 }));
 
 vi.mock('react-joyride', () => {
