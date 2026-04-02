@@ -147,6 +147,28 @@ function setCachedUploadHistory(
   }
 }
 
+/** Extract best-effort partial field values from a partially-assembled JSON string. */
+function extractPartialAiFields(raw: string): {
+  title: string;
+  description: string;
+  tags: string[];
+} {
+  const unescape = (s: string) =>
+    s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"');
+  const titleM = raw.match(/"title"\s*:\s*"((?:[^"\\]|\\.)*)/u);
+  const title = titleM ? unescape(titleM[1]) : '';
+  const descM = raw.match(/"description"\s*:\s*"((?:[^"\\]|\\.)*)/u);
+  const description = descM ? unescape(descM[1]) : '';
+  const tagsArrayM = raw.match(/"tags"\s*:\s*\[([^\]]*)/u);
+  const tags: string[] = [];
+  if (tagsArrayM) {
+    for (const m of tagsArrayM[1].matchAll(/"((?:[^"\\]|\\.)*)"/gu)) {
+      tags.push(unescape(m[1]));
+    }
+  }
+  return { title, description, tags };
+}
+
 export function DraftMetadataModal({
   mode,
   value,
@@ -191,7 +213,6 @@ export function DraftMetadataModal({
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-  const [aiStreamPreview, setAiStreamPreview] = useState('');
   const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
   const [aiRedoStack, setAiRedoStack] = useState<DraftEditorValues[]>([]);
   const [uploadLimitState, setUploadLimitState] = useState<{
@@ -534,7 +555,6 @@ export function DraftMetadataModal({
     if (!draftId) {
       setAiPrompt('');
       setIsGeneratingAi(false);
-      setAiStreamPreview('');
       setAiUndoStack([]);
       setAiRedoStack([]);
       return;
@@ -651,9 +671,27 @@ export function DraftMetadataModal({
     }
 
     const requestDraftId = value.id;
+    // Capture state before we start so undo reverts to the correct baseline.
+    const preStreamSnapshot = snapshotEditor(value);
     aiMetadataAbortRef.current?.abort();
     const ac = new AbortController();
     aiMetadataAbortRef.current = ac;
+
+    let didStreamUpdate = false;
+
+    const revertPartialUpdates = () => {
+      if (!didStreamUpdate) return;
+      if (latestDraftIdRef.current !== requestDraftId) return;
+      const latest = latestValueRef.current;
+      if (latest) {
+        onChange({
+          ...latest,
+          title: preStreamSnapshot.title,
+          description: preStreamSnapshot.description,
+          tags: [...preStreamSnapshot.tags],
+        });
+      }
+    };
 
     setIsGeneratingAi(true);
     try {
@@ -676,7 +714,7 @@ export function DraftMetadataModal({
         throw new Error('Response body is empty');
       }
 
-      // Read the SSE stream, accumulate token deltas, apply on [DONE]
+      // Read the SSE stream — push partial JSON tokens live into the form fields.
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = '';
@@ -695,7 +733,7 @@ export function DraftMetadataModal({
             throw new Error(result.error);
           }
           if (result.done) {
-            // Stream complete — parse the assembled JSON
+            // Stream complete — parse the fully assembled JSON and apply final values.
             if (ac.signal.aborted) return;
             if (latestDraftIdRef.current !== requestDraftId) return;
 
@@ -706,7 +744,14 @@ export function DraftMetadataModal({
               throw new Error('AI returned invalid JSON. Please try again.');
             }
 
-            applyAiMetadata({
+            // Push the pre-stream snapshot (not the mid-stream state) to the undo stack.
+            setAiUndoStack((prev) => [...prev, preStreamSnapshot]);
+            setAiRedoStack([]);
+
+            const latest = latestValueRef.current;
+            if (!latest) return;
+            onChange({
+              ...latest,
               title: typeof parsed.title === 'string' ? parsed.title : '',
               description: typeof parsed.description === 'string' ? parsed.description : '',
               tags:
@@ -719,15 +764,22 @@ export function DraftMetadataModal({
           }
           if (result.deltaContent !== undefined) {
             accumulated += result.deltaContent;
-            setAiStreamPreview((prev) => prev + result.deltaContent);
+            if (latestDraftIdRef.current !== requestDraftId) return;
+            const latest = latestValueRef.current;
+            if (latest) {
+              didStreamUpdate = true;
+              onChange({ ...latest, ...extractPartialAiFields(accumulated) });
+            }
           }
         }
       }
-      // Stream closed without sending [DONE] — treat as an error
+      // Stream closed without sending [DONE] — treat as an error.
       throw new Error('Stream ended without a completion signal. Please try again.');
     } catch (error) {
       const isAbort =
         (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
+      // Undo any partial live field updates so the form isn't left with incomplete JSON.
+      revertPartialUpdates();
       if (isAbort) return;
       console.warn('AI metadata generation failed:', error);
       toast.error('Failed to generate metadata. Please try again.');
@@ -735,7 +787,6 @@ export function DraftMetadataModal({
       if (aiMetadataAbortRef.current === ac) {
         aiMetadataAbortRef.current = null;
         setIsGeneratingAi(false);
-        setAiStreamPreview('');
       }
     }
   };
@@ -1388,19 +1439,10 @@ export function DraftMetadataModal({
                   )}
                 </div>
                 {isGeneratingAi ? (
-                  <div className="mt-2">
-                    {aiStreamPreview ? (
-                      <div className="max-h-24 overflow-y-auto rounded border border-border bg-muted/40 px-2.5 py-2 font-mono text-xs text-muted-foreground">
-                        <span className="whitespace-pre-wrap break-all">{aiStreamPreview}</span>
-                        <span className="animate-pulse">▍</span>
-                      </div>
-                    ) : (
-                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Connecting to AI…
-                      </p>
-                    )}
-                  </div>
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    AI is generating your metadata…
+                  </p>
                 ) : null}
               </div>
             ) : null}
