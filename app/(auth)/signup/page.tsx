@@ -4,7 +4,7 @@
 // /signup — Registration page
 // =============================================================================
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -23,6 +23,8 @@ interface FieldErrors {
   password?: string;
   confirmPassword?: string;
 }
+
+type AutoCompleteToken = 'name' | 'email' | 'new-password' | 'off';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -73,7 +75,7 @@ function PasswordStrengthBar({ password }: { password: string }) {
   const filledBarClass = [
     '',
     'bg-destructive',
-    'bg-muted',
+    'bg-muted-foreground/40',
     'bg-primary/60',
     'bg-primary',
     'bg-primary',
@@ -125,7 +127,7 @@ function InputField({
   placeholder?: string;
   onChange: (v: string) => void;
   error?: string;
-  autoComplete?: string;
+  autoComplete?: AutoCompleteToken;
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === 'password';
@@ -139,10 +141,11 @@ function InputField({
       <div className="relative">
         <input
           id={id}
+          name={id}
           type={inputType}
           value={value}
           placeholder={placeholder}
-          autoComplete={autoComplete}
+          autoComplete={autoComplete ?? 'off'}
           onChange={(e) => onChange(e.target.value)}
           className={`w-full rounded-xl border px-4 py-3 text-sm
             bg-background text-foreground placeholder:text-muted-foreground
@@ -161,6 +164,7 @@ function InputField({
           <button
             type="button"
             onClick={() => setShowPassword((p) => !p)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
           >
             {showPassword ? '🙈' : '👁️'}
@@ -207,7 +211,9 @@ export default function SignUpPage() {
     []
   );
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
     const errors = validate(form);
     if (Object.keys(errors).length) return setFieldErrors(errors);
 
@@ -215,14 +221,34 @@ export default function SignUpPage() {
     setServerError('');
 
     try {
+      const registerPayload = {
+        name: form.name,
+        email: form.email,
+        password: form.password,
+      };
+
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(registerPayload),
       });
 
       if (!res.ok) {
-        setServerError('Something went wrong.');
+        const contentType = res.headers.get('content-type') ?? '';
+        let message = 'Something went wrong.';
+
+        if (contentType.includes('application/json')) {
+          try {
+            const data = (await res.json()) as { error?: unknown };
+            if (typeof data?.error === 'string' && data.error.trim()) {
+              message = data.error;
+            }
+          } catch {
+            // Fall back to generic message when response body is invalid.
+          }
+        }
+
+        setServerError(message);
         return;
       }
 
@@ -249,17 +275,22 @@ export default function SignUpPage() {
           </div>
 
           {serverError && (
-            <div className="mb-5 rounded-xl bg-destructive/10 border border-destructive px-4 py-3 text-sm text-destructive">
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="mb-5 rounded-xl bg-destructive/10 border border-destructive px-4 py-3 text-sm text-destructive"
+            >
               {serverError}
             </div>
           )}
 
-          <div className="space-y-5">
+          <form className="space-y-5" onSubmit={handleSubmit}>
             <InputField
               id="name"
               label="Full name"
               type="text"
               value={form.name}
+              autoComplete="name"
               onChange={update('name')}
               error={fieldErrors.name}
             />
@@ -268,6 +299,7 @@ export default function SignUpPage() {
               label="Email"
               type="email"
               value={form.email}
+              autoComplete="email"
               onChange={update('email')}
               error={fieldErrors.email}
             />
@@ -278,6 +310,7 @@ export default function SignUpPage() {
                 label="Password"
                 type="password"
                 value={form.password}
+                autoComplete="new-password"
                 onChange={update('password')}
                 error={fieldErrors.password}
               />
@@ -289,12 +322,13 @@ export default function SignUpPage() {
               label="Confirm password"
               type="password"
               value={form.confirmPassword}
+              autoComplete="new-password"
               onChange={update('confirmPassword')}
               error={fieldErrors.confirmPassword}
             />
 
             <button
-              onClick={handleSubmit}
+              type="submit"
               disabled={isLoading}
               className="w-full rounded-xl px-4 py-3.5 text-sm font-semibold
                 bg-primary text-primary-foreground
@@ -304,7 +338,7 @@ export default function SignUpPage() {
             >
               {isLoading ? 'Creating...' : 'Create account'}
             </button>
-          </div>
+          </form>
 
           <div className="my-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-border" />
@@ -314,7 +348,7 @@ export default function SignUpPage() {
 
           <button
             onClick={handleGoogleSignup}
-            disabled={isGoogleLoading}
+            disabled={isGoogleLoading || isLoading}
             className="w-full border border-border bg-background text-foreground hover:bg-muted rounded-xl py-3"
           >
             {isGoogleLoading ? 'Redirecting...' : 'Sign up with Google'}
