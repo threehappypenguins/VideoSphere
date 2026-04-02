@@ -26,7 +26,7 @@
    - 7.2 [Video Upload & Storage](#72-video-upload--storage)
    - 7.3 [Draft & Metadata Management](#73-draft--metadata-management)
    - 7.4 [Multi-Platform Distribution](#74-multi-platform-distribution)
-   - 7.5 [Scheduled Publishing](#75-scheduled-publishing)
+   - 7.5 [Scheduled Publishing (Stretch Goal)](#75-scheduled-publishing-stretch-goal)
    - 7.6 [AI-Powered Metadata Generation](#76-ai-powered-metadata-generation)
    - 7.7 [User Authentication & Account Management](#77-user-authentication--account-management)
    - 7.8 [Freemium Model & Payment Processing](#78-freemium-model--payment-processing)
@@ -178,7 +178,7 @@ The primary user journey follows this sequence:
    - On success, an **Upload Job** is created and linked to the draft, and the R2 object key is stored.
 
 4. **Distribute & Track**
-   - User clicks "Distribute Now" (or the scheduled time arrives).
+   - User clicks "Distribute Now".
    - VideoSphere creates a **Platform Upload** record for each target platform under the Upload Job.
    - The server-side process reads the video from R2 and uploads it to each platform's API (YouTube Data API v3, Vimeo API).
    - The Dashboard shows real-time job status: `pending → uploading → distributing → completed` (or `failed` with error details).
@@ -260,16 +260,16 @@ The primary user journey follows this sequence:
 
 ---
 
-### 7.5 Scheduled Publishing
+### 7.5 Scheduled Publishing (Stretch Goal)
 
-**Description:** Users can schedule videos to be published at a future date and time.
+**Description:** Scheduled publishing is explicitly deferred beyond the MVP. The core product flow is: create draft -> upload the source file to Cloudflare R2 -> distribute immediately to the selected platforms -> remove the staged file from R2. A true scheduling feature adds meaningful architecture and product complexity because it would require either keeping staged media in R2 until a future execution time or integrating each platform's native scheduling APIs, which turns the feature into scheduled publishing rather than just delayed distribution.
 
 | ID     | Requirement                                                                                          | Priority |
 | ------ | ---------------------------------------------------------------------------------------------------- | -------- |
-| SP-01  | Premium users can set a **publish date and time per platform** when creating a draft.                          | P1       |
-| SP-02  | Scheduled jobs are queued and executed at the specified time by a server-side process.                 | P1       |
-| SP-03  | Premium users can view all scheduled uploads in a "Scheduled" tab on the Dashboard.                           | P1       |
-| SP-04  | Premium users can **cancel or reschedule** a pending scheduled upload before it executes.                     | P1       |
+| SP-01  | If implemented after MVP, premium users can set a **publish date and time per platform** when creating a draft. | P2       |
+| SP-02  | If implemented after MVP, scheduled jobs must either retain the source media in R2 until execution or delegate scheduling to platform-native publishing APIs. | P2       |
+| SP-03  | If implemented after MVP, users can view all scheduled uploads in a dedicated management view.       | P2       |
+| SP-04  | If implemented after MVP, users can **cancel or reschedule** a pending scheduled publish before it executes. | P2       |
 | SP-05  | Timezone is auto-detected from the user's browser but can be manually overridden.                    | P2       |
 
 ---
@@ -372,7 +372,6 @@ The primary user journey follows this sequence:
 /dashboard/upload           New upload flow (select platforms → draft → upload → distribute)
 /dashboard/drafts           List of saved drafts
 /dashboard/drafts/[id]      Edit a specific draft
-/dashboard/scheduled        Scheduled uploads queue
 /dashboard/history          Completed and failed upload history
 /profile                    User profile, subscription status, connected accounts
 /profile/connections        Manage connected platform accounts (OAuth)
@@ -457,7 +456,7 @@ The data model builds on the types already defined in `types/index.ts`:
 | `description`    | `string` | Description used for this platform                   |
 | `tags`           | `string` | Tags used for this platform (JSON string)            |
 | `visibility`     | `string` | `'public'`, `'unlisted'`, or `'private'`             |
-| `scheduledAt`    | `string \| null` | Scheduled publish time (ISO 8601) or null for immediate |
+| `scheduledAt`    | `string \| null` | Reserved for a future stretch-goal scheduling workflow; `null` for the MVP immediate-distribution flow |
 | `errorMessage`   | `string \| null` | Error details if failed                        |
 | `createdAt`      | `string` | ISO 8601 timestamp                                   |
 | `updatedAt`      | `string` | ISO 8601 timestamp                                   |
@@ -752,7 +751,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | **Monthly uploads**            | 10 per month                           | Unlimited                               |
 | **AI metadata generation**     | Basic model (lower quality)            | Premium model (GPT-4o / Claude-level)   |
 | **Draft management**           | ✅ Full access                         | ✅ Full access                          |
-| **Scheduled publishing**       | No access                         | ✅ Full access                          |
+| **Scheduled publishing (future)** | Not included in MVP                | Stretch goal after core distribution is stable |
 | **Upload job tracking**        | ✅ Full access                         | ✅ Full access                          |
 | **Per-platform metadata**      | ✅ Full access                         | ✅ Full access                          |
 | **Max file size**              | 5 GB                                  | 5 GB                                    |
@@ -801,13 +800,13 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | US-18 | As a free user, I want to use AI metadata generation with a basic model.                           | Free-tier requests use a lower-cost model via OpenRouter.            |
 | US-19 | As a premium user, I want higher-quality AI-generated metadata.                                   | Premium requests use a higher-quality model (GPT-4o or similar).    |
 
-### Epic 5: Scheduled Publishing
+### Epic 5: Scheduled Publishing (Stretch Goal)
 
 | ID   | Story                                                                                             | Acceptance Criteria                                                |
 | ---- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| US-20 | As a user, I want to schedule my video to publish at a specific date and time per platform.        | Date/time picker per platform; scheduled job created in Appwrite.   |
-| US-21 | As a user, I want to view all my scheduled uploads in one place.                                  | Scheduled tab on Dashboard shows upcoming scheduled distributions.  |
-| US-22 | As a user, I want to cancel or reschedule a pending scheduled upload.                             | Edit/cancel buttons on scheduled jobs; changes reflected immediately.|
+| US-20 | As a product team, we want scheduled publishing deferred until after MVP so the launch scope stays aligned with the current draft -> R2 -> distribute -> cleanup architecture. | PRD and roadmap mark scheduling as a stretch goal rather than a core milestone. |
+| US-21 | As a future premium user, I want to schedule my video to publish at a specific date and time per platform. | A future design handles either retained R2 media or platform-native scheduler integration. |
+| US-22 | As a future premium user, I want to manage pending scheduled publishes in one place.             | A future management surface supports viewing, cancellation, and rescheduling. |
 
 ### Epic 6: Authentication & Account
 
@@ -935,7 +934,7 @@ The following categories of stretch goals are applicable to VideoSphere and can 
 | 6      | Mar 19–21      | **AI Metadata**: OpenRouter integration; "Generate with AI" on draft form; free vs. premium model routing |
 | 7      | Mar 22–25      | **Payments**: Stripe Checkout integration; webhook handler; Supporter tier enforcement               |
 | 8      | Mar 26–28      | **Admin Dashboard**: Real user/stats data; error log; role-based route protection                   |
-| 9      | Mar 29–Apr 1   | **Scheduling + Polish**: Scheduled publishing; per-platform metadata; thumbnail selection            |
+| 9      | Mar 29–Apr 1   | **Per-Platform Metadata + Polish**: Per-platform metadata; thumbnail selection; scheduling deferred to stretch |
 | 10     | Apr 2–4        | **Responsive + UI**: Mobile responsiveness audit; dark/light mode; shadcn/ui polish                 |
 | 11     | Apr 5–8        | **Testing + Stretch Goals**: Write tests; tackle priority stretch goals                             |
 | 12     | Apr 9–12       | **Final polish**: Bug fixes, documentation, presentation prep                                       |

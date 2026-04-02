@@ -221,33 +221,35 @@ export default function Navbar() {
             <span className="text-xl font-black sm:text-2xl">VideoSphere</span>
           </Link>
 
-          {/* --- Desktop Navigation --- */}
-          <div className="hidden items-center gap-8 md:flex">
-            <Link
-              href="/"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Home
-            </Link>
-            <Link
-              href="/pricing"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Pricing
-            </Link>
-            <Link
-              href="/about"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              About
-            </Link>
-            <Link
-              href="/contact"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Contact
-            </Link>
-          </div>
+          {/* --- Desktop Navigation (hidden when authenticated) --- */}
+          {sessionUser === null && (
+            <div className="hidden items-center gap-8 md:flex">
+              <Link
+                href="/"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Home
+              </Link>
+              <Link
+                href="/pricing"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Pricing
+              </Link>
+              <Link
+                href="/about"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                About
+              </Link>
+              <Link
+                href="/contact"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Contact
+              </Link>
+            </div>
+          )}
 
           {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
           <div className="hidden items-center gap-4 md:flex">
@@ -273,20 +275,22 @@ export default function Navbar() {
               <>
                 <Link
                   href="/dashboard"
-                  className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                  aria-current={pathname.startsWith('/dashboard') ? 'page' : undefined}
+                  className={`text-sm transition-colors hover:text-foreground ${pathname.startsWith('/dashboard') ? 'font-extrabold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                 >
                   Dashboard
                 </Link>
                 <Link
                   href="/profile"
-                  className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/profile' ? 'text-foreground' : 'text-muted-foreground'}`}
+                  aria-current={pathname.startsWith('/profile') ? 'page' : undefined}
+                  className={`text-sm transition-colors hover:text-foreground ${pathname.startsWith('/profile') ? 'font-extrabold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                 >
                   Profile
                 </Link>
                 {isAdminUser && (
                   <Link
                     href="/admin/dashboard"
-                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname.startsWith('/admin') ? 'font-extrabold text-foreground' : 'text-muted-foreground'}`}
                   >
                     Admin
                   </Link>
@@ -377,49 +381,55 @@ export default function Navbar() {
                   dropdownClassName="left-3 right-3"
                 />
               </div>
-              <Link
-                href="/"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Home
-              </Link>
-              <Link
-                href="/pricing"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Pricing
-              </Link>
-              <Link
-                href="/about"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                About
-              </Link>
-              <Link
-                href="/contact"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Contact
-              </Link>
-              <hr className="my-2 border-border" />
+              {sessionUser === null && (
+                <>
+                  <Link
+                    href="/"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Home
+                  </Link>
+                  <Link
+                    href="/pricing"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Pricing
+                  </Link>
+                  <Link
+                    href="/about"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    About
+                  </Link>
+                  <Link
+                    href="/contact"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Contact
+                  </Link>
+                  <hr className="my-2 border-border" />
+                </>
+              )}
               {sessionUser === 'loading' ? (
                 <span className="px-3 py-2 text-sm text-muted-foreground">…</span>
               ) : isLoggedIn ? (
                 <>
                   <Link
                     href="/dashboard"
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    aria-current={pathname.startsWith('/dashboard') ? 'page' : undefined}
+                    className={`rounded-md px-3 py-2 text-sm hover:bg-muted hover:text-foreground ${pathname.startsWith('/dashboard') ? 'bg-muted font-bold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Dashboard
                   </Link>
                   <Link
                     href="/profile"
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/profile' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    aria-current={pathname.startsWith('/profile') ? 'page' : undefined}
+                    className={`rounded-md px-3 py-2 text-sm hover:bg-muted hover:text-foreground ${pathname.startsWith('/profile') ? 'bg-muted font-bold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Profile
@@ -427,7 +437,7 @@ export default function Navbar() {
                   {isAdminUser && (
                     <Link
                       href="/admin/dashboard"
-                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname.startsWith('/admin') ? 'bg-muted font-bold text-foreground' : 'text-muted-foreground'}`}
                       onClick={() => setMobileMenuOpen(false)}
                     >
                       Admin

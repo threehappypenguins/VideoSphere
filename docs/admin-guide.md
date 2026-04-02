@@ -75,7 +75,7 @@ At a high level it:
 In the admin page itself, verify the user's role before rendering content:
 
 ```tsx
-// app/(admin)/admin/dashboard/page.tsx
+// app/(dashboard)/admin/dashboard/page.tsx
 import { redirect } from 'next/navigation';
 
 export default async function AdminDashboard() {

@@ -13,6 +13,7 @@ interface SessionUser {
 
 interface UserProfile {
   isSupporter: boolean;
+  role?: string;
 }
 
 const tiers = [
@@ -56,6 +57,7 @@ export function PricingCards() {
   const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [isSupporter, setIsSupporter] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export function PricingCards() {
           if (profileRes.ok) {
             const profile: UserProfile = await profileRes.json();
             setIsSupporter(profile.isSupporter);
+            setIsAdmin(profile.role === 'admin');
           }
         } catch (err) {
           console.warn('[PricingCards] Failed to fetch profile:', err);
@@ -88,6 +91,11 @@ export function PricingCards() {
   }, []);
 
   const handleCheckout = async () => {
+    if (isAdmin) {
+      toast.error('Admin accounts do not require Supporter upgrades.');
+      return;
+    }
+
     // If not logged in, redirect to login with a return URL
     if (!sessionUser) {
       router.push('/login?redirect=/pricing');
@@ -199,6 +207,15 @@ export function PricingCards() {
               >
                 {sessionUser ? 'Go to Dashboard' : tier.cta}
               </Link>
+            ) : isAdmin ? (
+              <button
+                type="button"
+                disabled
+                aria-label="Upgrade unavailable for admin users"
+                className="mt-8 block w-full rounded-lg border border-border bg-muted px-4 py-3 text-center text-sm font-medium text-muted-foreground"
+              >
+                You are an admin
+              </button>
             ) : isSupporter ? (
               <span
                 className={`mt-8 block w-full rounded-lg border px-4 py-3 text-center text-sm font-medium ${tier.highlighted ? 'border-green-400/30 bg-green-400/10 text-green-300' : 'border-success/40 bg-success/10 text-success'}`}

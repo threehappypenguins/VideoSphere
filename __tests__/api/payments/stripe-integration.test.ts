@@ -13,6 +13,7 @@ const checkoutSessionCreateMock = vi.hoisted(() => vi.fn());
 const constructEventMock = vi.hoisted(() => vi.fn());
 const setSupporterStatusMock = vi.hoisted(() => vi.fn());
 const accountGetMock = vi.hoisted(() => vi.fn());
+const getUserByIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
   const StripeMock = class {
@@ -53,6 +54,7 @@ vi.mock('node-appwrite', () => {
 
 vi.mock('@/lib/repositories/users', () => ({
   setSupporterStatus: setSupporterStatusMock,
+  getUserById: getUserByIdMock,
 }));
 
 import { POST as checkoutPOST } from '@/app/api/payments/checkout/route';
@@ -117,6 +119,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_webhook');
     vi.stubEnv('STRIPE_PRICE_ID', '');
+    getUserByIdMock.mockResolvedValue({ role: 'user' });
   });
 
   afterEach(() => {
@@ -254,6 +257,24 @@ describe('Stripe integration (checkout + webhook)', () => {
       const body = await res.json();
       expect(body.error).toBe('Payment service not configured');
 
+      expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('returns 403 when authenticated user has admin role', async () => {
+      accountGetMock.mockResolvedValueOnce({ $id: 'admin_123' });
+      getUserByIdMock.mockResolvedValueOnce({ role: 'admin' });
+
+      const req = createCheckoutRequest({
+        projectId: 'test-project',
+        cookies: { 'a_session_test-project': 'session-secret' },
+      });
+
+      const res = await checkoutPOST(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: 'Forbidden',
+        message: 'Admin accounts do not require supporter upgrades',
+      });
       expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
     });
 

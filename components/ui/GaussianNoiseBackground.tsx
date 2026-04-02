@@ -14,8 +14,6 @@ export const PAGE_SEEDS: Record<string, number> = {
   '/signup': 721,
   // Dashboard
   '/dashboard': 137,
-  '/dashboard/upload': 844,
-  '/dashboard/scheduled': 966,
   '/dashboard/drafts': 1088,
   '/dashboard/history': 1201,
   // Profile

@@ -33,8 +33,6 @@ import { usePathname } from 'next/navigation';
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Drafts', href: '/dashboard/drafts' },
-  { label: 'Upload', href: '/dashboard/upload' },
-  { label: 'Scheduled', href: '/dashboard/scheduled' },
   { label: 'History', href: '/dashboard/history' },
 ] as const;
 
@@ -44,7 +42,7 @@ describe('DashboardLayout', () => {
   });
 
   describe('Navigation Items Rendering', () => {
-    it('should render all 5 navigation links', () => {
+    it('should render all 3 navigation links', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
@@ -157,42 +155,6 @@ describe('DashboardLayout', () => {
 
       const draftLinks = screen.getAllByText('Drafts');
       const activeLink = draftLinks.find((el) => {
-        const link = el.closest('a');
-        return link && link.getAttribute('aria-current') === 'page';
-      });
-
-      expect(activeLink).toBeDefined();
-    });
-
-    it('should mark Upload as active when pathname is /dashboard/upload', () => {
-      (usePathname as any).mockReturnValue('/dashboard/upload');
-
-      render(
-        <DashboardLayout>
-          <div>Test</div>
-        </DashboardLayout>
-      );
-
-      const uploadLinks = screen.getAllByText('Upload');
-      const activeLink = uploadLinks.find((el) => {
-        const link = el.closest('a');
-        return link && link.getAttribute('aria-current') === 'page';
-      });
-
-      expect(activeLink).toBeDefined();
-    });
-
-    it('should mark Scheduled as active when pathname is /dashboard/scheduled', () => {
-      (usePathname as any).mockReturnValue('/dashboard/scheduled');
-
-      render(
-        <DashboardLayout>
-          <div>Test</div>
-        </DashboardLayout>
-      );
-
-      const scheduledLinks = screen.getAllByText('Scheduled');
-      const activeLink = scheduledLinks.find((el) => {
         const link = el.closest('a');
         return link && link.getAttribute('aria-current') === 'page';
       });

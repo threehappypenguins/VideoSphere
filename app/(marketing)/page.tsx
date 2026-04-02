@@ -4,7 +4,10 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { CardNoiseBackground, PAGE_SEEDS } from '@/components/ui/GaussianNoiseBackground';
+import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
 export const metadata: Metadata = {
   title: 'VideoSphere — Upload Once, Distribute Everywhere',
@@ -12,7 +15,16 @@ export const metadata: Metadata = {
     'VideoSphere lets video creators upload once and distribute to YouTube, Vimeo, and more — with AI-generated metadata and centralized performance tracking.',
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+  if (projectId) {
+    const cookieStore = await cookies();
+    const sessionCookie = cookieStore.get(getSessionCookieName(projectId))?.value;
+    if (sessionCookie) {
+      redirect('/dashboard');
+    }
+  }
+
   return (
     <div className="font-sans">
       {/* ===== HERO SECTION ===== */}

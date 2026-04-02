@@ -88,7 +88,7 @@ export default function RootLayout({
           <OnboardingProvider>
             <ThemedBackground />
             <Navbar />
-            <main className="min-h-screen">{children}</main>
+            <main className="flex min-h-[calc(100vh-4rem)] flex-col">{children}</main>
             <Footer />
             <OnboardingTourGate />
             <Toaster />

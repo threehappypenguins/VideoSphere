@@ -186,6 +186,46 @@ describe('DraftsPage', () => {
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
   });
 
+  it('opens create modal from createDraftId query param', async () => {
+    mockSearchParams = new URLSearchParams('createDraftId=draft-from-dashboard');
+
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ canUseAiMetadata: true }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'draft-from-dashboard',
+            userId: 'user-1',
+            title: '',
+            description: '',
+            tags: [],
+            visibility: 'private',
+            targets: [],
+            platforms: {},
+            $createdAt: '2000-01-01T00:00:00.000Z',
+            $updatedAt: '2000-01-01T00:00:00.000Z',
+          },
+        }),
+      } as Response);
+
+    render(<DraftsPage />);
+
+    expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
+  });
+
   it('opens edit modal from editDraft query param', async () => {
     mockSearchParams = new URLSearchParams('editDraft=draft-1');
 

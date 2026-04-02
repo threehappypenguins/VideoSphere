@@ -69,7 +69,7 @@ afterEach(() => {
   });
 });
 
-import { ProfileContent } from '@/app/profile/ProfileContent';
+import { ProfileContent } from '@/app/(dashboard)/profile/ProfileContent';
 
 function mockFetchResponses(responses: Array<{ ok: boolean; data?: unknown }>) {
   const iter = responses[Symbol.iterator]();
@@ -125,7 +125,10 @@ describe('ProfileContent', () => {
       // Session
       { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
       // Profile
-      { ok: true, data: { userId: 'user_123', email: 'test@example.com', isSupporter: false } },
+      {
+        ok: true,
+        data: { userId: 'user_123', email: 'test@example.com', isSupporter: false, role: 'user' },
+      },
     ]);
 
     render(<ProfileContent />);
@@ -148,7 +151,10 @@ describe('ProfileContent', () => {
       // Session
       { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
       // Profile
-      { ok: true, data: { userId: 'user_123', email: 'test@example.com', isSupporter: true } },
+      {
+        ok: true,
+        data: { userId: 'user_123', email: 'test@example.com', isSupporter: true, role: 'user' },
+      },
     ]);
 
     render(<ProfileContent />);
@@ -169,7 +175,10 @@ describe('ProfileContent', () => {
       // Session
       { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
       // Profile
-      { ok: true, data: { userId: 'user_123', email: 'test@example.com', isSupporter: true } },
+      {
+        ok: true,
+        data: { userId: 'user_123', email: 'test@example.com', isSupporter: true, role: 'user' },
+      },
     ]);
 
     render(<ProfileContent />);
@@ -190,7 +199,10 @@ describe('ProfileContent', () => {
       // Session
       { ok: true, data: { $id: 'user_123', name: 'Jane Doe', email: 'jane@example.com' } },
       // Profile
-      { ok: true, data: { userId: 'user_123', email: 'jane@example.com', isSupporter: false } },
+      {
+        ok: true,
+        data: { userId: 'user_123', email: 'jane@example.com', isSupporter: false, role: 'user' },
+      },
     ]);
 
     render(<ProfileContent />);
@@ -205,7 +217,10 @@ describe('ProfileContent', () => {
   it('shows connected accounts link', async () => {
     mockFetchResponses([
       { ok: true, data: { $id: 'user_123', name: 'Test', email: 'test@example.com' } },
-      { ok: true, data: { userId: 'user_123', email: 'test@example.com', isSupporter: false } },
+      {
+        ok: true,
+        data: { userId: 'user_123', email: 'test@example.com', isSupporter: false, role: 'user' },
+      },
     ]);
 
     render(<ProfileContent />);
@@ -216,5 +231,33 @@ describe('ProfileContent', () => {
         '/profile/connections'
       );
     });
+  });
+
+  it('shows admin message and hides upgrade action for admin users', async () => {
+    mockFetchResponses([
+      { ok: true, data: { $id: 'admin_123', name: 'Admin', email: 'admin@example.com' } },
+      {
+        ok: true,
+        data: {
+          userId: 'admin_123',
+          email: 'admin@example.com',
+          isSupporter: false,
+          role: 'admin',
+        },
+      },
+    ]);
+
+    render(<ProfileContent />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Admin')).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByText(
+        'You are an admin. Supporter subscription status does not apply to admin accounts.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Upgrade to Supporter' })).not.toBeInTheDocument();
   });
 });
