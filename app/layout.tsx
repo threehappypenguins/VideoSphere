@@ -28,6 +28,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { OnboardingProvider } from '@/components/onboarding/OnboardingContext';
 import { OnboardingTourGate } from '@/components/onboarding/OnboardingTourGate';
 import { ThemedBackground } from '@/components/ui/ThemedBackground';
+import { getNavbarAuthStateFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 
 // --- Font Configuration ---
 // next/font automatically optimizes fonts — no external requests at runtime.
@@ -71,11 +72,13 @@ export const metadata: Metadata = {
   manifest: '/site.webmanifest',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { sessionUser, hasAdminRole } = await getNavbarAuthStateFromCookies();
+
   return (
     <html
       lang="en"
@@ -87,7 +90,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system">
           <OnboardingProvider>
             <ThemedBackground />
-            <Navbar />
+            <Navbar initialSessionUser={sessionUser} initialHasAdminRole={hasAdminRole} />
             <main className="flex min-h-[calc(100vh-4rem)] flex-col">{children}</main>
             <Footer />
             <OnboardingTourGate />

@@ -270,6 +270,74 @@ export async function listDraftsByUser(userId: string): Promise<Draft[]> {
   return (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
 }
 
+/** Count all drafts for a user. */
+export async function countDraftsByUser(userId: string): Promise<number> {
+  const result = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: DRAFTS_COLLECTION_ID,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: true,
+  });
+  return result.total ?? 0;
+}
+
+export interface DraftDashboardSummary {
+  readyDraftCount: number;
+  previewDrafts: Draft[];
+}
+
+function isDraftReadyToUpload(draft: Draft): boolean {
+  return typeof draft.usedInUploadAt !== 'string' || draft.usedInUploadAt.trim() === '';
+}
+
+/**
+ * Summarize drafts for the dashboard without materializing the user's full draft history.
+ *
+ * Because `usedInUploadAt` is stored inside the draft `document` JSON, Appwrite cannot
+ * currently count "ready to upload" drafts server-side with an indexed query. We page
+ * through rows and keep only the count plus the first few ready drafts needed for preview.
+ */
+export async function getDraftDashboardSummaryByUser(
+  userId: string,
+  options?: { previewLimit?: number; pageSize?: number }
+): Promise<DraftDashboardSummary> {
+  const previewLimit = Math.max(0, options?.previewLimit ?? 5);
+  const pageSize = Math.max(1, options?.pageSize ?? 100);
+  let offset = 0;
+  let readyDraftCount = 0;
+  const previewDrafts: Draft[] = [];
+
+  while (true) {
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        Query.orderDesc('$updatedAt'),
+        Query.limit(pageSize),
+        Query.offset(offset),
+      ],
+      total: false,
+    });
+
+    const pageDrafts = (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
+
+    for (const draft of pageDrafts) {
+      if (!isDraftReadyToUpload(draft)) continue;
+      readyDraftCount += 1;
+      if (previewDrafts.length < previewLimit) {
+        previewDrafts.push(draft);
+      }
+    }
+
+    if (pageDrafts.length < pageSize) break;
+    if (pageDrafts.length === 0) break;
+    offset += pageSize;
+  }
+
+  return { readyDraftCount, previewDrafts };
+}
+
 /**
  * Count all active draft rows.
  * Drafts currently have no archived/deleted status, so "active" means existing rows.

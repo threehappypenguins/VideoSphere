@@ -52,7 +52,7 @@ function ThemeDropdown({
       <button
         type="button"
         aria-label="Change color theme"
-        aria-expanded={isOpen ? 'true' : 'false'}
+        aria-expanded={isOpen}
         onClick={onToggle}
         className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
       >
@@ -64,7 +64,7 @@ function ThemeDropdown({
       </button>
       {isOpen && (
         <div
-          className={`absolute top-full z-50 mt-1 min-w-[10rem] rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
+          className={`absolute top-full z-50 mt-1 min-w-40 rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
           role="menu"
         >
           {THEME_OPTIONS.map(({ value, label, Icon }) => (
@@ -100,17 +100,28 @@ interface SessionRoleResponse {
   role?: 'user' | 'admin';
 }
 
-export default function Navbar() {
+interface NavbarProps {
+  initialSessionUser?: SessionUser | null;
+  initialHasAdminRole?: boolean;
+}
+
+export default function Navbar({ initialSessionUser, initialHasAdminRole = false }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
-  const [hasAdminRole, setHasAdminRole] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>(
+    initialSessionUser === undefined ? 'loading' : initialSessionUser
+  );
+  const [hasAdminRole, setHasAdminRole] = useState(initialHasAdminRole);
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
   const mobileThemeRef = useRef<HTMLDivElement>(null);
-  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(null);
+  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(
+    initialSessionUser?.$id
+      ? { userId: initialSessionUser.$id, isAdmin: initialHasAdminRole }
+      : null
+  );
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -330,7 +341,7 @@ export default function Navbar() {
             type="button"
             className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground md:hidden"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-expanded={mobileMenuOpen ? 'true' : 'false'}
+            aria-expanded={mobileMenuOpen}
             aria-label="Toggle navigation menu"
           >
             {mobileMenuOpen ? (

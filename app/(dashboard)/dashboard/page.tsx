@@ -14,7 +14,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { DashboardQuickActions } from '@/components/dashboard/DashboardQuickActions';
 import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
-import { listDraftsByUser } from '@/lib/repositories/drafts';
+import { countDraftsByUser, getDraftDashboardSummaryByUser } from '@/lib/repositories/drafts';
 import { countUploadJobsByUserWithStatuses } from '@/lib/repositories/upload-jobs';
 import type { Draft } from '@/types';
 
@@ -55,18 +55,22 @@ async function getCurrentUserId(): Promise<string | null> {
 
 export default async function DashboardPage() {
   const userId = await getCurrentUserId();
-  const [drafts, inProgressJobCount, completedJobCount, failedJobCount] = userId
+  const [draftCount, draftSummary, inProgressJobCount, completedJobCount, failedJobCount] = userId
     ? await Promise.all([
-        listDraftsByUser(userId).catch(() => []),
+        countDraftsByUser(userId).catch(() => 0),
+        getDraftDashboardSummaryByUser(userId).catch(() => ({
+          readyDraftCount: 0,
+          previewDrafts: [],
+        })),
         countUploadJobsByUserWithStatuses(userId, ['pending', 'uploading', 'distributing']).catch(
           () => 0
         ),
         countUploadJobsByUserWithStatuses(userId, 'completed').catch(() => 0),
         countUploadJobsByUserWithStatuses(userId, 'failed').catch(() => 0),
       ])
-    : [[], 0, 0, 0];
-  const readyDrafts = drafts.filter((draft) => !hasNonEmptyUsedInUploadAt(draft));
-  const previewDrafts = readyDrafts.slice(0, 5);
+    : [0, { readyDraftCount: 0, previewDrafts: [] }, 0, 0, 0];
+  const readyDrafts = draftSummary.readyDraftCount;
+  const previewDrafts = draftSummary.previewDrafts;
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
@@ -83,11 +87,11 @@ export default async function DashboardPage() {
         <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl border border-border bg-background p-6">
             <p className="text-sm font-medium text-muted-foreground">Drafts</p>
-            <p className="mt-2 text-3xl font-bold text-foreground">{drafts.length}</p>
+            <p className="mt-2 text-3xl font-bold text-foreground">{draftCount}</p>
           </div>
           <div className="rounded-xl border border-border bg-background p-6">
             <p className="text-sm font-medium text-muted-foreground">Ready to upload</p>
-            <p className="mt-2 text-3xl font-bold text-foreground">{readyDrafts.length}</p>
+            <p className="mt-2 text-3xl font-bold text-foreground">{readyDrafts}</p>
           </div>
           <div className="rounded-xl border border-border bg-background p-6">
             <p className="text-sm font-medium text-muted-foreground">In progress</p>
@@ -157,7 +161,7 @@ export default async function DashboardPage() {
               </tbody>
             </table>
           </div>
-          {readyDrafts.length > previewDrafts.length ? (
+          {readyDrafts > previewDrafts.length ? (
             <div className="mt-4 flex justify-end">
               <Link
                 href="/dashboard/drafts"

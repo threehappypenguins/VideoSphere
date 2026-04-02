@@ -10,12 +10,14 @@ import { render, screen } from '@testing-library/react';
 const {
   mockCookiesGet,
   mockAccountGet,
-  mockListDraftsByUser,
+  mockCountDraftsByUser,
+  mockGetDraftDashboardSummaryByUser,
   mockCountUploadJobsByUserWithStatuses,
 } = vi.hoisted(() => ({
   mockCookiesGet: vi.fn(),
   mockAccountGet: vi.fn(),
-  mockListDraftsByUser: vi.fn(),
+  mockCountDraftsByUser: vi.fn(),
+  mockGetDraftDashboardSummaryByUser: vi.fn(),
   mockCountUploadJobsByUserWithStatuses: vi.fn(),
 }));
 
@@ -58,7 +60,9 @@ vi.mock('node-appwrite', () => {
 });
 
 vi.mock('@/lib/repositories/drafts', () => ({
-  listDraftsByUser: (...args: unknown[]) => mockListDraftsByUser(...args),
+  countDraftsByUser: (...args: unknown[]) => mockCountDraftsByUser(...args),
+  getDraftDashboardSummaryByUser: (...args: unknown[]) =>
+    mockGetDraftDashboardSummaryByUser(...args),
 }));
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
@@ -75,7 +79,8 @@ describe('DashboardPage Component', () => {
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     mockCookiesGet.mockReturnValue({ value: 'valid-session-token' });
     mockAccountGet.mockResolvedValue({ $id: 'user-123' });
-    mockListDraftsByUser.mockResolvedValue([]);
+    mockCountDraftsByUser.mockResolvedValue(0);
+    mockGetDraftDashboardSummaryByUser.mockResolvedValue({ readyDraftCount: 0, previewDrafts: [] });
     mockCountUploadJobsByUserWithStatuses.mockResolvedValue(0);
   });
 
@@ -89,33 +94,24 @@ describe('DashboardPage Component', () => {
 
   describe('Stat Cards', () => {
     it('should render real draft and upload job metrics', async () => {
-      mockListDraftsByUser.mockResolvedValue([
-        {
-          id: 'draft-1',
-          userId: 'user-123',
-          title: 'Unused draft',
-          description: '',
-          tags: [],
-          visibility: 'private',
-          targets: ['youtube'],
-          platforms: {},
-          $createdAt: '2026-04-01T10:00:00.000Z',
-          $updatedAt: '2026-04-02T10:00:00.000Z',
-        },
-        {
-          id: 'draft-2',
-          userId: 'user-123',
-          title: 'Used draft',
-          description: '',
-          tags: [],
-          visibility: 'private',
-          targets: ['vimeo'],
-          platforms: {},
-          usedInUploadAt: '2026-04-02T12:00:00.000Z',
-          $createdAt: '2026-04-01T11:00:00.000Z',
-          $updatedAt: '2026-04-02T11:00:00.000Z',
-        },
-      ]);
+      mockCountDraftsByUser.mockResolvedValue(2);
+      mockGetDraftDashboardSummaryByUser.mockResolvedValue({
+        readyDraftCount: 1,
+        previewDrafts: [
+          {
+            id: 'draft-1',
+            userId: 'user-123',
+            title: 'Unused draft',
+            description: '',
+            tags: [],
+            visibility: 'private',
+            targets: ['youtube'],
+            platforms: {},
+            $createdAt: '2026-04-01T10:00:00.000Z',
+            $updatedAt: '2026-04-02T10:00:00.000Z',
+          },
+        ],
+      });
       mockCountUploadJobsByUserWithStatuses
         .mockResolvedValueOnce(2)
         .mockResolvedValueOnce(1)
@@ -130,6 +126,8 @@ describe('DashboardPage Component', () => {
       expect(screen.getByText(/^failed uploads$/i)).toBeInTheDocument();
       expect(screen.getAllByText(/^2$/)).toHaveLength(2);
       expect(screen.getAllByText(/^1$/)).toHaveLength(3);
+      expect(mockCountDraftsByUser).toHaveBeenCalledWith('user-123');
+      expect(mockGetDraftDashboardSummaryByUser).toHaveBeenCalledWith('user-123');
       expect(mockCountUploadJobsByUserWithStatuses).toHaveBeenNthCalledWith(1, 'user-123', [
         'pending',
         'uploading',
@@ -202,33 +200,24 @@ describe('DashboardPage Component', () => {
     });
 
     it('should list drafts that have not been used in uploads yet', async () => {
-      mockListDraftsByUser.mockResolvedValue([
-        {
-          id: 'draft-ready',
-          userId: 'user-123',
-          title: 'Ready draft',
-          description: '',
-          tags: [],
-          visibility: 'private',
-          targets: ['youtube', 'vimeo'],
-          platforms: {},
-          $createdAt: '2026-04-01T10:00:00.000Z',
-          $updatedAt: '2026-04-02T10:00:00.000Z',
-        },
-        {
-          id: 'draft-used',
-          userId: 'user-123',
-          title: 'Already uploaded draft',
-          description: '',
-          tags: [],
-          visibility: 'private',
-          targets: ['youtube'],
-          platforms: {},
-          usedInUploadAt: '2026-04-02T12:00:00.000Z',
-          $createdAt: '2026-04-01T11:00:00.000Z',
-          $updatedAt: '2026-04-02T11:00:00.000Z',
-        },
-      ]);
+      mockCountDraftsByUser.mockResolvedValue(2);
+      mockGetDraftDashboardSummaryByUser.mockResolvedValue({
+        readyDraftCount: 1,
+        previewDrafts: [
+          {
+            id: 'draft-ready',
+            userId: 'user-123',
+            title: 'Ready draft',
+            description: '',
+            tags: [],
+            visibility: 'private',
+            targets: ['youtube', 'vimeo'],
+            platforms: {},
+            $createdAt: '2026-04-01T10:00:00.000Z',
+            $updatedAt: '2026-04-02T10:00:00.000Z',
+          },
+        ],
+      });
 
       render(await DashboardPage());
 

@@ -2,12 +2,18 @@ import { cookies } from 'next/headers';
 import { Account, Client } from 'node-appwrite';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
-/**
- * Reads the Appwrite session cookie from the current request context and returns
- * the authenticated user's ID. Returns null when configuration, cookie, or
- * session validation is missing/invalid.
- */
-export async function getCurrentUserIdFromCookies(): Promise<string | null> {
+export interface SessionUserFromCookies {
+  $id: string;
+  name?: string;
+  email?: string;
+}
+
+export interface NavbarAuthStateFromCookies {
+  sessionUser: SessionUserFromCookies | null;
+  hasAdminRole: boolean;
+}
+
+async function getSessionUserFromCookies(): Promise<SessionUserFromCookies | null> {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   if (!endpoint || !projectId) return null;
@@ -21,10 +27,47 @@ export async function getCurrentUserIdFromCookies(): Promise<string | null> {
       .setEndpoint(endpoint)
       .setProject(projectId)
       .setSession(sessionSecret);
+
     const account = new Account(client);
     const user = await account.get();
-    return user.$id;
+    return {
+      $id: user.$id,
+      ...(typeof user.name === 'string' ? { name: user.name } : {}),
+      ...(typeof user.email === 'string' ? { email: user.email } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads the Appwrite session cookie from the current request context and returns
+ * the authenticated user's ID. Returns null when configuration, cookie, or
+ * session validation is missing/invalid.
+ */
+export async function getCurrentUserIdFromCookies(): Promise<string | null> {
+  const sessionUser = await getSessionUserFromCookies();
+  return sessionUser?.$id ?? null;
+}
+
+/**
+ * Reads the Appwrite session cookie from the current request context and returns
+ * the authenticated user plus admin-role state for first-paint navbar rendering.
+ */
+export async function getNavbarAuthStateFromCookies(): Promise<NavbarAuthStateFromCookies> {
+  const sessionUser = await getSessionUserFromCookies();
+  if (!sessionUser) {
+    return { sessionUser: null, hasAdminRole: false };
+  }
+
+  let hasAdminRole = false;
+  try {
+    const { getUserById } = await import('@/lib/repositories/users');
+    const profile = await getUserById(sessionUser.$id);
+    hasAdminRole = profile?.role === 'admin';
+  } catch {
+    hasAdminRole = false;
+  }
+
+  return { sessionUser, hasAdminRole };
 }

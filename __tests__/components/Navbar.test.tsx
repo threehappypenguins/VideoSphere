@@ -193,4 +193,40 @@ describe('Navbar admin link visibility', () => {
       expect(adminLink).toHaveAttribute('aria-current', 'page');
     }
   });
+
+  it('shows marketing links immediately for logged-out server state without waiting for session fetch', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {}))
+    );
+    mockPathname.mockReturnValue('/pricing');
+
+    render(<Navbar initialSessionUser={null} initialHasAdminRole={false} />);
+
+    expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Pricing' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Contact' })).toBeInTheDocument();
+  });
+
+  it('does not flash marketing links for authenticated server state before client fetch resolves', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {}))
+    );
+
+    render(
+      <Navbar
+        initialSessionUser={{ $id: 'user-auth-1', name: 'Auth User', email: 'auth@test.com' }}
+        initialHasAdminRole={false}
+      />
+    );
+
+    expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Pricing' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'About' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Contact' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Profile' })).toBeInTheDocument();
+  });
 });
