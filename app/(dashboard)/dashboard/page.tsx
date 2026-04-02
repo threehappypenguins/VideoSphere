@@ -23,10 +23,6 @@ export const metadata: Metadata = {
   description: 'Your personal dashboard.',
 };
 
-function hasNonEmptyUsedInUploadAt(draft: Draft): boolean {
-  return typeof draft.usedInUploadAt === 'string' && draft.usedInUploadAt.trim() !== '';
-}
-
 function formatLastEdited(isoDate: string): string {
   const date = new Date(isoDate);
   if (Number.isNaN(date.getTime())) return 'Recently updated';

@@ -35,6 +35,7 @@ export function DashboardQuickActions() {
       router.push(`/dashboard/drafts?createDraftId=${draft.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to create draft');
+    } finally {
       setIsCreatingDraft(false);
     }
   };

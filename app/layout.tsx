@@ -21,14 +21,11 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import Navbar from '@/components/layout/Navbar';
-import Footer from '@/components/layout/Footer';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { OnboardingProvider } from '@/components/onboarding/OnboardingContext';
 import { OnboardingTourGate } from '@/components/onboarding/OnboardingTourGate';
 import { ThemedBackground } from '@/components/ui/ThemedBackground';
-import { getNavbarAuthStateFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 
 // --- Font Configuration ---
 // next/font automatically optimizes fonts — no external requests at runtime.
@@ -72,13 +69,11 @@ export const metadata: Metadata = {
   manifest: '/site.webmanifest',
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const { sessionUser, hasAdminRole } = await getNavbarAuthStateFromCookies();
-
   return (
     <html
       lang="en"
@@ -90,9 +85,7 @@ export default async function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system">
           <OnboardingProvider>
             <ThemedBackground />
-            <Navbar initialSessionUser={sessionUser} initialHasAdminRole={hasAdminRole} />
-            <main className="flex min-h-[calc(100vh-4rem)] flex-col">{children}</main>
-            <Footer />
+            {children}
             <OnboardingTourGate />
             <Toaster />
           </OnboardingProvider>

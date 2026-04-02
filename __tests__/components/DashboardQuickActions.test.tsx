@@ -91,4 +91,33 @@ describe('DashboardQuickActions', () => {
     });
     expect(pushMock).not.toHaveBeenCalled();
   });
+
+  it('re-enables the button if navigation throws after draft creation succeeds', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'draft-new-456',
+          },
+        }),
+      } as Response)
+    );
+    pushMock.mockImplementationOnce(() => {
+      throw new Error('Navigation blocked');
+    });
+
+    render(<DashboardQuickActions />);
+
+    const user = userEvent.setup();
+    const button = screen.getByRole('button', { name: /new draft/i });
+    await user.click(button);
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith('Navigation blocked');
+    });
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveTextContent('New draft');
+  });
 });

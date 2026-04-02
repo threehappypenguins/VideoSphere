@@ -278,7 +278,7 @@ export async function countDraftsByUser(userId: string): Promise<number> {
     queries: [Query.equal('userId', userId), Query.limit(1)],
     total: true,
   });
-  return result.total ?? 0;
+  return typeof result.total === 'number' ? result.total : 0;
 }
 
 export interface DraftDashboardSummary {

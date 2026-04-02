@@ -369,9 +369,9 @@ The primary user journey follows this sequence:
 /login                      Sign in (email/password, Google OAuth, GitHub OAuth)
 /signup                     Create account
 /dashboard                  Main user dashboard (upload jobs, drafts, quick actions)
-/dashboard/upload           New upload flow (select platforms → draft → upload → distribute)
 /dashboard/drafts           List of saved drafts
 /dashboard/drafts/[id]      Edit a specific draft
+/dashboard/drafts/[id]/upload Upload entrypoint for a draft (upload → distribute flow)
 /dashboard/history          Completed and failed upload history
 /profile                    User profile, subscription status, connected accounts
 /profile/connections        Manage connected platform accounts (OAuth)
