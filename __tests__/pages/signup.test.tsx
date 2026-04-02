@@ -1,11 +1,11 @@
 // =============================================================================
 // SIGNUP PAGE COMPONENT TESTS
 // =============================================================================
-// Covers registration UI and password strength behavior.
+// Covers registration submit flow and password strength behavior.
 // =============================================================================
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SignUpPage from '@/app/(auth)/signup/page';
 
@@ -46,7 +46,72 @@ function getStrengthSegments(labelText: string) {
   return Array.from(row!.querySelectorAll(':scope > div')) as HTMLElement[];
 }
 
+async function fillValidSignupForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText(/full name/i), '  Sarah Creator  ');
+  await user.type(screen.getByLabelText(/^email$/i), '  SARAH@Example.COM  ');
+  await user.type(screen.getByLabelText(/^password$/i), 'Abcdefg1!');
+  await user.type(screen.getByLabelText(/confirm password/i), 'Abcdefg1!');
+}
+
 describe('SignUpPage', () => {
+  describe('submit flow', () => {
+    it('submits normalized payload fields used by register API', async () => {
+      const user = userEvent.setup();
+      render(<SignUpPage />);
+
+      await fillValidSignupForm(user);
+      await user.click(screen.getByRole('button', { name: /create account/i }));
+
+      await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+      const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('/api/auth/register');
+      expect(options.method).toBe('POST');
+
+      const body = JSON.parse(String(options.body)) as {
+        name: string;
+        email: string;
+        password: string;
+        confirmPassword?: string;
+      };
+
+      expect(body).toEqual({
+        name: 'Sarah Creator',
+        email: 'sarah@example.com',
+        password: 'Abcdefg1!',
+      });
+      expect(body.confirmPassword).toBeUndefined();
+    });
+
+    it('renders server-provided JSON error message on non-2xx response', async () => {
+      const user = userEvent.setup();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        statusText: 'Conflict',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ error: 'Email already registered. Please sign in instead.' }),
+      });
+
+      render(<SignUpPage />);
+      await fillValidSignupForm(user);
+      await user.click(screen.getByRole('button', { name: /create account/i }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('Email already registered. Please sign in instead.');
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it('redirects to dashboard on successful registration', async () => {
+      const user = userEvent.setup();
+      render(<SignUpPage />);
+
+      await fillValidSignupForm(user);
+      await user.click(screen.getByRole('button', { name: /create account/i }));
+
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
+    });
+  });
+
   describe('PasswordStrengthBar', () => {
     it('does not render the strength bar when password is empty', () => {
       render(<SignUpPage />);

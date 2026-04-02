@@ -7,6 +7,7 @@
 import { useState, useCallback, useEffect, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { Eye, EyeOff } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -154,7 +155,7 @@ function InputField({
             transition-all duration-200
             ${
               error
-                ? 'border-destructive focus:ring-destructive'
+                ? 'border-destructive focus:ring-destructive focus:border-destructive'
                 : 'hover:border-muted-foreground/50'
             }
             ${isPassword ? 'pr-11' : ''}
@@ -167,7 +168,11 @@ function InputField({
             aria-label={showPassword ? 'Hide password' : 'Show password'}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
           >
-            {showPassword ? '🙈' : '👁️'}
+            {showPassword ? (
+              <EyeOff className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            )}
           </button>
         )}
       </div>
@@ -222,8 +227,8 @@ export default function SignUpPage() {
 
     try {
       const registerPayload = {
-        name: form.name,
-        email: form.email,
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
         password: form.password,
       };
 
@@ -235,7 +240,10 @@ export default function SignUpPage() {
 
       if (!res.ok) {
         const contentType = res.headers.get('content-type') ?? '';
-        let message = 'Something went wrong.';
+        const statusText = res.statusText.trim();
+        let message = statusText
+          ? `${statusText}. Please try again.`
+          : 'Something went wrong. Please try again.';
 
         if (contentType.includes('application/json')) {
           try {
@@ -254,7 +262,7 @@ export default function SignUpPage() {
 
       router.push('/dashboard');
     } catch {
-      setServerError('Network error.');
+      setServerError('Network error. Please check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -266,7 +274,7 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-4">
+    <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center bg-background p-4 text-foreground">
       <div className="w-full max-w-md">
         <div className="bg-card text-card-foreground border border-border shadow-sm rounded-2xl p-8">
           <div className="mb-8 text-center">
@@ -371,6 +379,7 @@ export default function SignUpPage() {
           <Link href="/privacy" className="underline hover:text-foreground">
             Privacy Policy
           </Link>
+          .
         </p>
       </div>
     </div>
