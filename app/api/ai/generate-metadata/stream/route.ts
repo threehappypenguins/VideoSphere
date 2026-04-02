@@ -1,28 +1,30 @@
 // =============================================================================
-// POST /api/ai/generate-metadata
+// POST /api/ai/generate-metadata/stream
 // =============================================================================
-// Accepts a video fileName, optional userPrompt, and platforms array.
-// Verifies the session, checks the user's tier (free vs. supporter), selects
-// the appropriate OpenRouter model, and returns AI-generated title, description,
-// and tags for the video.
+// Streaming variant of the AI metadata endpoint.  Returns an SSE
+// (text/event-stream) response by forwarding OpenRouter's native streaming
+// chunks directly to the client.
+//
+// The client accumulates token deltas until it receives `data: [DONE]`, then
+// parses the assembled JSON string to obtain { title, description, tags }.
 //
 // Auth: requires a valid Appwrite session cookie (401 if missing/invalid).
 //
-// Request body:
+// Request body: identical to POST /api/ai/generate-metadata
 //   {
-//     fileName:   string           (required, max MAX_GENERATE_METADATA_FILE_NAME_CHARS)
-//     userPrompt: string           (optional, max MAX_GENERATE_METADATA_USER_PROMPT_CHARS)
-//     platforms:  ConnectedAccountPlatform[]  (required, non-empty; see CONNECTED_ACCOUNT_PLATFORMS)
+//     fileName:   string
+//     userPrompt: string (optional)
+//     platforms:  ConnectedAccountPlatform[]
 //   }
 //
-// Response (200):
-//   ApiResponse<GeneratedMetadata> = { data: { title, description, tags } }
+// Response (200): text/event-stream — OpenRouter SSE chunks piped through
+// Response (4xx/5xx): standard ApiError JSON for pre-stream failures
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
-import { generateMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
+import { streamMetadata, RateLimitError } from '@/lib/ai/openrouter';
 import {
   MAX_GENERATE_METADATA_FILE_NAME_CHARS,
   MAX_GENERATE_METADATA_USER_PROMPT_CHARS,
@@ -31,14 +33,11 @@ import {
   buildUserMessage,
 } from '@/lib/ai/generate-metadata-helpers';
 import { isConnectedAccountPlatform } from '@/lib/draft-upload-metadata';
-import type { ApiResponse, ApiError, GeneratedMetadata, ConnectedAccountPlatform } from '@/types';
+import type { ApiError, ConnectedAccountPlatform } from '@/types';
 import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 
-export { MAX_GENERATE_METADATA_FILE_NAME_CHARS, MAX_GENERATE_METADATA_USER_PROMPT_CHARS };
-
-// ---------------------------------------------------------------------------
-// POST /api/ai/generate-metadata
-// ---------------------------------------------------------------------------
+// Allow the stream to stay open long enough for a slow model's first token.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   // 1. Verify authentication
@@ -159,28 +158,30 @@ export async function POST(req: NextRequest) {
   const isAdmin = user.role === 'admin';
   const model = user.isSupporter || isAdmin ? premiumModel : freeModel;
 
-  // 5. Build prompts and call AI
+  // 5. Build prompts
   const { titleMax, descriptionMax } = getLimits(typedPlatforms);
   const systemPrompt = buildSystemPrompt(typedPlatforms, titleMax, descriptionMax);
-
   const userMessage = buildUserMessage(fileName, typedUserPrompt);
 
+  // 6. Open a streaming request to OpenRouter and pipe it to the client.
+  //    Pass req.signal so the upstream fetch is aborted if the client disconnects.
   try {
-    const metadata = await generateMetadata(systemPrompt, userMessage, model);
+    const openrouterResponse = await streamMetadata(systemPrompt, userMessage, model, req.signal);
 
-    // 6. Defense-in-depth: truncate to platform limits (Issue #39)
-    const safeMetadata: GeneratedMetadata = {
-      title: metadata.title.slice(0, titleMax),
-      description: metadata.description.slice(0, descriptionMax),
-      tags: metadata.tags,
-    };
-
-    const response: ApiResponse<GeneratedMetadata> = {
-      data: safeMetadata,
-      message: 'Metadata generated successfully',
-    };
-    return NextResponse.json(response, { status: 200 });
+    return new Response(openrouterResponse.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
+    });
   } catch (err) {
+    // Client disconnect — nothing to send
+    if ((err instanceof DOMException || err instanceof Error) && err.name === 'AbortError') {
+      return new Response(null, { status: 499 });
+    }
+
     if (err instanceof RateLimitError) {
       const errRes: ApiError = {
         error: 'Too Many Requests',
@@ -190,16 +191,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(errRes, { status: 429 });
     }
 
-    if (err instanceof OpenRouterTimeoutError) {
-      const errRes: ApiError = {
-        error: 'Gateway Timeout',
-        message: err.message,
-        statusCode: 504,
-      };
-      return NextResponse.json(errRes, { status: 504 });
-    }
-
-    console.error('[POST /api/ai/generate-metadata]', err);
+    console.error('[POST /api/ai/generate-metadata/stream]', err);
     const details = err instanceof Error ? err.message : String(err);
     const isDev = process.env.NODE_ENV === 'development';
     const errRes: ApiError = {

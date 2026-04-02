@@ -256,3 +256,76 @@ export async function generateMetadata(
     appName
   );
 }
+
+/**
+ * Opens a streaming chat completion request to OpenRouter and returns the raw
+ * upstream `Response` object whose body is an SSE `text/event-stream`.
+ *
+ * The caller is responsible for piping `response.body` to the client.
+ * The request is aborted when `signal` fires (i.e. client disconnect).
+ *
+ * @param systemPrompt - Instructions for the AI
+ * @param userPrompt   - The user-facing content
+ * @param model        - OpenRouter model identifier
+ * @param signal       - Optional AbortSignal (e.g. from the Next.js request)
+ * @throws RateLimitError on HTTP 429
+ * @throws Error on any other non-2xx or network failure
+ */
+export async function streamMetadata(
+  systemPrompt: string,
+  userPrompt: string,
+  model: string,
+  signal?: AbortSignal
+): Promise<Response> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY environment variable is not set');
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://videosphere.app';
+  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
+
+  const requestBody = {
+    ...buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
+    stream: true,
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(OPENROUTER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': appUrl,
+        'X-Title': appName,
+      },
+      body: JSON.stringify(requestBody),
+      signal,
+    });
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw err; // propagate abort so the route can respond accordingly
+    }
+    throw new Error(`Failed to connect to OpenRouter API: ${getErrorMessage(err)}`);
+  }
+
+  if (response.status === 429) {
+    throw new RateLimitError();
+  }
+
+  if (!response.ok) {
+    let errorDetail = '';
+    try {
+      const text = await response.text();
+      errorDetail = formatOpenRouterErrorDetail(text, response.statusText);
+    } catch {
+      errorDetail = response.statusText;
+    }
+    throw new Error(
+      `OpenRouter API error (${response.status}): ${errorDetail || response.statusText}`
+    );
+  }
+
+  return response;
+}

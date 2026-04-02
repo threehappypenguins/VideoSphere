@@ -6,7 +6,17 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Loader2, Redo2, Sparkles, Trash2, Undo2 } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Redo2,
+  Sparkles,
+  Square,
+  Trash2,
+  Undo2,
+} from 'lucide-react';
+import { parseSseChunk } from '@/lib/ai/sse-utils';
 import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
@@ -181,6 +191,7 @@ export function DraftMetadataModal({
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiStreamPreview, setAiStreamPreview] = useState('');
   const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
   const [aiRedoStack, setAiRedoStack] = useState<DraftEditorValues[]>([]);
   const [uploadLimitState, setUploadLimitState] = useState<{
@@ -523,6 +534,7 @@ export function DraftMetadataModal({
     if (!draftId) {
       setAiPrompt('');
       setIsGeneratingAi(false);
+      setAiStreamPreview('');
       setAiUndoStack([]);
       setAiRedoStack([]);
       return;
@@ -645,7 +657,7 @@ export function DraftMetadataModal({
 
     setIsGeneratingAi(true);
     try {
-      const response = await fetch('/api/ai/generate-metadata', {
+      const response = await fetch('/api/ai/generate-metadata/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -660,35 +672,70 @@ export function DraftMetadataModal({
         const errBody = await response.json().catch(() => null);
         throw new Error(errBody?.message ?? 'Failed to generate metadata');
       }
+      if (!response.body) {
+        throw new Error('Response body is empty');
+      }
 
-      const next = (await response.json()) as ApiResponse<{
-        title: string;
-        description: string;
-        tags: string[];
-      }>;
-      if (ac.signal.aborted) return;
-      if (latestDraftIdRef.current !== requestDraftId) return;
+      // Read the SSE stream, accumulate token deltas, apply on [DONE]
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
 
-      applyAiMetadata({
-        title: next.data?.title ?? '',
-        description: next.data?.description ?? '',
-        tags: Array.isArray(next.data?.tags) ? next.data.tags : [],
-      });
-      toast.success('Metadata generated successfully');
+      while (true) {
+        const { done, value: chunk } = await reader.read();
+        if (done) break;
+        if (ac.signal.aborted) {
+          await reader.cancel();
+          return;
+        }
+
+        const text = decoder.decode(chunk, { stream: true });
+        for (const result of parseSseChunk(text)) {
+          if (result.error) {
+            throw new Error(result.error);
+          }
+          if (result.done) {
+            // Stream complete — parse the assembled JSON
+            if (ac.signal.aborted) return;
+            if (latestDraftIdRef.current !== requestDraftId) return;
+
+            let parsed: { title?: unknown; description?: unknown; tags?: unknown };
+            try {
+              parsed = JSON.parse(accumulated) as typeof parsed;
+            } catch {
+              throw new Error('AI returned invalid JSON. Please try again.');
+            }
+
+            applyAiMetadata({
+              title: typeof parsed.title === 'string' ? parsed.title : '',
+              description: typeof parsed.description === 'string' ? parsed.description : '',
+              tags:
+                Array.isArray(parsed.tags) && parsed.tags.every((t) => typeof t === 'string')
+                  ? (parsed.tags as string[])
+                  : [],
+            });
+            toast.success('Metadata generated successfully');
+            return;
+          }
+          if (result.deltaContent !== undefined) {
+            accumulated += result.deltaContent;
+            setAiStreamPreview((prev) => prev + result.deltaContent);
+          }
+        }
+      }
+      // Stream closed without sending [DONE] — treat as an error
+      throw new Error('Stream ended without a completion signal. Please try again.');
     } catch (error) {
       const isAbort =
         (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
       if (isAbort) return;
-      // Keep UX aligned with existing metadata generation messaging without triggering
-      // Next.js dev error overlay from client-side console.error.
       console.warn('AI metadata generation failed:', error);
       toast.error('Failed to generate metadata. Please try again.');
     } finally {
-      // Only clear loading if this is still the active request (avoids a superseded
-      // generation turning off the spinner while a newer one is in flight).
       if (aiMetadataAbortRef.current === ac) {
         aiMetadataAbortRef.current = null;
         setIsGeneratingAi(false);
+        setAiStreamPreview('');
       }
     }
   };
@@ -1316,19 +1363,45 @@ export function DraftMetadataModal({
                     placeholder="Optional prompt for AI"
                     className="min-w-[220px] flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleGenerateAiMetadata();
-                    }}
-                    disabled={isGeneratingAi}
-                    className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                  >
-                    {isGeneratingAi
-                      ? 'Generating...'
-                      : `${hasGeneratedMetadata ? 'Regenerate' : 'Generate'} with AI`}
-                  </button>
+                  {isGeneratingAi ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        aiMetadataAbortRef.current?.abort();
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                    >
+                      <Square className="h-3.5 w-3.5 fill-current" />
+                      Stop
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleGenerateAiMetadata();
+                      }}
+                      disabled={isGeneratingAi}
+                      className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      {`${hasGeneratedMetadata ? 'Regenerate' : 'Generate'} with AI`}
+                    </button>
+                  )}
                 </div>
+                {isGeneratingAi ? (
+                  <div className="mt-2">
+                    {aiStreamPreview ? (
+                      <div className="max-h-24 overflow-y-auto rounded border border-border bg-muted/40 px-2.5 py-2 font-mono text-xs text-muted-foreground">
+                        <span className="whitespace-pre-wrap break-all">{aiStreamPreview}</span>
+                        <span className="animate-pulse">▍</span>
+                      </div>
+                    ) : (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Connecting to AI…
+                      </p>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div>
