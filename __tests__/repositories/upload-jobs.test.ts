@@ -42,6 +42,8 @@ vi.mock('@/lib/appwrite', () => ({
 }));
 
 import {
+  countUploadJobsByUser,
+  countUploadJobsByUserWithStatuses,
   createUploadJob,
   findUploadJobForDistribution,
   getUploadJobById,
@@ -211,6 +213,61 @@ describe('upload-jobs repository', () => {
       const result = await listUploadJobsByUser('user-1');
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('countUploadJobsByUser', () => {
+    it('counts all upload jobs for a user via total: true', async () => {
+      mockListRows.mockResolvedValue({ total: 17, rows: [] });
+
+      const result = await countUploadJobsByUser('user-1');
+
+      expect(result).toBe(17);
+      expect(mockListRows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: 'videosphere',
+          tableId: 'upload_jobs',
+          total: true,
+        })
+      );
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('equal("userId","user-1")');
+      expect(queries).toContain('limit(1)');
+    });
+  });
+
+  describe('countUploadJobsByUserWithStatuses', () => {
+    it('counts jobs for a single status via total: true', async () => {
+      mockListRows.mockResolvedValue({ total: 3, rows: [] });
+
+      const result = await countUploadJobsByUserWithStatuses('user-1', 'completed');
+
+      expect(result).toBe(3);
+      expect(mockListRows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: 'videosphere',
+          tableId: 'upload_jobs',
+          total: true,
+        })
+      );
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('equal("userId","user-1")');
+      expect(queries).toContain('equal("status",["completed"])');
+      expect(queries).toContain('limit(1)');
+    });
+
+    it('counts jobs across multiple statuses with a single IN query', async () => {
+      mockListRows.mockResolvedValue({ total: 5, rows: [] });
+
+      const result = await countUploadJobsByUserWithStatuses('user-1', [
+        'pending',
+        'uploading',
+        'distributing',
+      ]);
+
+      expect(result).toBe(5);
+      const queries = mockListRows.mock.calls[0][0].queries as string[];
+      expect(queries).toContain('equal("status",["pending","uploading","distributing"])');
     });
   });
 

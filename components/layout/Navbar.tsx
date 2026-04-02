@@ -290,6 +290,7 @@ export default function Navbar() {
                 {isAdminUser && (
                   <Link
                     href="/admin/dashboard"
+                    aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
                     className={`text-sm font-medium transition-colors hover:text-foreground ${pathname.startsWith('/admin') ? 'font-extrabold text-foreground' : 'text-muted-foreground'}`}
                   >
                     Admin
@@ -437,6 +438,7 @@ export default function Navbar() {
                   {isAdminUser && (
                     <Link
                       href="/admin/dashboard"
+                      aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
                       className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname.startsWith('/admin') ? 'bg-muted font-bold text-foreground' : 'text-muted-foreground'}`}
                       onClick={() => setMobileMenuOpen(false)}
                     >

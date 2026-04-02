@@ -12,12 +12,10 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { cookies } from 'next/headers';
-import { Account, Client } from 'node-appwrite';
 import { DashboardQuickActions } from '@/components/dashboard/DashboardQuickActions';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 import { listDraftsByUser } from '@/lib/repositories/drafts';
-import { listUploadJobsByUser } from '@/lib/repositories/upload-jobs';
+import { countUploadJobsByUserWithStatuses } from '@/lib/repositories/upload-jobs';
 import type { Draft } from '@/types';
 
 export const metadata: Metadata = {
@@ -52,44 +50,23 @@ function formatTargets(targets: readonly string[]): string {
 }
 
 async function getCurrentUserId(): Promise<string | null> {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  if (!endpoint || !projectId) return null;
-
-  const cookieStore = await cookies();
-  const sessionSecret = cookieStore.get(getSessionCookieName(projectId))?.value;
-  if (!sessionSecret) return null;
-
-  try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-    const account = new Account(client);
-    const user = await account.get();
-    return user.$id;
-  } catch {
-    return null;
-  }
+  return getCurrentUserIdFromCookies();
 }
 
 export default async function DashboardPage() {
   const userId = await getCurrentUserId();
-  const [drafts, uploadJobs] = userId
+  const [drafts, inProgressJobCount, completedJobCount, failedJobCount] = userId
     ? await Promise.all([
         listDraftsByUser(userId).catch(() => []),
-        listUploadJobsByUser(userId, undefined, { maxRows: Number.POSITIVE_INFINITY }).catch(
-          () => []
+        countUploadJobsByUserWithStatuses(userId, ['pending', 'uploading', 'distributing']).catch(
+          () => 0
         ),
+        countUploadJobsByUserWithStatuses(userId, 'completed').catch(() => 0),
+        countUploadJobsByUserWithStatuses(userId, 'failed').catch(() => 0),
       ])
-    : [[], []];
+    : [[], 0, 0, 0];
   const readyDrafts = drafts.filter((draft) => !hasNonEmptyUsedInUploadAt(draft));
   const previewDrafts = readyDrafts.slice(0, 5);
-  const inProgressJobCount = uploadJobs.filter(
-    (job) => job.status !== 'completed' && job.status !== 'failed' && job.status !== 'cancelled'
-  ).length;
-  const completedJobCount = uploadJobs.filter((job) => job.status === 'completed').length;
-  const failedJobCount = uploadJobs.filter((job) => job.status === 'failed').length;
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">

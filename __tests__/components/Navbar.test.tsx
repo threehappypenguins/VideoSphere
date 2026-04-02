@@ -146,6 +146,8 @@ describe('Navbar admin link visibility', () => {
       expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(2);
     });
 
+    expect(screen.getAllByRole('link', { name: 'Admin' })[0]).not.toHaveAttribute('aria-current');
+
     const adminLinks = screen.getAllByRole('link', { name: 'Admin' });
     await user.click(adminLinks[1]);
 
@@ -153,5 +155,42 @@ describe('Navbar admin link visibility', () => {
       expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
       expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(1);
     });
+  });
+
+  it('marks Admin links as current on admin routes', async () => {
+    mockPathname.mockReturnValue('/admin/dashboard');
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ $id: 'user_admin_3', name: 'Admin User', email: 'admin@test.com' }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ role: 'admin' }),
+        } as Response)
+    );
+
+    render(<Navbar />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('aria-current', 'page');
+    });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Toggle navigation menu' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(2);
+    });
+
+    for (const adminLink of screen.getAllByRole('link', { name: 'Admin' })) {
+      expect(adminLink).toHaveAttribute('aria-current', 'page');
+    }
   });
 });

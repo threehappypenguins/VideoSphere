@@ -7,13 +7,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-const { mockCookiesGet, mockAccountGet, mockListDraftsByUser, mockListUploadJobsByUser } =
-  vi.hoisted(() => ({
-    mockCookiesGet: vi.fn(),
-    mockAccountGet: vi.fn(),
-    mockListDraftsByUser: vi.fn(),
-    mockListUploadJobsByUser: vi.fn(),
-  }));
+const {
+  mockCookiesGet,
+  mockAccountGet,
+  mockListDraftsByUser,
+  mockCountUploadJobsByUserWithStatuses,
+} = vi.hoisted(() => ({
+  mockCookiesGet: vi.fn(),
+  mockAccountGet: vi.fn(),
+  mockListDraftsByUser: vi.fn(),
+  mockCountUploadJobsByUserWithStatuses: vi.fn(),
+}));
 
 vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({ get: mockCookiesGet })),
@@ -58,7 +62,8 @@ vi.mock('@/lib/repositories/drafts', () => ({
 }));
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
-  listUploadJobsByUser: (...args: unknown[]) => mockListUploadJobsByUser(...args),
+  countUploadJobsByUserWithStatuses: (...args: unknown[]) =>
+    mockCountUploadJobsByUserWithStatuses(...args),
 }));
 
 import DashboardPage from '@/app/(dashboard)/dashboard/page';
@@ -71,7 +76,7 @@ describe('DashboardPage Component', () => {
     mockCookiesGet.mockReturnValue({ value: 'valid-session-token' });
     mockAccountGet.mockResolvedValue({ $id: 'user-123' });
     mockListDraftsByUser.mockResolvedValue([]);
-    mockListUploadJobsByUser.mockResolvedValue([]);
+    mockCountUploadJobsByUserWithStatuses.mockResolvedValue(0);
   });
 
   describe('Page Header', () => {
@@ -111,63 +116,10 @@ describe('DashboardPage Component', () => {
           $updatedAt: '2026-04-02T11:00:00.000Z',
         },
       ]);
-      mockListUploadJobsByUser.mockResolvedValue([
-        {
-          id: 'job-1',
-          userId: 'user-123',
-          draftId: 'draft-2',
-          r2Key: 'videos/job-1.mp4',
-          status: 'pending',
-          errorMessage: null,
-          quotaClaimMonth: '2026-04',
-          $createdAt: '2026-04-02T12:00:00.000Z',
-          $updatedAt: '2026-04-02T12:00:00.000Z',
-        },
-        {
-          id: 'job-2',
-          userId: 'user-123',
-          draftId: 'draft-2',
-          r2Key: 'videos/job-2.mp4',
-          status: 'distributing',
-          errorMessage: null,
-          quotaClaimMonth: '2026-04',
-          $createdAt: '2026-04-02T13:00:00.000Z',
-          $updatedAt: '2026-04-02T13:05:00.000Z',
-        },
-        {
-          id: 'job-3',
-          userId: 'user-123',
-          draftId: 'draft-2',
-          r2Key: 'videos/job-3.mp4',
-          status: 'completed',
-          errorMessage: null,
-          quotaClaimMonth: '2026-04',
-          $createdAt: '2026-04-02T14:00:00.000Z',
-          $updatedAt: '2026-04-02T14:05:00.000Z',
-        },
-        {
-          id: 'job-4',
-          userId: 'user-123',
-          draftId: 'draft-2',
-          r2Key: 'videos/job-4.mp4',
-          status: 'failed',
-          errorMessage: 'Upload failed',
-          quotaClaimMonth: '2026-04',
-          $createdAt: '2026-04-02T15:00:00.000Z',
-          $updatedAt: '2026-04-02T15:05:00.000Z',
-        },
-        {
-          id: 'job-5',
-          userId: 'user-123',
-          draftId: 'draft-2',
-          r2Key: 'videos/job-5.mp4',
-          status: 'cancelled',
-          errorMessage: null,
-          quotaClaimMonth: '2026-04',
-          $createdAt: '2026-04-02T16:00:00.000Z',
-          $updatedAt: '2026-04-02T16:05:00.000Z',
-        },
-      ]);
+      mockCountUploadJobsByUserWithStatuses
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(1);
 
       render(await DashboardPage());
 
@@ -178,6 +130,21 @@ describe('DashboardPage Component', () => {
       expect(screen.getByText(/^failed uploads$/i)).toBeInTheDocument();
       expect(screen.getAllByText(/^2$/)).toHaveLength(2);
       expect(screen.getAllByText(/^1$/)).toHaveLength(3);
+      expect(mockCountUploadJobsByUserWithStatuses).toHaveBeenNthCalledWith(1, 'user-123', [
+        'pending',
+        'uploading',
+        'distributing',
+      ]);
+      expect(mockCountUploadJobsByUserWithStatuses).toHaveBeenNthCalledWith(
+        2,
+        'user-123',
+        'completed'
+      );
+      expect(mockCountUploadJobsByUserWithStatuses).toHaveBeenNthCalledWith(
+        3,
+        'user-123',
+        'failed'
+      );
     });
   });
 

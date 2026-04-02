@@ -276,6 +276,28 @@ export async function countUploadJobsByUser(userId: string): Promise<number> {
 }
 
 /**
+ * Count upload jobs for a user filtered to one or more statuses.
+ * Uses a single `listRows` with `total: true` and `limit: 1`.
+ */
+export async function countUploadJobsByUserWithStatuses(
+  userId: string,
+  statuses: UploadJobStatus | readonly UploadJobStatus[]
+): Promise<number> {
+  const normalizedStatuses = Array.isArray(statuses) ? [...statuses] : [statuses];
+  const result = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: UPLOAD_JOBS_COLLECTION_ID,
+    queries: [
+      Query.equal('userId', userId),
+      Query.equal('status', normalizedStatuses),
+      Query.limit(1),
+    ],
+    total: true,
+  });
+  return typeof result.total === 'number' ? result.total : 0;
+}
+
+/**
  * One page of upload jobs for a user (newest first) with platform uploads populated.
  * Does not load the full job list into memory.
  */
