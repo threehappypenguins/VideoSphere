@@ -9,7 +9,7 @@ import { OnboardingTour } from './OnboardingTour';
  * onboarding can run. This prevents unnecessary API calls and network
  * requests on other pages.
  */
-export function OnboardingTourGate() {
+function OnboardingTourGateContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -20,9 +20,13 @@ export function OnboardingTourGate() {
     (pathname === '/profile/connections' && searchParams.has('onboardingFlow'));
   if (!isOnboardingRoute) return null;
 
+  return <OnboardingTour />;
+}
+
+export function OnboardingTourGate() {
   return (
     <Suspense fallback={null}>
-      <OnboardingTour />
+      <OnboardingTourGateContent />
     </Suspense>
   );
 }
