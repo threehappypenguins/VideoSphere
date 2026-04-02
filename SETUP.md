@@ -27,13 +27,29 @@ Use this when you're cloning the project for the first time or onboarding a new 
    pnpm install
    ```
 
+### VS Code workspace settings
+
+This repository commits a shared [.vscode/settings.json](.vscode/settings.json) so the team gets a consistent editor setup without forcing personal preferences.
+
+- **Prettier as the default formatter** keeps file formatting consistent across the team.
+- **Format on save** reduces manual cleanup before commits.
+- **ESLint auto-fix on save** catches and fixes many lint issues as you work.
+- **ESLint validation for JS/TS files** surfaces lint errors inline in the editor.
+- **Workspace TypeScript SDK** keeps type checking aligned with the version installed in this project.
+- **Prompt to use workspace TypeScript** helps developers switch to the repo version when VS Code is using a different global version.
+- **Spell check disabled in the workspace** avoids noisy warnings for project-specific terms.
+
+These settings are intentionally lightweight: they do not force a theme, keybindings, or other personal editor preferences.
+
+For local overrides, prefer your VS Code User Settings. If you want to keep a repo-local scratch copy of personal settings without committing it, use `.vscode/settings.json.local`, which is gitignored.
+
 3. **Copy environment variables**
    ```bash
    cp .env.example .env.local
    ```
    You'll fill in Appwrite (and other) values in step 4.
 
-4. **Set up Appwrite (auth + database)**  
+4. **Set up Appwrite (auth + database)**
    Put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`.
 
 5. **Start the app and verify**
