@@ -1,7 +1,7 @@
 // =============================================================================
-// DASHBOARD LAYOUT COMPONENT TESTS
+// DASHBOARD SHELL COMPONENT TESTS
 // =============================================================================
-// Tests for the responsive dashboard layout sidebar and navigation.
+// Tests for the responsive dashboard shell (sidebar + mobile nav).
 // Verifies all nav links are present, active states are correct, and
 // the isActive helper function works as expected.
 // =============================================================================
@@ -9,7 +9,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import DashboardLayout from '@/app/(dashboard)/layout';
+import DashboardShell from '@/components/dashboard/DashboardShell';
 
 // Mock next/navigation for usePathname hook
 vi.mock('next/navigation', () => ({
@@ -33,24 +33,22 @@ import { usePathname } from 'next/navigation';
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Drafts', href: '/dashboard/drafts' },
-  { label: 'Upload', href: '/dashboard/upload' },
-  { label: 'Scheduled', href: '/dashboard/scheduled' },
   { label: 'History', href: '/dashboard/history' },
 ] as const;
 
-describe('DashboardLayout', () => {
+describe('DashboardShell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe('Navigation Items Rendering', () => {
-    it('should render all 5 navigation links', () => {
+    it('should render all 3 navigation links', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test Content</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       NAV_ITEMS.forEach(({ label }) => {
@@ -62,9 +60,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test Content</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       // Verify each navigation label points to the expected route.
@@ -81,9 +79,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div data-testid="page-content">Dashboard Page Content</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       expect(screen.getByTestId('page-content')).toBeInTheDocument();
@@ -96,9 +94,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const dashboardLinks = screen.getAllByText('Dashboard');
@@ -114,9 +112,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard/drafts');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const dashboardLinks = screen.getAllByText('Dashboard');
@@ -132,9 +130,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard/drafts');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const draftLinks = screen.getAllByText('Drafts');
@@ -150,9 +148,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard/drafts/video-123');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const draftLinks = screen.getAllByText('Drafts');
@@ -164,49 +162,13 @@ describe('DashboardLayout', () => {
       expect(activeLink).toBeDefined();
     });
 
-    it('should mark Upload as active when pathname is /dashboard/upload', () => {
-      (usePathname as any).mockReturnValue('/dashboard/upload');
-
-      render(
-        <DashboardLayout>
-          <div>Test</div>
-        </DashboardLayout>
-      );
-
-      const uploadLinks = screen.getAllByText('Upload');
-      const activeLink = uploadLinks.find((el) => {
-        const link = el.closest('a');
-        return link && link.getAttribute('aria-current') === 'page';
-      });
-
-      expect(activeLink).toBeDefined();
-    });
-
-    it('should mark Scheduled as active when pathname is /dashboard/scheduled', () => {
-      (usePathname as any).mockReturnValue('/dashboard/scheduled');
-
-      render(
-        <DashboardLayout>
-          <div>Test</div>
-        </DashboardLayout>
-      );
-
-      const scheduledLinks = screen.getAllByText('Scheduled');
-      const activeLink = scheduledLinks.find((el) => {
-        const link = el.closest('a');
-        return link && link.getAttribute('aria-current') === 'page';
-      });
-
-      expect(activeLink).toBeDefined();
-    });
-
     it('should mark History as active when pathname is /dashboard/history', () => {
       (usePathname as any).mockReturnValue('/dashboard/history');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const historyLinks = screen.getAllByText('History');
@@ -222,9 +184,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard/drafts');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const allLinks = screen.getAllByRole('link');
@@ -242,9 +204,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const navs = screen.getAllByLabelText('Dashboard navigation');
@@ -255,9 +217,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       expect(screen.getAllByRole('navigation', { name: 'Dashboard navigation' })).toHaveLength(2);
@@ -267,9 +229,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div data-testid="dashboard-content">Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       expect(screen.getByTestId('dashboard-content')).toBeInTheDocument();
@@ -281,9 +243,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/profile');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const allLinks = screen.getAllByRole('link');
@@ -296,9 +258,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       const allLinks = screen.getAllByRole('link');
@@ -314,9 +276,9 @@ describe('DashboardLayout', () => {
       (usePathname as any).mockReturnValue('/dashboard');
 
       render(
-        <DashboardLayout>
+        <DashboardShell>
           <div>Test</div>
-        </DashboardLayout>
+        </DashboardShell>
       );
 
       NAV_ITEMS.forEach(({ label }) => {

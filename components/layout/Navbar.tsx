@@ -16,6 +16,10 @@ import { useRouter, usePathname } from 'next/navigation';
 import { logout } from '@/lib/auth-client';
 import { useTheme } from 'next-themes';
 import { SunIcon, MoonIcon, ComputerDesktopIcon, CheckIcon } from '@heroicons/react/24/outline';
+import {
+  getBackgroundGrainEnabled,
+  setBackgroundGrainEnabled,
+} from '@/lib/ui/background-preference';
 
 const THEME_OPTIONS = [
   { value: 'system' as const, label: 'System', Icon: ComputerDesktopIcon },
@@ -32,6 +36,8 @@ function ThemeDropdown({
   onClose,
   theme,
   setTheme,
+  grainEnabled,
+  onToggleGrain,
   resolvedTheme,
   mounted,
   dropdownClassName,
@@ -42,6 +48,8 @@ function ThemeDropdown({
   onClose: () => void;
   theme: string | undefined;
   setTheme: (theme: 'system' | 'light' | 'dark') => void;
+  grainEnabled: boolean;
+  onToggleGrain: () => void;
   resolvedTheme: string | undefined;
   mounted: boolean;
   dropdownClassName: string;
@@ -64,7 +72,7 @@ function ThemeDropdown({
       </button>
       {isOpen && (
         <div
-          className={`absolute top-full z-50 mt-1 min-w-[10rem] rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
+          className={`absolute top-full z-50 mt-1 min-w-40 rounded-md border border-border bg-background py-1 shadow-lg ${dropdownClassName}`}
           role="menu"
         >
           {THEME_OPTIONS.map(({ value, label, Icon }) => (
@@ -83,6 +91,28 @@ function ThemeDropdown({
               {selectedTheme === value && <CheckIcon className="ml-auto h-4 w-4 text-primary" />}
             </button>
           ))}
+          <div className="my-1 border-t border-border" />
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={grainEnabled ? 'true' : 'false'}
+            onClick={onToggleGrain}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
+          >
+            <span>Film texture</span>
+            <span
+              className={`ml-auto inline-flex h-5 w-9 items-center rounded-full border transition-colors ${
+                grainEnabled ? 'border-primary bg-primary/20' : 'border-border bg-muted'
+              }`}
+              aria-hidden
+            >
+              <span
+                className={`h-3.5 w-3.5 rounded-full bg-foreground transition-transform ${
+                  grainEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+          </button>
         </div>
       )}
     </div>
@@ -100,17 +130,29 @@ interface SessionRoleResponse {
   role?: 'user' | 'admin';
 }
 
-export default function Navbar() {
+interface NavbarProps {
+  initialSessionUser?: SessionUser | null;
+  initialHasAdminRole?: boolean;
+}
+
+export default function Navbar({ initialSessionUser, initialHasAdminRole = false }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>('loading');
-  const [hasAdminRole, setHasAdminRole] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>(
+    initialSessionUser === undefined ? 'loading' : initialSessionUser
+  );
+  const [hasAdminRole, setHasAdminRole] = useState(initialHasAdminRole);
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
+  const [grainEnabled, setGrainEnabled] = useState(() => getBackgroundGrainEnabled());
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
   const mobileThemeRef = useRef<HTMLDivElement>(null);
-  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(null);
+  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(
+    initialSessionUser?.$id
+      ? { userId: initialSessionUser.$id, isAdmin: initialHasAdminRole }
+      : null
+  );
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -205,6 +247,12 @@ export default function Navbar() {
   const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
   const isAdminUser = isLoggedIn && hasAdminRole;
 
+  const handleToggleGrain = () => {
+    const next = !grainEnabled;
+    setGrainEnabled(next);
+    setBackgroundGrainEnabled(next);
+  };
+
   return (
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -221,33 +269,35 @@ export default function Navbar() {
             <span className="text-xl font-black sm:text-2xl">VideoSphere</span>
           </Link>
 
-          {/* --- Desktop Navigation --- */}
-          <div className="hidden items-center gap-8 md:flex">
-            <Link
-              href="/"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Home
-            </Link>
-            <Link
-              href="/pricing"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Pricing
-            </Link>
-            <Link
-              href="/about"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              About
-            </Link>
-            <Link
-              href="/contact"
-              className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
-            >
-              Contact
-            </Link>
-          </div>
+          {/* --- Desktop Navigation (hidden when authenticated) --- */}
+          {sessionUser === null && (
+            <div className="hidden items-center gap-8 md:flex">
+              <Link
+                href="/"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Home
+              </Link>
+              <Link
+                href="/pricing"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Pricing
+              </Link>
+              <Link
+                href="/about"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                About
+              </Link>
+              <Link
+                href="/contact"
+                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                Contact
+              </Link>
+            </div>
+          )}
 
           {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
           <div className="hidden items-center gap-4 md:flex">
@@ -260,6 +310,8 @@ export default function Navbar() {
               onClose={() => setThemeDropdownOpen(false)}
               theme={theme}
               setTheme={setTheme}
+              grainEnabled={grainEnabled}
+              onToggleGrain={handleToggleGrain}
               resolvedTheme={resolvedTheme}
               mounted={mounted}
               dropdownClassName="right-0"
@@ -273,20 +325,23 @@ export default function Navbar() {
               <>
                 <Link
                   href="/dashboard"
-                  className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                  aria-current={pathname.startsWith('/dashboard') ? 'page' : undefined}
+                  className={`text-sm transition-colors hover:text-foreground ${pathname.startsWith('/dashboard') ? 'font-extrabold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                 >
                   Dashboard
                 </Link>
                 <Link
                   href="/profile"
-                  className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/profile' ? 'text-foreground' : 'text-muted-foreground'}`}
+                  aria-current={pathname.startsWith('/profile') ? 'page' : undefined}
+                  className={`text-sm transition-colors hover:text-foreground ${pathname.startsWith('/profile') ? 'font-extrabold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                 >
                   Profile
                 </Link>
                 {isAdminUser && (
                   <Link
                     href="/admin/dashboard"
-                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
+                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname.startsWith('/admin') ? 'font-extrabold text-foreground' : 'text-muted-foreground'}`}
                   >
                     Admin
                   </Link>
@@ -372,54 +427,62 @@ export default function Navbar() {
                   onClose={() => setThemeDropdownOpen(false)}
                   theme={theme}
                   setTheme={setTheme}
+                  grainEnabled={grainEnabled}
+                  onToggleGrain={handleToggleGrain}
                   resolvedTheme={resolvedTheme}
                   mounted={mounted}
                   dropdownClassName="left-3 right-3"
                 />
               </div>
-              <Link
-                href="/"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Home
-              </Link>
-              <Link
-                href="/pricing"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Pricing
-              </Link>
-              <Link
-                href="/about"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                About
-              </Link>
-              <Link
-                href="/contact"
-                className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Contact
-              </Link>
-              <hr className="my-2 border-border" />
+              {sessionUser === null && (
+                <>
+                  <Link
+                    href="/"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Home
+                  </Link>
+                  <Link
+                    href="/pricing"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Pricing
+                  </Link>
+                  <Link
+                    href="/about"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    About
+                  </Link>
+                  <Link
+                    href="/contact"
+                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Contact
+                  </Link>
+                  <hr className="my-2 border-border" />
+                </>
+              )}
               {sessionUser === 'loading' ? (
                 <span className="px-3 py-2 text-sm text-muted-foreground">…</span>
               ) : isLoggedIn ? (
                 <>
                   <Link
                     href="/dashboard"
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    aria-current={pathname.startsWith('/dashboard') ? 'page' : undefined}
+                    className={`rounded-md px-3 py-2 text-sm hover:bg-muted hover:text-foreground ${pathname.startsWith('/dashboard') ? 'bg-muted font-bold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Dashboard
                   </Link>
                   <Link
                     href="/profile"
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/profile' ? 'text-foreground' : 'text-muted-foreground'}`}
+                    aria-current={pathname.startsWith('/profile') ? 'page' : undefined}
+                    className={`rounded-md px-3 py-2 text-sm hover:bg-muted hover:text-foreground ${pathname.startsWith('/profile') ? 'bg-muted font-bold text-foreground' : 'font-normal text-muted-foreground opacity-80'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Profile
@@ -427,7 +490,8 @@ export default function Navbar() {
                   {isAdminUser && (
                     <Link
                       href="/admin/dashboard"
-                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/admin/dashboard' ? 'text-foreground' : 'text-muted-foreground'}`}
+                      aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
+                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname.startsWith('/admin') ? 'bg-muted font-bold text-foreground' : 'text-muted-foreground'}`}
                       onClick={() => setMobileMenuOpen(false)}
                     >
                       Admin

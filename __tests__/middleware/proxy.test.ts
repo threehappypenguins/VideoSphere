@@ -36,6 +36,46 @@ describe('Proxy Middleware', () => {
   });
 
   describe('Session Verification', () => {
+    it('should allow unauthenticated users to access the marketing home route', async () => {
+      const request = createMockRequest('/');
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(200);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should redirect authenticated users from home to dashboard after verifying session', async () => {
+      const request = createMockRequest('/', {
+        a_session_69aae95b002b81fe4fdb: 'valid_session_token_xyz',
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ $id: 'user123' }),
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      expect(result.headers.get('location') || '').toContain('/dashboard');
+    });
+
+    it('should allow home through when a stale session cookie fails verification', async () => {
+      const request = createMockRequest('/', {
+        a_session_69aae95b002b81fe4fdb: 'stale_session_token_xyz',
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(200);
+    });
+
     it('should redirect to login when no session cookie is present', async () => {
       const request = createMockRequest('/dashboard/videos');
 

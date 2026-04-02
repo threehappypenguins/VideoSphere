@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getUserById } from '@/lib/repositories/users';
 
 export async function POST(req: NextRequest) {
   try {
@@ -71,6 +72,26 @@ export async function POST(req: NextRequest) {
     const userId = await getAuthenticatedUserId(req);
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
+    // Admin users already have elevated access and should not use paid upgrades.
+    try {
+      const userProfile = await getUserById(userId);
+      if (userProfile?.role === 'admin') {
+        return NextResponse.json(
+          {
+            error: 'Forbidden',
+            message: 'Admin accounts do not require supporter upgrades',
+          },
+          { status: 403 }
+        );
+      }
+    } catch (err) {
+      console.error('[POST /api/payments/checkout] profile lookup failed', err);
+      return NextResponse.json(
+        { error: 'Profile unavailable', message: 'Could not verify account role' },
+        { status: 503 }
+      );
     }
 
     // =========================================================================

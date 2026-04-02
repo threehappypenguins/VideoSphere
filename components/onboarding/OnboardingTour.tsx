@@ -11,13 +11,13 @@ import {
   type EventData,
   type TooltipRenderProps,
 } from 'react-joyride';
+import { toast } from 'sonner';
 import { onboardingSteps } from '@/components/onboarding/onboarding-steps';
 import { useOnboardingState } from '@/components/onboarding/useOnboardingState';
 import { useOnboardingContext } from '@/components/onboarding/OnboardingContext';
 
 const CREATE_DRAFT_BUTTON_SELECTOR = '[data-tour="drafts-create-draft-button"]';
 const WAIT_FOR_TARGET_STEP_IDS = new Set([
-  'first-connect-button',
   'drafts-nav-link',
   'create-draft-button',
   'draft-platforms',
@@ -27,8 +27,7 @@ const WAIT_FOR_TARGET_STEP_IDS = new Set([
 ]);
 const DEFAULT_TARGET_NOT_FOUND_MAX_RETRIES = 10;
 const TARGET_NOT_FOUND_MAX_RETRIES_BY_STEP_ID: Partial<Record<string, number>> = {
-  // This target is conditional (can be replaced by Disconnect), so skip quickly if absent.
-  'first-connect-button': 3,
+  // Per-step overrides for targets that may mount asynchronously.
 };
 
 function TourTooltip({
@@ -141,11 +140,17 @@ export function OnboardingTour() {
     }
 
     hasCompletionStartedRef.current = true;
+    const wasPersisted = await markCompleted();
+    if (!wasPersisted) {
+      hasCompletionStartedRef.current = false;
+      toast.error('Could not save onboarding progress. Please click Finish again.');
+      return;
+    }
+
     targetNotFoundRetryCountsRef.current = {};
     setStepIndex(0);
     setHasReplayStarted(false);
     await cleanupOnboardingDraft();
-    await markCompleted();
     router.push('/dashboard');
   }, [cleanupOnboardingDraft, markCompleted, router]);
 
