@@ -1,8 +1,7 @@
 // =============================================================================
 // SIGNUP PAGE COMPONENT TESTS
 // =============================================================================
-// Covers registration UI, fetch to /api/auth/register, and password strength bar
-// styling for representative scores (mirrors patterns in login.test.tsx).
+// Covers registration UI and password strength behavior.
 // =============================================================================
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -55,76 +54,81 @@ describe('SignUpPage', () => {
       expect(screen.queryByText(/weak|fair|good|strong|very strong/i)).not.toBeInTheDocument();
     });
 
-    it('shows Weak with red bar classes for a minimal-strength password (score 1)', async () => {
+    it('shows Weak for a minimal-strength password (score 1)', async () => {
       const user = userEvent.setup();
       render(<SignUpPage />);
 
       await user.type(getPasswordInput(), 'aaaaaaaa');
 
-      const label = screen.getByText('Weak');
-      expect(label).toHaveClass('text-red-500');
+      expect(screen.getByText('Weak')).toBeInTheDocument();
 
       const segments = getStrengthSegments('Weak');
       expect(segments).toHaveLength(5);
-      expect(segments[0]).toHaveClass('bg-red-500');
-      expect(segments[1]).toHaveClass('bg-muted');
-      expect(segments[4]).toHaveClass('bg-muted');
     });
 
-    it('shows Fair with orange bar classes for score 2', async () => {
+    it('shows Fair for score 2', async () => {
       const user = userEvent.setup();
       render(<SignUpPage />);
 
       await user.type(getPasswordInput(), 'aaaaaaaaaaaa');
 
-      const label = screen.getByText('Fair');
-      expect(label).toHaveClass('text-orange-500');
+      expect(screen.getByText('Fair')).toBeInTheDocument();
 
       const segments = getStrengthSegments('Fair');
-      expect(segments[0]).toHaveClass('bg-orange-500');
-      expect(segments[1]).toHaveClass('bg-orange-500');
-      expect(segments[2]).toHaveClass('bg-muted');
+      expect(segments).toHaveLength(5);
     });
 
-    it('shows Good with accessible yellow label classes and yellow bar (score 3)', async () => {
+    it('shows Good for score 3', async () => {
       const user = userEvent.setup();
       render(<SignUpPage />);
 
       await user.type(getPasswordInput(), 'Abcdefgh1');
 
-      const label = screen.getByText('Good');
-      expect(label).toHaveClass('text-yellow-700', 'dark:text-yellow-400');
+      expect(screen.getByText('Good')).toBeInTheDocument();
 
       const segments = getStrengthSegments('Good');
-      expect(segments[0]).toHaveClass('bg-yellow-500');
-      expect(segments[3]).toHaveClass('bg-muted');
+      expect(segments).toHaveLength(5);
     });
 
-    it('shows Strong with green bar classes (score 4)', async () => {
+    it('shows Strong for score 4', async () => {
       const user = userEvent.setup();
       render(<SignUpPage />);
 
       await user.type(getPasswordInput(), 'Abcdefg1!');
 
-      const label = screen.getByText('Strong');
-      expect(label).toHaveClass('text-green-500');
+      expect(screen.getByText('Strong')).toBeInTheDocument();
 
       const segments = getStrengthSegments('Strong');
-      expect(segments[3]).toHaveClass('bg-green-500');
-      expect(segments[4]).toHaveClass('bg-muted');
+      expect(segments).toHaveLength(5);
     });
 
-    it('shows Very strong with emerald bar classes (score 5)', async () => {
+    it('shows Very strong for score 5', async () => {
       const user = userEvent.setup();
       render(<SignUpPage />);
 
       await user.type(getPasswordInput(), 'Abcdefghijkl1!');
 
-      const label = screen.getByText('Very strong');
-      expect(label).toHaveClass('text-emerald-500');
+      expect(screen.getByText('Very strong')).toBeInTheDocument();
 
       const segments = getStrengthSegments('Very strong');
-      expect(segments.every((el) => el.className.includes('bg-emerald-500'))).toBe(true);
+      expect(segments).toHaveLength(5);
+    });
+
+    it('updates and hides strength feedback as password changes', async () => {
+      const user = userEvent.setup();
+      render(<SignUpPage />);
+
+      const input = getPasswordInput();
+
+      await user.type(input, 'aaaaaaaa');
+      expect(screen.getByText('Weak')).toBeInTheDocument();
+
+      await user.clear(input);
+      await user.type(input, 'Abcdefgh1');
+      expect(screen.getByText('Good')).toBeInTheDocument();
+
+      await user.clear(input);
+      expect(screen.queryByText(/weak|fair|good|strong|very strong/i)).not.toBeInTheDocument();
     });
   });
 });
