@@ -317,13 +317,16 @@ export async function getDraftDashboardSummaryByUser(
   const previewDrafts: Draft[] = [];
 
   while (rowsScanned < maxRowsScanned) {
+    const remainingBudget = maxRowsScanned - rowsScanned;
+    const limitForThisPage = Math.min(pageSize, remainingBudget);
+
     const { rows } = await tablesDb.listRows({
       databaseId: DATABASE_ID,
       tableId: DRAFTS_COLLECTION_ID,
       queries: [
         Query.equal('userId', userId),
         Query.orderDesc('$updatedAt'),
-        Query.limit(pageSize),
+        Query.limit(limitForThisPage),
         Query.offset(offset),
       ],
       total: false,
