@@ -3,14 +3,11 @@
 // =============================================================================
 // /signup — Registration page
 // =============================================================================
-// Renders an email + password + confirm-password form.
-// Validates client-side, calls POST /api/auth/register, then redirects to
-// /dashboard on success or shows an inline error on failure.
-// =============================================================================
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { Eye, EyeOff } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +25,8 @@ interface FieldErrors {
   confirmPassword?: string;
 }
 
+type AutoCompleteToken = 'name' | 'email' | 'new-password' | 'off';
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,9 +34,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function validate(form: FormState): FieldErrors {
   const errors: FieldErrors = {};
 
-  if (!form.name.trim()) {
-    errors.name = 'Name is required.';
-  }
+  if (!form.name.trim()) errors.name = 'Name is required.';
 
   if (!form.email.trim()) {
     errors.email = 'Email is required.';
@@ -76,24 +73,22 @@ function PasswordStrengthBar({ password }: { password: string }) {
 
   const labels = ['', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'];
 
-  // Tailwind classes keyed by score — no hard-coded hex values.
-  // Empty segments use muted/border tokens so they adapt in dark mode.
   const filledBarClass = [
     '',
-    'bg-red-500', // 1 – Weak
-    'bg-orange-500', // 2 – Fair
-    'bg-yellow-500', // 3 – Good
-    'bg-green-500', // 4 – Strong
-    'bg-emerald-500', // 5 – Very strong
+    'bg-destructive',
+    'bg-muted-foreground/40',
+    'bg-primary/60',
+    'bg-primary',
+    'bg-primary',
   ] as const;
 
   const labelClass = [
     '',
-    'text-red-500',
-    'text-orange-500',
-    'text-yellow-700 dark:text-yellow-400',
-    'text-green-500',
-    'text-emerald-500',
+    'text-destructive',
+    'text-muted-foreground',
+    'text-foreground',
+    'text-primary',
+    'text-primary',
   ] as const;
 
   if (!password) return null;
@@ -133,7 +128,7 @@ function InputField({
   placeholder?: string;
   onChange: (v: string) => void;
   error?: string;
-  autoComplete?: string;
+  autoComplete?: AutoCompleteToken;
 }) {
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === 'password';
@@ -147,17 +142,18 @@ function InputField({
       <div className="relative">
         <input
           id={id}
+          name={id}
           type={inputType}
           value={value}
           placeholder={placeholder}
-          autoComplete={autoComplete}
+          autoComplete={autoComplete ?? 'off'}
           onChange={(e) => onChange(e.target.value)}
           className={`w-full rounded-lg border px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:transition-opacity placeholder:duration-200 outline-none transition-all duration-200
             focus:ring-2 focus:ring-primary focus:border-primary
             focus:placeholder:opacity-50
             ${
               error
-                ? 'border-red-400 bg-red-50 dark:bg-red-950 focus:ring-red-300/30 focus:border-red-400'
+                ? 'border-destructive bg-destructive/10 focus:ring-destructive/30 focus:border-destructive'
                 : 'border-border bg-background'
             }
             ${isPassword ? 'pr-11' : ''}
@@ -167,63 +163,18 @@ function InputField({
           <button
             type="button"
             onClick={() => setShowPassword((p) => !p)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
             aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
           >
             {showPassword ? (
-              // eye-off icon
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                <line x1="1" y1="1" x2="23" y2="23" />
-              </svg>
+              <EyeOff className="h-4 w-4" aria-hidden="true" />
             ) : (
-              // eye icon
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
+              <Eye className="h-4 w-4" aria-hidden="true" />
             )}
           </button>
         )}
       </div>
-      {error && (
-        <p className="flex items-center gap-1.5 text-xs text-red-600">
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          {error}
-        </p>
-      )}
+      {error && <p className="flex items-center gap-1.5 text-xs text-destructive">{error}</p>}
     </div>
   );
 }
@@ -239,20 +190,30 @@ export default function SignUpPage() {
     password: '',
     confirmPassword: '',
   });
+
   const searchParams = useSearchParams();
+
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [serverError, setServerError] = useState(() => {
-    const err = searchParams.get('error');
-    return err === 'oauth_failed'
-      ? 'Google sign-up was cancelled or failed. Please try again.'
-      : '';
-  });
+  const [serverError, setServerError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  // Clear URL error param from address bar without adding history entry
+  // Map error codes to user-friendly messages
+  const getErrorMessage = (message: string) => {
+    const errorMap: Record<string, string> = {
+      oauth_initiation_failed: 'Failed to start Google sign-up. Please try again.',
+      oauth_missing_params: 'OAuth callback was incomplete. Please try again.',
+      oauth_auth_failed: 'Failed to complete Google authentication. Please try again.',
+      oauth_callback_failed: 'An error occurred during Google sign-up. Please try again.',
+      oauth_failed: 'Google sign-up failed. Please try again.',
+    };
+    return errorMap[message] || 'An error occurred. Please try again.';
+  };
+
   useEffect(() => {
-    if (searchParams.get('error')) {
+    const error = searchParams.get('error');
+    if (error) {
+      setServerError(getErrorMessage(error));
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [searchParams]);
@@ -260,17 +221,19 @@ export default function SignUpPage() {
   const update = useCallback(
     (field: keyof FormState) => (value: string) => {
       setForm((prev) => ({ ...prev, [field]: value }));
-      // Clear the error for this field as user types
       setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
       setServerError('');
     },
     []
   );
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
     const errors = validate(form);
-    if (Object.keys(errors).length > 0) {
+    if (Object.keys(errors).length) {
       setFieldErrors(errors);
+      setServerError('');
       return;
     }
 
@@ -278,43 +241,40 @@ export default function SignUpPage() {
     setServerError('');
 
     try {
+      const registerPayload = {
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+      };
+
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          email: form.email.trim().toLowerCase(),
-          password: form.password,
-        }),
+        body: JSON.stringify(registerPayload),
       });
 
-      const contentType = res.headers.get('content-type');
-      let data: any = null;
-
-      if (contentType && contentType.includes('application/json')) {
-        try {
-          data = await res.json();
-        } catch {
-          // Ignore JSON parse errors; fall back to a generic message below.
-        }
-      }
-
       if (!res.ok) {
-        const messageFromBody =
-          data && typeof data === 'object' && typeof (data as any).error === 'string'
-            ? (data as any).error
-            : undefined;
+        const contentType = res.headers.get('content-type') ?? '';
+        const statusText = res.statusText.trim();
+        let message = statusText
+          ? `${statusText}. Please try again.`
+          : 'Something went wrong. Please try again.';
 
-        const fallbackMessage =
-          res.statusText && res.statusText !== 'OK'
-            ? res.statusText
-            : 'Something went wrong. Please try again.';
+        if (contentType.includes('application/json')) {
+          try {
+            const data = (await res.json()) as { error?: unknown };
+            if (typeof data?.error === 'string' && data.error.trim()) {
+              message = data.error;
+            }
+          } catch {
+            // Fall back to generic message when response body is invalid.
+          }
+        }
 
-        setServerError(messageFromBody ?? fallbackMessage);
+        setServerError(message);
         return;
       }
 
-      // Session cookie is set by the API (server-side; no localStorage).
       router.push('/dashboard');
     } catch {
       setServerError('Network error. Please check your connection and try again.');
@@ -323,7 +283,6 @@ export default function SignUpPage() {
     }
   };
 
-  // Sign up with Google: server-side OAuth (admin client), same as login
   const handleGoogleSignup = () => {
     setServerError('');
     setIsGoogleLoading(true);
@@ -333,47 +292,35 @@ export default function SignUpPage() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12 sm:px-6 lg:px-8">
       <div className="w-full max-w-md">
-        {/* Header */}
         <div className="text-center">
           <h1 className="text-3xl font-bold text-foreground">Create your account</h1>
           <p className="mt-2 text-sm text-muted-foreground">Join VideoSphere and start sharing</p>
         </div>
 
-        {/* Server-level error banner */}
         {serverError && (
-          <p className="mt-6 text-sm font-medium text-red-600 dark:text-red-400" role="alert">
+          <p className="mt-6 text-sm font-medium text-destructive" role="alert">
             {serverError}
           </p>
         )}
 
-        {/* Form */}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleSubmit();
-          }}
-          className="mt-8 space-y-6"
-        >
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <InputField
             id="name"
             label="Full name"
             type="text"
             value={form.name}
-            placeholder="Jane Smith"
+            autoComplete="name"
             onChange={update('name')}
             error={fieldErrors.name}
-            autoComplete="name"
           />
-
           <InputField
             id="email"
-            label="Email address"
+            label="Email"
             type="email"
             value={form.email}
-            placeholder="jane@example.com"
+            autoComplete="email"
             onChange={update('email')}
             error={fieldErrors.email}
-            autoComplete="email"
           />
 
           <div>
@@ -382,10 +329,9 @@ export default function SignUpPage() {
               label="Password"
               type="password"
               value={form.password}
-              placeholder="Min. 8 characters"
+              autoComplete="new-password"
               onChange={update('password')}
               error={fieldErrors.password}
-              autoComplete="new-password"
             />
             <PasswordStrengthBar password={form.password} />
           </div>
@@ -395,59 +341,36 @@ export default function SignUpPage() {
             label="Confirm password"
             type="password"
             value={form.confirmPassword}
-            placeholder="Re-enter your password"
+            autoComplete="new-password"
             onChange={update('confirmPassword')}
             error={fieldErrors.confirmPassword}
-            autoComplete="new-password"
           />
 
-          {/* Submit */}
           <button
             type="submit"
             disabled={isLoading}
             className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg
-                  className="animate-spin"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-                Creating account…
-              </span>
-            ) : (
-              'Create account'
-            )}
+            {isLoading ? 'Creating...' : 'Create account'}
           </button>
         </form>
 
-        {/* Divider */}
         <div className="relative mt-8">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-border"></div>
+            <div className="w-full border-t border-border" />
           </div>
           <div className="relative flex justify-center text-sm">
             <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
           </div>
         </div>
 
-        {/* Sign up with Google */}
         <button
           type="button"
           onClick={handleGoogleSignup}
           disabled={isGoogleLoading || isLoading}
           className="mt-6 w-full flex justify-center items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               fill="#4285F4"
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -468,15 +391,13 @@ export default function SignUpPage() {
           {isGoogleLoading ? 'Redirecting…' : 'Sign up with Google'}
         </button>
 
-        {/* Sign in link */}
         <p className="mt-6 text-center text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link href="/login" className="font-medium text-primary hover:text-primary/90">
+          <Link href="/login" className="text-primary hover:text-primary/90">
             Sign in
           </Link>
         </p>
 
-        {/* Fine print */}
         <p className="mt-4 text-center text-xs text-muted-foreground">
           By creating an account you agree to our{' '}
           <Link href="/terms" className="underline hover:text-foreground">
