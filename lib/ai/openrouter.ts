@@ -247,7 +247,10 @@ export async function generateMetadata(
     throw new Error('OPENROUTER_API_KEY environment variable is not set');
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://videosphere.app';
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+    'https://videosphere.app';
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
   return requestMetadataFromOpenRouter(
     buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
