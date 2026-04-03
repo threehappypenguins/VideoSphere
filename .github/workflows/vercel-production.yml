@@ -36,7 +36,7 @@ jobs:
       - name: Deploy to Vercel (production)
         if: github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'production')
         id: deploy
-        uses: amondnet/vercel-action@16e87c0a08142b0d0d33b76aeaf20823c381b9b9
+        uses: amondnet/vercel-action@master
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -47,7 +47,7 @@ jobs:
       - name: Deploy to Vercel (manual preview)
         if: github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'preview'
         id: deploy-preview
-        uses: amondnet/vercel-action@16e87c0a08142b0d0d33b76aeaf20823c381b9b9
+        uses: amondnet/vercel-action@master
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
