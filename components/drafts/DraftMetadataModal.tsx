@@ -729,7 +729,42 @@ export function DraftMetadataModal({
           if (flushed) {
             for (const result of parseSseChunk(flushed)) {
               if (result.error) throw new Error(result.error);
-              if (result.done) return; // handled below by the no-[DONE] error
+              if (result.done) {
+                // [DONE] arrived in the final flush — run the same finalization
+                // path as the main loop so metadata is applied and not silently dropped.
+                if (ac.signal.aborted) return;
+                if (latestDraftIdRef.current !== requestDraftId) {
+                  ac.abort();
+                  return;
+                }
+
+                let parsed: { title?: unknown; description?: unknown; tags?: unknown };
+                try {
+                  parsed = JSON.parse(accumulated) as typeof parsed;
+                } catch {
+                  throw new Error('AI returned invalid JSON. Please try again.');
+                }
+
+                setAiUndoStack((prev) => [...prev, preStreamSnapshot]);
+                setAiRedoStack([]);
+
+                const latest = latestValueRef.current;
+                if (!latest) {
+                  ac.abort();
+                  return;
+                }
+                onChange({
+                  ...latest,
+                  title: typeof parsed.title === 'string' ? parsed.title : '',
+                  description: typeof parsed.description === 'string' ? parsed.description : '',
+                  tags:
+                    Array.isArray(parsed.tags) && parsed.tags.every((t) => typeof t === 'string')
+                      ? (parsed.tags as string[])
+                      : [],
+                });
+                toast.success('Metadata generated successfully');
+                return;
+              }
             }
           }
           break;

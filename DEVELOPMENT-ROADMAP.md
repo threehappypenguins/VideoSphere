@@ -1571,7 +1571,7 @@ These issues can be created if the team has capacity after completing all P0 and
 
 ---
 
-### Issue #80 · `[FEATURE]` Streaming AI Responses (OpenRouter SSE)
+### ✅ Issue #80 · `[FEATURE]` Streaming AI Responses (OpenRouter SSE)
 
 **User Story:** As a user, I want a typing indicator and live feedback while AI metadata is being generated so that the interface feels responsive rather than frozen.
 
@@ -1579,22 +1579,22 @@ These issues can be created if the team has capacity after completing all P0 and
 
 **Server:**
 
-- [ ] A new `POST /api/ai/generate-metadata/stream` route is added alongside the existing non-streaming endpoint (existing callers are not broken)
-- [ ] The route adds `stream: true` to the existing OpenRouter `fetch` request body and pipes the response `ReadableStream` directly back to the client with `Content-Type: text/event-stream`
-- [ ] The route reuses all existing logic from `lib/ai/openrouter.ts`: auth, tier-based model selection, platform-aware system prompt, and character-limit truncation
-- [ ] SSE chunks follow OpenRouter's native format: each `data:` line contains a partial chat completion delta; a final `data: [DONE]` line signals stream end
-- [ ] If the upstream OpenRouter request fails (non-2xx, timeout, network error), the route closes the stream and sends a final `data: {"error":"..."}` event before ending the response
-- [ ] The `AbortController` timeout from the existing client is extended or removed for the streaming route, since response time is now first-token latency rather than full-response latency
+- [x] A new `POST /api/ai/generate-metadata/stream` route is added alongside the existing non-streaming endpoint (existing callers are not broken)
+- [x] The route adds `stream: true` to the existing OpenRouter `fetch` request body and pipes the response `ReadableStream` directly back to the client with `Content-Type: text/event-stream`
+- [x] The route reuses all existing logic from `lib/ai/openrouter.ts`: auth, tier-based model selection, platform-aware system prompt, and character-limit truncation
+- [x] SSE chunks follow OpenRouter's native format: each `data:` line contains a partial chat completion delta; a final `data: [DONE]` line signals stream end
+- [x] If the upstream OpenRouter request fails (non-2xx, timeout, network error), the route closes the stream and sends a final `data: {"error":"..."}` event before ending the response
+- [x] The `AbortController` timeout from the existing client is extended or removed for the streaming route, since response time is now first-token latency rather than full-response latency
 
 **Client:**
 
-- [ ] The "Generate with AI" button on the draft form switches to calling `/api/ai/generate-metadata/stream` via `fetch` and reading chunks with `response.body.getReader()`
-- [ ] While the stream is in progress, a typing indicator (e.g., animated `▋` or pulsing dots) is shown below the form fields to communicate active generation
-- [ ] The "Generate with AI" / "Regenerate" button is disabled and labelled "Generating…" for the duration of the stream
-- [ ] A "Stop" button is visible during generation; clicking it calls `controller.abort()` on the fetch `AbortController`, closing the stream immediately
-- [ ] Accumulated SSE token deltas are assembled into the complete JSON string; once `[DONE]` is received, the string is parsed and `{ title, description, tags }` populate the form fields in one update (no partial field writes mid-stream)
-- [ ] If the stream errors or is aborted before `[DONE]`, a non-blocking error toast is shown and the form fields remain blank and editable
-- [ ] Generated content is fully editable after streaming completes
+- [x] The "Generate with AI" button on the draft form switches to calling `/api/ai/generate-metadata/stream` via `fetch` and reading chunks with `response.body.getReader()`
+- [x] While the stream is in progress, a typing indicator (e.g., animated `▋` or pulsing dots) is shown below the form fields to communicate active generation
+- [x] The "Generate with AI" / "Regenerate" button is disabled and labelled "Generating…" for the duration of the stream
+- [x] A "Stop" button is visible during generation; clicking it calls `controller.abort()` on the fetch `AbortController`, closing the stream immediately
+- [x] Accumulated SSE token deltas are assembled into the complete JSON string; once `[DONE]` is received, the string is parsed and `{ title, description, tags }` populate the form fields in one update (no partial field writes mid-stream)
+- [x] If the stream errors or is aborted before `[DONE]`, a non-blocking error toast is shown and the form fields remain blank and editable
+- [x] Generated content is fully editable after streaming completes
 
 **Tests:**
 

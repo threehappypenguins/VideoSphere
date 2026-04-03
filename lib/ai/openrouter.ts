@@ -285,7 +285,10 @@ export async function streamMetadata(
     throw new Error('OPENROUTER_API_KEY environment variable is not set');
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://videosphere.app';
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+    'https://videosphere.app';
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
 
   const requestBody = {
@@ -293,20 +296,17 @@ export async function streamMetadata(
     stream: true,
   };
 
-  // Guard the initial connection with the same configurable timeout used by the
-  // non-streaming path.  Once the response headers arrive (fetch resolves) we
-  // clear the timer — the body is piped directly to the client after that and
-  // governed by the platform maxDuration rather than this connection timeout.
+  // Guard the connection with the same configurable timeout used by the
+  // non-streaming path.  The caller's disconnect signal is composed via
+  // AbortSignal.any so that either a timeout or a client disconnect will cancel
+  // the fetch — and the combined signal remains active for the full lifetime of
+  // the stream, preventing upstream connection leaks after headers arrive.
   const timeoutMs = getTimeoutMsForModel(requestBody.model);
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
-  // Compose the caller's disconnect signal with our timeout signal so either
-  // one can cancel the fetch.
-  const combinedController = new AbortController();
-  const propagate = () => combinedController.abort();
-  timeoutController.signal.addEventListener('abort', propagate);
-  signal?.addEventListener('abort', propagate);
+  const signals = signal ? [timeoutController.signal, signal] : [timeoutController.signal];
+  const combinedSignal = AbortSignal.any(signals);
 
   let response: Response;
   try {
@@ -319,7 +319,7 @@ export async function streamMetadata(
         'X-Title': appName,
       },
       body: JSON.stringify(requestBody),
-      signal: combinedController.signal,
+      signal: combinedSignal,
     });
   } catch (err) {
     if (isAbortError(err)) {
@@ -328,10 +328,9 @@ export async function streamMetadata(
     }
     throw new Error(`Failed to connect to OpenRouter API: ${getErrorMessage(err)}`);
   } finally {
-    // Headers received (or fetch failed) — timeout has served its purpose.
+    // Clear the timeout regardless of outcome — the combined signal keeps
+    // the caller-disconnect path active for the body stream via AbortSignal.any.
     clearTimeout(timeoutId);
-    timeoutController.signal.removeEventListener('abort', propagate);
-    signal?.removeEventListener('abort', propagate);
   }
 
   if (response.status === 429) {

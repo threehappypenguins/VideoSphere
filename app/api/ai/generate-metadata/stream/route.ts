@@ -24,7 +24,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories';
-import { streamMetadata, RateLimitError } from '@/lib/ai/openrouter';
+import { streamMetadata, RateLimitError, OpenRouterTimeoutError } from '@/lib/ai/openrouter';
 import {
   MAX_GENERATE_METADATA_FILE_NAME_CHARS,
   MAX_GENERATE_METADATA_USER_PROMPT_CHARS,
@@ -198,6 +198,15 @@ export async function POST(req: NextRequest) {
         statusCode: 429,
       };
       return NextResponse.json(errRes, { status: 429 });
+    }
+
+    if (err instanceof OpenRouterTimeoutError) {
+      const errRes: ApiError = {
+        error: 'Gateway Timeout',
+        message: err.message,
+        statusCode: 504,
+      };
+      return NextResponse.json(errRes, { status: 504 });
     }
 
     console.error('[POST /api/ai/generate-metadata/stream]', err);
