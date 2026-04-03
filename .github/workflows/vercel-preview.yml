@@ -51,8 +51,10 @@ jobs:
           while [ "$attempt" -le "$max_attempts" ]; do
             echo "Preview deploy attempt $attempt/$max_attempts"
 
+            set +e
             output=$(pnpm dlx vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}" 2>&1)
             status=$?
+            set -e
             echo "$output"
 
             if [ "$status" -eq 0 ]; then
