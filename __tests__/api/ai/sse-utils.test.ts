@@ -9,10 +9,11 @@
  *   - parseSseLine: malformed JSON is skipped gracefully
  *   - parseSseChunk: multi-line chunk reassembly
  *   - parseSseChunk: accumulation across multiple chunks produces valid JSON
+ *   - createSseParser: data: line split across multiple network chunks
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseSseLine, parseSseChunk } from '@/lib/ai/sse-utils';
+import { parseSseLine, parseSseChunk, createSseParser } from '@/lib/ai/sse-utils';
 
 // ---------------------------------------------------------------------------
 // parseSseLine
@@ -154,6 +155,42 @@ describe('SSE stream reassembly', () => {
       `data: ${JSON.stringify({ error: { message: 'Context length exceeded' } })}\n`,
     ];
     expect(() => assembleStream(chunks)).toThrow('Context length exceeded');
+  });
+
+  it('reassembles a data: line split mid-JSON across two network chunks', () => {
+    const fullLine = `data: ${JSON.stringify({ choices: [{ delta: { content: '{"title":"Split"}' } }] })}\n`;
+    // Cut the raw SSE line at an arbitrary mid-point so chunk1 has no \n
+    const splitAt = Math.floor(fullLine.length / 2);
+    const chunk1 = fullLine.slice(0, splitAt);
+    const chunk2 = fullLine.slice(splitAt) + 'data: [DONE]\n';
+
+    const parse = createSseParser();
+    const results1 = parse(chunk1);
+    const results2 = parse(chunk2);
+
+    // chunk1 ends mid-line — no complete line yet, so no results
+    expect(results1).toEqual([]);
+    // chunk2 completes the line and adds [DONE]
+    expect(results2).toHaveLength(2);
+    expect(results2[0]).toEqual({ done: false, deltaContent: '{"title":"Split"}' });
+    expect(results2[1]).toEqual({ done: true });
+  });
+
+  it('reassembles a full stream when every network chunk cuts mid-line', () => {
+    const lines = [
+      `data: ${JSON.stringify({ choices: [{ delta: { content: '{"title":"' } }] })}\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'Chunked"}' } }] })}\n`,
+      'data: [DONE]\n',
+    ].join('');
+
+    // Split the entire stream at every character to maximise fragmentation
+    const parse = createSseParser();
+    const allResults: ReturnType<typeof parse> = [];
+    for (const char of lines) allResults.push(...parse(char));
+
+    const deltaResults = allResults.filter((r) => r.deltaContent !== undefined);
+    expect(deltaResults.map((r) => r.deltaContent).join('')).toBe('{"title":"Chunked"}');
+    expect(allResults.at(-1)).toEqual({ done: true });
   });
 
   it('returns accumulated content even when [DONE] arrives in same chunk as last token', () => {

@@ -16,7 +16,7 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
-import { parseSseChunk } from '@/lib/ai/sse-utils';
+import { createSseParser } from '@/lib/ai/sse-utils';
 import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
@@ -717,11 +717,23 @@ export function DraftMetadataModal({
       // Read the SSE stream — push partial JSON tokens live into the form fields.
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      const parseSseChunk = createSseParser();
       let accumulated = '';
 
       while (true) {
         const { done, value: chunk } = await reader.read();
-        if (done) break;
+        if (done) {
+          // Flush the TextDecoder's internal buffer so any trailing multi-byte
+          // UTF-8 sequences held across chunk boundaries are not silently dropped.
+          const flushed = decoder.decode();
+          if (flushed) {
+            for (const result of parseSseChunk(flushed)) {
+              if (result.error) throw new Error(result.error);
+              if (result.done) return; // handled below by the no-[DONE] error
+            }
+          }
+          break;
+        }
         if (ac.signal.aborted) {
           await reader.cancel();
           return;
@@ -735,7 +747,10 @@ export function DraftMetadataModal({
           if (result.done) {
             // Stream complete — parse the fully assembled JSON and apply final values.
             if (ac.signal.aborted) return;
-            if (latestDraftIdRef.current !== requestDraftId) return;
+            if (latestDraftIdRef.current !== requestDraftId) {
+              ac.abort();
+              return;
+            }
 
             let parsed: { title?: unknown; description?: unknown; tags?: unknown };
             try {
@@ -749,7 +764,10 @@ export function DraftMetadataModal({
             setAiRedoStack([]);
 
             const latest = latestValueRef.current;
-            if (!latest) return;
+            if (!latest) {
+              ac.abort();
+              return;
+            }
             onChange({
               ...latest,
               title: typeof parsed.title === 'string' ? parsed.title : '',
@@ -764,7 +782,10 @@ export function DraftMetadataModal({
           }
           if (result.deltaContent !== undefined) {
             accumulated += result.deltaContent;
-            if (latestDraftIdRef.current !== requestDraftId) return;
+            if (latestDraftIdRef.current !== requestDraftId) {
+              ac.abort();
+              return;
+            }
             const latest = latestValueRef.current;
             if (latest) {
               didStreamUpdate = true;

@@ -168,6 +168,15 @@ export async function POST(req: NextRequest) {
   try {
     const openrouterResponse = await streamMetadata(systemPrompt, userMessage, model, req.signal);
 
+    if (!openrouterResponse.body) {
+      const errRes: ApiError = {
+        error: 'Bad Gateway',
+        message: 'AI service returned an empty response. Please try again.',
+        statusCode: 502,
+      };
+      return NextResponse.json(errRes, { status: 502 });
+    }
+
     return new Response(openrouterResponse.body, {
       status: 200,
       headers: {

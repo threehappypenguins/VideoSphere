@@ -88,3 +88,39 @@ export function parseSseChunk(chunk: string): SseLineResult[] {
   }
   return results;
 }
+
+/**
+ * Creates a stateful SSE parser that correctly handles `data:` lines split
+ * across multiple network chunks.
+ *
+ * Each call to the returned `parse` function accepts the next raw text chunk
+ * and returns results for every complete SSE line seen so far. Any incomplete
+ * trailing line is held in an internal buffer and prepended to the next chunk.
+ *
+ * Use this instead of calling `parseSseChunk` directly when reading from a
+ * `ReadableStream`, where a single `data:` line may be split across reads.
+ *
+ * @example
+ * const parse = createSseParser();
+ * while (true) {
+ *   const { done, value } = await reader.read();
+ *   if (done) break;
+ *   for (const result of parse(decoder.decode(value, { stream: true }))) { ... }
+ * }
+ */
+export function createSseParser(): (chunk: string) => SseLineResult[] {
+  let buffer = '';
+  return function parse(chunk: string): SseLineResult[] {
+    buffer += chunk;
+    const lines = buffer.split('\n');
+    // The last element is either empty (chunk ended with \n) or an incomplete
+    // line fragment — keep it in the buffer for the next call.
+    buffer = lines.pop() ?? '';
+    const results: SseLineResult[] = [];
+    for (const line of lines) {
+      const result = parseSseLine(line.trim());
+      if (result !== null) results.push(result);
+    }
+    return results;
+  };
+}

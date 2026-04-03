@@ -293,6 +293,21 @@ export async function streamMetadata(
     stream: true,
   };
 
+  // Guard the initial connection with the same configurable timeout used by the
+  // non-streaming path.  Once the response headers arrive (fetch resolves) we
+  // clear the timer — the body is piped directly to the client after that and
+  // governed by the platform maxDuration rather than this connection timeout.
+  const timeoutMs = getTimeoutMsForModel(requestBody.model);
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+
+  // Compose the caller's disconnect signal with our timeout signal so either
+  // one can cancel the fetch.
+  const combinedController = new AbortController();
+  const propagate = () => combinedController.abort();
+  timeoutController.signal.addEventListener('abort', propagate);
+  signal?.addEventListener('abort', propagate);
+
   let response: Response;
   try {
     response = await fetch(OPENROUTER_API_URL, {
@@ -304,13 +319,19 @@ export async function streamMetadata(
         'X-Title': appName,
       },
       body: JSON.stringify(requestBody),
-      signal,
+      signal: combinedController.signal,
     });
   } catch (err) {
     if (isAbortError(err)) {
-      throw err; // propagate abort so the route can respond accordingly
+      if (timeoutController.signal.aborted) throw new OpenRouterTimeoutError();
+      throw err; // propagate caller disconnect so the route can respond accordingly
     }
     throw new Error(`Failed to connect to OpenRouter API: ${getErrorMessage(err)}`);
+  } finally {
+    // Headers received (or fetch failed) — timeout has served its purpose.
+    clearTimeout(timeoutId);
+    timeoutController.signal.removeEventListener('abort', propagate);
+    signal?.removeEventListener('abort', propagate);
   }
 
   if (response.status === 429) {
