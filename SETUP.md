@@ -33,7 +33,7 @@ This repository commits a shared [.vscode/settings.json](.vscode/settings.json) 
 
 - **Prettier as the default formatter** keeps file formatting consistent across the team.
 - **Format on save** reduces manual cleanup before commits.
-- **ESLint auto-fix on save** applies fixable lint rules when you explicitly save a file.
+- **ESLint auto-fix on save** applies fixable lint rules whenever VS Code saves a file.
 - **ESLint validation for JS/TS files** surfaces lint errors inline in the editor.
 - **Built-in JavaScript and TypeScript validation** keeps editor diagnostics enabled even before you run CLI checks.
 - **Workspace TypeScript SDK** keeps language service behavior aligned with the version installed in this project.
