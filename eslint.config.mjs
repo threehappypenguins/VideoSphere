@@ -21,7 +21,7 @@ const eslintConfig = defineConfig([
   {
     rules: {
       ...jsxA11y.configs.recommended.rules,
-      // Enforce modern declarations so ESLint auto-fix can rewrite var -> const on save.
+      // Auto-fix modern declarations: no-var rewrites var -> let, and prefer-const upgrades let -> const when safe.
       'no-var': 'error',
       'prefer-const': 'error',
     },
