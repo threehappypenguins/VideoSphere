@@ -43,6 +43,9 @@ export function DashboardQuickActions() {
   return (
     <div className="mt-8">
       <h2 className="text-xl font-semibold text-foreground text-shadow-bg">Quick actions</h2>
+      <p className="sr-only" role="status" aria-live="polite">
+        {isCreatingDraft ? 'Creating a new draft.' : ''}
+      </p>
       <div className="mt-4 flex flex-wrap gap-3">
         <button
           type="button"

@@ -42,6 +42,7 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = safeRedirect(searchParams.get('redirect'));
+  const formMessageId = 'login-form-message';
 
   const [formData, setFormData] = useState<LoginState>({
     email: '',
@@ -124,19 +125,25 @@ export default function LoginPage() {
         {/* Error/Success Message */}
         {error && (
           <p
+            id={formMessageId}
             className={`mt-6 text-sm font-medium ${
               error.type === 'error'
                 ? 'text-red-600 dark:text-red-400'
                 : 'text-green-600 dark:text-green-400'
             }`}
             role="alert"
+            aria-live={error.type === 'error' ? 'assertive' : 'polite'}
           >
             {error.type === 'error' ? getErrorMessage(error.message) : error.message}
           </p>
         )}
 
         {/* Email/Password Form */}
-        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+        <form
+          onSubmit={handleSubmit}
+          className="mt-8 space-y-6"
+          aria-describedby={error ? formMessageId : undefined}
+        >
           {/* Email */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-foreground">
@@ -201,7 +208,7 @@ export default function LoginPage() {
           onClick={handleGoogleLogin}
           className="mt-6 w-full flex justify-center items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary"
         >
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               fill="#4285F4"
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"

@@ -13,6 +13,11 @@
 // =============================================================================
 
 import '@testing-library/jest-dom';
+import 'vitest-axe/extend-expect';
+import { expect } from 'vitest';
+import * as axeMatchers from 'vitest-axe/matchers';
+
+expect.extend(axeMatchers);
 
 // Server modules (e.g. `lib/appwrite.ts`) validate env at import time; API route tests import them.
 if (!process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT) {

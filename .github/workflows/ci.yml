@@ -43,3 +43,6 @@ jobs:
 
       - name: Run tests
         run: pnpm test run
+
+      - name: Accessibility tests
+        run: pnpm test:a11y

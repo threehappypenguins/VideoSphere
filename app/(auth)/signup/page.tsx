@@ -133,6 +133,7 @@ function InputField({
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === 'password';
   const inputType = isPassword && showPassword ? 'text' : type;
+  const errorId = `${id}-error`;
 
   return (
     <div className="space-y-1.5">
@@ -148,6 +149,8 @@ function InputField({
           placeholder={placeholder}
           autoComplete={autoComplete ?? 'off'}
           onChange={(e) => onChange(e.target.value)}
+          aria-invalid={error ? 'true' : 'false'}
+          aria-describedby={error ? errorId : undefined}
           className={`w-full rounded-lg border px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:transition-opacity placeholder:duration-200 outline-none transition-all duration-200
             focus:ring-2 focus:ring-primary focus:border-primary
             focus:placeholder:opacity-50
@@ -174,7 +177,11 @@ function InputField({
           </button>
         )}
       </div>
-      {error && <p className="flex items-center gap-1.5 text-xs text-destructive">{error}</p>}
+      {error && (
+        <p id={errorId} className="flex items-center gap-1.5 text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -183,6 +190,7 @@ function InputField({
 
 export default function SignUpPage() {
   const router = useRouter();
+  const formMessageId = 'signup-form-message';
 
   const [form, setForm] = useState<FormState>({
     name: '',
@@ -298,12 +306,21 @@ export default function SignUpPage() {
         </div>
 
         {serverError && (
-          <p className="mt-6 text-sm font-medium text-destructive" role="alert">
+          <p
+            id={formMessageId}
+            className="mt-6 text-sm font-medium text-destructive"
+            role="alert"
+            aria-live="assertive"
+          >
             {serverError}
           </p>
         )}
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form
+          className="mt-8 space-y-6"
+          onSubmit={handleSubmit}
+          aria-describedby={serverError ? formMessageId : undefined}
+        >
           <InputField
             id="name"
             label="Full name"
