@@ -45,8 +45,36 @@ jobs:
       - name: Deploy to Vercel (preview)
         id: deploy
         run: |
-          url=$(pnpm dlx vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}")
-          echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+          attempt=1
+          max_attempts=3
+
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Preview deploy attempt $attempt/$max_attempts"
+
+            output=$(pnpm dlx vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}" 2>&1)
+            status=$?
+            echo "$output"
+
+            if [ "$status" -eq 0 ]; then
+              url=$(echo "$output" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
+              if [ -z "$url" ]; then
+                echo "Deploy succeeded but preview URL could not be parsed from output."
+                exit 1
+              fi
+              echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Deploy failed. Retrying in 15 seconds..."
+              sleep 15
+            fi
+
+            attempt=$((attempt + 1))
+          done
+
+          echo "Preview deploy failed after $max_attempts attempts."
+          exit 1
 
       - name: Print preview URL
         run: 'echo "Preview deployment URL: ${{ steps.deploy.outputs.preview_url }}"'
