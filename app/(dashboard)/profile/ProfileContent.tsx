@@ -41,7 +41,7 @@ export function ProfileContent() {
   }, [searchParams]);
 
   useEffect(() => {
-    // The proxy (middleware) already protects /profile — if we reach this
+    // The proxy (middleware) already protects /profile* — if we reach this
     // component the user is authenticated. We only need to load their data.
     async function loadUser() {
       try {
@@ -79,6 +79,7 @@ export function ProfileContent() {
   if (!sessionUser) return null;
 
   const isSupporter = profile?.isSupporter ?? false;
+  const isAdmin = profile?.role === 'admin';
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
@@ -87,7 +88,7 @@ export function ProfileContent() {
         <p className="mt-2 text-muted-foreground">Manage your profile and preferences.</p>
 
         {/* --- Upgrade Success Banner --- */}
-        {upgradeSuccess && (
+        {upgradeSuccess && !isAdmin && (
           <div
             role="alert"
             className="mt-6 rounded-lg border border-green-300 bg-green-50 p-4 text-sm text-green-800 dark:border-green-700 dark:bg-green-900/30 dark:text-green-200"
@@ -150,7 +151,11 @@ export function ProfileContent() {
           <h2 className="text-xl font-semibold text-foreground">Subscription</h2>
           <div className="mt-4">
             <div className="flex items-center gap-3">
-              {isSupporter ? (
+              {isAdmin ? (
+                <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                  Admin
+                </span>
+              ) : isSupporter ? (
                 <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
                   Supporter
                 </span>
@@ -160,7 +165,11 @@ export function ProfileContent() {
                 </span>
               )}
             </div>
-            {isSupporter ? (
+            {isAdmin ? (
+              <p className="mt-4 text-sm text-muted-foreground">
+                You are an admin. Supporter subscription status does not apply to admin accounts.
+              </p>
+            ) : isSupporter ? (
               <p className="mt-4 text-sm text-muted-foreground">
                 You&apos;re a Supporter! Enjoy unlimited uploads, all platforms, and premium AI
                 metadata generation.
@@ -178,23 +187,27 @@ export function ProfileContent() {
                 </Link>
               </>
             )}
-            <div data-tour="profile-connect-platforms" className="mt-4">
-              <Link
-                href="/profile/connections"
-                className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                Manage connected accounts
-              </Link>
-            </div>
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={handleReplayTour}
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                Replay tour
-              </button>
-            </div>
+          </div>
+        </section>
+
+        {/* --- Account Tools --- */}
+        <section className="mt-8 rounded-xl border border-border bg-background p-6">
+          <h2 className="text-xl font-semibold text-foreground">Account Tools</h2>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Link
+              href="/profile/connections"
+              data-tour="profile-connect-platforms"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Manage connected accounts
+            </Link>
+            <button
+              type="button"
+              onClick={handleReplayTour}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Replay tour
+            </button>
           </div>
         </section>
       </div>

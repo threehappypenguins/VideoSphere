@@ -78,6 +78,19 @@ export async function proxy(request: NextRequest) {
     const cookieName = projectId ? getSessionCookieName(projectId) : null;
     const sessionToken = cookieName ? request.cookies.get(cookieName)?.value : null;
 
+    if (pathname === '/') {
+      if (!sessionToken) {
+        return NextResponse.next();
+      }
+
+      const user = await getSessionUser(request);
+      if (user) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+
+      return NextResponse.next();
+    }
+
     // No session cookie — redirect to login
     if (!sessionToken) {
       const loginUrl = new URL('/login', request.url);
@@ -117,5 +130,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
+  matcher: ['/', '/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
 };

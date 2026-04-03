@@ -270,6 +270,92 @@ export async function listDraftsByUser(userId: string): Promise<Draft[]> {
   return (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
 }
 
+/** Count all drafts for a user. */
+export async function countDraftsByUser(userId: string): Promise<number> {
+  const result = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: DRAFTS_COLLECTION_ID,
+    queries: [Query.equal('userId', userId), Query.limit(1)],
+    total: true,
+  });
+  return typeof result.total === 'number' ? result.total : 0;
+}
+
+export interface DraftDashboardSummary {
+  readyDraftCount: number;
+  previewDrafts: Draft[];
+}
+
+const APPWRITE_LIST_ROWS_MAX_LIMIT = 100;
+
+function isDraftReadyToUpload(draft: Draft): boolean {
+  return typeof draft.usedInUploadAt !== 'string' || draft.usedInUploadAt.trim() === '';
+}
+
+/**
+ * Summarize drafts for the dashboard without materializing the user's full draft history.
+ *
+ * Because `usedInUploadAt` is stored inside the draft `document` JSON, Appwrite cannot
+ * currently count "ready to upload" drafts server-side with an indexed query. We page
+ * through rows and keep only the count plus the first few ready drafts needed for preview.
+ *
+ * To prevent runaway queries on large draft histories, we stop after scanning `maxRowsScanned`
+ * rows (default 500). For users with fewer than this threshold, the count is exact; for those
+ * with larger histories, it's an approximation based on the scanned prefix.
+ *
+ * Future: Move `usedInUploadAt` to an indexed column to enable bounded queries server-side.
+ */
+export async function getDraftDashboardSummaryByUser(
+  userId: string,
+  options?: { previewLimit?: number; pageSize?: number; maxRowsScanned?: number }
+): Promise<DraftDashboardSummary> {
+  const previewLimit = Math.max(0, options?.previewLimit ?? 5);
+  const pageSize = Math.min(
+    Math.max(1, options?.pageSize ?? APPWRITE_LIST_ROWS_MAX_LIMIT),
+    APPWRITE_LIST_ROWS_MAX_LIMIT
+  );
+  const maxRowsScanned = Math.max(1, options?.maxRowsScanned ?? 500);
+
+  let offset = 0;
+  let rowsScanned = 0;
+  let readyDraftCount = 0;
+  const previewDrafts: Draft[] = [];
+
+  while (rowsScanned < maxRowsScanned) {
+    const remainingBudget = maxRowsScanned - rowsScanned;
+    const limitForThisPage = Math.min(pageSize, remainingBudget);
+
+    const { rows } = await tablesDb.listRows({
+      databaseId: DATABASE_ID,
+      tableId: DRAFTS_COLLECTION_ID,
+      queries: [
+        Query.equal('userId', userId),
+        Query.orderDesc('$updatedAt'),
+        Query.limit(limitForThisPage),
+        Query.offset(offset),
+      ],
+      total: false,
+    });
+
+    const pageDrafts = (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
+
+    for (const draft of pageDrafts) {
+      if (!isDraftReadyToUpload(draft)) continue;
+      readyDraftCount += 1;
+      if (previewDrafts.length < previewLimit) {
+        previewDrafts.push(draft);
+      }
+    }
+
+    rowsScanned += pageDrafts.length;
+    if (pageDrafts.length < limitForThisPage) break;
+    if (pageDrafts.length === 0) break;
+    offset += limitForThisPage;
+  }
+
+  return { readyDraftCount, previewDrafts };
+}
+
 /**
  * Count all active draft rows.
  * Drafts currently have no archived/deleted status, so "active" means existing rows.

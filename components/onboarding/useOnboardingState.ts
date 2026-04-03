@@ -161,31 +161,31 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
     };
   }, [resolvedUserId]);
 
-  const markCompleted = useCallback(async () => {
-    if (!resolvedUserId) return;
+  const markCompleted = useCallback(async (): Promise<boolean> => {
+    if (!resolvedUserId) return false;
 
-    try {
-      // Try API first
-      const response = await fetch('/api/auth/onboarding-state', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hasCompletedOnboarding: true }),
-      });
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch('/api/auth/onboarding-state', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hasCompletedOnboarding: true }),
+        });
 
-      if (response.ok) {
-        setHasCompletedOnboarding(true);
-        // Also update localStorage for offline support
-        writeHasCompletedOnboarding(resolvedUserId, true);
-        return;
+        if (response.ok) {
+          setHasCompletedOnboarding(true);
+          // Keep localStorage in sync for offline/read fallback behavior.
+          writeHasCompletedOnboarding(resolvedUserId, true);
+          return true;
+        }
+      } catch {
+        // Retry transient network failures.
       }
-    } catch {
-      // API call failed, fall through to localStorage only
     }
 
-    // Fallback: localStorage only
-    writeHasCompletedOnboarding(resolvedUserId, true);
-    setHasCompletedOnboarding(true);
+    return false;
   }, [resolvedUserId]);
 
   const reset = useCallback(async () => {

@@ -80,6 +80,42 @@ describe('useOnboardingState', () => {
     expect(result.current.shouldAutoRun).toBe(false);
   });
 
+  it('does not mark onboarding complete when the API update fails', async () => {
+    global.fetch = vi.fn((url: string, opts?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/auth/onboarding-state')) {
+        if (opts && opts.method === 'POST') {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () => Promise.resolve({ error: 'Internal server error' }),
+          } as Response);
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ hasCompletedOnboarding: false }),
+        } as Response);
+      }
+
+      return Promise.reject(new Error('Not mocked'));
+    });
+
+    const { result } = renderHook(() => useOnboardingState({ userId }));
+
+    await waitFor(() => {
+      expect(result.current.isReady).toBe(true);
+    });
+
+    let completed = true;
+    await act(async () => {
+      completed = await result.current.markCompleted();
+    });
+
+    expect(completed).toBe(false);
+    expect(result.current.hasCompletedOnboarding).toBe(false);
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+  });
+
   it('defaults to not completed when storage is unavailable and API read fails', async () => {
     global.fetch = vi.fn(() => Promise.reject(new Error('Network down')));
     vi.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => {

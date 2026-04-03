@@ -1074,62 +1074,11 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 ---
 
-## Sprint 9 — Scheduled Publishing & Per-Platform Metadata (Mar 29–Apr 1)
+## Sprint 9 — Per-Platform Metadata & Thumbnail Polish (Mar 29–Apr 1)
 
-### Issue #47 · `[FEATURE]` Scheduled Publishing — Date/Time Picker
+**Scope Change:** Scheduled publishing is removed from MVP and deferred to a stretch goal. The current core workflow is draft creation -> temporary upload to R2 -> immediate distribution to connected platforms -> cleanup from R2. Supporting scheduling cleanly would require either retaining staged media in R2 until a future execution time or integrating platform-native publishing schedulers, which is materially more complex than the core product scope.
 
-**User Story:** As a user, I want to schedule my video to publish at a specific date and time per platform so I can coordinate releases.
-
-**Acceptance Criteria:**
-
-- [ ] Draft form includes an optional "Schedule publish" date/time picker per platform
-- [ ] Date/time is stored as ISO 8601 in the `scheduledAt` field of `platform_uploads`
-- [ ] If no schedule is set, the distribution happens immediately
-- [ ] Timezone is auto-detected from the browser
-
-**Priority:** P1 (Medium)
-
-**T-Shirt Size Estimate:** M (medium — a day or two)
-
-**Additional Context:** PRD refs: SP-01, SP-05, US-20.
-
----
-
-### Issue #48 · `[FEATURE]` Scheduled Publishing — Queue & Execution
-
-**User Story:** As a user, I want my scheduled videos to be published at the set time automatically.
-
-**Acceptance Criteria:**
-
-- [ ] A server-side process (cron job or polling loop) checks for `platform_uploads` with `scheduledAt <= now` and `status = 'pending'`
-- [ ] Matching records are distributed using the existing distribution engine
-- [ ] After execution, the status is updated to `completed` or `failed`
-- [ ] The process runs at a reasonable interval (e.g., every 1 minute)
-
-**Priority:** P1 (Medium)
-
-**T-Shirt Size Estimate:** L (large — several days)
-
-**Additional Context:** PRD refs: SP-02. ⚠️ Depends on Issue #32 (Distribution Engine).
-
----
-
-### Issue #49 · `[FEATURE]` Scheduled Uploads Dashboard Tab
-
-**User Story:** As a user, I want to view all my scheduled uploads in one place so I can manage upcoming publications.
-
-**Acceptance Criteria:**
-
-- [ ] `/dashboard/scheduled` page shows all pending scheduled uploads
-- [ ] Each entry shows: video title, target platform, scheduled date/time, status
-- [ ] Users can cancel a scheduled upload (sets status to `cancelled`)
-- [ ] Users can reschedule (update the `scheduledAt` time)
-
-**Priority:** P1 (Medium)
-
-**T-Shirt Size Estimate:** M (medium — a day or two)
-
-**Additional Context:** PRD refs: SP-03, SP-04, US-21, US-22.
+**Deferred Work:** The scheduling work that had originally been considered for Issue #47, Issue #48, and Issue #49 is intentionally moved out of the sprint plan and captured as Stretch Goal Issue #79 below.
 
 ---
 
@@ -1601,6 +1550,27 @@ These issues can be created if the team has capacity after completing all P0 and
 
 ---
 
+### Issue #79 · `[FEATURE]` Scheduled Publishing Architecture & Premium Workflow
+
+**User Story:** As a future premium user, I want to schedule a publish time per platform so I can coordinate releases without manually returning at publish time.
+
+**Acceptance Criteria:**
+
+- [ ] The implementation decision is explicit: either retain staged media in R2 until execution or integrate platform-native scheduling or publish APIs per provider
+- [ ] The chosen design documents how VideoSphere avoids breaking the current draft -> R2 -> distribute -> cleanup lifecycle
+- [ ] If R2 retention is used, lifecycle and cleanup rules are defined so scheduled assets do not accumulate indefinitely
+- [ ] If platform-native scheduling is used, provider-specific behavior and limitations are documented for YouTube and Vimeo
+- [ ] A future management surface lets users view, cancel, or reschedule pending scheduled publishes
+- [ ] The feature remains outside MVP and is only considered after core distribution, metadata, and testing work are complete
+
+**Priority:** Low (Stretch Goal)
+
+**T-Shirt Size Estimate:** L (large — several days)
+
+**Additional Context:** Stretch goal. This feature is intentionally deferred because the current system uploads source media to R2 as temporary staging, distributes immediately, and then deletes from R2. Scheduling introduces either long-lived staged media or platform-specific scheduled publishing logic, both of which materially expand backend and product complexity.
+
+---
+
 ---
 
 ## Summary — Issue Count by Sprint
@@ -1616,12 +1586,12 @@ These issues can be created if the team has capacity after completing all P0 and
 | 6      | AI Metadata                              | #36–#39    | 4     |
 | 7      | Payments & Stripe                        | #40–#43    | 4     |
 | 8      | Admin Dashboard                          | #44–#46    | 3     |
-| 9      | Scheduled Publishing & Per-Platform      | #47–#51    | 5     |
+| 9      | Per-Platform Metadata & Thumbnail Polish | #50–#51    | 2     |
 | 10     | Responsive Design & Polish               | #52–#55    | 4     |
 | 11     | Testing & Stretch                        | #56–#60    | 5     |
 | 12     | Final Polish & Presentation              | #61–#65    | 5     |
-| —      | Stretch Goals (optional)                 | #66–#75, #77, #78 | 12  |
-| **Total** |                                       |            | **78** |
+| —      | Stretch Goals (optional)                 | #66–#75, #77, #78, #79 | 13  |
+| **Total** |                                       |            | **79** |
 
 ---
 

@@ -2,7 +2,7 @@
 // PAYMENT SUCCESS — BOUNCE PAGE
 // =============================================================================
 // Stripe redirects here after a successful checkout. This page is intentionally
-// outside the proxy's protected routes (/profile/*, /dashboard/*, /admin/*) so
+// outside the proxy's protected routes (/dashboard/*, /profile/*, /admin/*) so
 // that it loads even with sameSite: 'strict' cookies (which the browser
 // withholds on cross-site navigations from checkout.stripe.com).
 //
