@@ -1078,7 +1078,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Scope Change:** Scheduled publishing is removed from MVP and deferred to a stretch goal. The current core workflow is draft creation -> temporary upload to R2 -> immediate distribution to connected platforms -> cleanup from R2. Supporting scheduling cleanly would require either retaining staged media in R2 until a future execution time or integrating platform-native publishing schedulers, which is materially more complex than the core product scope.
 
-**Deferred Work:** The scheduling work that had originally been considered for Issue #47, Issue #48, and Issue #49 is intentionally moved out of the sprint plan and captured as Stretch Goal Issue #79 below.
+**Deferred Work:** The scheduling work that had originally been considered for Issue #47, Issue #48, and Issue #49 is intentionally moved out of the sprint plan and deferred beyond MVP.
 
 ---
 
@@ -1647,9 +1647,8 @@ Setup (#1-3)
        │                                                           │
        │              ┌────────────────────────────────────────────┘
        │              ▼
-       │         Distribution Engine (#32) ─▶ Job Tracking (#33-34)
-       │              │                       ─▶ Scheduling (#47-49)
-       │              └─▶ R2 Cleanup (#35)
+      │         Distribution Engine (#32) ─▶ Job Tracking (#33-34)
+      │              └─▶ R2 Cleanup (#35)
        │
        ├─▶ AI Client (#36) ─▶ AI Endpoint (#37) ─▶ AI UI (#38) ─▶ Streaming AI / SSE (#80)
        │
