@@ -1078,7 +1078,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 
 **Scope Change:** Scheduled publishing is removed from MVP and deferred to a stretch goal. The current core workflow is draft creation -> temporary upload to R2 -> immediate distribution to connected platforms -> cleanup from R2. Supporting scheduling cleanly would require either retaining staged media in R2 until a future execution time or integrating platform-native publishing schedulers, which is materially more complex than the core product scope.
 
-**Deferred Work:** The scheduling work that had originally been considered for Issue #47, Issue #48, and Issue #49 is intentionally moved out of the sprint plan and captured as Stretch Goal Issue #79 below.
+**Deferred Work:** The scheduling work that had originally been considered for Issue #47, Issue #48, and Issue #49 is intentionally moved out of the sprint plan and deferred beyond MVP.
 
 ---
 
@@ -1571,6 +1571,43 @@ These issues can be created if the team has capacity after completing all P0 and
 
 ---
 
+### ✅ Issue #80 · `[FEATURE]` Streaming AI Responses (OpenRouter SSE)
+
+**User Story:** As a user, I want a typing indicator and live feedback while AI metadata is being generated so that the interface feels responsive rather than frozen.
+
+**Acceptance Criteria:**
+
+**Server:**
+
+- [x] A new `POST /api/ai/generate-metadata/stream` route is added alongside the existing non-streaming endpoint (existing callers are not broken)
+- [x] The route adds `stream: true` to the existing OpenRouter `fetch` request body and pipes the response `ReadableStream` directly back to the client with `Content-Type: text/event-stream`
+- [x] The route reuses all existing logic from `lib/ai/openrouter.ts`: auth, tier-based model selection, platform-aware system prompt, and character-limit truncation
+- [x] SSE chunks follow OpenRouter's native format: each `data:` line contains a partial chat completion delta; a final `data: [DONE]` line signals stream end
+- [x] If the upstream OpenRouter request fails (non-2xx, timeout, network error), the route closes the stream and sends a final `data: {"error":"..."}` event before ending the response
+- [x] The `AbortController` timeout from the existing client is extended or removed for the streaming route, since response time is now first-token latency rather than full-response latency
+
+**Client:**
+
+- [x] The "Generate with AI" button on the draft form switches to calling `/api/ai/generate-metadata/stream` via `fetch` and reading chunks with `response.body.getReader()`
+- [x] While the stream is in progress, a typing indicator (e.g., animated `▋` or pulsing dots) is shown below the form fields to communicate active generation
+- [x] The "Generate with AI" / "Regenerate" button is disabled and labelled "Generating…" for the duration of the stream
+- [x] A "Stop" button is visible during generation; clicking it calls `controller.abort()` on the fetch `AbortController`, closing the stream immediately
+- [x] Accumulated SSE token deltas are assembled into the complete JSON string; once `[DONE]` is received, the string is parsed and `{ title, description, tags }` populate the form fields in one update (no partial field writes mid-stream)
+- [x] If the stream errors or is aborted before `[DONE]`, a non-blocking error toast is shown and the form fields remain blank and editable
+- [x] Generated content is fully editable after streaming completes
+
+**Tests:**
+
+- [ ] Unit tests cover: SSE chunk reassembly into a complete JSON string, `[DONE]` detection, abort handling, and error event parsing
+
+**Priority:** Low (Stretch Goal)
+
+**T-Shirt Size Estimate:** M (medium — a day or two)
+
+**Additional Context:** Stretch goal — see STRETCH_GOALS.md §9 (AI — Advanced). OpenRouter's chat completions endpoint is OpenAI-compatible and supports `stream: true` natively — no new npm dependencies are required. The server-side change is minimal: swap `response.json()` for forwarding the `ReadableStream`; the bulk of the work is the client-side SSE reader and UI state. ⚠️ Depends on Issue #36 (OpenRouter AI Client), Issue #37 (AI Metadata Endpoint), and Issue #38 (Generate with AI UI Button on Draft Form).
+
+---
+
 ---
 
 ## Summary — Issue Count by Sprint
@@ -1610,11 +1647,10 @@ Setup (#1-3)
        │                                                           │
        │              ┌────────────────────────────────────────────┘
        │              ▼
-       │         Distribution Engine (#32) ─▶ Job Tracking (#33-34)
-       │              │                       ─▶ Scheduling (#47-49)
-       │              └─▶ R2 Cleanup (#35)
+      │         Distribution Engine (#32) ─▶ Job Tracking (#33-34)
+      │              └─▶ R2 Cleanup (#35)
        │
-       ├─▶ AI Client (#36) ─▶ AI Endpoint (#37) ─▶ AI UI (#38)
+       ├─▶ AI Client (#36) ─▶ AI Endpoint (#37) ─▶ AI UI (#38) ─▶ Streaming AI / SSE (#80)
        │
        └─▶ Stripe Checkout (#41) ─▶ Webhook (#42) ─▶ Tier Enforcement (#43)
 ```

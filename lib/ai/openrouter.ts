@@ -259,3 +259,96 @@ export async function generateMetadata(
     appName
   );
 }
+
+/**
+ * Opens a streaming chat completion request to OpenRouter and returns the raw
+ * upstream `Response` object whose body is an SSE `text/event-stream`.
+ *
+ * The caller is responsible for piping `response.body` to the client.
+ * The request is aborted when `signal` fires (i.e. client disconnect).
+ *
+ * @param systemPrompt - Instructions for the AI
+ * @param userPrompt   - The user-facing content
+ * @param model        - OpenRouter model identifier
+ * @param signal       - Optional AbortSignal (e.g. from the Next.js request)
+ * @throws RateLimitError on HTTP 429
+ * @throws Error on any other non-2xx or network failure
+ */
+export async function streamMetadata(
+  systemPrompt: string,
+  userPrompt: string,
+  model: string,
+  signal?: AbortSignal
+): Promise<Response> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY environment variable is not set');
+  }
+
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+    'https://videosphere.app';
+  const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
+
+  const requestBody = {
+    ...buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
+    stream: true,
+  };
+
+  // Guard the connection with the same configurable timeout used by the
+  // non-streaming path.  The caller's disconnect signal is composed via
+  // AbortSignal.any so that either a timeout or a client disconnect will cancel
+  // the fetch — and the combined signal remains active for the full lifetime of
+  // the stream, preventing upstream connection leaks after headers arrive.
+  const timeoutMs = getTimeoutMsForModel(requestBody.model);
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+
+  const signals = signal ? [timeoutController.signal, signal] : [timeoutController.signal];
+  const combinedSignal = AbortSignal.any(signals);
+
+  let response: Response;
+  try {
+    response = await fetch(OPENROUTER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': appUrl,
+        'X-Title': appName,
+      },
+      body: JSON.stringify(requestBody),
+      signal: combinedSignal,
+    });
+  } catch (err) {
+    if (isAbortError(err)) {
+      if (timeoutController.signal.aborted) throw new OpenRouterTimeoutError();
+      throw err; // propagate caller disconnect so the route can respond accordingly
+    }
+    throw new Error(`Failed to connect to OpenRouter API: ${getErrorMessage(err)}`);
+  } finally {
+    // Clear the timeout regardless of outcome — the combined signal keeps
+    // the caller-disconnect path active for the body stream via AbortSignal.any.
+    clearTimeout(timeoutId);
+  }
+
+  if (response.status === 429) {
+    throw new RateLimitError();
+  }
+
+  if (!response.ok) {
+    let errorDetail = '';
+    try {
+      const text = await response.text();
+      errorDetail = formatOpenRouterErrorDetail(text, response.statusText);
+    } catch {
+      errorDetail = response.statusText;
+    }
+    throw new Error(
+      `OpenRouter API error (${response.status}): ${errorDetail || response.statusText}`
+    );
+  }
+
+  return response;
+}
