@@ -235,6 +235,6 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 - [ ] **Path aliases** — configure `@/` path aliases in `tsconfig.json` for all internal import paths; zero relative `../../` imports exist anywhere in the codebase
 - [ ] **JSDoc comments on all exports** — every exported function, component, hook, and type has a JSDoc comment describing its purpose, parameters, and return value
-- [ ] **VS Code workspace settings** — add a `.vscode/settings.json` with recommended formatter, linter, and TypeScript settings pre-configured for this project; document in `SETUP.md`
+- [x] **VS Code workspace settings** — add a `.vscode/settings.json` with recommended formatter, linter, and TypeScript settings pre-configured for this project; document in `SETUP.md`
 - [ ] **Husky pre-push hook** — add a `pre-push` hook that runs `pnpm type-check` and `pnpm test -- --run` before allowing a push; document in `CONTRIBUTING.md`
 - [ ] **Architectural Decision Records (ADRs)** — document at least five significant technical decisions your team made in `/docs/decisions/` using the lightweight ADR format (context → decision → consequences)
