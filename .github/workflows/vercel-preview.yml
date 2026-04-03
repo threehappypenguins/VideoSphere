@@ -52,19 +52,33 @@ jobs:
             echo "Preview deploy attempt $attempt/$max_attempts"
 
             set +e
-            output=$(pnpm dlx vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}" 2>&1)
+            output=$(pnpm dlx vercel --debug deploy --prebuilt --logs --token="${{ secrets.VERCEL_TOKEN }}" 2>&1)
             status=$?
             set -e
             echo "$output"
 
+            inspect_url=$(echo "$output" | sed -n 's/^Inspect: \(https:\/\/[^ ]*\).*/\1/p' | tail -n 1)
+
             if [ "$status" -eq 0 ]; then
-              url=$(echo "$output" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
+              url=$(echo "$output" | sed -n 's/^Preview: \(https:\/\/[^ ]*\.vercel\.app\).*/\1/p' | tail -n 1)
+              if [ -z "$url" ]; then
+                url=$(echo "$output" | grep -Eo 'https://[^ ]+\.vercel\.app' | tail -n 1)
+              fi
               if [ -z "$url" ]; then
                 echo "Deploy succeeded but preview URL could not be parsed from output."
                 exit 1
               fi
               echo "preview_url=$url" >> "$GITHUB_OUTPUT"
               exit 0
+            fi
+
+            if [ -n "$inspect_url" ]; then
+              echo "Fetching inspect logs for failed attempt from: $inspect_url"
+              set +e
+              pnpm dlx vercel inspect "$inspect_url" --logs --wait --token="${{ secrets.VERCEL_TOKEN }}"
+              set -e
+            else
+              echo "Inspect URL not found in deploy output."
             fi
 
             if [ "$attempt" -lt "$max_attempts" ]; then
