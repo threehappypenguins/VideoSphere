@@ -14,6 +14,10 @@ jobs:
     name: Deploy Preview to Vercel
     runs-on: ubuntu-latest
 
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,12 +38,20 @@ jobs:
 
       - name: Deploy preview to Vercel
         id: deploy
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          output=$(npx vercel@latest \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            -m githubCommitSha=${{ github.sha }} \
+            -m githubCommitAuthorName=${{ github.actor }} \
+            -m githubCommitAuthorLogin=${{ github.actor }} \
+            -m githubCommitRef=${{ github.head_ref }} \
+            -m githubCommitMessage="${{ github.event.pull_request.title }}" \
+            -m githubOrg=${{ github.repository_owner }} \
+            -m githubRepo=${{ github.event.repository.name }} \
+            2>&1)
+          echo "$output"
+          preview_url=$(echo "$output" | grep -E '^https://' | tail -n 1)
+          echo "preview_url=$preview_url" >> "$GITHUB_OUTPUT"
 
       - name: Comment preview URL on PR
         continue-on-error: true
@@ -51,5 +63,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## Vercel Preview Deployment\n\n**Preview URL:** ${{ steps.deploy.outputs.preview-url }}`
+              body: `## Vercel Preview Deployment\n\n**Preview URL:** ${{ steps.deploy.outputs.preview_url }}`
             })
