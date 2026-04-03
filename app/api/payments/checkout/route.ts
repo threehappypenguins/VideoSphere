@@ -20,7 +20,10 @@ export async function POST(req: NextRequest) {
     // 0. CSRF: verify the request originates from our own site
     // =========================================================================
     const origin = req.headers.get('origin');
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
+      'http://localhost:3000';
 
     let isAllowedOrigin = false;
     if (origin) {

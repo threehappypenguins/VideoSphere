@@ -35,7 +35,7 @@ jobs:
 
       - name: Deploy preview to Vercel
         id: deploy
-        uses: amondnet/vercel-action@v25
+        uses: amondnet/vercel-action@16e87c0a08142b0d0d33b76aeaf20823c381b9b9
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -50,14 +50,15 @@ jobs:
           script: |
             const body = `## Vercel Preview Deployment\n\n**Preview URL:** ${{ steps.deploy.outputs.preview-url }}`;
 
-            // Find existing Vercel Preview Deployment comment
-            const comments = await github.rest.issues.listComments({
+            // Find existing Vercel Preview Deployment comment across all comment pages
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
+              per_page: 100,
             });
 
-            const existingComment = comments.data.find(comment =>
+            const existingComment = comments.find(comment =>
               comment.body.includes('## Vercel Preview Deployment')
             );
 

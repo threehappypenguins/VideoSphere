@@ -1,7 +1,9 @@
 name: Vercel Production Deployment
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
 permissions:
@@ -11,40 +13,17 @@ jobs:
   deploy-production:
     name: Deploy Production to Vercel
     runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
         with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run ESLint
-        run: pnpm lint
-
-      - name: Check formatting (Prettier)
-        run: pnpm format:check
-
-      - name: Type check (TypeScript)
-        run: pnpm type-check
-
-      - name: Run tests
-        run: pnpm test run
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Deploy to Vercel (production)
         id: deploy
-        uses: amondnet/vercel-action@v25
+        uses: amondnet/vercel-action@16e87c0a08142b0d0d33b76aeaf20823c381b9b9
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
