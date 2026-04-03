@@ -21,6 +21,9 @@ const eslintConfig = defineConfig([
   {
     rules: {
       ...jsxA11y.configs.recommended.rules,
+      // Auto-fix modern declarations: no-var rewrites var -> let, and prefer-const upgrades let -> const when safe.
+      'no-var': 'error',
+      'prefer-const': 'error',
     },
   },
   // Override default ignores
