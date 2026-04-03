@@ -14,10 +14,6 @@ jobs:
     name: Deploy Preview to Vercel
     runs-on: ubuntu-latest
 
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,68 +32,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Pull Vercel environment (preview)
-        run: pnpm dlx vercel pull --yes --environment=preview --token="${{ secrets.VERCEL_TOKEN }}"
-
-      - name: Build project
-        run: pnpm dlx vercel build --token="${{ secrets.VERCEL_TOKEN }}"
-
-      - name: Deploy to Vercel (preview)
+      - name: Deploy preview to Vercel
         id: deploy
-        run: |
-          attempt=1
-          max_attempts=3
-
-          while [ "$attempt" -le "$max_attempts" ]; do
-            echo "Preview deploy attempt $attempt/$max_attempts"
-
-            set +e
-            output=$(pnpm dlx vercel --debug deploy --prebuilt --logs --no-wait --token="${{ secrets.VERCEL_TOKEN }}" 2>&1)
-            status=$?
-            set -e
-            echo "$output"
-
-            preview_url=$(echo "$output" | sed -n 's/^Preview: \(https:\/\/[^ ]*\.vercel\.app\).*/\1/p' | tail -n 1)
-
-            # Vercel CLI can fail while streaming events even when deployment was created.
-            # If we got a preview URL, treat the deployment as successful.
-            if [ -n "$preview_url" ]; then
-              echo "preview_url=$preview_url" >> "$GITHUB_OUTPUT"
-
-              if [ "$status" -ne 0 ]; then
-                echo "Deploy command exited non-zero, but preview URL was returned. Continuing."
-              fi
-
-              exit 0
-            fi
-
-            if [ "$status" -eq 0 ]; then
-              echo "Deploy exited successfully but no preview URL could be parsed."
-            fi
-
-            deployment_ref=$(echo "$output" | sed -n 's/^Inspect: https:\/\/vercel\.com\/[^\/]*\/[^\/]*\/\([^ ]*\).*/\1/p' | tail -n 1)
-            if [ -n "$deployment_ref" ]; then
-              echo "Fetching inspect logs for failed attempt from deployment: $deployment_ref"
-              set +e
-              pnpm dlx vercel inspect "$deployment_ref" --logs --wait --token="${{ secrets.VERCEL_TOKEN }}"
-              set -e
-            else
-              echo "Deployment reference not found in deploy output."
-            fi
-
-            if [ "$attempt" -lt "$max_attempts" ]; then
-              echo "Deploy failed. Retrying in 15 seconds..."
-              sleep 15
-            fi
-
-            attempt=$((attempt + 1))
-          done
-
-          echo "Preview deploy failed after $max_attempts attempts."
-          exit 1
-
-      - name: Print preview URL
-        run: 'echo "Preview deployment URL: ${{ steps.deploy.outputs.preview_url }}"'
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Comment preview URL on PR
         continue-on-error: true
@@ -109,5 +51,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## Vercel Preview Deployment\n\n**Preview URL:** ${{ steps.deploy.outputs.preview_url }}`
+              body: `## Vercel Preview Deployment\n\n**Preview URL:** ${{ steps.deploy.outputs.preview-url }}`
             })
