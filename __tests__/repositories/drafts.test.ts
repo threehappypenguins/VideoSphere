@@ -27,6 +27,7 @@ vi.mock('node-appwrite', () => ({
         : `equal("${attr}","${value}")`,
     orderDesc: (attr: string) => `orderDesc("${attr}")`,
     limit: (n: number) => `limit(${n})`,
+    offset: (n: number) => `offset(${n})`,
   },
   TablesDB: class TablesDB {
     createRow = mockCreateRow;
@@ -42,7 +43,9 @@ vi.mock('@/lib/appwrite', () => ({
 }));
 
 import {
+  countDraftsByUser,
   createDraft,
+  getDraftDashboardSummaryByUser,
   getDraftById,
   getDraftTitlesByIdsForUser,
   listDraftsByUser,
@@ -258,6 +261,113 @@ describe('drafts repository', () => {
     it('returns empty array when none', async () => {
       mockListRows.mockResolvedValue({ rows: [] });
       expect(await listDraftsByUser('user-1')).toEqual([]);
+    });
+  });
+
+  describe('countDraftsByUser', () => {
+    it('counts drafts for a user via total: true', async () => {
+      mockListRows.mockResolvedValue({ total: 9, rows: [] });
+
+      const result = await countDraftsByUser('user-1');
+
+      expect(result).toBe(9);
+      expect(mockListRows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          databaseId: 'videosphere',
+          tableId: 'drafts',
+          total: true,
+        })
+      );
+      expect(mockListRows.mock.calls[0][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'limit(1)',
+      ]);
+    });
+  });
+
+  describe('getDraftDashboardSummaryByUser', () => {
+    it('returns ready draft count and only the first preview drafts', async () => {
+      mockListRows
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              ...baseRow,
+              $id: 'ready-1',
+              $updatedAt: '2026-01-03T00:00:00.000Z',
+            },
+            {
+              ...baseRow,
+              $id: 'used-1',
+              document: stringifyDraftDocumentForStorage({
+                ...publishDefaults,
+                usedInUploadAt: '2026-01-03T00:00:00.000Z',
+              }),
+              $updatedAt: '2026-01-02T00:00:00.000Z',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              ...baseRow,
+              $id: 'ready-2',
+              $updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        });
+
+      const result = await getDraftDashboardSummaryByUser('user-1', {
+        previewLimit: 1,
+        pageSize: 2,
+      });
+
+      expect(result.readyDraftCount).toBe(2);
+      expect(result.previewDrafts).toHaveLength(1);
+      expect(result.previewDrafts[0].id).toBe('ready-1');
+      expect(mockListRows).toHaveBeenCalledTimes(2);
+      expect(mockListRows.mock.calls[0][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'orderDesc("$updatedAt")',
+        'limit(2)',
+        'offset(0)',
+      ]);
+      expect(mockListRows.mock.calls[1][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'orderDesc("$updatedAt")',
+        'limit(2)',
+        'offset(2)',
+      ]);
+    });
+
+    it('clamps pageSize to Appwrite max and increments offset by actual per-page limit', async () => {
+      mockListRows
+        .mockResolvedValueOnce({
+          rows: Array.from({ length: 100 }, (_, idx) => ({
+            ...baseRow,
+            $id: `ready-bulk-${idx + 1}`,
+            $updatedAt: '2026-01-03T00:00:00.000Z',
+          })),
+        })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await getDraftDashboardSummaryByUser('user-1', {
+        pageSize: 500,
+        maxRowsScanned: 150,
+      });
+
+      expect(mockListRows).toHaveBeenCalledTimes(2);
+      expect(mockListRows.mock.calls[0][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'orderDesc("$updatedAt")',
+        'limit(100)',
+        'offset(0)',
+      ]);
+      expect(mockListRows.mock.calls[1][0].queries).toEqual([
+        'equal("userId","user-1")',
+        'orderDesc("$updatedAt")',
+        'limit(50)',
+        'offset(100)',
+      ]);
     });
   });
 

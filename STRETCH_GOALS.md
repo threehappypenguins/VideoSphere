@@ -21,10 +21,10 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **Animated page transitions** — smooth enter/exit transitions between routes using Framer Motion or the View Transitions API
 - [ ] **Skeleton loading states** — replace blank loading areas with accurately shaped content skeletons for all async data views
 - [x] **Toast / snackbar notification system** — global, accessible toast queue for success, error, warning, and info messages ✅
-- [x] **Modal and dialog system** — reusable, accessible modal component with focus trap, `Escape` to close, and scroll lock
+- [x] **Modal and dialog system** — reusable, accessible modal component with focus trap, `Escape` to close, and scroll lock ✅
 - [ ] **Drawer / side-panel navigation** — slide-in drawer for mobile navigation or detail panels; no JavaScript libraries beyond React
-- [x] **Onboarding flow** — step-by-step guided tour for new users that highlights key features and can be dismissed or replayed
-- [x] **Server-rendered visual effects** — GPU-rendered decorative backgrounds (e.g., Perlin/Gaussian noise via SVG `feTurbulence`) applied to key pages and components; include text legibility utilities (e.g., text shadows) for readability over textured backgrounds; support design tokens for theme-aware visual harmony; ensure zero client-side JavaScript overhead and no layout shift on load
+- [x] **Onboarding flow** — step-by-step guided tour for new users that highlights key features and can be dismissed or replayed ✅
+- [x] **Server-rendered visual effects** — GPU-rendered decorative backgrounds (e.g., Perlin/Gaussian noise via SVG `feTurbulence`) applied to key pages and components; include text legibility utilities (e.g., text shadows) for readability over textured backgrounds; support design tokens for theme-aware visual harmony; ensure zero client-side JavaScript overhead and no layout shift on load ✅
 - [ ] **Empty state designs** — purpose-built empty state UI (illustration + message + CTA) for every list or data view with no results
 - [ ] **Command palette** — keyboard-activated command palette (`⌘K`) for quick navigation and actions (cmdk or custom implementation)
 - [ ] **Breadcrumb navigation** — dynamic, accessible breadcrumb component reflecting the current route hierarchy on all inner pages
@@ -36,7 +36,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 ## 2. Frontend Architecture & Component Design
 
 - [ ] **Component library with Storybook** — install and configure Storybook; document every reusable UI component with stories, props table, and usage examples
-- [x] **Design token system** — define a consistent set of Tailwind CSS theme tokens (colours, spacing, typography scale, border radii) in `tailwind.config.ts` — used uniformly across all pages
+- [x] **Design token system** — define a consistent set of Tailwind CSS theme tokens (colours, spacing, typography scale, border radii) in `tailwind.config.ts` — used uniformly across all pages ✅
 - [ ] **Compound component pattern** — implement at least one feature (e.g. Tabs, Accordion, Select) using the compound component pattern for a composable API
 - [ ] **Custom React hooks** — extract at least three pieces of reusable stateful logic into named custom hooks in `/hooks` with corresponding unit tests
 - [ ] **Form library integration** — integrate React Hook Form (or equivalent) with Zod for schema-based validation on all user-facing forms; display per-field error messages
@@ -68,7 +68,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **Server Actions** — replace at least two client-side `fetch` calls with Next.js Server Actions; document the tradeoffs vs route handlers in a code comment
 - [ ] **Database migrations** — manage schema changes with a versioned migration system (e.g. Supabase migrations, Drizzle, or Prisma migrate); never alter the schema by hand
 - [ ] **Database seeding script** — a `pnpm db:seed` script that populates the database with realistic development data
-- [x] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling
+- [ ] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling
 - [ ] **Response caching strategy** — apply appropriate caching to at least two routes or data-fetching functions (ISR `revalidate`, `unstable_cache`, or HTTP `Cache-Control`); document the chosen strategy and why
 
 ---
@@ -85,10 +85,11 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 ## 6. File Handling & Media
 
 - [ ] **File upload with cloud storage** — allow users to upload files (images, documents) to a cloud storage provider (Supabase Storage, Cloudflare R2, AWS S3); display a preview after upload
+- [ ] **Google Drive backup destination** — allow users to connect Google Drive as an additional distribution target so one upload can be sent to YouTube, Vimeo, and Drive simultaneously for backup/archival
 - [ ] **Avatar upload and crop** — profile photo upload with in-browser crop/resize before upload; stored in cloud storage
 - [ ] **Image optimisation pipeline** — all user-uploaded images are resized and converted to WebP/AVIF on upload; served via a CDN
 - [ ] **File download** — allow authenticated users to download their own uploaded files; enforce access control so users cannot download other users' private files
-- [x] **Thumbnail upload for drafts** — allow users to upload a custom thumbnail image (JPG/PNG/WebP, max 2 MB) for a draft; store in Cloudflare R2; display a preview in the draft form; include the R2 thumbnail URL in the draft document so it can be submitted alongside video metadata on distribution
+- [x] **Thumbnail upload for drafts** — allow users to upload a custom thumbnail image (JPG/PNG/WebP, max 2 MB) for a draft; store in Cloudflare R2; display a preview in the draft form; include the R2 thumbnail URL in the draft document so it can be submitted alongside video metadata on distribution ✅
 
 ---
 
@@ -149,7 +150,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 ## 12. Performance
 
-- [ ] **`next/image` throughout** — replace every `<img>` tag across all pages with the Next.js `<Image>` component; add meaningful `alt` text to all images
+- [x] **`next/image` throughout** — replace every `<img>` tag across all pages with the Next.js `<Image>` component; add meaningful `alt` text to all images
 - [ ] **Bundle analysis** — install `@next/bundle-analyzer`; produce a bundle report; identify and eliminate at least one unnecessary large dependency with documented before/after sizes
 - [ ] **Dynamic imports for heavy components** — use `next/dynamic` with `{ ssr: false }` or loading fallbacks for components that would otherwise inflate the initial bundle
 - [ ] **Edge runtime for latency-sensitive routes** — migrate at least one API route or middleware to the Edge runtime; measure and document the latency improvement
@@ -193,11 +194,11 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **WCAG 2.1 AA audit** — run a full audit using axe DevTools or Lighthouse; document every identified violation and resolve all Level A and AA issues
 - [ ] **Keyboard navigation throughout** — every interactive element is reachable and operable using the keyboard alone; focus order is logical; no focus traps outside intentional modals
 - [ ] **Skip navigation link** — a "Skip to main content" link is the first focusable element on every page; visible on focus
-- [x] **Focus management in modals** — focus moves to the first focusable element when a modal opens; focus is restored to the trigger element on close; Tab key cycles within the modal
+- [x] **Focus management in modals** — focus moves to the first focusable element when a modal opens; focus is restored to the trigger element on close; Tab key cycles within the modal ✅
 - [ ] **Colour contrast compliance** — all text and interactive element foreground/background combinations meet WCAG AA contrast ratios (4.5:1 for normal text, 3:1 for large text)
 - [ ] **`prefers-reduced-motion` support** — all animations and transitions are disabled or reduced when the user has `prefers-reduced-motion: reduce` set in their OS
 - [ ] **Meaningful image alt text** — every `<Image>` or `<img>` has descriptive alt text; purely decorative images use `alt=""`
-- [x] **Live region announcements** — asynchronous status changes (form submission success, toast messages, loading complete) are announced to screen readers via `aria-live`
+- [ ] **Live region announcements** — asynchronous status changes (form submission success, toast messages, loading complete) are announced to screen readers via `aria-live`
 
 ---
 
@@ -235,6 +236,6 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 - [ ] **Path aliases** — configure `@/` path aliases in `tsconfig.json` for all internal import paths; zero relative `../../` imports exist anywhere in the codebase
 - [ ] **JSDoc comments on all exports** — every exported function, component, hook, and type has a JSDoc comment describing its purpose, parameters, and return value
-- [ ] **VS Code workspace settings** — add a `.vscode/settings.json` with recommended formatter, linter, and TypeScript settings pre-configured for this project; document in `SETUP.md`
+- [x] **VS Code workspace settings** — add a `.vscode/settings.json` with recommended formatter, linter, and TypeScript settings pre-configured for this project; document in `SETUP.md`
 - [ ] **Husky pre-push hook** — add a `pre-push` hook that runs `pnpm type-check` and `pnpm test -- --run` before allowing a push; document in `CONTRIBUTING.md`
 - [ ] **Architectural Decision Records (ADRs)** — document at least five significant technical decisions your team made in `/docs/decisions/` using the lightweight ADR format (context → decision → consequences)

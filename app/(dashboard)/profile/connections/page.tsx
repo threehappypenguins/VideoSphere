@@ -16,9 +16,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link'; // used for the back link (same-origin)
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 import {
   getConnectedAccountsByUser,
   getConnectedAccountWithTokens,
@@ -39,25 +37,7 @@ interface PageProps {
 }
 
 async function getCurrentUserId(): Promise<string | null> {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  if (!endpoint || !projectId) return null;
-
-  const cookieStore = await cookies();
-  const sessionSecret = cookieStore.get(getSessionCookieName(projectId))?.value;
-  if (!sessionSecret) return null;
-
-  try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-    const account = new Account(client);
-    const user = await account.get();
-    return user.$id;
-  } catch {
-    return null;
-  }
+  return getCurrentUserIdFromCookies();
 }
 
 const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: string }> = {

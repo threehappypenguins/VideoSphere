@@ -27,13 +27,35 @@ Use this when you're cloning the project for the first time or onboarding a new 
    pnpm install
    ```
 
+### VS Code workspace settings
+
+This repository commits a shared [.vscode/settings.json](.vscode/settings.json) so the team gets a consistent formatter, linter, and TypeScript experience out of the box without imposing broader editor preferences.
+
+- **Prettier as the default formatter** keeps file formatting consistent across the team.
+- **Format on save** reduces manual cleanup before commits.
+- **ESLint auto-fix on save** applies fixable lint rules whenever VS Code saves a file.
+- **ESLint validation for JS/TS files** surfaces lint errors inline in the editor.
+- **Built-in JavaScript and TypeScript validation** keeps editor diagnostics enabled even before you run CLI checks.
+- **Workspace TypeScript SDK** keeps language service behavior aligned with the version installed in this project.
+- **Prompt to use workspace TypeScript** helps developers switch to the repo version when VS Code is using a different global version.
+- **ESLint status in the status bar** makes it obvious when the extension is active for this workspace.
+- **Spell check disabled in the workspace** avoids noisy warnings for project-specific terms.
+
+Note: VS Code 1.110 unified many JavaScript and TypeScript setting IDs under the `js/ts.*` namespace. If you see older `javascript.*` or `typescript.*` keys in examples, treat them as legacy forms and keep this workspace on the newer `js/ts.*` settings to avoid deprecation warnings.
+
+These settings are intentionally lightweight: they do not force a theme, keybindings, terminal profile, or other personal editor preferences.
+
+For local overrides, prefer your VS Code User Settings or a personal VS Code profile. If you want to keep a repo-local scratch file for personal notes or experimental settings without committing it, use `.vscode/settings.json.local`, which is gitignored. VS Code does not load that `.local` file automatically.
+
+To verify the shared settings manually, temporarily move or rename `.vscode/settings.json`, reload the window, restore the file, and reload again. Then save a `.ts` or `.tsx` file and confirm that Prettier formatting runs, ESLint diagnostics appear inline, and TypeScript errors are reported in the editor.
+
 3. **Copy environment variables**
    ```bash
    cp .env.example .env.local
    ```
    You'll fill in Appwrite (and other) values in step 4.
 
-4. **Set up Appwrite (auth + database)**  
+4. **Set up Appwrite (auth + database)**
    Put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`.
 
 5. **Start the app and verify**

@@ -233,7 +233,7 @@ export async function GET(req: NextRequest) {
       .filter((d) => typeof d.usedInUploadAt !== 'string' || d.usedInUploadAt.trim() === '')
       .map((d) => d.id);
 
-    let earliestUsedByDraftId = new Map<string, string>();
+    const earliestUsedByDraftId = new Map<string, string>();
     if (missingUsed.length > 0) {
       // Bounded best-effort scan: cap rows/time so GET /api/drafts stays responsive.
       // This may not discover every missing draft in one request for very large histories,

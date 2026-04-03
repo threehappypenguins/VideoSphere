@@ -283,7 +283,7 @@ Follow `create-next-app` App Router conventions with minimal extensions:
 - Placeholder subscription status section showing free vs premium tier
 - Clearly commented as requiring auth and database implementation
 
-**Admin Dashboard** (`app/(admin)/admin/dashboard/page.tsx`):
+**Admin Dashboard** (`app/(dashboard)/admin/dashboard/page.tsx`):
 
 - Protected admin area shell — UI only, no auth protection implemented
 - Placeholder stat cards: total users, active sessions, recent signups, revenue, recent activity feed

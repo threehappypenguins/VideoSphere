@@ -76,8 +76,8 @@
         "files.trimTrailingWhitespace": true,
 
         // Use the project's own TypeScript version, not VS Code's built-in one
-        "typescript.tsdk": "node_modules/typescript/lib",
-        "typescript.enablePromptUseWorkspaceTsdk": true,
+        "js/ts.tsdk.path": "node_modules/typescript/lib",
+        "js/ts.tsdk.promptToUseWorkspaceVersion": true,
 
         // Show Tailwind class completions in className strings
         "tailwindCSS.includeLanguages": {

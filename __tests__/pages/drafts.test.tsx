@@ -33,6 +33,7 @@ vi.mock('@/components/drafts/DraftMetadataModal', () => ({
     if (!value) return null;
     return (
       <div data-testid={`${mode}-modal-open`}>
+        <div data-testid={`${mode}-modal-targets`}>{value.targets.join(',')}</div>
         <button type="button" onClick={onClose}>
           close-{mode}
         </button>
@@ -184,6 +185,96 @@ describe('DraftsPage', () => {
     render(<DraftsPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
+  });
+
+  it('opens create modal from createDraftId query param', async () => {
+    mockSearchParams = new URLSearchParams('createDraftId=draft-from-dashboard');
+
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ canUseAiMetadata: true }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'draft-from-dashboard',
+            userId: 'user-1',
+            title: '',
+            description: '',
+            tags: [],
+            visibility: 'private',
+            targets: [],
+            platforms: {},
+            $createdAt: '2000-01-01T00:00:00.000Z',
+            $updatedAt: '2000-01-01T00:00:00.000Z',
+          },
+        }),
+      } as Response);
+
+    render(<DraftsPage />);
+
+    expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
+  });
+
+  it('does not delete a non-minimal existing draft opened via createDraftId and preserves targets', async () => {
+    mockSearchParams = new URLSearchParams('createDraftId=existing-draft');
+
+    const fetchSpy = vi
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ platform: 'vimeo' }],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ canUseAiMetadata: true }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'existing-draft',
+            userId: 'user-1',
+            title: 'Already saved',
+            description: '',
+            tags: [],
+            visibility: 'private',
+            targets: ['youtube'],
+            platforms: {},
+            $createdAt: '2000-01-01T00:00:00.000Z',
+            $updatedAt: '2000-01-01T00:00:00.000Z',
+          },
+        }),
+      } as Response);
+
+    render(<DraftsPage />);
+
+    expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
+    expect(screen.getByTestId('create-modal-targets')).toHaveTextContent('youtube');
+
+    fireEvent.click(screen.getByRole('button', { name: 'close-create' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('create-modal-open')).not.toBeInTheDocument();
+    });
+    expect(fetchSpy).not.toHaveBeenCalledWith('/api/drafts/existing-draft', { method: 'DELETE' });
   });
 
   it('opens edit modal from editDraft query param', async () => {
