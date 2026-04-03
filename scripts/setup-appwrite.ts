@@ -379,7 +379,7 @@ async function main(): Promise<void> {
       }
     }
 
-    let columnKeys = await fetchColumnKeys(db, DATABASE_ID, t.tableId);
+    const columnKeys = await fetchColumnKeys(db, DATABASE_ID, t.tableId);
     for (const col of t.columns) {
       await ensureColumn(db, DATABASE_ID, t.tableId, col, columnKeys);
     }
