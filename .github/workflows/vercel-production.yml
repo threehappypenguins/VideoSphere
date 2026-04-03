@@ -1,0 +1,59 @@
+name: Vercel Production Deployment
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-production:
+    name: Deploy Production to Vercel
+    runs-on: ubuntu-latest
+
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Check formatting (Prettier)
+        run: pnpm format:check
+
+      - name: Type check (TypeScript)
+        run: pnpm type-check
+
+      - name: Run tests
+        run: pnpm test run
+
+      - name: Pull Vercel environment (production)
+        run: pnpm dlx vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Build project
+        run: pnpm dlx vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+
+      - name: Deploy to Vercel (production)
+        id: deploy
+        run: |
+          url=$(pnpm dlx vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}")
+          echo "deployment_url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Print deployment URL
+        run: echo "Deployed to production ${{ steps.deploy.outputs.deployment_url }}"
