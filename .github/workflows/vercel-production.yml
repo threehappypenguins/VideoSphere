@@ -1,4 +1,39 @@
-- name: Deploy to Vercel (production)
+name: Vercel Production Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Manual deploy target'
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-production:
+    name: Deploy Production to Vercel
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Deploy to Vercel (production)
         if: github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'production')
         id: deploy
         uses: amondnet/vercel-action@16e87c0a08142b0d0d33b76aeaf20823c381b9b9
@@ -18,3 +53,11 @@
           github-token: ${{ secrets.GITHUB_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Print deployment URL
+        if: steps.deploy.outputs.preview-url != ''
+        run: echo "Deployed to production ${{ steps.deploy.outputs.preview-url }}"
+
+      - name: Print preview deployment URL
+        if: steps.deploy-preview.outputs.preview-url != ''
+        run: echo "Deployed preview ${{ steps.deploy-preview.outputs.preview-url }}"
