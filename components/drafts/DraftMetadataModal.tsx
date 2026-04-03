@@ -635,18 +635,6 @@ export function DraftMetadataModal({
     value !== null &&
     (value.title.trim() !== '' || value.description.trim() !== '' || value.tags.length > 0);
 
-  const applyAiMetadata = (next: Pick<DraftEditorValues, 'title' | 'description' | 'tags'>) => {
-    if (!value) return;
-    setAiUndoStack((prev) => [...prev, snapshotEditor(value)]);
-    setAiRedoStack([]);
-    onChange({
-      ...value,
-      title: next.title,
-      description: next.description,
-      tags: next.tags,
-    });
-  };
-
   const handleUndoAi = () => {
     if (!value || aiUndoStack.length === 0) return;
     const previous = aiUndoStack[aiUndoStack.length - 1];
