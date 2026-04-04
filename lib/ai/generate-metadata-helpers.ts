@@ -4,6 +4,7 @@
 // =============================================================================
 
 import type { ConnectedAccountPlatform } from '@/types';
+import { PLATFORM_LABELS } from '@/lib/ui/platform-label';
 
 /** Max `fileName` length (raw string) before calling the LLM — caps tokens and latency. */
 export const MAX_GENERATE_METADATA_FILE_NAME_CHARS = 512;
@@ -48,15 +49,10 @@ export function buildSystemPrompt(
   descriptionMax: number
 ): string {
   const platformList = platforms.join(' and ');
-  const labels: Record<ConnectedAccountPlatform, string> = {
-    youtube: 'YouTube',
-    vimeo: 'Vimeo',
-    google_drive: 'Google Drive',
-  };
   const platformDetails = platforms
     .map((p) => {
       const l = PLATFORM_LIMITS[p];
-      return `- ${labels[p]}: title max ${l.titleMax} chars, description max ${l.descriptionMax} chars`;
+      return `- ${PLATFORM_LABELS[p]}: title max ${l.titleMax} chars, description max ${l.descriptionMax} chars`;
     })
     .join('\n');
 

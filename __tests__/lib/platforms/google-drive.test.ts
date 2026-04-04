@@ -59,16 +59,21 @@ describe('google-drive account metadata helpers', () => {
 describe('uploadToGoogleDrive', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    // Freeze time at 2026-04-15 so the year folder ID remains predictable
+    vi.setSystemTime(new Date('2026-04-15T12:00:00Z'));
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('includes Authorization header on resumable upload PUT request', async () => {
     const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
     const uploadUrl = 'https://upload.drive.test/session/abc';
+    const currentYear = String(new Date().getUTCFullYear());
+    const yearFolderId = `drive-year-${currentYear}`;
 
     fetchMock.mockImplementation((url: unknown, options?: any) => {
       const sUrl = String(url);
@@ -89,7 +94,7 @@ describe('uploadToGoogleDrive', () => {
 
       if ((!method || method === 'GET') && sUrl.includes('/drive/v3/files?')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ files: [{ id: 'drive-year-2026' }] }), { status: 200 })
+          new Response(JSON.stringify({ files: [{ id: yearFolderId }] }), { status: 200 })
         );
       }
 
