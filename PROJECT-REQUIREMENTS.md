@@ -284,7 +284,7 @@ Approximately **20% of the project requirements portion of your grade** is deter
 | Security | CSP, rate limiting, input sanitisation, env audit |
 | DevOps & CI/CD | Auto-deploy, Sentry, Dependabot, expanded pipeline |
 | Internationalisation | Multi-language support, RTL layout |
-| Developer Experience | JSDoc, ADRs, path aliases, pre-push hook |
+| Developer Experience | JSDoc, ADRs, path aliases, pre-commit hook |
 
 See [`STRETCH_GOALS.md`](STRETCH_GOALS.md) for the complete checklist with full descriptions of every item.
 

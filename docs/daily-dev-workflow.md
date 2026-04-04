@@ -24,7 +24,7 @@ Use a branch name that matches your task (e.g. `feature/draft-form`, `fix/login-
 
 ## When you finish work (before you push or open a PR)
 
-Run these commands as recommended pre-push checks. Fix any failures before pushing. (CI currently runs lint, format check, and type-check; running format, lint, test, and build locally catches more issues before you open a PR.)
+Run these commands as recommended pre-commit and pre-PR checks. Fix any failures before pushing. (CI currently runs lint, format check, and type-check; running format, lint, test, and build locally catches more issues before you open a PR.)
 
 ```bash
 pnpm format
