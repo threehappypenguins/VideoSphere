@@ -12,7 +12,7 @@
 // See /docs/testing.md for guidance on writing tests.
 // =============================================================================
 
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
@@ -24,7 +24,7 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     css: true,
     include: ['**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['**/*.a11y.test.{ts,tsx}'],
+    exclude: [...configDefaults.exclude, '**/*.a11y.test.{ts,tsx}'],
   },
   resolve: {
     alias: {
