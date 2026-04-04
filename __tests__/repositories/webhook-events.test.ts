@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'crypto';
 
 const { mockCreateRow, mockUpdateRow, mockDeleteRow, mockGetRow } = vi.hoisted(() => ({
   mockCreateRow: vi.fn(),
@@ -26,7 +27,13 @@ import {
   markStripeWebhookEventBookkeepingFailed,
   markStripeWebhookEventCompleted,
   markStripeWebhookEventFailed,
+  markStripeWebhookEventNonRetryableFailed,
 } from '@/lib/repositories/webhook-events';
+
+function expectedWebhookRowId(eventId: string): string {
+  const hash = createHash('sha256').update(`stripe:${eventId}`).digest('hex').slice(0, 32);
+  return `s_${hash}`;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,7 +54,7 @@ describe('webhook-events repository', () => {
     expect(mockCreateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'stripe:evt_123',
+      rowId: expectedWebhookRowId('evt_123'),
       data: expect.objectContaining({
         eventId: 'evt_123',
         provider: 'stripe',
@@ -85,6 +92,21 @@ describe('webhook-events repository', () => {
     expect(result).toEqual({ claimed: false, status: 'completed' });
   });
 
+  it('treats non-retryable failure status as duplicate', async () => {
+    mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'failed_non_retryable',
+      firstSeenAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await claimStripeWebhookEvent(
+      'evt_non_retryable_terminal',
+      'checkout.session.completed'
+    );
+
+    expect(result).toEqual({ claimed: false, status: 'completed' });
+  });
+
   it('keeps fresh processing conflicts as in-progress duplicates', async () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
     mockGetRow.mockResolvedValueOnce({
@@ -113,7 +135,7 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'stripe:evt_stale',
+      rowId: expectedWebhookRowId('evt_stale'),
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
@@ -141,7 +163,7 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'stripe:evt_failed_reclaim',
+      rowId: expectedWebhookRowId('evt_failed_reclaim'),
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
@@ -159,7 +181,7 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'stripe:evt_complete',
+      rowId: expectedWebhookRowId('evt_complete'),
       data: expect.objectContaining({
         status: 'completed',
         completedAt: expect.any(String),
@@ -176,7 +198,7 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'stripe:evt_failed',
+      rowId: expectedWebhookRowId('evt_failed'),
       data: expect.objectContaining({
         status: 'failed',
         lastError: expect.any(String),
@@ -195,11 +217,28 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'stripe:evt_bookkeeping_failure',
+      rowId: expectedWebhookRowId('evt_bookkeeping_failure'),
       data: expect.objectContaining({
         status: 'completed_with_bookkeeping_error',
         completedAt: expect.any(String),
         lastError: 'update failed',
+      }),
+    });
+  });
+
+  it('marks non-retryable processing failure as a terminal status', async () => {
+    mockUpdateRow.mockResolvedValueOnce({});
+
+    await markStripeWebhookEventNonRetryableFailed('evt_non_retryable_failure', 'missing_user_id');
+
+    expect(mockUpdateRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'processed_webhook_events',
+      rowId: expectedWebhookRowId('evt_non_retryable_failure'),
+      data: expect.objectContaining({
+        status: 'failed_non_retryable',
+        completedAt: expect.any(String),
+        lastError: 'missing_user_id',
       }),
     });
   });
@@ -211,7 +250,7 @@ describe('webhook-events repository', () => {
     expect(mockDeleteRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'stripe:evt_missing',
+      rowId: expectedWebhookRowId('evt_missing'),
     });
   });
 });

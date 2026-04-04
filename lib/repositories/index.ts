@@ -64,6 +64,7 @@ export {
   markStripeWebhookEventBookkeepingFailed,
   markStripeWebhookEventCompleted,
   markStripeWebhookEventFailed,
+  markStripeWebhookEventNonRetryableFailed,
   deleteStripeWebhookEvent,
 } from './webhook-events';
 export type { StripeWebhookProcessingClaimResult } from './webhook-events';

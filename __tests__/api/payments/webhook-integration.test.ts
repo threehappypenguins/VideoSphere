@@ -13,6 +13,7 @@ const claimStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventBookkeepingFailedMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventCompletedMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventFailedMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventNonRetryableFailedMock = vi.hoisted(() => vi.fn());
 const deleteStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
@@ -34,6 +35,7 @@ vi.mock('@/lib/repositories/webhook-events', () => ({
   markStripeWebhookEventBookkeepingFailed: markStripeWebhookEventBookkeepingFailedMock,
   markStripeWebhookEventCompleted: markStripeWebhookEventCompletedMock,
   markStripeWebhookEventFailed: markStripeWebhookEventFailedMock,
+  markStripeWebhookEventNonRetryableFailed: markStripeWebhookEventNonRetryableFailedMock,
   deleteStripeWebhookEvent: deleteStripeWebhookEventMock,
 }));
 
@@ -72,6 +74,7 @@ describe('POST /api/webhooks/stripe', () => {
     markStripeWebhookEventBookkeepingFailedMock.mockResolvedValue(undefined);
     markStripeWebhookEventCompletedMock.mockResolvedValue(undefined);
     markStripeWebhookEventFailedMock.mockResolvedValue(undefined);
+    markStripeWebhookEventNonRetryableFailedMock.mockResolvedValue(undefined);
     deleteStripeWebhookEventMock.mockResolvedValue(undefined);
   });
 
@@ -324,7 +327,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when checkout.session.completed is missing client_reference_id', async () => {
+  it('returns 200 non-retryable ack when checkout.session.completed is missing client_reference_id', async () => {
     constructEventMock.mockReturnValueOnce({
       id: 'evt_missing_user',
       type: 'checkout.session.completed',
@@ -344,11 +347,17 @@ describe('POST /api/webhooks/stripe', () => {
       })
     );
 
-    expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: 'Failed to process webhook event' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      received: true,
+      ignored: true,
+      nonRetryable: true,
+      reason: 'missing_user_id',
+    });
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
     expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
-    expect(markStripeWebhookEventFailedMock).toHaveBeenCalledWith(
+    expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventNonRetryableFailedMock).toHaveBeenCalledWith(
       'evt_missing_user',
       '[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=evt_missing_user'
     );

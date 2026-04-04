@@ -18,6 +18,7 @@ const claimStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventBookkeepingFailedMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventCompletedMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventFailedMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventNonRetryableFailedMock = vi.hoisted(() => vi.fn());
 const deleteStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
@@ -67,6 +68,7 @@ vi.mock('@/lib/repositories/webhook-events', () => ({
   markStripeWebhookEventBookkeepingFailed: markStripeWebhookEventBookkeepingFailedMock,
   markStripeWebhookEventCompleted: markStripeWebhookEventCompletedMock,
   markStripeWebhookEventFailed: markStripeWebhookEventFailedMock,
+  markStripeWebhookEventNonRetryableFailed: markStripeWebhookEventNonRetryableFailedMock,
   deleteStripeWebhookEvent: deleteStripeWebhookEventMock,
 }));
 
@@ -137,6 +139,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     markStripeWebhookEventBookkeepingFailedMock.mockResolvedValue(undefined);
     markStripeWebhookEventCompletedMock.mockResolvedValue(undefined);
     markStripeWebhookEventFailedMock.mockResolvedValue(undefined);
+    markStripeWebhookEventNonRetryableFailedMock.mockResolvedValue(undefined);
     deleteStripeWebhookEventMock.mockResolvedValue(undefined);
   });
 

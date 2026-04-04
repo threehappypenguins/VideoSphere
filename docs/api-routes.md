@@ -167,6 +167,7 @@ Success response variants:
 | `200` | `{ "received": true, "duplicate": true }` | Event was already handled (duplicate/replay no-op). |
 | `200` | `{ "received": true, "duplicate": true, "inProgress": true }` | Another request/worker is actively processing the same event. |
 | `200` | `{ "received": true, "bookkeepingWarning": true }` | Side effects succeeded, but completion bookkeeping failed and was recorded as terminal bookkeeping failure. |
+| `200` | `{ "received": true, "ignored": true, "nonRetryable": true, "reason": "missing_user_id" }` | Event payload/config issue is permanently non-retryable; event is terminally recorded and acknowledged to avoid retry loops. |
 
 Error responses:
 

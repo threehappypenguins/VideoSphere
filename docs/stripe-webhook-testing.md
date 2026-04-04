@@ -219,12 +219,12 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 | `eventId` | Unique Stripe event ID used for durable dedupe |
 | `provider` | `stripe` |
 | `eventType` | Stripe event type |
-| `status` | `processing`, `completed`, `failed`, or `completed_with_bookkeeping_error` |
+| `status` | `processing`, `completed`, `failed`, `completed_with_bookkeeping_error`, or `failed_non_retryable` |
 | `firstSeenAt` | Timestamp when the event was first claimed |
 | `completedAt` | Timestamp when handling reached a terminal success/no-op path |
 | `lastError` | Last processing error recorded before a retryable release |
 
-`completed_with_bookkeeping_error` is a terminal success-like state used when business side effects succeeded but final completion bookkeeping failed. Claim logic treats this status as an already-handled duplicate/no-op for the same Stripe `event.id`.
+`completed_with_bookkeeping_error` is a terminal success-like state used when business side effects succeeded but final completion bookkeeping failed. `failed_non_retryable` is a terminal non-retryable state for permanently invalid payload/config paths (for example, missing user mapping in `checkout.session.completed`). Claim logic treats both statuses as already-handled duplicate/no-op for the same Stripe `event.id`.
 
 ### Response Rules
 
@@ -233,6 +233,7 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 - Duplicate or replayed `event.id`: `200` with no-op body
 - Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
 - Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`
+- Non-retryable payload/config issue: `200` with `nonRetryable: true` after recording terminal non-retryable status
 
 ### Success Response Variants
 
@@ -242,6 +243,7 @@ The webhook can return one of these success payloads depending on claim/result s
 - `{ received: true, duplicate: true }`: event was already handled (completed or bookkeeping-failure terminal status).
 - `{ received: true, duplicate: true, inProgress: true }`: another worker/request currently holds an in-flight claim.
 - `{ received: true, bookkeepingWarning: true }`: side effects succeeded, but final completion bookkeeping did not.
+- `{ received: true, ignored: true, nonRetryable: true, reason: string }`: event payload/config was non-retryably invalid and was acknowledged to prevent Stripe retry loops.
 
 ### Why `bookkeepingWarning` Returns `200`
 
@@ -251,7 +253,7 @@ Returning `200` with `bookkeepingWarning: true` intentionally acknowledges recei
 
 ### Retention and Cleanup
 
-Completed terminal rows (`completed` and `completed_with_bookkeeping_error`) are retained for replay protection and troubleshooting. Failed rows are also retained and reclaimed via status/age-based claim logic, so retry behavior does not depend on delete succeeding during transient outages.
+Completed terminal rows (`completed`, `completed_with_bookkeeping_error`, and `failed_non_retryable`) are retained for replay protection and troubleshooting. Retryable failed rows (`failed`) are also retained and reclaimed via status/age-based claim logic, so retry behavior does not depend on delete succeeding during transient outages.
 
 If webhook volume grows enough to justify pruning, add a scheduled cleanup job for old completed rows after an agreed retention window. The current approach keeps the implementation simple and preserves strong duplicate protection.
 

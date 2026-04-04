@@ -13,6 +13,7 @@
 // - { received: true, duplicate: true }
 // - { received: true, duplicate: true, inProgress: true }
 // - { received: true, bookkeepingWarning: true }
+// - { received: true, ignored: true, nonRetryable: true, reason: string }
 // Errors: 400 (invalid signature), 403 (missing webhook secret), 500 (internal error)
 // =============================================================================
 
@@ -24,9 +25,20 @@ import {
   markStripeWebhookEventBookkeepingFailed,
   markStripeWebhookEventCompleted,
   markStripeWebhookEventFailed,
+  markStripeWebhookEventNonRetryableFailed,
 } from '@/lib/repositories/webhook-events';
 
 const COMPLETION_UPDATE_RETRY_DELAYS_MS = [0, 100, 300] as const;
+
+class NonRetryableWebhookProcessingError extends Error {
+  readonly code: string;
+
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = 'NonRetryableWebhookProcessingError';
+    this.code = code;
+  }
+}
 
 /**
  * Read the raw request body as bytes for webhook signature verification.
@@ -80,8 +92,9 @@ async function processCheckoutSessionCompleted(event: Stripe.Event): Promise<voi
     (session?.metadata?.userId ? String(session.metadata.userId) : null);
 
   if (!userId) {
-    throw new Error(
-      `[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=${event.id}`
+    throw new NonRetryableWebhookProcessingError(
+      `[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=${event.id}`,
+      'missing_user_id'
     );
   }
 
@@ -173,6 +186,31 @@ export async function POST(req: NextRequest) {
     try {
       await processEvent(event);
     } catch (processingErr) {
+      if (processingErr instanceof NonRetryableWebhookProcessingError) {
+        console.warn(
+          `[POST /api/webhooks/stripe] Non-retryable processing issue for eventId=${eventId}: ${processingErr.message}`
+        );
+
+        try {
+          await markStripeWebhookEventNonRetryableFailed(eventId, processingErr.message);
+        } catch (markNonRetryableErr) {
+          console.error(
+            `[POST /api/webhooks/stripe] Failed to mark eventId=${eventId} as non-retryable failed:`,
+            markNonRetryableErr
+          );
+        }
+
+        return NextResponse.json(
+          {
+            received: true,
+            ignored: true,
+            nonRetryable: true,
+            reason: processingErr.code,
+          },
+          { status: 200 }
+        );
+      }
+
       console.error(
         `[POST /api/webhooks/stripe] Failed to process eventId=${eventId} eventType=${event.type}:`,
         processingErr

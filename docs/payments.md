@@ -141,7 +141,7 @@ If business logic succeeds but completion bookkeeping fails, the route intention
 // Durable replay protection:
 // - processed_webhook_events table
 // - unique eventId for dedupe
-// - statuses: processing | completed | failed | completed_with_bookkeeping_error
+// - statuses: processing | completed | failed | completed_with_bookkeeping_error | failed_non_retryable
 ```
 
 ### Stripe Customer Portal

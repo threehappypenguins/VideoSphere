@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { TablesDB } from 'node-appwrite';
+import { createHash } from 'crypto';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID } from '@/lib/appwrite-constants';
 
@@ -16,7 +17,8 @@ type WebhookEventStatus =
   | 'processing'
   | 'completed'
   | 'failed'
-  | 'completed_with_bookkeeping_error';
+  | 'completed_with_bookkeeping_error'
+  | 'failed_non_retryable';
 
 const MAX_LAST_ERROR_LENGTH = 2000;
 const DEFAULT_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -38,7 +40,9 @@ interface WebhookEventRow {
 }
 
 function webhookEventRowId(provider: WebhookProvider, eventId: string): string {
-  return `${provider}:${eventId}`;
+  // Keep Appwrite row IDs within a conservative charset/length while preserving determinism.
+  const hash = createHash('sha256').update(`${provider}:${eventId}`).digest('hex').slice(0, 32);
+  return `${provider[0]}_${hash}`;
 }
 
 function nowIso(): string {
@@ -74,7 +78,8 @@ function normalizeWebhookEventStatus(value: unknown): WebhookEventStatus {
     value === 'completed' ||
     value === 'failed' ||
     value === 'processing' ||
-    value === 'completed_with_bookkeeping_error'
+    value === 'completed_with_bookkeeping_error' ||
+    value === 'failed_non_retryable'
   ) {
     return value;
   }
@@ -201,7 +206,8 @@ export async function claimStripeWebhookEvent(
 
       if (
         existing.status === 'completed' ||
-        existing.status === 'completed_with_bookkeeping_error'
+        existing.status === 'completed_with_bookkeeping_error' ||
+        existing.status === 'failed_non_retryable'
       ) {
         return { claimed: false, status: 'completed' };
       }
@@ -273,6 +279,23 @@ export async function markStripeWebhookEventBookkeepingFailed(
     rowId,
     data: {
       status: 'completed_with_bookkeeping_error' satisfies WebhookEventStatus,
+      completedAt: nowIso(),
+      lastError: trimLastError(lastError),
+    },
+  });
+}
+
+export async function markStripeWebhookEventNonRetryableFailed(
+  eventId: string,
+  lastError: string
+): Promise<void> {
+  const rowId = webhookEventRowId('stripe', eventId);
+  await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
+    rowId,
+    data: {
+      status: 'failed_non_retryable' satisfies WebhookEventStatus,
       completedAt: nowIso(),
       lastError: trimLastError(lastError),
     },
