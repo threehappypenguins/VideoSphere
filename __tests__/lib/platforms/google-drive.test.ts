@@ -19,14 +19,16 @@ function makeConnectedAccount(platformUserId: string): ConnectedAccount {
   return {
     id: 'ca-drive-1',
     userId: 'user-1',
+    platform: 'google_drive',
+    hasRefreshToken: true,
     platformName: 'google_drive',
     platformUserId,
     accessToken: 'encrypted-access',
     refreshToken: 'encrypted-refresh',
     tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  } as ConnectedAccount;
+    $createdAt: new Date().toISOString(),
+    $updatedAt: new Date().toISOString(),
+  };
 }
 
 describe('google-drive account metadata helpers', () => {
