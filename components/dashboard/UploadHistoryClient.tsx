@@ -41,6 +41,13 @@ interface UploadHistoryResponse extends ApiResponse<UploadHistoryJobItem[]> {
 /** Must match GET /api/uploads/jobs default `limit`. */
 const UPLOAD_HISTORY_PAGE_SIZE = 20;
 
+function platformLabel(platform: ConnectedAccountPlatform): string {
+  if (platform === 'youtube') return 'YouTube';
+  if (platform === 'vimeo') return 'Vimeo';
+  if (platform === 'google_drive') return 'Google Drive';
+  return platform;
+}
+
 function isJobActive(job: UploadHistoryJobItem): boolean {
   return (
     job.status === 'pending' ||
@@ -246,7 +253,8 @@ export function UploadHistoryClient() {
                     className="rounded-md border border-border bg-muted/30 p-3"
                   >
                     <p className="text-sm text-foreground">
-                      <span className="font-medium">{platform.platform}</span>: {platform.status}
+                      <span className="font-medium">{platformLabel(platform.platform)}</span>:{' '}
+                      {platform.status}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Updated: {new Date(platform.updatedAt).toLocaleString()}

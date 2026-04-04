@@ -57,6 +57,9 @@ To verify the shared settings manually, temporarily move or rename `.vscode/sett
 
 4. **Set up Appwrite (auth + database)**
    Put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`.
+   If you are validating platform distribution, also set:
+   `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET`,
+   `GOOGLE_DRIVE_CLIENT_ID`, and `GOOGLE_DRIVE_CLIENT_SECRET`.
 
 5. **Start the app and verify**
    ```bash

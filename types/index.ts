@@ -39,12 +39,13 @@ export interface User {
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
-export type ConnectedAccountPlatform = 'youtube' | 'vimeo';
+export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive';
 
 /** Platforms we support for drafts, uploads, and connections (extend as you add backends). */
 export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = [
   'youtube',
   'vimeo',
+  'google_drive',
 ];
 
 /** Platform upload status (PRD: pending, uploading, completed, failed). */

@@ -27,6 +27,7 @@ import {
 } from '@/lib/repositories/platform-uploads';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
+import { uploadToGoogleDrive } from '@/lib/platforms/google-drive';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
@@ -160,23 +161,37 @@ async function runSinglePlatformUpload(
       const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
         signal,
       });
-      return platformUpload.platform === 'youtube'
-        ? uploadToYouTube({
-            videoStream: stream,
-            contentLength,
-            contentType,
-            metadata,
-            tokens,
-            signal,
-          })
-        : uploadToVimeo({
-            videoStream: stream,
-            contentLength,
-            contentType,
-            metadata,
-            tokens,
-            signal,
-          });
+      if (platformUpload.platform === 'youtube') {
+        return uploadToYouTube({
+          videoStream: stream,
+          contentLength,
+          contentType,
+          metadata,
+          tokens,
+          signal,
+        });
+      }
+
+      if (platformUpload.platform === 'vimeo') {
+        return uploadToVimeo({
+          videoStream: stream,
+          contentLength,
+          contentType,
+          metadata,
+          tokens,
+          signal,
+        });
+      }
+
+      return uploadToGoogleDrive({
+        connectedAccount,
+        videoStream: stream,
+        contentLength,
+        contentType,
+        metadata: { title: metadata.title },
+        tokens,
+        signal,
+      });
     };
 
     let uploadResult = await runUploadWithDeadline(

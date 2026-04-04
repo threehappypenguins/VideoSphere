@@ -7,6 +7,7 @@
 import type { ConnectedAccount } from '@/types';
 import type { PlatformUploadTokens } from '@/lib/platforms/types';
 import { updateTokens } from '@/lib/repositories/connected-accounts';
+import { refreshGoogleDriveAccessToken } from '@/lib/platforms/google-drive';
 import { refreshYouTubeAccessToken } from '@/lib/platforms/youtube';
 
 /** Refresh if access token expires within this window (ms). */
@@ -84,6 +85,45 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
     if (persisted === null) {
       throw new Error(
         'Failed to persist refreshed YouTube tokens because the connected account no longer exists.'
+      );
+    }
+
+    return {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+      tokenExpiry: refreshed.tokenExpiry,
+    };
+  }
+
+  if (account.platform === 'google_drive') {
+    const refreshToken = account.refreshToken.trim();
+    if (!refreshToken) {
+      throw new Error(
+        'Google Drive access token is expired or near expiry and no refresh token is stored. Reconnect your Google Drive account.'
+      );
+    }
+
+    const refreshed = await refreshGoogleDriveAccessToken({ refreshToken });
+    if ('error' in refreshed) {
+      const statusSuffix =
+        refreshed.error.statusCode != null ? ` (HTTP ${refreshed.error.statusCode})` : '';
+      const detailsSuffix = refreshed.error.details
+        ? ` Details: ${typeof refreshed.error.details === 'string' ? refreshed.error.details : JSON.stringify(refreshed.error.details)}`
+        : '';
+      throw new Error(
+        `${refreshed.error.code}: ${refreshed.error.message}${statusSuffix}${detailsSuffix}`
+      );
+    }
+
+    const persisted = await updateTokens(
+      account.id,
+      refreshed.accessToken,
+      refreshed.refreshToken,
+      refreshed.tokenExpiry
+    );
+    if (persisted === null) {
+      throw new Error(
+        'Failed to persist refreshed Google Drive tokens because the connected account no longer exists.'
       );
     }
 

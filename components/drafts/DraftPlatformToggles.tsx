@@ -3,6 +3,7 @@ import type { ConnectedAccountPlatform } from '@/types';
 const PLATFORM_LABELS: Partial<Record<ConnectedAccountPlatform, string>> = {
   youtube: 'YouTube',
   vimeo: 'Vimeo',
+  google_drive: 'Google Drive',
 };
 
 interface DraftPlatformTogglesProps {

@@ -68,6 +68,7 @@ const mockUploadToYouTube = vi.fn();
 const mockRefreshYouTubeAccessToken = vi.fn();
 const mockRefreshTokenIfNeeded = vi.fn();
 const mockUploadToVimeo = vi.fn();
+const mockUploadToGoogleDrive = vi.fn();
 const mockGetPlatformUploadsByJob = vi.fn();
 const mockUpdatePlatformUploadStatus = vi.fn();
 const mockGetUploadJobById = vi.fn();
@@ -127,6 +128,10 @@ vi.mock('@/lib/platforms/token-refresh', () => ({
 
 vi.mock('@/lib/platforms/vimeo', () => ({
   uploadToVimeo: (...args: unknown[]) => mockUploadToVimeo(...args),
+}));
+
+vi.mock('@/lib/platforms/google-drive', () => ({
+  uploadToGoogleDrive: (...args: unknown[]) => mockUploadToGoogleDrive(...args),
 }));
 
 import { POST } from '@/app/api/uploads/distribute/route';
@@ -322,10 +327,20 @@ describe('POST /api/uploads/distribute', () => {
       platformUrl: 'https://vimeo.com/vm-1',
     });
 
+    mockUploadToGoogleDrive.mockResolvedValue({
+      ok: true,
+      platformVideoId: 'drive-1',
+      platformUrl: 'https://drive.google.com/file/d/drive-1/view',
+    });
+
     mockUpdatePlatformUploadStatus.mockImplementation(async (id: string, status: string) => ({
       id,
       uploadJobId: 'job-123',
-      platform: id.includes('vimeo') ? 'vimeo' : 'youtube',
+      platform: id.includes('vimeo')
+        ? 'vimeo'
+        : id.includes('google_drive')
+          ? 'google_drive'
+          : 'youtube',
       status,
       platformVideoId: '',
       platformUrl: '',
@@ -1023,6 +1038,239 @@ describe('POST /api/uploads/distribute', () => {
       errLog.mockRestore();
       vi.useRealTimers();
     }
+  });
+
+  it('uploads to Google Drive successfully when selected as a target', async () => {
+    mockGetDraftById.mockResolvedValueOnce({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['google_drive'],
+      title: 'Backup title',
+      description: 'Backup description',
+      visibility: 'private',
+      tags: ['backup'],
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockGetPlatformUploadsByJob.mockResolvedValueOnce([
+      {
+        id: 'pu-google_drive',
+        uploadJobId: 'job-123',
+        platform: 'google_drive',
+        status: 'completed',
+        platformVideoId: 'drive-1',
+        platformUrl: 'https://drive.google.com/file/d/drive-1/view',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['google_drive'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockUploadToGoogleDrive).toHaveBeenCalledTimes(1);
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-google_drive',
+      'completed',
+      'drive-1',
+      'https://drive.google.com/file/d/drive-1/view',
+      null
+    );
+  });
+
+  it('marks Google Drive platform failed when account is missing without affecting other targets', async () => {
+    mockGetConnectedAccountWithTokens.mockImplementation(
+      async (_userId: string, platform: string) =>
+        platform === 'google_drive'
+          ? null
+          : {
+              id: `acct-${platform}`,
+              userId: 'user-123',
+              platform,
+              accessToken: 'token',
+              refreshToken: '',
+              tokenExpiry: '',
+              hasRefreshToken: false,
+              platformUserId: 'p1',
+              platformName: 'n1',
+              $createdAt: '2000-01-01T00:00:00.000Z',
+              $updatedAt: '2000-01-01T00:00:00.000Z',
+            }
+    );
+
+    mockGetPlatformUploadsByJob.mockResolvedValueOnce([
+      {
+        id: 'pu-google_drive',
+        uploadJobId: 'job-123',
+        platform: 'google_drive',
+        status: 'failed',
+        platformVideoId: '',
+        platformUrl: '',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: 'No connected google_drive account found.',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'pu-youtube',
+        uploadJobId: 'job-123',
+        platform: 'youtube',
+        status: 'completed',
+        platformVideoId: 'yt-1',
+        platformUrl: 'https://youtube.com/watch?v=yt-1',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['google_drive', 'youtube'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-google_drive',
+      'failed',
+      undefined,
+      undefined,
+      'No connected google_drive account found.'
+    );
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-youtube',
+      'completed',
+      'yt-1',
+      'https://youtube.com/watch?v=yt-1',
+      null
+    );
+  });
+
+  it('marks Google Drive as failed when Drive API upload fails while preserving other results', async () => {
+    mockUploadToGoogleDrive.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'GOOGLE_DRIVE_UPLOAD_FAILED',
+        message: 'Google Drive upload failed',
+        statusCode: 500,
+      },
+    });
+
+    mockGetConnectedAccountWithTokens.mockImplementation(
+      async (_userId: string, platform: string) => ({
+        id: `acct-${platform}`,
+        userId: 'user-123',
+        platform,
+        accessToken: 'token',
+        refreshToken: '',
+        tokenExpiry: '',
+        hasRefreshToken: false,
+        platformUserId: 'p1',
+        platformName: 'n1',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      })
+    );
+
+    mockGetPlatformUploadsByJob.mockResolvedValueOnce([
+      {
+        id: 'pu-google_drive',
+        uploadJobId: 'job-123',
+        platform: 'google_drive',
+        status: 'failed',
+        platformVideoId: '',
+        platformUrl: '',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: 'GOOGLE_DRIVE_UPLOAD_FAILED: Google Drive upload failed (HTTP 500)',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'pu-vimeo',
+        uploadJobId: 'job-123',
+        platform: 'vimeo',
+        status: 'completed',
+        platformVideoId: 'vm-1',
+        platformUrl: 'https://vimeo.com/vm-1',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['google_drive', 'vimeo'],
+        },
+        { 'a_session_test-project': 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-google_drive',
+      'failed',
+      undefined,
+      undefined,
+      'GOOGLE_DRIVE_UPLOAD_FAILED: Google Drive upload failed (HTTP 500)'
+    );
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-vimeo',
+      'completed',
+      'vm-1',
+      'https://vimeo.com/vm-1',
+      null
+    );
   });
 
   it('updates platform statuses independently and marks job failed when any platform fails', async () => {

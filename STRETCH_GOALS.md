@@ -115,7 +115,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 > These build on top of the mandatory AI feature requirement.
 
-- [ ] **Streaming AI responses** — stream LLM output token-by-token using the Vercel AI SDK `streamText`; display a typing indicator while streaming
+- [x] **Streaming AI responses** — stream LLM output token-by-token using the Vercel AI SDK `streamText`; display a typing indicator while streaming
 - [ ] **AI with tool / function calling** — define at least one tool that the LLM can call (e.g. look up a database record, perform a calculation); handle the tool result in the UI
 - [ ] **Retrieval-Augmented Generation (RAG)** — embed user-specific content (documents, notes) as vectors; retrieve relevant chunks at query time to ground AI responses in real data
 - [ ] **AI usage metering** — track per-user token usage; enforce a limit for free-tier users and display remaining quota in the UI
@@ -215,7 +215,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 ## 18. DevOps & CI/CD
 
-- [ ] **Automated deployment to Vercel** — the `main` branch deploys automatically to production on every merge; staging/preview deployments are created for every open PR
+- [x] **Automated deployment to Vercel** — the `main` branch deploys automatically to production on every merge; staging/preview deployments are created for every open PR
 - [ ] **Expanded CI pipeline** — add E2E tests (Playwright) and a coverage threshold check to the existing GitHub Actions workflow
 - [ ] **Automated dependency updates** — configure Dependabot (or Renovate) to open PRs for outdated dependencies on a weekly schedule
 - [ ] **Error tracking with Sentry** — integrate Sentry for both client-side and server-side error capture; configure source maps so stack traces reference original TypeScript

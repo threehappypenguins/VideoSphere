@@ -20,6 +20,8 @@ export const PLATFORM_LIMITS: Record<
 > = {
   youtube: { titleMax: 100, descriptionMax: 5000 },
   vimeo: { titleMax: 128, descriptionMax: 5000 },
+  // Drive is a backup/archive target; keep practical metadata limits aligned with UI defaults.
+  google_drive: { titleMax: 255, descriptionMax: 5000 },
 };
 
 /** Derive the most restrictive limits across the requested platforms. */
@@ -46,10 +48,15 @@ export function buildSystemPrompt(
   descriptionMax: number
 ): string {
   const platformList = platforms.join(' and ');
+  const labels: Record<ConnectedAccountPlatform, string> = {
+    youtube: 'YouTube',
+    vimeo: 'Vimeo',
+    google_drive: 'Google Drive',
+  };
   const platformDetails = platforms
     .map((p) => {
       const l = PLATFORM_LIMITS[p];
-      return `- ${p.charAt(0).toUpperCase() + p.slice(1)}: title max ${l.titleMax} chars, description max ${l.descriptionMax} chars`;
+      return `- ${labels[p]}: title max ${l.titleMax} chars, description max ${l.descriptionMax} chars`;
     })
     .join('\n');
 

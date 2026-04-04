@@ -39,6 +39,7 @@ function formatTargets(targets: readonly string[]): string {
   const labels: Record<string, string> = {
     youtube: 'YouTube',
     vimeo: 'Vimeo',
+    google_drive: 'Google Drive',
   };
 
   return targets.map((target) => labels[target] ?? target).join(', ');

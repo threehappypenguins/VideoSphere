@@ -74,7 +74,7 @@ const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> =
   { value: 'private', label: 'Private' },
 ];
 
-const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = ['youtube', 'vimeo'];
+const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = ['youtube', 'vimeo', 'google_drive'];
 
 function comparePlatformsByPreference(
   a: ConnectedAccountPlatform,
@@ -89,6 +89,13 @@ function comparePlatformsByPreference(
   if (aKnown) return -1;
   if (bKnown) return 1;
   return a.localeCompare(b);
+}
+
+function platformLabel(platform: ConnectedAccountPlatform): string {
+  if (platform === 'youtube') return 'YouTube';
+  if (platform === 'vimeo') return 'Vimeo';
+  if (platform === 'google_drive') return 'Google Drive';
+  return platform;
 }
 
 interface DraftMetadataModalProps {
@@ -1837,7 +1844,7 @@ export function DraftMetadataModal({
                               key={`${item.uploadJobId}-${platform.platform}`}
                               className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
                             >
-                              {platform.platform}: {platform.status} (
+                              {platformLabel(platform.platform)}: {platform.status} (
                               {new Date(platform.updatedAt).toLocaleString()})
                             </span>
                           ))}

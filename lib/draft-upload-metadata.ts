@@ -603,7 +603,20 @@ export function buildMetadataForPlatform(
       ...(playlistTitles !== undefined && playlistTitles.length > 0 ? { playlistTitles } : {}),
     };
   }
-  const vm = draft.platforms.vimeo;
+  if (platform === 'vimeo') {
+    const vm = draft.platforms.vimeo;
+    return {
+      title: draft.title,
+      description: draft.description,
+      tags,
+      visibility,
+      thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
+      thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
+      vimeoCategoryUri: vm?.categoryUri?.trim() || undefined,
+      vimeo: vm,
+    };
+  }
+
   return {
     title: draft.title,
     description: draft.description,
@@ -611,7 +624,5 @@ export function buildMetadataForPlatform(
     visibility,
     thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
     thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
-    vimeoCategoryUri: vm?.categoryUri?.trim() || undefined,
-    vimeo: vm,
   };
 }
