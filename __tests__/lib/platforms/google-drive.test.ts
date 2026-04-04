@@ -59,6 +59,7 @@ describe('google-drive account metadata helpers', () => {
 describe('uploadToGoogleDrive', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    vi.useFakeTimers();
     // Freeze time at 2026-04-15 so the year folder ID remains predictable
     vi.setSystemTime(new Date('2026-04-15T12:00:00Z'));
   });
@@ -137,5 +138,44 @@ describe('uploadToGoogleDrive', () => {
         }),
       })
     );
+  });
+
+  it('preserves upstream Drive status code from helper API failures', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: any[]) => any);
+
+    fetchMock.mockImplementation((url: unknown, options?: any) => {
+      const sUrl = String(url);
+      const method = options?.method;
+
+      if ((!method || method === 'GET') && sUrl.includes('/drive/v3/files/drive-root-1')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { message: 'Forbidden' } }), { status: 403 })
+        );
+      }
+
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await uploadToGoogleDrive({
+      connectedAccount: makeConnectedAccount(
+        '{"permissionId":"perm-1","rootFolderId":"drive-root-1"}'
+      ),
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: { title: 'Backup title' },
+      tokens: {
+        accessToken: 'drive-access-token',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!('error' in result)) {
+      throw new Error('Expected uploadToGoogleDrive to fail for a 403 Drive API response.');
+    }
+
+    expect(result.error.code).toBe('GOOGLE_DRIVE_UPLOAD_FAILED');
+    expect(result.error.statusCode).toBe(403);
+    expect((result.error.details ?? '').toLowerCase()).toContain('forbidden');
   });
 });

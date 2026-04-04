@@ -34,6 +34,18 @@ const DRIVE_FILES_CREATE_URL = 'https://www.googleapis.com/drive/v3/files?fields
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const GOOGLE_DRIVE_ROOT_FOLDER_NAME = 'VideoSphere Backups';
 
+class GoogleDriveApiError extends Error {
+  statusCode: number;
+  details?: string;
+
+  constructor(message: string, statusCode: number, details?: string) {
+    super(message);
+    this.name = 'GoogleDriveApiError';
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+}
+
 function toError(
   code: string,
   message: string,
@@ -172,11 +184,8 @@ async function readDriveFileById(
   }
 
   if (!res.ok) {
-    throw new Error(
-      `Google Drive file lookup failed (${res.status}): ${
-        (await readApiErrorDetails(res)) ?? 'unknown error'
-      }`
-    );
+    const details = await readApiErrorDetails(res);
+    throw new GoogleDriveApiError('Google Drive file lookup failed.', res.status, details);
   }
 
   return (await res.json().catch(() => ({}))) as DriveFileLookupResponse;
@@ -204,11 +213,8 @@ async function findDriveFolderIdByName(
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Google Drive folder lookup failed (${res.status}): ${
-        (await readApiErrorDetails(res)) ?? 'unknown error'
-      }`
-    );
+    const details = await readApiErrorDetails(res);
+    throw new GoogleDriveApiError('Google Drive folder lookup failed.', res.status, details);
   }
 
   const body = (await res.json().catch(() => ({}))) as DriveListResponse;
@@ -236,11 +242,8 @@ async function createDriveFolder(
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Google Drive folder create failed (${res.status}): ${
-        (await readApiErrorDetails(res)) ?? 'unknown error'
-      }`
-    );
+    const details = await readApiErrorDetails(res);
+    throw new GoogleDriveApiError('Google Drive folder create failed.', res.status, details);
   }
 
   const body = (await res.json().catch(() => ({}))) as DriveFileLookupResponse;
@@ -273,11 +276,15 @@ async function persistGoogleDriveRootFolderId(
     return;
   }
 
+  const accessToken = tokens.accessToken?.trim() || connectedAccount.accessToken;
+  const refreshToken = tokens.refreshToken?.trim() || connectedAccount.refreshToken;
+  const tokenExpiry = tokens.tokenExpiry?.trim() || connectedAccount.tokenExpiry;
+
   await updateConnection(
     connectedAccount.id,
-    tokens.accessToken,
-    tokens.refreshToken ?? '',
-    tokens.tokenExpiry ?? connectedAccount.tokenExpiry,
+    accessToken,
+    refreshToken,
+    tokenExpiry,
     serializeGoogleDrivePlatformUserId(parsed.permissionId, rootFolderId),
     connectedAccount.platformName
   );
@@ -500,6 +507,15 @@ export async function uploadToGoogleDrive(
         `https://drive.google.com/file/d/${body.id}/view`,
     };
   } catch (error) {
+    if (error instanceof GoogleDriveApiError) {
+      return toError(
+        'GOOGLE_DRIVE_UPLOAD_FAILED',
+        'Google Drive upload failed.',
+        error.statusCode,
+        error.details ?? error.message
+      );
+    }
+
     return toError(
       'GOOGLE_DRIVE_UPLOAD_ERROR',
       'Unexpected Google Drive upload error.',
