@@ -85,7 +85,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 ## 6. File Handling & Media
 
 - [ ] **File upload with cloud storage** — allow users to upload files (images, documents) to a cloud storage provider (Supabase Storage, Cloudflare R2, AWS S3); display a preview after upload
-- [ ] **Google Drive backup destination** — allow users to connect Google Drive as an additional distribution target so one upload can be sent to YouTube, Vimeo, and Drive simultaneously for backup/archival
+- [x] **Google Drive backup destination** — allow users to connect Google Drive as an additional distribution target so one upload can be sent to YouTube, Vimeo, and Drive simultaneously for backup/archival
 - [ ] **Avatar upload and crop** — profile photo upload with in-browser crop/resize before upload; stored in cloud storage
 - [ ] **Image optimisation pipeline** — all user-uploaded images are resized and converted to WebP/AVIF on upload; served via a CDN
 - [ ] **File download** — allow authenticated users to download their own uploaded files; enforce access control so users cannot download other users' private files
