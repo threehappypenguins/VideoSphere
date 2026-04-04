@@ -15,6 +15,7 @@ const setSupporterStatusMock = vi.hoisted(() => vi.fn());
 const accountGetMock = vi.hoisted(() => vi.fn());
 const getUserByIdMock = vi.hoisted(() => vi.fn());
 const claimStripeWebhookEventMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventBookkeepingFailedMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventCompletedMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventFailedMock = vi.hoisted(() => vi.fn());
 const deleteStripeWebhookEventMock = vi.hoisted(() => vi.fn());
@@ -63,6 +64,7 @@ vi.mock('@/lib/repositories/users', () => ({
 
 vi.mock('@/lib/repositories/webhook-events', () => ({
   claimStripeWebhookEvent: claimStripeWebhookEventMock,
+  markStripeWebhookEventBookkeepingFailed: markStripeWebhookEventBookkeepingFailedMock,
   markStripeWebhookEventCompleted: markStripeWebhookEventCompletedMock,
   markStripeWebhookEventFailed: markStripeWebhookEventFailedMock,
   deleteStripeWebhookEvent: deleteStripeWebhookEventMock,
@@ -132,6 +134,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     vi.stubEnv('STRIPE_PRICE_ID', '');
     getUserByIdMock.mockResolvedValue({ role: 'user' });
     claimStripeWebhookEventMock.mockResolvedValue({ claimed: true, status: 'processing' });
+    markStripeWebhookEventBookkeepingFailedMock.mockResolvedValue(undefined);
     markStripeWebhookEventCompletedMock.mockResolvedValue(undefined);
     markStripeWebhookEventFailedMock.mockResolvedValue(undefined);
     deleteStripeWebhookEventMock.mockResolvedValue(undefined);
@@ -498,9 +501,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         },
       });
       setSupporterStatusMock.mockResolvedValueOnce(undefined);
-      markStripeWebhookEventCompletedMock.mockRejectedValueOnce(
-        new Error('Appwrite update outage')
-      );
+      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
 
       const res = await webhookPOST(
         createWebhookRequest({
@@ -512,6 +513,11 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ received: true, bookkeepingWarning: true });
       expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+      expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
+      expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
+        'evt_completion_mark_fail',
+        'Appwrite update outage'
+      );
       expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
       expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
     });

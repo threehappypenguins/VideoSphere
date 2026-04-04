@@ -17,9 +17,12 @@ import Stripe from 'stripe';
 import { setSupporterStatus } from '@/lib/repositories/users';
 import {
   claimStripeWebhookEvent,
+  markStripeWebhookEventBookkeepingFailed,
   markStripeWebhookEventCompleted,
   markStripeWebhookEventFailed,
 } from '@/lib/repositories/webhook-events';
+
+const COMPLETION_UPDATE_RETRY_DELAYS_MS = [0, 100, 300] as const;
 
 /**
  * Read the raw request body as bytes for webhook signature verification.
@@ -36,6 +39,33 @@ function getEventId(event: Stripe.Event): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function tryMarkCompletedWithBackoff(
+  eventId: string
+): Promise<{ ok: true } | { ok: false; error: unknown }> {
+  let lastError: unknown;
+
+  for (const delayMs of COMPLETION_UPDATE_RETRY_DELAYS_MS) {
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+
+    try {
+      await markStripeWebhookEventCompleted(eventId);
+      return { ok: true };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  return { ok: false, error: lastError };
 }
 
 async function processCheckoutSessionCompleted(event: Stripe.Event): Promise<void> {
@@ -158,13 +188,26 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      await markStripeWebhookEventCompleted(eventId);
+      const completionResult = await tryMarkCompletedWithBackoff(eventId);
+      if (completionResult.ok === false) {
+        throw completionResult.error;
+      }
+
       return NextResponse.json({ received: true }, { status: 200 });
     } catch (completionErr) {
       console.error(
         `[POST /api/webhooks/stripe] Business logic succeeded but failed to mark eventId=${eventId} completed:`,
         completionErr
       );
+
+      try {
+        await markStripeWebhookEventBookkeepingFailed(eventId, errorMessage(completionErr));
+      } catch (bookkeepingErr) {
+        console.error(
+          `[POST /api/webhooks/stripe] Failed to persist bookkeeping-failure terminal status for eventId=${eventId}:`,
+          bookkeepingErr
+        );
+      }
 
       // Side effects already ran; avoid re-running by acknowledging receipt.
       return NextResponse.json({ received: true, bookkeepingWarning: true }, { status: 200 });

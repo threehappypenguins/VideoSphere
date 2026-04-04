@@ -61,6 +61,7 @@ export { getMonthlyUsage, incrementUsage, canUpload } from './upload-usage';
 
 export {
   claimStripeWebhookEvent,
+  markStripeWebhookEventBookkeepingFailed,
   markStripeWebhookEventCompleted,
   markStripeWebhookEventFailed,
   deleteStripeWebhookEvent,

@@ -23,6 +23,7 @@ vi.mock('@/lib/appwrite', () => ({
 import {
   claimStripeWebhookEvent,
   deleteStripeWebhookEvent,
+  markStripeWebhookEventBookkeepingFailed,
   markStripeWebhookEventCompleted,
   markStripeWebhookEventFailed,
 } from '@/lib/repositories/webhook-events';
@@ -65,6 +66,21 @@ describe('webhook-events repository', () => {
     });
 
     const result = await claimStripeWebhookEvent('evt_duplicate', 'checkout.session.completed');
+
+    expect(result).toEqual({ claimed: false, status: 'completed' });
+  });
+
+  it('treats bookkeeping-failure terminal status as duplicate', async () => {
+    mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'completed_with_bookkeeping_error',
+      firstSeenAt: '2026-01-01T00:00:00.000Z',
+    });
+
+    const result = await claimStripeWebhookEvent(
+      'evt_bookkeeping_terminal',
+      'checkout.session.completed'
+    );
 
     expect(result).toEqual({ claimed: false, status: 'completed' });
   });
@@ -169,6 +185,23 @@ describe('webhook-events repository', () => {
 
     const payload = mockUpdateRow.mock.calls[0]?.[0]?.data as { lastError: string };
     expect(payload.lastError.length).toBeLessThanOrEqual(2000);
+  });
+
+  it('marks bookkeeping failure as a terminal completed status', async () => {
+    mockUpdateRow.mockResolvedValueOnce({});
+
+    await markStripeWebhookEventBookkeepingFailed('evt_bookkeeping_failure', 'update failed');
+
+    expect(mockUpdateRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'processed_webhook_events',
+      rowId: 'stripe:evt_bookkeeping_failure',
+      data: expect.objectContaining({
+        status: 'completed_with_bookkeeping_error',
+        completedAt: expect.any(String),
+        lastError: 'update failed',
+      }),
+    });
   });
 
   it('ignores delete requests for already removed rows', async () => {

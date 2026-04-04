@@ -12,7 +12,11 @@ import { DATABASE_ID, PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID } from '@/lib/appwr
 const tablesDb = new TablesDB(appwriteClient);
 
 type WebhookProvider = 'stripe';
-type WebhookEventStatus = 'processing' | 'completed' | 'failed';
+type WebhookEventStatus =
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'completed_with_bookkeeping_error';
 
 const MAX_LAST_ERROR_LENGTH = 2000;
 const DEFAULT_PROCESSING_STALE_MS = 10 * 60 * 1000;
@@ -66,7 +70,12 @@ function processingStaleMs(): number {
 }
 
 function normalizeWebhookEventStatus(value: unknown): WebhookEventStatus {
-  if (value === 'completed' || value === 'failed' || value === 'processing') {
+  if (
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'processing' ||
+    value === 'completed_with_bookkeeping_error'
+  ) {
     return value;
   }
   return 'processing';
@@ -190,7 +199,10 @@ export async function claimStripeWebhookEvent(
         continue;
       }
 
-      if (existing.status === 'completed') {
+      if (
+        existing.status === 'completed' ||
+        existing.status === 'completed_with_bookkeeping_error'
+      ) {
         return { claimed: false, status: 'completed' };
       }
 
@@ -245,6 +257,23 @@ export async function markStripeWebhookEventFailed(
     rowId,
     data: {
       status: 'failed' satisfies WebhookEventStatus,
+      lastError: trimLastError(lastError),
+    },
+  });
+}
+
+export async function markStripeWebhookEventBookkeepingFailed(
+  eventId: string,
+  lastError: string
+): Promise<void> {
+  const rowId = webhookEventRowId('stripe', eventId);
+  await tablesDb.updateRow({
+    databaseId: DATABASE_ID,
+    tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
+    rowId,
+    data: {
+      status: 'completed_with_bookkeeping_error' satisfies WebhookEventStatus,
+      completedAt: nowIso(),
       lastError: trimLastError(lastError),
     },
   });
