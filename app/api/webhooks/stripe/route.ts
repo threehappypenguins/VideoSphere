@@ -4,8 +4,10 @@
 // Receives and processes Stripe webhook events. Verifies webhook signature and
 // handles checkout.session.completed to set user's isSupporter status.
 //
-// This handler is idempotent — processing the same event twice causes no harm.
+// This handler is idempotent for currently handled event types.
 // Stripe may retry webhook delivery, and we must handle duplicates gracefully.
+// Unhandled event types are acknowledged without durable claim bookkeeping so
+// future handlers can opt into processing historical replays.
 //
 // Request: POST with raw body and stripe-signature header
 // Success response variants:
@@ -13,6 +15,7 @@
 // - { received: true, duplicate: true }
 // - { received: true, bookkeepingWarning: true }
 // - { received: true, ignored: true, nonRetryable: true, reason: string }
+// - { received: true, ignored: true, reason: 'unhandled_event_type' }
 // Errors:
 // - 400 missing stripe-signature header
 // - 400 invalid webhook signature
@@ -32,7 +35,12 @@ import {
   markStripeWebhookEventNonRetryableFailed,
 } from '@/lib/repositories/webhook-events';
 
+const HANDLED_STRIPE_EVENT_TYPES = new Set(['checkout.session.completed']);
 const COMPLETION_UPDATE_RETRY_DELAYS_MS = [0, 100, 300] as const;
+
+function isHandledStripeEventType(eventType: string): boolean {
+  return HANDLED_STRIPE_EVENT_TYPES.has(eventType);
+}
 
 class NonRetryableWebhookProcessingError extends Error {
   readonly code: string;
@@ -163,6 +171,16 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[POST /api/webhooks/stripe] Received eventId=${eventId} eventType=${event.type}`);
+
+    if (!isHandledStripeEventType(event.type)) {
+      console.log(
+        `[POST /api/webhooks/stripe] Ignoring unhandled event type without durable claim: eventId=${eventId} eventType=${event.type}`
+      );
+      return NextResponse.json(
+        { received: true, ignored: true, reason: 'unhandled_event_type' },
+        { status: 200 }
+      );
+    }
 
     const claim = await claimStripeWebhookEvent(eventId, event.type);
     if (!claim.claimed) {

@@ -60,8 +60,6 @@ describe('webhook-events repository', () => {
         provider: 'stripe',
         eventType: 'checkout.session.completed',
         status: 'processing',
-        firstSeenAt: expect.any(String),
-        lastAttemptAt: expect.any(String),
       }),
     });
   });
@@ -70,7 +68,8 @@ describe('webhook-events repository', () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
     mockGetRow.mockResolvedValueOnce({
       status: 'completed',
-      firstSeenAt: '2026-01-01T00:00:00.000Z',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
     });
 
     const result = await claimStripeWebhookEvent('evt_duplicate', 'checkout.session.completed');
@@ -82,7 +81,8 @@ describe('webhook-events repository', () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
     mockGetRow.mockResolvedValueOnce({
       status: 'completed_with_bookkeeping_error',
-      firstSeenAt: '2026-01-01T00:00:00.000Z',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
     });
 
     const result = await claimStripeWebhookEvent(
@@ -97,7 +97,8 @@ describe('webhook-events repository', () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
     mockGetRow.mockResolvedValueOnce({
       status: 'failed_non_retryable',
-      firstSeenAt: '2026-01-01T00:00:00.000Z',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
     });
 
     const result = await claimStripeWebhookEvent(
@@ -112,7 +113,8 @@ describe('webhook-events repository', () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
     mockGetRow.mockResolvedValueOnce({
       status: 'processing',
-      firstSeenAt: new Date().toISOString(),
+      $createdAt: new Date().toISOString(),
+      $updatedAt: new Date().toISOString(),
     });
 
     const result = await claimStripeWebhookEvent('evt_processing', 'checkout.session.completed');
@@ -126,7 +128,8 @@ describe('webhook-events repository', () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
     mockGetRow.mockResolvedValueOnce({
       status: 'processing',
-      firstSeenAt: staleDate,
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: staleDate,
     });
     mockUpdateRow.mockResolvedValueOnce({});
 
@@ -140,17 +143,9 @@ describe('webhook-events repository', () => {
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
-        lastAttemptAt: expect.any(String),
-        completedAt: null,
         lastError: '',
       }),
     });
-    const stalePayload = mockUpdateRow.mock.calls[0]?.[0]?.data as {
-      firstSeenAt?: string;
-      lastAttemptAt: string;
-    };
-    expect(stalePayload.firstSeenAt).toBeUndefined();
-    expect(stalePayload.lastAttemptAt).not.toBe(staleDate);
     expect(mockCreateRow).toHaveBeenCalledTimes(1);
   });
 
@@ -158,7 +153,8 @@ describe('webhook-events repository', () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
     mockGetRow.mockResolvedValueOnce({
       status: 'failed',
-      firstSeenAt: '2026-01-01T00:00:00.000Z',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
     });
     mockUpdateRow.mockResolvedValueOnce({});
 
@@ -175,42 +171,7 @@ describe('webhook-events repository', () => {
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
-        lastAttemptAt: expect.any(String),
-        completedAt: null,
         lastError: '',
-      }),
-    });
-    const failedPayload = mockUpdateRow.mock.calls[0]?.[0]?.data as {
-      firstSeenAt?: string;
-      lastAttemptAt: string;
-    };
-    expect(failedPayload.firstSeenAt).toBeUndefined();
-  });
-
-  it('restores missing firstSeenAt during reclaim while recording lastAttemptAt', async () => {
-    const staleDate = new Date(Date.now() - 11 * 60 * 1000).toISOString();
-    mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
-    mockGetRow.mockResolvedValueOnce({
-      status: 'processing',
-      firstSeenAt: null,
-      lastAttemptAt: staleDate,
-    });
-    mockUpdateRow.mockResolvedValueOnce({});
-
-    const result = await claimStripeWebhookEvent(
-      'evt_missing_first_seen',
-      'checkout.session.completed'
-    );
-
-    expect(result).toEqual({ claimed: true, status: 'processing' });
-    expect(mockUpdateRow).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'processed_webhook_events',
-      rowId: expectedWebhookRowId('evt_missing_first_seen'),
-      data: expect.objectContaining({
-        firstSeenAt: expect.any(String),
-        lastAttemptAt: expect.any(String),
-        completedAt: null,
       }),
     });
   });
@@ -226,7 +187,6 @@ describe('webhook-events repository', () => {
       rowId: expectedWebhookRowId('evt_complete'),
       data: expect.objectContaining({
         status: 'completed',
-        completedAt: expect.any(String),
       }),
     });
   });
@@ -262,7 +222,6 @@ describe('webhook-events repository', () => {
       rowId: expectedWebhookRowId('evt_bookkeeping_failure'),
       data: expect.objectContaining({
         status: 'completed_with_bookkeeping_error',
-        completedAt: expect.any(String),
         lastError: 'update failed',
       }),
     });
@@ -279,7 +238,6 @@ describe('webhook-events repository', () => {
       rowId: expectedWebhookRowId('evt_non_retryable_failure'),
       data: expect.objectContaining({
         status: 'failed_non_retryable',
-        completedAt: expect.any(String),
         lastError: 'missing_user_id',
       }),
     });

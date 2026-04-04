@@ -9,6 +9,7 @@ import { TablesDB } from 'node-appwrite';
 import { createHash } from 'crypto';
 import appwriteClient from '@/lib/appwrite';
 import { DATABASE_ID, PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID } from '@/lib/appwrite-constants';
+import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
 
 const tablesDb = new TablesDB(appwriteClient);
 
@@ -36,18 +37,14 @@ interface CreateWebhookEventRecordInput {
 
 interface WebhookEventRow {
   status: WebhookEventStatus;
-  firstSeenAt: string | null;
-  lastAttemptAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 function webhookEventRowId(provider: WebhookProvider, eventId: string): string {
   // Keep Appwrite row IDs within a conservative charset/length while preserving determinism.
   const hash = createHash('sha256').update(`${provider}:${eventId}`).digest('hex').slice(0, 32);
   return `${provider[0]}_${hash}`;
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
 }
 
 function trimLastError(message: string): string {
@@ -87,18 +84,13 @@ function normalizeWebhookEventStatus(value: unknown): WebhookEventStatus {
   return 'processing';
 }
 
-function staleReferenceTime(
-  lastAttemptAt: string | null,
-  firstSeenAt: string | null
-): number | null {
-  const reference = lastAttemptAt ?? firstSeenAt;
-  if (!reference) return null;
-  const parsed = Date.parse(reference);
+function staleReferenceTime(updatedAt: string, createdAt: string): number | null {
+  const parsed = Date.parse(updatedAt || createdAt);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function isStaleProcessing(lastAttemptAt: string | null, firstSeenAt: string | null): boolean {
-  const referenceTime = staleReferenceTime(lastAttemptAt, firstSeenAt);
+function isStaleProcessing(updatedAt: string, createdAt: string): boolean {
+  const referenceTime = staleReferenceTime(updatedAt, createdAt);
   if (referenceTime === null) return false;
   return Date.now() - referenceTime > processingStaleMs();
 }
@@ -111,11 +103,12 @@ async function getWebhookEventRow(eventId: string): Promise<WebhookEventRow | nu
       tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
       rowId,
     })) as Record<string, unknown>;
+    const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
 
     return {
       status: normalizeWebhookEventStatus(row.status),
-      firstSeenAt: typeof row.firstSeenAt === 'string' ? row.firstSeenAt : null,
-      lastAttemptAt: typeof row.lastAttemptAt === 'string' ? row.lastAttemptAt : null,
+      createdAt: $createdAt,
+      updatedAt: $updatedAt,
     };
   } catch (error) {
     if (isNotFoundError(error)) {
@@ -133,23 +126,16 @@ function isUpdateConflictError(error: unknown): boolean {
 async function tryTransitionWebhookEventToProcessing(
   eventId: string,
   eventType: string,
-  existing: WebhookEventRow
+  _existing: WebhookEventRow
 ): Promise<boolean> {
   const rowId = webhookEventRowId('stripe', eventId);
-  const nextAttemptAt = nowIso();
-  const data: Record<string, string | null> = {
+  const data: Record<string, string> = {
     eventId,
     provider: 'stripe',
     eventType,
     status: 'processing',
-    lastAttemptAt: nextAttemptAt,
-    completedAt: null,
     lastError: '',
   };
-
-  if (!existing.firstSeenAt) {
-    data.firstSeenAt = nextAttemptAt;
-  }
 
   try {
     await tablesDb.updateRow({
@@ -186,7 +172,6 @@ async function tryTransitionWebhookEventToProcessing(
 
 async function createWebhookEventRecord(input: CreateWebhookEventRecordInput): Promise<void> {
   const rowId = webhookEventRowId(input.provider, input.eventId);
-  const claimedAt = nowIso();
   await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
@@ -196,8 +181,6 @@ async function createWebhookEventRecord(input: CreateWebhookEventRecordInput): P
       provider: input.provider,
       eventType: input.eventType,
       status: 'processing' satisfies WebhookEventStatus,
-      firstSeenAt: claimedAt,
-      lastAttemptAt: claimedAt,
     },
   });
 }
@@ -242,7 +225,7 @@ export async function claimStripeWebhookEvent(
 
       if (
         existing.status === 'processing' &&
-        isStaleProcessing(existing.lastAttemptAt, existing.firstSeenAt)
+        isStaleProcessing(existing.updatedAt, existing.createdAt)
       ) {
         const reclaimed = await tryTransitionWebhookEventToProcessing(eventId, eventType, existing);
         if (reclaimed) {
@@ -270,7 +253,6 @@ export async function markStripeWebhookEventCompleted(eventId: string): Promise<
     rowId,
     data: {
       status: 'completed' satisfies WebhookEventStatus,
-      completedAt: nowIso(),
     },
   });
 }
@@ -302,7 +284,6 @@ export async function markStripeWebhookEventBookkeepingFailed(
     rowId,
     data: {
       status: 'completed_with_bookkeeping_error' satisfies WebhookEventStatus,
-      completedAt: nowIso(),
       lastError: trimLastError(lastError),
     },
   });
@@ -319,7 +300,6 @@ export async function markStripeWebhookEventNonRetryableFailed(
     rowId,
     data: {
       status: 'failed_non_retryable' satisfies WebhookEventStatus,
-      completedAt: nowIso(),
       lastError: trimLastError(lastError),
     },
   });

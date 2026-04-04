@@ -4,7 +4,9 @@ This guide explains how to test the Stripe webhook integration locally using **S
 
 ## Overview
 
-When a user completes a payment via Stripe Checkout, Stripe sends a webhook event (`checkout.session.completed`) to your application. The webhook handler verifies the event signature, claims a durable idempotency record keyed by Stripe `event.id`, and then updates the user's `isSupporter` status in Appwrite.
+When a user completes a payment via Stripe Checkout, Stripe sends a webhook event (`checkout.session.completed`) to your application. For currently handled event types, the webhook handler verifies the event signature, claims a durable idempotency record keyed by Stripe `event.id`, and then updates the user's `isSupporter` status in Appwrite.
+
+Verified but currently unhandled Stripe event types are acknowledged without writing a `processed_webhook_events` row, so future handler additions can still opt into processing historical replays.
 
 Duplicate deliveries, Stripe retries, and manual replays are safe no-ops after the first successful handling of a given Stripe event ID.
 
@@ -220,26 +222,29 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 | `provider` | `stripe` |
 | `eventType` | Stripe event type |
 | `status` | `processing`, `completed`, `failed`, `completed_with_bookkeeping_error`, or `failed_non_retryable` |
-| `firstSeenAt` | Timestamp when the event was first claimed |
-| `lastAttemptAt` | Timestamp when the most recent processing attempt claimed or reclaimed the event |
-| `completedAt` | Timestamp when handling reached a terminal success/no-op path |
 | `lastError` | Last processing error recorded before a retryable release |
 
 `completed_with_bookkeeping_error` is a terminal success-like state used when business side effects succeeded but final completion bookkeeping failed. `failed_non_retryable` is a terminal non-retryable state for permanently invalid payload/config paths (for example, missing user mapping in `checkout.session.completed`). Claim logic treats both statuses as already-handled duplicate/no-op for the same Stripe `event.id`.
 
-`firstSeenAt` is preserved across retries/reclaims for observability. Stale-processing detection uses `lastAttemptAt` (falling back to `firstSeenAt` for older rows) so retry timing reflects the latest in-flight attempt without losing the original claim timestamp.
+For timing/observability, the implementation uses Appwrite system timestamps instead of custom datetime columns:
+
+- `$createdAt`: when the webhook event row was first claimed.
+- `$updatedAt`: the most recent attempt/status transition time, including reclaim and terminal-state updates.
+
+Stale-processing detection uses `$updatedAt`, so retry timing reflects the latest in-flight attempt without introducing redundant business timestamp columns.
 
 ### Response Rules
 
 - Invalid signature: `400`
 - Missing webhook secret: `403`
-- Duplicate or replayed `event.id`: `200` with no-op body
+- Duplicate or replayed handled `event.id`: `200` with no-op body
 - In-progress duplicate claim: `500` with retry-required body so Stripe keeps retrying
 - Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
 - Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`, but only if the terminal bookkeeping status is persisted successfully
 - Terminal bookkeeping status persistence failure after side effects succeed: `500` so the route does not acknowledge a non-terminal `processing` row as complete
 - Non-retryable payload/config issue: `200` with `nonRetryable: true`, but only after recording terminal non-retryable status successfully
 - Non-retryable terminal status persistence failure: `500` so the route does not acknowledge a still-`processing` row as complete
+- Currently unhandled event type: `200` with `ignored: true` and no durable claim record
 
 ### Success Response Variants
 
@@ -249,6 +254,7 @@ The webhook can return one of these success payloads depending on claim/result s
 - `{ received: true, duplicate: true }`: event was already handled (completed or bookkeeping-failure terminal status).
 - `{ received: true, bookkeepingWarning: true }`: side effects succeeded, final completion bookkeeping did not, and the terminal bookkeeping-failure status was persisted successfully.
 - `{ received: true, ignored: true, nonRetryable: true, reason: string }`: event payload/config was non-retryably invalid, and the terminal non-retryable status was persisted successfully before acknowledgement.
+- `{ received: true, ignored: true, reason: 'unhandled_event_type' }`: event type is currently unhandled and was acknowledged without durable dedupe bookkeeping.
 
 ### Why `bookkeepingWarning` Returns `200`
 

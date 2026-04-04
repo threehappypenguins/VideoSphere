@@ -32,9 +32,11 @@
  * title/description/tags/visibility columns. Drop and recreate `platform_uploads`
  * when changing this shape.
  *
- * Timestamps: use Appwrite system `$createdAt` / `$updatedAt` only. If an older
- * project had custom `createdAt`/`updatedAt` columns, remove them in the Console
- * to free column slots (this script does not delete columns).
+ * Timestamps: use Appwrite system `$createdAt` / `$updatedAt` only, including
+ * webhook observability/reclaim timing. Do not add custom business timestamp
+ * columns when the row lifecycle can be derived from Appwrite's built-ins.
+ * If an older project had custom `createdAt`/`updatedAt` columns, remove them
+ * in the Console to free column slots (this script does not delete columns).
  */
 
 import { config } from 'dotenv';
@@ -264,9 +266,6 @@ const tables: TableConfig[] = [
       { key: 'provider', type: 'varchar', size: 32, required: true },
       { key: 'eventType', type: 'varchar', size: 128, required: true },
       { key: 'status', type: 'varchar', size: 32, required: true },
-      { key: 'firstSeenAt', type: 'datetime', required: true },
-      { key: 'lastAttemptAt', type: 'datetime', required: false },
-      { key: 'completedAt', type: 'datetime', required: false },
       { key: 'lastError', type: 'text', size: 2000, required: false },
     ],
   },

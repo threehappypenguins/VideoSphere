@@ -167,6 +167,7 @@ Success response variants:
 | `200` | `{ "received": true, "duplicate": true }` | Event was already handled (duplicate/replay no-op). |
 | `200` | `{ "received": true, "bookkeepingWarning": true }` | Side effects succeeded, but completion bookkeeping failed and was recorded as terminal bookkeeping failure. |
 | `200` | `{ "received": true, "ignored": true, "nonRetryable": true, "reason": "missing_user_id" }` | Event payload/config issue is permanently non-retryable and was successfully recorded in a terminal status before acknowledgement. |
+| `200` | `{ "received": true, "ignored": true, "reason": "unhandled_event_type" }` | Event type is currently unhandled, so the route acknowledges it without durable idempotency bookkeeping. |
 
 Error responses:
 

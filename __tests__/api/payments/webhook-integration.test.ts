@@ -463,12 +463,13 @@ describe('POST /api/webhooks/stripe', () => {
 
     expect(res.status).toBe(200);
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
-    expect(claimStripeWebhookEventMock).toHaveBeenCalledWith(
-      'evt_unhandled',
-      'payment_intent.succeeded'
-    );
-    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_unhandled');
-    expect(await res.json()).toEqual({ received: true });
+    expect(claimStripeWebhookEventMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({
+      received: true,
+      ignored: true,
+      reason: 'unhandled_event_type',
+    });
   });
 
   it('marks a failed event for retry and then succeeds on retry', async () => {
