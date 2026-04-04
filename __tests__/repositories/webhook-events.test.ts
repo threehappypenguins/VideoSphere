@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockCreateRow, mockUpdateRow, mockDeleteRow } = vi.hoisted(() => ({
+const { mockCreateRow, mockUpdateRow, mockDeleteRow, mockGetRow } = vi.hoisted(() => ({
   mockCreateRow: vi.fn(),
   mockUpdateRow: vi.fn(),
   mockDeleteRow: vi.fn(),
+  mockGetRow: vi.fn(),
 }));
 
 vi.mock('node-appwrite', () => ({
@@ -11,6 +12,7 @@ vi.mock('node-appwrite', () => ({
     createRow = mockCreateRow;
     updateRow = mockUpdateRow;
     deleteRow = mockDeleteRow;
+    getRow = mockGetRow;
   },
 }));
 
@@ -50,12 +52,78 @@ describe('webhook-events repository', () => {
     });
   });
 
-  it('treats row conflicts as duplicate events', async () => {
+  it('treats conflicts with completed rows as duplicate events', async () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'completed',
+      firstSeenAt: '2026-01-01T00:00:00.000Z',
+    });
 
     const result = await claimStripeWebhookEvent('evt_duplicate', 'checkout.session.completed');
 
-    expect(result).toEqual({ claimed: false });
+    expect(result).toEqual({ claimed: false, status: 'completed' });
+  });
+
+  it('keeps fresh processing conflicts as in-progress duplicates', async () => {
+    mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'processing',
+      firstSeenAt: new Date().toISOString(),
+    });
+
+    const result = await claimStripeWebhookEvent('evt_processing', 'checkout.session.completed');
+
+    expect(result).toEqual({ claimed: false, status: 'processing' });
+    expect(mockDeleteRow).not.toHaveBeenCalled();
+  });
+
+  it('reclaims stale processing rows and allows retry processing', async () => {
+    const staleDate = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'processing',
+      firstSeenAt: staleDate,
+    });
+    mockUpdateRow.mockResolvedValueOnce({});
+
+    const result = await claimStripeWebhookEvent('evt_stale', 'checkout.session.completed');
+
+    expect(result).toEqual({ claimed: true, status: 'processing' });
+    expect(mockUpdateRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'processed_webhook_events',
+      rowId: 'evt_stale',
+      data: expect.objectContaining({
+        status: 'processing',
+        eventType: 'checkout.session.completed',
+      }),
+    });
+    expect(mockCreateRow).toHaveBeenCalledTimes(1);
+  });
+
+  it('reclaims failed rows and allows retry processing', async () => {
+    mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'failed',
+      firstSeenAt: '2026-01-01T00:00:00.000Z',
+    });
+    mockUpdateRow.mockResolvedValueOnce({});
+
+    const result = await claimStripeWebhookEvent(
+      'evt_failed_reclaim',
+      'checkout.session.completed'
+    );
+
+    expect(result).toEqual({ claimed: true, status: 'processing' });
+    expect(mockUpdateRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'processed_webhook_events',
+      rowId: 'evt_failed_reclaim',
+      data: expect.objectContaining({
+        status: 'processing',
+        eventType: 'checkout.session.completed',
+      }),
+    });
   });
 
   it('marks a claimed event completed', async () => {

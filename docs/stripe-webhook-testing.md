@@ -229,11 +229,18 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 - Invalid signature: `400`
 - Missing webhook secret: `403`
 - Duplicate or replayed `event.id`: `200` with no-op body
-- Processing failure after claim: `500`, after recording failure and releasing the claim for retry
+- Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
+- Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`
+
+### Why `bookkeepingWarning` Returns `200`
+
+If business side effects already succeeded (for example, supporter status update) but writing the final `completed` marker fails, returning `500` would cause Stripe to retry and risk re-running side effects.
+
+Returning `200` with `bookkeepingWarning: true` intentionally acknowledges receipt to prevent duplicate side effects. Operational follow-up should focus on fixing webhook-event record status, not replaying business logic.
 
 ### Retention and Cleanup
 
-Completed rows are retained for replay protection and troubleshooting. Failed rows are not retained because the route marks them failed and then deletes them so Stripe can retry the same event ID cleanly.
+Completed rows are retained for replay protection and troubleshooting. Failed rows are also retained and reclaimed via status/age-based claim logic, so retry behavior does not depend on delete succeeding during transient outages.
 
 If webhook volume grows enough to justify pruning, add a scheduled cleanup job for old completed rows after an agreed retention window. The current approach keeps the implementation simple and preserves strong duplicate protection.
 

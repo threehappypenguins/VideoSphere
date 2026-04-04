@@ -460,5 +460,60 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(setSupporterStatusMock).not.toHaveBeenCalled();
       expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
     });
+
+    it('returns 500 when webhook event claim indicates retry is required', async () => {
+      claimStripeWebhookEventMock.mockResolvedValueOnce({ claimed: false, status: 'failed' });
+      constructEventMock.mockReturnValueOnce({
+        id: 'evt_claim_failed',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_claim_failed',
+          },
+        },
+      });
+
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"id":"evt_claim_failed","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'Webhook event claim requires retry' });
+      expect(setSupporterStatusMock).not.toHaveBeenCalled();
+    });
+
+    it('returns 200 with bookkeeping warning when completion status update fails', async () => {
+      constructEventMock.mockReturnValueOnce({
+        id: 'evt_completion_mark_fail',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_completion_mark_fail',
+          },
+        },
+      });
+      setSupporterStatusMock.mockResolvedValueOnce(undefined);
+      markStripeWebhookEventCompletedMock.mockRejectedValueOnce(
+        new Error('Appwrite update outage')
+      );
+
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"id":"evt_completion_mark_fail","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true, bookkeepingWarning: true });
+      expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+      expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+      expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
+    });
   });
 });

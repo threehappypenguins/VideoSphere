@@ -271,6 +271,56 @@ describe('POST /api/webhooks/stripe', () => {
     expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
   });
 
+  it('returns 200 for duplicate in-progress deliveries', async () => {
+    claimStripeWebhookEventMock.mockResolvedValueOnce({ claimed: false, status: 'processing' });
+    constructEventMock.mockReturnValueOnce({
+      id: 'evt_in_progress',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'user_123',
+          id: 'cs_test_in_progress',
+        },
+      },
+    });
+
+    const res = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_in_progress","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, duplicate: true, inProgress: true });
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when event claim status is failed and requires retry', async () => {
+    claimStripeWebhookEventMock.mockResolvedValueOnce({ claimed: false, status: 'failed' });
+    constructEventMock.mockReturnValueOnce({
+      id: 'evt_claim_failed',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'user_123',
+          id: 'cs_test_claim_failed',
+        },
+      },
+    });
+
+    const res = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_claim_failed","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Webhook event claim requires retry' });
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
+  });
+
   it('returns 200 when checkout.session.completed is missing client_reference_id', async () => {
     constructEventMock.mockReturnValueOnce({
       id: 'evt_missing_user',
@@ -395,7 +445,7 @@ describe('POST /api/webhooks/stripe', () => {
       'evt_retryable',
       'Appwrite unavailable'
     );
-    expect(deleteStripeWebhookEventMock).toHaveBeenCalledWith('evt_retryable');
+    expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
 
     const secondRes = await POST(
       createRequest({
@@ -410,6 +460,34 @@ describe('POST /api/webhooks/stripe', () => {
     expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_retryable');
   });
 
+  it('returns 200 with bookkeeping warning when completion update fails after side effects', async () => {
+    constructEventMock.mockReturnValueOnce({
+      id: 'evt_completion_mark_fail',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'user_123',
+          id: 'cs_test_completion_mark_fail',
+        },
+      },
+    });
+    setSupporterStatusMock.mockResolvedValueOnce(undefined);
+    markStripeWebhookEventCompletedMock.mockRejectedValueOnce(new Error('Appwrite update outage'));
+
+    const res = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_completion_mark_fail","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, bookkeepingWarning: true });
+    expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+    expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+    expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
+  });
+
   it('allows only one side effect for near-simultaneous deliveries of the same event id', async () => {
     constructEventMock.mockReturnValue({
       id: 'evt_race',
@@ -422,30 +500,34 @@ describe('POST /api/webhooks/stripe', () => {
       },
     });
 
+    let resolveFirstClaim: ((value: { claimed: true; status: 'processing' }) => void) | null = null;
+    const firstClaimDeferred = new Promise<{ claimed: true; status: 'processing' }>((resolve) => {
+      resolveFirstClaim = resolve;
+    });
+
     claimStripeWebhookEventMock
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(() => resolve({ claimed: true, status: 'processing' }), 15);
-          })
-      )
+      .mockImplementationOnce(() => firstClaimDeferred)
       .mockResolvedValueOnce({ claimed: false, status: 'processing' });
     setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
-    const [firstRes, secondRes] = await Promise.all([
-      POST(
-        createRequest({
-          rawBody: '{"id":"evt_race","type":"checkout.session.completed"}',
-          stripeSignature: 't=123,v1=abc',
-        })
-      ),
-      POST(
-        createRequest({
-          rawBody: '{"id":"evt_race","type":"checkout.session.completed"}',
-          stripeSignature: 't=123,v1=abc',
-        })
-      ),
-    ]);
+    const firstPromise = POST(
+      createRequest({
+        rawBody: '{"id":"evt_race","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+    const secondPromise = POST(
+      createRequest({
+        rawBody: '{"id":"evt_race","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    // Ensure one request stays in-flight until we intentionally release the claim.
+    await Promise.resolve();
+    resolveFirstClaim?.({ claimed: true, status: 'processing' });
+
+    const [firstRes, secondRes] = await Promise.all([firstPromise, secondPromise]);
 
     expect(firstRes.status).toBe(200);
     expect(secondRes.status).toBe(200);

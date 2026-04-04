@@ -17,7 +17,6 @@ import Stripe from 'stripe';
 import { setSupporterStatus } from '@/lib/repositories/users';
 import {
   claimStripeWebhookEvent,
-  deleteStripeWebhookEvent,
   markStripeWebhookEventCompleted,
   markStripeWebhookEventFailed,
 } from '@/lib/repositories/webhook-events';
@@ -117,14 +116,29 @@ export async function POST(req: NextRequest) {
 
     const claim = await claimStripeWebhookEvent(eventId, event.type);
     if (!claim.claimed) {
-      console.log(`[POST /api/webhooks/stripe] Duplicate event ignored: eventId=${eventId}`);
-      return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+      if (claim.status === 'completed') {
+        console.log(`[POST /api/webhooks/stripe] Duplicate event ignored: eventId=${eventId}`);
+        return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+      }
+
+      if (claim.status === 'processing') {
+        console.log(
+          `[POST /api/webhooks/stripe] Duplicate in-progress event acknowledged: eventId=${eventId}`
+        );
+        return NextResponse.json(
+          { received: true, duplicate: true, inProgress: true },
+          { status: 200 }
+        );
+      }
+
+      console.warn(
+        `[POST /api/webhooks/stripe] Event claim conflict requires retry: eventId=${eventId} status=${claim.status ?? 'unknown'}`
+      );
+      return NextResponse.json({ error: 'Webhook event claim requires retry' }, { status: 500 });
     }
 
     try {
       await processEvent(event);
-      await markStripeWebhookEventCompleted(eventId);
-      return NextResponse.json({ received: true }, { status: 200 });
     } catch (processingErr) {
       console.error(
         `[POST /api/webhooks/stripe] Failed to process eventId=${eventId} eventType=${event.type}:`,
@@ -140,16 +154,20 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      try {
-        await deleteStripeWebhookEvent(eventId);
-      } catch (deleteErr) {
-        console.error(
-          `[POST /api/webhooks/stripe] Failed to release failed eventId=${eventId}:`,
-          deleteErr
-        );
-      }
-
       return NextResponse.json({ error: 'Failed to process webhook event' }, { status: 500 });
+    }
+
+    try {
+      await markStripeWebhookEventCompleted(eventId);
+      return NextResponse.json({ received: true }, { status: 200 });
+    } catch (completionErr) {
+      console.error(
+        `[POST /api/webhooks/stripe] Business logic succeeded but failed to mark eventId=${eventId} completed:`,
+        completionErr
+      );
+
+      // Side effects already ran; avoid re-running by acknowledging receipt.
+      return NextResponse.json({ received: true, bookkeepingWarning: true }, { status: 200 });
     }
   } catch (err) {
     console.error('[POST /api/webhooks/stripe] Unexpected error:', err);
