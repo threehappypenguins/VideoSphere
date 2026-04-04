@@ -1,0 +1,84 @@
+/**
+ * Tests for GET /api/platforms/connect/drive
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+
+const mockAccountGet = vi.fn();
+
+vi.mock('node-appwrite', () => {
+  const mockClient = {
+    setEndpoint: vi.fn(function () {
+      return this;
+    }),
+    setProject: vi.fn(function () {
+      return this;
+    }),
+    setSession: vi.fn(function () {
+      return this;
+    }),
+  };
+  function MockClient() {
+    return mockClient;
+  }
+  function MockAccount() {
+    this.get = mockAccountGet;
+  }
+  return { Client: MockClient, Account: MockAccount };
+});
+
+import { GET } from '@/app/api/platforms/connect/drive/route';
+
+const SESSION_COOKIE = 'a_session_test-project';
+
+function makeRequest(cookies: Record<string, string> = {}): NextRequest {
+  const url = new URL('http://localhost:3000/api/platforms/connect/drive');
+  const cookieHeader = Object.entries(cookies)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ');
+  return new NextRequest(url, {
+    method: 'GET',
+    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+  });
+}
+
+describe('GET /api/platforms/connect/drive', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
+    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
+    process.env.GOOGLE_DRIVE_CLIENT_ID = 'test-drive-client-id';
+  });
+
+  afterEach(() => {
+    delete process.env.GOOGLE_DRIVE_CLIENT_ID;
+  });
+
+  it('redirects to error when GOOGLE_DRIVE_CLIENT_ID is missing', async () => {
+    delete process.env.GOOGLE_DRIVE_CLIENT_ID;
+    const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
+    const res = await GET(req);
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('error=google_drive');
+  });
+
+  it('redirects to /login when no session cookie is present', async () => {
+    const req = makeRequest();
+    const res = await GET(req);
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/login$/);
+  });
+
+  it('redirects to Google OAuth consent screen on success', async () => {
+    mockAccountGet.mockResolvedValue({ $id: 'user-123' });
+    const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
+    const res = await GET(req);
+    expect(res.status).toBe(307);
+    const location = new URL(res.headers.get('location')!);
+    expect(location.origin + location.pathname).toContain('accounts.google.com/o/oauth2/v2/auth');
+    expect(location.searchParams.get('client_id')).toBe('test-drive-client-id');
+    expect(decodeURIComponent(location.searchParams.get('scope') || '')).toContain('drive.file');
+    expect(location.searchParams.get('access_type')).toBe('offline');
+  });
+});

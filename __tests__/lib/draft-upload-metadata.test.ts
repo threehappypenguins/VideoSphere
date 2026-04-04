@@ -105,7 +105,7 @@ describe('draft-upload-metadata', () => {
     });
     expect(parseDraftTargetsFromRequestBody([])).toEqual({
       ok: false,
-      error: 'targets must include at least one of: youtube, vimeo',
+      error: 'targets must include at least one of: youtube, vimeo, google_drive',
     });
     expect(parseDraftTargetsFromRequestBody(['youtube', 'youtube'])).toEqual({
       ok: true,

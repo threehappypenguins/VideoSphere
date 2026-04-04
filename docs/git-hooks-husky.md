@@ -10,14 +10,14 @@ Husky is configured to run two hooks:
 
 | Hook | Trigger | Tool |
 |------|---------|------|
-| `pre-commit` | Before every commit | `lint-staged` |
+| `pre-commit` | Before every commit | `lint-staged` + `pnpm type-check` + `pnpm test -- --run` |
 | `commit-msg` | After writing a commit message | `commitlint` |
 
 ---
 
 ## `pre-commit` Hook
 
-Runs **lint-staged**, which only processes files that are staged for commit.
+Runs **lint-staged** first (only staged files), then runs project-wide type checks and tests.
 
 ### Rules
 
@@ -30,6 +30,8 @@ Runs **lint-staged**, which only processes files that are staged for commit.
 - ESLint attempts to **auto-fix** any fixable issues before committing.
 - Prettier **auto-formats** staged files.
 - If ESLint encounters an error it **cannot auto-fix**, the commit is **blocked** and the staged files are reverted to their original state.
+- If `pnpm type-check` fails, the commit is **blocked**.
+- If `pnpm test -- --run` fails, the commit is **blocked**.
 
 ### Example Output (success)
 ```

@@ -85,7 +85,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 ## 6. File Handling & Media
 
 - [ ] **File upload with cloud storage** — allow users to upload files (images, documents) to a cloud storage provider (Supabase Storage, Cloudflare R2, AWS S3); display a preview after upload
-- [ ] **Google Drive backup destination** — allow users to connect Google Drive as an additional distribution target so one upload can be sent to YouTube, Vimeo, and Drive simultaneously for backup/archival
+- [x] **Google Drive backup destination** — allow users to connect Google Drive as an additional distribution target so one upload can be sent to YouTube, Vimeo, and Drive simultaneously for backup/archival
 - [ ] **Avatar upload and crop** — profile photo upload with in-browser crop/resize before upload; stored in cloud storage
 - [ ] **Image optimisation pipeline** — all user-uploaded images are resized and converted to WebP/AVIF on upload; served via a CDN
 - [ ] **File download** — allow authenticated users to download their own uploaded files; enforce access control so users cannot download other users' private files
@@ -115,7 +115,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 > These build on top of the mandatory AI feature requirement.
 
-- [ ] **Streaming AI responses** — stream LLM output token-by-token using the Vercel AI SDK `streamText`; display a typing indicator while streaming
+- [x] **Streaming AI responses** — stream LLM output token-by-token using the Vercel AI SDK `streamText`; display a typing indicator while streaming
 - [ ] **AI with tool / function calling** — define at least one tool that the LLM can call (e.g. look up a database record, perform a calculation); handle the tool result in the UI
 - [ ] **Retrieval-Augmented Generation (RAG)** — embed user-specific content (documents, notes) as vectors; retrieve relevant chunks at query time to ground AI responses in real data
 - [ ] **AI usage metering** — track per-user token usage; enforce a limit for free-tier users and display remaining quota in the UI
@@ -215,7 +215,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 ## 18. DevOps & CI/CD
 
-- [ ] **Automated deployment to Vercel** — the `main` branch deploys automatically to production on every merge; staging/preview deployments are created for every open PR
+- [x] **Automated deployment to Vercel** — the `main` branch deploys automatically to production on every merge; staging/preview deployments are created for every open PR
 - [ ] **Expanded CI pipeline** — add E2E tests (Playwright) and a coverage threshold check to the existing GitHub Actions workflow
 - [ ] **Automated dependency updates** — configure Dependabot (or Renovate) to open PRs for outdated dependencies on a weekly schedule
 - [ ] **Error tracking with Sentry** — integrate Sentry for both client-side and server-side error capture; configure source maps so stack traces reference original TypeScript
@@ -237,5 +237,5 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **Path aliases** — configure `@/` path aliases in `tsconfig.json` for all internal import paths; zero relative `../../` imports exist anywhere in the codebase
 - [ ] **JSDoc comments on all exports** — every exported function, component, hook, and type has a JSDoc comment describing its purpose, parameters, and return value
 - [x] **VS Code workspace settings** — add a `.vscode/settings.json` with recommended formatter, linter, and TypeScript settings pre-configured for this project; document in `SETUP.md`
-- [ ] **Husky pre-push hook** — add a `pre-push` hook that runs `pnpm type-check` and `pnpm test -- --run` before allowing a push; document in `CONTRIBUTING.md`
+- [x] **Husky pre-commit hook** — add a `pre-commit` hook that runs `pnpm type-check` and `pnpm test -- --run` before allowing a commit; document in `CONTRIBUTING.md`
 - [ ] **Architectural Decision Records (ADRs)** — document at least five significant technical decisions your team made in `/docs/decisions/` using the lightweight ADR format (context → decision → consequences)

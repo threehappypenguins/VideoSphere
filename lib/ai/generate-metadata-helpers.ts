@@ -4,6 +4,7 @@
 // =============================================================================
 
 import type { ConnectedAccountPlatform } from '@/types';
+import { PLATFORM_LABELS } from '@/lib/ui/platform-label';
 
 /** Max `fileName` length (raw string) before calling the LLM — caps tokens and latency. */
 export const MAX_GENERATE_METADATA_FILE_NAME_CHARS = 512;
@@ -20,6 +21,8 @@ export const PLATFORM_LIMITS: Record<
 > = {
   youtube: { titleMax: 100, descriptionMax: 5000 },
   vimeo: { titleMax: 128, descriptionMax: 5000 },
+  // Drive is a backup/archive target; keep practical metadata limits aligned with UI defaults.
+  google_drive: { titleMax: 255, descriptionMax: 5000 },
 };
 
 /** Derive the most restrictive limits across the requested platforms. */
@@ -49,7 +52,7 @@ export function buildSystemPrompt(
   const platformDetails = platforms
     .map((p) => {
       const l = PLATFORM_LIMITS[p];
-      return `- ${p.charAt(0).toUpperCase() + p.slice(1)}: title max ${l.titleMax} chars, description max ${l.descriptionMax} chars`;
+      return `- ${PLATFORM_LABELS[p]}: title max ${l.titleMax} chars, description max ${l.descriptionMax} chars`;
     })
     .join('\n');
 

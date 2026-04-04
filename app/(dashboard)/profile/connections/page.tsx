@@ -1,7 +1,7 @@
 // =============================================================================
 // CONNECTED ACCOUNTS PAGE  (/profile/connections)
 // =============================================================================
-// Lists the user's connected platform accounts (YouTube, Vimeo) and provides
+// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive) and provides
 // links to connect new ones via the OAuth flow.
 //
 // Session is read server-side via the Appwrite session cookie so the page can
@@ -51,9 +51,14 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
     icon: '🎬',
     connectHref: '/api/platforms/connect/vimeo',
   },
+  google_drive: {
+    label: 'Google Drive',
+    icon: '🗂️',
+    connectHref: '/api/platforms/connect/drive',
+  },
 };
 
-const ALL_PLATFORMS = ['youtube', 'vimeo'] as const;
+const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive'] as const;
 
 /** Derive connection status from tokenExpiry and whether a refresh token exists. */
 function getConnectionStatus(
@@ -62,8 +67,13 @@ function getConnectionStatus(
   if (!account) return 'not-connected';
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
-  // YouTube: short-lived access tokens; a stored refresh token means the link can be renewed.
-  if (account.platform === 'youtube' && account.hasRefreshToken) return 'connected';
+  // YouTube and Google Drive use short-lived access tokens; a stored refresh token means the link can be renewed.
+  if (
+    (account.platform === 'youtube' || account.platform === 'google_drive') &&
+    account.hasRefreshToken
+  ) {
+    return 'connected';
+  }
   return 'expired';
 }
 
@@ -117,6 +127,22 @@ async function disconnectPlatform(accountId: string, platform: string) {
       });
     } catch (err) {
       console.error('[disconnectPlatform] Token revocation failed (non-fatal):', err);
+    }
+  }
+
+  if (platform === 'google_drive') {
+    try {
+      const tokenToRevoke =
+        accountWithTokens.refreshToken.trim() || accountWithTokens.accessToken.trim();
+      if (tokenToRevoke) {
+        await fetch('https://oauth2.googleapis.com/revoke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ token: tokenToRevoke }).toString(),
+        });
+      }
+    } catch (err) {
+      console.error('[disconnectPlatform] Google Drive token revocation failed (non-fatal):', err);
     }
   }
 
@@ -191,10 +217,19 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
         {success === 'vimeo' && (
           <FlashMessage type="success" message="✓ Vimeo account connected successfully." />
         )}
+        {success === 'google_drive' && (
+          <FlashMessage type="success" message="✓ Google Drive account connected successfully." />
+        )}
         {error === 'vimeo' && (
           <FlashMessage
             type="error"
             message="✗ Failed to connect Vimeo account. Please try again."
+          />
+        )}
+        {error === 'google_drive' && (
+          <FlashMessage
+            type="error"
+            message="✗ Failed to connect Google Drive account. Please try again."
           />
         )}
 
