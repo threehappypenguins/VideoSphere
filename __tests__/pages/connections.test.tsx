@@ -134,6 +134,12 @@ describe('ConnectionsPage', () => {
       expect(screen.getByText('Vimeo')).toBeInTheDocument();
     });
 
+    it('renders a row for Google Drive', async () => {
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText('Google Drive')).toBeInTheDocument();
+    });
+
     it('shows Connect button for unconnected platforms', async () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
@@ -214,6 +220,15 @@ describe('ConnectionsPage', () => {
       render(page);
       expect(screen.getByRole('alert')).toBeInTheDocument();
       expect(screen.getByRole('alert').textContent).toMatch(/failed to connect/i);
+    });
+
+    it('renders success flash when ?success=google_drive is present', async () => {
+      const page = await ConnectionsPage({
+        searchParams: makeSearchParams({ success: 'google_drive' }),
+      });
+      render(page);
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      expect(screen.getByRole('status').textContent).toMatch(/google drive account connected/i);
     });
 
     it('shows no flash when no query params are present', async () => {

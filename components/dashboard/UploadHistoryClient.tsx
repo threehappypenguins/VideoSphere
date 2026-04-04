@@ -9,6 +9,7 @@ import type {
   PlatformUploadStatus,
   UploadJobStatus,
 } from '@/types';
+import { platformLabel } from '@/lib/ui/platform-label';
 
 interface UploadHistoryPlatformItem {
   platform: ConnectedAccountPlatform;
@@ -246,7 +247,8 @@ export function UploadHistoryClient() {
                     className="rounded-md border border-border bg-muted/30 p-3"
                   >
                     <p className="text-sm text-foreground">
-                      <span className="font-medium">{platform.platform}</span>: {platform.status}
+                      <span className="font-medium">{platformLabel(platform.platform)}</span>:{' '}
+                      {platform.status}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Updated: {new Date(platform.updatedAt).toLocaleString()}

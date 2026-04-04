@@ -16,6 +16,8 @@ import { DashboardQuickActions } from '@/components/dashboard/DashboardQuickActi
 import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 import { countDraftsByUser, getDraftDashboardSummaryByUser } from '@/lib/repositories/drafts';
 import { countUploadJobsByUserWithStatuses } from '@/lib/repositories/upload-jobs';
+import { PLATFORM_LABELS } from '@/lib/ui/platform-label';
+import type { ConnectedAccountPlatform } from '@/types';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -33,15 +35,10 @@ function formatLastEdited(isoDate: string): string {
   }).format(date);
 }
 
-function formatTargets(targets: readonly string[]): string {
+function formatTargets(targets: readonly ConnectedAccountPlatform[]): string {
   if (targets.length === 0) return 'No platforms selected';
 
-  const labels: Record<string, string> = {
-    youtube: 'YouTube',
-    vimeo: 'Vimeo',
-  };
-
-  return targets.map((target) => labels[target] ?? target).join(', ');
+  return targets.map((target) => PLATFORM_LABELS[target] ?? target).join(', ');
 }
 
 async function getCurrentUserId(): Promise<string | null> {
