@@ -277,7 +277,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
   });
 
-  it('returns 200 for duplicate in-progress deliveries', async () => {
+  it('returns 500 for duplicate in-progress deliveries so Stripe retries', async () => {
     claimStripeWebhookEventMock.mockResolvedValueOnce({ claimed: false, status: 'processing' });
     constructEventMock.mockReturnValueOnce({
       id: 'evt_in_progress',
@@ -297,8 +297,10 @@ describe('POST /api/webhooks/stripe', () => {
       })
     );
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ received: true, duplicate: true, inProgress: true });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: 'Webhook event is already processing; retry required',
+    });
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
@@ -551,7 +553,10 @@ describe('POST /api/webhooks/stripe', () => {
     const [firstRes, secondRes] = await Promise.all([firstPromise, secondPromise]);
 
     expect(firstRes.status).toBe(200);
-    expect(secondRes.status).toBe(200);
+    expect(secondRes.status).toBe(500);
+    expect(await secondRes.json()).toEqual({
+      error: 'Webhook event is already processing; retry required',
+    });
     expect(setSupporterStatusMock).toHaveBeenCalledTimes(1);
     expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(1);
     expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();

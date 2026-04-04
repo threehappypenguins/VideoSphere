@@ -165,7 +165,6 @@ Success response variants:
 | --- | --- | --- |
 | `200` | `{ "received": true }` | Event was newly claimed, processed, and completion bookkeeping succeeded. |
 | `200` | `{ "received": true, "duplicate": true }` | Event was already handled (duplicate/replay no-op). |
-| `200` | `{ "received": true, "duplicate": true, "inProgress": true }` | Another request/worker is actively processing the same event. |
 | `200` | `{ "received": true, "bookkeepingWarning": true }` | Side effects succeeded, but completion bookkeeping failed and was recorded as terminal bookkeeping failure. |
 | `200` | `{ "received": true, "ignored": true, "nonRetryable": true, "reason": "missing_user_id" }` | Event payload/config issue is permanently non-retryable; event is terminally recorded and acknowledged to avoid retry loops. |
 
@@ -175,7 +174,9 @@ Error responses:
 | --- | --- | --- |
 | `400` | `{ "error": "Invalid request: missing stripe-signature header" }` | Missing Stripe signature header. |
 | `400` | `{ "error": "Invalid webhook signature" }` | Signature verification failed. |
+| `400` | `{ "error": "Invalid webhook payload" }` | Verified event payload is missing required `event.id`. |
 | `403` | `{ "error": "Webhook secret not configured" }` | Server missing `STRIPE_WEBHOOK_SECRET`. |
+| `500` | `{ "error": "Webhook event is already processing; retry required" }` | Another request/worker currently holds the claim; Stripe should retry later. |
 | `500` | `{ "error": "Webhook event claim requires retry" }` | Event-claim conflict requires retry/replay handling. |
 | `500` | `{ "error": "Failed to process webhook event" }` | Processing failed before side effects could complete; event recorded for retry/reclaim. |
 

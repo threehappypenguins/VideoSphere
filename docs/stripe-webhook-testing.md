@@ -231,6 +231,7 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 - Invalid signature: `400`
 - Missing webhook secret: `403`
 - Duplicate or replayed `event.id`: `200` with no-op body
+- In-progress duplicate claim: `500` with retry-required body so Stripe keeps retrying
 - Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
 - Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`
 - Non-retryable payload/config issue: `200` with `nonRetryable: true` after recording terminal non-retryable status
@@ -241,7 +242,6 @@ The webhook can return one of these success payloads depending on claim/result s
 
 - `{ received: true }`: newly claimed event processed and completion bookkeeping succeeded.
 - `{ received: true, duplicate: true }`: event was already handled (completed or bookkeeping-failure terminal status).
-- `{ received: true, duplicate: true, inProgress: true }`: another worker/request currently holds an in-flight claim.
 - `{ received: true, bookkeepingWarning: true }`: side effects succeeded, but final completion bookkeeping did not.
 - `{ received: true, ignored: true, nonRetryable: true, reason: string }`: event payload/config was non-retryably invalid and was acknowledged to prevent Stripe retry loops.
 

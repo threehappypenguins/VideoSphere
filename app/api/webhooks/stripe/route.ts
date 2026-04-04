@@ -11,10 +11,14 @@
 // Success response variants:
 // - { received: true }
 // - { received: true, duplicate: true }
-// - { received: true, duplicate: true, inProgress: true }
 // - { received: true, bookkeepingWarning: true }
 // - { received: true, ignored: true, nonRetryable: true, reason: string }
-// Errors: 400 (invalid signature), 403 (missing webhook secret), 500 (internal error)
+// Errors:
+// - 400 missing stripe-signature header
+// - 400 invalid webhook signature
+// - 400 invalid webhook payload (missing event.id)
+// - 403 missing webhook secret
+// - 500 retry-required processing/claim failure
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -168,12 +172,12 @@ export async function POST(req: NextRequest) {
       }
 
       if (claim.status === 'processing') {
-        console.log(
-          `[POST /api/webhooks/stripe] Duplicate in-progress event acknowledged: eventId=${eventId}`
+        console.warn(
+          `[POST /api/webhooks/stripe] In-progress event requires retry: eventId=${eventId}`
         );
         return NextResponse.json(
-          { received: true, duplicate: true, inProgress: true },
-          { status: 200 }
+          { error: 'Webhook event is already processing; retry required' },
+          { status: 500 }
         );
       }
 
