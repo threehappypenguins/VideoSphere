@@ -34,6 +34,7 @@ pnpm test:coverage # Generate a code coverage report
 ```
 
 Accessibility checks live in files matching `**/*.a11y.test.{ts,tsx}` and run with `vitest-axe` plus `axe-core` under `jsdom`.
+They are excluded from the default `pnpm test` / `pnpm test run` suite and should be run with `pnpm test:a11y`.
 Use them for runtime accessibility concerns that linting cannot fully verify, such as rendered landmarks, ARIA state, and labelled form controls.
 
 ## Manual upload flow (draft `document`, R2, distribute)

@@ -237,7 +237,7 @@ Run `pnpm lint` to check for these issues.
 # Run axe-based accessibility checks in Vitest
 pnpm test:a11y
 
-# Run the full Vitest suite, including accessibility checks
+# Run the default Vitest suite (accessibility tests run separately)
 pnpm test run
 
 # Lighthouse audit (in Chrome DevTools → Lighthouse tab)

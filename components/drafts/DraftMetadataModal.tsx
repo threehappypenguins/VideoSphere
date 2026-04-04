@@ -1461,7 +1461,7 @@ export function DraftMetadataModal({
                     }}
                     aria-describedby="draft-ai-metadata-help"
                     placeholder="Optional prompt for AI"
-                    className="min-w-55 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    className="min-w-[220px] flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   />
                   {isGeneratingAi ? (
                     <button

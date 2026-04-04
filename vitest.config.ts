@@ -24,6 +24,7 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     css: true,
     include: ['**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['**/*.a11y.test.{ts,tsx}'],
   },
   resolve: {
     alias: {
