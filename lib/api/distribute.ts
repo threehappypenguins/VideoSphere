@@ -183,15 +183,21 @@ async function runSinglePlatformUpload(
         });
       }
 
-      return uploadToGoogleDrive({
-        connectedAccount,
-        videoStream: stream,
-        contentLength,
-        contentType,
-        metadata: { title: metadata.title },
-        tokens,
-        signal,
-      });
+      if (platformUpload.platform === 'google_drive') {
+        return uploadToGoogleDrive({
+          connectedAccount,
+          videoStream: stream,
+          contentLength,
+          contentType,
+          metadata: { title: metadata.title },
+          tokens,
+          signal,
+        });
+      }
+
+      // Exhaustive platform check — throw on unsupported platforms
+      const exhaustiveCheck: never = platformUpload.platform;
+      throw new Error(`Unsupported platform: ${exhaustiveCheck}`);
     };
 
     let uploadResult = await runUploadWithDeadline(

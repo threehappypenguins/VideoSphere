@@ -35,12 +35,10 @@ function formatLastEdited(isoDate: string): string {
   }).format(date);
 }
 
-function formatTargets(targets: readonly string[]): string {
+function formatTargets(targets: readonly ConnectedAccountPlatform[]): string {
   if (targets.length === 0) return 'No platforms selected';
 
-  return targets
-    .map((target) => PLATFORM_LABELS[target as ConnectedAccountPlatform] ?? target)
-    .join(', ');
+  return targets.map((target) => PLATFORM_LABELS[target] ?? target).join(', ');
 }
 
 async function getCurrentUserId(): Promise<string | null> {
