@@ -1,10 +1,5 @@
 import type { ConnectedAccountPlatform } from '@/types';
-
-const PLATFORM_LABELS: Partial<Record<ConnectedAccountPlatform, string>> = {
-  youtube: 'YouTube',
-  vimeo: 'Vimeo',
-  google_drive: 'Google Drive',
-};
+import { platformLabel } from '@/lib/ui/platform-label';
 
 interface DraftPlatformTogglesProps {
   availablePlatforms: ConnectedAccountPlatform[];
@@ -13,10 +8,6 @@ interface DraftPlatformTogglesProps {
   connectionsResolved: boolean;
   onToggle: (platform: ConnectedAccountPlatform) => void;
   onConnectClick: () => void;
-}
-
-function labelForPlatform(platform: ConnectedAccountPlatform): string {
-  return PLATFORM_LABELS[platform] ?? platform.charAt(0).toUpperCase() + platform.slice(1);
 }
 
 export function DraftPlatformToggles({
@@ -46,7 +37,7 @@ export function DraftPlatformToggles({
               }`}
             >
               <span className="inline-flex items-center gap-2 text-sm text-foreground">
-                {labelForPlatform(platform)}
+                {platformLabel(platform)}
                 {!isConnected ? (
                   <>
                     <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -72,7 +63,7 @@ export function DraftPlatformToggles({
                 <input
                   id={switchId}
                   type="checkbox"
-                  aria-label={`Toggle ${labelForPlatform(platform)} platform`}
+                  aria-label={`Toggle ${platformLabel(platform)} platform`}
                   checked={isSelected}
                   disabled={!canToggle}
                   onChange={() => {

@@ -53,6 +53,7 @@ import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
+import { platformLabel } from '@/lib/ui/platform-label';
 
 const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
@@ -89,13 +90,6 @@ function comparePlatformsByPreference(
   if (aKnown) return -1;
   if (bKnown) return 1;
   return a.localeCompare(b);
-}
-
-function platformLabel(platform: ConnectedAccountPlatform): string {
-  if (platform === 'youtube') return 'YouTube';
-  if (platform === 'vimeo') return 'Vimeo';
-  if (platform === 'google_drive') return 'Google Drive';
-  return platform;
 }
 
 interface DraftMetadataModalProps {

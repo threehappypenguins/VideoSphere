@@ -9,6 +9,7 @@ import type {
   PlatformUploadStatus,
   UploadJobStatus,
 } from '@/types';
+import { platformLabel } from '@/lib/ui/platform-label';
 
 interface UploadHistoryPlatformItem {
   platform: ConnectedAccountPlatform;
@@ -40,13 +41,6 @@ interface UploadHistoryResponse extends ApiResponse<UploadHistoryJobItem[]> {
 
 /** Must match GET /api/uploads/jobs default `limit`. */
 const UPLOAD_HISTORY_PAGE_SIZE = 20;
-
-function platformLabel(platform: ConnectedAccountPlatform): string {
-  if (platform === 'youtube') return 'YouTube';
-  if (platform === 'vimeo') return 'Vimeo';
-  if (platform === 'google_drive') return 'Google Drive';
-  return platform;
-}
 
 function isJobActive(job: UploadHistoryJobItem): boolean {
   return (

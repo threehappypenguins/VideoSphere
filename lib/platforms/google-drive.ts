@@ -106,7 +106,7 @@ function normalizeDriveFileName(title: string, contentType: string | undefined, 
     .replace(/\s+/g, ' ')
     .trim();
   const ext = extensionFromContentType(contentType);
-  const timestamp = now.toISOString().replace(/[:.]/g, '-');
+  const timestamp = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
   return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
@@ -458,6 +458,7 @@ export async function uploadToGoogleDrive(
     const uploadReq: RequestInit & { duplex: 'half' } = {
       method: 'PUT',
       headers: {
+        Authorization: `Bearer ${input.tokens.accessToken}`,
         'Content-Type': contentType,
         ...(input.contentLength ? { 'Content-Length': String(input.contentLength) } : {}),
       },
