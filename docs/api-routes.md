@@ -166,7 +166,7 @@ Success response variants:
 | `200` | `{ "received": true }` | Event was newly claimed, processed, and completion bookkeeping succeeded. |
 | `200` | `{ "received": true, "duplicate": true }` | Event was already handled (duplicate/replay no-op). |
 | `200` | `{ "received": true, "bookkeepingWarning": true }` | Side effects succeeded, but completion bookkeeping failed and was recorded as terminal bookkeeping failure. |
-| `200` | `{ "received": true, "ignored": true, "nonRetryable": true, "reason": "missing_user_id" }` | Event payload/config issue is permanently non-retryable; event is terminally recorded and acknowledged to avoid retry loops. |
+| `200` | `{ "received": true, "ignored": true, "nonRetryable": true, "reason": "missing_user_id" }` | Event payload/config issue is permanently non-retryable and was successfully recorded in a terminal status before acknowledgement. |
 
 Error responses:
 
@@ -179,7 +179,7 @@ Error responses:
 | `500` | `{ "error": "Webhook event is already processing; retry required" }` | Another request/worker currently holds the claim; Stripe should retry later. |
 | `500` | `{ "error": "Webhook event claim requires retry" }` | Event-claim conflict requires retry/replay handling. |
 | `500` | `{ "error": "Failed to process webhook event" }` | Processing failed before side effects could complete; event recorded for retry/reclaim. |
-| `500` | `{ "error": "Failed to persist webhook terminal status" }` | Side effects succeeded, but persisting the terminal bookkeeping status failed, so the route does not acknowledge success. |
+| `500` | `{ "error": "Failed to persist webhook terminal status" }` | Persisting a required terminal webhook status failed, so the route does not acknowledge success. |
 
 ## Useful Resources
 

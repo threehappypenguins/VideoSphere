@@ -61,6 +61,7 @@ describe('webhook-events repository', () => {
         eventType: 'checkout.session.completed',
         status: 'processing',
         firstSeenAt: expect.any(String),
+        lastAttemptAt: expect.any(String),
       }),
     });
   });
@@ -139,10 +140,17 @@ describe('webhook-events repository', () => {
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
+        lastAttemptAt: expect.any(String),
         completedAt: null,
         lastError: '',
       }),
     });
+    const stalePayload = mockUpdateRow.mock.calls[0]?.[0]?.data as {
+      firstSeenAt?: string;
+      lastAttemptAt: string;
+    };
+    expect(stalePayload.firstSeenAt).toBeUndefined();
+    expect(stalePayload.lastAttemptAt).not.toBe(staleDate);
     expect(mockCreateRow).toHaveBeenCalledTimes(1);
   });
 
@@ -167,8 +175,42 @@ describe('webhook-events repository', () => {
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
+        lastAttemptAt: expect.any(String),
         completedAt: null,
         lastError: '',
+      }),
+    });
+    const failedPayload = mockUpdateRow.mock.calls[0]?.[0]?.data as {
+      firstSeenAt?: string;
+      lastAttemptAt: string;
+    };
+    expect(failedPayload.firstSeenAt).toBeUndefined();
+  });
+
+  it('restores missing firstSeenAt during reclaim while recording lastAttemptAt', async () => {
+    const staleDate = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'processing',
+      firstSeenAt: null,
+      lastAttemptAt: staleDate,
+    });
+    mockUpdateRow.mockResolvedValueOnce({});
+
+    const result = await claimStripeWebhookEvent(
+      'evt_missing_first_seen',
+      'checkout.session.completed'
+    );
+
+    expect(result).toEqual({ claimed: true, status: 'processing' });
+    expect(mockUpdateRow).toHaveBeenCalledWith({
+      databaseId: 'videosphere',
+      tableId: 'processed_webhook_events',
+      rowId: expectedWebhookRowId('evt_missing_first_seen'),
+      data: expect.objectContaining({
+        firstSeenAt: expect.any(String),
+        lastAttemptAt: expect.any(String),
+        completedAt: null,
       }),
     });
   });

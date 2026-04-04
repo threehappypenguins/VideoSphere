@@ -265,6 +265,7 @@ const tables: TableConfig[] = [
       { key: 'eventType', type: 'varchar', size: 128, required: true },
       { key: 'status', type: 'varchar', size: 32, required: true },
       { key: 'firstSeenAt', type: 'datetime', required: true },
+      { key: 'lastAttemptAt', type: 'datetime', required: false },
       { key: 'completedAt', type: 'datetime', required: false },
       { key: 'lastError', type: 'text', size: 2000, required: false },
     ],

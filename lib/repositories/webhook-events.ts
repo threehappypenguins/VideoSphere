@@ -37,6 +37,7 @@ interface CreateWebhookEventRecordInput {
 interface WebhookEventRow {
   status: WebhookEventStatus;
   firstSeenAt: string | null;
+  lastAttemptAt: string | null;
 }
 
 function webhookEventRowId(provider: WebhookProvider, eventId: string): string {
@@ -86,11 +87,20 @@ function normalizeWebhookEventStatus(value: unknown): WebhookEventStatus {
   return 'processing';
 }
 
-function isStaleProcessing(firstSeenAt: string | null): boolean {
-  if (!firstSeenAt) return false;
-  const firstSeenTime = Date.parse(firstSeenAt);
-  if (!Number.isFinite(firstSeenTime)) return false;
-  return Date.now() - firstSeenTime > processingStaleMs();
+function staleReferenceTime(
+  lastAttemptAt: string | null,
+  firstSeenAt: string | null
+): number | null {
+  const reference = lastAttemptAt ?? firstSeenAt;
+  if (!reference) return null;
+  const parsed = Date.parse(reference);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isStaleProcessing(lastAttemptAt: string | null, firstSeenAt: string | null): boolean {
+  const referenceTime = staleReferenceTime(lastAttemptAt, firstSeenAt);
+  if (referenceTime === null) return false;
+  return Date.now() - referenceTime > processingStaleMs();
 }
 
 async function getWebhookEventRow(eventId: string): Promise<WebhookEventRow | null> {
@@ -105,6 +115,7 @@ async function getWebhookEventRow(eventId: string): Promise<WebhookEventRow | nu
     return {
       status: normalizeWebhookEventStatus(row.status),
       firstSeenAt: typeof row.firstSeenAt === 'string' ? row.firstSeenAt : null,
+      lastAttemptAt: typeof row.lastAttemptAt === 'string' ? row.lastAttemptAt : null,
     };
   } catch (error) {
     if (isNotFoundError(error)) {
@@ -121,24 +132,31 @@ function isUpdateConflictError(error: unknown): boolean {
 
 async function tryTransitionWebhookEventToProcessing(
   eventId: string,
-  eventType: string
+  eventType: string,
+  existing: WebhookEventRow
 ): Promise<boolean> {
   const rowId = webhookEventRowId('stripe', eventId);
-  const nextFirstSeenAt = nowIso();
+  const nextAttemptAt = nowIso();
+  const data: Record<string, string | null> = {
+    eventId,
+    provider: 'stripe',
+    eventType,
+    status: 'processing',
+    lastAttemptAt: nextAttemptAt,
+    completedAt: null,
+    lastError: '',
+  };
+
+  if (!existing.firstSeenAt) {
+    data.firstSeenAt = nextAttemptAt;
+  }
+
   try {
     await tablesDb.updateRow({
       databaseId: DATABASE_ID,
       tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
       rowId,
-      data: {
-        eventId,
-        provider: 'stripe' satisfies WebhookProvider,
-        eventType,
-        status: 'processing' satisfies WebhookEventStatus,
-        firstSeenAt: nextFirstSeenAt,
-        completedAt: null,
-        lastError: '',
-      },
+      data,
     });
     return true;
   } catch (error) {
@@ -168,6 +186,7 @@ async function tryTransitionWebhookEventToProcessing(
 
 async function createWebhookEventRecord(input: CreateWebhookEventRecordInput): Promise<void> {
   const rowId = webhookEventRowId(input.provider, input.eventId);
+  const claimedAt = nowIso();
   await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
@@ -177,7 +196,8 @@ async function createWebhookEventRecord(input: CreateWebhookEventRecordInput): P
       provider: input.provider,
       eventType: input.eventType,
       status: 'processing' satisfies WebhookEventStatus,
-      firstSeenAt: nowIso(),
+      firstSeenAt: claimedAt,
+      lastAttemptAt: claimedAt,
     },
   });
 }
@@ -213,15 +233,18 @@ export async function claimStripeWebhookEvent(
       }
 
       if (existing.status === 'failed') {
-        const reclaimed = await tryTransitionWebhookEventToProcessing(eventId, eventType);
+        const reclaimed = await tryTransitionWebhookEventToProcessing(eventId, eventType, existing);
         if (reclaimed) {
           return { claimed: true, status: 'processing' };
         }
         continue;
       }
 
-      if (existing.status === 'processing' && isStaleProcessing(existing.firstSeenAt)) {
-        const reclaimed = await tryTransitionWebhookEventToProcessing(eventId, eventType);
+      if (
+        existing.status === 'processing' &&
+        isStaleProcessing(existing.lastAttemptAt, existing.firstSeenAt)
+      ) {
+        const reclaimed = await tryTransitionWebhookEventToProcessing(eventId, eventType, existing);
         if (reclaimed) {
           return { claimed: true, status: 'processing' };
         }

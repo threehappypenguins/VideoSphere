@@ -377,6 +377,41 @@ describe('POST /api/webhooks/stripe', () => {
     );
   });
 
+  it('returns 500 when non-retryable terminal status cannot be persisted', async () => {
+    constructEventMock.mockReturnValueOnce({
+      id: 'evt_missing_user_terminal_persist_fail',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: null,
+          metadata: {},
+          id: 'cs_test_missing_user_terminal_persist_fail',
+        },
+      },
+    });
+    markStripeWebhookEventNonRetryableFailedMock.mockRejectedValueOnce(
+      new Error('terminal non-retryable status write failed')
+    );
+
+    const res = await POST(
+      createRequest({
+        rawBody:
+          '{"id":"evt_missing_user_terminal_persist_fail","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to persist webhook terminal status' });
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventNonRetryableFailedMock).toHaveBeenCalledWith(
+      'evt_missing_user_terminal_persist_fail',
+      '[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=evt_missing_user_terminal_persist_fail'
+    );
+  });
+
   it('uses metadata.userId when client_reference_id is missing', async () => {
     const rawBody = '{"id":"evt_metadata","type":"checkout.session.completed"}';
     const stripeSignature = 't=123,v1=abc';

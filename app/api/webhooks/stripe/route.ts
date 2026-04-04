@@ -202,6 +202,11 @@ export async function POST(req: NextRequest) {
             `[POST /api/webhooks/stripe] Failed to mark eventId=${eventId} as non-retryable failed:`,
             markNonRetryableErr
           );
+
+          return NextResponse.json(
+            { error: 'Failed to persist webhook terminal status' },
+            { status: 500 }
+          );
         }
 
         return NextResponse.json(

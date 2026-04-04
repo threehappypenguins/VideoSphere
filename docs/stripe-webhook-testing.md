@@ -221,10 +221,13 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 | `eventType` | Stripe event type |
 | `status` | `processing`, `completed`, `failed`, `completed_with_bookkeeping_error`, or `failed_non_retryable` |
 | `firstSeenAt` | Timestamp when the event was first claimed |
+| `lastAttemptAt` | Timestamp when the most recent processing attempt claimed or reclaimed the event |
 | `completedAt` | Timestamp when handling reached a terminal success/no-op path |
 | `lastError` | Last processing error recorded before a retryable release |
 
 `completed_with_bookkeeping_error` is a terminal success-like state used when business side effects succeeded but final completion bookkeeping failed. `failed_non_retryable` is a terminal non-retryable state for permanently invalid payload/config paths (for example, missing user mapping in `checkout.session.completed`). Claim logic treats both statuses as already-handled duplicate/no-op for the same Stripe `event.id`.
+
+`firstSeenAt` is preserved across retries/reclaims for observability. Stale-processing detection uses `lastAttemptAt` (falling back to `firstSeenAt` for older rows) so retry timing reflects the latest in-flight attempt without losing the original claim timestamp.
 
 ### Response Rules
 
@@ -235,7 +238,8 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 - Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
 - Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`, but only if the terminal bookkeeping status is persisted successfully
 - Terminal bookkeeping status persistence failure after side effects succeed: `500` so the route does not acknowledge a non-terminal `processing` row as complete
-- Non-retryable payload/config issue: `200` with `nonRetryable: true` after recording terminal non-retryable status
+- Non-retryable payload/config issue: `200` with `nonRetryable: true`, but only after recording terminal non-retryable status successfully
+- Non-retryable terminal status persistence failure: `500` so the route does not acknowledge a still-`processing` row as complete
 
 ### Success Response Variants
 
@@ -244,7 +248,7 @@ The webhook can return one of these success payloads depending on claim/result s
 - `{ received: true }`: newly claimed event processed and completion bookkeeping succeeded.
 - `{ received: true, duplicate: true }`: event was already handled (completed or bookkeeping-failure terminal status).
 - `{ received: true, bookkeepingWarning: true }`: side effects succeeded, final completion bookkeeping did not, and the terminal bookkeeping-failure status was persisted successfully.
-- `{ received: true, ignored: true, nonRetryable: true, reason: string }`: event payload/config was non-retryably invalid and was acknowledged to prevent Stripe retry loops.
+- `{ received: true, ignored: true, nonRetryable: true, reason: string }`: event payload/config was non-retryably invalid, and the terminal non-retryable status was persisted successfully before acknowledgement.
 
 ### Why `bookkeepingWarning` Returns `200`
 
