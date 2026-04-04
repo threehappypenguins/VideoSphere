@@ -136,7 +136,7 @@ async function tryTransitionWebhookEventToProcessing(
         eventType,
         status: 'processing' satisfies WebhookEventStatus,
         firstSeenAt: nextFirstSeenAt,
-        completedAt: '',
+        completedAt: null,
         lastError: '',
       },
     });

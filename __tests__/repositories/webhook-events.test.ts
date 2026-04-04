@@ -139,7 +139,7 @@ describe('webhook-events repository', () => {
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
-        completedAt: '',
+        completedAt: null,
         lastError: '',
       }),
     });
@@ -167,7 +167,7 @@ describe('webhook-events repository', () => {
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
-        completedAt: '',
+        completedAt: null,
         lastError: '',
       }),
     });
