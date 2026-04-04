@@ -25,7 +25,7 @@ This is a quick-reference to the full stretch goals list. See [STRETCH_GOALS.md]
 | 17 | **Security**                    | Security headers, CSP, rate limiting, input sanitisation, env audit    |
 | 18 | **DevOps & CI/CD**              | Auto-deploy to Vercel, Sentry, Dependabot, Playwright in CI            |
 | 19 | **Internationalisation (i18n)** | `next-intl`, language switcher, RTL layout                             |
-| 20 | **Developer Experience**        | Path aliases, JSDoc, ADRs, pre-push hook, VS Code workspace settings   |
+| 20 | **Developer Experience**        | Path aliases, JSDoc, ADRs, pre-commit hook, VS Code workspace settings |
 
 ## How to Use Stretch Goals
 

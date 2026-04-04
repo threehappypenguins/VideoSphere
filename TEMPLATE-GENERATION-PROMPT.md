@@ -1004,7 +1004,7 @@ Exhaustive categorized list of enhancements for higher grades and stretch goals:
 - API documentation with Swagger/OpenAPI
 - Comprehensive JSDoc comments throughout
 - Custom VS Code code snippets
-- Husky pre-push hook for additional checks
+- Husky pre-commit hook for additional checks
 - Automated PR size labeling
 
 ---

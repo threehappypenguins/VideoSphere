@@ -1,15 +1,21 @@
 # Contributing Guide
 
-## Pre-push Checks
+## Pre-commit Checks
 
-Pushes run a Husky `pre-push` hook that executes these commands:
+Commits run a Husky `pre-commit` hook that executes these commands:
 
 ```bash
 pnpm type-check
 pnpm test -- --run
 ```
 
-If either command fails, the push is blocked. Run the same commands manually before pushing if you want to check the result first.
+If either command fails, the commit is blocked. Run the same commands manually before committing if you want to check the result first.
+
+Emergency bypass (use sparingly):
+
+```bash
+git commit --no-verify -m "your message"
+```
 
 ## Branching Strategy
 
@@ -135,7 +141,7 @@ See [docs/ai-usage-policy.md](docs/ai-usage-policy.md) for the complete policy.
 # Check if your code passes all checks before committing
 pnpm lint && pnpm format:check && pnpm type-check
 
-# Run the same checks enforced before push
+# Run the same checks enforced before commit
 pnpm type-check
 pnpm test -- --run
 
