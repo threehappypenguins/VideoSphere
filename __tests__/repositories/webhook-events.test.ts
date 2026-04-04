@@ -1,11 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'crypto';
 
-const { mockCreateRow, mockUpdateRow, mockDeleteRow, mockGetRow } = vi.hoisted(() => ({
+const {
+  mockCreateRow,
+  mockUpdateRow,
+  mockDeleteRow,
+  mockGetRow,
+  mockCreateTransaction,
+  mockUpdateTransaction,
+} = vi.hoisted(() => ({
   mockCreateRow: vi.fn(),
   mockUpdateRow: vi.fn(),
   mockDeleteRow: vi.fn(),
   mockGetRow: vi.fn(),
+  mockCreateTransaction: vi.fn(),
+  mockUpdateTransaction: vi.fn(),
 }));
 
 vi.mock('node-appwrite', () => ({
@@ -14,6 +23,8 @@ vi.mock('node-appwrite', () => ({
     updateRow = mockUpdateRow;
     deleteRow = mockDeleteRow;
     getRow = mockGetRow;
+    createTransaction = mockCreateTransaction;
+    updateTransaction = mockUpdateTransaction;
   },
 }));
 
@@ -38,6 +49,8 @@ function expectedWebhookRowId(eventId: string): string {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('STRIPE_WEBHOOK_PROCESSING_STALE_MS', '600000');
+  mockCreateTransaction.mockResolvedValue({ $id: 'tx_1' });
+  mockUpdateTransaction.mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -131,11 +144,17 @@ describe('webhook-events repository', () => {
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: staleDate,
     });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'processing',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: staleDate,
+    });
     mockUpdateRow.mockResolvedValueOnce({});
 
     const result = await claimStripeWebhookEvent('evt_stale', 'checkout.session.completed');
 
     expect(result).toEqual({ claimed: true, status: 'processing' });
+    expect(mockCreateTransaction).toHaveBeenCalledWith();
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
@@ -145,12 +164,19 @@ describe('webhook-events repository', () => {
         eventType: 'checkout.session.completed',
         lastError: '',
       }),
+      transactionId: 'tx_1',
     });
+    expect(mockUpdateTransaction).toHaveBeenCalledWith({ transactionId: 'tx_1', commit: true });
     expect(mockCreateRow).toHaveBeenCalledTimes(1);
   });
 
   it('reclaims failed rows and allows retry processing', async () => {
     mockCreateRow.mockRejectedValueOnce({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'failed',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
+    });
     mockGetRow.mockResolvedValueOnce({
       status: 'failed',
       $createdAt: '2026-01-01T00:00:00.000Z',
@@ -173,7 +199,34 @@ describe('webhook-events repository', () => {
         eventType: 'checkout.session.completed',
         lastError: '',
       }),
+      transactionId: 'tx_1',
     });
+    expect(mockUpdateTransaction).toHaveBeenCalledWith({ transactionId: 'tx_1', commit: true });
+  });
+
+  it('does not reclaim when transaction update detects a conflict', async () => {
+    mockCreateRow.mockRejectedValue({ code: 409, type: 'row_already_exists' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'failed',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'failed',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    mockUpdateRow.mockRejectedValueOnce({ code: 409, type: 'row_update_conflict' });
+    mockGetRow.mockResolvedValueOnce({
+      status: 'processing',
+      $createdAt: new Date().toISOString(),
+      $updatedAt: new Date().toISOString(),
+    });
+
+    const result = await claimStripeWebhookEvent('evt_conflict', 'checkout.session.completed');
+
+    expect(result).toEqual({ claimed: false, status: 'processing' });
+    expect(mockUpdateTransaction).toHaveBeenCalledWith({ transactionId: 'tx_1', rollback: true });
   });
 
   it('marks a claimed event completed', async () => {

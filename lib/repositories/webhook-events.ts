@@ -41,6 +41,12 @@ interface WebhookEventRow {
   updatedAt: string;
 }
 
+interface AppwriteTransaction {
+  $id?: unknown;
+  id?: unknown;
+  transactionId?: unknown;
+}
+
 function webhookEventRowId(provider: WebhookProvider, eventId: string): string {
   // Keep Appwrite row IDs within a conservative charset/length while preserving determinism.
   const hash = createHash('sha256').update(`${provider}:${eventId}`).digest('hex').slice(0, 32);
@@ -123,6 +129,69 @@ function isUpdateConflictError(error: unknown): boolean {
   return appwriteError.code === 409 || appwriteError.type === 'row_update_conflict';
 }
 
+function parseTransactionId(value: unknown): string | null {
+  const tx = value as AppwriteTransaction;
+  const candidate = tx.$id ?? tx.id ?? tx.transactionId;
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
+}
+
+async function createTransactionId(): Promise<string> {
+  const transactionalTablesDb = tablesDb as TablesDB & {
+    createTransaction: (params?: { ttl?: number }) => Promise<unknown>;
+  };
+
+  const created = await transactionalTablesDb.createTransaction();
+  const transactionId = parseTransactionId(created);
+  if (!transactionId) {
+    throw new Error('Appwrite transaction creation returned no transaction id');
+  }
+
+  return transactionId;
+}
+
+async function finalizeTransaction(
+  transactionId: string,
+  mode: 'commit' | 'rollback'
+): Promise<void> {
+  const transactionalTablesDb = tablesDb as TablesDB & {
+    updateTransaction: (params: {
+      transactionId: string;
+      commit?: boolean;
+      rollback?: boolean;
+    }) => Promise<unknown>;
+  };
+
+  await transactionalTablesDb.updateTransaction({
+    transactionId,
+    commit: mode === 'commit' ? true : undefined,
+    rollback: mode === 'rollback' ? true : undefined,
+  });
+}
+
+async function rollbackTransactionQuietly(transactionId: string): Promise<void> {
+  try {
+    await finalizeTransaction(transactionId, 'rollback');
+  } catch {
+    // Best-effort rollback only.
+  }
+}
+
+function canReclaimFromStatus(
+  status: WebhookEventStatus,
+  updatedAt: string,
+  createdAt: string
+): boolean {
+  if (status === 'failed') {
+    return true;
+  }
+
+  if (status === 'processing') {
+    return isStaleProcessing(updatedAt, createdAt);
+  }
+
+  return false;
+}
+
 async function tryTransitionWebhookEventToProcessing(
   eventId: string,
   eventType: string,
@@ -137,13 +206,37 @@ async function tryTransitionWebhookEventToProcessing(
     lastError: '',
   };
 
+  let transactionId: string | null = null;
+  let settled = false;
+
   try {
+    transactionId = await createTransactionId();
+
+    const txRow = (await tablesDb.getRow({
+      databaseId: DATABASE_ID,
+      tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
+      rowId,
+      transactionId,
+    })) as Record<string, unknown>;
+    const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(txRow);
+    const txStatus = normalizeWebhookEventStatus(txRow.status);
+
+    if (!canReclaimFromStatus(txStatus, $updatedAt, $createdAt)) {
+      await finalizeTransaction(transactionId, 'rollback');
+      settled = true;
+      return false;
+    }
+
     await tablesDb.updateRow({
       databaseId: DATABASE_ID,
       tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
       rowId,
       data,
+      transactionId,
     });
+
+    await finalizeTransaction(transactionId, 'commit');
+    settled = true;
     return true;
   } catch (error) {
     if (isUpdateConflictError(error)) {
@@ -152,6 +245,10 @@ async function tryTransitionWebhookEventToProcessing(
 
     if (!isNotFoundError(error)) {
       throw error;
+    }
+  } finally {
+    if (transactionId && !settled) {
+      await rollbackTransactionQuietly(transactionId);
     }
   }
 
