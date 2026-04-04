@@ -335,9 +335,9 @@ const tableIndexes: {
     tableId: 'processed_webhook_events',
     indexes: [
       {
-        key: 'processed_webhook_events_eventId_unique',
+        key: 'processed_webhook_events_provider_eventId_unique',
         type: IndexType.Unique,
-        columns: ['eventId'],
+        columns: ['provider', 'eventId'],
       },
       {
         key: 'processed_webhook_events_provider_status',

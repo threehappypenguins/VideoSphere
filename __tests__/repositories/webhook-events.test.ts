@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockCreateRow, mockUpdateRow, mockDeleteRow, mockGetRow } = vi.hoisted(() => ({
   mockCreateRow: vi.fn(),
@@ -29,6 +29,11 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('STRIPE_WEBHOOK_PROCESSING_STALE_MS', '600000');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('webhook-events repository', () => {
@@ -41,7 +46,7 @@ describe('webhook-events repository', () => {
     expect(mockCreateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'evt_123',
+      rowId: 'stripe:evt_123',
       data: expect.objectContaining({
         eventId: 'evt_123',
         provider: 'stripe',
@@ -92,10 +97,12 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'evt_stale',
+      rowId: 'stripe:evt_stale',
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
+        completedAt: '',
+        lastError: '',
       }),
     });
     expect(mockCreateRow).toHaveBeenCalledTimes(1);
@@ -118,10 +125,12 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'evt_failed_reclaim',
+      rowId: 'stripe:evt_failed_reclaim',
       data: expect.objectContaining({
         status: 'processing',
         eventType: 'checkout.session.completed',
+        completedAt: '',
+        lastError: '',
       }),
     });
   });
@@ -134,7 +143,7 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'evt_complete',
+      rowId: 'stripe:evt_complete',
       data: expect.objectContaining({
         status: 'completed',
         completedAt: expect.any(String),
@@ -151,7 +160,7 @@ describe('webhook-events repository', () => {
     expect(mockUpdateRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'evt_failed',
+      rowId: 'stripe:evt_failed',
       data: expect.objectContaining({
         status: 'failed',
         lastError: expect.any(String),
@@ -169,7 +178,7 @@ describe('webhook-events repository', () => {
     expect(mockDeleteRow).toHaveBeenCalledWith({
       databaseId: 'videosphere',
       tableId: 'processed_webhook_events',
-      rowId: 'evt_missing',
+      rowId: 'stripe:evt_missing',
     });
   });
 });

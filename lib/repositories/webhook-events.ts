@@ -33,6 +33,10 @@ interface WebhookEventRow {
   firstSeenAt: string | null;
 }
 
+function webhookEventRowId(provider: WebhookProvider, eventId: string): string {
+  return `${provider}:${eventId}`;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -76,11 +80,12 @@ function isStaleProcessing(firstSeenAt: string | null): boolean {
 }
 
 async function getWebhookEventRow(eventId: string): Promise<WebhookEventRow | null> {
+  const rowId = webhookEventRowId('stripe', eventId);
   try {
     const row = (await tablesDb.getRow({
       databaseId: DATABASE_ID,
       tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-      rowId: eventId,
+      rowId,
     })) as Record<string, unknown>;
 
     return {
@@ -104,20 +109,21 @@ async function tryTransitionWebhookEventToProcessing(
   eventId: string,
   eventType: string
 ): Promise<boolean> {
+  const rowId = webhookEventRowId('stripe', eventId);
   const nextFirstSeenAt = nowIso();
   try {
     await tablesDb.updateRow({
       databaseId: DATABASE_ID,
       tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-      rowId: eventId,
+      rowId,
       data: {
         eventId,
         provider: 'stripe' satisfies WebhookProvider,
         eventType,
         status: 'processing' satisfies WebhookEventStatus,
         firstSeenAt: nextFirstSeenAt,
-        completedAt: null,
-        lastError: null,
+        completedAt: '',
+        lastError: '',
       },
     });
     return true;
@@ -147,10 +153,11 @@ async function tryTransitionWebhookEventToProcessing(
 }
 
 async function createWebhookEventRecord(input: CreateWebhookEventRecordInput): Promise<void> {
+  const rowId = webhookEventRowId(input.provider, input.eventId);
   await tablesDb.createRow({
     databaseId: DATABASE_ID,
     tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId: input.eventId,
+    rowId,
     data: {
       eventId: input.eventId,
       provider: input.provider,
@@ -215,10 +222,11 @@ export async function claimStripeWebhookEvent(
 }
 
 export async function markStripeWebhookEventCompleted(eventId: string): Promise<void> {
+  const rowId = webhookEventRowId('stripe', eventId);
   await tablesDb.updateRow({
     databaseId: DATABASE_ID,
     tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId: eventId,
+    rowId,
     data: {
       status: 'completed' satisfies WebhookEventStatus,
       completedAt: nowIso(),
@@ -230,10 +238,11 @@ export async function markStripeWebhookEventFailed(
   eventId: string,
   lastError: string
 ): Promise<void> {
+  const rowId = webhookEventRowId('stripe', eventId);
   await tablesDb.updateRow({
     databaseId: DATABASE_ID,
     tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId: eventId,
+    rowId,
     data: {
       status: 'failed' satisfies WebhookEventStatus,
       lastError: trimLastError(lastError),
@@ -242,11 +251,12 @@ export async function markStripeWebhookEventFailed(
 }
 
 export async function deleteStripeWebhookEvent(eventId: string): Promise<void> {
+  const rowId = webhookEventRowId('stripe', eventId);
   try {
     await tablesDb.deleteRow({
       databaseId: DATABASE_ID,
       tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-      rowId: eventId,
+      rowId,
     });
   } catch (error) {
     if (isNotFoundError(error)) {
