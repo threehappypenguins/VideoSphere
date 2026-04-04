@@ -8,7 +8,11 @@
 // Stripe may retry webhook delivery, and we must handle duplicates gracefully.
 //
 // Request: POST with raw body and stripe-signature header
-// Response: { received: true } on success
+// Success response variants:
+// - { received: true }
+// - { received: true, duplicate: true }
+// - { received: true, duplicate: true, inProgress: true }
+// - { received: true, bookkeepingWarning: true }
 // Errors: 400 (invalid signature), 403 (missing webhook secret), 500 (internal error)
 // =============================================================================
 
@@ -76,10 +80,9 @@ async function processCheckoutSessionCompleted(event: Stripe.Event): Promise<voi
     (session?.metadata?.userId ? String(session.metadata.userId) : null);
 
   if (!userId) {
-    console.error(
+    throw new Error(
       `[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=${event.id}`
     );
-    return;
   }
 
   await setSupporterStatus(userId, true);

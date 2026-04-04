@@ -219,10 +219,12 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 | `eventId` | Unique Stripe event ID used for durable dedupe |
 | `provider` | `stripe` |
 | `eventType` | Stripe event type |
-| `status` | `processing`, `completed`, or `failed` |
+| `status` | `processing`, `completed`, `failed`, or `completed_with_bookkeeping_error` |
 | `firstSeenAt` | Timestamp when the event was first claimed |
 | `completedAt` | Timestamp when handling reached a terminal success/no-op path |
 | `lastError` | Last processing error recorded before a retryable release |
+
+`completed_with_bookkeeping_error` is a terminal success-like state used when business side effects succeeded but final completion bookkeeping failed. Claim logic treats this status as an already-handled duplicate/no-op for the same Stripe `event.id`.
 
 ### Response Rules
 
@@ -232,6 +234,15 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 - Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
 - Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`
 
+### Success Response Variants
+
+The webhook can return one of these success payloads depending on claim/result state:
+
+- `{ received: true }`: newly claimed event processed and completion bookkeeping succeeded.
+- `{ received: true, duplicate: true }`: event was already handled (completed or bookkeeping-failure terminal status).
+- `{ received: true, duplicate: true, inProgress: true }`: another worker/request currently holds an in-flight claim.
+- `{ received: true, bookkeepingWarning: true }`: side effects succeeded, but final completion bookkeeping did not.
+
 ### Why `bookkeepingWarning` Returns `200`
 
 If business side effects already succeeded (for example, supporter status update) but writing the final `completed` marker fails, returning `500` would cause Stripe to retry and risk re-running side effects.
@@ -240,7 +251,7 @@ Returning `200` with `bookkeepingWarning: true` intentionally acknowledges recei
 
 ### Retention and Cleanup
 
-Completed rows are retained for replay protection and troubleshooting. Failed rows are also retained and reclaimed via status/age-based claim logic, so retry behavior does not depend on delete succeeding during transient outages.
+Completed terminal rows (`completed` and `completed_with_bookkeeping_error`) are retained for replay protection and troubleshooting. Failed rows are also retained and reclaimed via status/age-based claim logic, so retry behavior does not depend on delete succeeding during transient outages.
 
 If webhook volume grows enough to justify pruning, add a scheduled cleanup job for old completed rows after an agreed retention window. The current approach keeps the implementation simple and preserves strong duplicate protection.
 

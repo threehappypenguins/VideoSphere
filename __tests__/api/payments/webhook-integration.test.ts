@@ -324,7 +324,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
-  it('returns 200 when checkout.session.completed is missing client_reference_id', async () => {
+  it('returns 500 when checkout.session.completed is missing client_reference_id', async () => {
     constructEventMock.mockReturnValueOnce({
       id: 'evt_missing_user',
       type: 'checkout.session.completed',
@@ -344,10 +344,14 @@ describe('POST /api/webhooks/stripe', () => {
       })
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to process webhook event' });
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
-    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_missing_user');
-    expect(await res.json()).toEqual({ received: true });
+    expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventFailedMock).toHaveBeenCalledWith(
+      'evt_missing_user',
+      '[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=evt_missing_user'
+    );
   });
 
   it('uses metadata.userId when client_reference_id is missing', async () => {
