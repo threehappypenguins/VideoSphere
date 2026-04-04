@@ -96,7 +96,10 @@ async function tryMarkCompletedWithBackoff(
   return { ok: false, error: lastError };
 }
 
-async function processCheckoutSessionCompleted(event: Stripe.Event): Promise<void> {
+async function processCheckoutSessionCompleted(
+  event: Stripe.Event,
+  eventId: string
+): Promise<void> {
   const session = event.data.object as Stripe.Checkout.Session | null;
 
   const userId =
@@ -105,7 +108,7 @@ async function processCheckoutSessionCompleted(event: Stripe.Event): Promise<voi
 
   if (!userId) {
     throw new NonRetryableWebhookProcessingError(
-      `[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=${event.id}`,
+      `[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=${eventId}`,
       'missing_user_id'
     );
   }
@@ -113,13 +116,13 @@ async function processCheckoutSessionCompleted(event: Stripe.Event): Promise<voi
   await setSupporterStatus(userId, true);
 
   console.log(
-    `[POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=${userId} eventId=${event.id}`
+    `[POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=${userId} eventId=${eventId}`
   );
 }
 
-async function processEvent(event: Stripe.Event): Promise<void> {
+async function processEvent(event: Stripe.Event, eventId: string): Promise<void> {
   if (event.type === 'checkout.session.completed') {
-    await processCheckoutSessionCompleted(event);
+    await processCheckoutSessionCompleted(event, eventId);
   }
 }
 
@@ -206,7 +209,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      await processEvent(event);
+      await processEvent(event, eventId);
     } catch (processingErr) {
       if (processingErr instanceof NonRetryableWebhookProcessingError) {
         console.warn(
