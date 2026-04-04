@@ -233,7 +233,8 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 - Duplicate or replayed `event.id`: `200` with no-op body
 - In-progress duplicate claim: `500` with retry-required body so Stripe keeps retrying
 - Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
-- Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`
+- Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`, but only if the terminal bookkeeping status is persisted successfully
+- Terminal bookkeeping status persistence failure after side effects succeed: `500` so the route does not acknowledge a non-terminal `processing` row as complete
 - Non-retryable payload/config issue: `200` with `nonRetryable: true` after recording terminal non-retryable status
 
 ### Success Response Variants
@@ -242,14 +243,14 @@ The webhook can return one of these success payloads depending on claim/result s
 
 - `{ received: true }`: newly claimed event processed and completion bookkeeping succeeded.
 - `{ received: true, duplicate: true }`: event was already handled (completed or bookkeeping-failure terminal status).
-- `{ received: true, bookkeepingWarning: true }`: side effects succeeded, but final completion bookkeeping did not.
+- `{ received: true, bookkeepingWarning: true }`: side effects succeeded, final completion bookkeeping did not, and the terminal bookkeeping-failure status was persisted successfully.
 - `{ received: true, ignored: true, nonRetryable: true, reason: string }`: event payload/config was non-retryably invalid and was acknowledged to prevent Stripe retry loops.
 
 ### Why `bookkeepingWarning` Returns `200`
 
 If business side effects already succeeded (for example, supporter status update) but writing the final `completed` marker fails, returning `500` would cause Stripe to retry and risk re-running side effects.
 
-Returning `200` with `bookkeepingWarning: true` intentionally acknowledges receipt to prevent duplicate side effects. Operational follow-up should focus on fixing webhook-event record status, not replaying business logic.
+Returning `200` with `bookkeepingWarning: true` intentionally acknowledges receipt only after the terminal bookkeeping-failure status is persisted, so later claims still dedupe safely. If that terminal status cannot be written, the route returns `500` instead of acknowledging a still-`processing` row.
 
 ### Retention and Cleanup
 

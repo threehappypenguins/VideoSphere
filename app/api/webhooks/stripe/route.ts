@@ -252,6 +252,11 @@ export async function POST(req: NextRequest) {
           `[POST /api/webhooks/stripe] Failed to persist bookkeeping-failure terminal status for eventId=${eventId}:`,
           bookkeepingErr
         );
+
+        return NextResponse.json(
+          { error: 'Failed to persist webhook terminal status' },
+          { status: 500 }
+        );
       }
 
       // Side effects already ran; avoid re-running by acknowledging receipt.

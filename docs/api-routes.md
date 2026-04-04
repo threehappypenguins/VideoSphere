@@ -179,6 +179,7 @@ Error responses:
 | `500` | `{ "error": "Webhook event is already processing; retry required" }` | Another request/worker currently holds the claim; Stripe should retry later. |
 | `500` | `{ "error": "Webhook event claim requires retry" }` | Event-claim conflict requires retry/replay handling. |
 | `500` | `{ "error": "Failed to process webhook event" }` | Processing failed before side effects could complete; event recorded for retry/reclaim. |
+| `500` | `{ "error": "Failed to persist webhook terminal status" }` | Side effects succeeded, but persisting the terminal bookkeeping status failed, so the route does not acknowledge success. |
 
 ## Useful Resources
 

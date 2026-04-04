@@ -41,6 +41,18 @@ vi.mock('@/lib/repositories/webhook-events', () => ({
 
 import { POST } from '@/app/api/webhooks/stripe/route';
 
+async function runRequestWithFakeTimers(request: NextRequest) {
+  vi.useFakeTimers();
+
+  try {
+    const responsePromise = POST(request);
+    await vi.runAllTimersAsync();
+    return await responsePromise;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 function createRequest({
   rawBody,
   stripeSignature,
@@ -492,7 +504,7 @@ describe('POST /api/webhooks/stripe', () => {
     setSupporterStatusMock.mockResolvedValueOnce(undefined);
     markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
 
-    const res = await POST(
+    const res = await runRequestWithFakeTimers(
       createRequest({
         rawBody: '{"id":"evt_completion_mark_fail","type":"checkout.session.completed"}',
         stripeSignature: 't=123,v1=abc',
@@ -509,6 +521,42 @@ describe('POST /api/webhooks/stripe', () => {
     );
     expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
     expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when terminal bookkeeping status cannot be persisted', async () => {
+    constructEventMock.mockReturnValueOnce({
+      id: 'evt_completion_terminal_persist_fail',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'user_123',
+          id: 'cs_test_completion_terminal_persist_fail',
+        },
+      },
+    });
+    setSupporterStatusMock.mockResolvedValueOnce(undefined);
+    markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+    markStripeWebhookEventBookkeepingFailedMock.mockRejectedValueOnce(
+      new Error('terminal status write failed')
+    );
+
+    const res = await runRequestWithFakeTimers(
+      createRequest({
+        rawBody:
+          '{"id":"evt_completion_terminal_persist_fail","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to persist webhook terminal status' });
+    expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
+    expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
+      'evt_completion_terminal_persist_fail',
+      'Appwrite update outage'
+    );
+    expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
   });
 
   it('allows only one side effect for near-simultaneous deliveries of the same event id', async () => {
