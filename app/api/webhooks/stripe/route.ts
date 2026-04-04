@@ -15,6 +15,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { setSupporterStatus } from '@/lib/repositories/users';
+import {
+  claimStripeWebhookEvent,
+  deleteStripeWebhookEvent,
+  markStripeWebhookEventCompleted,
+  markStripeWebhookEventFailed,
+} from '@/lib/repositories/webhook-events';
 
 /**
  * Read the raw request body as bytes for webhook signature verification.
@@ -23,6 +29,41 @@ import { setSupporterStatus } from '@/lib/repositories/users';
 async function getRawBody(request: NextRequest): Promise<Buffer> {
   const arrayBuffer = await request.arrayBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+function getEventId(event: Stripe.Event): string {
+  return typeof event.id === 'string' ? event.id.trim() : '';
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function processCheckoutSessionCompleted(event: Stripe.Event): Promise<void> {
+  const session = event.data.object as Stripe.Checkout.Session | null;
+
+  const userId =
+    session?.client_reference_id ||
+    (session?.metadata?.userId ? String(session.metadata.userId) : null);
+
+  if (!userId) {
+    console.error(
+      `[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=${event.id}`
+    );
+    return;
+  }
+
+  await setSupporterStatus(userId, true);
+
+  console.log(
+    `[POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=${userId} eventId=${event.id}`
+  );
+}
+
+async function processEvent(event: Stripe.Event): Promise<void> {
+  if (event.type === 'checkout.session.completed') {
+    await processCheckoutSessionCompleted(event);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -58,64 +99,58 @@ export async function POST(req: NextRequest) {
       event = Stripe.webhooks.constructEvent(rawBody, stripeSignature, webhookSecret);
     } catch (signatureErr) {
       // Signature verification failed — reject the request
-      const errorMessage = signatureErr instanceof Error ? signatureErr.message : 'Unknown error';
-      console.warn(`[POST /api/webhooks/stripe] Signature verification failed: ${errorMessage}`);
+      const signatureErrorMessage =
+        signatureErr instanceof Error ? signatureErr.message : 'Unknown error';
+      console.warn(
+        `[POST /api/webhooks/stripe] Signature verification failed: ${signatureErrorMessage}`
+      );
       return NextResponse.json({ error: 'Invalid webhook signature' }, { status: 400 });
     }
 
-    console.log(`[POST /api/webhooks/stripe] Received event type: ${event.type}`);
+    const eventId = getEventId(event);
+    if (!eventId) {
+      console.error('[POST /api/webhooks/stripe] Verified event payload is missing event.id');
+      return NextResponse.json({ error: 'Invalid webhook payload' }, { status: 400 });
+    }
 
-    // =========================================================================
-    // 4. Handle checkout.session.completed events
-    // =========================================================================
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
+    console.log(`[POST /api/webhooks/stripe] Received eventId=${eventId} eventType=${event.type}`);
 
-      // Extract userId from `client_reference_id` first.
-      // If absent, fall back to `metadata.userId` (Stripe Checkout metadata).
-      const userId =
-        session.client_reference_id ||
-        // Stripe checkout session metadata values are always strings.
-        (session.metadata?.userId ? String(session.metadata.userId) : null);
+    const claim = await claimStripeWebhookEvent(eventId, event.type);
+    if (!claim.claimed) {
+      console.log(`[POST /api/webhooks/stripe] Duplicate event ignored: eventId=${eventId}`);
+      return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+    }
 
-      if (!userId) {
+    try {
+      await processEvent(event);
+      await markStripeWebhookEventCompleted(eventId);
+      return NextResponse.json({ received: true }, { status: 200 });
+    } catch (processingErr) {
+      console.error(
+        `[POST /api/webhooks/stripe] Failed to process eventId=${eventId} eventType=${event.type}:`,
+        processingErr
+      );
+
+      try {
+        await markStripeWebhookEventFailed(eventId, errorMessage(processingErr));
+      } catch (markFailedErr) {
         console.error(
-          '[POST /api/webhooks/stripe] checkout.session.completed: Missing client_reference_id (userId)'
+          `[POST /api/webhooks/stripe] Failed to mark eventId=${eventId} as failed:`,
+          markFailedErr
         );
-        // Log the error but still return 200 so Stripe doesn't retry forever
-        return NextResponse.json({ received: true }, { status: 200 });
       }
 
       try {
-        // Set the user's isSupporter status to true using repository abstraction.
-        await setSupporterStatus(userId, true);
-
-        console.log(
-          `[POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=${userId}`
-        );
-
-        // Successfully updated user, return 200
-        return NextResponse.json({ received: true }, { status: 200 });
-      } catch (dbErr) {
+        await deleteStripeWebhookEvent(eventId);
+      } catch (deleteErr) {
         console.error(
-          `[POST /api/webhooks/stripe] checkout.session.completed: Failed to update user tier:`,
-          dbErr
+          `[POST /api/webhooks/stripe] Failed to release failed eventId=${eventId}:`,
+          deleteErr
         );
-
-        // Return 500 so Stripe retries the webhook
-        // Repeated setSupporterStatus(userId, true) calls are idempotent, so retries are safe
-        // This ensures users don't get stuck on the Free tier due to transient database errors
-        return NextResponse.json({ error: 'Failed to update user tier' }, { status: 500 });
       }
-    }
 
-    // =========================================================================
-    // 5. Return success response for other recognized events
-    // =========================================================================
-    // Return 200 for all other event types so Stripe stops retrying.
-    // We only take action on events we care about (checkout.session.completed).
-    // Ignoring other events is fine — we can add handlers for them later.
-    return NextResponse.json({ received: true }, { status: 200 });
+      return NextResponse.json({ error: 'Failed to process webhook event' }, { status: 500 });
+    }
   } catch (err) {
     console.error('[POST /api/webhooks/stripe] Unexpected error:', err);
     // Return 500 so Stripe will retry the webhook

@@ -256,6 +256,19 @@ const tables: TableConfig[] = [
       { key: 'errorMessage', type: 'text', size: 2000, required: false },
     ],
   },
+  {
+    tableId: 'processed_webhook_events',
+    name: 'Processed Webhook Events',
+    columns: [
+      { key: 'eventId', type: 'varchar', size: 255, required: true },
+      { key: 'provider', type: 'varchar', size: 32, required: true },
+      { key: 'eventType', type: 'varchar', size: 128, required: true },
+      { key: 'status', type: 'varchar', size: 32, required: true },
+      { key: 'firstSeenAt', type: 'datetime', required: true },
+      { key: 'completedAt', type: 'datetime', required: false },
+      { key: 'lastError', type: 'text', size: 2000, required: false },
+    ],
+  },
 ];
 
 /** Indexes to create per table so queries by userId/status work and user_profiles.userId is unique. */
@@ -315,6 +328,21 @@ const tableIndexes: {
         key: 'pu_uploadJobId_platform_unique',
         type: IndexType.Unique,
         columns: ['uploadJobId', 'platform'],
+      },
+    ],
+  },
+  {
+    tableId: 'processed_webhook_events',
+    indexes: [
+      {
+        key: 'processed_webhook_events_eventId_unique',
+        type: IndexType.Unique,
+        columns: ['eventId'],
+      },
+      {
+        key: 'processed_webhook_events_provider_status',
+        type: IndexType.Key,
+        columns: ['provider', 'status'],
       },
     ],
   },

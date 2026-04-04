@@ -4,7 +4,9 @@ This guide explains how to test the Stripe webhook integration locally using **S
 
 ## Overview
 
-When a user completes a payment via Stripe Checkout, Stripe sends a webhook event (`checkout.session.completed`) to your application. The webhook handler verifies the event signature and updates the user's `isSupporter` status in Appwrite.
+When a user completes a payment via Stripe Checkout, Stripe sends a webhook event (`checkout.session.completed`) to your application. The webhook handler verifies the event signature, claims a durable idempotency record keyed by Stripe `event.id`, and then updates the user's `isSupporter` status in Appwrite.
+
+Duplicate deliveries, Stripe retries, and manual replays are safe no-ops after the first successful handling of a given Stripe event ID.
 
 **Local Testing:** Use Stripe CLI to simulate webhook events without needing a public domain.
 **Production:** Once deployed, register a permanent webhook endpoint in the Stripe Dashboard.
@@ -175,11 +177,65 @@ Check three places:
 
 2. **Dev Server Terminal** (`pnpm dev`) - Should show:
    ```
-   [POST /api/webhooks/stripe] Received event type: checkout.session.completed
-   [POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=user_xxx
+   [POST /api/webhooks/stripe] Received eventId=evt_... eventType=checkout.session.completed
+   [POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=user_xxx eventId=evt_...
    ```
 
-3. **Appwrite Console** - Check if the test user's `isSupporter` field was updated to `true` in the `user_profiles` collection.
+3. **Appwrite Console** - Check both tables:
+   - `user_profiles`: the test user's `isSupporter` field was updated to `true`
+   - `processed_webhook_events`: the row for that Stripe `event.id` exists with `status=completed`
+
+### Step 7: Replay the Exact Same Event ID
+
+Replay or resend the same event from Stripe.
+
+Examples:
+
+```bash
+# Resend an existing event from the CLI once you know the event id
+stripe events resend evt_123 --webhook-endpoint=<endpoint_id>
+
+# Or use the Stripe Dashboard event detail page and click Resend
+```
+
+Expected result:
+
+1. Stripe receives `200` again.
+2. The dev server logs the duplicate-detection path:
+   ```
+   [POST /api/webhooks/stripe] Duplicate event ignored: eventId=evt_123
+   ```
+3. No second supporter-upgrade side effect runs.
+4. The `processed_webhook_events` row remains the original completed record.
+
+---
+
+## Idempotency Storage and Retry Policy
+
+The webhook route uses the `processed_webhook_events` Appwrite table with these fields:
+
+| Field | Purpose |
+| --- | --- |
+| `eventId` | Unique Stripe event ID used for durable dedupe |
+| `provider` | `stripe` |
+| `eventType` | Stripe event type |
+| `status` | `processing`, `completed`, or `failed` |
+| `firstSeenAt` | Timestamp when the event was first claimed |
+| `completedAt` | Timestamp when handling reached a terminal success/no-op path |
+| `lastError` | Last processing error recorded before a retryable release |
+
+### Response Rules
+
+- Invalid signature: `400`
+- Missing webhook secret: `403`
+- Duplicate or replayed `event.id`: `200` with no-op body
+- Processing failure after claim: `500`, after recording failure and releasing the claim for retry
+
+### Retention and Cleanup
+
+Completed rows are retained for replay protection and troubleshooting. Failed rows are not retained because the route marks them failed and then deletes them so Stripe can retry the same event ID cleanly.
+
+If webhook volume grows enough to justify pruning, add a scheduled cleanup job for old completed rows after an agreed retention window. The current approach keeps the implementation simple and preserves strong duplicate protection.
 
 ---
 
@@ -240,6 +296,15 @@ ls -la /usr/bin/stripe
 1. Verify `.env.local` has the secret from `stripe listen` output
 2. Restart `pnpm dev` to pick up the new env var
 3. Make sure the secret matches exactly (copy-paste carefully)
+
+### Replay Returns 200 But No Upgrade Runs Again
+
+**Cause:** The duplicate-delivery guard detected that Stripe already delivered that `event.id`.
+
+**Check:**
+1. Confirm the dev server logged `Duplicate event ignored`
+2. Confirm the matching row already exists in `processed_webhook_events`
+3. Verify the original event already upgraded the user
 
 ### Webhook Returns 403 (Secret Not Configured)
 
@@ -306,7 +371,8 @@ curl -X POST http://localhost:3000/api/payments/checkout \
 | 3 | Editor | Update `.env.local` with `STRIPE_WEBHOOK_SECRET` |
 | 4 | VS Code | `pnpm dev` |
 | 5 | Host (new tab) | `stripe trigger checkout.session.completed` |
-| 6 | Check | Verify logs in all three places |
+| 6 | Check | Verify user + processed-event records |
+| 7 | Host / Dashboard | Replay same `event.id` and confirm duplicate no-op |
 
 When you restart `stripe listen`, repeat steps 2-4.
 

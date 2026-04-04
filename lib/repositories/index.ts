@@ -58,3 +58,11 @@ export {
 export type { CreateConnectedAccountData } from './connected-accounts';
 
 export { getMonthlyUsage, incrementUsage, canUpload } from './upload-usage';
+
+export {
+  claimStripeWebhookEvent,
+  markStripeWebhookEventCompleted,
+  markStripeWebhookEventFailed,
+  deleteStripeWebhookEvent,
+} from './webhook-events';
+export type { StripeWebhookProcessingClaimResult } from './webhook-events';

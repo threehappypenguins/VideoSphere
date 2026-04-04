@@ -4,13 +4,15 @@
  * These tests exercise the exported `POST(req)` route handler directly and
  * assert on the returned `NextResponse` status/body.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// `vi.mock` is hoisted to the top of the file, so the mock functions must be
-// created via `vi.hoisted` to avoid "Cannot access ... before initialization".
 const constructEventMock = vi.hoisted(() => vi.fn());
 const setSupporterStatusMock = vi.hoisted(() => vi.fn());
+const claimStripeWebhookEventMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventCompletedMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventFailedMock = vi.hoisted(() => vi.fn());
+const deleteStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
   const StripeMock = class {
@@ -24,6 +26,13 @@ vi.mock('stripe', () => {
 
 vi.mock('@/lib/repositories/users', () => ({
   setSupporterStatus: setSupporterStatusMock,
+}));
+
+vi.mock('@/lib/repositories/webhook-events', () => ({
+  claimStripeWebhookEvent: claimStripeWebhookEventMock,
+  markStripeWebhookEventCompleted: markStripeWebhookEventCompletedMock,
+  markStripeWebhookEventFailed: markStripeWebhookEventFailedMock,
+  deleteStripeWebhookEvent: deleteStripeWebhookEventMock,
 }));
 
 import { POST } from '@/app/api/webhooks/stripe/route';
@@ -54,10 +63,13 @@ function createRequest({
 describe('POST /api/webhooks/stripe', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Default config: can be overridden per-test.
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_webhook');
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
+
+    claimStripeWebhookEventMock.mockResolvedValue({ claimed: true, status: 'processing' });
+    markStripeWebhookEventCompletedMock.mockResolvedValue(undefined);
+    markStripeWebhookEventFailedMock.mockResolvedValue(undefined);
+    deleteStripeWebhookEventMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -68,17 +80,17 @@ describe('POST /api/webhooks/stripe', () => {
   it('returns 403 when STRIPE_WEBHOOK_SECRET is missing', async () => {
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', '');
 
-    const req = createRequest({
-      rawBody: '{"type":"checkout.session.completed"}',
-      stripeSignature: 't=123,v1=abc',
-    });
-
-    const res = await POST(req);
+    const res = await POST(
+      createRequest({
+        rawBody: '{"type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
 
     expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toBe('Webhook secret not configured');
+    expect(await res.json()).toEqual({ error: 'Webhook secret not configured' });
     expect(constructEventMock).not.toHaveBeenCalled();
+    expect(claimStripeWebhookEventMock).not.toHaveBeenCalled();
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
@@ -88,26 +100,20 @@ describe('POST /api/webhooks/stripe', () => {
     const rawBody = '{"id":"evt_test","type":"checkout.session.completed"}';
     const stripeSignature = 't=123,v1=abc';
     const webhookSecret = 'whsec_test_webhook';
-    const userId = 'user_123';
 
     constructEventMock.mockReturnValueOnce({
+      id: 'evt_test',
       type: 'checkout.session.completed',
       data: {
         object: {
-          client_reference_id: userId,
+          client_reference_id: 'user_123',
           id: 'cs_test_1234567890',
         },
       },
     });
-
     setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
-    const res = await POST(
-      createRequest({
-        rawBody,
-        stripeSignature,
-      })
-    );
+    const res = await POST(createRequest({ rawBody, stripeSignature }));
 
     expect(res.status).toBe(200);
     expect(constructEventMock).toHaveBeenCalledWith(
@@ -115,22 +121,26 @@ describe('POST /api/webhooks/stripe', () => {
       stripeSignature,
       webhookSecret
     );
-    expect(setSupporterStatusMock).toHaveBeenCalledWith(userId, true);
+    expect(claimStripeWebhookEventMock).toHaveBeenCalledWith(
+      'evt_test',
+      'checkout.session.completed'
+    );
+    expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_test');
     expect(await res.json()).toEqual({ received: true });
   });
 
   it('returns 400 when stripe-signature header is missing', async () => {
-    const req = createRequest({
-      rawBody: '{"type":"checkout.session.completed"}',
-      stripeSignature: undefined,
-    });
-
-    const res = await POST(req);
+    const res = await POST(
+      createRequest({
+        rawBody: '{"type":"checkout.session.completed"}',
+      })
+    );
 
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe('Invalid request: missing stripe-signature header');
+    expect(await res.json()).toEqual({ error: 'Invalid request: missing stripe-signature header' });
     expect(constructEventMock).not.toHaveBeenCalled();
+    expect(claimStripeWebhookEventMock).not.toHaveBeenCalled();
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
@@ -139,43 +149,37 @@ describe('POST /api/webhooks/stripe', () => {
       throw new Error('bad signature');
     });
 
-    const req = createRequest({
-      rawBody: '{"type":"checkout.session.completed"}',
-      stripeSignature: 't=123,v1=abc',
-    });
-
-    const res = await POST(req);
+    const res = await POST(
+      createRequest({
+        rawBody: '{"type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
 
     expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe('Invalid webhook signature');
+    expect(await res.json()).toEqual({ error: 'Invalid webhook signature' });
+    expect(claimStripeWebhookEventMock).not.toHaveBeenCalled();
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
   });
 
-  it('returns 200 and updates the user for checkout.session.completed', async () => {
+  it('processes a new checkout.session.completed event successfully', async () => {
     const rawBody = '{"id":"evt_test","type":"checkout.session.completed"}';
     const stripeSignature = 't=123,v1=abc';
     const webhookSecret = 'whsec_test_webhook';
-    const userId = 'user_123';
 
     constructEventMock.mockReturnValueOnce({
+      id: 'evt_test',
       type: 'checkout.session.completed',
       data: {
         object: {
-          client_reference_id: userId,
+          client_reference_id: 'user_123',
           id: 'cs_test_1234567890',
         },
       },
     });
-
     setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
-    const res = await POST(
-      createRequest({
-        rawBody,
-        stripeSignature,
-      })
-    );
+    const res = await POST(createRequest({ rawBody, stripeSignature }));
 
     expect(res.status).toBe(200);
     expect(constructEventMock).toHaveBeenCalledWith(
@@ -183,18 +187,93 @@ describe('POST /api/webhooks/stripe', () => {
       stripeSignature,
       webhookSecret
     );
-    expect(setSupporterStatusMock).toHaveBeenCalledWith(userId, true);
-    const body = await res.json();
-    expect(body).toEqual({ received: true });
+    expect(claimStripeWebhookEventMock).toHaveBeenCalledWith(
+      'evt_test',
+      'checkout.session.completed'
+    );
+    expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_test');
+    expect(await res.json()).toEqual({ received: true });
+  });
+
+  it('receives the same event id twice and processes side effects only once', async () => {
+    constructEventMock
+      .mockReturnValueOnce({
+        id: 'evt_duplicate',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_duplicate',
+          },
+        },
+      })
+      .mockReturnValueOnce({
+        id: 'evt_duplicate',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_duplicate',
+          },
+        },
+      });
+    claimStripeWebhookEventMock
+      .mockResolvedValueOnce({ claimed: true, status: 'processing' })
+      .mockResolvedValueOnce({ claimed: false, status: 'completed' });
+    setSupporterStatusMock.mockResolvedValueOnce(undefined);
+
+    const firstRes = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_duplicate","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+    const secondRes = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_duplicate","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(firstRes.status).toBe(200);
+    expect(secondRes.status).toBe(200);
+    expect(await secondRes.json()).toEqual({ received: true, duplicate: true });
+    expect(setSupporterStatusMock).toHaveBeenCalledTimes(1);
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 200 no-op for duplicate deliveries', async () => {
+    claimStripeWebhookEventMock.mockResolvedValueOnce({ claimed: false, status: 'completed' });
+    constructEventMock.mockReturnValueOnce({
+      id: 'evt_duplicate',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: 'user_123',
+          id: 'cs_test_duplicate',
+        },
+      },
+    });
+
+    const res = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_duplicate","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, duplicate: true });
+    expect(setSupporterStatusMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
+    expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+    expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
   });
 
   it('returns 200 when checkout.session.completed is missing client_reference_id', async () => {
-    const req = createRequest({
-      rawBody: '{"id":"evt_test","type":"checkout.session.completed"}',
-      stripeSignature: 't=123,v1=abc',
-    });
-
     constructEventMock.mockReturnValueOnce({
+      id: 'evt_missing_user',
       type: 'checkout.session.completed',
       data: {
         object: {
@@ -205,39 +284,38 @@ describe('POST /api/webhooks/stripe', () => {
       },
     });
 
-    const res = await POST(req);
+    const res = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_missing_user","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
 
     expect(res.status).toBe(200);
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
-    const body = await res.json();
-    expect(body).toEqual({ received: true });
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_missing_user');
+    expect(await res.json()).toEqual({ received: true });
   });
 
-  it('uses checkout.session.completed metadata.userId when client_reference_id is missing', async () => {
-    const rawBody = '{"id":"evt_test","type":"checkout.session.completed"}';
+  it('uses metadata.userId when client_reference_id is missing', async () => {
+    const rawBody = '{"id":"evt_metadata","type":"checkout.session.completed"}';
     const stripeSignature = 't=123,v1=abc';
     const webhookSecret = 'whsec_test_webhook';
-    const userId = 'user_from_metadata';
 
     constructEventMock.mockReturnValueOnce({
+      id: 'evt_metadata',
       type: 'checkout.session.completed',
       data: {
         object: {
           client_reference_id: null,
-          metadata: { userId },
+          metadata: { userId: 'user_from_metadata' },
           id: 'cs_test_1234567890',
         },
       },
     });
-
     setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
-    const res = await POST(
-      createRequest({
-        rawBody,
-        stripeSignature,
-      })
-    );
+    const res = await POST(createRequest({ rawBody, stripeSignature }));
 
     expect(res.status).toBe(200);
     expect(constructEventMock).toHaveBeenCalledWith(
@@ -245,16 +323,17 @@ describe('POST /api/webhooks/stripe', () => {
       stripeSignature,
       webhookSecret
     );
-    expect(setSupporterStatusMock).toHaveBeenCalledWith(userId, true);
+    expect(setSupporterStatusMock).toHaveBeenCalledWith('user_from_metadata', true);
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_metadata');
     expect(await res.json()).toEqual({ received: true });
   });
 
   it('returns 200 for unhandled event types without updating the user', async () => {
     constructEventMock.mockReturnValueOnce({
+      id: 'evt_unhandled',
       type: 'payment_intent.succeeded',
       data: {
         object: {
-          client_reference_id: 'user_123',
           id: 'pi_test_123',
         },
       },
@@ -262,60 +341,117 @@ describe('POST /api/webhooks/stripe', () => {
 
     const res = await POST(
       createRequest({
-        rawBody: '{"type":"payment_intent.succeeded"}',
+        rawBody: '{"id":"evt_unhandled","type":"payment_intent.succeeded"}',
         stripeSignature: 't=123,v1=abc',
       })
     );
 
     expect(res.status).toBe(200);
     expect(setSupporterStatusMock).not.toHaveBeenCalled();
-    const body = await res.json();
-    expect(body).toEqual({ received: true });
+    expect(claimStripeWebhookEventMock).toHaveBeenCalledWith(
+      'evt_unhandled',
+      'payment_intent.succeeded'
+    );
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_unhandled');
+    expect(await res.json()).toEqual({ received: true });
   });
 
-  it('returns 500 when setSupporterStatus throws', async () => {
-    constructEventMock.mockReturnValueOnce({
+  it('marks a failed event for retry and then succeeds on retry', async () => {
+    constructEventMock
+      .mockReturnValueOnce({
+        id: 'evt_retryable',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_retryable',
+          },
+        },
+      })
+      .mockReturnValueOnce({
+        id: 'evt_retryable',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_retryable',
+          },
+        },
+      });
+    setSupporterStatusMock
+      .mockRejectedValueOnce(new Error('Appwrite unavailable'))
+      .mockResolvedValueOnce(undefined);
+
+    const firstRes = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_retryable","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(firstRes.status).toBe(500);
+    expect(await firstRes.json()).toEqual({ error: 'Failed to process webhook event' });
+    expect(markStripeWebhookEventFailedMock).toHaveBeenCalledWith(
+      'evt_retryable',
+      'Appwrite unavailable'
+    );
+    expect(deleteStripeWebhookEventMock).toHaveBeenCalledWith('evt_retryable');
+
+    const secondRes = await POST(
+      createRequest({
+        rawBody: '{"id":"evt_retryable","type":"checkout.session.completed"}',
+        stripeSignature: 't=123,v1=abc',
+      })
+    );
+
+    expect(secondRes.status).toBe(200);
+    expect(await secondRes.json()).toEqual({ received: true });
+    expect(setSupporterStatusMock).toHaveBeenCalledTimes(2);
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_retryable');
+  });
+
+  it('allows only one side effect for near-simultaneous deliveries of the same event id', async () => {
+    constructEventMock.mockReturnValue({
+      id: 'evt_race',
       type: 'checkout.session.completed',
       data: {
         object: {
           client_reference_id: 'user_123',
-          id: 'cs_test_1234567890',
+          id: 'cs_test_race',
         },
       },
     });
 
-    setSupporterStatusMock.mockRejectedValueOnce(new Error('Appwrite unavailable'));
+    claimStripeWebhookEventMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => resolve({ claimed: true, status: 'processing' }), 15);
+          })
+      )
+      .mockResolvedValueOnce({ claimed: false, status: 'processing' });
+    setSupporterStatusMock.mockResolvedValueOnce(undefined);
 
-    const res = await POST(
-      createRequest({
-        rawBody: '{"type":"checkout.session.completed"}',
-        stripeSignature: 't=123,v1=abc',
-      })
-    );
+    const [firstRes, secondRes] = await Promise.all([
+      POST(
+        createRequest({
+          rawBody: '{"id":"evt_race","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      ),
+      POST(
+        createRequest({
+          rawBody: '{"id":"evt_race","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      ),
+    ]);
 
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toBe('Failed to update user tier');
-  });
-
-  it('returns 500 on unexpected errors in the handler', async () => {
-    // Cause a crash inside the checkout.session.completed branch.
-    constructEventMock.mockReturnValueOnce({
-      type: 'checkout.session.completed',
-      data: {
-        object: null,
-      },
-    });
-
-    const res = await POST(
-      createRequest({
-        rawBody: '{"type":"checkout.session.completed"}',
-        stripeSignature: 't=123,v1=abc',
-      })
-    );
-
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.error).toBe('Internal server error');
+    expect(firstRes.status).toBe(200);
+    expect(secondRes.status).toBe(200);
+    expect(setSupporterStatusMock).toHaveBeenCalledTimes(1);
+    expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(1);
+    expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+    expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
   });
 });
