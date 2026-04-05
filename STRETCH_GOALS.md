@@ -68,7 +68,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **Server Actions** — replace at least two client-side `fetch` calls with Next.js Server Actions; document the tradeoffs vs route handlers in a code comment
 - [ ] **Database migrations** — manage schema changes with a versioned migration system (e.g. Supabase migrations, Drizzle, or Prisma migrate); never alter the schema by hand
 - [ ] **Database seeding script** — a `pnpm db:seed` script that populates the database with realistic development data
-- [ ] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling
+- [x] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling
 - [ ] **Response caching strategy** — apply appropriate caching to at least two routes or data-fetching functions (ISR `revalidate`, `unstable_cache`, or HTTP `Cache-Control`); document the chosen strategy and why
 
 ---

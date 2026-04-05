@@ -14,6 +14,12 @@ const constructEventMock = vi.hoisted(() => vi.fn());
 const setSupporterStatusMock = vi.hoisted(() => vi.fn());
 const accountGetMock = vi.hoisted(() => vi.fn());
 const getUserByIdMock = vi.hoisted(() => vi.fn());
+const claimStripeWebhookEventMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventBookkeepingFailedMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventCompletedMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventFailedMock = vi.hoisted(() => vi.fn());
+const markStripeWebhookEventNonRetryableFailedMock = vi.hoisted(() => vi.fn());
+const deleteStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock('stripe', () => {
   const StripeMock = class {
@@ -57,8 +63,29 @@ vi.mock('@/lib/repositories/users', () => ({
   getUserById: getUserByIdMock,
 }));
 
+vi.mock('@/lib/repositories/webhook-events', () => ({
+  claimStripeWebhookEvent: claimStripeWebhookEventMock,
+  markStripeWebhookEventBookkeepingFailed: markStripeWebhookEventBookkeepingFailedMock,
+  markStripeWebhookEventCompleted: markStripeWebhookEventCompletedMock,
+  markStripeWebhookEventFailed: markStripeWebhookEventFailedMock,
+  markStripeWebhookEventNonRetryableFailed: markStripeWebhookEventNonRetryableFailedMock,
+  deleteStripeWebhookEvent: deleteStripeWebhookEventMock,
+}));
+
 import { POST as checkoutPOST } from '@/app/api/payments/checkout/route';
 import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route';
+
+async function runWebhookRequestWithFakeTimers(request: NextRequest) {
+  vi.useFakeTimers();
+
+  try {
+    const responsePromise = webhookPOST(request);
+    await vi.runAllTimersAsync();
+    return await responsePromise;
+  } finally {
+    vi.useRealTimers();
+  }
+}
 
 function createCheckoutRequest({
   projectId,
@@ -120,6 +147,12 @@ describe('Stripe integration (checkout + webhook)', () => {
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_webhook');
     vi.stubEnv('STRIPE_PRICE_ID', '');
     getUserByIdMock.mockResolvedValue({ role: 'user' });
+    claimStripeWebhookEventMock.mockResolvedValue({ claimed: true, status: 'processing' });
+    markStripeWebhookEventBookkeepingFailedMock.mockResolvedValue(undefined);
+    markStripeWebhookEventCompletedMock.mockResolvedValue(undefined);
+    markStripeWebhookEventFailedMock.mockResolvedValue(undefined);
+    markStripeWebhookEventNonRetryableFailedMock.mockResolvedValue(undefined);
+    deleteStripeWebhookEventMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -350,6 +383,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: 'Webhook secret not configured' });
       expect(constructEventMock).not.toHaveBeenCalled();
+      expect(claimStripeWebhookEventMock).not.toHaveBeenCalled();
       expect(setSupporterStatusMock).not.toHaveBeenCalled();
     });
 
@@ -365,6 +399,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         error: 'Invalid request: missing stripe-signature header',
       });
       expect(constructEventMock).not.toHaveBeenCalled();
+      expect(claimStripeWebhookEventMock).not.toHaveBeenCalled();
       expect(setSupporterStatusMock).not.toHaveBeenCalled();
     });
 
@@ -383,11 +418,13 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toBe('Invalid webhook signature');
+      expect(claimStripeWebhookEventMock).not.toHaveBeenCalled();
       expect(setSupporterStatusMock).not.toHaveBeenCalled();
     });
 
     it('updates user for checkout.session.completed', async () => {
       constructEventMock.mockReturnValueOnce({
+        id: 'evt_test',
         type: 'checkout.session.completed',
         data: {
           object: {
@@ -408,7 +445,168 @@ describe('Stripe integration (checkout + webhook)', () => {
 
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ received: true });
+      expect(claimStripeWebhookEventMock).toHaveBeenCalledWith(
+        'evt_test',
+        'checkout.session.completed'
+      );
       expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+      expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledWith('evt_test');
+    });
+
+    it('returns 200 no-op for duplicate webhook deliveries', async () => {
+      claimStripeWebhookEventMock.mockResolvedValueOnce({ claimed: false, status: 'completed' });
+      constructEventMock.mockReturnValueOnce({
+        id: 'evt_duplicate',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_123',
+          },
+        },
+      });
+
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"id":"evt_duplicate","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true, duplicate: true });
+      expect(setSupporterStatusMock).not.toHaveBeenCalled();
+      expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when webhook event claim indicates retry is required', async () => {
+      claimStripeWebhookEventMock.mockResolvedValueOnce({ claimed: false, status: 'failed' });
+      constructEventMock.mockReturnValueOnce({
+        id: 'evt_claim_failed',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_claim_failed',
+          },
+        },
+      });
+
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody: '{"id":"evt_claim_failed","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'Webhook event claim requires retry' });
+      expect(setSupporterStatusMock).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when non-retryable terminal status cannot be persisted', async () => {
+      constructEventMock.mockReturnValueOnce({
+        id: 'evt_missing_user_terminal_persist_fail',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: null,
+            metadata: {},
+            id: 'cs_test_missing_user_terminal_persist_fail',
+          },
+        },
+      });
+      markStripeWebhookEventNonRetryableFailedMock.mockRejectedValueOnce(
+        new Error('terminal non-retryable status write failed')
+      );
+
+      const res = await webhookPOST(
+        createWebhookRequest({
+          rawBody:
+            '{"id":"evt_missing_user_terminal_persist_fail","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'Failed to persist webhook terminal status' });
+      expect(setSupporterStatusMock).not.toHaveBeenCalled();
+      expect(markStripeWebhookEventCompletedMock).not.toHaveBeenCalled();
+      expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+      expect(markStripeWebhookEventNonRetryableFailedMock).toHaveBeenCalledWith(
+        'evt_missing_user_terminal_persist_fail',
+        '[POST /api/webhooks/stripe] checkout.session.completed: Missing userId for eventId=evt_missing_user_terminal_persist_fail'
+      );
+    });
+
+    it('returns 200 with bookkeeping warning when completion status update fails', async () => {
+      constructEventMock.mockReturnValueOnce({
+        id: 'evt_completion_mark_fail',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_completion_mark_fail',
+          },
+        },
+      });
+      setSupporterStatusMock.mockResolvedValueOnce(undefined);
+      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+
+      const res = await runWebhookRequestWithFakeTimers(
+        createWebhookRequest({
+          rawBody: '{"id":"evt_completion_mark_fail","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true, bookkeepingWarning: true });
+      expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+      expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
+      expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
+        'evt_completion_mark_fail',
+        'Appwrite update outage'
+      );
+      expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+      expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when terminal bookkeeping status cannot be persisted', async () => {
+      constructEventMock.mockReturnValueOnce({
+        id: 'evt_completion_terminal_persist_fail',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            client_reference_id: 'user_123',
+            id: 'cs_test_completion_terminal_persist_fail',
+          },
+        },
+      });
+      setSupporterStatusMock.mockResolvedValueOnce(undefined);
+      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+      markStripeWebhookEventBookkeepingFailedMock.mockRejectedValueOnce(
+        new Error('terminal status write failed')
+      );
+
+      const res = await runWebhookRequestWithFakeTimers(
+        createWebhookRequest({
+          rawBody:
+            '{"id":"evt_completion_terminal_persist_fail","type":"checkout.session.completed"}',
+          stripeSignature: 't=123,v1=abc',
+        })
+      );
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'Failed to persist webhook terminal status' });
+      expect(setSupporterStatusMock).toHaveBeenCalledWith('user_123', true);
+      expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
+      expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
+        'evt_completion_terminal_persist_fail',
+        'Appwrite update outage'
+      );
+      expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
+      expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
     });
   });
 });

@@ -153,6 +153,35 @@ Server Actions are great for form submissions and mutations. Use API routes when
 - `GET /api/example` — Returns a list of example items
 - `POST /api/example` — Creates a new example item with validation
 
+## Webhook Contract Reference
+
+### `POST /api/webhooks/stripe`
+
+Stripe webhook receiver with signature verification and durable idempotency by Stripe `event.id`.
+
+Success response variants:
+
+| Status | Response Body | Meaning |
+| --- | --- | --- |
+| `200` | `{ "received": true }` | Event was newly claimed, processed, and completion bookkeeping succeeded. |
+| `200` | `{ "received": true, "duplicate": true }` | Event was already handled (duplicate/replay no-op). |
+| `200` | `{ "received": true, "bookkeepingWarning": true }` | Side effects succeeded, but completion bookkeeping failed and was recorded as terminal bookkeeping failure. |
+| `200` | `{ "received": true, "ignored": true, "nonRetryable": true, "reason": "missing_user_id" }` | Event payload/config issue is permanently non-retryable and was successfully recorded in a terminal status before acknowledgement. |
+| `200` | `{ "received": true, "ignored": true, "reason": "unhandled_event_type" }` | Event type is currently unhandled, so the route acknowledges it without durable idempotency bookkeeping. |
+
+Error responses:
+
+| Status | Response Body | Meaning |
+| --- | --- | --- |
+| `400` | `{ "error": "Invalid request: missing stripe-signature header" }` | Missing Stripe signature header. |
+| `400` | `{ "error": "Invalid webhook signature" }` | Signature verification failed. |
+| `400` | `{ "error": "Invalid webhook payload" }` | Verified event payload is missing required `event.id`. |
+| `403` | `{ "error": "Webhook secret not configured" }` | Server missing `STRIPE_WEBHOOK_SECRET`. |
+| `500` | `{ "error": "Webhook event is already processing; retry required" }` | Another request/worker currently holds the claim; Stripe should retry later. |
+| `500` | `{ "error": "Webhook event claim requires retry" }` | Event-claim conflict requires retry/replay handling. |
+| `500` | `{ "error": "Failed to process webhook event" }` | Processing failed before side effects could complete; event recorded for retry/reclaim. |
+| `500` | `{ "error": "Failed to persist webhook terminal status" }` | Persisting a required terminal webhook status failed, so the route does not acknowledge success. |
+
 ## Useful Resources
 
 - [Next.js Route Handlers](https://nextjs.org/docs/app/building-your-application/routing/route-handlers)

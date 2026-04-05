@@ -32,9 +32,11 @@
  * title/description/tags/visibility columns. Drop and recreate `platform_uploads`
  * when changing this shape.
  *
- * Timestamps: use Appwrite system `$createdAt` / `$updatedAt` only. If an older
- * project had custom `createdAt`/`updatedAt` columns, remove them in the Console
- * to free column slots (this script does not delete columns).
+ * Timestamps: use Appwrite system `$createdAt` / `$updatedAt` only, including
+ * webhook observability/reclaim timing. Do not add custom business timestamp
+ * columns when the row lifecycle can be derived from Appwrite's built-ins.
+ * If an older project had custom `createdAt`/`updatedAt` columns, remove them
+ * in the Console to free column slots (this script does not delete columns).
  */
 
 import { config } from 'dotenv';
@@ -256,6 +258,17 @@ const tables: TableConfig[] = [
       { key: 'errorMessage', type: 'text', size: 2000, required: false },
     ],
   },
+  {
+    tableId: 'processed_webhook_events',
+    name: 'Processed Webhook Events',
+    columns: [
+      { key: 'eventId', type: 'varchar', size: 255, required: true },
+      { key: 'provider', type: 'varchar', size: 32, required: true },
+      { key: 'eventType', type: 'varchar', size: 128, required: true },
+      { key: 'status', type: 'varchar', size: 32, required: true },
+      { key: 'lastError', type: 'text', size: 2000, required: false },
+    ],
+  },
 ];
 
 /** Indexes to create per table so queries by userId/status work and user_profiles.userId is unique. */
@@ -315,6 +328,21 @@ const tableIndexes: {
         key: 'pu_uploadJobId_platform_unique',
         type: IndexType.Unique,
         columns: ['uploadJobId', 'platform'],
+      },
+    ],
+  },
+  {
+    tableId: 'processed_webhook_events',
+    indexes: [
+      {
+        key: 'pwe_provider_eventId_unique',
+        type: IndexType.Unique,
+        columns: ['provider', 'eventId'],
+      },
+      {
+        key: 'pwe_provider_status',
+        type: IndexType.Key,
+        columns: ['provider', 'status'],
       },
     ],
   },
