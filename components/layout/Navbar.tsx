@@ -254,7 +254,10 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
   };
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
+    <nav
+      className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur"
+      aria-label="Primary navigation"
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* --- Logo --- */}
@@ -274,24 +277,28 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
             <div className="hidden items-center gap-8 md:flex">
               <Link
                 href="/"
+                aria-current={pathname === '/' ? 'page' : undefined}
                 className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
               >
                 Home
               </Link>
               <Link
                 href="/pricing"
+                aria-current={pathname === '/pricing' ? 'page' : undefined}
                 className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
               >
                 Pricing
               </Link>
               <Link
                 href="/about"
+                aria-current={pathname === '/about' ? 'page' : undefined}
                 className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
               >
                 About
               </Link>
               <Link
                 href="/contact"
+                aria-current={pathname === '/contact' ? 'page' : undefined}
                 className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
               >
                 Contact
@@ -382,6 +389,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-expanded={mobileMenuOpen ? 'true' : 'false'}
             aria-label="Toggle navigation menu"
+            aria-controls="site-navigation-mobile-menu"
           >
             {mobileMenuOpen ? (
               // X icon
@@ -415,7 +423,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
 
         {/* --- Mobile Menu --- */}
         {mobileMenuOpen && (
-          <div className="border-t border-border pb-4 md:hidden">
+          <div id="site-navigation-mobile-menu" className="border-t border-border pb-4 md:hidden">
             <div className="flex flex-col gap-2 pt-4">
               <div className="px-3">
                 <ThemeDropdown
@@ -438,6 +446,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                 <>
                   <Link
                     href="/"
+                    aria-current={pathname === '/' ? 'page' : undefined}
                     className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
@@ -445,6 +454,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   </Link>
                   <Link
                     href="/pricing"
+                    aria-current={pathname === '/pricing' ? 'page' : undefined}
                     className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
@@ -452,6 +462,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   </Link>
                   <Link
                     href="/about"
+                    aria-current={pathname === '/about' ? 'page' : undefined}
                     className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >
@@ -459,6 +470,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   </Link>
                   <Link
                     href="/contact"
+                    aria-current={pathname === '/contact' ? 'page' : undefined}
                     className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
                     onClick={() => setMobileMenuOpen(false)}
                   >

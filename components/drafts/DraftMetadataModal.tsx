@@ -1444,11 +1444,15 @@ export function DraftMetadataModal({
                     </button>
                   </div>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p id="draft-ai-metadata-help" className="mt-1 text-xs text-muted-foreground">
                   Describe your video and generate title, description, and tags.
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label htmlFor="draft-ai-prompt" className="sr-only">
+                    Optional AI prompt
+                  </label>
                   <input
+                    id="draft-ai-prompt"
                     value={aiPrompt}
                     onChange={(event) => setAiPrompt(event.target.value)}
                     onKeyDown={(event) => {
@@ -1456,6 +1460,7 @@ export function DraftMetadataModal({
                         void handleGenerateAiMetadata();
                       }
                     }}
+                    aria-describedby="draft-ai-metadata-help"
                     placeholder="Optional prompt for AI"
                     className="min-w-[220px] flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   />
@@ -1465,6 +1470,7 @@ export function DraftMetadataModal({
                       onClick={() => {
                         aiMetadataAbortRef.current?.abort();
                       }}
+                      aria-describedby="draft-ai-metadata-help"
                       className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
                     >
                       <Square className="h-3.5 w-3.5 fill-current" />
@@ -1477,6 +1483,7 @@ export function DraftMetadataModal({
                         void handleGenerateAiMetadata();
                       }}
                       disabled={isGeneratingAi}
+                      aria-describedby="draft-ai-metadata-help"
                       className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                     >
                       {`${hasGeneratedMetadata ? 'Regenerate' : 'Generate'} with AI`}
@@ -1618,7 +1625,11 @@ export function DraftMetadataModal({
                     </div>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2">
+                    <label htmlFor="draft-thumbnail-file" className="sr-only">
+                      Choose thumbnail image
+                    </label>
                     <input
+                      id="draft-thumbnail-file"
                       ref={thumbnailInputRef}
                       type="file"
                       accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}

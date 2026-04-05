@@ -234,12 +234,33 @@ Run `pnpm lint` to check for these issues.
 ### Automated Testing
 
 ```bash
+# Run axe-based accessibility checks in Vitest
+pnpm test:a11y
+
+# Run the default Vitest suite (accessibility tests run separately)
+pnpm test run
+
 # Lighthouse audit (in Chrome DevTools → Lighthouse tab)
 # Select "Accessibility" category and run
 
 # Or install axe DevTools browser extension
 # https://www.deque.com/axe/devtools/
 ```
+
+This project now uses `vitest-axe` with `axe-core` in the `jsdom` environment for automated DOM accessibility audits.
+Create accessibility-focused specs as `*.a11y.test.ts` or `*.a11y.test.tsx`, render the component with Testing Library, then assert with `axe()` and `toHaveNoViolations()`.
+
+```tsx
+import { render } from '@testing-library/react';
+import { axe } from 'vitest-axe';
+
+it('has no accessibility violations', async () => {
+  const { container } = render(<MyComponent />);
+  expect(await axe(container)).toHaveNoViolations();
+});
+```
+
+Current automated a11y coverage includes the landing page, login and signup flows, dashboard summary, draft metadata modal, and navigation bar.
 
 ## Useful Resources
 
