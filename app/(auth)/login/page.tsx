@@ -131,7 +131,7 @@ export default function LoginPage() {
                 ? 'text-red-600 dark:text-red-400'
                 : 'text-green-600 dark:text-green-400'
             }`}
-            role="alert"
+            role={error.type === 'error' ? 'alert' : 'status'}
             aria-live={error.type === 'error' ? 'assertive' : 'polite'}
           >
             {error.type === 'error' ? getErrorMessage(error.message) : error.message}
