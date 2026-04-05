@@ -402,8 +402,8 @@ describe('LoginPage Component', () => {
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
-        const alert = screen.getByRole('alert');
-        expect(alert).toHaveTextContent(/login successful/i);
+        const status = screen.getByRole('status');
+        expect(status).toHaveTextContent(/login successful/i);
       });
     });
   });
