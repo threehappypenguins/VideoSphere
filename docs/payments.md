@@ -125,6 +125,10 @@ Stripe Checkout is a **hosted payment page** — Stripe handles the entire UI. T
 
 Webhooks let Stripe notify your app when events happen (subscription created, payment failed, etc.).
 
+The webhook route now uses durable event-level idempotency keyed by Stripe `event.id`. Each verified event is claimed in Appwrite before business logic runs, so duplicate deliveries, provider retries, and manual replays return `200` without repeating side effects.
+
+If business logic succeeds but completion bookkeeping fails, the route intentionally returns `200` with a warning marker so Stripe does not replay and re-run side effects.
+
 ```typescript
 // app/api/webhooks/stripe/route.ts
 // STUDENT: Implement webhook handler
@@ -133,6 +137,11 @@ Webhooks let Stripe notify your app when events happen (subscription created, pa
 // - customer.subscription.updated — plan changed
 // - customer.subscription.deleted — subscription cancelled
 // - invoice.payment_failed — payment failed
+
+// Durable replay protection:
+// - processed_webhook_events table
+// - unique eventId for dedupe
+// - statuses: processing | completed | failed | completed_with_bookkeeping_error | failed_non_retryable
 ```
 
 ### Stripe Customer Portal
