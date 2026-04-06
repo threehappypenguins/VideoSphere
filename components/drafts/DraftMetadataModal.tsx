@@ -632,7 +632,8 @@ export function DraftMetadataModal({
     value.targets.length > 0 &&
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
     value.title.trim() !== '';
-  const hasAiPrompt = aiPrompt.trim() !== '';
+  const trimmedAiPrompt = aiPrompt.trim();
+  const hasAiPrompt = trimmedAiPrompt !== '';
   const hasGeneratedMetadata =
     value !== null &&
     (value.title.trim() !== '' || value.description.trim() !== '' || value.tags.length > 0);
@@ -691,7 +692,7 @@ export function DraftMetadataModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fileName: videoFile?.name ?? 'video',
-          userPrompt: aiPrompt.trim() || undefined,
+          userPrompt: trimmedAiPrompt || undefined,
           platforms: value.targets,
         }),
         signal: ac.signal,
@@ -1464,7 +1465,7 @@ export function DraftMetadataModal({
                     }}
                     aria-describedby="draft-ai-metadata-help"
                     placeholder="Enter a prompt for AI"
-                    className="min-w-[220px] flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    className="min-w-55 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   />
                   {isGeneratingAi ? (
                     <button
