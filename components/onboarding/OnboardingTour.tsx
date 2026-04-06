@@ -43,6 +43,25 @@ const TARGET_NOT_FOUND_MAX_RETRIES_BY_STEP_ID: Partial<Record<string, number>> =
   'first-connect-button': 20,
 };
 
+function isStepTargetMissing(step: StepWithFnTarget | undefined): boolean {
+  if (!step) return true;
+
+  const target = step.target;
+  let element: HTMLElement | null = null;
+
+  if (typeof target === 'string') {
+    element = document.querySelector<HTMLElement>(target);
+  } else if (typeof target === 'function') {
+    element = target();
+  } else {
+    const maybeRef = target as { current?: HTMLElement | null };
+    element = 'current' in maybeRef ? (maybeRef.current ?? null) : (target as HTMLElement);
+  }
+
+  // Joyride cannot place a tooltip if the target has no client rects.
+  return !element || element.getClientRects().length === 0;
+}
+
 function TourTooltip({
   backProps,
   closeProps,
@@ -196,6 +215,7 @@ export function OnboardingTour() {
       window.clearTimeout(timeoutId);
     });
     targetNotFoundTimeoutsRef.current = {};
+    pendingNavigationStepAdvanceRef.current = null;
     setStepIndex(0);
     setHasReplayStarted(false);
     await cleanupOnboardingDraft();
@@ -218,6 +238,7 @@ export function OnboardingTour() {
         window.clearTimeout(timeoutId);
       });
       targetNotFoundTimeoutsRef.current = {};
+      pendingNavigationStepAdvanceRef.current = null;
     }
   }, [run]);
 
@@ -262,6 +283,10 @@ export function OnboardingTour() {
                 if (currentIndex !== eventIndex) {
                   return currentIndex;
                 }
+                const activeStep = tourSteps[currentIndex] as StepWithFnTarget | undefined;
+                if (!isStepTargetMissing(activeStep)) {
+                  return currentIndex;
+                }
                 return Math.max(0, Math.min(currentIndex + 1, onboardingSteps.length - 1));
               });
             }, TARGET_NOT_FOUND_FALLBACK_TIMEOUT_MS);
@@ -271,8 +296,8 @@ export function OnboardingTour() {
             return;
           }
 
-          clearTargetNotFoundTimer(missingStepId);
-          delete targetNotFoundRetryCountsRef.current[missingStepId];
+          // Retries are exhausted; keep waiting for the fallback timer.
+          return;
         }
 
         if (missingStepId) {
@@ -357,6 +382,7 @@ export function OnboardingTour() {
       shouldReplay,
       stepIndex,
       stopTourAsCompleted,
+      tourSteps,
     ]
   );
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const markCompletedMock = vi.hoisted(() => vi.fn());
@@ -138,6 +138,10 @@ describe('OnboardingTour', () => {
     mockNav.pathnameSetters.clear();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('starts the tour and marks onboarding complete when dismissed', async () => {
     render(<OnboardingTour />);
 
@@ -206,16 +210,13 @@ describe('OnboardingTour', () => {
 
     expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('4');
 
+    vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: 'Missing Target' }));
 
     await act(async () => {
-      await new Promise((resolve) => {
-        setTimeout(resolve, 8200);
-      });
+      vi.advanceTimersByTime(8000);
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('5');
-    });
-  }, 15000);
+    expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('5');
+  });
 });
