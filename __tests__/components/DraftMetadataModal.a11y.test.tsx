@@ -69,7 +69,7 @@ describe('Draft metadata modal accessibility', () => {
     );
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByLabelText(/optional ai prompt/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/ai prompt required for generation/i)).toBeInTheDocument();
 
     const aiButton = screen.getByRole('button', { name: /generate with ai/i });
     expect(aiButton).toHaveAttribute('aria-describedby', 'draft-ai-metadata-help');

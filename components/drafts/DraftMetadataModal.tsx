@@ -1447,11 +1447,11 @@ export function DraftMetadataModal({
                   </div>
                 </div>
                 <p id="draft-ai-metadata-help" className="mt-1 text-xs text-muted-foreground">
-                  Describe your video and generate title, description, and tags.
+                  Enter a prompt to generate title, description, and tags.
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <label htmlFor="draft-ai-prompt" className="sr-only">
-                    Optional AI prompt
+                    AI prompt required for generation
                   </label>
                   <input
                     id="draft-ai-prompt"
@@ -1463,7 +1463,7 @@ export function DraftMetadataModal({
                       }
                     }}
                     aria-describedby="draft-ai-metadata-help"
-                    placeholder="Optional prompt for AI"
+                    placeholder="Enter a prompt for AI"
                     className="min-w-[220px] flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                   />
                   {isGeneratingAi ? (

@@ -81,7 +81,7 @@ describe('DraftMetadataModal AI prompt behavior', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
-    const aiPromptInput = screen.getByLabelText(/optional ai prompt/i);
+    const aiPromptInput = screen.getByLabelText(/ai prompt required for generation/i);
     const aiButton = screen.getByRole('button', { name: /generate with ai/i });
 
     expect(aiButton).toBeDisabled();
@@ -110,7 +110,7 @@ describe('DraftMetadataModal AI prompt behavior', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
-    const aiPromptInput = screen.getByLabelText(/optional ai prompt/i);
+    const aiPromptInput = screen.getByLabelText(/ai prompt required for generation/i);
     await userEvent.type(aiPromptInput, '   {enter}');
 
     const fetchMock = vi.mocked(global.fetch);
@@ -138,7 +138,7 @@ describe('DraftMetadataModal AI prompt behavior', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
-    const aiPromptInput = screen.getByLabelText(/optional ai prompt/i);
+    const aiPromptInput = screen.getByLabelText(/ai prompt required for generation/i);
     await userEvent.type(aiPromptInput, 'some prompt{enter}');
 
     await waitFor(() => {
