@@ -174,7 +174,9 @@ export function OnboardingTour() {
   // the desktop sidebar link first — even on mobile where it lives inside a
   // `display:none` aside (zero bounding rect → Joyride raises the overlay but
   // can never place the tooltip, hanging the tour indefinitely).
-
+  // Note: tourSteps has an empty dependency array. onboardingSteps is a stable
+  // module constant and will never change, so it's not a dependency; the memoization
+  // is for performance (avoiding .map() on every render), not dependency safety.
   const tourSteps = useMemo<StepWithFnTarget[]>(
     () =>
       onboardingSteps.map((step) => {
