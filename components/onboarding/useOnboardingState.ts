@@ -115,8 +115,9 @@ export function useOnboardingState(options?: UseOnboardingStateOptions) {
       }
 
       if (isMounted) {
-        // If onboarding state cannot be read, default to incomplete so users are not blocked.
-        setHasCompletedOnboarding(false);
+        // If onboarding state cannot be read, keep onboarding as completed to avoid surprising
+        // returning users with an unexpected auto-run during transient outages.
+        setHasCompletedOnboarding(true);
         setHasLoadedState(true);
       }
     }

@@ -211,7 +211,11 @@ describe('OnboardingTour', () => {
     expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('4');
 
     vi.useFakeTimers();
-    fireEvent.click(screen.getByRole('button', { name: 'Missing Target' }));
+    // create-draft-button uses the default wait retries (10); the fallback timer
+    // starts only after retries are exhausted.
+    for (let i = 0; i < 11; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Missing Target' }));
+    }
 
     await act(async () => {
       vi.advanceTimersByTime(8000);

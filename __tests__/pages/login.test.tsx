@@ -108,6 +108,34 @@ describe('LoginPage Component', () => {
       expect(emailInput.value).toBe('test@example.com');
       expect(passwordInput.value).toBe('password123');
     });
+
+    it('should toggle password visibility and update accessibility state', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const passwordInput = screen.getByLabelText(/^password$/i) as HTMLInputElement;
+      const toggleButton = screen.getByRole('button', { name: /show password/i });
+
+      expect(passwordInput.type).toBe('password');
+      expect(toggleButton).toHaveAttribute('aria-pressed', 'false');
+      expect(toggleButton).toHaveAttribute('aria-controls', 'password');
+
+      await user.click(toggleButton);
+
+      expect(passwordInput.type).toBe('text');
+      expect(screen.getByRole('button', { name: /hide password/i })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+
+      await user.click(screen.getByRole('button', { name: /hide password/i }));
+
+      expect(passwordInput.type).toBe('password');
+      expect(screen.getByRole('button', { name: /show password/i })).toHaveAttribute(
+        'aria-pressed',
+        'false'
+      );
+    });
   });
 
   describe('Form Submission', () => {

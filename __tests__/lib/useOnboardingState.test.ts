@@ -108,7 +108,7 @@ describe('useOnboardingState', () => {
     expect(result.current.hasCompletedOnboarding).toBe(false);
   });
 
-  it('defaults to not completed when API read fails', async () => {
+  it('defaults to completed when API read fails', async () => {
     global.fetch = vi.fn(() => Promise.reject(new Error('Network down')));
 
     const { result } = renderHook(() => useOnboardingState({ userId }));
@@ -117,7 +117,7 @@ describe('useOnboardingState', () => {
       expect(result.current.isReady).toBe(true);
     });
 
-    expect(result.current.hasCompletedOnboarding).toBe(false);
-    expect(result.current.shouldAutoRun).toBe(true);
+    expect(result.current.hasCompletedOnboarding).toBe(true);
+    expect(result.current.shouldAutoRun).toBe(false);
   });
 });

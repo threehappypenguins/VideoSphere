@@ -296,6 +296,10 @@ export function OnboardingTour() {
           const nextCount = (targetNotFoundRetryCountsRef.current[missingStepId] ?? 0) + 1;
           targetNotFoundRetryCountsRef.current[missingStepId] = nextCount;
 
+          if (nextCount <= maxRetries) {
+            return;
+          }
+
           if (targetNotFoundTimeoutsRef.current[missingStepId] === undefined) {
             targetNotFoundTimeoutsRef.current[missingStepId] = window.setTimeout(() => {
               delete targetNotFoundRetryCountsRef.current[missingStepId];
@@ -312,10 +316,6 @@ export function OnboardingTour() {
                 return Math.max(0, Math.min(currentIndex + 1, onboardingSteps.length - 1));
               });
             }, TARGET_NOT_FOUND_FALLBACK_TIMEOUT_MS);
-          }
-
-          if (nextCount <= maxRetries) {
-            return;
           }
 
           // Retries are exhausted; keep waiting for the fallback timer.
