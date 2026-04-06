@@ -15,6 +15,7 @@ export const onboardingSteps: Step[] = [
     target: '[data-tour="connected-accounts-link"]',
     skipBeacon: true,
     placement: 'auto',
+    scrollOffset: 80,
     title: 'Connect Your Accounts',
     content:
       "Before uploading, you'll need to connect your YouTube, Vimeo, and other accounts. Let's visit that page now.",
@@ -23,16 +24,21 @@ export const onboardingSteps: Step[] = [
     id: 'first-connect-button',
     target: '[data-tour="first-connect-button"]',
     skipBeacon: true,
-    placement: 'auto',
+    placement: 'bottom',
+    scrollOffset: 80,
     title: 'Connect a Platform',
     content:
       'Click Connect to authorise VideoSphere to publish on your behalf. You can always add more platforms later from your profile.',
   },
   {
     id: 'drafts-nav-link',
+    // NOTE: The actual target is overridden in OnboardingTour.tsx with a
+    // visibility-checking function so the correct element is picked on both
+    // desktop (sidebar) and mobile (tab bar). The string here is a fallback.
     target: '[data-tour="drafts-nav-link-desktop"], [data-tour="drafts-nav-link-mobile"]',
     skipBeacon: true,
-    placement: 'right',
+    placement: 'auto',
+    scrollOffset: 80,
     title: 'Go to Drafts',
     content:
       "Now let's head to the Drafts section where you create and manage your video projects.",
@@ -41,7 +47,8 @@ export const onboardingSteps: Step[] = [
     id: 'create-draft-button',
     target: '[data-tour="drafts-create-draft-button"]',
     skipBeacon: true,
-    placement: 'auto',
+    placement: 'bottom',
+    scrollOffset: 80,
     title: 'Create a New Draft',
     content:
       'Click "Create draft" to start a new project. This opens a form where you add your video details.',

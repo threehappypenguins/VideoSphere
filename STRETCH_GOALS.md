@@ -183,7 +183,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **Component tests for all UI components** — every component in `/components` has at least one render test and one interaction test
 - [ ] **API route integration tests** — every route handler in `/api` is tested with mocked requests covering happy path, validation errors, and server errors
 - [ ] **End-to-end tests with Playwright** — at least three critical user flows (e.g. sign up, complete a core action, upgrade to paid) covered by Playwright E2E tests running in CI
-- [ ] **Accessibility testing with axe-core** — `@axe-core/playwright` or `jest-axe` integrated into the test suite; zero violations on all tested pages
+- [x] **Accessibility testing with axe-core** — `@axe-core/playwright` or `jest-axe` integrated into the test suite; zero violations on all tested pages
 - [ ] **Visual regression testing** — at least five key pages covered by screenshot comparison tests; CI fails if pixels change unexpectedly
 - [ ] **Test coverage threshold** — configure Vitest to enforce a minimum of 70% line coverage; CI fails if coverage drops below the threshold
 

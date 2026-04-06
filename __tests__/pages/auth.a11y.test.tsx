@@ -39,7 +39,7 @@ describe('Auth pages accessibility', () => {
     const { baseElement } = renderWithMain(<LoginPage />);
 
     await user.type(screen.getByLabelText(/email address/i), 'creator@example.com');
-    await user.type(screen.getByLabelText(/password/i), 'bad-password');
+    await user.type(screen.getByLabelText('Password'), 'bad-password');
     await user.click(screen.getByRole('button', { name: /log in/i }));
 
     const alert = await screen.findByRole('alert');

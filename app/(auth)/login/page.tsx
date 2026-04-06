@@ -23,6 +23,7 @@
 import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Eye, EyeOff } from 'lucide-react';
 import { safeRedirect } from '@/lib/safe-redirect';
 
 interface LoginState {
@@ -36,7 +37,7 @@ interface ErrorState {
 }
 
 const AUTH_TEXT_INPUT_CLASS =
-  'mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:transition-opacity placeholder:duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:placeholder:opacity-50';
+  'mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:opacity-45 placeholder:transition-opacity placeholder:duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:placeholder:opacity-65';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,6 +50,7 @@ export default function LoginPage() {
     password: '',
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<ErrorState | null>(() => {
     const urlError = searchParams.get('error');
     return urlError ? { message: urlError, type: 'error' } : null;
@@ -122,19 +124,29 @@ export default function LoginPage() {
           <p className="mt-2 text-sm text-muted-foreground">Log in to your VideoSphere account</p>
         </div>
 
-        {/* Error/Success Message */}
-        {error && (
+        {/* Error Message */}
+        {error?.type === 'error' && (
           <p
             id={formMessageId}
-            className={`mt-6 text-sm font-medium ${
-              error.type === 'error'
-                ? 'text-red-600 dark:text-red-400'
-                : 'text-green-600 dark:text-green-400'
-            }`}
-            role={error.type === 'error' ? 'alert' : 'status'}
-            aria-live={error.type === 'error' ? 'assertive' : 'polite'}
+            className="mt-6 text-sm font-medium text-red-600 dark:text-red-400"
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
           >
-            {error.type === 'error' ? getErrorMessage(error.message) : error.message}
+            {getErrorMessage(error.message)}
+          </p>
+        )}
+
+        {/* Success Message */}
+        {error?.type === 'success' && (
+          <p
+            id={formMessageId}
+            className="mt-6 text-sm font-medium text-green-600 dark:text-green-400"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {error.message}
           </p>
         )}
 
@@ -168,18 +180,33 @@ export default function LoginPage() {
             <label htmlFor="password" className="block text-sm font-medium text-foreground">
               Password
             </label>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              autoComplete="current-password"
-              required
-              disabled={isLoading}
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className={AUTH_TEXT_INPUT_CLASS}
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                id="password"
+                name="password"
+                autoComplete="current-password"
+                required
+                disabled={isLoading}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className={`${AUTH_TEXT_INPUT_CLASS} pr-11`}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((p) => !p)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                disabled={isLoading}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Submit */}

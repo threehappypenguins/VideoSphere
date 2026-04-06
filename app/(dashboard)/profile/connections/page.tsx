@@ -250,17 +250,15 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                     {meta.icon}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium text-foreground">{meta.label}</p>
                       <StatusBadge status={status} />
                     </div>
-                    {account ? (
+                    {account && (
                       <p className="text-sm text-muted-foreground">
                         {status === 'expired' ? 'Was connected as ' : 'Connected as '}
                         <span className="font-medium text-foreground">{account.platformName}</span>
                       </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Not connected</p>
                     )}
                   </div>
                 </div>

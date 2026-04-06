@@ -1,18 +1,44 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const markCompletedMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 
-vi.mock('next/navigation', () => {
-  const params = new URLSearchParams();
-  return {
-    usePathname: () => '/dashboard',
-    useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-    useSearchParams: () => params,
-  };
-});
+/**
+ * Shared mutable navigation state. router.push() updates it synchronously and
+ * triggers React state setters so usePathname() re-renders the component with
+ * the new path — exactly like real Next.js navigation.
+ */
+const mockNav = vi.hoisted(() => ({
+  pathname: '/dashboard',
+  searchParams: new URLSearchParams(),
+  pathnameSetters: new Set<React.Dispatch<React.SetStateAction<string>>>(),
+  navigate(url: string) {
+    const parsed = new URL(url, 'http://localhost');
+    this.pathname = parsed.pathname;
+    this.searchParams = parsed.searchParams;
+    this.pathnameSetters.forEach((fn) => fn(parsed.pathname));
+  },
+}));
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => {
+    const [path, setPath] = React.useState(mockNav.pathname);
+    React.useEffect(() => {
+      mockNav.pathnameSetters.add(setPath);
+      return () => {
+        mockNav.pathnameSetters.delete(setPath);
+      };
+    }, []);
+    return path;
+  },
+  useRouter: () => ({
+    push: vi.fn((url: string) => mockNav.navigate(url)),
+    replace: vi.fn((url: string) => mockNav.navigate(url)),
+  }),
+  useSearchParams: () => mockNav.searchParams,
+}));
 
 vi.mock('@/components/onboarding/useOnboardingState', () => ({
   useOnboardingState: () => ({
@@ -106,6 +132,10 @@ import { OnboardingTour } from '@/components/onboarding/OnboardingTour';
 describe('OnboardingTour', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset navigation state between tests so each starts from /dashboard.
+    mockNav.pathname = '/dashboard';
+    mockNav.searchParams = new URLSearchParams();
+    mockNav.pathnameSetters.clear();
   });
 
   it('starts the tour and marks onboarding complete when dismissed', async () => {
@@ -161,4 +191,31 @@ describe('OnboardingTour', () => {
       expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('4');
     });
   });
+
+  it('recovers from missing target by advancing after timeout', async () => {
+    render(<OnboardingTour />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('joyride-run-state')).toHaveTextContent('true');
+    });
+
+    // Advance to create-draft-button (index 4).
+    for (let i = 0; i < 4; i += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Advance Step' }));
+    }
+
+    expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('4');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Missing Target' }));
+
+    await act(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 8200);
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('joyride-step-index')).toHaveTextContent('5');
+    });
+  }, 15000);
 });

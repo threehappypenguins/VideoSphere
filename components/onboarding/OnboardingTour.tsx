@@ -9,6 +9,7 @@ import {
   STATUS,
   Joyride,
   type EventData,
+  type Step,
   type TooltipRenderProps,
 } from 'react-joyride';
 import { toast } from 'sonner';
@@ -17,17 +18,29 @@ import { useOnboardingState } from '@/components/onboarding/useOnboardingState';
 import { useOnboardingContext } from '@/components/onboarding/OnboardingContext';
 
 const CREATE_DRAFT_BUTTON_SELECTOR = '[data-tour="drafts-create-draft-button"]';
+
+/**
+ * React Joyride supports function targets at runtime but the TypeScript types
+ * only declare `string | HTMLElement`. We widen locally and cast at the
+ * Joyride call-site. No production steps export this type.
+ */
+type StepWithFnTarget = Omit<Step, 'target'> & {
+  target: Step['target'] | (() => HTMLElement | null);
+};
 const WAIT_FOR_TARGET_STEP_IDS = new Set([
   'drafts-nav-link',
   'create-draft-button',
+  'first-connect-button',
   'draft-platforms',
   'draft-title-input',
   'draft-upload-section',
   'draft-save',
 ]);
 const DEFAULT_TARGET_NOT_FOUND_MAX_RETRIES = 10;
+const TARGET_NOT_FOUND_FALLBACK_TIMEOUT_MS = 8000;
 const TARGET_NOT_FOUND_MAX_RETRIES_BY_STEP_ID: Partial<Record<string, number>> = {
-  // Per-step overrides for targets that may mount asynchronously.
+  // Connections page takes longer to load and render on mobile; give it more time
+  'first-connect-button': 20,
 };
 
 function TourTooltip({
@@ -107,7 +120,10 @@ export function OnboardingTour() {
   const [stepIndex, setStepIndex] = useState(0);
   const [hasReplayStarted, setHasReplayStarted] = useState(false);
   const targetNotFoundRetryCountsRef = useRef<Record<string, number>>({});
+  const targetNotFoundTimeoutsRef = useRef<Record<string, number>>({});
   const hasCompletionStartedRef = useRef(false);
+  const pendingNavigationStepAdvanceRef = useRef<number | null>(null);
+  const lastPathnameRef = useRef(pathname);
 
   const shouldReplay = useMemo(() => searchParams.get('onboarding') === '1', [searchParams]);
   const hasOnboardingFlow = useMemo(
@@ -134,6 +150,34 @@ export function OnboardingTour() {
     [isReady, isOnboarding, isConnectionsWithFlow, isDraftsWithFlow, pathname]
   );
 
+  // Override the drafts-nav-link step with a function target that picks the
+  // visible element. A CSS comma-selector uses DOM order, which always returns
+  // the desktop sidebar link first — even on mobile where it lives inside a
+  // `display:none` aside (zero bounding rect → Joyride raises the overlay but
+  // can never place the tooltip, hanging the tour indefinitely).
+  const tourSteps = useMemo<StepWithFnTarget[]>(
+    () =>
+      onboardingSteps.map((step) => {
+        if (step.id !== 'drafts-nav-link') return step;
+        return {
+          ...step,
+          target: (): HTMLElement | null => {
+            const mobile = document.querySelector<HTMLElement>(
+              '[data-tour="drafts-nav-link-mobile"]'
+            );
+            const desktop = document.querySelector<HTMLElement>(
+              '[data-tour="drafts-nav-link-desktop"]'
+            );
+            // offsetParent is null when the element or any ancestor has display:none
+            if (mobile && mobile.offsetParent !== null) return mobile;
+            if (desktop && desktop.offsetParent !== null) return desktop;
+            return mobile ?? desktop ?? null;
+          },
+        };
+      }),
+    []
+  );
+
   const stopTourAsCompleted = useCallback(async () => {
     if (hasCompletionStartedRef.current) {
       return;
@@ -148,18 +192,46 @@ export function OnboardingTour() {
     }
 
     targetNotFoundRetryCountsRef.current = {};
+    Object.values(targetNotFoundTimeoutsRef.current).forEach((timeoutId) => {
+      window.clearTimeout(timeoutId);
+    });
+    targetNotFoundTimeoutsRef.current = {};
     setStepIndex(0);
     setHasReplayStarted(false);
     await cleanupOnboardingDraft();
     router.push('/dashboard');
   }, [cleanupOnboardingDraft, markCompleted, router]);
 
+  const clearTargetNotFoundTimer = useCallback((stepId: string) => {
+    const timeoutId = targetNotFoundTimeoutsRef.current[stepId];
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      delete targetNotFoundTimeoutsRef.current[stepId];
+    }
+  }, []);
+
   useEffect(() => {
     if (!run) {
       hasCompletionStartedRef.current = false;
       targetNotFoundRetryCountsRef.current = {};
+      Object.values(targetNotFoundTimeoutsRef.current).forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      targetNotFoundTimeoutsRef.current = {};
     }
   }, [run]);
+
+  // Detect pathname changes and advance pending step after navigation completes
+  useEffect(() => {
+    if (pathname !== lastPathnameRef.current) {
+      lastPathnameRef.current = pathname;
+      if (pendingNavigationStepAdvanceRef.current !== null) {
+        const nextStep = pendingNavigationStepAdvanceRef.current;
+        pendingNavigationStepAdvanceRef.current = null;
+        setStepIndex(nextStep);
+      }
+    }
+  }, [pathname]);
 
   const handleEvent = useCallback(
     ({ action, index, origin, status, step, type }: EventData) => {
@@ -181,19 +253,36 @@ export function OnboardingTour() {
           const nextCount = (targetNotFoundRetryCountsRef.current[missingStepId] ?? 0) + 1;
           targetNotFoundRetryCountsRef.current[missingStepId] = nextCount;
 
+          if (targetNotFoundTimeoutsRef.current[missingStepId] === undefined) {
+            targetNotFoundTimeoutsRef.current[missingStepId] = window.setTimeout(() => {
+              delete targetNotFoundRetryCountsRef.current[missingStepId];
+              clearTargetNotFoundTimer(missingStepId);
+
+              setStepIndex((currentIndex) => {
+                if (currentIndex !== eventIndex) {
+                  return currentIndex;
+                }
+                return Math.max(0, Math.min(currentIndex + 1, onboardingSteps.length - 1));
+              });
+            }, TARGET_NOT_FOUND_FALLBACK_TIMEOUT_MS);
+          }
+
           if (nextCount <= maxRetries) {
             return;
           }
 
+          clearTargetNotFoundTimer(missingStepId);
           delete targetNotFoundRetryCountsRef.current[missingStepId];
         }
 
         if (missingStepId) {
+          clearTargetNotFoundTimer(missingStepId);
           delete targetNotFoundRetryCountsRef.current[missingStepId];
         }
       }
 
       if (type === EVENTS.STEP_AFTER && currentStepId) {
+        clearTargetNotFoundTimer(currentStepId);
         delete targetNotFoundRetryCountsRef.current[currentStepId];
       }
 
@@ -215,6 +304,10 @@ export function OnboardingTour() {
           currentStepId === 'connected-accounts-link'
         ) {
           router.push('/profile/connections?onboardingFlow=true');
+          // Queue step advance to happen after navigation completes
+          const nextStep = Math.max(0, Math.min(eventIndex + 1, onboardingSteps.length - 1));
+          pendingNavigationStepAdvanceRef.current = nextStep;
+          return;
         }
 
         // When advancing from the drafts sidebar link, navigate to the drafts page.
@@ -224,6 +317,10 @@ export function OnboardingTour() {
           currentStepId === 'drafts-nav-link'
         ) {
           router.push('/dashboard/drafts?onboardingFlow=true');
+          // Queue step advance to happen after navigation completes
+          const nextStep = Math.max(0, Math.min(eventIndex + 1, onboardingSteps.length - 1));
+          pendingNavigationStepAdvanceRef.current = nextStep;
+          return;
         }
 
         // When advancing from create-draft button step, auto-click it to open the modal.
@@ -253,7 +350,14 @@ export function OnboardingTour() {
         void stopTourAsCompleted();
       }
     },
-    [hasReplayStarted, router, shouldReplay, stepIndex, stopTourAsCompleted]
+    [
+      clearTargetNotFoundTimer,
+      hasReplayStarted,
+      router,
+      shouldReplay,
+      stepIndex,
+      stopTourAsCompleted,
+    ]
   );
 
   // Handle URL cleanup for replay
@@ -298,7 +402,7 @@ export function OnboardingTour() {
       run={run}
       scrollToFirstStep
       stepIndex={stepIndex}
-      steps={onboardingSteps}
+      steps={tourSteps as unknown as Step[]}
       tooltipComponent={TourTooltip}
     />
   );
