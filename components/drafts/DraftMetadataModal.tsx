@@ -632,6 +632,7 @@ export function DraftMetadataModal({
     value.targets.length > 0 &&
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
     value.title.trim() !== '';
+  const hasAiPrompt = aiPrompt.trim() !== '';
   const hasGeneratedMetadata =
     value !== null &&
     (value.title.trim() !== '' || value.description.trim() !== '' || value.tags.length > 0);
@@ -654,6 +655,7 @@ export function DraftMetadataModal({
 
   const handleGenerateAiMetadata = async () => {
     if (!value) return;
+    if (!hasAiPrompt) return;
     if (value.targets.length === 0) {
       toast.error('Please select at least one platform first');
       return;
@@ -1456,7 +1458,7 @@ export function DraftMetadataModal({
                     value={aiPrompt}
                     onChange={(event) => setAiPrompt(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !isGeneratingAi) {
+                      if (event.key === 'Enter' && !isGeneratingAi && hasAiPrompt) {
                         void handleGenerateAiMetadata();
                       }
                     }}
@@ -1482,7 +1484,7 @@ export function DraftMetadataModal({
                       onClick={() => {
                         void handleGenerateAiMetadata();
                       }}
-                      disabled={isGeneratingAi}
+                      disabled={isGeneratingAi || !hasAiPrompt}
                       aria-describedby="draft-ai-metadata-help"
                       className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                     >
