@@ -151,9 +151,9 @@ function InputField({
           onChange={(e) => onChange(e.target.value)}
           aria-invalid={error ? 'true' : 'false'}
           aria-describedby={error ? errorId : undefined}
-          className={`w-full rounded-lg border px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:transition-opacity placeholder:duration-200 outline-none transition-all duration-200
+          className={`w-full rounded-lg border px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:opacity-45 placeholder:transition-opacity placeholder:duration-200 outline-none transition-all duration-200
             focus:ring-2 focus:ring-primary focus:border-primary
-            focus:placeholder:opacity-50
+            focus:placeholder:opacity-65
             ${
               error
                 ? 'border-destructive bg-destructive/10 focus:ring-destructive/30 focus:border-destructive'
