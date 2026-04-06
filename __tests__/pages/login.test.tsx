@@ -43,7 +43,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
-      expect(screen.getByLabelText('Password')).toBeInTheDocument();
+      expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument();
     });
 
@@ -58,7 +58,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       const emailInput = screen.getByLabelText(/email address/i) as HTMLInputElement;
-      const passwordInput = screen.getByLabelText('Password') as HTMLInputElement;
+      const passwordInput = screen.getByLabelText(/^password$/i) as HTMLInputElement;
 
       expect(emailInput.type).toBe('email');
       expect(emailInput.required).toBe(true);
@@ -89,7 +89,7 @@ describe('LoginPage Component', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
-      const passwordInput = screen.getByLabelText('Password') as HTMLInputElement;
+      const passwordInput = screen.getByLabelText(/^password$/i) as HTMLInputElement;
       await user.type(passwordInput, 'password123');
 
       expect(passwordInput.value).toBe('password123');
@@ -100,7 +100,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       const emailInput = screen.getByLabelText(/email address/i) as HTMLInputElement;
-      const passwordInput = screen.getByLabelText('Password') as HTMLInputElement;
+      const passwordInput = screen.getByLabelText(/^password$/i) as HTMLInputElement;
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -116,7 +116,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
@@ -137,7 +137,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
@@ -150,7 +150,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(
@@ -171,7 +171,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(
@@ -192,7 +192,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(
@@ -216,7 +216,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'wrongpassword');
+      await user.type(screen.getByLabelText(/^password$/i), 'wrongpassword');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
@@ -231,7 +231,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
@@ -254,7 +254,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
 
       const submitButton = screen.getByRole('button', { name: /log in/i });
       await user.click(submitButton);
@@ -278,7 +278,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       const emailInput = screen.getByLabelText(/email address/i) as HTMLInputElement;
-      const passwordInput = screen.getByLabelText('Password') as HTMLInputElement;
+      const passwordInput = screen.getByLabelText(/^password$/i) as HTMLInputElement;
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -302,7 +302,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
 
       const submitButton = screen.getByRole('button', { name: /log in/i });
       await user.click(submitButton);
@@ -384,7 +384,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
@@ -398,7 +398,7 @@ describe('LoginPage Component', () => {
       render(<LoginPage />);
 
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'password123');
+      await user.type(screen.getByLabelText(/^password$/i), 'password123');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
@@ -422,7 +422,7 @@ describe('LoginPage Component', () => {
 
       // First failed attempt
       await user.type(screen.getByLabelText(/email address/i), 'test@example.com');
-      await user.type(screen.getByLabelText('Password'), 'wrongpassword');
+      await user.type(screen.getByLabelText(/^password$/i), 'wrongpassword');
       await user.click(screen.getByRole('button', { name: /log in/i }));
 
       await waitFor(() => {
@@ -430,7 +430,7 @@ describe('LoginPage Component', () => {
       });
 
       // Change password and try again
-      const passwordInput = screen.getByLabelText('Password') as HTMLInputElement;
+      const passwordInput = screen.getByLabelText(/^password$/i) as HTMLInputElement;
       await user.clear(passwordInput);
       await user.type(passwordInput, 'correctpassword');
       await user.click(screen.getByRole('button', { name: /log in/i }));

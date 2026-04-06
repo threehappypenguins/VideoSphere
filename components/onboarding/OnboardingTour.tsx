@@ -174,6 +174,7 @@ export function OnboardingTour() {
   // the desktop sidebar link first — even on mobile where it lives inside a
   // `display:none` aside (zero bounding rect → Joyride raises the overlay but
   // can never place the tooltip, hanging the tour indefinitely).
+
   const tourSteps = useMemo<StepWithFnTarget[]>(
     () =>
       onboardingSteps.map((step) => {
@@ -241,6 +242,17 @@ export function OnboardingTour() {
       pendingNavigationStepAdvanceRef.current = null;
     }
   }, [run]);
+
+  useEffect(() => {
+    return () => {
+      targetNotFoundRetryCountsRef.current = {};
+      Object.values(targetNotFoundTimeoutsRef.current).forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
+      targetNotFoundTimeoutsRef.current = {};
+      pendingNavigationStepAdvanceRef.current = null;
+    };
+  }, []);
 
   // Detect pathname changes and advance pending step after navigation completes
   useEffect(() => {
