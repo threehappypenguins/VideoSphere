@@ -280,6 +280,14 @@ export function OnboardingTour() {
 
       if (type === EVENTS.TARGET_NOT_FOUND) {
         const missingStepId = currentStepId;
+        const isLastStep = eventIndex >= onboardingSteps.length - 1;
+
+        // Complete tour immediately if the last step's target is never found
+        if (isLastStep && action !== ACTIONS.PREV) {
+          void stopTourAsCompleted();
+          return;
+        }
+
         // Block async/modal steps briefly so they can mount, but never stall forever.
         if (missingStepId && WAIT_FOR_TARGET_STEP_IDS.has(missingStepId)) {
           const maxRetries =
@@ -328,8 +336,8 @@ export function OnboardingTour() {
       if (type === EVENTS.STEP_AFTER || type === EVENTS.TARGET_NOT_FOUND) {
         const isLastStep = eventIndex >= onboardingSteps.length - 1;
 
-        // Complete the tour when the last step is advanced or its target is never found.
-        if (isLastStep && action !== ACTIONS.PREV) {
+        // Complete the tour when the last step is advanced (TARGET_NOT_FOUND is already handled above).
+        if (type === EVENTS.STEP_AFTER && isLastStep && action !== ACTIONS.PREV) {
           void stopTourAsCompleted();
           return;
         }
