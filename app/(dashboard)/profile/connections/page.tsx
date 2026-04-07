@@ -100,7 +100,7 @@ function StatusBadge({ status }: { status: 'connected' | 'expired' | 'not-connec
   );
 }
 
-async function disconnectPlatform(accountId: string, platform: string) {
+async function disconnectPlatform(accountId: string) {
   'use server';
 
   // Re-verify the session inside the action and confirm ownership before deleting.
@@ -282,7 +282,7 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
 
                 {status === 'connected' && account ? (
                   <DisconnectButton
-                    action={disconnectPlatform.bind(null, account.id, platform)}
+                    action={disconnectPlatform.bind(null, account.id)}
                     platformLabel={meta.label}
                   />
                 ) : status === 'expired' && account ? (
@@ -290,7 +290,7 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   <div className="flex items-center gap-2">
                     <ConnectButton href={meta.connectHref} label="Reconnect" />
                     <DisconnectButton
-                      action={disconnectPlatform.bind(null, account.id, platform)}
+                      action={disconnectPlatform.bind(null, account.id)}
                       platformLabel={meta.label}
                     />
                   </div>
