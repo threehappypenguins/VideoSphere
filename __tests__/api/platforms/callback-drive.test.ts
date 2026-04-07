@@ -4,10 +4,12 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { TokenDecryptError } from '@/lib/crypto/token-encryption';
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: vi.fn(),
   getConnectedAccount: vi.fn(),
+  getConnectedAccountRowId: vi.fn(),
   getConnectedAccountWithTokens: vi.fn(),
   updateConnection: vi.fn(),
 }));
@@ -19,6 +21,7 @@ import { GET } from '@/app/api/platforms/callback/drive/route';
 import {
   createConnectedAccount,
   getConnectedAccount,
+  getConnectedAccountRowId,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -197,18 +200,11 @@ describe('GET /api/platforms/callback/drive', () => {
       });
 
     vi.mocked(getConnectedAccountWithTokens).mockRejectedValue(
-      new Error('Unsupported state or unable to authenticate data')
+      new TokenDecryptError('Unsupported state or unable to authenticate data')
     );
-    vi.mocked(getConnectedAccount).mockResolvedValue({
+    vi.mocked(getConnectedAccountRowId).mockResolvedValue({
       id: 'ca-existing',
-      userId: USER_ID,
-      platform: 'google_drive',
-      tokenExpiry: new Date().toISOString(),
-      hasRefreshToken: true,
       platformUserId: '{"permissionId":"perm-older","rootFolderId":"folder-root-1"}',
-      platformName: 'Drive User',
-      $createdAt: new Date().toISOString(),
-      $updatedAt: new Date().toISOString(),
     });
     vi.mocked(updateConnection).mockResolvedValue({
       id: 'ca-existing',

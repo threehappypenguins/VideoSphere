@@ -1,13 +1,14 @@
 import { NextRequest } from 'next/server';
 import { GOOGLE_DRIVE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/drive/route';
 import { htmlRedirect } from '@/lib/api/html-redirect';
+import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
 import {
   parseGoogleDrivePlatformUserId,
   serializeGoogleDrivePlatformUserId,
 } from '@/lib/platforms/google-drive';
 import {
   createConnectedAccount,
-  getConnectedAccount,
+  getConnectedAccountRowId,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -28,15 +29,6 @@ interface GoogleDriveAboutResponse {
     emailAddress?: string;
     permissionId?: string;
   };
-}
-
-function isKnownTokenDecryptError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes('unsupported state or unable to authenticate data') ||
-    normalized.includes('invalid encrypted token: payload too short')
-  );
 }
 
 export async function GET(req: NextRequest) {
@@ -150,7 +142,7 @@ export async function GET(req: NextRequest) {
         existingPlatformUserId = existingWithTokens.platformUserId;
       }
     } catch (err) {
-      if (!isKnownTokenDecryptError(err)) {
+      if (!isTokenDecryptError(err)) {
         throw err;
       }
 
@@ -160,10 +152,11 @@ export async function GET(req: NextRequest) {
         message
       );
 
-      const existingPublic = await getConnectedAccount(userId, 'google_drive');
-      if (existingPublic) {
-        existingId = existingPublic.id;
-        existingPlatformUserId = existingPublic.platformUserId;
+      // Use minimal row lookup (no token decryption) to avoid noisy error logs
+      const existing = await getConnectedAccountRowId(userId, 'google_drive');
+      if (existing) {
+        existingId = existing.id;
+        existingPlatformUserId = existing.platformUserId;
       }
     }
 

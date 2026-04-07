@@ -16,6 +16,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link'; // used for the back link (same-origin)
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
 import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 import {
   getConnectedAccountsByUser,
@@ -125,10 +126,17 @@ async function disconnectPlatform(accountId: string) {
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(
-        '[disconnectPlatform] Could not decrypt existing tokens; skipping provider revocation and deleting DB row:',
-        message
-      );
+      if (isTokenDecryptError(err)) {
+        console.warn(
+          '[disconnectPlatform] Could not decrypt existing tokens; skipping provider revocation and deleting DB row:',
+          message
+        );
+      } else {
+        console.error(
+          '[disconnectPlatform] Unexpected error reading account for revocation; skipping provider revocation and deleting DB row:',
+          message
+        );
+      }
       return null;
     });
 

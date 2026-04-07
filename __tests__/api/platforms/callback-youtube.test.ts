@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { TokenDecryptError } from '@/lib/crypto/token-encryption';
 
 // ---------------------------------------------------------------------------
 // Mock connected-accounts repository
@@ -17,6 +18,7 @@ import { NextRequest } from 'next/server';
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: vi.fn(),
   getConnectedAccount: vi.fn(),
+  getConnectedAccountRowId: vi.fn(),
   getConnectedAccountWithTokens: vi.fn(),
   updateConnection: vi.fn(),
 }));
@@ -32,6 +34,7 @@ import { GET } from '@/app/api/platforms/callback/youtube/route';
 import {
   createConnectedAccount,
   getConnectedAccount,
+  getConnectedAccountRowId,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -358,9 +361,12 @@ describe('GET /api/platforms/callback/youtube', () => {
 
     it('falls back to public account lookup when token decryption fails and still succeeds', async () => {
       vi.mocked(getConnectedAccountWithTokens).mockRejectedValue(
-        new Error('Unsupported state or unable to authenticate data')
+        new TokenDecryptError('Unsupported state or unable to authenticate data')
       );
-      vi.mocked(getConnectedAccount).mockResolvedValue(EXISTING_ACCOUNT);
+      vi.mocked(getConnectedAccountRowId).mockResolvedValue({
+        id: 'account-existing',
+        platformUserId: 'UCtest123',
+      });
 
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);

@@ -16,9 +16,10 @@
 import { NextRequest } from 'next/server';
 import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/youtube/route';
 import { htmlRedirect } from '@/lib/api/html-redirect';
+import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
 import {
   createConnectedAccount,
-  getConnectedAccount,
+  getConnectedAccountRowId,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -45,15 +46,6 @@ interface YouTubeChannel {
 
 interface YouTubeChannelsResponse {
   items?: YouTubeChannel[];
-}
-
-function isKnownTokenDecryptError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes('unsupported state or unable to authenticate data') ||
-    normalized.includes('invalid encrypted token: payload too short')
-  );
 }
 
 export async function GET(req: NextRequest) {
@@ -177,7 +169,7 @@ export async function GET(req: NextRequest) {
         existingRefreshToken = existingWithTokens.refreshToken;
       }
     } catch (err) {
-      if (!isKnownTokenDecryptError(err)) {
+      if (!isTokenDecryptError(err)) {
         throw err;
       }
 
@@ -187,8 +179,9 @@ export async function GET(req: NextRequest) {
         message
       );
 
-      const existingPublic = await getConnectedAccount(userId, 'youtube');
-      existingId = existingPublic?.id ?? null;
+      // Use minimal row lookup (no token decryption) to avoid noisy error logs
+      const existing = await getConnectedAccountRowId(userId, 'youtube');
+      existingId = existing?.id ?? null;
     }
 
     const refreshTokenToStore = tokens.refresh_token ?? existingRefreshToken;
