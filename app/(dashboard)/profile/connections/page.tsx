@@ -19,6 +19,7 @@ import { revalidatePath } from 'next/cache';
 import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 import {
   getConnectedAccountsByUser,
+  getConnectedAccount,
   getConnectedAccountWithTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
@@ -106,19 +107,31 @@ async function disconnectPlatform(accountId: string, platform: string) {
   const userId = await getCurrentUserId();
   if (!userId) return;
 
-  // Fetch the account with tokens and verify it belongs to this user.
-  const accountWithTokens = await getConnectedAccountWithTokens(
+  // Verify ownership using the public record first so deletion still works if
+  // legacy encrypted tokens can no longer be decrypted.
+  const account = await getConnectedAccount(
     userId,
     platform as import('@/types').ConnectedAccountPlatform
   );
+  if (!account || account.id !== accountId) return;
 
-  // Guard: only proceed if the requested accountId matches the user's actual account.
-  if (!accountWithTokens || accountWithTokens.id !== accountId) return;
+  // Best-effort token read for provider revocation. If decryption fails we
+  // still disconnect locally to unblock the user.
+  const accountWithTokens = await getConnectedAccountWithTokens(
+    userId,
+    platform as import('@/types').ConnectedAccountPlatform
+  ).catch((err) => {
+    console.warn(
+      '[disconnectPlatform] Could not decrypt existing tokens; skipping provider revocation and deleting DB row:',
+      err
+    );
+    return null;
+  });
 
   // Revoke the token with the provider so it disappears from the user's
   // connected-apps list (e.g. Google Account → Third-party apps & services).
   // This is best-effort: if revocation fails we still remove from our DB.
-  if (platform === 'youtube' && accountWithTokens.refreshToken) {
+  if (platform === 'youtube' && accountWithTokens?.refreshToken) {
     try {
       await fetch('https://oauth2.googleapis.com/revoke', {
         method: 'POST',
@@ -130,7 +143,7 @@ async function disconnectPlatform(accountId: string, platform: string) {
     }
   }
 
-  if (platform === 'google_drive') {
+  if (platform === 'google_drive' && accountWithTokens) {
     try {
       const tokenToRevoke =
         accountWithTokens.refreshToken.trim() || accountWithTokens.accessToken.trim();
@@ -148,7 +161,7 @@ async function disconnectPlatform(accountId: string, platform: string) {
 
   // Vimeo: DELETE /tokens revokes the access token, removing the app from
   // the user's "Connected Apps" list on vimeo.com/settings/apps.
-  if (platform === 'vimeo' && accountWithTokens.accessToken) {
+  if (platform === 'vimeo' && accountWithTokens?.accessToken) {
     try {
       const revokeRes = await fetch('https://api.vimeo.com/tokens', {
         method: 'DELETE',

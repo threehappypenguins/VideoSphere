@@ -18,6 +18,7 @@ import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/youtube/
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import {
   createConnectedAccount,
+  getConnectedAccount,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -155,11 +156,32 @@ export async function GET(req: NextRequest) {
     // Upsert: update all fields if a connection already exists, otherwise create.
     // updateConnection also refreshes platformName/platformUserId so a renamed
     // channel is reflected immediately on reconnect.
-    const existing = await getConnectedAccountWithTokens(userId, 'youtube');
-    const refreshTokenToStore = tokens.refresh_token ?? existing?.refreshToken ?? '';
-    if (existing) {
+    let existingId: string | null = null;
+    let existingRefreshToken = '';
+
+    // Best-effort: old rows may be encrypted with a different key version.
+    // If token decryption fails, still proceed with reconnect using account id.
+    try {
+      const existingWithTokens = await getConnectedAccountWithTokens(userId, 'youtube');
+      if (existingWithTokens) {
+        existingId = existingWithTokens.id;
+        existingRefreshToken = existingWithTokens.refreshToken;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        '[GET /api/platforms/callback/youtube] Could not decrypt existing tokens during reconnect; proceeding with upsert by id:',
+        message
+      );
+
+      const existingPublic = await getConnectedAccount(userId, 'youtube');
+      existingId = existingPublic?.id ?? null;
+    }
+
+    const refreshTokenToStore = tokens.refresh_token ?? existingRefreshToken;
+    if (existingId) {
       await updateConnection(
-        existing.id,
+        existingId,
         tokens.access_token,
         refreshTokenToStore,
         tokenExpiry,
