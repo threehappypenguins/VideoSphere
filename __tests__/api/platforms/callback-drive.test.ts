@@ -7,6 +7,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: vi.fn(),
+  getConnectedAccount: vi.fn(),
   getConnectedAccountWithTokens: vi.fn(),
   updateConnection: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.stubGlobal('fetch', mockFetch);
 import { GET } from '@/app/api/platforms/callback/drive/route';
 import {
   createConnectedAccount,
+  getConnectedAccount,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -146,6 +148,17 @@ describe('GET /api/platforms/callback/drive', () => {
       accessToken: 'old-access-token',
       refreshToken: 'old-refresh-token',
     });
+    vi.mocked(getConnectedAccount).mockResolvedValue({
+      id: 'ca-existing',
+      userId: USER_ID,
+      platform: 'google_drive',
+      tokenExpiry: new Date().toISOString(),
+      hasRefreshToken: true,
+      platformUserId: 'perm-older',
+      platformName: 'Drive User',
+      $createdAt: new Date().toISOString(),
+      $updatedAt: new Date().toISOString(),
+    });
 
     vi.mocked(updateConnection).mockResolvedValue({
       id: 'ca-existing',
@@ -170,6 +183,58 @@ describe('GET /api/platforms/callback/drive', () => {
       'perm-123',
       'Drive User'
     );
+  });
+
+  it('falls back to public account lookup when token decryption fails and still succeeds', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => TOKEN_RESPONSE,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ABOUT_RESPONSE,
+      });
+
+    vi.mocked(getConnectedAccountWithTokens).mockRejectedValue(
+      new Error('Unsupported state or unable to authenticate data')
+    );
+    vi.mocked(getConnectedAccount).mockResolvedValue({
+      id: 'ca-existing',
+      userId: USER_ID,
+      platform: 'google_drive',
+      tokenExpiry: new Date().toISOString(),
+      hasRefreshToken: true,
+      platformUserId: '{"permissionId":"perm-older","rootFolderId":"folder-root-1"}',
+      platformName: 'Drive User',
+      $createdAt: new Date().toISOString(),
+      $updatedAt: new Date().toISOString(),
+    });
+    vi.mocked(updateConnection).mockResolvedValue({
+      id: 'ca-existing',
+      userId: USER_ID,
+      platform: 'google_drive',
+      tokenExpiry: new Date().toISOString(),
+      hasRefreshToken: true,
+      platformUserId: '{"permissionId":"perm-123","rootFolderId":"folder-root-1"}',
+      platformName: 'Drive User',
+      $createdAt: new Date().toISOString(),
+      $updatedAt: new Date().toISOString(),
+    });
+
+    const req = makeRequest(VALID_PARAMS, { [CSRF_COOKIE]: VALID_COOKIE_VALUE });
+    const res = await GET(req);
+
+    expect(updateConnection).toHaveBeenCalledWith(
+      'ca-existing',
+      'drive-access-token',
+      'drive-refresh-token',
+      expect.any(String),
+      '{"permissionId":"perm-123","rootFolderId":"folder-root-1"}',
+      'Drive User'
+    );
+    expect(createConnectedAccount).not.toHaveBeenCalled();
+    expect(await res.text()).toContain('success=google_drive');
   });
 
   it('preserves the stored Drive root folder id on reconnect', async () => {

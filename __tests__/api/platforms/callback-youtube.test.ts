@@ -16,6 +16,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: vi.fn(),
+  getConnectedAccount: vi.fn(),
   getConnectedAccountWithTokens: vi.fn(),
   updateConnection: vi.fn(),
 }));
@@ -30,6 +31,7 @@ vi.stubGlobal('fetch', mockFetch);
 import { GET } from '@/app/api/platforms/callback/youtube/route';
 import {
   createConnectedAccount,
+  getConnectedAccount,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -302,6 +304,7 @@ describe('GET /api/platforms/callback/youtube', () => {
 
     beforeEach(() => {
       mockFetchSequence(200, TOKEN_RESPONSE, 200, CHANNEL_RESPONSE);
+      vi.mocked(getConnectedAccount).mockResolvedValue(EXISTING_ACCOUNT);
       vi.mocked(getConnectedAccountWithTokens).mockResolvedValue({
         ...EXISTING_ACCOUNT,
         accessToken: 'existing-access-token',
@@ -351,6 +354,27 @@ describe('GET /api/platforms/callback/youtube', () => {
         'UCtest123',
         'My Test Channel'
       );
+    });
+
+    it('falls back to public account lookup when token decryption fails and still succeeds', async () => {
+      vi.mocked(getConnectedAccountWithTokens).mockRejectedValue(
+        new Error('Unsupported state or unable to authenticate data')
+      );
+      vi.mocked(getConnectedAccount).mockResolvedValue(EXISTING_ACCOUNT);
+
+      const req = makeRequest(VALID_PARAMS, validCookies());
+      const res = await GET(req);
+
+      expect(updateConnection).toHaveBeenCalledWith(
+        'account-existing',
+        TOKEN_RESPONSE.access_token,
+        TOKEN_RESPONSE.refresh_token,
+        expect.any(String),
+        'UCtest123',
+        'My Test Channel'
+      );
+      expect(createConnectedAccount).not.toHaveBeenCalled();
+      expect(await res.text()).toContain('success=youtube');
     });
   });
 });
