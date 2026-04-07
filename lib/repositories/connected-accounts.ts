@@ -149,6 +149,30 @@ export async function getConnectedAccount(
 }
 
 /**
+ * Return only the row ID and platformUserId for a specific platform connection, without attempting to decrypt tokens.
+ * Use when you already know token decryption will fail (e.g., legacy rows with old encryption key).
+ * This avoids noisy error logs during intentional decrypt-failure fallback paths.
+ * Returns { id, platformUserId } so callers can preserve existing metadata on reconnect.
+ */
+export async function getConnectedAccountRowId(
+  userId: string,
+  platform: ConnectedAccountPlatform
+): Promise<{ id: string; platformUserId: string } | null> {
+  const { rows } = await tablesDb.listRows({
+    databaseId: DATABASE_ID,
+    tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
+    queries: [Query.equal('userId', userId), Query.equal('platform', platform), Query.limit(1)],
+    total: false,
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return {
+    id: String(row?.$id ?? row?.id),
+    platformUserId: String(row?.platformUserId ?? ''),
+  };
+}
+
+/**
  * Return a connected account with tokens. Use only when calling platform APIs (upload, refresh).
  * Do not use for API responses or client-bound data.
  */
