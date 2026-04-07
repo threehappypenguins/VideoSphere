@@ -1,12 +1,14 @@
 import { NextRequest } from 'next/server';
 import { GOOGLE_DRIVE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/drive/route';
 import { htmlRedirect } from '@/lib/api/html-redirect';
+import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
 import {
   parseGoogleDrivePlatformUserId,
   serializeGoogleDrivePlatformUserId,
 } from '@/lib/platforms/google-drive';
 import {
   createConnectedAccount,
+  getConnectedAccountRowId,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
@@ -126,19 +128,50 @@ export async function GET(req: NextRequest) {
 
     const tokenExpiry = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
-    const existing = await getConnectedAccountWithTokens(userId, 'google_drive');
-    const refreshTokenToStore = tokens.refresh_token ?? existing?.refreshToken ?? '';
-    const preservedRootFolderId = existing
-      ? parseGoogleDrivePlatformUserId(existing.platformUserId).rootFolderId
+    let existingId: string | null = null;
+    let existingRefreshToken = '';
+    let existingPlatformUserId: string | null = null;
+
+    // Best-effort: old rows may be encrypted with a different key version.
+    // If token decryption fails, still proceed with reconnect using account id.
+    try {
+      const existingWithTokens = await getConnectedAccountWithTokens(userId, 'google_drive');
+      if (existingWithTokens) {
+        existingId = existingWithTokens.id;
+        existingRefreshToken = existingWithTokens.refreshToken;
+        existingPlatformUserId = existingWithTokens.platformUserId;
+      }
+    } catch (err) {
+      if (!isTokenDecryptError(err)) {
+        throw err;
+      }
+
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        '[GET /api/platforms/callback/drive] Could not decrypt existing tokens during reconnect; proceeding with upsert by id:',
+        message
+      );
+
+      // Use minimal row lookup (no token decryption) to avoid noisy error logs
+      const existing = await getConnectedAccountRowId(userId, 'google_drive');
+      if (existing) {
+        existingId = existing.id;
+        existingPlatformUserId = existing.platformUserId;
+      }
+    }
+
+    const refreshTokenToStore = tokens.refresh_token ?? existingRefreshToken;
+    const preservedRootFolderId = existingPlatformUserId
+      ? parseGoogleDrivePlatformUserId(existingPlatformUserId).rootFolderId
       : undefined;
     const serializedPlatformUserId = serializeGoogleDrivePlatformUserId(
       platformUserId,
       preservedRootFolderId
     );
 
-    if (existing) {
+    if (existingId) {
       await updateConnection(
-        existing.id,
+        existingId,
         tokens.access_token,
         refreshTokenToStore,
         tokenExpiry,

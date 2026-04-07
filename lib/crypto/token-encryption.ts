@@ -13,6 +13,29 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 
+/**
+ * Custom error thrown when token decryption fails due to encryption key mismatch
+ * or corrupted payload. This is a stable signal independent of Node/OpenSSL versions.
+ */
+export class TokenDecryptError extends Error {
+  constructor(
+    message: string,
+    public readonly cause?: Error
+  ) {
+    super(message);
+    this.name = 'TokenDecryptError';
+  }
+}
+
+/**
+ * Type guard to check if an error is a TokenDecryptError.
+ * Use this in catch blocks instead of string-matching error messages,
+ * which is brittle across Node/OpenSSL versions.
+ */
+export function isTokenDecryptError(err: unknown): err is TokenDecryptError {
+  return err instanceof TokenDecryptError;
+}
+
 function getKey(): Buffer {
   const raw = process.env.APPWRITE_TOKEN_ENCRYPTION_KEY;
   if (!raw || raw.trim() === '') {
@@ -44,17 +67,22 @@ export function encryptToken(plaintext: string): string {
 
 /**
  * Decrypt a stored token. Call when reading from the database for server-side API use.
+ * Throws TokenDecryptError if the payload is corrupted or encrypted with a different key.
  */
 export function decryptToken(ciphertext: string): string {
   const key = getKey();
   const buf = Buffer.from(ciphertext, 'base64');
   if (buf.length < IV_LENGTH + AUTH_TAG_LENGTH) {
-    throw new Error('Invalid encrypted token: payload too short');
+    throw new TokenDecryptError('Invalid encrypted token: payload too short');
   }
   const iv = buf.subarray(0, IV_LENGTH);
   const tag = buf.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
   const encrypted = buf.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
   const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(tag);
-  return decipher.update(encrypted).toString('utf8') + decipher.final('utf8');
+  try {
+    return decipher.update(encrypted).toString('utf8') + decipher.final('utf8');
+  } catch (cause) {
+    throw new TokenDecryptError('Unsupported state or unable to authenticate data', cause as Error);
+  }
 }
