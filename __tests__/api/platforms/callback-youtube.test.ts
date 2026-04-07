@@ -376,5 +376,19 @@ describe('GET /api/platforms/callback/youtube', () => {
       expect(createConnectedAccount).not.toHaveBeenCalled();
       expect(await res.text()).toContain('success=youtube');
     });
+
+    it('does not fallback on non-decrypt repository errors and returns error redirect', async () => {
+      vi.mocked(getConnectedAccountWithTokens).mockRejectedValue(
+        new Error('Appwrite listRows failed: ECONNRESET')
+      );
+
+      const req = makeRequest(VALID_PARAMS, validCookies());
+      const res = await GET(req);
+
+      expect(getConnectedAccount).not.toHaveBeenCalled();
+      expect(updateConnection).not.toHaveBeenCalled();
+      expect(createConnectedAccount).not.toHaveBeenCalled();
+      expect(await res.text()).toContain('error=youtube');
+    });
   });
 });

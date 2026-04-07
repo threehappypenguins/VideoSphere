@@ -30,6 +30,15 @@ interface GoogleDriveAboutResponse {
   };
 }
 
+function isKnownTokenDecryptError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('unsupported state or unable to authenticate data') ||
+    normalized.includes('invalid encrypted token: payload too short')
+  );
+}
+
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const successUrl = `${origin}/profile/connections?success=google_drive`;
@@ -141,6 +150,10 @@ export async function GET(req: NextRequest) {
         existingPlatformUserId = existingWithTokens.platformUserId;
       }
     } catch (err) {
+      if (!isKnownTokenDecryptError(err)) {
+        throw err;
+      }
+
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
         '[GET /api/platforms/callback/drive] Could not decrypt existing tokens during reconnect; proceeding with upsert by id:',
