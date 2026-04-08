@@ -312,7 +312,8 @@ describe('POST /api/ai/generate-metadata/stream', () => {
         expect.any(String),
         expect.any(String),
         'openrouter/free',
-        expect.anything()
+        expect.anything(),
+        undefined
       );
     });
 
@@ -325,7 +326,8 @@ describe('POST /api/ai/generate-metadata/stream', () => {
         expect.any(String),
         expect.any(String),
         'openai/gpt-4o',
-        expect.anything()
+        expect.anything(),
+        undefined
       );
     });
   });

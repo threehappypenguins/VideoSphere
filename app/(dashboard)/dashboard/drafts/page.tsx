@@ -321,7 +321,7 @@ export default function DraftsPage() {
   const handleSaveEdit = useCallback(
     async (options?: {
       closeAfterSave?: boolean;
-    }): Promise<{ saved: boolean; draftId?: string }> => {
+    }): Promise<{ saved: boolean; draftId?: string; message?: string }> => {
       if (!editingDraft) return { saved: false };
       if (editingDraft.title.trim() === '') {
         toast.error('Title is required');
@@ -349,12 +349,11 @@ export default function DraftsPage() {
           const err = (await response.json().catch(() => null)) as { message?: string } | null;
           throw new Error(err?.message ?? 'Failed to update draft');
         }
-        toast.success('Draft updated');
         if (options?.closeAfterSave === true) {
           setEditingDraft(null);
         }
         await loadDrafts();
-        return { saved: true, draftId: editingDraft.id };
+        return { saved: true, draftId: editingDraft.id, message: 'Draft updated' };
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to update draft');
         return { saved: false };
@@ -368,7 +367,7 @@ export default function DraftsPage() {
   const handleSaveCreate = useCallback(
     async (options?: {
       closeAfterSave?: boolean;
-    }): Promise<{ saved: boolean; draftId?: string }> => {
+    }): Promise<{ saved: boolean; draftId?: string; message?: string }> => {
       if (!creatingDraft) return { saved: false };
       if (creatingDraft.title.trim() === '') {
         toast.error('Title is required');
@@ -413,14 +412,14 @@ export default function DraftsPage() {
           createdDraft,
           ...prev.filter((draft) => draft.id !== createdDraft.id),
         ]);
-        toast.success(isExistingDraft ? 'Draft updated' : 'Draft created');
+        const saveMessage = isExistingDraft ? 'Draft updated' : 'Draft created';
         setCreateDraftSaved(true);
 
         if (options?.closeAfterSave === true) {
           setCreatingDraft(null);
           setCreateDraftSaved(false);
         }
-        return { saved: true, draftId: createdDraft.id };
+        return { saved: true, draftId: createdDraft.id, message: saveMessage };
       } catch (error) {
         toast.error(
           error instanceof Error

@@ -49,7 +49,8 @@ interface OpenRouterMessage {
 }
 
 interface OpenRouterRequest {
-  model: string;
+  model?: string;
+  models?: string[];
   messages: OpenRouterMessage[];
   response_format?: { type: 'json_object' };
 }
@@ -113,7 +114,7 @@ async function requestMetadataFromOpenRouter(
   appName: string
 ): Promise<GeneratedMetadata> {
   const controller = new AbortController();
-  const timeoutMs = getTimeoutMsForModel(requestBody.model);
+  const timeoutMs = getTimeoutMsForModel(requestBody.model ?? requestBody.models?.[0] ?? '');
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -215,16 +216,21 @@ async function requestMetadataFromOpenRouter(
 function buildOpenRouterRequestBody(
   model: string,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  fallbackModels?: string[]
 ): OpenRouterRequest {
-  return {
-    model,
+  const base: OpenRouterRequest = {
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
   };
+
+  if (fallbackModels && fallbackModels.length > 0) {
+    return { ...base, models: [model, ...fallbackModels] };
+  }
+  return { ...base, model };
 }
 
 /**
@@ -240,7 +246,8 @@ function buildOpenRouterRequestBody(
 export async function generateMetadata(
   systemPrompt: string,
   userPrompt: string,
-  model: string
+  model: string,
+  fallbackModels?: string[]
 ): Promise<GeneratedMetadata> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -253,7 +260,7 @@ export async function generateMetadata(
     'https://videosphere.app';
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
   return requestMetadataFromOpenRouter(
-    buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
+    buildOpenRouterRequestBody(model, systemPrompt, userPrompt, fallbackModels),
     apiKey,
     appUrl,
     appName
@@ -278,7 +285,8 @@ export async function streamMetadata(
   systemPrompt: string,
   userPrompt: string,
   model: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  fallbackModels?: string[]
 ): Promise<Response> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -292,7 +300,7 @@ export async function streamMetadata(
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
 
   const requestBody = {
-    ...buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
+    ...buildOpenRouterRequestBody(model, systemPrompt, userPrompt, fallbackModels),
     stream: true,
   };
 
@@ -301,7 +309,7 @@ export async function streamMetadata(
   // AbortSignal.any so that either a timeout or a client disconnect will cancel
   // the fetch — and the combined signal remains active for the full lifetime of
   // the stream, preventing upstream connection leaks after headers arrive.
-  const timeoutMs = getTimeoutMsForModel(requestBody.model);
+  const timeoutMs = getTimeoutMsForModel(model);
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 

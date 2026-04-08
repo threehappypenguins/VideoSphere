@@ -144,10 +144,16 @@ export async function POST(req: NextRequest) {
   }
 
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-  const freeModel = process.env.OPENROUTER_FREE_MODEL;
-  const premiumModel = process.env.OPENROUTER_PREMIUM_MODEL;
+  const freeModelList = (process.env.OPENROUTER_FREE_MODEL ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const premiumModelList = (process.env.OPENROUTER_PREMIUM_MODEL ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-  if (!openRouterApiKey?.trim() || !freeModel || !premiumModel) {
+  if (!openRouterApiKey?.trim() || !freeModelList.length || !premiumModelList.length) {
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'AI service is not configured',
@@ -157,7 +163,8 @@ export async function POST(req: NextRequest) {
   }
 
   const isAdmin = user.role === 'admin';
-  const model = user.isSupporter || isAdmin ? premiumModel : freeModel;
+  const isSupporter = user.isSupporter || isAdmin;
+  const [model, ...fallbackModels] = isSupporter ? premiumModelList : freeModelList;
 
   // 5. Build prompts and call AI
   const { titleMax, descriptionMax } = getLimits(typedPlatforms);
@@ -166,7 +173,12 @@ export async function POST(req: NextRequest) {
   const userMessage = buildUserMessage(fileName, typedUserPrompt);
 
   try {
-    const metadata = await generateMetadata(systemPrompt, userMessage, model);
+    const metadata = await generateMetadata(
+      systemPrompt,
+      userMessage,
+      model,
+      fallbackModels.length ? fallbackModels : undefined
+    );
 
     // 6. Defense-in-depth: truncate to platform limits (Issue #39)
     const safeMetadata: GeneratedMetadata = {

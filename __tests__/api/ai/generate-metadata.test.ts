@@ -330,7 +330,8 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(generateMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'openrouter/free'
+        'openrouter/free',
+        undefined
       );
     });
 
@@ -348,7 +349,8 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(generateMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'openai/gpt-4o'
+        'openai/gpt-4o',
+        undefined
       );
     });
 
@@ -366,7 +368,8 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(generateMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'openai/gpt-4o'
+        'openai/gpt-4o',
+        undefined
       );
     });
   });
