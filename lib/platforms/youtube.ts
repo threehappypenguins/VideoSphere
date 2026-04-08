@@ -310,6 +310,11 @@ async function readApiErrorDetails(response: Response): Promise<string | undefin
 const YOUTUBE_CHUNK_MULTIPLE = 256 * 1024;
 const YOUTUBE_CHUNK_TARGET = 8 * 1024 * 1024;
 
+/**
+ * Executes next you tube chunk size.
+ * @param remaining - Input value for remaining.
+ * @returns The computed result.
+ */
 export function nextYouTubeChunkSize(remaining: number): number {
   if (remaining <= 0) return 0;
   if (remaining < YOUTUBE_CHUNK_MULTIPLE) return remaining;
@@ -589,6 +594,11 @@ async function uploadYouTubeResumableSinglePut(input: {
   };
 }
 
+/**
+ * Executes refresh you tube access token.
+ * @param input - Input payload for this operation.
+ * @returns The computed result.
+ */
 export async function refreshYouTubeAccessToken(input: {
   refreshToken?: string;
 }): Promise<
@@ -673,6 +683,11 @@ export async function refreshYouTubeAccessToken(input: {
   }
 }
 
+/**
+ * Executes upload to you tube.
+ * @param input - Input payload for this operation.
+ * @returns The computed result.
+ */
 export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<PlatformUploadResult> {
   if (!input.tokens.accessToken) {
     return toError('YOUTUBE_TOKEN_MISSING', 'YouTube access token is missing.');

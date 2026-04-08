@@ -41,6 +41,10 @@ function formatDate(value: string): string {
   return date.toLocaleDateString();
 }
 
+/**
+ * Renders the admin dashboard page component.
+ * @returns The rendered UI output.
+ */
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);

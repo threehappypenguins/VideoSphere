@@ -39,6 +39,10 @@ interface ErrorState {
 const AUTH_TEXT_INPUT_CLASS =
   'mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:opacity-45 placeholder:transition-opacity placeholder:duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:placeholder:opacity-65';
 
+/**
+ * Renders the login page component.
+ * @returns The rendered UI output.
+ */
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();

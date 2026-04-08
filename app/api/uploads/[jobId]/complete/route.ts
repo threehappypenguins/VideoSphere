@@ -51,6 +51,12 @@ import type { ConnectedAccountPlatform } from '@/types';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
 
+/**
+ * Handles POST requests for this route.
+ * @param request - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }

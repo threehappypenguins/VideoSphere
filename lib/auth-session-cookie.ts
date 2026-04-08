@@ -6,10 +6,19 @@
 // https://appwrite.io/docs/tutorials/nextjs-ssr-auth/step-1
 // =============================================================================
 
+/**
+ * Executes get session cookie name.
+ * @param projectId - Input value for project id.
+ * @returns The computed result.
+ */
 export function getSessionCookieName(projectId: string): string {
   return `a_session_${projectId}`;
 }
 
+/**
+ * Executes get session cookie options.
+ * @returns The computed result.
+ */
 export function getSessionCookieOptions(): {
   path: string;
   httpOnly: boolean;

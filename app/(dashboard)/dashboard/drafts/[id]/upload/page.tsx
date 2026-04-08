@@ -2,6 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import UploadVideoForm from '@/components/UploadVideoForm';
 
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: 'Upload Video',
   description: 'Upload a video file for this draft.',
@@ -11,6 +14,11 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * Renders the draft upload page component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default async function DraftUploadPage({ params }: Props) {
   const { id } = await params;
   const backHref = `/dashboard/drafts?editDraft=${encodeURIComponent(id)}`;

@@ -2,17 +2,27 @@ import { cookies } from 'next/headers';
 import { Account, Client } from 'node-appwrite';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
+/**
+ * Defines the shape of session user from cookies.
+ */
 export interface SessionUserFromCookies {
   $id: string;
   name?: string;
   email?: string;
 }
 
+/**
+ * Defines the shape of navbar auth state from cookies.
+ */
 export interface NavbarAuthStateFromCookies {
   sessionUser: SessionUserFromCookies | null;
   hasAdminRole: boolean;
 }
 
+/**
+ * Executes get session user from cookies.
+ * @returns The computed result.
+ */
 export async function getSessionUserFromCookies(): Promise<SessionUserFromCookies | null> {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;

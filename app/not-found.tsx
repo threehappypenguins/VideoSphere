@@ -11,6 +11,10 @@
 
 import Link from 'next/link';
 
+/**
+ * Renders the not found component.
+ * @returns The rendered UI output.
+ */
 export default function NotFound() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12 sm:px-6 lg:px-8">

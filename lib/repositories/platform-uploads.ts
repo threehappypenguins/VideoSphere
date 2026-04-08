@@ -48,6 +48,9 @@ export function rowToPlatformUpload(row: Record<string, unknown>): PlatformUploa
 // Create
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of create platform upload input.
+ */
 export interface CreatePlatformUploadInput extends PlatformUploadRowDocumentInput {
   uploadJobId: string;
   platform: ConnectedAccountPlatform;

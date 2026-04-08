@@ -8,6 +8,11 @@
 // outside the sidebar container.
 // =============================================================================
 
+/**
+ * Renders the dashboard layout component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }

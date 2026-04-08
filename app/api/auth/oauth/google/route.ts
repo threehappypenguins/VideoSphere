@@ -11,6 +11,11 @@ import { OAuthProvider } from 'node-appwrite';
 import { appwriteAuth } from '@/lib/appwrite';
 import { safeRedirect } from '@/lib/safe-redirect';
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest) {
   try {
     const origin = req.nextUrl.origin;

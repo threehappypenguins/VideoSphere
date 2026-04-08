@@ -25,6 +25,12 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * Handles DELETE requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

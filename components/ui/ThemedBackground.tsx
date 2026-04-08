@@ -9,6 +9,10 @@ import {
   isBackgroundGrainStorageKey,
 } from '@/lib/ui/background-preference';
 
+/**
+ * Renders the themed background component.
+ * @returns The rendered UI output.
+ */
 export function ThemedBackground() {
   const pathname = usePathname();
   const [grainEnabled, setGrainEnabled] = useState(() => getBackgroundGrainEnabled());

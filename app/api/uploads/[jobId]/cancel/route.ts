@@ -15,6 +15,12 @@ function uploadJobNotFound(): NextResponse {
   return NextResponse.json(errRes, { status: 404 });
 }
 
+/**
+ * Handles POST requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }

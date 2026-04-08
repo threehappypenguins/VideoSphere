@@ -15,6 +15,12 @@ import {
 import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
+/**
+ * Handles POST requests for this route.
+ * @param request - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

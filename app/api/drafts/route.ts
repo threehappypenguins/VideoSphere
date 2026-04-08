@@ -67,6 +67,11 @@ async function runWithConcurrencyLimit<T>(
 // POST /api/drafts
 // ---------------------------------------------------------------------------
 
+/**
+ * Handles POST requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function POST(req: NextRequest) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
@@ -212,6 +217,11 @@ export async function POST(req: NextRequest) {
 // GET /api/drafts
 // ---------------------------------------------------------------------------
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

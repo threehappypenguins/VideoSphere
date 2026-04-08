@@ -45,3 +45,12 @@ appwrite/
 *.swp
 *~
 .vercel
+
+# VitePress build output
+docs/.vitepress/dist/
+
+# VitePress dev/build cache
+docs/.vitepress/cache/
+
+# Generated TypeDoc output
+docs/public/typedoc/

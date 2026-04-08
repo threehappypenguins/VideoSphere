@@ -11,6 +11,11 @@ interface UseOnboardingStateOptions {
   userId?: string | null;
 }
 
+/**
+ * Provides use onboarding state state and actions.
+ * @param options - Optional configuration values.
+ * @returns Hook state and action handlers.
+ */
 export function useOnboardingState(options?: UseOnboardingStateOptions) {
   const explicitUserId = options?.userId;
   const pathname = usePathname();

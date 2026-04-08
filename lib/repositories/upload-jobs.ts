@@ -49,6 +49,9 @@ function rowToUploadJob(row: Record<string, unknown>): UploadJob {
 // Create
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of create upload job input.
+ */
 export interface CreateUploadJobInput {
   userId: string;
   draftId: string | null;

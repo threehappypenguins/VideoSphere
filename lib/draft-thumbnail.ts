@@ -29,10 +29,19 @@ export function draftThumbnailFileInputAccept(): string {
   return segments.join(',');
 }
 
+/**
+ * Executes is allowed draft thumbnail content type.
+ * @param ct - Input value for ct.
+ * @returns The computed result.
+ */
 export function isAllowedDraftThumbnailContentType(ct: string): boolean {
   return ALLOWED.has(ct.trim().toLowerCase());
 }
 
+/**
+ * Executes draft thumbnail max size exceeded message.
+ * @returns The computed result.
+ */
 export function draftThumbnailMaxSizeExceededMessage(): string {
   return `Thumbnail must be ${DRAFT_THUMBNAIL_MAX_SIZE_LABEL} or smaller`;
 }
@@ -40,6 +49,11 @@ export function draftThumbnailMaxSizeExceededMessage(): string {
 /** Client toast when the file MIME type is not in {@link DRAFT_THUMBNAIL_ALLOWED_CONTENT_TYPES}. */
 export const DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE = 'Only JPG or PNG images are allowed';
 
+/**
+ * Executes file extension for thumbnail content type.
+ * @param contentType - Input value for content type.
+ * @returns The computed result.
+ */
 export function fileExtensionForThumbnailContentType(contentType: string): string {
   const ext = ALLOWED.get(contentType.trim().toLowerCase());
   return ext ?? 'bin';

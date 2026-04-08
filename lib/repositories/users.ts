@@ -33,6 +33,9 @@ function rowToUser(row: Record<string, unknown>): User {
 // Create
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of create user data.
+ */
 export interface CreateUserData {
   userId: string;
   email: string;
@@ -116,6 +119,9 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 // Update
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of update user data.
+ */
 export interface UpdateUserData {
   isSupporter?: boolean;
   hasCompletedOnboarding?: boolean;
@@ -185,11 +191,17 @@ export async function setSupporterStatus(userId: string, isSupporter: boolean): 
 // List (admin)
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of list users options.
+ */
 export interface ListUsersOptions {
   limit?: number;
   offset?: number;
 }
 
+/**
+ * Defines the shape of list users result.
+ */
 export interface ListUsersResult {
   users: User[];
   total: number;
@@ -214,6 +226,9 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
   return { users, total: result.total ?? 0 };
 }
 
+/**
+ * Defines the shape of user counts.
+ */
 export interface UserCounts {
   totalUsers: number;
   totalSupporters: number;

@@ -64,6 +64,12 @@ async function draftResponseWithThumbnailPreview(
 // GET /api/drafts/[id]
 // ---------------------------------------------------------------------------
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
@@ -102,6 +108,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 // PATCH /api/drafts/[id]  — partial update (only supplied fields are changed)
 // ---------------------------------------------------------------------------
 
+/**
+ * Handles PATCH requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
@@ -302,6 +314,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 // DELETE /api/drafts/[id]
 // ---------------------------------------------------------------------------
 
+/**
+ * Handles DELETE requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

@@ -11,7 +11,10 @@ import type {
 } from '@/types';
 import { latestPlatformStatuses } from '@/lib/uploads/status';
 
-interface UploadJobStatusResponse {
+/**
+ * Defines the upload job status payload returned by the jobs status endpoint.
+ */
+export interface UploadJobStatusResponse {
   uploadJobId: string;
   status: UploadJobStatus;
   createdAt: string;
@@ -23,6 +26,12 @@ interface UploadJobStatusResponse {
   }>;
 }
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

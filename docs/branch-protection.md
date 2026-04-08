@@ -17,7 +17,7 @@ All commits must be made to a non-protected branch and submitted via a pull requ
 **Why this matters:**
 - Prevents direct pushes to `main`, which could introduce untested or unreviewed code into the production branch.
 - Forces every change — no matter how small — to go through the standard PR workflow, creating a clear audit trail of what changed and why.
-- Aligns with the feature-branching strategy described in [docs/git-workflow.md](git-workflow.md).
+- Aligns with the feature-branching strategy described in [docs/git-workflow.md](/git-workflow).
 
 ---
 
@@ -59,7 +59,7 @@ Commits must first be pushed to a non-protected branch and pass all configured s
 **Why this matters:**
 - Ensures automated quality gates — linting, type-checking, formatting, and tests — all pass before code reaches `main`.
 - Catches regressions and errors that human reviewers might miss.
-- Status checks are defined by the CI pipeline (see [docs/ci-cd-requirements.md](ci-cd-requirements.md)). Common checks include:
+- Status checks are defined by the CI pipeline (see [docs/ci-cd-requirements.md](/ci-cd-requirements)). Common checks include:
   - `lint` — ESLint passes with no errors
   - `type-check` — TypeScript compiles with no errors
   - `format:check` — Prettier formatting is correct
@@ -131,6 +131,6 @@ The following branch protection settings are available on GitHub but are **not e
 
 Branch protection settings are configured and managed by the **instructor**, who serves as the repository Admin for all project repositories. Students cannot modify these rules.
 
-If you believe a rule needs to be adjusted, contact your instructor to discuss. See [SETUP.md](../SETUP.md) (Step 4) for an overview of the protections in place.
+If you believe a rule needs to be adjusted, contact your instructor to discuss. See [SETUP.md on GitHub](https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team/blob/main/SETUP.md) (Step 4) for an overview of the protections in place.
 
 > Changes to branch protection rules take effect immediately and apply to all open and future pull requests targeting the protected branch.

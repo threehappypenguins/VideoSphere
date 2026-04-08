@@ -30,6 +30,9 @@ const buttonVariants = cva(
   }
 );
 
+/**
+ * Defines the shape of button props.
+ */
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
   asChild?: boolean;

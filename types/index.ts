@@ -16,8 +16,14 @@
 // VideoSphere entity types (used by lib/repositories and API routes)
 // =============================================================================
 
+/**
+ * Defines the UserRole type.
+ */
 export type UserRole = 'user' | 'admin';
 
+/**
+ * Defines the shape of upload usage.
+ */
 export interface UploadUsage {
   userId: string;
   /** Current month in "YYYY-MM" format. */
@@ -25,6 +31,9 @@ export interface UploadUsage {
   uploadCount: number;
 }
 
+/**
+ * Defines the shape of user.
+ */
 export interface User {
   /** User identifier; aligns with user_profiles.userId in Appwrite. */
   userId: string;
@@ -102,7 +111,13 @@ export type VimeoPrivacyView =
   | 'unlisted'
   | 'users';
 
+/**
+ * Defines the VimeoPrivacyComments type.
+ */
 export type VimeoPrivacyComments = 'anybody' | 'contacts' | 'nobody';
+/**
+ * Defines the VimeoPrivacyEmbed type.
+ */
 export type VimeoPrivacyEmbed = 'private' | 'public' | 'whitelist';
 
 /** Subset of Vimeo `embed` on `POST /me` videos (player chrome). */
@@ -125,6 +140,9 @@ export interface VimeoDraftEmbed {
   }>;
 }
 
+/**
+ * Defines the shape of vimeo draft privacy.
+ */
 export interface VimeoDraftPrivacy {
   view?: VimeoPrivacyView;
   comments?: VimeoPrivacyComments;
@@ -185,6 +203,9 @@ export interface DraftPlatforms {
   vimeo?: VimeoDraftFields;
 }
 
+/**
+ * Defines the shape of draft.
+ */
 export interface Draft {
   id: string;
   userId: string;
@@ -224,6 +245,9 @@ export interface Draft {
   $updatedAt: string;
 }
 
+/**
+ * Defines the UploadJobStatus type.
+ */
 export type UploadJobStatus =
   | 'pending'
   | 'uploading'
@@ -232,6 +256,9 @@ export type UploadJobStatus =
   | 'failed'
   | 'cancelled';
 
+/**
+ * Defines the shape of upload job.
+ */
 export interface UploadJob {
   id: string;
   userId: string;
@@ -310,6 +337,9 @@ export interface ConnectedAccount extends ConnectedAccountPublic {
 // Example type — demonstrates the pattern for defining shared types.
 // =============================================================================
 
+/**
+ * Defines the shape of example item.
+ */
 export interface ExampleItem {
   id: string;
   title: string;

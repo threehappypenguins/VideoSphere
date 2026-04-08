@@ -73,6 +73,9 @@ function rowToConnectedAccountPublic(row: Record<string, unknown>): ConnectedAcc
 // Create
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of create connected account data.
+ */
 export interface CreateConnectedAccountData {
   userId: string;
   platform: ConnectedAccountPlatform;

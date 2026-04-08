@@ -75,6 +75,11 @@ function parseRequestBody(
   };
 }
 
+/**
+ * Handles POST requests for this route.
+ * @param request - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const userId = await getAuthenticatedUserId(request);
@@ -205,6 +210,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+/**
+ * Handles GET requests for this route.
+ * @returns A response describing the request result.
+ */
 export async function GET(): Promise<NextResponse> {
   return NextResponse.json(
     { error: 'Method not allowed. Use POST to start distribution.' },

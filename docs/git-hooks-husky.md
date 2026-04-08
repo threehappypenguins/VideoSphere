@@ -147,6 +147,6 @@ git commit --no-verify -m "your message"
 
 ## Related Docs
 
-- [Code Quality](./code-quality.md)
-- [Contributing Guide](./contributing-guide.md)
-- [Git Workflow](./git-workflow.md)
+- [Code Quality](/code-quality)
+- [Contributing Guide](/contributing-guide)
+- [Git Workflow](/git-workflow)

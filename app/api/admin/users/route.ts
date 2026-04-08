@@ -3,7 +3,10 @@ import { requireAdmin } from '@/lib/api/admin-auth';
 import { listUsers } from '@/lib/repositories/users';
 import type { ApiError, ApiResponse } from '@/types';
 
-interface AdminUserRow {
+/**
+ * Defines one user row returned by the admin users listing endpoint.
+ */
+export interface AdminUserRow {
   /** Stable id (Appwrite Auth user id / `user_profiles.userId`); use for client keys, not email. */
   userId: string;
   email: string;
@@ -12,7 +15,10 @@ interface AdminUserRow {
   createdAt: string;
 }
 
-interface AdminUsersResponse {
+/**
+ * Defines the paginated admin users response payload.
+ */
+export interface AdminUsersResponse {
   users: AdminUserRow[];
   pagination: {
     limit: number;
@@ -28,6 +34,11 @@ function parsePositiveInt(value: string | null, fallback: number): number {
   return parsed;
 }
 
+/**
+ * Handles GET requests for this route.
+ * @param request - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(request: NextRequest) {
   const adminCheck = await requireAdmin(request, '[GET /api/admin/users]');
   if (adminCheck.ok === false) return adminCheck.response;

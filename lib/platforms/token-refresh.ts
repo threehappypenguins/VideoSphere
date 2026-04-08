@@ -13,6 +13,9 @@ import { refreshYouTubeAccessToken } from '@/lib/platforms/youtube';
 /** Refresh if access token expires within this window (ms). */
 export const TOKEN_REFRESH_LEAD_MS = 5 * 60 * 1000;
 
+/**
+ * Defines the PlatformTokens type.
+ */
 export type PlatformTokens = Required<PlatformUploadTokens>;
 
 /**
