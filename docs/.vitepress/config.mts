@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress';
 export default defineConfig({
   title: 'VideoSphere Docs',
   description: 'Project documentation for VideoSphere.',
-  base: '/project-videosphere-team/',
+  base: '/',
   ignoreDeadLinks: true,
   themeConfig: {
     nav: [
