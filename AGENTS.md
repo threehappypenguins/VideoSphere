@@ -7,7 +7,15 @@ This repository uses AI coding assistants. Follow these rules on every task.
 1. Check current documentation before writing or modifying code.
 2. Do not introduce deprecated APIs, options, or patterns.
 3. Document all exported/public APIs with TypeDoc comments.
-4. Prefer maintainable, testable, and minimal changes that match existing project style.
+4. AI agents must never perform any git or GitHub operations.
+5. Prefer maintainable, testable, and minimal changes that match existing project style.
+
+## Git and GitHub Operations (Absolute Rule)
+
+- AI agents must NEVER perform git or GitHub operations of any kind.
+- Prohibited actions include commits, pushes, pulls, merges, rebases, branch creation/deletion, tags, PR creation/updates, reviews, issue edits, and any other GitHub activity.
+- All repository operations must be done by a human team member.
+- Workflow: AI writes code -> human reviews -> human stages/commits/pushes.
 
 ## Documentation Requirements (Mandatory)
 
@@ -18,6 +26,7 @@ This repository uses AI coding assistants. Follow these rules on every task.
 
 References:
 - [agents.md](https://agents.md/)
+- [AI usage policy](docs/ai-usage-policy.md)
 
 ## Deprecated Code Policy (Mandatory)
 
@@ -33,10 +42,9 @@ TypeDoc-style comments are required for all public-facing exports, including:
 - custom hooks
 - exported types and interfaces
 
-Each required TypeDoc block must include:
-- a clear description of purpose
-- `@param` entries for every parameter
-- `@returns` describing the return value
+TypeDoc expectations by export kind:
+- For exported functions/components/hooks and call signatures: include a clear description, `@param` for every parameter, and `@returns` describing the return value.
+- For exported types/interfaces: include a clear description and `@property` tags when property-level clarification is needed.
 
 Example:
 
