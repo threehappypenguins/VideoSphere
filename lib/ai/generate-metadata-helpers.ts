@@ -15,6 +15,9 @@ export const MAX_GENERATE_METADATA_USER_PROMPT_CHARS = 4000;
 // ---------------------------------------------------------------------------
 // Platform character limits (PRD AI-06)
 // ---------------------------------------------------------------------------
+/**
+ * Defines the PLATFORM_LIMITS constant.
+ */
 export const PLATFORM_LIMITS: Record<
   ConnectedAccountPlatform,
   { titleMax: number; descriptionMax: number }

@@ -22,6 +22,9 @@ const badgeVariants = cva(
   }
 );
 
+/**
+ * Defines the shape of badge props.
+ */
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
 

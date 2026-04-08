@@ -9,6 +9,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Client, Account } from 'node-appwrite';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 
+/**
+ * Handles POST requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function POST(req: NextRequest) {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;

@@ -119,7 +119,7 @@ Browse available fonts at [fonts.google.com](https://fonts.google.com/).
 
 ## Component Libraries
 
-No component library is pre-installed — you can choose the one that fits your project best. See [/docs/component-libraries.md](/docs/component-libraries.md) for a detailed comparison with installation guides.
+No component library is pre-installed — you can choose the one that fits your project best. See [component-libraries.md](/component-libraries) for a detailed comparison with installation guides.
 
 **Our recommendation**: [shadcn/ui](https://ui.shadcn.com/) — beautiful, accessible components that you own (copied into your project, not installed as a dependency).
 

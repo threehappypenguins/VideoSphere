@@ -177,6 +177,11 @@ function generateObjectKey(userId: string, filename: string): string {
   return `temp/uploads/${userId}/${timestamp}-${uid}/${sanitized}`;
 }
 
+/**
+ * Handles POST requests for this route.
+ * @param request - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // Verify session

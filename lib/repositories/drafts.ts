@@ -153,6 +153,9 @@ export async function markDraftUsedInUpload(
 // Create
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of create draft input.
+ */
 export interface CreateDraftInput {
   userId: string;
   targets: ConnectedAccountPlatform[];
@@ -281,6 +284,9 @@ export async function countDraftsByUser(userId: string): Promise<number> {
   return typeof result.total === 'number' ? result.total : 0;
 }
 
+/**
+ * Defines the shape of draft dashboard summary.
+ */
 export interface DraftDashboardSummary {
   readyDraftCount: number;
   previewDrafts: Draft[];
@@ -374,6 +380,9 @@ export async function countActiveDrafts(): Promise<number> {
 // Update
 // -----------------------------------------------------------------------------
 
+/**
+ * Defines the shape of update draft input.
+ */
 export interface UpdateDraftInput {
   targets?: ConnectedAccountPlatform[];
   title?: string;

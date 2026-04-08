@@ -130,6 +130,10 @@ function TourTooltip({
   );
 }
 
+/**
+ * Renders the onboarding tour component.
+ * @returns The rendered UI output.
+ */
 export function OnboardingTour() {
   const pathname = usePathname();
   const router = useRouter();

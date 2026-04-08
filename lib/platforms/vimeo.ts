@@ -558,6 +558,11 @@ async function setVimeoVideoTagsWithRetry(
   return { ok: false, status: lastStatus, body: lastBody };
 }
 
+/**
+ * Executes upload to vimeo.
+ * @param input - Input payload for this operation.
+ * @returns The computed result.
+ */
 export async function uploadToVimeo(input: UploadToVimeoInput): Promise<PlatformUploadResult> {
   if (!input.tokens.accessToken) {
     return toError('VIMEO_TOKEN_MISSING', 'Vimeo access token is missing.');

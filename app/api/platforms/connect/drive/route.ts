@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Client, Account } from 'node-appwrite';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
+/**
+ * Defines the GOOGLE_DRIVE_OAUTH_STATE_COOKIE constant.
+ */
 export const GOOGLE_DRIVE_OAUTH_STATE_COOKIE = 'google_drive_oauth_state';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -11,6 +14,11 @@ const GOOGLE_DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.metadata.readonly',
 ].join(' ');
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest) {
   const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;

@@ -302,6 +302,9 @@ async function runSinglePlatformUpload(
 // Background orchestrator
 // ---------------------------------------------------------------------------
 
+/**
+ * Defines the shape of run distribution in background options.
+ */
 export interface RunDistributionInBackgroundOptions {
   /**
    * Set for **subset** retries (e.g. POST .../jobs/[id]/retry): only `platformUploads` are

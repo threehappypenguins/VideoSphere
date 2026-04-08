@@ -12,6 +12,11 @@ import { appwriteUsers, appwriteAuth } from '@/lib/appwrite';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import { createUser } from '@/lib/repositories/users';
 
+/**
+ * Handles POST requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function POST(req: NextRequest) {
   try {
     let body: unknown;

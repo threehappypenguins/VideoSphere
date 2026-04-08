@@ -27,7 +27,16 @@ const eslintConfig = defineConfig([
     },
   },
   // Override default ignores
-  globalIgnores(['.next/**', 'out/**', 'build/**', 'coverage/**', 'next-env.d.ts']),
+  globalIgnores([
+    '.next/**',
+    'out/**',
+    'build/**',
+    'coverage/**',
+    'docs/.vitepress/cache/**',
+    'docs/.vitepress/dist/**',
+    'docs/public/typedoc/**',
+    'next-env.d.ts',
+  ]),
 ]);
 
 export default eslintConfig;

@@ -26,6 +26,10 @@ function currentMonth(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Executes get current usage month.
+ * @returns The computed result.
+ */
 export function getCurrentUsageMonth(): string {
   return currentMonth();
 }

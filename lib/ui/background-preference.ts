@@ -1,4 +1,7 @@
 const BACKGROUND_GRAIN_STORAGE_KEY = 'videosphere.background.grainEnabled';
+/**
+ * Defines the BACKGROUND_GRAIN_EVENT constant.
+ */
 export const BACKGROUND_GRAIN_EVENT = 'videosphere:background-grain-changed';
 
 /** Default is enabled when no preference has been stored yet. */
@@ -14,6 +17,11 @@ export function getBackgroundGrainEnabled(): boolean {
   }
 }
 
+/**
+ * Executes set background grain enabled.
+ * @param enabled - Input value for enabled.
+ * @returns The computed result.
+ */
 export function setBackgroundGrainEnabled(enabled: boolean): void {
   if (typeof window === 'undefined') return;
 
@@ -30,6 +38,11 @@ export function setBackgroundGrainEnabled(enabled: boolean): void {
   );
 }
 
+/**
+ * Executes is background grain storage key.
+ * @param key - Input value for key.
+ * @returns The computed result.
+ */
 export function isBackgroundGrainStorageKey(key: string | null): boolean {
   return key === BACKGROUND_GRAIN_STORAGE_KEY;
 }

@@ -135,6 +135,11 @@ interface NavbarProps {
   initialHasAdminRole?: boolean;
 }
 
+/**
+ * Renders the navbar component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default function Navbar({ initialSessionUser, initialHasAdminRole = false }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();

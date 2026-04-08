@@ -39,7 +39,7 @@ Use them for runtime accessibility concerns that linting cannot fully verify, su
 
 ## Manual upload flow (draft `document`, R2, distribute)
 
-For presign → `curl` to R2 → complete → distribute, and for the **`document`** JSON on **`drafts`** and **`platform_uploads`**, see **[draft-document-and-upload-testing.md](./draft-document-and-upload-testing.md)**.
+For presign → `curl` to R2 → complete → distribute, and for the **`document`** JSON on **`drafts`** and **`platform_uploads`**, see **[draft-document-and-upload-testing.md](/draft-document-and-upload-testing)**.
 
 ## Writing Your First Component Test
 

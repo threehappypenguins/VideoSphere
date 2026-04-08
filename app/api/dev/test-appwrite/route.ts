@@ -9,6 +9,10 @@
 import { Client, TablesDB } from 'node-appwrite';
 import { NextResponse } from 'next/server';
 
+/**
+ * Handles GET requests for this route.
+ * @returns A response describing the request result.
+ */
 export async function GET() {
   if (process.env.NODE_ENV === 'production') {
     return new NextResponse(null, { status: 404 });

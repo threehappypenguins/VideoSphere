@@ -5,6 +5,11 @@ interface DisconnectButtonProps {
   platformLabel: string;
 }
 
+/**
+ * Renders the disconnect button component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export function DisconnectButton({ action, platformLabel }: DisconnectButtonProps) {
   return (
     <form

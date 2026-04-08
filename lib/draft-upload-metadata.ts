@@ -21,6 +21,9 @@ import {
   type VimeoDraftFields,
 } from '@/types';
 
+/**
+ * Defines the DEFAULT_DRAFT_VISIBILITY constant.
+ */
 export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'private';
 
 /** Matches YouTube Data API `videos.snippet.title` maximum length. */
@@ -29,6 +32,9 @@ export const MAX_DRAFT_TITLE_LENGTH = 100;
 /** Appwrite string column max; entire `document` must serialize under this. */
 export const MAX_DRAFT_DOCUMENT_CHARS = 16_383;
 
+/**
+ * Provides draft document too large error behavior.
+ */
 export class DraftDocumentTooLargeError extends Error {
   constructor(message: string) {
     super(message);
@@ -49,10 +55,20 @@ const VISIBILITY_SET = new Set<PlatformUploadVisibility>(['public', 'unlisted', 
 
 const PLATFORM_SET = new Set<string>(CONNECTED_ACCOUNT_PLATFORMS);
 
+/**
+ * Executes is connected account platform.
+ * @param value - Input value for value.
+ * @returns The computed result.
+ */
 export function isConnectedAccountPlatform(value: unknown): value is ConnectedAccountPlatform {
   return typeof value === 'string' && PLATFORM_SET.has(value);
 }
 
+/**
+ * Executes is platform upload visibility.
+ * @param value - Input value for value.
+ * @returns The computed result.
+ */
 export function isPlatformUploadVisibility(value: unknown): value is PlatformUploadVisibility {
   return typeof value === 'string' && VISIBILITY_SET.has(value as PlatformUploadVisibility);
 }
@@ -266,6 +282,11 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
   };
 }
 
+/**
+ * Executes normalize draft platforms.
+ * @param value - Input value for value.
+ * @returns The computed result.
+ */
 export function normalizeDraftPlatforms(value: unknown): DraftPlatforms {
   if (!isPlainObject(value)) return {};
   const out: DraftPlatforms = {};
@@ -301,6 +322,11 @@ export interface DraftDocumentStored {
   usedInUploadAt?: string;
 }
 
+/**
+ * Executes stringify draft document for storage.
+ * @param d - Input value for d.
+ * @returns The computed result.
+ */
 export function stringifyDraftDocumentForStorage(d: DraftDocumentStored): string {
   return JSON.stringify({
     targets: d.targets,
@@ -445,6 +471,12 @@ export function parseDraftPlatformsPatchBody(
   return { ok: true, value };
 }
 
+/**
+ * Executes merge draft platforms.
+ * @param base - Input value for base.
+ * @param patch - Input value for patch.
+ * @returns The computed result.
+ */
 export function mergeDraftPlatforms(base: DraftPlatforms, patch: DraftPlatforms): DraftPlatforms {
   const next: DraftPlatforms = { ...base };
   if (patch.youtube !== undefined) {
@@ -570,6 +602,12 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
   return next;
 }
 
+/**
+ * Executes build metadata for platform.
+ * @param draft - Input value for draft.
+ * @param platform - Input value for platform.
+ * @returns The computed result.
+ */
 export function buildMetadataForPlatform(
   draft: Draft,
   platform: ConnectedAccountPlatform

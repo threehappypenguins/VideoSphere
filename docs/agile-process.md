@@ -155,7 +155,7 @@ AI tools like GitHub Copilot accelerate your sprints, but use them responsibly:
 3. **Review**: AI-generated code still requires human PR review
 4. **Commit**: ALL git operations must be performed by a human team member (see AI Usage Policy)
 
-Read the full AI policy: [AI Usage Policy](/docs/ai-usage-policy.md)
+Read the full AI policy: [AI Usage Policy](/ai-usage-policy)
 
 ## Tips for Success
 

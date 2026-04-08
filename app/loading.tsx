@@ -17,6 +17,10 @@
 // See Next.js docs: https://nextjs.org/docs/app/building-your-application/routing/loading-ui-and-streaming
 // =============================================================================
 
+/**
+ * Renders the loading component.
+ * @returns The rendered UI output.
+ */
 export default function Loading() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center">

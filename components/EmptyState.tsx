@@ -30,10 +30,19 @@ import Link from 'next/link';
  * />
  */
 
-type ActionWithHref = { label: string; href: string };
-type ActionWithOnClick = { label: string; onClick: () => void };
+export type ActionWithHref = { label: string; href: string };
+/**
+ * Defines an EmptyState action variant backed by a click callback.
+ */
+export type ActionWithOnClick = { label: string; onClick: () => void };
+/**
+ * Defines the EmptyStateAction type.
+ */
 export type EmptyStateAction = ActionWithHref | ActionWithOnClick;
 
+/**
+ * Defines the EmptyStateProps type.
+ */
 export type EmptyStateProps = {
   title: string;
   description?: string;
@@ -51,6 +60,11 @@ function isActionWithHref(action: EmptyStateAction): action is ActionWithHref {
   return 'href' in action;
 }
 
+/**
+ * Renders the empty state component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default function EmptyState({ title, description, icon, action }: EmptyStateProps) {
   const buttonClass = 'mt-4 rounded-md bg-primary px-4 py-2 text-primary-foreground';
 

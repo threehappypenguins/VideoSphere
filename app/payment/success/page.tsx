@@ -15,6 +15,9 @@ import Stripe from 'stripe';
 import { redirect } from 'next/navigation';
 import { getUserByEmail, setSupporterStatus } from '@/lib/repositories/users';
 
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: 'Payment Successful — VideoSphere',
 };
@@ -27,6 +30,11 @@ interface PaymentSuccessPageProps {
 
 const STRIPE_CHECKOUT_SESSION_ID_REGEX = /^cs_(test|live)_[A-Za-z0-9]+$/;
 
+/**
+ * Renders the payment success page component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default async function PaymentSuccessPage({ searchParams }: PaymentSuccessPageProps) {
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const checkoutSessionId = resolvedSearchParams?.session_id;

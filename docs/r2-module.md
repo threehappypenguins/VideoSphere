@@ -39,7 +39,7 @@ Generate a presigned URL for direct browser-to-R2 uploads.
 - `key` (string): Object path in R2 (e.g., `temp/uploads/user-123/video.mp4`)
 - `contentType` (string): MIME type (e.g., `video/mp4`)
 
-**Returns:** Promise<string> - Presigned PUT URL (expires 900 seconds)
+**Returns:** `Promise<string>` - Presigned PUT URL (expires 900 seconds)
 
 **Security:**
 - Content-Type is part of the signature; clients cannot upload different types
@@ -67,7 +67,7 @@ Generate a presigned URL for downloading files from R2.
 **Parameters:**
 - `key` (string): Object path in R2
 
-**Returns:** Promise<string> - Presigned GET URL (expires 3600 seconds)
+**Returns:** `Promise<string>` - Presigned GET URL (expires 3600 seconds)
 
 **Use Cases:**
 - Distribution engine reading video files
@@ -90,7 +90,7 @@ Delete an object from R2.
 **Parameters:**
 - `key` (string): Object path to delete
 
-**Returns:** Promise<void>
+**Returns:** `Promise<void>`
 
 **Use Cases:**
 - Cleanup after distribution completion

@@ -1,5 +1,8 @@
 import type { Step } from 'react-joyride';
 
+/**
+ * Defines onboarding steps.
+ */
 export const onboardingSteps: Step[] = [
   {
     id: 'dashboard-overview',

@@ -48,6 +48,11 @@ interface YouTubeChannelsResponse {
   items?: YouTubeChannel[];
 }
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const successUrl = `${origin}/profile/connections?success=youtube`;

@@ -1,6 +1,6 @@
 # Stretch Goals Reference
 
-This is a quick-reference to the full stretch goals list. See [STRETCH_GOALS.md](/STRETCH_GOALS.md) in the project root for the complete checklist with full descriptions.
+This is a quick-reference to the full stretch goals list. See [STRETCH_GOALS.md on GitHub](https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team/blob/main/STRETCH_GOALS.md) for the complete checklist with full descriptions.
 
 ## Enhancement Categories
 
@@ -29,7 +29,7 @@ This is a quick-reference to the full stretch goals list. See [STRETCH_GOALS.md]
 
 ## How to Use Stretch Goals
 
-1. Open [STRETCH_GOALS.md](/STRETCH_GOALS.md) and read through the full checklist.
+1. Open [STRETCH_GOALS.md on GitHub](https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team/blob/main/STRETCH_GOALS.md) and read through the full checklist.
 2. As a team, choose items that fit your product and that you genuinely want to learn.
 3. Create a **GitHub Issue** for each stretch goal you plan to attempt — assign it to a sprint.
 4. Submit completed stretch goals via the normal PR process and present them to your instructor.

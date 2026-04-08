@@ -13,6 +13,9 @@ import type { Metadata } from 'next';
 
 import { CardNoiseBackground, PAGE_SEEDS } from '@/components/ui/GaussianNoiseBackground';
 
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: 'About',
   description: 'Learn about VideoSphere — our mission, team, and story.',
@@ -42,6 +45,10 @@ const team = [
   },
 ];
 
+/**
+ * Renders the about page component.
+ * @returns The rendered UI output.
+ */
 export default function AboutPage() {
   return (
     <div className="px-4 py-20 font-sans sm:px-6 lg:px-8">

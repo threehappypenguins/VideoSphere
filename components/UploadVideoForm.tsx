@@ -59,6 +59,9 @@ type UploadState =
   | { phase: 'success'; file: File; uploadJobId: string; r2Key: string }
   | { phase: 'error'; message: string };
 
+/**
+ * Defines the shape of upload video form props.
+ */
 export interface UploadVideoFormProps {
   /** Draft ID to associate this upload with. */
   draftId: string;
@@ -70,6 +73,11 @@ export interface UploadVideoFormProps {
 // Component
 // ---------------------------------------------------------------------------
 
+/**
+ * Renders the upload video form component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormProps) {
   const [state, setState] = useState<UploadState>({ phase: 'idle' });
   const [isSupporter, setIsSupporter] = useState<boolean | null>(null);

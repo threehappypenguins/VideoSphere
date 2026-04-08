@@ -10,6 +10,11 @@ interface OnboardingContextType {
 
 const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
 
+/**
+ * Renders the onboarding provider component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export function OnboardingProvider({ children }: { children: ReactNode }) {
   const [onboardingDraftId, setOnboardingDraftId] = useState<string | null>(null);
 
@@ -41,6 +46,10 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Provides use onboarding context state and actions.
+ * @returns Hook state and action handlers.
+ */
 export function useOnboardingContext() {
   const context = useContext(OnboardingContext);
   if (!context) {

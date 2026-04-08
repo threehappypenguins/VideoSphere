@@ -49,7 +49,7 @@ If the PR body does not contain both a linked issue and a close keyword, this ch
 
 - **All CI checks must pass** before merging any PR to `main`
 - **Never merge a PR with failing checks** — fix the issues first
-- **Branch protection rules must be configured** (see `SETUP.md` and [branch-protection.md](branch-protection.md))
+- **Branch protection rules must be configured** (see `SETUP.md` and [branch-protection.md](/branch-protection))
 
 ### 🎯 Enhancement Opportunities
 

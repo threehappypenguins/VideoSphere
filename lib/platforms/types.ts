@@ -53,12 +53,18 @@ export type PlatformUploadMetadata = SharedPlatformUploadMetadata &
   YoutubeSpecificUploadMetadata &
   VimeoSpecificUploadMetadata;
 
+/**
+ * Defines the shape of platform upload tokens.
+ */
 export interface PlatformUploadTokens {
   accessToken: string;
   refreshToken?: string;
   tokenExpiry?: string;
 }
 
+/**
+ * Defines the shape of platform upload error.
+ */
 export interface PlatformUploadError {
   code: string;
   message: string;
@@ -66,6 +72,9 @@ export interface PlatformUploadError {
   details?: string;
 }
 
+/**
+ * Defines the PlatformUploadResult type.
+ */
 export type PlatformUploadResult =
   | { ok: true; platformVideoId: string; platformUrl: string }
   | { ok: false; error: PlatformUploadError };

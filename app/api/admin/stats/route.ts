@@ -5,13 +5,21 @@ import { getCurrentUsageMonth, getTotalUploadsForMonth } from '@/lib/repositorie
 import { getUserCounts } from '@/lib/repositories/users';
 import type { ApiError, ApiResponse } from '@/types';
 
-interface AdminStats {
+/**
+ * Defines the admin dashboard aggregate statistics payload.
+ */
+export interface AdminStats {
   totalUsers: number;
   totalSupporters: number;
   uploadsThisMonth: number;
   activeDrafts: number;
 }
 
+/**
+ * Handles GET requests for this route.
+ * @param request - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(request: NextRequest) {
   const adminCheck = await requireAdmin(request, '[GET /api/admin/stats]');
   if (adminCheck.ok === false) return adminCheck.response;

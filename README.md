@@ -79,6 +79,50 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 | `pnpm test:ui`       | `vitest --ui`           | Run tests with browser UI       |
 | `pnpm test:coverage` | `vitest run --coverage` | Run tests with coverage report  |
 
+## Documentation Site (VitePress)
+
+This repo includes a VitePress docs site using files in the [docs](docs) folder.
+
+### Docs Commands
+
+- `pnpm docs:api`
+  - Generates API docs from JSDoc/TypeDoc comments using TypeDoc.
+  - Writes output to `docs/public/typedoc` and is run automatically by `docs:dev` and `docs:build`.
+- `pnpm docs:dev`
+  - Use during documentation writing and editing.
+  - Starts a local docs server with live reload.
+- `pnpm docs:build`
+  - Use before opening a docs PR or merging docs changes.
+  - Verifies the docs compile for production.
+- `pnpm docs:preview`
+  - Use after `docs:build` when you want to validate the exact built output locally.
+
+Typical docs workflow:
+
+1. Edit docs files.
+2. Run `pnpm docs:dev` while writing.
+3. Run `pnpm docs:build` before commit/PR.
+4. Optionally run `pnpm docs:preview` for a final check.
+
+API docs location while previewing:
+
+- API landing page: /api/
+- Generated TypeDoc site: /typedoc/index.html
+
+### GitHub Pages Deployment
+
+Docs deploy automatically through GitHub Actions using [deploy-docs-pages.yml](.github/workflows/deploy-docs-pages.yml).
+
+Required repository settings:
+
+1. Open GitHub Settings > Pages.
+2. Set Source to GitHub Actions.
+3. Do not use the Next.js Configure template for docs deployment.
+	 - That template is a starter workflow for app deployment.
+	 - This repo already has a dedicated docs workflow for VitePress.
+
+After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
+
 ## Tech Stack
 
 | Technology      | Purpose           | Why It's Here                             |
