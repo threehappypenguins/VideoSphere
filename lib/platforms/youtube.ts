@@ -311,7 +311,7 @@ const YOUTUBE_CHUNK_MULTIPLE = 256 * 1024;
 const YOUTUBE_CHUNK_TARGET = 8 * 1024 * 1024;
 
 /**
- * Executes next you tube chunk size.
+ * Executes next YouTube chunk size.
  * @param remaining - Input value for remaining.
  * @returns The computed result.
  */
@@ -595,7 +595,7 @@ async function uploadYouTubeResumableSinglePut(input: {
 }
 
 /**
- * Executes refresh you tube access token.
+ * Executes refresh YouTube access token.
  * @param input - Input payload for this operation.
  * @returns The computed result.
  */
@@ -684,7 +684,7 @@ export async function refreshYouTubeAccessToken(input: {
 }
 
 /**
- * Executes upload to you tube.
+ * Executes upload to YouTube.
  * @param input - Input payload for this operation.
  * @returns The computed result.
  */

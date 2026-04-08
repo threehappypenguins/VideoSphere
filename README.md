@@ -85,24 +85,24 @@ This repo includes a VitePress docs site using files in the [docs](docs) folder.
 
 ### Docs Commands
 
-- pnpm docs:api
-	- Generates API docs from JSDoc/TypeDoc comments using TypeDoc.
-	- Writes output to docs/public/typedoc and is run automatically by docs:dev and docs:build.
-- pnpm docs:dev
-	- Use during documentation writing and editing.
-	- Starts a local docs server with live reload.
-- pnpm docs:build
-	- Use before opening a docs PR or merging docs changes.
-	- Verifies the docs compile for production.
-- pnpm docs:preview
-	- Use after docs:build when you want to validate the exact built output locally.
+- `pnpm docs:api`
+  - Generates API docs from JSDoc/TypeDoc comments using TypeDoc.
+  - Writes output to `docs/public/typedoc` and is run automatically by `docs:dev` and `docs:build`.
+- `pnpm docs:dev`
+  - Use during documentation writing and editing.
+  - Starts a local docs server with live reload.
+- `pnpm docs:build`
+  - Use before opening a docs PR or merging docs changes.
+  - Verifies the docs compile for production.
+- `pnpm docs:preview`
+  - Use after `docs:build` when you want to validate the exact built output locally.
 
 Typical docs workflow:
 
 1. Edit docs files.
-2. Run pnpm docs:dev while writing.
-3. Run pnpm docs:build before commit/PR.
-4. Optionally run pnpm docs:preview for a final check.
+2. Run `pnpm docs:dev` while writing.
+3. Run `pnpm docs:build` before commit/PR.
+4. Optionally run `pnpm docs:preview` for a final check.
 
 API docs location while previewing:
 

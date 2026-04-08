@@ -12,7 +12,7 @@ interface UseOnboardingStateOptions {
 }
 
 /**
- * Provides use onboarding state state and actions.
+ * Provides use onboarding state and actions.
  * @param options - Optional configuration values.
  * @returns Hook state and action handlers.
  */
