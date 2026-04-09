@@ -228,6 +228,8 @@ export function DraftMetadataModal({
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
   const modalAnnouncerRef = useRef<HTMLDivElement>(null);
   const announceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const announceRafRef = useRef<number | null>(null);
+  const latestAnnouncementIdRef = useRef(0);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [modalStatusMsg, setModalStatusMsg] = useState<string | null>(null);
   const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -252,6 +254,7 @@ export function DraftMetadataModal({
     return () => {
       isMountedRef.current = false;
       if (announceTimerRef.current) clearTimeout(announceTimerRef.current);
+      if (announceRafRef.current !== null) cancelAnimationFrame(announceRafRef.current);
       if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     };
   }, []);
@@ -261,6 +264,8 @@ export function DraftMetadataModal({
   // Sonner toast. Clears first so repeated identical strings re-announce.
   // Also shows a brief visual status banner inside the modal for sighted users.
   const announceInModal = useCallback((message: string) => {
+    const announcementId = ++latestAnnouncementIdRef.current;
+
     // Visual status for sighted users (auto-dismiss after 4 s)
     if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     setModalStatusMsg(message);
@@ -268,24 +273,38 @@ export function DraftMetadataModal({
 
     // Screen reader announcement
     if (!modalAnnouncerRef.current) return;
-    if (announceTimerRef.current) clearTimeout(announceTimerRef.current);
+    if (announceTimerRef.current) {
+      clearTimeout(announceTimerRef.current);
+      announceTimerRef.current = null;
+    }
+    if (announceRafRef.current !== null) {
+      cancelAnimationFrame(announceRafRef.current);
+      announceRafRef.current = null;
+    }
     // Remove existing children silently — aria-relevant="additions" means removals don't announce.
     while (modalAnnouncerRef.current.firstChild) {
       modalAnnouncerRef.current.removeChild(modalAnnouncerRef.current.firstChild);
     }
-    requestAnimationFrame(() => {
+    announceRafRef.current = requestAnimationFrame(() => {
+      announceRafRef.current = null;
+      if (announcementId !== latestAnnouncementIdRef.current) return;
       if (modalAnnouncerRef.current) {
         // Appending a new text node IS an addition → announces exactly once.
         modalAnnouncerRef.current.appendChild(document.createTextNode(message));
         // Remove after 1.5 s so stale text isn't re-read during virtual navigation.
         // Removal is silent because aria-relevant="additions" excludes removals.
-        announceTimerRef.current = setTimeout(() => {
+        const timerId = setTimeout(() => {
+          if (announcementId !== latestAnnouncementIdRef.current) return;
           if (modalAnnouncerRef.current) {
             while (modalAnnouncerRef.current.firstChild) {
               modalAnnouncerRef.current.removeChild(modalAnnouncerRef.current.firstChild);
             }
           }
+          if (announceTimerRef.current === timerId) {
+            announceTimerRef.current = null;
+          }
         }, 1500);
+        announceTimerRef.current = timerId;
       }
     });
   }, []);
@@ -1951,9 +1970,14 @@ export function DraftMetadataModal({
             data-tour="draft-save-button"
             onClick={() => {
               commitTagsBeforeSave();
-              void onSave({ closeAfterSave: true }).then((r) => {
-                if (r.message) toast.success(r.message);
-              });
+              void (async () => {
+                try {
+                  const r = await onSave({ closeAfterSave: true });
+                  if (r.message) toast.success(r.message);
+                } catch (error) {
+                  console.error('Failed to save draft.', error);
+                }
+              })();
             }}
             disabled={!canSave}
             className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"

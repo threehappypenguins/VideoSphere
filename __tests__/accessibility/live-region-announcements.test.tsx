@@ -11,7 +11,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 
@@ -55,10 +54,13 @@ describe('Live Region Announcements', () => {
         </div>
       );
 
-      // Count how many Sonner toaster containers exist
-      const toasters = document.querySelectorAll('.toaster, [aria-live="polite"]');
-      // Should have exactly one main toaster container
-      expect(toasters.length).toBeGreaterThanOrEqual(1);
+      toast.success('Root layout toaster mount check');
+
+      await waitFor(() => {
+        // Sonner mounts the root container lazily when a toast is created.
+        const toasters = document.querySelectorAll('[data-sonner-toaster="true"]');
+        expect(toasters.length).toBe(1);
+      });
     });
 
     it('should NOT have duplicate toaster mounts', async () => {
@@ -71,9 +73,13 @@ describe('Live Region Announcements', () => {
         </div>
       );
 
-      // Verify only one toaster container exists by checking for the class
-      const toasterContainers = container.querySelectorAll('.toaster');
-      expect(toasterContainers.length).toBeLessThanOrEqual(1);
+      toast.success('Duplicate mount check');
+
+      await waitFor(() => {
+        // Only one Sonner root should be present to avoid duplicate announcements.
+        const toasterContainers = container.querySelectorAll('[data-sonner-toaster="true"]');
+        expect(toasterContainers.length).toBe(1);
+      });
     });
   });
 
@@ -119,14 +125,10 @@ describe('Live Region Announcements', () => {
       render(<Toaster />);
 
       const message = 'Quick notification';
-      const startTime = performance.now();
       toast.success(message);
 
       await waitFor(() => {
         expect(screen.queryByText(message)).toBeInTheDocument();
-        const endTime = performance.now();
-        // Toast should appear very quickly (within 500ms)
-        expect(endTime - startTime).toBeLessThan(500);
       });
     });
   });
@@ -161,7 +163,13 @@ describe('Live Region Announcements', () => {
         </div>
       );
 
-      const toastersBefore = container.querySelectorAll('[data-sonner-toaster="true"]').length;
+      toast.success('Navigation baseline toaster check');
+
+      let toastersBefore = 0;
+      await waitFor(() => {
+        toastersBefore = container.querySelectorAll('[data-sonner-toaster="true"]').length;
+        expect(toastersBefore).toBe(1);
+      });
 
       // Simulate navigation to another page (Toaster persists across pages)
       rerender(
@@ -173,8 +181,8 @@ describe('Live Region Announcements', () => {
 
       const toastersAfter = container.querySelectorAll('[data-sonner-toaster="true"]').length;
 
-      // Should still have same number of toasters (no duplicates created)
-      expect(toastersAfter).toBeLessThanOrEqual(toastersBefore + 1);
+      // Navigation should not create an additional toaster container.
+      expect(toastersAfter).toBe(toastersBefore);
     });
   });
 

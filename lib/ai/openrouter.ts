@@ -240,6 +240,9 @@ function buildOpenRouterRequestBody(
  * @param systemPrompt - Instructions for the AI (platform limits, format, etc.)
  * @param userPrompt   - The user-facing content (filename, context)
  * @param model        - OpenRouter model identifier (e.g. "openai/gpt-4o")
+ * @param fallbackModels - Optional fallback model IDs appended after `model`.
+ *        When provided, OpenRouter may attempt models in this order:
+ *        primary `model` first, then each entry in `fallbackModels`.
  * @throws Error if the API key is missing, the request fails, or the response
  *         is malformed / missing required fields.
  */
@@ -278,6 +281,9 @@ export async function generateMetadata(
  * @param userPrompt   - The user-facing content
  * @param model        - OpenRouter model identifier
  * @param signal       - Optional AbortSignal (e.g. from the Next.js request)
+ * @param fallbackModels - Optional ordered fallback model identifiers. When
+ * passed, OpenRouter receives `models: [model, ...fallbackModels]` so it can
+ * route to the first available model for the streaming request.
  * @throws RateLimitError on HTTP 429
  * @throws Error on any other non-2xx or network failure
  */
