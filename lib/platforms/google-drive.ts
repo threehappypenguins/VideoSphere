@@ -126,6 +126,11 @@ function escapeDriveQueryValue(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
+/**
+ * Executes parse google drive platform user id.
+ * @param value - Input value for value.
+ * @returns The computed result.
+ */
 export function parseGoogleDrivePlatformUserId(value: string): ParsedGoogleDrivePlatformUserId {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -154,6 +159,12 @@ export function parseGoogleDrivePlatformUserId(value: string): ParsedGoogleDrive
   return { permissionId: trimmed };
 }
 
+/**
+ * Executes serialize google drive platform user id.
+ * @param permissionId - Input value for permission id.
+ * @param rootFolderId - Input value for root folder id.
+ * @returns The computed result.
+ */
 export function serializeGoogleDrivePlatformUserId(
   permissionId: string,
   rootFolderId?: string
@@ -290,6 +301,11 @@ async function persistGoogleDriveRootFolderId(
   );
 }
 
+/**
+ * Executes refresh google drive access token.
+ * @param input - Input payload for this operation.
+ * @returns The computed result.
+ */
 export async function refreshGoogleDriveAccessToken(input: {
   refreshToken?: string;
 }): Promise<
@@ -376,6 +392,11 @@ export async function refreshGoogleDriveAccessToken(input: {
   }
 }
 
+/**
+ * Executes upload to google drive.
+ * @param input - Input payload for this operation.
+ * @returns The computed result.
+ */
 export async function uploadToGoogleDrive(
   input: UploadToGoogleDriveInput
 ): Promise<PlatformUploadResult> {

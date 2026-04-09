@@ -10,6 +10,11 @@ interface DraftPlatformTogglesProps {
   onConnectClick: () => void;
 }
 
+/**
+ * Renders the draft platform toggles component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export function DraftPlatformToggles({
   availablePlatforms,
   selectedPlatforms,

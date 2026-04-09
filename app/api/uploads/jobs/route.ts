@@ -87,6 +87,11 @@ async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T) =>
   await Promise.all(Array.from({ length: cap }, () => worker()));
 }
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

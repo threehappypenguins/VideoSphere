@@ -40,6 +40,11 @@ export { MAX_GENERATE_METADATA_FILE_NAME_CHARS, MAX_GENERATE_METADATA_USER_PROMP
 // POST /api/ai/generate-metadata
 // ---------------------------------------------------------------------------
 
+/**
+ * Handles POST requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function POST(req: NextRequest) {
   // 1. Verify authentication
   const userId = await getAuthenticatedUserId(req);

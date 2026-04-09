@@ -10,6 +10,9 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories/users';
 import type { ApiError } from '@/types';
 
+/**
+ * Defines the RequireAdminResult type.
+ */
 export type RequireAdminResult =
   | { ok: true; userId: string }
   | { ok: false; response: NextResponse<ApiError> };

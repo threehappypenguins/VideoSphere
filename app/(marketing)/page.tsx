@@ -6,12 +6,19 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CardNoiseBackground, PAGE_SEEDS } from '@/components/ui/GaussianNoiseBackground';
 
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: 'VideoSphere — Upload Once, Distribute Everywhere',
   description:
     'VideoSphere lets video creators upload once and distribute to YouTube, Vimeo, and more — with AI-generated metadata and centralized performance tracking.',
 };
 
+/**
+ * Renders the home page component.
+ * @returns The rendered UI output.
+ */
 export default function HomePage() {
   return (
     <div className="font-sans">

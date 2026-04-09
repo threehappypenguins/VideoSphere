@@ -22,11 +22,19 @@
 
 import { useEffect } from 'react';
 
-interface ErrorProps {
+/**
+ * Defines the props passed by Next.js to the global error boundary component.
+ */
+export interface ErrorProps {
   error: Error & { digest?: string };
   reset: () => void;
 }
 
+/**
+ * Renders the error component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default function Error({ error, reset }: ErrorProps) {
   useEffect(() => {
     // STUDENT: Log the error to an error reporting service

@@ -6,6 +6,10 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import type { ApiResponse, Draft } from '@/types';
 
+/**
+ * Renders the dashboard quick actions component.
+ * @returns The rendered UI output.
+ */
 export function DashboardQuickActions() {
   const router = useRouter();
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);

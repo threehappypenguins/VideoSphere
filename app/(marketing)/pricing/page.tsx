@@ -5,12 +5,19 @@
 import type { Metadata } from 'next';
 import { PricingCards } from './PricingCards';
 
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: 'Pricing — VideoSphere',
   description:
     'VideoSphere pricing — start free or upgrade to Supporter for unlimited uploads and premium features.',
 };
 
+/**
+ * Renders the pricing page component.
+ * @returns The rendered UI output.
+ */
 export default function PricingPage() {
   return (
     <div className="px-4 py-20 font-sans sm:px-6 lg:px-8">

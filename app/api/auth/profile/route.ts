@@ -12,6 +12,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories/users';
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest) {
   try {
     const userId = await getAuthenticatedUserId(req);

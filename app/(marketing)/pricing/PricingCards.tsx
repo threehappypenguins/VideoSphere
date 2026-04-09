@@ -52,6 +52,10 @@ const tiers = [
   },
 ];
 
+/**
+ * Renders the pricing cards component.
+ * @returns The rendered UI output.
+ */
 export function PricingCards() {
   const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);

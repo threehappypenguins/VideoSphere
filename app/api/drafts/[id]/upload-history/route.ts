@@ -11,7 +11,10 @@ import type {
 } from '@/types';
 import { latestPlatformStatuses } from '@/lib/uploads/status';
 
-interface DraftUploadHistoryItem {
+/**
+ * Defines one upload-history row returned for a draft.
+ */
+export interface DraftUploadHistoryItem {
   uploadJobId: string;
   status: UploadJobStatus;
   createdAt: string;
@@ -41,6 +44,12 @@ function parseOffsetParam(raw: string | null): number {
   return Math.max(0, parsed);
 }
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

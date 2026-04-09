@@ -51,6 +51,10 @@ function isJobActive(job: UploadHistoryJobItem): boolean {
   );
 }
 
+/**
+ * Renders the upload history client component.
+ * @returns The rendered UI output.
+ */
 export function UploadHistoryClient() {
   const [jobs, setJobs] = useState<UploadHistoryJobItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);

@@ -18,6 +18,10 @@ interface UserProfile {
   role: string;
 }
 
+/**
+ * Renders the profile content component.
+ * @returns The rendered UI output.
+ */
 export function ProfileContent() {
   const router = useRouter();
   const searchParams = useSearchParams();

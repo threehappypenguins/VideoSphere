@@ -240,6 +240,12 @@ export async function headObject(key: string, options?: { signal?: AbortSignal }
   return meta.contentLength;
 }
 
+/**
+ * Executes head object metadata.
+ * @param key - Input value for key.
+ * @param options - Optional configuration values.
+ * @returns The computed result.
+ */
 export async function headObjectMetadata(
   key: string,
   options?: { signal?: AbortSignal }
@@ -430,6 +436,14 @@ export function buildDraftThumbnailPendingKey(
   return `${DRAFT_THUMBNAIL_PENDING_PREFIX}${userId}/${draftId}/${uniqueId}${ext}`;
 }
 
+/**
+ * Executes build draft thumbnail final key.
+ * @param userId - Input value for user id.
+ * @param draftId - Input value for draft id.
+ * @param uniqueId - Input value for unique id.
+ * @param extension - Input value for extension.
+ * @returns The computed result.
+ */
 export function buildDraftThumbnailFinalKey(
   userId: string,
   draftId: string,
@@ -441,6 +455,13 @@ export function buildDraftThumbnailFinalKey(
   return `${DRAFT_THUMBNAIL_FINAL_PREFIX}${userId}/${draftId}/${uniqueId}${ext}`;
 }
 
+/**
+ * Executes is draft thumbnail pending key for user.
+ * @param key - Input value for key.
+ * @param userId - Input value for user id.
+ * @param draftId - Input value for draft id.
+ * @returns The computed result.
+ */
 export function isDraftThumbnailPendingKeyForUser(
   key: string,
   userId: string,
@@ -452,6 +473,13 @@ export function isDraftThumbnailPendingKeyForUser(
   return key.startsWith(prefix) && key.length > prefix.length;
 }
 
+/**
+ * Executes is draft thumbnail final key for user.
+ * @param key - Input value for key.
+ * @param userId - Input value for user id.
+ * @param draftId - Input value for draft id.
+ * @returns The computed result.
+ */
 export function isDraftThumbnailFinalKeyForUser(
   key: string,
   userId: string,

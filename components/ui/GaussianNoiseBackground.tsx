@@ -2,6 +2,9 @@
 // Deterministic per-route seeds so each page gets a unique but stable noise
 // pattern. These are resolved at build time — no client JS required.
 
+/**
+ * Defines the PAGE_SEEDS constant.
+ */
 export const PAGE_SEEDS: Record<string, number> = {
   // Marketing
   '/': 42,
@@ -23,6 +26,9 @@ export const PAGE_SEEDS: Record<string, number> = {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Defines the BlendMode type.
+ */
 export type BlendMode =
   | 'normal'
   | 'multiply'
@@ -103,6 +109,11 @@ interface GaussianNoiseBackgroundProps {
 //     {/* card content */}
 //   </div>
 
+/**
+ * Renders the card noise background component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export function CardNoiseBackground({
   className = '',
   seed = 42,
@@ -222,6 +233,11 @@ export function CardNoiseBackground({
 // no useEffect. The browser's SVG filter pipeline handles noise generation
 // on the GPU. Seeds baked into the markup guarantee deterministic output.
 
+/**
+ * Renders the gaussian noise background component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export function GaussianNoiseBackground({
   className = '',
   seed = 42,

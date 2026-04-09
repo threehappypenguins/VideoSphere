@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 
+/**
+ * Renders the contact page component.
+ * @returns The rendered UI output.
+ */
 export default function ContactPage() {
   const [formData, setFormData] = useState({
     name: '',

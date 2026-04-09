@@ -12,6 +12,11 @@ import { appwriteAuth } from '@/lib/appwrite';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import { safeRedirect } from '@/lib/safe-redirect';
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
   const userId = req.nextUrl.searchParams.get('userId');

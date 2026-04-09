@@ -23,6 +23,10 @@ function OnboardingTourGateContent() {
   return <OnboardingTour />;
 }
 
+/**
+ * Renders the onboarding tour gate component.
+ * @returns The rendered UI output.
+ */
 export function OnboardingTourGate() {
   return (
     <Suspense fallback={null}>

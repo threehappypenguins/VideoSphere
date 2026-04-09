@@ -20,6 +20,10 @@
     "test:a11y": "vitest run --reporter=verbose --config vitest.a11y.config.ts",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
+    "docs:api": "typedoc --options typedoc.json",
+    "docs:dev": "pnpm docs:api && vitepress dev docs",
+    "docs:build": "pnpm docs:api && vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "prepare": "husky",
     "setup:appwrite": "tsx scripts/setup-appwrite.ts"
   },
@@ -81,7 +85,9 @@
     "prettier": "^3",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
+    "typedoc": "^0.28.18",
     "typescript": "^5",
+    "vitepress": "^1.6.4",
     "vitest": "^4",
     "vitest-axe": "^0.1.0"
   }

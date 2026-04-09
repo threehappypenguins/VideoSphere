@@ -24,6 +24,9 @@ type WebhookEventStatus =
 const MAX_LAST_ERROR_LENGTH = 2000;
 const DEFAULT_PROCESSING_STALE_MS = 10 * 60 * 1000;
 
+/**
+ * Defines the shape of stripe webhook processing claim result.
+ */
 export interface StripeWebhookProcessingClaimResult {
   claimed: boolean;
   status?: WebhookEventStatus;
@@ -282,6 +285,12 @@ async function createWebhookEventRecord(input: CreateWebhookEventRecordInput): P
   });
 }
 
+/**
+ * Executes claim stripe webhook event.
+ * @param eventId - Input value for event id.
+ * @param eventType - Input value for event type.
+ * @returns The computed result.
+ */
 export async function claimStripeWebhookEvent(
   eventId: string,
   eventType: string
@@ -342,6 +351,11 @@ export async function claimStripeWebhookEvent(
   return { claimed: false, status: latest.status };
 }
 
+/**
+ * Executes mark stripe webhook event completed.
+ * @param eventId - Input value for event id.
+ * @returns The computed result.
+ */
 export async function markStripeWebhookEventCompleted(eventId: string): Promise<void> {
   const rowId = webhookEventRowId('stripe', eventId);
   await tablesDb.updateRow({
@@ -354,6 +368,12 @@ export async function markStripeWebhookEventCompleted(eventId: string): Promise<
   });
 }
 
+/**
+ * Executes mark stripe webhook event failed.
+ * @param eventId - Input value for event id.
+ * @param lastError - Input value for last error.
+ * @returns The computed result.
+ */
 export async function markStripeWebhookEventFailed(
   eventId: string,
   lastError: string
@@ -370,6 +390,12 @@ export async function markStripeWebhookEventFailed(
   });
 }
 
+/**
+ * Executes mark stripe webhook event bookkeeping failed.
+ * @param eventId - Input value for event id.
+ * @param lastError - Input value for last error.
+ * @returns The computed result.
+ */
 export async function markStripeWebhookEventBookkeepingFailed(
   eventId: string,
   lastError: string
@@ -386,6 +412,12 @@ export async function markStripeWebhookEventBookkeepingFailed(
   });
 }
 
+/**
+ * Executes mark stripe webhook event non retryable failed.
+ * @param eventId - Input value for event id.
+ * @param lastError - Input value for last error.
+ * @returns The computed result.
+ */
 export async function markStripeWebhookEventNonRetryableFailed(
   eventId: string,
   lastError: string
@@ -402,6 +434,11 @@ export async function markStripeWebhookEventNonRetryableFailed(
   });
 }
 
+/**
+ * Executes delete stripe webhook event.
+ * @param eventId - Input value for event id.
+ * @returns The computed result.
+ */
 export async function deleteStripeWebhookEvent(eventId: string): Promise<void> {
   const rowId = webhookEventRowId('stripe', eventId);
   try {

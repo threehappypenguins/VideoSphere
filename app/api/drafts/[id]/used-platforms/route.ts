@@ -8,6 +8,12 @@ import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 const USED_PLATFORMS_DEFAULT_LIMIT = 100;
 const USED_PLATFORMS_MAX_LIMIT = 300;
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @param props - Component props.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

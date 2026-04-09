@@ -12,6 +12,10 @@
 
 import Link from 'next/link';
 
+/**
+ * Renders the footer component.
+ * @returns The rendered UI output.
+ */
 export default function Footer() {
   return (
     <footer className="border-t border-border bg-muted/50">

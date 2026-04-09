@@ -1,5 +1,8 @@
 import type { ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
 
+/**
+ * Defines the PlatformStatusItem type.
+ */
 export type PlatformStatusItem = {
   platform: ConnectedAccountPlatform;
   status: PlatformUploadStatus;

@@ -188,6 +188,10 @@ function InputField({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+/**
+ * Renders the sign up page component.
+ * @returns The rendered UI output.
+ */
 export default function SignUpPage() {
   const router = useRouter();
   const formMessageId = 'signup-form-message';

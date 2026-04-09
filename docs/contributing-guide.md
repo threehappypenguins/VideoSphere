@@ -6,7 +6,7 @@
 - **1 Maintainer** — coordinates PR reviews, manages the project board, and serves as the team's workflow lead
 - **Remaining members have Write access** — can push branches, create PRs, and review code
 
-The Maintainer is decided during initial setup (see `SETUP.md`). Branch protection rules are configured by the instructor — see [docs/branch-protection.md](branch-protection.md) for details on what is enforced.
+The Maintainer is decided during initial setup (see [SETUP.md on GitHub](https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team/blob/main/SETUP.md)). Branch protection rules are configured by the instructor — see [docs/branch-protection.md](/branch-protection) for details on what is enforced.
 
 ## Workflow Summary
 
@@ -91,4 +91,4 @@ AI tools like GitHub Copilot are encouraged for coding assistance. However, ther
 
 > ⚠️ **AI agents must NEVER perform any git operations.** All commits, pushes, merges, and PR creation must be done by a human team member.
 
-See [/docs/ai-usage-policy.md](/docs/ai-usage-policy.md) for the full policy.
+See [AI Usage Policy](/ai-usage-policy) for the full policy.

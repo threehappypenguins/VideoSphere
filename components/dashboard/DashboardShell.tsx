@@ -30,6 +30,11 @@ function isActive(pathname: string, href: string, exact: boolean): boolean {
 // Active route is highlighted via usePathname().
 // Rendered inside template.tsx so Navbar/Footer wrap the entire dashboard.
 // =============================================================================
+/**
+ * Renders the dashboard shell component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 

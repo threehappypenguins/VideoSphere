@@ -51,6 +51,9 @@ const apfelGrotezk = localFont({
 // --- Metadata ---
 // STUDENT: Replace these placeholder values with your actual app information.
 // See /docs/performance.md for more on metadata and SEO.
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: {
     default: 'VideoSphere',
@@ -69,6 +72,11 @@ export const metadata: Metadata = {
   manifest: '/site.webmanifest',
 };
 
+/**
+ * Renders the root layout component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{

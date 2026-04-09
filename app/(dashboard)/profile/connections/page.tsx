@@ -29,6 +29,9 @@ import { ConnectButton } from './ConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: 'Connected Accounts',
   description: 'Manage your connected video platform accounts.',
@@ -198,6 +201,11 @@ async function disconnectPlatform(accountId: string) {
   revalidatePath('/profile/connections');
 }
 
+/**
+ * Renders the connections page component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export default async function ConnectionsPage({ searchParams }: PageProps) {
   const userId = await getCurrentUserId();
   if (!userId) {

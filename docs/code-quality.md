@@ -122,3 +122,43 @@ Edit `.prettierrc` to adjust formatting preferences. See [Prettier Options](http
 - [Prettier Documentation](https://prettier.io/docs/en/)
 - [Conventional Commits Specification](https://www.conventionalcommits.org/)
 - [Husky Documentation](https://typicode.github.io/husky/)
+
+## Export Doc Comment Convention
+
+All exported symbols in application code should have a JSDoc-style block comment directly above the export.
+
+### Required Structure
+
+- **First line**: A short purpose statement (what this export does)
+- **`@param` tags**: Required for function/component/hook parameters
+- **`@returns` tag**: Required for function/component/hook return behavior
+- **Types and constants**: Use a concise intent statement (no `@param`/`@returns` needed)
+
+### Recommended Templates
+
+```ts
+/**
+ * Executes the <action> operation.
+ * @param input - Input payload for the operation.
+ * @returns The computed result.
+ */
+export function example(input: string): string {
+  return input;
+}
+```
+
+```ts
+/**
+ * Defines the shape of <domain object>.
+ */
+export interface Example {
+  id: string;
+}
+```
+
+```ts
+/**
+ * Defines the <CONSTANT_NAME> constant.
+ */
+export const EXAMPLE_LIMIT = 10;
+```

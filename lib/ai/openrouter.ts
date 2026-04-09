@@ -13,6 +13,9 @@
 
 import type { GeneratedMetadata } from '@/types';
 
+/**
+ * Provides rate limit error behavior.
+ */
 export class RateLimitError extends Error {
   constructor(message = 'AI rate limit reached. Please wait a moment and try again.') {
     super(message);

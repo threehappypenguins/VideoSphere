@@ -8,6 +8,9 @@ import { DEFAULT_DRAFT_VISIBILITY, visibilityFromRow } from '@/lib/draft-upload-
 import { normalizeDraftPlatforms } from '@/lib/draft-upload-metadata';
 import type { PlatformUploadVisibility, VimeoDraftFields, YouTubeDraftFields } from '@/types';
 
+/**
+ * Defines the shape of platform upload document stored.
+ */
 export interface PlatformUploadDocumentStored {
   title: string;
   description: string;
@@ -45,11 +48,20 @@ function normalizeTagList(value: unknown): string[] {
   return value.filter((t): t is string => typeof t === 'string');
 }
 
+/**
+ * Defines the shape of stringify platform upload document options.
+ */
 export interface StringifyPlatformUploadDocumentOptions {
   /** When true, adds `__documentStorageTruncated` so support can see the DB row was shrunk to fit the column. */
   documentStorageTruncated?: boolean;
 }
 
+/**
+ * Executes stringify platform upload document for storage.
+ * @param d - Input value for d.
+ * @param options - Optional configuration values.
+ * @returns The computed result.
+ */
 export function stringifyPlatformUploadDocumentForStorage(
   d: PlatformUploadDocumentStored,
   options?: StringifyPlatformUploadDocumentOptions
@@ -73,6 +85,9 @@ export function stringifyPlatformUploadDocumentForStorage(
 
 const DOCUMENT_STORAGE_TRUNCATION_MARKER = ' … [truncated for Appwrite storage]';
 
+/**
+ * Provides platform upload document too large error behavior.
+ */
 export class PlatformUploadDocumentTooLargeError extends Error {
   constructor(message: string) {
     super(message);

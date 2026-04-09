@@ -77,6 +77,10 @@ function isMinimalCreateDraft(draft: Draft): boolean {
   );
 }
 
+/**
+ * Renders the drafts page component.
+ * @returns The rendered UI output.
+ */
 export default function DraftsPage() {
   const router = useRouter();
   const pathname = usePathname();

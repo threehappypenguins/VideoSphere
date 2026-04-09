@@ -14,6 +14,11 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getConnectedAccountsByUser } from '@/lib/repositories/connected-accounts';
 import type { ApiResponse, ApiError, ConnectedAccountPublic } from '@/types';
 
+/**
+ * Handles GET requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function GET(req: NextRequest) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {

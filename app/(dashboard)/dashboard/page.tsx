@@ -19,6 +19,9 @@ import { countUploadJobsByUserWithStatuses } from '@/lib/repositories/upload-job
 import { PLATFORM_LABELS } from '@/lib/ui/platform-label';
 import type { ConnectedAccountPlatform } from '@/types';
 
+/**
+ * Provides static page metadata for this route segment.
+ */
 export const metadata: Metadata = {
   title: 'Dashboard',
   description: 'Your personal dashboard.',
@@ -45,6 +48,10 @@ async function getCurrentUserId(): Promise<string | null> {
   return getCurrentUserIdFromCookies();
 }
 
+/**
+ * Renders the dashboard page component.
+ * @returns The rendered UI output.
+ */
 export default async function DashboardPage() {
   const userId = await getCurrentUserId();
   const [draftCount, draftSummary, inProgressJobCount, completedJobCount, failedJobCount] = userId

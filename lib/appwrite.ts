@@ -22,8 +22,20 @@ if (!endpoint || !projectId || !apiKey) {
 // Server-side client (with admin API key)
 const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
 
+/**
+ * Defines appwrite auth.
+ */
 export const appwriteAuth = new Account(client);
+/**
+ * Defines appwrite users.
+ */
 export const appwriteUsers = new Users(client);
+/**
+ * Defines appwrite databases.
+ */
 export const appwriteDatabases = new Databases(client);
 
+/**
+ * Exports the module default API surface.
+ */
 export default client;

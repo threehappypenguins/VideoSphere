@@ -37,8 +37,16 @@ import type { ApiError, ConnectedAccountPlatform } from '@/types';
 import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 
 // Allow the stream to stay open long enough for a slow model's first token.
+/**
+ * Defines max duration.
+ */
 export const maxDuration = 60;
 
+/**
+ * Handles POST requests for this route.
+ * @param req - The incoming request object.
+ * @returns A response describing the request result.
+ */
 export async function POST(req: NextRequest) {
   // 1. Verify authentication
   const userId = await getAuthenticatedUserId(req);

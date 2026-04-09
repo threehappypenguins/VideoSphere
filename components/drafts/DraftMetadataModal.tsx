@@ -58,6 +58,9 @@ import { platformLabel } from '@/lib/ui/platform-label';
 
 const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
+/**
+ * Defines the shape of draft editor values.
+ */
 export interface DraftEditorValues {
   id: string;
   title: string;
@@ -173,6 +176,11 @@ function extractPartialAiFields(raw: string): {
   return { title, description, tags };
 }
 
+/**
+ * Renders the draft metadata modal component.
+ * @param props - Component props.
+ * @returns The rendered UI output.
+ */
 export function DraftMetadataModal({
   mode,
   value,
