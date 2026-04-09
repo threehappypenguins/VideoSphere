@@ -234,6 +234,9 @@ export function DraftMetadataModal({
   }>({ reached: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailSectionRef = useRef<HTMLDivElement>(null);
+  const thumbnailAnnouncerRef = useRef<HTMLDivElement>(null);
+  const thumbnailAnnounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modalAnnouncerRef = useRef<HTMLDivElement>(null);
   const announceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const announceRafRef = useRef<number | null>(null);
@@ -264,6 +267,7 @@ export function DraftMetadataModal({
       if (announceTimerRef.current) clearTimeout(announceTimerRef.current);
       if (announceRafRef.current !== null) cancelAnimationFrame(announceRafRef.current);
       if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+      if (thumbnailAnnounceTimerRef.current) clearTimeout(thumbnailAnnounceTimerRef.current);
     };
   }, []);
 
@@ -320,6 +324,26 @@ export function DraftMetadataModal({
         }, 1500);
         announceTimerRef.current = timerId;
       }
+    });
+  }, []);
+
+  // Announces a message inside the thumbnail section's own live region so
+  // screen readers pick it up while focus is on the thumbnail container.
+  const announceThumbnail = useCallback((message: string) => {
+    const el = thumbnailAnnouncerRef.current;
+    if (!el || !isMountedRef.current) return;
+    if (thumbnailAnnounceTimerRef.current) {
+      clearTimeout(thumbnailAnnounceTimerRef.current);
+      thumbnailAnnounceTimerRef.current = null;
+    }
+    el.textContent = '';
+    requestAnimationFrame(() => {
+      if (!isMountedRef.current || !thumbnailAnnouncerRef.current) return;
+      thumbnailAnnouncerRef.current.textContent = message;
+      thumbnailAnnounceTimerRef.current = setTimeout(() => {
+        if (thumbnailAnnouncerRef.current) thumbnailAnnouncerRef.current.textContent = '';
+        thumbnailAnnounceTimerRef.current = null;
+      }, 4000);
     });
   }, []);
 
@@ -1261,7 +1285,7 @@ export function DraftMetadataModal({
         thumbnailPreviewUrl: d.thumbnailPreviewUrl,
       });
       if (isStale()) return;
-      announceInModal('Thumbnail uploaded');
+      announceThumbnail('Thumbnail uploaded');
     } catch (e) {
       const isAbort =
         ac.signal.aborted ||
@@ -1316,7 +1340,7 @@ export function DraftMetadataModal({
         thumbnailContentType: undefined,
         thumbnailPreviewUrl: undefined,
       });
-      announceInModal('Thumbnail removed');
+      announceThumbnail('Thumbnail removed');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to remove thumbnail');
     } finally {
@@ -1696,7 +1720,19 @@ export function DraftMetadataModal({
                 Press Enter or comma to add tags.
               </p>
             </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div
+              ref={thumbnailSectionRef}
+              tabIndex={-1}
+              className="rounded-lg border border-border bg-muted/30 p-3"
+            >
+              {/* Thumbnail-scoped live region — announced while focus is within this section */}
+              <div
+                ref={thumbnailAnnouncerRef}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="sr-only"
+              />
               <p className="text-sm font-medium text-foreground">Thumbnail</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}. Shown on platforms that support
@@ -1733,6 +1769,17 @@ export function DraftMetadataModal({
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (file) {
+                          // The browser restores focus from the native file
+                          // picker *after* onChange fires and after any state
+                          // updates.  The upload button is disabled by then, so
+                          // the browser falls back to the dialog root and the
+                          // screen reader re-reads the entire modal.  Instead
+                          // we focus the thumbnail section container (tabIndex
+                          // -1, never disabled) in a rAF so we run after the
+                          // browser's own focus-restoration tick.
+                          requestAnimationFrame(() => {
+                            thumbnailSectionRef.current?.focus();
+                          });
                           void handleThumbnailFile(file);
                         }
                       }}

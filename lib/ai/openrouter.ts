@@ -52,8 +52,7 @@ interface OpenRouterMessage {
 }
 
 interface OpenRouterRequest {
-  model?: string;
-  models?: string[];
+  models: [string, ...string[]];
   messages: OpenRouterMessage[];
   response_format?: { type: 'json_object' };
 }
@@ -117,7 +116,7 @@ async function requestMetadataFromOpenRouter(
   appName: string
 ): Promise<GeneratedMetadata> {
   const controller = new AbortController();
-  const timeoutMs = getTimeoutMsForModel(requestBody.model ?? requestBody.models?.[0] ?? '');
+  const timeoutMs = getTimeoutMsForModel(requestBody.models[0]);
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -222,18 +221,14 @@ function buildOpenRouterRequestBody(
   userPrompt: string,
   fallbackModels?: string[]
 ): OpenRouterRequest {
-  const base: OpenRouterRequest = {
+  return {
+    models: [model, ...(fallbackModels ?? [])],
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
   };
-
-  if (fallbackModels && fallbackModels.length > 0) {
-    return { ...base, models: [model, ...fallbackModels] };
-  }
-  return { ...base, model };
 }
 
 /**

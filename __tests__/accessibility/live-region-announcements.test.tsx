@@ -31,22 +31,27 @@ describe('Live Region Announcements', () => {
   });
 
   describe('Toaster ARIA Live Region Setup', () => {
-    it('should render single Toaster with ARIA live region', async () => {
+    it('should provide a custom ARIA live region and disable Sonner built-in one', async () => {
       const { container } = render(
         <div>
           <Toaster />
         </div>
       );
 
-      // Sonner renders an element with aria-live="polite", aria-relevant="additions text",
-      // and aria-atomic="false" as its live region. Assert on those exact attributes so
-      // the test fails if the live region is absent, even if the toaster list container
-      // is still present.
+      toast.success('Live region setup test');
+
       await waitFor(() => {
-        const liveRegion = container.querySelector('[aria-live="polite"]');
-        expect(liveRegion).toBeInTheDocument();
-        expect(liveRegion).toHaveAttribute('aria-relevant', 'additions text');
-        expect(liveRegion).toHaveAttribute('aria-atomic', 'false');
+        // Our custom live region: role="status", aria-live="polite", aria-atomic="true"
+        const customLive = container.querySelector('div[role="status"][aria-live="polite"]');
+        expect(customLive).toBeInTheDocument();
+        expect(customLive).toHaveAttribute('aria-atomic', 'true');
+
+        // Sonner's built-in section should have aria-live="off" so it doesn't
+        // also announce, which caused duplicate/triple readouts.
+        const sonnerSection = container.querySelector('section[aria-label]');
+        if (sonnerSection) {
+          expect(sonnerSection).toHaveAttribute('aria-live', 'off');
+        }
       });
     });
 
@@ -138,6 +143,40 @@ describe('Live Region Announcements', () => {
   });
 
   describe('No Duplicate Announcements', () => {
+    it('should strip list semantics and disable Sonner live region to prevent positional readouts', async () => {
+      const { container } = render(
+        <div>
+          <Toaster />
+        </div>
+      );
+
+      toast.success('List semantics test');
+
+      await waitFor(() => {
+        // The <ol> rendered by Sonner must have role="presentation" so screen
+        // readers do not announce list-item positions (e.g. "1 of 1").
+        const ol = container.querySelector('ol[data-sonner-toaster]');
+        expect(ol).toBeInTheDocument();
+        expect(ol).toHaveAttribute('role', 'presentation');
+
+        // Each toast <li> should also have role="presentation".
+        const li = container.querySelector('li[data-sonner-toast]');
+        expect(li).toBeInTheDocument();
+        expect(li).toHaveAttribute('role', 'presentation');
+
+        // Sonner's section aria-live must be "off".
+        const section = container.querySelector('section[aria-label]');
+        if (section) {
+          expect(section).toHaveAttribute('aria-live', 'off');
+        }
+
+        // The custom live region should contain the toast text.
+        const customLive = container.querySelector('div[role="status"][aria-live="polite"]');
+        expect(customLive).toBeInTheDocument();
+        expect(customLive?.textContent).toBe('List semantics test');
+      });
+    });
+
     it('should render message in toast without excessive duplication', async () => {
       const { container } = render(
         <div>
