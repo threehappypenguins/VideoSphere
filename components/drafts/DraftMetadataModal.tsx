@@ -272,12 +272,16 @@ export function DraftMetadataModal({
   // Sonner toast. Clears first so repeated identical strings re-announce.
   // Also shows a brief visual status banner inside the modal for sighted users.
   const announceInModal = useCallback((message: string) => {
+    if (!isMountedRef.current) return;
     const announcementId = ++latestAnnouncementIdRef.current;
 
     // Visual status for sighted users (auto-dismiss after 4 s)
     if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
     setModalStatusMsg(message);
-    statusTimerRef.current = setTimeout(() => setModalStatusMsg(null), 4000);
+    statusTimerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      setModalStatusMsg(null);
+    }, 4000);
 
     // Screen reader announcement
     if (!modalAnnouncerRef.current) return;
@@ -295,6 +299,7 @@ export function DraftMetadataModal({
     }
     announceRafRef.current = requestAnimationFrame(() => {
       announceRafRef.current = null;
+      if (!isMountedRef.current) return;
       if (announcementId !== latestAnnouncementIdRef.current) return;
       if (modalAnnouncerRef.current) {
         // Appending a new text node IS an addition → announces exactly once.
@@ -302,6 +307,7 @@ export function DraftMetadataModal({
         // Remove after 1.5 s so stale text isn't re-read during virtual navigation.
         // Removal is silent because aria-relevant="additions" excludes removals.
         const timerId = setTimeout(() => {
+          if (!isMountedRef.current) return;
           if (announcementId !== latestAnnouncementIdRef.current) return;
           if (modalAnnouncerRef.current) {
             while (modalAnnouncerRef.current.firstChild) {

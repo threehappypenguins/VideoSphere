@@ -25,8 +25,9 @@ describe('Live Region Announcements', () => {
   });
 
   afterEach(() => {
-    // Clean up DOM after each test
-    document.body.innerHTML = '';
+    // Dismiss all pending toasts so state does not leak between tests.
+    // React DOM cleanup is handled automatically by Testing Library.
+    toast.dismiss();
   });
 
   describe('Toaster ARIA Live Region Setup', () => {
@@ -37,12 +38,15 @@ describe('Live Region Announcements', () => {
         </div>
       );
 
-      // Sonner creates a live region with role="status" or specific ARIA attributes
-      // Wait for the toaster DOM to be fully rendered
+      // Sonner renders an element with aria-live="polite", aria-relevant="additions text",
+      // and aria-atomic="false" as its live region. Assert on those exact attributes so
+      // the test fails if the live region is absent, even if the toaster list container
+      // is still present.
       await waitFor(() => {
-        // Sonner's Toaster should render a container with accessibility attributes
-        const toasterContainer = container.querySelector('[role="status"], [aria-live], .toaster');
-        expect(toasterContainer).toBeInTheDocument();
+        const liveRegion = container.querySelector('[aria-live="polite"]');
+        expect(liveRegion).toBeInTheDocument();
+        expect(liveRegion).toHaveAttribute('aria-relevant', 'additions text');
+        expect(liveRegion).toHaveAttribute('aria-atomic', 'false');
       });
     });
 
