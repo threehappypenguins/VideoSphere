@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import {
   ChevronDown,
   ChevronRight,
+  CircleCheck,
   Loader2,
   Redo2,
   Sparkles,
@@ -102,7 +103,9 @@ interface DraftMetadataModalProps {
   initialConnectionsResolved?: boolean;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (options?: { closeAfterSave?: boolean }) => Promise<{ saved: boolean; draftId?: string }>;
+  onSave: (options?: {
+    closeAfterSave?: boolean;
+  }) => Promise<{ saved: boolean; draftId?: string; message?: string }>;
   onUploadComplete?: () => Promise<void> | void;
   onDelete?: (draftId: string) => Promise<boolean>;
   onChange: (next: DraftEditorValues) => void;
@@ -231,6 +234,15 @@ export function DraftMetadataModal({
   }>({ reached: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailSectionRef = useRef<HTMLDivElement>(null);
+  const thumbnailAnnouncerRef = useRef<HTMLDivElement>(null);
+  const thumbnailAnnounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modalAnnouncerRef = useRef<HTMLDivElement>(null);
+  const announceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const announceRafRef = useRef<number | null>(null);
+  const latestAnnouncementIdRef = useRef(0);
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [modalStatusMsg, setModalStatusMsg] = useState<string | null>(null);
   const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
   const thumbnailRequestAbortRef = useRef<AbortController | null>(null);
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
@@ -252,7 +264,87 @@ export function DraftMetadataModal({
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      if (announceTimerRef.current) clearTimeout(announceTimerRef.current);
+      if (announceRafRef.current !== null) cancelAnimationFrame(announceRafRef.current);
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+      if (thumbnailAnnounceTimerRef.current) clearTimeout(thumbnailAnnounceTimerRef.current);
     };
+  }, []);
+
+  // Announces a message to screen readers within the modal's focus context,
+  // avoiding the re-read triggered by focus returning to the dialog after a
+  // Sonner toast. Clears first so repeated identical strings re-announce.
+  // Also shows a brief visual status banner inside the modal for sighted users.
+  const announceInModal = useCallback((message: string) => {
+    if (!isMountedRef.current) return;
+    const announcementId = ++latestAnnouncementIdRef.current;
+
+    // Visual status for sighted users (auto-dismiss after 4 s)
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    setModalStatusMsg(message);
+    statusTimerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      setModalStatusMsg(null);
+    }, 4000);
+
+    // Screen reader announcement
+    if (!modalAnnouncerRef.current) return;
+    if (announceTimerRef.current) {
+      clearTimeout(announceTimerRef.current);
+      announceTimerRef.current = null;
+    }
+    if (announceRafRef.current !== null) {
+      cancelAnimationFrame(announceRafRef.current);
+      announceRafRef.current = null;
+    }
+    // Remove existing children silently — aria-relevant="additions" means removals don't announce.
+    while (modalAnnouncerRef.current.firstChild) {
+      modalAnnouncerRef.current.removeChild(modalAnnouncerRef.current.firstChild);
+    }
+    announceRafRef.current = requestAnimationFrame(() => {
+      announceRafRef.current = null;
+      if (!isMountedRef.current) return;
+      if (announcementId !== latestAnnouncementIdRef.current) return;
+      if (modalAnnouncerRef.current) {
+        // Appending a new text node IS an addition → announces exactly once.
+        modalAnnouncerRef.current.appendChild(document.createTextNode(message));
+        // Remove after 1.5 s so stale text isn't re-read during virtual navigation.
+        // Removal is silent because aria-relevant="additions" excludes removals.
+        const timerId = setTimeout(() => {
+          if (!isMountedRef.current) return;
+          if (announcementId !== latestAnnouncementIdRef.current) return;
+          if (modalAnnouncerRef.current) {
+            while (modalAnnouncerRef.current.firstChild) {
+              modalAnnouncerRef.current.removeChild(modalAnnouncerRef.current.firstChild);
+            }
+          }
+          if (announceTimerRef.current === timerId) {
+            announceTimerRef.current = null;
+          }
+        }, 1500);
+        announceTimerRef.current = timerId;
+      }
+    });
+  }, []);
+
+  // Announces a message inside the thumbnail section's own live region so
+  // screen readers pick it up while focus is on the thumbnail container.
+  const announceThumbnail = useCallback((message: string) => {
+    const el = thumbnailAnnouncerRef.current;
+    if (!el || !isMountedRef.current) return;
+    if (thumbnailAnnounceTimerRef.current) {
+      clearTimeout(thumbnailAnnounceTimerRef.current);
+      thumbnailAnnounceTimerRef.current = null;
+    }
+    el.textContent = '';
+    requestAnimationFrame(() => {
+      if (!isMountedRef.current || !thumbnailAnnouncerRef.current) return;
+      thumbnailAnnouncerRef.current.textContent = message;
+      thumbnailAnnounceTimerRef.current = setTimeout(() => {
+        if (thumbnailAnnouncerRef.current) thumbnailAnnouncerRef.current.textContent = '';
+        thumbnailAnnounceTimerRef.current = null;
+      }, 4000);
+    });
   }, []);
 
   const abortThumbnailUploadFlow = useCallback(() => {
@@ -762,7 +854,7 @@ export function DraftMetadataModal({
                       ? (parsed.tags as string[])
                       : [],
                 });
-                toast.success('Metadata generated successfully');
+                announceInModal('Metadata generated successfully');
                 return;
               }
             }
@@ -812,7 +904,7 @@ export function DraftMetadataModal({
                   ? (parsed.tags as string[])
                   : [],
             });
-            toast.success('Metadata generated successfully');
+            announceInModal('Metadata generated successfully');
             return;
           }
           if (result.deltaContent !== undefined) {
@@ -1022,7 +1114,7 @@ export function DraftMetadataModal({
       await onUploadComplete?.();
       setShowUploadHistory(true);
       setUploadLimitState({ reached: false });
-      toast.success('Video uploaded successfully');
+      announceInModal('Video uploaded successfully');
     } catch (error) {
       setUploadProgress(0);
       if (error instanceof Error && error.message === 'UPLOAD_ABORTED') {
@@ -1077,7 +1169,7 @@ export function DraftMetadataModal({
         await loadUploadHistory(draftId);
         setShowUploadHistory(true);
       }
-      toast.success('Upload cancelled');
+      announceInModal('Upload cancelled');
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -1193,7 +1285,7 @@ export function DraftMetadataModal({
         thumbnailPreviewUrl: d.thumbnailPreviewUrl,
       });
       if (isStale()) return;
-      toast.success('Thumbnail uploaded');
+      announceThumbnail('Thumbnail uploaded');
     } catch (e) {
       const isAbort =
         ac.signal.aborted ||
@@ -1248,7 +1340,7 @@ export function DraftMetadataModal({
         thumbnailContentType: undefined,
         thumbnailPreviewUrl: undefined,
       });
-      toast.success('Thumbnail removed');
+      announceThumbnail('Thumbnail removed');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to remove thumbnail');
     } finally {
@@ -1364,6 +1456,23 @@ export function DraftMetadataModal({
         className="flex max-h-[90vh] flex-col p-0"
         onInteractOutside={(event) => event.preventDefault()}
       >
+        <div
+          ref={modalAnnouncerRef}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-relevant="additions"
+          className="sr-only"
+        />
+        {modalStatusMsg && (
+          <div
+            aria-hidden="true"
+            className="mx-6 mt-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
+          >
+            <CircleCheck className="h-4 w-4 shrink-0" />
+            {modalStatusMsg}
+          </div>
+        )}
         <DialogHeader className="px-6 pt-6">
           <div className="flex items-start justify-between gap-3">
             <DialogTitle>{mode === 'edit' ? 'Edit draft' : 'Draft details'}</DialogTitle>
@@ -1611,7 +1720,19 @@ export function DraftMetadataModal({
                 Press Enter or comma to add tags.
               </p>
             </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div
+              ref={thumbnailSectionRef}
+              tabIndex={-1}
+              className="rounded-lg border border-border bg-muted/30 p-3"
+            >
+              {/* Thumbnail-scoped live region — announced while focus is within this section */}
+              <div
+                ref={thumbnailAnnouncerRef}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="sr-only"
+              />
               <p className="text-sm font-medium text-foreground">Thumbnail</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}. Shown on platforms that support
@@ -1648,6 +1769,17 @@ export function DraftMetadataModal({
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (file) {
+                          // The browser restores focus from the native file
+                          // picker *after* onChange fires and after any state
+                          // updates.  The upload button is disabled by then, so
+                          // the browser falls back to the dialog root and the
+                          // screen reader re-reads the entire modal.  Instead
+                          // we focus the thumbnail section container (tabIndex
+                          // -1, never disabled) in a rAF so we run after the
+                          // browser's own focus-restoration tick.
+                          requestAnimationFrame(() => {
+                            thumbnailSectionRef.current?.focus();
+                          });
                           void handleThumbnailFile(file);
                         }
                       }}
@@ -1899,7 +2031,14 @@ export function DraftMetadataModal({
             data-tour="draft-save-button"
             onClick={() => {
               commitTagsBeforeSave();
-              void onSave({ closeAfterSave: true });
+              void (async () => {
+                try {
+                  const r = await onSave({ closeAfterSave: true });
+                  if (r.message) toast.success(r.message);
+                } catch (error) {
+                  console.error('Failed to save draft.', error);
+                }
+              })();
             }}
             disabled={!canSave}
             className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"

@@ -68,7 +68,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **Server Actions** — replace at least two client-side `fetch` calls with Next.js Server Actions; document the tradeoffs vs route handlers in a code comment
 - [ ] **Database migrations** — manage schema changes with a versioned migration system (e.g. Supabase migrations, Drizzle, or Prisma migrate); never alter the schema by hand
 - [ ] **Database seeding script** — a `pnpm db:seed` script that populates the database with realistic development data
-- [x] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling
+- [x] **Webhook endpoint** — implement at least one inbound webhook receiver (e.g. Stripe, an auth provider) with signature verification and idempotency handling ✅
 - [ ] **Response caching strategy** — apply appropriate caching to at least two routes or data-fetching functions (ISR `revalidate`, `unstable_cache`, or HTTP `Cache-Control`); document the chosen strategy and why
 
 ---
@@ -85,7 +85,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 ## 6. File Handling & Media
 
 - [ ] **File upload with cloud storage** — allow users to upload files (images, documents) to a cloud storage provider (Supabase Storage, Cloudflare R2, AWS S3); display a preview after upload
-- [x] **Google Drive backup destination** — allow users to connect Google Drive as an additional distribution target so one upload can be sent to YouTube, Vimeo, and Drive simultaneously for backup/archival
+- [x] **Google Drive backup destination** — allow users to connect Google Drive as an additional distribution target so one upload can be sent to YouTube, Vimeo, and Drive simultaneously for backup/archival ✅
 - [ ] **Avatar upload and crop** — profile photo upload with in-browser crop/resize before upload; stored in cloud storage
 - [ ] **Image optimisation pipeline** — all user-uploaded images are resized and converted to WebP/AVIF on upload; served via a CDN
 - [ ] **File download** — allow authenticated users to download their own uploaded files; enforce access control so users cannot download other users' private files
@@ -115,7 +115,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 > These build on top of the mandatory AI feature requirement.
 
-- [x] **Streaming AI responses** — stream LLM output token-by-token using the Vercel AI SDK `streamText`; display a typing indicator while streaming
+- [x] **Streaming AI responses** — stream LLM output token-by-token using the Vercel AI SDK `streamText`; display a typing indicator while streaming ✅
 - [ ] **AI with tool / function calling** — define at least one tool that the LLM can call (e.g. look up a database record, perform a calculation); handle the tool result in the UI
 - [ ] **Retrieval-Augmented Generation (RAG)** — embed user-specific content (documents, notes) as vectors; retrieve relevant chunks at query time to ground AI responses in real data
 - [ ] **AI usage metering** — track per-user token usage; enforce a limit for free-tier users and display remaining quota in the UI
@@ -150,7 +150,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 ## 12. Performance
 
-- [x] **`next/image` throughout** — replace every `<img>` tag across all pages with the Next.js `<Image>` component; add meaningful `alt` text to all images
+- [x] **`next/image` throughout** — replace every `<img>` tag across all pages with the Next.js `<Image>` component; add meaningful `alt` text to all images ✅
 - [ ] **Bundle analysis** — install `@next/bundle-analyzer`; produce a bundle report; identify and eliminate at least one unnecessary large dependency with documented before/after sizes
 - [ ] **Dynamic imports for heavy components** — use `next/dynamic` with `{ ssr: false }` or loading fallbacks for components that would otherwise inflate the initial bundle
 - [ ] **Edge runtime for latency-sensitive routes** — migrate at least one API route or middleware to the Edge runtime; measure and document the latency improvement
@@ -198,7 +198,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 - [ ] **Colour contrast compliance** — all text and interactive element foreground/background combinations meet WCAG AA contrast ratios (4.5:1 for normal text, 3:1 for large text)
 - [ ] **`prefers-reduced-motion` support** — all animations and transitions are disabled or reduced when the user has `prefers-reduced-motion: reduce` set in their OS
 - [ ] **Meaningful image alt text** — every `<Image>` or `<img>` has descriptive alt text; purely decorative images use `alt=""`
-- [ ] **Live region announcements** — asynchronous status changes (form submission success, toast messages, loading complete) are announced to screen readers via `aria-live`
+- [x] **Live region announcements** — asynchronous status changes (form submission success, toast messages, loading complete) are announced to screen readers via `aria-live`
 
 ---
 
@@ -215,7 +215,7 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 
 ## 18. DevOps & CI/CD
 
-- [x] **Automated deployment to Vercel** — the `main` branch deploys automatically to production on every merge; staging/preview deployments are created for every open PR
+- [x] **Automated deployment to Vercel** — the `main` branch deploys automatically to production on every merge; staging/preview deployments are created for every open PR ✅
 - [ ] **Expanded CI pipeline** — add E2E tests (Playwright) and a coverage threshold check to the existing GitHub Actions workflow
 - [ ] **Automated dependency updates** — configure Dependabot (or Renovate) to open PRs for outdated dependencies on a weekly schedule
 - [ ] **Error tracking with Sentry** — integrate Sentry for both client-side and server-side error capture; configure source maps so stack traces reference original TypeScript
@@ -235,7 +235,8 @@ Note: ✅ denotes instructor sign-off on that particular stretch goal.
 ## 20. Developer Experience
 
 - [ ] **Path aliases** — configure `@/` path aliases in `tsconfig.json` for all internal import paths; zero relative `../../` imports exist anywhere in the codebase
-- [x] **JSDoc comments on all exports** — every exported function, component, hook, and type has a JSDoc comment describing its purpose, parameters, and return value
-- [x] **VS Code workspace settings** — add a `.vscode/settings.json` with recommended formatter, linter, and TypeScript settings pre-configured for this project; document in `SETUP.md`
-- [x] **Husky pre-commit hook** — add a `pre-commit` hook that runs `pnpm type-check` and `pnpm test -- --run` before allowing a commit; document in `CONTRIBUTING.md`
+- [x] **JSDoc comments on all exports** — every exported function, component, hook, and type has a JSDoc comment describing its purpose, parameters, and return value✅
+- [x] **VitePress documentation publishing** — publish project documentation (including generated JSDoc/TypeDoc output) via VitePress so docs are shareable and versionable ✅
+- [x] **VS Code workspace settings** — add a `.vscode/settings.json` with recommended formatter, linter, and TypeScript settings pre-configured for this project; document in `SETUP.md`✅
+- [x] **Husky pre-commit hook** — add a `pre-commit` hook that runs `pnpm type-check` and `pnpm test -- --run` before allowing a commit; document in `CONTRIBUTING.md`✅
 - [ ] **Architectural Decision Records (ADRs)** — document at least five significant technical decisions your team made in `/docs/decisions/` using the lightweight ADR format (context → decision → consequences)

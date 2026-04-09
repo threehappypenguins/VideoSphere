@@ -52,7 +52,7 @@ interface OpenRouterMessage {
 }
 
 interface OpenRouterRequest {
-  model: string;
+  models: [string, ...string[]];
   messages: OpenRouterMessage[];
   response_format?: { type: 'json_object' };
 }
@@ -116,7 +116,7 @@ async function requestMetadataFromOpenRouter(
   appName: string
 ): Promise<GeneratedMetadata> {
   const controller = new AbortController();
-  const timeoutMs = getTimeoutMsForModel(requestBody.model);
+  const timeoutMs = getTimeoutMsForModel(requestBody.models[0]);
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -218,10 +218,11 @@ async function requestMetadataFromOpenRouter(
 function buildOpenRouterRequestBody(
   model: string,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  fallbackModels?: string[]
 ): OpenRouterRequest {
   return {
-    model,
+    models: [model, ...(fallbackModels ?? [])],
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -237,13 +238,17 @@ function buildOpenRouterRequestBody(
  * @param systemPrompt - Instructions for the AI (platform limits, format, etc.)
  * @param userPrompt   - The user-facing content (filename, context)
  * @param model        - OpenRouter model identifier (e.g. "openai/gpt-4o")
+ * @param fallbackModels - Optional fallback model IDs appended after `model`.
+ *        When provided, OpenRouter may attempt models in this order:
+ *        primary `model` first, then each entry in `fallbackModels`.
  * @throws Error if the API key is missing, the request fails, or the response
  *         is malformed / missing required fields.
  */
 export async function generateMetadata(
   systemPrompt: string,
   userPrompt: string,
-  model: string
+  model: string,
+  fallbackModels?: string[]
 ): Promise<GeneratedMetadata> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -256,7 +261,7 @@ export async function generateMetadata(
     'https://videosphere.app';
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
   return requestMetadataFromOpenRouter(
-    buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
+    buildOpenRouterRequestBody(model, systemPrompt, userPrompt, fallbackModels),
     apiKey,
     appUrl,
     appName
@@ -274,6 +279,9 @@ export async function generateMetadata(
  * @param userPrompt   - The user-facing content
  * @param model        - OpenRouter model identifier
  * @param signal       - Optional AbortSignal (e.g. from the Next.js request)
+ * @param fallbackModels - Optional ordered fallback model identifiers. When
+ * passed, OpenRouter receives `models: [model, ...fallbackModels]` so it can
+ * route to the first available model for the streaming request.
  * @throws RateLimitError on HTTP 429
  * @throws Error on any other non-2xx or network failure
  */
@@ -281,7 +289,8 @@ export async function streamMetadata(
   systemPrompt: string,
   userPrompt: string,
   model: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  fallbackModels?: string[]
 ): Promise<Response> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -295,7 +304,7 @@ export async function streamMetadata(
   const appName = process.env.NEXT_PUBLIC_APP_NAME ?? 'VideoSphere';
 
   const requestBody = {
-    ...buildOpenRouterRequestBody(model, systemPrompt, userPrompt),
+    ...buildOpenRouterRequestBody(model, systemPrompt, userPrompt, fallbackModels),
     stream: true,
   };
 
@@ -304,7 +313,7 @@ export async function streamMetadata(
   // AbortSignal.any so that either a timeout or a client disconnect will cancel
   // the fetch — and the combined signal remains active for the full lifetime of
   // the stream, preventing upstream connection leaks after headers arrive.
-  const timeoutMs = getTimeoutMsForModel(requestBody.model);
+  const timeoutMs = getTimeoutMsForModel(model);
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 

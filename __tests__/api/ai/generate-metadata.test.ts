@@ -330,7 +330,8 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(generateMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'openrouter/free'
+        'openrouter/free',
+        undefined
       );
     });
 
@@ -348,7 +349,8 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(generateMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'openai/gpt-4o'
+        'openai/gpt-4o',
+        undefined
       );
     });
 
@@ -366,7 +368,48 @@ describe('POST /api/ai/generate-metadata', () => {
       expect(generateMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'openai/gpt-4o'
+        'openai/gpt-4o',
+        undefined
+      );
+    });
+
+    it('passes fallback models for free users when OPENROUTER_FREE_MODEL is a comma-separated list', async () => {
+      vi.stubEnv('OPENROUTER_FREE_MODEL', 'free/model-a, free/model-b , free/model-c');
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
+      vi.mocked(getUserById).mockResolvedValue(freeUser);
+      vi.mocked(generateMetadata).mockResolvedValueOnce({
+        title: 'Title',
+        description: 'Desc',
+        tags: ['tag'],
+      });
+
+      await POST(makeRequest(validBody));
+
+      expect(generateMetadata).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        'free/model-a',
+        ['free/model-b', 'free/model-c']
+      );
+    });
+
+    it('passes fallback models for premium users when OPENROUTER_PREMIUM_MODEL is a comma-separated list', async () => {
+      vi.stubEnv('OPENROUTER_PREMIUM_MODEL', 'premium/model-x, premium/model-y , premium/model-z');
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-456');
+      vi.mocked(getUserById).mockResolvedValue(premiumUser);
+      vi.mocked(generateMetadata).mockResolvedValueOnce({
+        title: 'Title',
+        description: 'Desc',
+        tags: ['tag'],
+      });
+
+      await POST(makeRequest(validBody));
+
+      expect(generateMetadata).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        'premium/model-x',
+        ['premium/model-y', 'premium/model-z']
       );
     });
   });

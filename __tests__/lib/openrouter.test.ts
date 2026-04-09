@@ -124,7 +124,7 @@ describe('generateMetadata (OpenRouter client)', () => {
 
       const body = JSON.parse(init.body as string);
       expect(body).toEqual({
-        model: 'my-model',
+        models: ['my-model'],
         messages: [
           { role: 'system', content: 'sys' },
           { role: 'user', content: 'usr' },
