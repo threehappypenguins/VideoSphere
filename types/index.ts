@@ -35,16 +35,16 @@ export interface UploadUsage {
  * Defines the shape of user.
  */
 export interface User {
-  /** User identifier; aligns with user_profiles.userId in Appwrite. */
+  /** Stable application user identifier stored as the Mongo profile key (compatibility alias retained as userId). */
   userId: string;
   email: string;
   name?: string;
   isSupporter: boolean;
   hasCompletedOnboarding: boolean;
   role: UserRole;
-  /** Appwrite system attribute on `user_profiles` rows (ISO string). */
+  /** Profile creation timestamp in ISO 8601 string format, sourced from Mongo document creation time. */
   $createdAt: string;
-  /** Appwrite system attribute on `user_profiles` rows (ISO string). */
+  /** Profile update timestamp in ISO 8601 string format, sourced from Mongo document update time. */
   $updatedAt: string;
 }
 

@@ -62,19 +62,42 @@ export async function createPlatformUpload(
 ): Promise<PlatformUpload> {
   await connectToDatabase();
 
-  const created = await PlatformUploadModel.create({
-    _id: randomUUID(),
-    uploadJobId: data.uploadJobId,
-    platform: data.platform,
-    status: 'pending',
-    platformVideoId: '',
-    platformUrl: '',
-    document: platformUploadDocumentJsonForCreateRow(data),
-    errorMessage: '',
-    scheduledAt: data.scheduledAt != null && data.scheduledAt !== '' ? data.scheduledAt : '',
-  });
+  try {
+    const created = await PlatformUploadModel.create({
+      _id: randomUUID(),
+      uploadJobId: data.uploadJobId,
+      platform: data.platform,
+      status: 'pending',
+      platformVideoId: '',
+      platformUrl: '',
+      document: platformUploadDocumentJsonForCreateRow(data),
+      errorMessage: '',
+      scheduledAt: data.scheduledAt != null && data.scheduledAt !== '' ? data.scheduledAt : '',
+    });
 
-  return rowToPlatformUpload(created.toObject());
+    return rowToPlatformUpload(created.toObject());
+  } catch (error) {
+    const duplicateKeyError =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: number }).code === 11000;
+
+    if (!duplicateKeyError) {
+      throw error;
+    }
+
+    const existing = await PlatformUploadModel.findOne({
+      uploadJobId: data.uploadJobId,
+      platform: data.platform,
+    }).lean<PlatformUploadDocument | null>();
+
+    if (!existing) {
+      throw error;
+    }
+
+    return rowToPlatformUpload(existing);
+  }
 }
 
 /** Newest row per platform (input must be ordered with newest first, as from {@link getPlatformUploadsByJob}). */

@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockConnectToDatabase, mockCreate, mockFind, mockFindByIdAndUpdate } = vi.hoisted(() => ({
-  mockConnectToDatabase: vi.fn(),
-  mockCreate: vi.fn(),
-  mockFind: vi.fn(),
-  mockFindByIdAndUpdate: vi.fn(),
-}));
+const { mockConnectToDatabase, mockCreate, mockFind, mockFindOne, mockFindByIdAndUpdate } =
+  vi.hoisted(() => ({
+    mockConnectToDatabase: vi.fn(),
+    mockCreate: vi.fn(),
+    mockFind: vi.fn(),
+    mockFindOne: vi.fn(),
+    mockFindByIdAndUpdate: vi.fn(),
+  }));
 
 vi.mock('@/lib/mongodb', () => ({
   connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
@@ -15,6 +17,7 @@ vi.mock('@/lib/models/PlatformUpload', () => ({
   PlatformUploadModel: {
     create: (...args: unknown[]) => mockCreate(...args),
     find: (...args: unknown[]) => mockFind(...args),
+    findOne: (...args: unknown[]) => mockFindOne(...args),
     findByIdAndUpdate: (...args: unknown[]) => mockFindByIdAndUpdate(...args),
   },
 }));
@@ -78,6 +81,26 @@ describe('platform-uploads repository (mongo)', () => {
         status: 'pending',
       })
     );
+    expect(row.id).toBe('pu-1');
+  });
+
+  it('returns the existing row when create hits duplicate-key race', async () => {
+    const duplicateKeyError = Object.assign(new Error('E11000 duplicate key error'), {
+      code: 11000,
+    });
+    mockCreate.mockRejectedValueOnce(duplicateKeyError);
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(baseDoc) });
+
+    const row = await createPlatformUpload({
+      uploadJobId: 'job-1',
+      platform: 'youtube',
+      title: 'My Video',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+    });
+
+    expect(mockFindOne).toHaveBeenCalledWith({ uploadJobId: 'job-1', platform: 'youtube' });
     expect(row.id).toBe('pu-1');
   });
 
