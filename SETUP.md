@@ -49,10 +49,12 @@ MONGO_ROOT_PASSWORD=change_me
 ```
 
 ```bash
-docker compose up -d mongo
+docker compose --env-file .env.local up -d mongo
 ```
 
 This project ships a self-contained compose stack with `mongo:8` and persistent storage.
+Compose interpolation for `${MONGO_ROOT_PASSWORD}` reads from the shell environment or
+an explicit Compose env file, so this command must include `--env-file .env.local`.
 
 ## 4. Start the App
 
