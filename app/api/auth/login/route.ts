@@ -10,6 +10,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import { getUserAuthCredentialsByEmail } from '@/lib/repositories/users';
 
+// bcrypt hash for "not-a-real-password" (cost 10); used to keep compare timing
+// similar when the email does not exist.
+const DUMMY_PASSWORD_HASH = '$2b$10$C6UzMDM.H6dfI/f/IKcEeO5bVJY4UqVaki3P6KyHRxY6z3n9JVpaz';
+
 /**
  * Handles POST requests for this route.
  * @param req - The incoming request object.
@@ -47,12 +51,9 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await getUserAuthCredentialsByEmail(email);
-    if (!user) {
-      return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
-    }
-
-    const validPassword = await bcrypt.compare(password, user.passwordHash);
-    if (!validPassword) {
+    const passwordHash = user?.passwordHash ?? DUMMY_PASSWORD_HASH;
+    const validPassword = await bcrypt.compare(password, passwordHash);
+    if (!user || !validPassword) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
