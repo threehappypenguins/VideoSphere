@@ -20,6 +20,11 @@ export async function connectToDatabase() {
   if (!cached!.promise) {
     cached!.promise = mongoose.connect(MONGODB_URI, { bufferCommands: false });
   }
-  cached!.conn = await cached!.promise;
+  try {
+    cached!.conn = await cached!.promise;
+  } catch (error) {
+    cached!.promise = null;
+    throw error;
+  }
   return cached!.conn;
 }

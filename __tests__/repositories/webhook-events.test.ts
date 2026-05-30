@@ -76,6 +76,73 @@ describe('webhook-events repository (mongo)', () => {
     );
   });
 
+  it('reclaims stale processing events through compare-and-swap update', async () => {
+    const staleTime = new Date(Date.now() - 11 * 60 * 1000);
+    mockCreate.mockRejectedValueOnce({ code: 11000 });
+    mockFindById
+      .mockReturnValueOnce({
+        lean: vi
+          .fn()
+          .mockResolvedValue({ status: 'processing', createdAt: staleTime, updatedAt: staleTime }),
+      })
+      .mockReturnValueOnce({
+        lean: vi
+          .fn()
+          .mockResolvedValue({ status: 'processing', createdAt: staleTime, updatedAt: staleTime }),
+      });
+
+    const result = await claimStripeWebhookEvent('evt_stale', 'checkout.session.completed');
+
+    expect(result).toEqual({ claimed: true, status: 'processing' });
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'processing', updatedAt: staleTime }),
+      expect.objectContaining({ status: 'processing', eventId: 'evt_stale', lastError: '' }),
+      { returnDocument: 'after' }
+    );
+  });
+
+  it('reclaims retryable failed events through compare-and-swap update', async () => {
+    const now = new Date();
+    mockCreate.mockRejectedValueOnce({ code: 11000 });
+    mockFindById
+      .mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValue({ status: 'failed', createdAt: now, updatedAt: now }),
+      })
+      .mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValue({ status: 'failed', createdAt: now, updatedAt: now }),
+      });
+
+    const result = await claimStripeWebhookEvent('evt_failed', 'checkout.session.completed');
+
+    expect(result).toEqual({ claimed: true, status: 'processing' });
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', updatedAt: now }),
+      expect.objectContaining({ status: 'processing', eventId: 'evt_failed', lastError: '' }),
+      { returnDocument: 'after' }
+    );
+  });
+
+  it('returns unclaimed when reclaim compare-and-swap misses and another worker wins', async () => {
+    const now = new Date();
+    mockCreate.mockRejectedValueOnce({ code: 11000 }).mockRejectedValueOnce({ code: 11000 });
+    mockFindById
+      .mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValue({ status: 'failed', createdAt: now, updatedAt: now }),
+      })
+      .mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValue({ status: 'failed', createdAt: now, updatedAt: now }),
+      })
+      .mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValue({ status: 'processing', createdAt: now, updatedAt: now }),
+      });
+    mockFindOneAndUpdate.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(null) });
+
+    const result = await claimStripeWebhookEvent('evt_cas_miss', 'checkout.session.completed');
+
+    expect(result).toEqual({ claimed: false, status: 'processing' });
+    expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it('marks completed and failed statuses', async () => {
     mockUpdateOne.mockResolvedValue({ matchedCount: 1 });
 

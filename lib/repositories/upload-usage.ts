@@ -102,22 +102,18 @@ export async function decrementUsage(userId: string, monthArg?: string): Promise
 
   // Use a pipeline update so decrement and clamp happen in one computed
   // assignment without conflicting update modifiers on the same field.
-  await UploadUsageModel.updateOne(
-    { _id: rowId },
-    [
-      {
-        $set: {
-          _id: rowId,
-          userId: { $ifNull: ['$userId', userId] },
-          month: { $ifNull: ['$month', month] },
-          uploadCount: {
-            $max: [0, { $subtract: [{ $ifNull: ['$uploadCount', 0] }, 1] }],
-          },
+  await UploadUsageModel.updateOne({ _id: rowId }, [
+    {
+      $set: {
+        _id: rowId,
+        userId: { $ifNull: ['$userId', userId] },
+        month: { $ifNull: ['$month', month] },
+        uploadCount: {
+          $max: [0, { $subtract: [{ $ifNull: ['$uploadCount', 0] }, 1] }],
         },
       },
-    ],
-    { upsert: true }
-  );
+    },
+  ]);
 }
 
 // -----------------------------------------------------------------------------

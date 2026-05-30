@@ -50,23 +50,18 @@ describe('upload-usage repository (mongo)', () => {
     await decrementUsage('user-1', '2026-01');
 
     expect(mockUpdateOne).toHaveBeenCalledTimes(2);
-    expect(mockUpdateOne).toHaveBeenNthCalledWith(
-      2,
-      { _id: 'user-1_2026-01' },
-      [
-        {
-          $set: {
-            _id: 'user-1_2026-01',
-            userId: { $ifNull: ['$userId', 'user-1'] },
-            month: { $ifNull: ['$month', '2026-01'] },
-            uploadCount: {
-              $max: [0, { $subtract: [{ $ifNull: ['$uploadCount', 0] }, 1] }],
-            },
+    expect(mockUpdateOne).toHaveBeenNthCalledWith(2, { _id: 'user-1_2026-01' }, [
+      {
+        $set: {
+          _id: 'user-1_2026-01',
+          userId: { $ifNull: ['$userId', 'user-1'] },
+          month: { $ifNull: ['$month', '2026-01'] },
+          uploadCount: {
+            $max: [0, { $subtract: [{ $ifNull: ['$uploadCount', 0] }, 1] }],
           },
         },
-      ],
-      { upsert: true }
-    );
+      },
+    ]);
   });
 
   it('checks upload allowance and atomic claim behavior', async () => {
