@@ -8,6 +8,7 @@ export interface UserProfileDocument {
   _id: string;
   userId: string;
   email: string;
+  name?: string;
   passwordHash?: string;
   isSupporter: boolean;
   hasCompletedOnboarding: boolean;
@@ -21,6 +22,7 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
     _id: { type: String },
     userId: { type: String, required: true, unique: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    name: { type: String, required: false, trim: true },
     passwordHash: { type: String, required: false },
     isSupporter: { type: Boolean, default: false },
     hasCompletedOnboarding: { type: Boolean, default: false },

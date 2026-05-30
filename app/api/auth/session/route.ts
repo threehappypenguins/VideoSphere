@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       $id: user.userId,
       email: user.email,
+      name: user.name,
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);

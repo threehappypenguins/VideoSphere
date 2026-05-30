@@ -8,8 +8,7 @@ import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase } from '@/lib/mongodb';
-import { UserProfileModel } from '@/lib/models/UserProfile';
+import { createUser } from '@/lib/repositories/users';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 
 /**
@@ -66,16 +65,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 });
     }
 
-    await connectToDatabase();
+    const name = typeof rawName === 'string' ? rawName.trim() : '';
+    if (!name) {
+      return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
+    }
 
     const userId = randomUUID();
     const passwordHash = await bcrypt.hash(password, 10);
 
     try {
-      await UserProfileModel.create({
-        _id: userId,
+      await createUser({
         userId,
         email,
+        name,
         passwordHash,
         isSupporter: false,
         hasCompletedOnboarding: false,

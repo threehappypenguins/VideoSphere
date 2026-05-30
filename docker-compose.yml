@@ -20,6 +20,8 @@ services:
     image: mongo:8
     container_name: videosphere-mongo
     restart: unless-stopped
+    ports:
+      - '127.0.0.1:27017:27017'
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?required}

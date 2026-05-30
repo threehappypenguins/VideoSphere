@@ -38,6 +38,7 @@ export interface User {
   /** User identifier; aligns with user_profiles.userId in Appwrite. */
   userId: string;
   email: string;
+  name?: string;
   isSupporter: boolean;
   hasCompletedOnboarding: boolean;
   role: UserRole;

@@ -34,6 +34,7 @@ const baseDoc = {
   _id: 'auth-user-1',
   userId: 'auth-user-1',
   email: 'a@example.com',
+  name: 'Ada',
   isSupporter: false,
   hasCompletedOnboarding: false,
   role: 'user',
@@ -50,7 +51,7 @@ describe('users repository (mongo)', () => {
   it('creates a normalized user profile', async () => {
     mockCreate.mockResolvedValueOnce({ toObject: () => baseDoc });
 
-    const user = await createUser({ userId: 'auth-user-1', email: 'A@Example.com' });
+    const user = await createUser({ userId: 'auth-user-1', email: 'A@Example.com', name: 'Ada' });
 
     expect(mockConnectToDatabase).toHaveBeenCalled();
     expect(mockCreate).toHaveBeenCalledWith(
@@ -58,11 +59,13 @@ describe('users repository (mongo)', () => {
         _id: 'auth-user-1',
         userId: 'auth-user-1',
         email: 'a@example.com',
+        name: 'Ada',
         role: 'user',
       })
     );
     expect(user.userId).toBe('auth-user-1');
     expect(user.email).toBe('a@example.com');
+    expect(user.name).toBe('Ada');
   });
 
   it('gets by _id first, then falls back to userId', async () => {

@@ -16,6 +16,7 @@ function mongoDocToUser(doc: UserProfileDocument): User {
   return {
     userId: String(doc.userId ?? doc._id),
     email: String(doc.email),
+    name: typeof doc.name === 'string' ? doc.name : undefined,
     isSupporter: Boolean(doc.isSupporter),
     hasCompletedOnboarding: Boolean(doc.hasCompletedOnboarding),
     role: (doc.role as UserRole) ?? 'user',
@@ -34,6 +35,8 @@ function mongoDocToUser(doc: UserProfileDocument): User {
 export interface CreateUserData {
   userId: string;
   email: string;
+  name?: string;
+  passwordHash?: string;
   isSupporter?: boolean;
   hasCompletedOnboarding?: boolean;
   role?: UserRole;
@@ -45,10 +48,13 @@ export interface CreateUserData {
  */
 export async function createUser(data: CreateUserData): Promise<User> {
   await connectToDatabase();
+  const name = data.name?.trim();
   const created = await UserProfileModel.create({
     _id: data.userId,
     userId: data.userId,
     email: data.email.trim().toLowerCase(),
+    ...(name ? { name } : {}),
+    ...(data.passwordHash ? { passwordHash: data.passwordHash } : {}),
     isSupporter: data.isSupporter ?? false,
     hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
     role: data.role ?? 'user',

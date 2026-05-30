@@ -50,14 +50,18 @@ export async function logout(): Promise<void> {
  * Get current user session.
  * Returns null if no active session exists.
  */
-export async function getCurrentSession(): Promise<{ $id?: string; email?: string } | null> {
+export async function getCurrentSession(): Promise<{
+  $id?: string;
+  email?: string;
+  name?: string;
+} | null> {
   try {
     const res = await fetch('/api/auth/session', {
       method: 'GET',
       credentials: 'include',
     });
     if (!res.ok) return null;
-    return (await res.json()) as { $id?: string; email?: string };
+    return (await res.json()) as { $id?: string; email?: string; name?: string };
   } catch {
     return null;
   }
@@ -67,6 +71,10 @@ export async function getCurrentSession(): Promise<{ $id?: string; email?: strin
  * Get current authenticated user.
  * Returns null if no user is logged in.
  */
-export async function getCurrentUser(): Promise<{ $id?: string; email?: string } | null> {
+export async function getCurrentUser(): Promise<{
+  $id?: string;
+  email?: string;
+  name?: string;
+} | null> {
   return getCurrentSession();
 }
