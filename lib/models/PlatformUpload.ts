@@ -8,8 +8,8 @@ import type {
 /**
  * Raw MongoDB document shape for the `platform_uploads` collection.
  *
- * `document` remains a JSON string to match current Appwrite storage and
- * keep migration friction low.
+ * `document` is intentionally stored as a JSON string to preserve the
+ * existing payload format used by repository mapping and API contracts.
  */
 export interface PlatformUploadDocument {
   _id: string;

@@ -131,7 +131,7 @@ describe('GET /api/admin/stats', () => {
 
   it('returns 500 ApiError when getUserById throws during admin check', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce('admin-1');
-    vi.mocked(getUserById).mockRejectedValueOnce(new Error('Appwrite down'));
+    vi.mocked(getUserById).mockRejectedValueOnce(new Error('Database unavailable'));
 
     const res = await GET(makeGetRequest());
     expect(res.status).toBe(500);

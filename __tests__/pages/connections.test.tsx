@@ -3,7 +3,7 @@
 // =============================================================================
 // Tests for the /profile/connections page UI.
 // The page is an async Server Component, so it is rendered with `await`.
-// External dependencies (Appwrite, next/headers, repository) are mocked.
+// External dependencies (auth helper, next/headers, repository) are mocked.
 // =============================================================================
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -64,8 +64,6 @@ function setupAuthenticatedUser(userId = 'user-123') {
 describe('ConnectionsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     mockGetConnectedAccountsByUser.mockResolvedValue([]);
     mockGetCurrentUserIdFromCookies.mockResolvedValue('user-123');
   });

@@ -177,7 +177,7 @@ describe('POST /api/auth/onboarding-state', () => {
     expect(await res.json()).toEqual({ hasCompletedOnboarding: false });
   });
 
-  it('returns 404 when Appwrite reports the profile row is missing', async () => {
+  it('returns 404 when the profile row is missing', async () => {
     getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
     const notFoundErr = Object.assign(new Error('Document not found'), { code: 404 });
     updateUserMock.mockRejectedValueOnce(notFoundErr);

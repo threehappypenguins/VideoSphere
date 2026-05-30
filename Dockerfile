@@ -17,7 +17,7 @@ FROM node:20-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-# Copy only what's needed to build; .dockerignore excludes .env.local, appwrite/, etc.
+# Copy only what's needed to build; .dockerignore excludes .env.local, etc.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* .npmrc* ./
 COPY next.config.* tsconfig.json postcss.config.* ./
 COPY public ./public

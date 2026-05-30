@@ -3,8 +3,8 @@ import mongoose, { Schema } from 'mongoose';
 /**
  * Raw MongoDB document shape for the `drafts` collection.
  *
- * `document` remains a JSON string to match current Appwrite storage and
- * keep migration friction low.
+ * `document` is intentionally stored as a JSON string to preserve the
+ * existing payload shape used by repository mapping and API contracts.
  */
 export interface DraftDocument {
   _id: string;

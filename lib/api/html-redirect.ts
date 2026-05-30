@@ -6,7 +6,7 @@
 //
 // WHY: OAuth callbacks arrive via a cross-site redirect chain (Google/Vimeo →
 // our callback URL). Browsers apply sameSite=strict semantics throughout the
-// chain, so the Appwrite session cookie is dropped. Returning a 200 HTML page
+// chain, so the authenticated session cookie is dropped. Returning a 200 HTML page
 // here "lands" the browser on our origin, ending the cross-site chain. The
 // subsequent JS navigation to /profile/... is a fresh same-origin request where
 // sameSite=strict cookies ARE sent.

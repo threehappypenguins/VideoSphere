@@ -385,7 +385,7 @@ describe('GET /api/platforms/callback/youtube', () => {
 
     it('does not fallback on non-decrypt repository errors and returns error redirect', async () => {
       vi.mocked(getConnectedAccountWithTokens).mockRejectedValue(
-        new Error('Appwrite listRows failed: ECONNRESET')
+        new Error('Data store list failed: ECONNRESET')
       );
 
       const req = makeRequest(VALID_PARAMS, validCookies());

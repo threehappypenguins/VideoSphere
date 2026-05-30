@@ -30,7 +30,6 @@ describe('getAuthenticatedUserId', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.JWT_SECRET = 'test-secret';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   it('returns user id when JWT is valid and user profile exists', async () => {
@@ -68,16 +67,13 @@ describe('getAuthenticatedUserId', () => {
     expect(mockGetUserById).not.toHaveBeenCalled();
   });
 
-  it('preserves test-only legacy fallback when JWT verification fails', async () => {
+  it('returns null when JWT verification fails', async () => {
     mockJwtVerify.mockRejectedValueOnce(new Error('invalid token'));
 
     const userId = await getAuthenticatedUserId(
-      createRequest({
-        videosphere_session: 'broken-jwt',
-        'a_session_test-project': 'legacy-session-token',
-      })
+      createRequest({ videosphere_session: 'broken-jwt' })
     );
 
-    expect(userId).toBe('user-123');
+    expect(userId).toBeNull();
   });
 });

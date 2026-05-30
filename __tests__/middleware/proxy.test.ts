@@ -25,14 +25,10 @@ describe('Proxy Middleware', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('fetch', vi.fn());
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = '69aae95b002b81fe4fdb';
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    delete process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
   });
 
   describe('Session Verification', () => {
@@ -293,9 +289,7 @@ describe('Proxy Middleware', () => {
   });
 
   describe('Cookie Handling', () => {
-    it('should handle missing project ID gracefully', async () => {
-      delete process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-
+    it('should redirect to login when no session cookie is present', async () => {
       const request = createMockRequest('/dashboard');
 
       const result = await proxy(request);
@@ -305,11 +299,8 @@ describe('Proxy Middleware', () => {
       expect(location).toContain('/login');
     });
 
-    it('should use NEXT_PUBLIC_APPWRITE_PROJECT_ID consistently with /api/auth/session', async () => {
+    it('should rely on session cookie verification for dashboard access', async () => {
       const sessionToken = 'valid_token';
-      process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'consistent_project_id';
-      // Only set NEXT_PUBLIC to ensure proxy uses it
-      delete process.env.APPWRITE_PROJECT_ID;
 
       const request = createMockRequest('/dashboard', {
         videosphere_session: sessionToken,

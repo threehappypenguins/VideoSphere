@@ -18,7 +18,7 @@
  *   key: string               - R2 object key (store this for distribution)
  *   bucketName: string        - R2 bucket name
  *   expiresIn: number         - URL expiry in seconds (900)
- *   uploadJobId: string       - ID of the created UploadJob record in Appwrite
+ *   uploadJobId: string       - ID of the created UploadJob record in persistent storage
  *   isSupporter: boolean      - Whether the authenticated user is a Supporter (for UI display)
  * }
  *
@@ -35,7 +35,7 @@
  *                  Body: { error }
  * - 404 Not Found: Supplied draftId does not exist
  *                  Body: { error }
- * - 500 Internal Server Error: R2 or Appwrite service error
+ * - 500 Internal Server Error: R2 or persistence service error
  *
  * Security:
  * - Only authenticated users can request presigned URLs

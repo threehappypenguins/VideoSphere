@@ -1,7 +1,7 @@
 // =============================================================================
 // GET /api/auth/oauth/callback
 // =============================================================================
-// Completes Google OAuth2 Authorization Code flow (no Appwrite dependency).
+// Completes Google OAuth2 Authorization Code flow (no external auth vendor dependency).
 // =============================================================================
 
 import { randomUUID } from 'node:crypto';

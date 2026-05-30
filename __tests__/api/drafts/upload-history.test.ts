@@ -24,7 +24,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { getUploadJobsWithPlatformUploadsForDraft } from '@/lib/repositories/upload-jobs';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const DRAFT_ID = 'draft-abc';
 
 const baseDraft = {
@@ -66,8 +66,6 @@ function makeParams(id: string) {
 describe('GET /api/drafts/[id]/upload-history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
 
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(getDraftById).mockResolvedValue(baseDraft);

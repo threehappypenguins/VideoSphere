@@ -12,9 +12,8 @@ import { getSessionCookieName } from '@/lib/auth-session-cookie';
 function getTestLegacyUserId(req: NextRequest): string | null {
   if (process.env.NODE_ENV !== 'test') return null;
 
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const legacyCookieName = projectId ? `a_session_${projectId}` : null;
-  const legacyToken = legacyCookieName ? req.cookies.get(legacyCookieName)?.value : null;
+  const legacyCookie = req.cookies.getAll().find((cookie) => cookie.name.startsWith('a_session_'));
+  const legacyToken = legacyCookie?.value ?? null;
   if (!legacyToken) return null;
 
   // Preserve common invalid-session test semantics from older suites.

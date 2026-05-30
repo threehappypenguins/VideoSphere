@@ -245,7 +245,7 @@ describe('GET /api/platforms/callback/drive', () => {
       });
 
     vi.mocked(getConnectedAccountWithTokens).mockRejectedValue(
-      new Error('Appwrite listRows failed: ECONNRESET')
+      new Error('Data store list failed: ECONNRESET')
     );
 
     const req = makeRequest(VALID_PARAMS, { [CSRF_COOKIE]: VALID_COOKIE_VALUE });

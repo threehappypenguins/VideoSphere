@@ -20,7 +20,7 @@ import { GET } from '@/app/api/platforms/connect/vimeo/route';
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 function makeRequest(cookies: Record<string, string> = {}): NextRequest {
   const url = new URL('http://localhost:3000/api/platforms/connect/vimeo');
@@ -40,12 +40,9 @@ function makeRequest(cookies: Record<string, string> = {}): NextRequest {
 describe('GET /api/platforms/connect/vimeo', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     process.env.VIMEO_CLIENT_ID = 'test-vimeo-client-id';
     mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-      const token =
-        req.cookies.get('videosphere_session')?.value ?? req.cookies.get(SESSION_COOKIE)?.value;
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
       return 'user-123';
     });
@@ -62,15 +59,6 @@ describe('GET /api/platforms/connect/vimeo', () => {
       const res = await GET(req);
       expect(res.status).toBe(307);
       expect(res.headers.get('location')).toContain('error=vimeo');
-    });
-
-    it('still redirects to Vimeo OAuth when NEXT_PUBLIC_APPWRITE_ENDPOINT is missing', async () => {
-      delete process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-      const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
-      const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('api.vimeo.com/oauth/authorize');
-      process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     });
   });
 

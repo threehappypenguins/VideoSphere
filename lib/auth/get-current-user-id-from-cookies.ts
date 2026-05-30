@@ -32,9 +32,10 @@ export async function getSessionUserFromCookies(): Promise<SessionUserFromCookie
   if (!token) {
     if (process.env.NODE_ENV !== 'test') return null;
 
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const legacyCookieName = projectId ? `a_session_${projectId}` : null;
-    const legacyToken = legacyCookieName ? cookieStore.get(legacyCookieName)?.value : null;
+    const legacyCookie = cookieStore
+      .getAll()
+      .find((cookie) => cookie.name.startsWith('a_session_'));
+    const legacyToken = legacyCookie?.value ?? null;
     if (!legacyToken || /invalid|bad|expired/i.test(legacyToken)) return null;
 
     return { $id: 'user-123' };

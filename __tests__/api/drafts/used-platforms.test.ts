@@ -25,7 +25,7 @@ import { getDraftById } from '@/lib/repositories/drafts';
 import { getUploadJobsWithPlatformUploadsForDraft } from '@/lib/repositories/upload-jobs';
 import type { PlatformUpload, UploadJobWithPlatformUploads } from '@/types';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const DRAFT_ID = 'draft-abc';
 
 const baseDraft = {
@@ -104,8 +104,6 @@ function jobWithUploads(
 describe('GET /api/drafts/[id]/used-platforms', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
 
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(getDraftById).mockResolvedValue(baseDraft);

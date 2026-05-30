@@ -3,7 +3,7 @@
  *
  * This file was previously placeholder-like (hard-coded constants).
  * The tests below import and execute the actual exported route handlers,
- * while mocking Stripe and Appwrite dependencies.
+ * while mocking Stripe and persistence dependencies.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -56,6 +56,8 @@ vi.mock('@/lib/repositories/webhook-events', () => ({
 import { POST as checkoutPOST } from '@/app/api/payments/checkout/route';
 import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route';
 
+const SESSION_COOKIE = 'videosphere_session';
+
 async function runWebhookRequestWithFakeTimers(request: NextRequest) {
   vi.useFakeTimers();
 
@@ -69,20 +71,17 @@ async function runWebhookRequestWithFakeTimers(request: NextRequest) {
 }
 
 function createCheckoutRequest({
-  projectId,
   cookies,
   origin = 'http://localhost:3000',
   url,
   extraHeaders,
 }: {
-  projectId: string;
   cookies?: Record<string, string>;
   origin?: string | null;
   url?: string;
   extraHeaders?: Record<string, string>;
 }): NextRequest {
-  const cookieName = `a_session_${projectId}`;
-  const cookieHeader = cookies ? `${cookieName}=${cookies[cookieName]}` : '';
+  const cookieHeader = cookies ? `${SESSION_COOKIE}=${cookies[SESSION_COOKIE]}` : '';
   const requestUrl = new URL(url ?? 'http://localhost:3000/api/payments/checkout');
 
   const headers: Record<string, string> = { ...extraHeaders };
@@ -120,8 +119,6 @@ function createWebhookRequest({
 describe('Stripe integration (checkout + webhook)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
 
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
@@ -129,9 +126,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     vi.stubEnv('STRIPE_PRICE_ID', '');
     getUserByIdMock.mockResolvedValue({ role: 'user' });
     getAuthenticatedUserIdMock.mockImplementation(async (req: NextRequest) => {
-      const token =
-        req.cookies.get('videosphere_session')?.value ??
-        req.cookies.get('a_session_test-project')?.value;
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
       return 'user-123';
     });
@@ -151,7 +146,6 @@ describe('Stripe integration (checkout + webhook)', () => {
   describe('Checkout Route (POST /api/payments/checkout)', () => {
     it('returns 403 when Origin header is missing', async () => {
       const req = createCheckoutRequest({
-        projectId: 'test-project',
         origin: null,
       });
 
@@ -162,7 +156,6 @@ describe('Stripe integration (checkout + webhook)', () => {
 
     it('returns 403 when Origin does not match app URL', async () => {
       const req = createCheckoutRequest({
-        projectId: 'test-project',
         origin: 'https://evil-site.com',
       });
 
@@ -179,7 +172,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         // The handler derives hostOrigin from req.nextUrl.protocol + Host header.
         // CSRF passes → handler falls through to auth and returns 401 (no cookie), not 403.
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           url: `https://${CODESPACE_HOST}/api/payments/checkout`,
           origin: `https://${CODESPACE_HOST}`,
           extraHeaders: { host: CODESPACE_HOST },
@@ -194,7 +186,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         vi.stubEnv('NODE_ENV', 'production');
 
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           origin: `https://${CODESPACE_HOST}`,
           extraHeaders: {
             host: CODESPACE_HOST,
@@ -213,7 +204,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         vi.stubEnv('NODE_ENV', 'production');
 
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           origin: 'https://evil.domain.com',
           extraHeaders: {
             host: 'evil.domain.com',
@@ -231,7 +221,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         vi.stubEnv('NODE_ENV', 'production');
 
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           origin: `http://${CODESPACE_HOST}`,
           extraHeaders: {
             host: CODESPACE_HOST,
@@ -247,12 +236,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     });
 
     it('returns 401 when session cookie is missing', async () => {
-      vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
-      vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
-
-      const req = createCheckoutRequest({
-        projectId: 'test-project',
-      });
+      const req = createCheckoutRequest({});
 
       const res = await checkoutPOST(req);
       expect(res.status).toBe(401);
@@ -268,8 +252,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
@@ -286,8 +269,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       getUserByIdMock.mockResolvedValueOnce({ role: 'admin' });
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
@@ -306,8 +288,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       });
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
@@ -344,8 +325,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       });
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
@@ -539,7 +519,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         },
       });
       setSupporterStatusMock.mockResolvedValueOnce(undefined);
-      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Persistence update outage'));
 
       const res = await runWebhookRequestWithFakeTimers(
         createWebhookRequest({
@@ -554,7 +534,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
       expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
         'evt_completion_mark_fail',
-        'Appwrite update outage'
+        'Persistence update outage'
       );
       expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
       expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
@@ -572,7 +552,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         },
       });
       setSupporterStatusMock.mockResolvedValueOnce(undefined);
-      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Persistence update outage'));
       markStripeWebhookEventBookkeepingFailedMock.mockRejectedValueOnce(
         new Error('terminal status write failed')
       );
@@ -591,7 +571,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
       expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
         'evt_completion_terminal_persist_fail',
-        'Appwrite update outage'
+        'Persistence update outage'
       );
       expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
       expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();

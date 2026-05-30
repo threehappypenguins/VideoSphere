@@ -10,11 +10,9 @@
 //   /admin/*      — authenticated admin users only
 //
 // Session is stored as an httpOnly cookie. Authentication is verified by
-// calling Appwrite-backed API routes internally (outside the matcher so no
-// circular routing). Admin RBAC uses GET /api/auth/session-role so this file
-// never imports lib/appwrite or the users repository — middleware stays free
-// of server SDK init (and edge-safe fetch-only I/O). Role still comes from
-// user_profiles, not Auth prefs/labels.
+// calling internal API routes (outside the matcher so no circular routing).
+// Admin RBAC uses GET /api/auth/session-role so this file avoids direct data
+// layer imports and keeps middleware edge-safe via fetch-only I/O.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';

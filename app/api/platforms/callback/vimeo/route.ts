@@ -3,7 +3,7 @@
 // =============================================================================
 // Handles the OAuth2 callback from Vimeo after the user grants consent.
 // Verifies the CSRF nonce (state param vs. vimeo_oauth_state cookie) and
-// extracts the userId from the cookie value — the Appwrite session cookie is
+// extracts the userId from the cookie value — the authenticated session cookie is
 // sameSite=strict and is dropped on the cross-site Vimeo redirect, so identity
 // is carried securely in the server-set OAuth state cookie instead.
 // Exchanges the code for an access token via Basic auth (base64 of
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
 
   // Verify CSRF nonce and extract userId from the server-set OAuth state cookie.
   // Cookie format: "<nonce>|<userId>" — set during the connect step while the
-  // user was authenticated. The Appwrite session cookie (sameSite=strict) is not
+  // user was authenticated. The authenticated session cookie (sameSite=strict) is not
   // available here because this route is reached via a cross-site redirect from Vimeo.
   const cookieValue = req.cookies.get(VIMEO_OAUTH_STATE_COOKIE)?.value;
   if (!cookieValue) {

@@ -94,7 +94,7 @@ export function distributeCreatePlatformUploadInput(
   };
 }
 
-/** Throws if Appwrite returns 404 — avoids continuing upload when the row no longer exists. */
+/** Throws if persistence returns 404 — avoids continuing upload when the row no longer exists. */
 async function requireUpdatePlatformUploadStatus(
   id: string,
   status: PlatformUploadStatus,

@@ -6,9 +6,6 @@
 .env.*
 !.env.example
 
-# Appwrite installer output (local Docker config; may contain secrets)
-appwrite/
-
 # Dependencies (installed in container)
 node_modules/
 

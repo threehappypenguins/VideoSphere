@@ -49,7 +49,7 @@ export function ProfileContent() {
     // component the user is authenticated. We only need to load their data.
     async function loadUser() {
       try {
-        // Fetch Appwrite session (display name, email)
+        // Fetch authenticated session (display name, email)
         const sessionRes = await fetch('/api/auth/session', { credentials: 'include' });
         if (sessionRes.ok) {
           const session: SessionUser = await sessionRes.json();

@@ -35,8 +35,6 @@ function createRequest(cookies?: Record<string, string>): NextRequest {
 describe('GET /api/auth/profile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
     getAuthenticatedUserIdMock.mockResolvedValue('user_123');
   });
 
@@ -56,7 +54,7 @@ describe('GET /api/auth/profile', () => {
     getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
     getUserByIdMock.mockResolvedValueOnce(null);
 
-    const res = await GET(createRequest({ 'a_session_test-project': 'session-secret' }));
+    const res = await GET(createRequest({ videosphere_session: 'session-secret' }));
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Profile not found' });
@@ -73,7 +71,7 @@ describe('GET /api/auth/profile', () => {
       $updatedAt: '2026-03-25T00:00:00.000Z',
     });
 
-    const res = await GET(createRequest({ 'a_session_test-project': 'session-secret' }));
+    const res = await GET(createRequest({ videosphere_session: 'session-secret' }));
 
     expect(res.status).toBe(200);
     const body = await res.json();

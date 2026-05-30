@@ -1,8 +1,8 @@
 /**
- * Appwrite table rows include `$createdAt` / `$updatedAt` (ISO strings).
+ * Persisted rows include `$createdAt` / `$updatedAt` (ISO strings).
  * No silent defaults: throw if missing or empty so bugs surface in development.
  */
-export function assertAppwriteRowTimestamps(row: Record<string, unknown>): {
+export function assertRowTimestamps(row: Record<string, unknown>): {
   $createdAt: string;
   $updatedAt: string;
 } {
@@ -16,7 +16,7 @@ export function assertAppwriteRowTimestamps(row: Record<string, unknown>): {
   ) {
     const id = row.$id ?? row.id;
     throw new Error(
-      `[Appwrite] Row missing non-empty string $createdAt/$updatedAt` +
+      `Row missing non-empty string $createdAt/$updatedAt` +
         (id != null ? ` (row id: ${String(id)})` : '')
     );
   }

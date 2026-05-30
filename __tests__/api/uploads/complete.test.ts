@@ -126,6 +126,8 @@ import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/uplo
 import { headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
 
+const SESSION_COOKIE = 'videosphere_session';
+
 function createRequest(jobId: string, cookies: Record<string, string> = {}): NextRequest {
   const url = new URL(`http://localhost:3000/api/uploads/${jobId}/complete`);
 
@@ -149,14 +151,10 @@ describe('POST /api/uploads/[jobId]/complete', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-      const token =
-        req.cookies.get('videosphere_session')?.value ??
-        req.cookies.get('a_session_test-project')?.value;
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
       return req.headers.get('x-test-user-id') || 'user-123';
     });
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
 
     vi.mocked(headObject).mockResolvedValue(1024);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
@@ -198,7 +196,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
 
     it('should return 200 with valid session', async () => {
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -211,7 +209,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       vi.mocked(getUploadJobById).mockResolvedValueOnce(null);
 
       const response = await POST(
-        createRequest('nonexistent', { 'a_session_test-project': 'token' }),
+        createRequest('nonexistent', { videosphere_session: 'token' }),
         makeParams('nonexistent')
       );
 
@@ -234,7 +232,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       });
 
       const response = await POST(
-        createRequest('job-other', { 'a_session_test-project': 'token' }),
+        createRequest('job-other', { videosphere_session: 'token' }),
         makeParams('job-other')
       );
 
@@ -252,7 +250,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       vi.mocked(headObject).mockResolvedValueOnce(MAX_FILE_SIZE + 1);
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -273,7 +271,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       vi.mocked(headObject).mockResolvedValueOnce(MAX_FILE_SIZE);
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -295,7 +293,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -311,7 +309,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       );
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -334,7 +332,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       vi.mocked(updateUploadJobStatus).mockRejectedValueOnce(new Error('DB unavailable'));
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -362,7 +360,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -386,7 +384,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -408,7 +406,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -417,10 +415,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
     });
 
     it('should advance status to distributing and auto-distribute when draft has targets', async () => {
-      await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
-        makeParams('job-123')
-      );
+      await POST(createRequest('job-123', { videosphere_session: 'token' }), makeParams('job-123'));
 
       expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
         'job-123',
@@ -431,7 +426,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
 
     it('should return success: true and distributing: true in response body', async () => {
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -454,7 +449,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 
@@ -464,11 +459,11 @@ describe('POST /api/uploads/[jobId]/complete', () => {
     });
 
     it('should return 404 when the job is deleted between ownership check and status update', async () => {
-      // updateUploadJobStatus returns null when Appwrite returns 404 (row deleted mid-flight)
+      // updateUploadJobStatus returns null when the row is deleted mid-flight
       vi.mocked(updateUploadJobStatus).mockResolvedValueOnce(null);
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -483,7 +478,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       vi.mocked(updateUploadJobStatus).mockRejectedValueOnce(new Error('DB error'));
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { videosphere_session: 'token' }),
         makeParams('job-123')
       );
 

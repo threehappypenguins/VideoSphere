@@ -30,13 +30,13 @@ export interface PlatformUploadDocumentStored {
 
 /**
  * Writable tags for create-input; same shape as persisted document fields (without job id / platform).
- * Defined here so routes can validate serialized size without importing the Appwrite-backed repository.
+ * Defined here so routes can validate serialized size without importing storage-backed repositories.
  */
 export type PlatformUploadRowDocumentInput = Omit<PlatformUploadDocumentStored, 'tags'> & {
   tags: string[];
 };
 
-/** Appwrite string column max (character/code-unit budget); keep serialized `document` under this. */
+/** Storage string column max (character/code-unit budget); keep serialized `document` under this. */
 export const MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS = 16_383;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -83,7 +83,7 @@ export function stringifyPlatformUploadDocumentForStorage(
   return JSON.stringify(payload);
 }
 
-const DOCUMENT_STORAGE_TRUNCATION_MARKER = ' … [truncated for Appwrite storage]';
+const DOCUMENT_STORAGE_TRUNCATION_MARKER = ' ... [truncated for storage]';
 
 /**
  * Provides platform upload document too large error behavior.
@@ -179,9 +179,7 @@ function shrinkDescriptionToFit(doc: PlatformUploadDocumentStored, truncatedFlag
  * and title. Actual upload metadata still comes from the draft in the distribute route — this row is
  * primarily an audit snapshot.
  */
-export function serializePlatformUploadDocumentForAppwrite(
-  d: PlatformUploadDocumentStored
-): string {
+export function serializePlatformUploadDocumentForStorage(d: PlatformUploadDocumentStored): string {
   let doc: PlatformUploadDocumentStored = {
     ...d,
     tags: [...d.tags],
@@ -256,7 +254,7 @@ export function platformUploadDocumentJsonForCreateRow(
     draftYoutube,
     draftVimeo,
   } = data;
-  return serializePlatformUploadDocumentForAppwrite({
+  return serializePlatformUploadDocumentForStorage({
     title,
     description,
     tags: [...tags],

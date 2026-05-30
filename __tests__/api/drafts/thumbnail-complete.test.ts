@@ -48,7 +48,7 @@ function finalKeyFromCopyMock(): string {
 import { DraftDocumentTooLargeError } from '@/lib/draft-upload-metadata';
 import { MAX_DRAFT_THUMBNAIL_BYTES } from '@/lib/draft-thumbnail';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const USER_ID = 'user-123';
 const DRAFT_ID = 'draft-abc';
 
@@ -94,8 +94,6 @@ describe('POST /api/drafts/[id]/thumbnail/complete', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(deleteObject).mockResolvedValue(undefined);
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
@@ -289,7 +287,7 @@ describe('POST /api/drafts/[id]/thumbnail/complete', () => {
     expect(deleteObject).toHaveBeenCalledWith(previousKey);
 
     // updateDraft must complete before pendingKey is deleted so a transient
-    // Appwrite failure leaves the pending object available for a retry.
+    // persistence failure leaves the pending object available for a retry.
     const updateOrder = vi.mocked(updateDraft).mock.invocationCallOrder[0];
     const pendingDeleteOrder = vi.mocked(deleteObject).mock.invocationCallOrder[0];
     expect(updateOrder).toBeLessThan(pendingDeleteOrder);

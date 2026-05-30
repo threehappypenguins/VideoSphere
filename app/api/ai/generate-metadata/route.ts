@@ -6,7 +6,7 @@
 // the appropriate OpenRouter model, and returns AI-generated title, description,
 // and tags for the video.
 //
-// Auth: requires a valid Appwrite session cookie (401 if missing/invalid).
+// Auth: requires a valid authenticated session cookie (401 if missing/invalid).
 //
 // Request body:
 //   {

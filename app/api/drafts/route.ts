@@ -2,8 +2,7 @@
 // POST /api/drafts  — create a new draft
 // GET  /api/drafts  — list all drafts for the authenticated user
 // =============================================================================
-// Auth: reads the httpOnly session cookie, creates a scoped Appwrite Client
-// with setSession(), and calls Account.get() to verify identity.
+// Auth: reads the httpOnly session cookie and verifies the authenticated user id.
 // Returns 401 if no valid session exists.
 // =============================================================================
 

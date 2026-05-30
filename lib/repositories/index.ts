@@ -2,7 +2,7 @@
 // REPOSITORIES — single entry point for data access
 // =============================================================================
 // Import from '@/lib/repositories' or '@/lib/repositories/users', etc.
-// All Appwrite (and future R2/API) access is behind this layer.
+// All persistence (and future R2/API) access is behind this layer.
 // =============================================================================
 
 export {

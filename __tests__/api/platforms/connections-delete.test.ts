@@ -34,7 +34,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const USER_ID = 'user-abc';
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const ACCOUNT_ID = 'conn-123';
 
 function makeRequest(
@@ -70,11 +70,8 @@ const MOCK_ACCOUNT = {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
-  vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'https://appwrite.test/v1');
   mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-    const token =
-      req.cookies.get('videosphere_session')?.value ?? req.cookies.get(SESSION_COOKIE)?.value;
+    const token = req.cookies.get(SESSION_COOKIE)?.value;
     if (!token || /bad|invalid|expired/i.test(token)) return null;
     return req.headers.get('x-test-user-id') || USER_ID;
   });

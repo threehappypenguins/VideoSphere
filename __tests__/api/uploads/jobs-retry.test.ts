@@ -71,7 +71,7 @@ import type {
   UploadJobStatus,
 } from '@/types';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 const baseDraft: Draft = {
   id: 'draft-1',
@@ -141,8 +141,6 @@ function makeParams(id: string) {
 describe('POST /api/uploads/jobs/[id]/retry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
 
     mockHeadObject.mockResolvedValue(4096);
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');

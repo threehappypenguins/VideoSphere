@@ -28,7 +28,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
 import { getObjectUrl, buildDraftThumbnailFinalKey } from '@/lib/r2';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const USER_ID = 'user-123';
 const DRAFT_ID = 'draft-abc';
 
@@ -72,8 +72,6 @@ function makeParams(id = DRAFT_ID) {
 describe('GET /api/drafts/[id] thumbnail preview gating', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
@@ -120,8 +118,6 @@ describe('GET /api/drafts/[id] thumbnail preview gating', () => {
 describe('PATCH /api/drafts/[id] thumbnail preview gating', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {

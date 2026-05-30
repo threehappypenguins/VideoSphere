@@ -1,7 +1,7 @@
 // =============================================================================
 // GET /api/auth/oauth/google
 // =============================================================================
-// Initiates Google OAuth2 Authorization Code flow (no Appwrite dependency).
+// Initiates Google OAuth2 Authorization Code flow (no external auth vendor dependency).
 // =============================================================================
 
 import { randomBytes } from 'node:crypto';

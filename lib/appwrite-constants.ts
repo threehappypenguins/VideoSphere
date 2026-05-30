@@ -1,11 +1,10 @@
 // =============================================================================
-// APPWRITE DATABASE & COLLECTION IDS
+// DATABASE & COLLECTION IDS
 // =============================================================================
 // Single source of truth for database and collection IDs. Use these in
 // lib/repositories and API routes so IDs stay consistent.
 //
-// In Appwrite, "collections" (Databases API) and "tables" (Tables API) refer
-// to the same container; see docs/appwrite-databases.md.
+// "Collections" and "tables" refer to the same logical data container.
 // =============================================================================
 
 /**

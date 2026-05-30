@@ -37,9 +37,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Appwrite installer output (local Docker config; contains secrets)
-appwrite/
-
 # Misc
 *.pem
 *.swp

@@ -5,7 +5,7 @@
 // (no tokens). Used by client components (e.g. draft form platform selector)
 // that need to know which platforms are connected.
 //
-// Auth: reads the httpOnly Appwrite session cookie via getAuthenticatedUserId.
+// Auth: reads the httpOnly authenticated session cookie via getAuthenticatedUserId.
 // Returns 401 if not authenticated, 200 with the account list otherwise.
 // =============================================================================
 

@@ -4,7 +4,7 @@
 // Disconnects a connected platform account by ID. Only the owning user can
 // delete their own connection — ownership is verified before deletion.
 //
-// Auth: reads the httpOnly Appwrite session cookie via getAuthenticatedUserId.
+// Auth: reads the httpOnly authenticated session cookie via getAuthenticatedUserId.
 // Returns 401 if not authenticated, 404 if the account doesn't exist or
 // doesn't belong to the user, 204 on success.
 //

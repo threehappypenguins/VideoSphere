@@ -57,8 +57,6 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
 describe('Dashboard accessibility', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     mockCookiesGet.mockReturnValue({ value: 'valid-session-token' });
     mockGetCurrentUserIdFromCookies.mockResolvedValue('user-123');
     mockCountDraftsByUser.mockResolvedValue(2);

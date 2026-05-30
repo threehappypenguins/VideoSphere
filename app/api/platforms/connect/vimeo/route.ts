@@ -1,7 +1,7 @@
 // =============================================================================
 // GET /api/platforms/connect/vimeo
 // =============================================================================
-// Initiates the Vimeo OAuth2 connection flow. Verifies the user's Appwrite
+// Initiates the Vimeo OAuth2 connection flow. Verifies the user's authenticated
 // session, builds the Vimeo OAuth2 authorization URL, generates a random CSRF
 // nonce for the `state` parameter (stored in a short-lived httpOnly cookie),
 // then redirects the browser to Vimeo's consent screen.
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 
   // Generate a cryptographically random CSRF nonce. Stored in a short-lived
   // httpOnly cookie alongside userId so the callback can verify identity
-  // without relying on the Appwrite session cookie (which is sameSite=strict
+  // without relying on the authenticated session cookie (which is sameSite=strict
   // and is dropped on the cross-site redirect back from Vimeo).
   // Format: "<nonce>|<userId>".
   const csrfNonce = randomBytes(32).toString('hex');

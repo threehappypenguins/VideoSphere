@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================================
-    // 1. Authenticate via shared helper (session cookie → Appwrite)
+    // 1. Authenticate via shared helper (session cookie -> authenticated user)
     // =========================================================================
     const userId = await getAuthenticatedUserId(req);
     if (!userId) {

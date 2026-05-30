@@ -13,7 +13,7 @@ vi.mock('@/lib/api/auth', () => ({
 
 import { GET } from '@/app/api/platforms/connect/drive/route';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 function makeRequest(cookies: Record<string, string> = {}): NextRequest {
   const url = new URL('http://localhost:3000/api/platforms/connect/drive');
@@ -29,12 +29,9 @@ function makeRequest(cookies: Record<string, string> = {}): NextRequest {
 describe('GET /api/platforms/connect/drive', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     process.env.GOOGLE_DRIVE_CLIENT_ID = 'test-drive-client-id';
     mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-      const token =
-        req.cookies.get('videosphere_session')?.value ?? req.cookies.get(SESSION_COOKIE)?.value;
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
       return 'user-123';
     });

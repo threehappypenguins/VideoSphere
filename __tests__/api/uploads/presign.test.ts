@@ -2,7 +2,7 @@
  * Tests for POST /api/uploads/presign
  *
  * Tests request validation, authentication, upload quota, and presigned URL generation.
- * Mocks external dependencies (Appwrite, R2, repositories) to isolate endpoint logic.
+ * Mocks external dependencies (auth, R2, repositories) to isolate endpoint logic.
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
@@ -115,15 +115,11 @@ function createRequest(
 describe('POST /api/uploads/presign', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     process.env.R2_BUCKET_NAME = 'test-bucket';
 
     // Default: mimic helper behavior from real JWT cookie auth.
     mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-      const token =
-        req.cookies.get('videosphere_session')?.value ??
-        req.cookies.get('a_session_test-project')?.value;
+      const token = req.cookies.get('videosphere_session')?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
       return req.headers.get('x-test-user-id') || 'user-123';
     });
@@ -182,12 +178,12 @@ describe('POST /api/uploads/presign', () => {
     });
 
     it('should return 400 when request is authenticated but missing required fields', async () => {
-      // Legacy Appwrite session mocking is no longer part of route auth.
+      // Legacy alternate session mocking is no longer part of route auth.
       // With an auth cookie present, this request now fails body validation.
 
       const request = createRequest(
         { filename: 'test.mp4', contentType: 'video/mp4' },
-        { 'a_session_test-project': 'valid-session' }
+        { videosphere_session: 'valid-session' }
       );
       const response = await POST(request);
 
@@ -202,7 +198,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'valid-token' }
+        { videosphere_session: 'valid-token' }
       );
       const response = await POST(request);
 
@@ -212,10 +208,7 @@ describe('POST /api/uploads/presign', () => {
 
   describe('Request Validation', () => {
     it('should return 400 when filename is missing', async () => {
-      const request = createRequest(
-        { contentType: 'video/mp4' },
-        { 'a_session_test-project': 'token' }
-      );
+      const request = createRequest({ contentType: 'video/mp4' }, { videosphere_session: 'token' });
       const response = await POST(request);
 
       expect(response.status).toBe(400);
@@ -226,7 +219,7 @@ describe('POST /api/uploads/presign', () => {
     it('should return 400 when filename is empty', async () => {
       const request = createRequest(
         { filename: '', contentType: 'video/mp4' },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -236,10 +229,7 @@ describe('POST /api/uploads/presign', () => {
     });
 
     it('should return 400 when contentType is missing', async () => {
-      const request = createRequest(
-        { filename: 'test.mp4' },
-        { 'a_session_test-project': 'token' }
-      );
+      const request = createRequest({ filename: 'test.mp4' }, { videosphere_session: 'token' });
       const response = await POST(request);
 
       expect(response.status).toBe(400);
@@ -250,7 +240,7 @@ describe('POST /api/uploads/presign', () => {
     it('should return 400 when contentType is empty', async () => {
       const request = createRequest(
         { filename: 'test.mp4', contentType: '' },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -262,7 +252,7 @@ describe('POST /api/uploads/presign', () => {
     it('should return 400 when contentType format is invalid (missing /)', async () => {
       const request = createRequest(
         { filename: 'test.mp4', contentType: 'invalid' },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -279,7 +269,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -293,7 +283,7 @@ describe('POST /api/uploads/presign', () => {
         body: 'invalid json}',
         headers: {
           'Content-Type': 'application/json',
-          Cookie: 'a_session_test-project=token',
+          Cookie: 'videosphere_session=token',
         },
       };
       const request = new NextRequest(url, init);
@@ -313,7 +303,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(200);
@@ -358,7 +348,7 @@ describe('POST /api/uploads/presign', () => {
       it(`should accept ${filename} (${contentType})`, async () => {
         const request = createRequest(
           { filename, contentType, fileSize, draftId },
-          { 'a_session_test-project': 'token' }
+          { videosphere_session: 'token' }
         );
         const response = await POST(request);
         expect(response.status).toBe(200);
@@ -368,7 +358,7 @@ describe('POST /api/uploads/presign', () => {
     it('should reject unsupported MIME type', async () => {
       const request = createRequest(
         { filename: 'video.mp4', contentType: 'video/mpeg' },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -379,7 +369,7 @@ describe('POST /api/uploads/presign', () => {
     it('should reject unsupported extension even with valid MIME type', async () => {
       const request = createRequest(
         { filename: 'video.flv', contentType: 'video/mp4' },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -392,7 +382,7 @@ describe('POST /api/uploads/presign', () => {
     it('should return 400 when fileSize is missing', async () => {
       const request = createRequest(
         { filename: 'video.mp4', contentType: 'video/mp4' },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -408,7 +398,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1 * 1024 * 1024 * 1024, // 1 GB
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(200);
@@ -421,7 +411,7 @@ describe('POST /api/uploads/presign', () => {
           contentType: 'video/mp4',
           fileSize: 6 * 1024 * 1024 * 1024, // 6 GB
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -432,7 +422,7 @@ describe('POST /api/uploads/presign', () => {
     it('should reject an invalid (non-positive) fileSize', async () => {
       const request = createRequest(
         { filename: 'video.mp4', contentType: 'video/mp4', fileSize: -1 },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -441,7 +431,7 @@ describe('POST /api/uploads/presign', () => {
     it('should reject NaN as fileSize', async () => {
       const request = createRequest(
         { filename: 'video.mp4', contentType: 'video/mp4', fileSize: NaN },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -452,7 +442,7 @@ describe('POST /api/uploads/presign', () => {
     it('should reject Infinity as fileSize', async () => {
       const request = createRequest(
         { filename: 'video.mp4', contentType: 'video/mp4', fileSize: Infinity },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -463,7 +453,7 @@ describe('POST /api/uploads/presign', () => {
     it('should reject a fractional fileSize', async () => {
       const request = createRequest(
         { filename: 'video.mp4', contentType: 'video/mp4', fileSize: 1024.5 },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(400);
@@ -486,7 +476,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -511,7 +501,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(200);
@@ -535,7 +525,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       expect(response.status).toBe(200);
@@ -557,7 +547,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -579,7 +569,7 @@ describe('POST /api/uploads/presign', () => {
     it('should return 400 when draftId is missing', async () => {
       const request = createRequest(
         { filename: 'test.mp4', contentType: 'video/mp4', fileSize: 1024 * 1024 },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -597,7 +587,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -618,7 +608,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -634,7 +624,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       await POST(request);
 
@@ -656,7 +646,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'nonexistent-draft',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -687,7 +677,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-other',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -705,7 +695,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       const body = await response.json();
@@ -722,7 +712,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       const body = await response.json();
@@ -739,7 +729,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       await POST(request);
 
@@ -758,7 +748,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response1 = await POST(request1);
       const body1 = await response1.json();
@@ -772,7 +762,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response2 = await POST(request2);
       const body2 = await response2.json();
@@ -788,7 +778,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
       const body = await response.json();
@@ -810,7 +800,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -829,7 +819,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       await POST(request);
 
@@ -846,7 +836,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       await POST(request);
 
@@ -872,7 +862,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       await POST(request);
 
@@ -887,7 +877,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 
@@ -909,7 +899,7 @@ describe('POST /api/uploads/presign', () => {
           fileSize: 1024 * 1024,
           draftId: 'draft-abc',
         },
-        { 'a_session_test-project': 'token' }
+        { videosphere_session: 'token' }
       );
       const response = await POST(request);
 

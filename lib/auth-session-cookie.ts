@@ -8,7 +8,7 @@
  * Returns the configured session cookie name.
  *
  * The optional projectId argument is kept for backward compatibility with
- * existing call sites that previously passed Appwrite project id.
+ * existing call sites that previously passed an auth provider project id.
  * @returns The computed result.
  */
 export function getSessionCookieName(projectId?: string): string {
