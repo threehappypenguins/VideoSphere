@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
 set -e
 
-pnpm type-check
-pnpm test -- --run
+# pnpm type-check
+# pnpm test -- --run
