@@ -24,34 +24,11 @@ vi.mock('next/server', async (importOriginal) => {
   };
 });
 
-const mockGet = vi.fn();
+const mockGetAuthenticatedUserId = vi.fn();
 
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-
-  function MockAccount() {
-    this.get = mockGet;
-  }
-
-  function MockClient() {
-    return mockClient;
-  }
-
-  return {
-    Client: MockClient,
-    Account: MockAccount,
-  };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 const mockGetDraftById = vi.fn();
 const mockGetUserById = vi.fn();
@@ -136,6 +113,8 @@ vi.mock('@/lib/platforms/google-drive', () => ({
 
 import { POST } from '@/app/api/uploads/distribute/route';
 
+const SESSION_COOKIE = 'videosphere_session';
+
 function createRequest(
   body: Record<string, unknown>,
   cookies: Record<string, string> = {}
@@ -160,11 +139,11 @@ function createRequest(
 describe('POST /api/uploads/distribute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
-
-    mockGet.mockResolvedValue({ $id: 'user-123' });
+    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return req.headers.get('x-test-user-id') || 'user-123';
+    });
 
     mockGetDraftById.mockResolvedValue({
       id: 'draft-1',
@@ -374,10 +353,7 @@ describe('POST /api/uploads/distribute', () => {
 
   it('returns 400 for invalid payload', async () => {
     const response = await POST(
-      createRequest(
-        { draftId: 'd1', platforms: ['youtube'] },
-        { 'a_session_test-project': 'token' }
-      )
+      createRequest({ draftId: 'd1', platforms: ['youtube'] }, { [SESSION_COOKIE]: 'token' })
     );
 
     expect(response.status).toBe(400);
@@ -393,7 +369,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube', 'vimeo', 'youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -409,7 +385,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube', 'youtube', 'youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -425,7 +401,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube', 'vimeo'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -462,7 +438,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -511,7 +487,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube', 'vimeo'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -529,7 +505,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/other-user/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -549,7 +525,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -583,7 +559,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube', 'vimeo'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -623,7 +599,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -642,7 +618,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -720,7 +696,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -771,7 +747,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -784,7 +760,7 @@ describe('POST /api/uploads/distribute', () => {
       thumbnailContentType: null,
     });
     // updateDraft (DB clear) must happen before deleteObject (R2 cleanup) so a failed
-    // Appwrite write leaves the object intact rather than creating a stale key.
+    // persistence write leaves the object intact rather than creating a stale key.
     const updateCallOrder = mockUpdateDraft.mock.invocationCallOrder[0];
     const deleteCallOrder = mockDeleteObject.mock.invocationCallOrder[1];
     expect(updateCallOrder).toBeLessThan(deleteCallOrder);
@@ -806,7 +782,7 @@ describe('POST /api/uploads/distribute', () => {
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
 
-    mockUpdateDraft.mockRejectedValue(new Error('appwrite error'));
+    mockUpdateDraft.mockRejectedValue(new Error('persistence error'));
 
     const response = await POST(
       createRequest(
@@ -815,7 +791,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -859,7 +835,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -916,7 +892,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -950,7 +926,7 @@ describe('POST /api/uploads/distribute', () => {
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
     mockUpdateDraft
-      .mockRejectedValueOnce(new Error('transient appwrite error'))
+      .mockRejectedValueOnce(new Error('transient persistence error'))
       .mockResolvedValueOnce({
         id: 'draft-1',
         userId: 'user-123',
@@ -971,7 +947,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
     expect(response.status).toBe(202);
@@ -1008,7 +984,7 @@ describe('POST /api/uploads/distribute', () => {
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });
-    mockUpdateDraft.mockRejectedValue(new Error('appwrite down'));
+    mockUpdateDraft.mockRejectedValue(new Error('persistence down'));
 
     const response = await POST(
       createRequest(
@@ -1017,7 +993,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
     expect(response.status).toBe(202);
@@ -1080,7 +1056,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['google_drive'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -1159,7 +1135,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['google_drive', 'youtube'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -1250,7 +1226,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['google_drive', 'vimeo'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 
@@ -1371,7 +1347,7 @@ describe('POST /api/uploads/distribute', () => {
           r2ObjectKey: 'temp/uploads/user-123/video.mp4',
           platforms: ['youtube', 'vimeo'],
         },
-        { 'a_session_test-project': 'token' }
+        { [SESSION_COOKIE]: 'token' }
       )
     );
 

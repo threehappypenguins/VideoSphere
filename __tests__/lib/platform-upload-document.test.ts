@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS,
   platformUploadDocumentFromRow,
-  serializePlatformUploadDocumentForAppwrite,
+  serializePlatformUploadDocumentForStorage,
   stringifyPlatformUploadDocumentForStorage,
 } from '@/lib/platform-upload-document';
 
@@ -54,9 +54,9 @@ describe('platform-upload-document', () => {
     });
   });
 
-  it('serializePlatformUploadDocumentForAppwrite keeps JSON within Appwrite max', () => {
+  it('serializePlatformUploadDocumentForStorage keeps JSON within storage max', () => {
     const huge = 'x'.repeat(20_000);
-    const json = serializePlatformUploadDocumentForAppwrite({
+    const json = serializePlatformUploadDocumentForStorage({
       title: 't',
       description: huge,
       tags: ['a'],
@@ -69,7 +69,7 @@ describe('platform-upload-document', () => {
   });
 
   it('parse ignores __documentStorageTruncated helper key from stored JSON', () => {
-    const json = serializePlatformUploadDocumentForAppwrite({
+    const json = serializePlatformUploadDocumentForStorage({
       title: 'ok',
       description: 'x'.repeat(25_000),
       tags: [],

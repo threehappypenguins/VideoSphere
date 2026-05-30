@@ -5,13 +5,12 @@
 // retries, and replays can be ignored safely across deploys and restarts.
 // =============================================================================
 
-import { TablesDB } from 'node-appwrite';
 import { createHash } from 'crypto';
-import appwriteClient from '@/lib/appwrite';
-import { DATABASE_ID, PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID } from '@/lib/appwrite-constants';
-import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
-
-const tablesDb = new TablesDB(appwriteClient);
+import { connectToDatabase } from '@/lib/mongodb';
+import {
+  ProcessedWebhookEventModel,
+  type ProcessedWebhookEventDocument,
+} from '@/lib/models/ProcessedWebhookEvent';
 
 type WebhookProvider = 'stripe';
 type WebhookEventStatus =
@@ -44,14 +43,12 @@ interface WebhookEventRow {
   updatedAt: string;
 }
 
-interface AppwriteTransaction {
-  $id?: unknown;
-  id?: unknown;
-  transactionId?: unknown;
+function isMongoDuplicateKeyError(error: unknown): boolean {
+  const mongoError = error as { code?: number } | null;
+  return mongoError?.code === 11000;
 }
 
 function webhookEventRowId(provider: WebhookProvider, eventId: string): string {
-  // Keep Appwrite row IDs within a conservative charset/length while preserving determinism.
   const hash = createHash('sha256').update(`${provider}:${eventId}`).digest('hex').slice(0, 32);
   return `${provider[0]}_${hash}`;
 }
@@ -60,16 +57,6 @@ function trimLastError(message: string): string {
   return message.length <= MAX_LAST_ERROR_LENGTH
     ? message
     : `${message.slice(0, MAX_LAST_ERROR_LENGTH - 1)}…`;
-}
-
-function isConflictError(error: unknown): boolean {
-  const appwriteError = error as { code?: number; type?: string };
-  return appwriteError.code === 409 || appwriteError.type === 'row_already_exists';
-}
-
-function isNotFoundError(error: unknown): boolean {
-  const appwriteError = error as { code?: number; type?: string };
-  return appwriteError.code === 404 || appwriteError.type === 'row_not_found';
 }
 
 function processingStaleMs(): number {
@@ -105,78 +92,18 @@ function isStaleProcessing(updatedAt: string, createdAt: string): boolean {
 }
 
 async function getWebhookEventRow(eventId: string): Promise<WebhookEventRow | null> {
+  await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  try {
-    const row = (await tablesDb.getRow({
-      databaseId: DATABASE_ID,
-      tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-      rowId,
-    })) as Record<string, unknown>;
-    const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+  const doc = await ProcessedWebhookEventModel.findById(
+    rowId
+  ).lean<ProcessedWebhookEventDocument | null>();
+  if (!doc) return null;
 
-    return {
-      status: normalizeWebhookEventStatus(row.status),
-      createdAt: $createdAt,
-      updatedAt: $updatedAt,
-    };
-  } catch (error) {
-    if (isNotFoundError(error)) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-function isUpdateConflictError(error: unknown): boolean {
-  const appwriteError = error as { code?: number; type?: string };
-  return appwriteError.code === 409 || appwriteError.type === 'row_update_conflict';
-}
-
-function parseTransactionId(value: unknown): string | null {
-  const tx = value as AppwriteTransaction;
-  const candidate = tx.$id ?? tx.id ?? tx.transactionId;
-  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
-}
-
-async function createTransactionId(): Promise<string> {
-  const transactionalTablesDb = tablesDb as TablesDB & {
-    createTransaction: (params?: { ttl?: number }) => Promise<unknown>;
+  return {
+    status: normalizeWebhookEventStatus(doc.status),
+    createdAt: new Date(doc.createdAt).toISOString(),
+    updatedAt: new Date(doc.updatedAt).toISOString(),
   };
-
-  const created = await transactionalTablesDb.createTransaction();
-  const transactionId = parseTransactionId(created);
-  if (!transactionId) {
-    throw new Error('Appwrite transaction creation returned no transaction id');
-  }
-
-  return transactionId;
-}
-
-async function finalizeTransaction(
-  transactionId: string,
-  mode: 'commit' | 'rollback'
-): Promise<void> {
-  const transactionalTablesDb = tablesDb as TablesDB & {
-    updateTransaction: (params: {
-      transactionId: string;
-      commit?: boolean;
-      rollback?: boolean;
-    }) => Promise<unknown>;
-  };
-
-  await transactionalTablesDb.updateTransaction({
-    transactionId,
-    commit: mode === 'commit' ? true : undefined,
-    rollback: mode === 'rollback' ? true : undefined,
-  });
-}
-
-async function rollbackTransactionQuietly(transactionId: string): Promise<void> {
-  try {
-    await finalizeTransaction(transactionId, 'rollback');
-  } catch {
-    // Best-effort rollback only.
-  }
 }
 
 function canReclaimFromStatus(
@@ -200,88 +127,66 @@ async function tryTransitionWebhookEventToProcessing(
   eventType: string,
   _existing: WebhookEventRow
 ): Promise<boolean> {
+  await connectToDatabase();
+
   const rowId = webhookEventRowId('stripe', eventId);
-  const data: Record<string, string> = {
-    eventId,
-    provider: 'stripe',
-    eventType,
-    status: 'processing',
-    lastError: '',
-  };
+  const current = await ProcessedWebhookEventModel.findById(
+    rowId
+  ).lean<ProcessedWebhookEventDocument | null>();
 
-  let transactionId: string | null = null;
-  let settled = false;
-
-  try {
-    transactionId = await createTransactionId();
-
-    const txRow = (await tablesDb.getRow({
-      databaseId: DATABASE_ID,
-      tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-      rowId,
-      transactionId,
-    })) as Record<string, unknown>;
-    const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(txRow);
-    const txStatus = normalizeWebhookEventStatus(txRow.status);
-
-    if (!canReclaimFromStatus(txStatus, $updatedAt, $createdAt)) {
-      await finalizeTransaction(transactionId, 'rollback');
-      settled = true;
+  if (!current) {
+    try {
+      await createWebhookEventRecord({
+        eventId,
+        provider: 'stripe',
+        eventType,
+      });
+      return true;
+    } catch (error) {
+      if (!isMongoDuplicateKeyError(error)) {
+        throw error;
+      }
       return false;
-    }
-
-    await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-      rowId,
-      data,
-      transactionId,
-    });
-
-    await finalizeTransaction(transactionId, 'commit');
-    settled = true;
-    return true;
-  } catch (error) {
-    if (isUpdateConflictError(error)) {
-      return false;
-    }
-
-    if (!isNotFoundError(error)) {
-      throw error;
-    }
-  } finally {
-    if (transactionId && !settled) {
-      await rollbackTransactionQuietly(transactionId);
     }
   }
 
-  try {
-    await createWebhookEventRecord({
+  const currentStatus = normalizeWebhookEventStatus(current.status);
+  const currentCreatedAt = new Date(current.createdAt).toISOString();
+  const currentUpdatedAt = new Date(current.updatedAt).toISOString();
+
+  if (!canReclaimFromStatus(currentStatus, currentUpdatedAt, currentCreatedAt)) {
+    return false;
+  }
+
+  const updated = await ProcessedWebhookEventModel.findOneAndUpdate(
+    {
+      _id: rowId,
+      status: current.status,
+      updatedAt: current.updatedAt,
+    },
+    {
       eventId,
       provider: 'stripe',
       eventType,
-    });
-    return true;
-  } catch (error) {
-    if (isConflictError(error)) {
-      return false;
-    }
-    throw error;
-  }
+      status: 'processing',
+      lastError: '',
+    },
+    { returnDocument: 'after' }
+  ).lean<ProcessedWebhookEventDocument | null>();
+
+  return updated !== null;
 }
 
 async function createWebhookEventRecord(input: CreateWebhookEventRecordInput): Promise<void> {
+  await connectToDatabase();
   const rowId = webhookEventRowId(input.provider, input.eventId);
-  await tablesDb.createRow({
-    databaseId: DATABASE_ID,
-    tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId,
-    data: {
-      eventId: input.eventId,
-      provider: input.provider,
-      eventType: input.eventType,
-      status: 'processing' satisfies WebhookEventStatus,
-    },
+  await ProcessedWebhookEventModel.create({
+    _id: rowId,
+    eventId: input.eventId,
+    provider: input.provider,
+    eventType: input.eventType,
+    status: 'processing' satisfies WebhookEventStatus,
+    lastError: '',
   });
 }
 
@@ -295,6 +200,8 @@ export async function claimStripeWebhookEvent(
   eventId: string,
   eventType: string
 ): Promise<StripeWebhookProcessingClaimResult> {
+  await connectToDatabase();
+
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       await createWebhookEventRecord({
@@ -304,7 +211,7 @@ export async function claimStripeWebhookEvent(
       });
       return { claimed: true, status: 'processing' };
     } catch (error) {
-      if (!isConflictError(error)) {
+      if (!isMongoDuplicateKeyError(error)) {
         throw error;
       }
 
@@ -357,15 +264,15 @@ export async function claimStripeWebhookEvent(
  * @returns The computed result.
  */
 export async function markStripeWebhookEventCompleted(eventId: string): Promise<void> {
+  await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId,
-    data: {
-      status: 'completed' satisfies WebhookEventStatus,
-    },
-  });
+  const result = await ProcessedWebhookEventModel.updateOne(
+    { _id: rowId },
+    { status: 'completed' satisfies WebhookEventStatus }
+  );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**
@@ -378,16 +285,18 @@ export async function markStripeWebhookEventFailed(
   eventId: string,
   lastError: string
 ): Promise<void> {
+  await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId,
-    data: {
+  const result = await ProcessedWebhookEventModel.updateOne(
+    { _id: rowId },
+    {
       status: 'failed' satisfies WebhookEventStatus,
       lastError: trimLastError(lastError),
-    },
-  });
+    }
+  );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**
@@ -400,16 +309,18 @@ export async function markStripeWebhookEventBookkeepingFailed(
   eventId: string,
   lastError: string
 ): Promise<void> {
+  await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId,
-    data: {
+  const result = await ProcessedWebhookEventModel.updateOne(
+    { _id: rowId },
+    {
       status: 'completed_with_bookkeeping_error' satisfies WebhookEventStatus,
       lastError: trimLastError(lastError),
-    },
-  });
+    }
+  );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**
@@ -422,16 +333,18 @@ export async function markStripeWebhookEventNonRetryableFailed(
   eventId: string,
   lastError: string
 ): Promise<void> {
+  await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-    rowId,
-    data: {
+  const result = await ProcessedWebhookEventModel.updateOne(
+    { _id: rowId },
+    {
       status: 'failed_non_retryable' satisfies WebhookEventStatus,
       lastError: trimLastError(lastError),
-    },
-  });
+    }
+  );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**
@@ -440,17 +353,7 @@ export async function markStripeWebhookEventNonRetryableFailed(
  * @returns The computed result.
  */
 export async function deleteStripeWebhookEvent(eventId: string): Promise<void> {
+  await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  try {
-    await tablesDb.deleteRow({
-      databaseId: DATABASE_ID,
-      tableId: PROCESSED_WEBHOOK_EVENTS_COLLECTION_ID,
-      rowId,
-    });
-  } catch (error) {
-    if (isNotFoundError(error)) {
-      return;
-    }
-    throw error;
-  }
+  await ProcessedWebhookEventModel.deleteOne({ _id: rowId });
 }

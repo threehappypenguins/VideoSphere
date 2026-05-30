@@ -3,7 +3,7 @@
  *
  * This file was previously placeholder-like (hard-coded constants).
  * The tests below import and execute the actual exported route handlers,
- * while mocking Stripe and Appwrite dependencies.
+ * while mocking Stripe and persistence dependencies.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
@@ -12,7 +12,7 @@ import { NextRequest } from 'next/server';
 const checkoutSessionCreateMock = vi.hoisted(() => vi.fn());
 const constructEventMock = vi.hoisted(() => vi.fn());
 const setSupporterStatusMock = vi.hoisted(() => vi.fn());
-const accountGetMock = vi.hoisted(() => vi.fn());
+const getAuthenticatedUserIdMock = vi.hoisted(() => vi.fn());
 const getUserByIdMock = vi.hoisted(() => vi.fn());
 const claimStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventBookkeepingFailedMock = vi.hoisted(() => vi.fn());
@@ -35,28 +35,9 @@ vi.mock('stripe', () => {
   return { __esModule: true, default: StripeMock };
 });
 
-vi.mock('node-appwrite', () => {
-  return {
-    __esModule: true,
-    Client: class ClientMock {
-      setEndpoint() {
-        return this;
-      }
-      setProject() {
-        return this;
-      }
-      setSession() {
-        return this;
-      }
-    },
-    Account: class AccountMock {
-      constructor(..._args: any[]) {
-        // no-op
-      }
-      get = accountGetMock;
-    },
-  };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => getAuthenticatedUserIdMock(...args),
+}));
 
 vi.mock('@/lib/repositories/users', () => ({
   setSupporterStatus: setSupporterStatusMock,
@@ -75,6 +56,8 @@ vi.mock('@/lib/repositories/webhook-events', () => ({
 import { POST as checkoutPOST } from '@/app/api/payments/checkout/route';
 import { POST as webhookPOST } from '@/app/api/webhooks/stripe/route';
 
+const SESSION_COOKIE = 'videosphere_session';
+
 async function runWebhookRequestWithFakeTimers(request: NextRequest) {
   vi.useFakeTimers();
 
@@ -88,20 +71,17 @@ async function runWebhookRequestWithFakeTimers(request: NextRequest) {
 }
 
 function createCheckoutRequest({
-  projectId,
   cookies,
   origin = 'http://localhost:3000',
   url,
   extraHeaders,
 }: {
-  projectId: string;
   cookies?: Record<string, string>;
   origin?: string | null;
   url?: string;
   extraHeaders?: Record<string, string>;
 }): NextRequest {
-  const cookieName = `a_session_${projectId}`;
-  const cookieHeader = cookies ? `${cookieName}=${cookies[cookieName]}` : '';
+  const cookieHeader = cookies ? `${SESSION_COOKIE}=${cookies[SESSION_COOKIE]}` : '';
   const requestUrl = new URL(url ?? 'http://localhost:3000/api/payments/checkout');
 
   const headers: Record<string, string> = { ...extraHeaders };
@@ -139,14 +119,17 @@ function createWebhookRequest({
 describe('Stripe integration (checkout + webhook)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
 
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_secret');
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_webhook');
     vi.stubEnv('STRIPE_PRICE_ID', '');
     getUserByIdMock.mockResolvedValue({ role: 'user' });
+    getAuthenticatedUserIdMock.mockImplementation(async (req: NextRequest) => {
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return 'user-123';
+    });
     claimStripeWebhookEventMock.mockResolvedValue({ claimed: true, status: 'processing' });
     markStripeWebhookEventBookkeepingFailedMock.mockResolvedValue(undefined);
     markStripeWebhookEventCompletedMock.mockResolvedValue(undefined);
@@ -163,7 +146,6 @@ describe('Stripe integration (checkout + webhook)', () => {
   describe('Checkout Route (POST /api/payments/checkout)', () => {
     it('returns 403 when Origin header is missing', async () => {
       const req = createCheckoutRequest({
-        projectId: 'test-project',
         origin: null,
       });
 
@@ -174,7 +156,6 @@ describe('Stripe integration (checkout + webhook)', () => {
 
     it('returns 403 when Origin does not match app URL', async () => {
       const req = createCheckoutRequest({
-        projectId: 'test-project',
         origin: 'https://evil-site.com',
       });
 
@@ -191,7 +172,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         // The handler derives hostOrigin from req.nextUrl.protocol + Host header.
         // CSRF passes → handler falls through to auth and returns 401 (no cookie), not 403.
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           url: `https://${CODESPACE_HOST}/api/payments/checkout`,
           origin: `https://${CODESPACE_HOST}`,
           extraHeaders: { host: CODESPACE_HOST },
@@ -206,7 +186,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         vi.stubEnv('NODE_ENV', 'production');
 
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           origin: `https://${CODESPACE_HOST}`,
           extraHeaders: {
             host: CODESPACE_HOST,
@@ -225,7 +204,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         vi.stubEnv('NODE_ENV', 'production');
 
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           origin: 'https://evil.domain.com',
           extraHeaders: {
             host: 'evil.domain.com',
@@ -243,7 +221,6 @@ describe('Stripe integration (checkout + webhook)', () => {
         vi.stubEnv('NODE_ENV', 'production');
 
         const req = createCheckoutRequest({
-          projectId: 'test-project',
           origin: `http://${CODESPACE_HOST}`,
           extraHeaders: {
             host: CODESPACE_HOST,
@@ -259,29 +236,23 @@ describe('Stripe integration (checkout + webhook)', () => {
     });
 
     it('returns 401 when session cookie is missing', async () => {
-      vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
-      vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
-
-      const req = createCheckoutRequest({
-        projectId: 'test-project',
-      });
+      const req = createCheckoutRequest({});
 
       const res = await checkoutPOST(req);
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ error: 'Not authenticated' });
 
-      expect(accountGetMock).not.toHaveBeenCalled();
+      expect(getAuthenticatedUserIdMock).toHaveBeenCalledTimes(1);
       expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
     });
 
     it('returns 500 when STRIPE_SECRET_KEY is missing', async () => {
       vi.stubEnv('STRIPE_SECRET_KEY', '');
 
-      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
@@ -294,12 +265,11 @@ describe('Stripe integration (checkout + webhook)', () => {
     });
 
     it('returns 403 when authenticated user has admin role', async () => {
-      accountGetMock.mockResolvedValueOnce({ $id: 'admin_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('admin_123');
       getUserByIdMock.mockResolvedValueOnce({ role: 'admin' });
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
@@ -312,14 +282,13 @@ describe('Stripe integration (checkout + webhook)', () => {
     });
 
     it('creates a Stripe checkout session and returns checkoutUrl', async () => {
-      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('user-123');
       checkoutSessionCreateMock.mockResolvedValueOnce({
         url: 'https://checkout.stripe.com/pay/test',
       });
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
@@ -329,7 +298,7 @@ describe('Stripe integration (checkout + webhook)', () => {
 
       expect(checkoutSessionCreateMock).toHaveBeenCalledTimes(1);
       const call = checkoutSessionCreateMock.mock.calls[0]?.[0];
-      expect(call.client_reference_id).toBe('user_123');
+      expect(call.client_reference_id).toBe('user-123');
       expect(call.success_url).toContain('/payment/success');
       expect(call.cancel_url).toContain('/pricing');
       expect(call.line_items).toEqual([
@@ -350,21 +319,20 @@ describe('Stripe integration (checkout + webhook)', () => {
     it('uses STRIPE_PRICE_ID when provided', async () => {
       vi.stubEnv('STRIPE_PRICE_ID', 'price_test_123');
 
-      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('user-123');
       checkoutSessionCreateMock.mockResolvedValueOnce({
         url: 'https://checkout.stripe.com/pay/test',
       });
 
       const req = createCheckoutRequest({
-        projectId: 'test-project',
-        cookies: { 'a_session_test-project': 'session-secret' },
+        cookies: { [SESSION_COOKIE]: 'session-secret' },
       });
 
       const res = await checkoutPOST(req);
       expect(res.status).toBe(200);
 
       const call = checkoutSessionCreateMock.mock.calls[0]?.[0];
-      expect(call.client_reference_id).toBe('user_123');
+      expect(call.client_reference_id).toBe('user-123');
       expect(call.line_items).toEqual([{ price: 'price_test_123', quantity: 1 }]);
     });
   });
@@ -551,7 +519,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         },
       });
       setSupporterStatusMock.mockResolvedValueOnce(undefined);
-      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Persistence update outage'));
 
       const res = await runWebhookRequestWithFakeTimers(
         createWebhookRequest({
@@ -566,7 +534,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
       expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
         'evt_completion_mark_fail',
-        'Appwrite update outage'
+        'Persistence update outage'
       );
       expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
       expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
@@ -584,7 +552,7 @@ describe('Stripe integration (checkout + webhook)', () => {
         },
       });
       setSupporterStatusMock.mockResolvedValueOnce(undefined);
-      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+      markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Persistence update outage'));
       markStripeWebhookEventBookkeepingFailedMock.mockRejectedValueOnce(
         new Error('terminal status write failed')
       );
@@ -603,7 +571,7 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
       expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
         'evt_completion_terminal_persist_fail',
-        'Appwrite update outage'
+        'Persistence update outage'
       );
       expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
       expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();

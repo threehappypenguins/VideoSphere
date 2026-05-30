@@ -1,14 +1,3 @@
-# =============================================================================
-# VideoSphere — Docker Compose
-# =============================================================================
-# Run the Next.js app in a container. For local development you typically run
-# the app on the host (pnpm dev) and only Appwrite in Docker — see
-# docs/docker-appwrite-setup.md for Appwrite.
-#
-# Build and run app:  docker compose up -d
-# Stop:               docker compose down
-# =============================================================================
-
 services:
   app:
     build:
@@ -21,8 +10,34 @@ services:
       - '3000:3000'
     env_file:
       - .env.local
-    # Uncomment to talk to Appwrite in another container or on host:
-    # environment:
-    #   - NEXT_PUBLIC_APPWRITE_ENDPOINT=http://appwrite/v1
-    #   # Or use host.docker.internal for Docker Desktop talking to host:
-    #   - NEXT_PUBLIC_APPWRITE_ENDPOINT=http://host.docker.internal:80/v1
+    environment:
+      # NOTE: Compose interpolates ${...} before service env_file is loaded.
+      # MONGO_ROOT_PASSWORD must be available to Compose itself (shell env,
+      # a project-level .env, or `docker compose --env-file .env.local ...`).
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:?required}@mongo:27017/videosphere?authSource=admin
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:8
+    container_name: videosphere-mongo
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:27017:27017'
+    environment:
+      # NOTE: This required interpolation is resolved by Compose (not env_file).
+      # Ensure MONGO_ROOT_PASSWORD is provided via shell/.env/--env-file.
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?required}
+      MONGO_INITDB_DATABASE: videosphere
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo-data:

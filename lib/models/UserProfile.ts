@@ -1,0 +1,36 @@
+import mongoose, { Schema } from 'mongoose';
+import type { UserRole } from '@/types';
+
+/**
+ * Raw MongoDB document shape for the `user_profiles` collection.
+ */
+export interface UserProfileDocument {
+  _id: string;
+  userId: string;
+  email: string;
+  name?: string;
+  passwordHash?: string;
+  isSupporter: boolean;
+  hasCompletedOnboarding: boolean;
+  role: UserRole;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const UserProfileSchema = new Schema<UserProfileDocument>(
+  {
+    _id: { type: String },
+    userId: { type: String, required: true, unique: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    name: { type: String, required: false, trim: true },
+    passwordHash: { type: String, required: false },
+    isSupporter: { type: Boolean, default: false },
+    hasCompletedOnboarding: { type: Boolean, default: false },
+    role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  },
+  { timestamps: true }
+);
+
+export const UserProfileModel =
+  (mongoose.models.UserProfile as mongoose.Model<UserProfileDocument> | undefined) ||
+  mongoose.model<UserProfileDocument>('UserProfile', UserProfileSchema, 'user_profiles');

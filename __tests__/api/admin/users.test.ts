@@ -106,7 +106,7 @@ describe('GET /api/admin/users', () => {
 
     it('returns 500 ApiError when getUserById throws', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce('admin-1');
-      vi.mocked(getUserById).mockRejectedValueOnce(new Error('Appwrite unavailable'));
+      vi.mocked(getUserById).mockRejectedValueOnce(new Error('Database unavailable'));
 
       const res = await GET(makeGetRequest());
       expect(res.status).toBe(500);

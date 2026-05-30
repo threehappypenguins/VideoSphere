@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=20.19.0",
     "pnpm": ">=10.0.0"
   },
   "scripts": {
     "preinstall": "node -e \"if(!process.env.npm_execpath?.includes('pnpm')){console.error('\\n  ✖ This project requires pnpm — npm is not supported.\\n\\n  Run the following instead:\\n    rm -rf node_modules\\n    pnpm install\\n\\n  If you don\\'t have pnpm: npm i -g pnpm\\n');process.exit(1)}\"",
-    "dev": "next dev --turbopack",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -24,8 +24,7 @@
     "docs:dev": "pnpm docs:api && vitepress dev docs",
     "docs:build": "pnpm docs:api && vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "prepare": "husky",
-    "setup:appwrite": "tsx scripts/setup-appwrite.ts"
+    "prepare": "husky"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -46,13 +45,14 @@
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
-    "appwrite": "^23.0.0",
+    "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "jose": "^6.2.3",
     "lucide-react": "^0.577.0",
+    "mongoose": "^9.6.3",
     "next": "16.1.6",
     "next-themes": "^0.4.6",
-    "node-appwrite": "^22.1.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-joyride": "^3.0.1",

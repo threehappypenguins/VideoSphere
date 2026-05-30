@@ -10,11 +10,9 @@
 //   /admin/*      — authenticated admin users only
 //
 // Session is stored as an httpOnly cookie. Authentication is verified by
-// calling Appwrite-backed API routes internally (outside the matcher so no
-// circular routing). Admin RBAC uses GET /api/auth/session-role so this file
-// never imports lib/appwrite or the users repository — middleware stays free
-// of server SDK init (and edge-safe fetch-only I/O). Role still comes from
-// user_profiles, not Auth prefs/labels.
+// calling internal API routes (outside the matcher so no circular routing).
+// Admin RBAC uses GET /api/auth/session-role so this file avoids direct data
+// layer imports and keeps middleware edge-safe via fetch-only I/O.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -68,15 +66,16 @@ function getFullPath(request: NextRequest): string {
   return search ? `${pathname}${search}` : pathname;
 }
 
+function getSessionTokenFromCookies(request: NextRequest): string | null {
+  return request.cookies.get(getSessionCookieName())?.value ?? null;
+}
+
 export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
     const fullPath = getFullPath(request);
 
-    // Use NEXT_PUBLIC_APPWRITE_PROJECT_ID to match /api/auth/session precedence
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const cookieName = projectId ? getSessionCookieName(projectId) : null;
-    const sessionToken = cookieName ? request.cookies.get(cookieName)?.value : null;
+    const sessionToken = getSessionTokenFromCookies(request);
 
     if (pathname === '/') {
       if (!sessionToken) {

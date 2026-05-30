@@ -17,32 +17,11 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
   deleteConnectedAccount: vi.fn(),
 }));
 
-// ---------------------------------------------------------------------------
-// Mock node-appwrite Client + Account (needed by getAuthenticatedUserId)
-// ---------------------------------------------------------------------------
+const mockGetAuthenticatedUserId = vi.fn();
 
-const mockAccountGet = vi.fn();
-
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-  function MockClient() {
-    return mockClient;
-  }
-  function MockAccount() {
-    this.get = mockAccountGet;
-  }
-  return { Client: MockClient, Account: MockAccount };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 import { DELETE } from '@/app/api/platforms/connections/[id]/route';
 import {
@@ -55,7 +34,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const USER_ID = 'user-abc';
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const ACCOUNT_ID = 'conn-123';
 
 function makeRequest(
@@ -68,7 +47,10 @@ function makeRequest(
     .join('; ');
   const req = new NextRequest(url, {
     method: 'DELETE',
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    headers: {
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      'x-test-user-id': USER_ID,
+    },
   });
   return [req, { params: Promise.resolve({ id }) }];
 }
@@ -88,9 +70,11 @@ const MOCK_ACCOUNT = {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
-  vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'https://appwrite.test/v1');
-  mockAccountGet.mockResolvedValue({ $id: USER_ID });
+  mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+    const token = req.cookies.get(SESSION_COOKIE)?.value;
+    if (!token || /bad|invalid|expired/i.test(token)) return null;
+    return req.headers.get('x-test-user-id') || USER_ID;
+  });
 });
 
 afterEach(() => {
@@ -112,8 +96,7 @@ describe('DELETE /api/platforms/connections/[id]', () => {
       expect(body.error).toBe('Unauthorized');
     });
 
-    it('returns 401 when the session is invalid (Appwrite throws)', async () => {
-      mockAccountGet.mockRejectedValueOnce(new Error('Session not found'));
+    it('returns 401 when the session is invalid', async () => {
       const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'bad-token' });
       const res = await DELETE(req, ctx);
       expect(res.status).toBe(401);

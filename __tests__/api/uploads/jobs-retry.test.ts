@@ -46,14 +46,13 @@ vi.mock('@/lib/r2', async (importOriginal) => {
 });
 
 const mockRunDistributionInBackground = vi.fn();
+const mockDistributeCreatePlatformUploadInput = vi.fn();
 
-vi.mock('@/lib/api/distribute', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/api/distribute')>();
-  return {
-    ...actual,
-    runDistributionInBackground: (...args: unknown[]) => mockRunDistributionInBackground(...args),
-  };
-});
+vi.mock('@/lib/api/distribute', () => ({
+  distributeCreatePlatformUploadInput: (...args: unknown[]) =>
+    mockDistributeCreatePlatformUploadInput(...args),
+  runDistributionInBackground: (...args: unknown[]) => mockRunDistributionInBackground(...args),
+}));
 
 import { POST } from '@/app/api/uploads/jobs/[id]/retry/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
@@ -72,7 +71,7 @@ import type {
   UploadJobStatus,
 } from '@/types';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 const baseDraft: Draft = {
   id: 'draft-1',
@@ -142,8 +141,6 @@ function makeParams(id: string) {
 describe('POST /api/uploads/jobs/[id]/retry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
 
     mockHeadObject.mockResolvedValue(4096);
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
@@ -174,6 +171,17 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
           errorMessage: null,
         })
       )
+    );
+
+    mockDistributeCreatePlatformUploadInput.mockImplementation(
+      (uploadJobId: string, draft: Draft, platform: ConnectedAccountPlatform) => ({
+        uploadJobId,
+        platform,
+        title: draft.title,
+        description: draft.description,
+        tags: draft.tags,
+        visibility: draft.visibility,
+      })
     );
   });
 

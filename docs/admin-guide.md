@@ -21,7 +21,7 @@ You may add more roles as needed (moderator, editor, etc.).
 
 ### How Roles Are Stored
 
-Roles are typically stored as a field on the user record:
+Roles are typically stored as a field on the user document:
 
 ```typescript
 interface User {
@@ -67,7 +67,7 @@ At a high level it:
 1. Reads the session cookie using `getSessionCookieName` from `@/lib/auth-session-cookie`
 2. Redirects to `/login` if no session cookie is present (fast path — no network call)
 3. For `/dashboard/*` and `/profile/*`, calls `/api/auth/session` internally to verify the session
-4. For `/admin/*`, calls `/api/auth/session-role` once (session check + `user_profiles.role` via the server repository — no Appwrite admin SDK imported in `proxy.ts`, so middleware stays fetch-only and does not require `APPWRITE_API_KEY` at module load for the proxy bundle)
+4. For `/admin/*`, calls `/api/auth/session-role` once (session check + `user_profiles.role` via the server repository; middleware stays fetch-only in `proxy.ts`)
 5. Redirects non-admin users to `/dashboard`; **401** from session-role to `/login`; other failures (503, network/JSON errors on the internal fetch) to `/dashboard` so transient or profile/DB issues are not shown as a full logout
 
 ### 2. Admin Page Strategy (Current Project)

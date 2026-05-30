@@ -1,7 +1,7 @@
 // =============================================================================
 // GET /api/platforms/connect/vimeo
 // =============================================================================
-// Initiates the Vimeo OAuth2 connection flow. Verifies the user's Appwrite
+// Initiates the Vimeo OAuth2 connection flow. Verifies the user's authenticated
 // session, builds the Vimeo OAuth2 authorization URL, generates a random CSRF
 // nonce for the `state` parameter (stored in a short-lived httpOnly cookie),
 // then redirects the browser to Vimeo's consent screen.
@@ -12,8 +12,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 
 /**
  * Defines the VIMEO_OAUTH_STATE_COOKIE constant.
@@ -29,37 +28,18 @@ const VIMEO_SCOPES = ['upload', 'edit', 'public', 'private'].join(' ');
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   const clientId = process.env.VIMEO_CLIENT_ID;
 
   const origin = req.nextUrl.origin;
   const failureUrl = `${origin}/profile/connections?error=vimeo`;
 
-  if (!endpoint || !projectId || !clientId) {
+  if (!clientId) {
     console.error('[GET /api/platforms/connect/vimeo] Missing required environment variables');
     return NextResponse.redirect(failureUrl);
   }
 
-  // Verify the user has an active Appwrite session
-  const cookieName = getSessionCookieName(projectId);
-  const sessionSecret = req.cookies.get(cookieName)?.value;
-
-  if (!sessionSecret) {
-    return NextResponse.redirect(`${origin}/login`);
-  }
-
-  let userId: string;
-  try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-
-    const account = new Account(client);
-    const user = await account.get();
-    userId = user.$id;
-  } catch {
+  const userId = await getAuthenticatedUserId(req);
+  if (!userId) {
     return NextResponse.redirect(`${origin}/login`);
   }
 
@@ -67,8 +47,9 @@ export async function GET(req: NextRequest) {
 
   // Generate a cryptographically random CSRF nonce. Stored in a short-lived
   // httpOnly cookie alongside userId so the callback can verify identity
-  // without relying on the Appwrite session cookie (which is sameSite=strict
-  // and is dropped on the cross-site redirect back from Vimeo).
+  // without relying on the authenticated session cookie. Binding identity to
+  // the OAuth state cookie keeps callback verification robust across browser
+  // same-site behavior changes and cookie policy adjustments.
   // Format: "<nonce>|<userId>".
   const csrfNonce = randomBytes(32).toString('hex');
   const cookieValue = `${csrfNonce}|${userId}`;

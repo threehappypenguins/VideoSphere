@@ -49,19 +49,19 @@ pnpm test pages/login.test   # Run only login page tests
 
 ### Validation Methods
 
-Since the Appwrite SDK requires complex mocking in unit tests, validation happens through:
+Since auth/data infrastructure relies on external services, validation happens through:
 
 1. **Static Type Checking** - `pnpm type-check` validates TypeScript types
 2. **Component Structure** - Test files validate JSX structure and attributes
-3. **Manual Testing** - Test with actual Appwrite instance during development
-4. **E2E Testing** - Recommended for full auth flow testing with real Appwrite
+3. **Manual Testing** - Test with local MongoDB + API routes during development
+4. **E2E Testing** - Recommended for complete auth and upload flow coverage
 
 ## Testing Best Practices
 
 - Write tests alongside features
 - Focus on component behavior and structure
 - Use integration tests for auth flows
-- Use E2E tests with real Appwrite for complete coverage
+- Use E2E tests with realistic local service dependencies for complete coverage
 - Run `pnpm type-check` to validate TypeScript
 
 ## Learn More

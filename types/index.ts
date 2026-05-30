@@ -35,15 +35,16 @@ export interface UploadUsage {
  * Defines the shape of user.
  */
 export interface User {
-  /** User identifier; aligns with user_profiles.userId in Appwrite. */
+  /** Stable application user identifier stored as the Mongo profile key (compatibility alias retained as userId). */
   userId: string;
   email: string;
+  name?: string;
   isSupporter: boolean;
   hasCompletedOnboarding: boolean;
   role: UserRole;
-  /** Appwrite system attribute on `user_profiles` rows (ISO string). */
+  /** Profile creation timestamp in ISO 8601 string format, sourced from Mongo document creation time. */
   $createdAt: string;
-  /** Appwrite system attribute on `user_profiles` rows (ISO string). */
+  /** Profile update timestamp in ISO 8601 string format, sourced from Mongo document update time. */
   $updatedAt: string;
 }
 
@@ -195,7 +196,7 @@ export interface VimeoDraftFields {
 }
 
 /**
- * Per-platform metadata on a draft (inside Appwrite `document` JSON).
+ * Per-platform metadata on a draft (inside `document` JSON).
  * Extend with e.g. `google_drive` when you add that destination.
  */
 export interface DraftPlatforms {
@@ -231,7 +232,7 @@ export interface Draft {
    * Ephemeral presigned GET URL for the draft form preview.
    * Returned by endpoints that include draft payloads (e.g. GET/PATCH /api/drafts/[id],
    * and thumbnail complete) when a valid thumbnail exists.
-   * Not stored in Appwrite.
+   * Not stored in persistent storage.
    */
   thumbnailPreviewUrl?: string;
   /**
@@ -239,9 +240,9 @@ export interface Draft {
    * Stored on the draft (denormalized) to avoid scanning upload job history.
    */
   usedInUploadAt?: string;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $createdAt: string;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $updatedAt: string;
 }
 
@@ -273,9 +274,9 @@ export interface UploadJob {
    * legacy rows created before this field existed (cancel may fall back to current tier).
    */
   quotaClaimMonth: string | null;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $createdAt: string;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $updatedAt: string;
 }
 
@@ -294,9 +295,9 @@ export interface PlatformUpload {
   visibility: PlatformUploadVisibility;
   scheduledAt: string | null;
   errorMessage: string | null;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $createdAt: string;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $updatedAt: string;
 }
 
@@ -318,9 +319,9 @@ export interface ConnectedAccountPublic {
   hasRefreshToken: boolean;
   platformUserId: string;
   platformName: string;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $createdAt: string;
-  /** Appwrite system attribute (ISO string). */
+  /** Persistence system attribute (ISO string). */
   $updatedAt: string;
 }
 

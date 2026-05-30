@@ -30,7 +30,7 @@ import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
 import { deleteObject, buildDraftThumbnailFinalKey } from '@/lib/r2';
 import { DraftDocumentTooLargeError } from '@/lib/draft-upload-metadata';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const USER_ID = 'user-123';
 const DRAFT_ID = 'draft-abc';
 
@@ -65,8 +65,6 @@ describe('DELETE /api/drafts/[id]/thumbnail', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(deleteObject).mockResolvedValue(undefined);
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {

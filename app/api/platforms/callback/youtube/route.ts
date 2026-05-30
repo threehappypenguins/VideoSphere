@@ -3,9 +3,9 @@
 // =============================================================================
 // Handles the OAuth2 callback from Google after the user grants consent.
 // Verifies the CSRF nonce (state param vs. youtube_oauth_state cookie) and
-// extracts the userId from the cookie value — the Appwrite session cookie is
-// sameSite=strict and is dropped on the cross-site Google redirect, so identity
-// is carried securely in the server-set OAuth state cookie instead.
+// extracts the userId from the cookie value — the authenticated session cookie is
+// not relied on here, so identity is carried securely in the server-set OAuth
+// state cookie instead.
 // Exchanges the code for tokens, fetches the YouTube channel name, and upserts
 // the connection (tokens encrypted at rest by the repository).
 //
@@ -85,8 +85,8 @@ export async function GET(req: NextRequest) {
 
   // Verify CSRF nonce and extract userId from the server-set OAuth state cookie.
   // Cookie format: "<nonce>|<userId>" — set during the connect step while the
-  // user was authenticated. The Appwrite session cookie (sameSite=strict) is not
-  // available here because this route is reached via a cross-site redirect from Google.
+  // user was authenticated. The callback uses the state cookie for identity,
+  // avoiding dependence on session-cookie same-site behavior during redirects.
   const cookieValue = req.cookies.get(YOUTUBE_OAUTH_STATE_COOKIE)?.value;
   if (!cookieValue) {
     console.error('[GET /api/platforms/callback/youtube] CSRF state cookie missing');

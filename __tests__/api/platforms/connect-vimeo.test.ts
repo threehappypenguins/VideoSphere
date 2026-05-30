@@ -8,32 +8,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// ---------------------------------------------------------------------------
-// Mock node-appwrite Client + Account
-// ---------------------------------------------------------------------------
+const mockGetAuthenticatedUserId = vi.fn();
 
-const mockAccountGet = vi.fn();
-
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-  function MockClient() {
-    return mockClient;
-  }
-  function MockAccount() {
-    this.get = mockAccountGet;
-  }
-  return { Client: MockClient, Account: MockAccount };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 import { GET } from '@/app/api/platforms/connect/vimeo/route';
 
@@ -41,7 +20,7 @@ import { GET } from '@/app/api/platforms/connect/vimeo/route';
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 function makeRequest(cookies: Record<string, string> = {}): NextRequest {
   const url = new URL('http://localhost:3000/api/platforms/connect/vimeo');
@@ -61,9 +40,12 @@ function makeRequest(cookies: Record<string, string> = {}): NextRequest {
 describe('GET /api/platforms/connect/vimeo', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     process.env.VIMEO_CLIENT_ID = 'test-vimeo-client-id';
+    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return 'user-123';
+    });
   });
 
   afterEach(() => {
@@ -78,15 +60,6 @@ describe('GET /api/platforms/connect/vimeo', () => {
       expect(res.status).toBe(307);
       expect(res.headers.get('location')).toContain('error=vimeo');
     });
-
-    it('redirects to ?error=vimeo when NEXT_PUBLIC_APPWRITE_ENDPOINT is missing', async () => {
-      delete process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-      const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
-      const res = await GET(req);
-      expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=vimeo');
-      process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    });
   });
 
   describe('Authentication', () => {
@@ -97,8 +70,7 @@ describe('GET /api/platforms/connect/vimeo', () => {
       expect(res.headers.get('location')).toMatch(/\/login$/);
     });
 
-    it('redirects to /login when Appwrite rejects the session', async () => {
-      mockAccountGet.mockRejectedValueOnce(new Error('Invalid session'));
+    it('redirects to /login when the auth cookie is invalid', async () => {
       const req = makeRequest({ [SESSION_COOKIE]: 'bad-token' });
       const res = await GET(req);
       expect(res.status).toBe(307);
@@ -107,10 +79,6 @@ describe('GET /api/platforms/connect/vimeo', () => {
   });
 
   describe('Successful redirect', () => {
-    beforeEach(() => {
-      mockAccountGet.mockResolvedValue({ $id: 'user-123' });
-    });
-
     it('redirects to the Vimeo OAuth authorization URL', async () => {
       const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
       const res = await GET(req);

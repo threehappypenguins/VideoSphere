@@ -1,202 +1,94 @@
-// =============================================================================
-// USERS REPOSITORY UNIT TESTS
-// =============================================================================
-// Mocks node-appwrite TablesDB. Covers getUserById primary path and userId
-// column fallback after getRow 404 (legacy / console-created rows).
-// =============================================================================
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+const { mockConnectToDatabase, mockCreate, mockFindById, mockFindOne, mockFindByIdAndUpdate } =
+  vi.hoisted(() => ({
+    mockConnectToDatabase: vi.fn(),
+    mockCreate: vi.fn(),
+    mockFindById: vi.fn(),
+    mockFindOne: vi.fn(),
+    mockFindByIdAndUpdate: vi.fn(),
+  }));
 
-const { mockGetRow, mockListRows, mockCreateRow, mockUpdateRow } = vi.hoisted(() => ({
-  mockGetRow: vi.fn(),
-  mockListRows: vi.fn(),
-  mockCreateRow: vi.fn(),
-  mockUpdateRow: vi.fn(),
+vi.mock('@/lib/mongodb', () => ({
+  connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
 }));
 
-vi.mock('node-appwrite', () => ({
-  ID: { unique: () => 'generated-id' },
-  Query: {
-    equal: (attr: string, value: string) => `equal("${attr}","${value}")`,
-    limit: (n: number) => `limit(${n})`,
-    offset: (n: number) => `offset(${n})`,
-    orderAsc: (attr: string) => `orderAsc("${attr}")`,
+vi.mock('@/lib/models/UserProfile', () => ({
+  UserProfileModel: {
+    create: (...args: unknown[]) => mockCreate(...args),
+    findById: (...args: unknown[]) => mockFindById(...args),
+    findOne: (...args: unknown[]) => mockFindOne(...args),
+    findByIdAndUpdate: (...args: unknown[]) => mockFindByIdAndUpdate(...args),
   },
-  TablesDB: class TablesDB {
-    getRow = mockGetRow;
-    listRows = mockListRows;
-    createRow = mockCreateRow;
-    updateRow = mockUpdateRow;
-  },
-}));
-
-vi.mock('@/lib/appwrite', () => ({
-  default: {},
 }));
 
 import { createUser, getUserById, updateUser } from '@/lib/repositories/users';
 
-const timestamps = {
-  $createdAt: '2026-01-01T00:00:00.000Z',
-  $updatedAt: '2026-01-02T00:00:00.000Z',
-};
-
-function profileRow(overrides: Record<string, unknown> = {}) {
+function leanResult<T>(value: T) {
   return {
-    $id: 'auth-user-1',
-    userId: 'auth-user-1',
-    email: 'a@example.com',
-    isSupporter: false,
-    hasCompletedOnboarding: false,
-    role: 'user',
-    ...timestamps,
-    ...overrides,
+    lean: vi.fn().mockResolvedValue(value),
   };
 }
 
+const baseDoc = {
+  _id: 'auth-user-1',
+  userId: 'auth-user-1',
+  email: 'a@example.com',
+  name: 'Ada',
+  isSupporter: false,
+  hasCompletedOnboarding: false,
+  role: 'user',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockConnectToDatabase.mockResolvedValue(undefined);
 });
 
-describe('getUserById', () => {
-  it('returns mapped user when getRow succeeds (row id = Auth id)', async () => {
-    mockGetRow.mockResolvedValue(profileRow());
+describe('users repository (mongo)', () => {
+  it('creates a normalized user profile', async () => {
+    mockCreate.mockResolvedValueOnce({ toObject: () => baseDoc });
 
-    const user = await getUserById('auth-user-1');
+    const user = await createUser({ userId: 'auth-user-1', email: 'A@Example.com', name: 'Ada' });
 
-    expect(mockGetRow).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'user_profiles',
-      rowId: 'auth-user-1',
-    });
-    expect(mockListRows).not.toHaveBeenCalled();
-    expect(user).toEqual({
-      userId: 'auth-user-1',
-      email: 'a@example.com',
-      isSupporter: false,
-      hasCompletedOnboarding: false,
-      role: 'user',
-      $createdAt: timestamps.$createdAt,
-      $updatedAt: timestamps.$updatedAt,
-    });
+    expect(mockConnectToDatabase).toHaveBeenCalled();
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: 'auth-user-1',
+        userId: 'auth-user-1',
+        email: 'a@example.com',
+        name: 'Ada',
+        role: 'user',
+      })
+    );
+    expect(user.userId).toBe('auth-user-1');
+    expect(user.email).toBe('a@example.com');
+    expect(user.name).toBe('Ada');
   });
 
-  it('falls back to listRows by userId when getRow returns 404', async () => {
-    mockGetRow.mockRejectedValue({ code: 404 });
-    mockListRows.mockResolvedValue({
-      rows: [
-        profileRow({
-          $id: 'legacy-row-id',
-          userId: 'auth-user-1',
-          role: 'admin',
-        }),
-      ],
-    });
+  it('gets by _id first, then falls back to userId', async () => {
+    mockFindById.mockReturnValueOnce(leanResult(null));
+    mockFindOne.mockReturnValueOnce(leanResult(baseDoc));
 
     const user = await getUserById('auth-user-1');
 
-    expect(mockListRows).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'user_profiles',
-      queries: ['equal("userId","auth-user-1")', 'limit(1)'],
-      total: false,
-    });
-    expect(user?.role).toBe('admin');
+    expect(mockFindById).toHaveBeenCalledWith('auth-user-1');
+    expect(mockFindOne).toHaveBeenCalledWith({ userId: 'auth-user-1' });
     expect(user?.userId).toBe('auth-user-1');
   });
 
-  it('returns null when getRow 404 and listRows is empty', async () => {
-    mockGetRow.mockRejectedValue({ code: 404 });
-    mockListRows.mockResolvedValue({ rows: [] });
-
-    const user = await getUserById('missing');
-
-    expect(user).toBeNull();
-  });
-
-  it('rethrows non-404 errors from getRow without calling listRows', async () => {
-    mockGetRow.mockRejectedValue({ code: 500, message: 'Server error' });
-
-    await expect(getUserById('auth-user-1')).rejects.toMatchObject({ code: 500 });
-    expect(mockListRows).not.toHaveBeenCalled();
-  });
-});
-
-describe('createUser', () => {
-  it('creates a profile row with required schema defaults', async () => {
-    mockCreateRow.mockResolvedValue(profileRow());
-
-    const user = await createUser({
-      userId: 'auth-user-1',
-      email: 'A@example.com',
-    });
-
-    expect(mockCreateRow).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'user_profiles',
-      rowId: 'auth-user-1',
-      data: {
-        userId: 'auth-user-1',
-        email: 'a@example.com',
-        isSupporter: false,
-        hasCompletedOnboarding: false,
-        role: 'user',
-      },
-    });
-    expect(user.hasCompletedOnboarding).toBe(false);
-  });
-});
-
-describe('updateUser', () => {
-  it('updates directly when row id equals userId', async () => {
-    mockUpdateRow.mockResolvedValue(profileRow({ isSupporter: true }));
+  it('updates user by id and returns updated entity', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ ...baseDoc, isSupporter: true }));
 
     const user = await updateUser('auth-user-1', { isSupporter: true });
 
-    expect(mockUpdateRow).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'user_profiles',
-      rowId: 'auth-user-1',
-      data: { isSupporter: true },
-    });
-    expect(user.isSupporter).toBe(true);
-  });
-
-  it('falls back to userId query when direct update returns 404', async () => {
-    mockUpdateRow
-      .mockRejectedValueOnce({ code: 404 })
-      .mockResolvedValueOnce(
-        profileRow({ $id: 'legacy-row-id', userId: 'auth-user-1', isSupporter: true })
-      );
-    mockListRows.mockResolvedValue({
-      rows: [profileRow({ $id: 'legacy-row-id', userId: 'auth-user-1' })],
-    });
-
-    const user = await updateUser('auth-user-1', { isSupporter: true });
-
-    expect(mockListRows).toHaveBeenCalledWith({
-      databaseId: 'videosphere',
-      tableId: 'user_profiles',
-      queries: ['equal("userId","auth-user-1")', 'limit(1)'],
-      total: false,
-    });
-    expect(mockUpdateRow).toHaveBeenNthCalledWith(2, {
-      databaseId: 'videosphere',
-      tableId: 'user_profiles',
-      rowId: 'legacy-row-id',
-      data: { isSupporter: true },
-    });
-    expect(user.isSupporter).toBe(true);
-  });
-
-  it('throws a clear error when fallback row is missing $id', async () => {
-    mockUpdateRow.mockRejectedValueOnce({ code: 404 });
-    mockListRows.mockResolvedValue({
-      rows: [profileRow({ $id: undefined, userId: 'auth-user-1' })],
-    });
-
-    await expect(updateUser('auth-user-1', { isSupporter: true })).rejects.toThrow(
-      'User profile row missing $id'
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
+      'auth-user-1',
+      { isSupporter: true },
+      expect.objectContaining({ returnDocument: 'after' })
     );
+    expect(user.isSupporter).toBe(true);
   });
 });

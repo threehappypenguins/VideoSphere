@@ -11,7 +11,7 @@ export type PlatformStatusItem = {
 
 /**
  * For each platform, return the most recently updated status.
- * Appwrite timestamps are ISO strings, so we compare using `Date.parse`.
+ * Timestamps are ISO strings, so we compare using `Date.parse`.
  */
 export function latestPlatformStatuses(platforms: PlatformStatusItem[]): PlatformStatusItem[] {
   const byPlatform = new Map<ConnectedAccountPlatform, PlatformStatusItem>();

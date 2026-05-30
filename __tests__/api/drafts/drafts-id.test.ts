@@ -45,7 +45,7 @@ import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const DRAFT_ID = 'draft-abc';
 
 function makeRequest(
@@ -94,8 +94,6 @@ const baseDraft = {
 describe('GET /api/drafts/[id]', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
@@ -109,7 +107,7 @@ describe('GET /api/drafts/[id]', () => {
       expect(res.status).toBe(401);
     });
 
-    it('returns 401 when Appwrite rejects the session', async () => {
+    it('returns 401 when session is invalid', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const res = await GET(
         makeRequest('GET', undefined, { [SESSION_COOKIE]: 'bad' }),
@@ -189,8 +187,6 @@ describe('GET /api/drafts/[id]', () => {
 describe('PATCH /api/drafts/[id]', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
@@ -204,7 +200,7 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(res.status).toBe(401);
     });
 
-    it('returns 401 when Appwrite rejects the session', async () => {
+    it('returns 401 when session is invalid', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const res = await PATCH(
         makeRequest('PATCH', { title: 'New' }, { [SESSION_COOKIE]: 'bad' }),
@@ -505,7 +501,7 @@ describe('PATCH /api/drafts/[id]', () => {
     it('returns 400 when updateDraft throws DraftDocumentTooLargeError', async () => {
       vi.mocked(updateDraft).mockRejectedValueOnce(
         new DraftDocumentTooLargeError(
-          'Draft document JSON is 20000 characters; Appwrite allows at most 16383 in the document column.'
+          'Draft document JSON is 20000 characters; storage layer allows at most 16383 in the document column.'
         )
       );
 
@@ -528,8 +524,6 @@ describe('PATCH /api/drafts/[id]', () => {
 describe('DELETE /api/drafts/[id]', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
@@ -543,7 +537,7 @@ describe('DELETE /api/drafts/[id]', () => {
       expect(res.status).toBe(401);
     });
 
-    it('returns 401 when Appwrite rejects the session', async () => {
+    it('returns 401 when session is invalid', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const res = await DELETE(
         makeRequest('DELETE', undefined, { [SESSION_COOKIE]: 'bad' }),
@@ -671,7 +665,7 @@ describe('DELETE /api/drafts/[id]', () => {
       expect(deleteDraft).toHaveBeenCalledWith(DRAFT_ID);
       expect(deleteObject).toHaveBeenCalledWith(thumbKey);
 
-      // DB delete must precede R2 cleanup so an Appwrite failure leaves the
+      // DB delete must precede R2 cleanup so a persistence failure leaves the
       // thumbnail intact (draft still exists) rather than breaking a live draft.
       const dbOrder = vi.mocked(deleteDraft).mock.invocationCallOrder[0];
       const r2Order = vi.mocked(deleteObject).mock.invocationCallOrder[0];

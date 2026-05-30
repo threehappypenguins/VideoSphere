@@ -3,8 +3,7 @@
 // PATCH  /api/drafts/[id]  — partial update of a draft (only supplied fields changed)
 // DELETE /api/drafts/[id]  — delete a specific draft
 // =============================================================================
-// Auth: reads the httpOnly session cookie, creates a scoped Appwrite Client
-// with setSession(), and calls Account.get() to verify identity.
+// Auth: reads the httpOnly session cookie and verifies the authenticated user id.
 // Returns 401 if no valid session exists, 404 if the draft doesn't exist or
 // is not owned by the authenticated user.
 // =============================================================================

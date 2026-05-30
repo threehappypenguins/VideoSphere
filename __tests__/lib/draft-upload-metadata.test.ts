@@ -18,7 +18,7 @@ import {
 import type { Draft, DraftPlatforms } from '@/types';
 
 describe('draft-upload-metadata', () => {
-  it('assertDraftDocumentJsonWithinLimit throws when JSON exceeds Appwrite column max', () => {
+  it('assertDraftDocumentJsonWithinLimit throws when JSON exceeds storage column max', () => {
     const huge = 'z'.repeat(MAX_DRAFT_DOCUMENT_CHARS + 1);
     expect(() => assertDraftDocumentJsonWithinLimit(huge)).toThrow(DraftDocumentTooLargeError);
   });

@@ -1,18 +1,20 @@
 // =============================================================================
-// APPWRITE SESSION COOKIE (SSR)
+// AUTH SESSION COOKIE (SSR)
 // =============================================================================
-// Server-side session cookie options per Appwrite Next.js SSR guidance.
-// secure is false in development so localhost works; always true in production.
-// https://appwrite.io/docs/tutorials/nextjs-ssr-auth/step-1
+// JWT session cookie helpers for server routes and middleware-compatible flows.
 // =============================================================================
 
 /**
- * Executes get session cookie name.
- * @param projectId - Input value for project id.
+ * Returns the configured session cookie name.
+ *
+ * The optional projectId argument is kept for backward compatibility with
+ * existing call sites that previously passed an auth provider project id.
+ * @param projectId - Backward-compatibility argument from older call sites; ignored.
  * @returns The computed result.
  */
-export function getSessionCookieName(projectId: string): string {
-  return `a_session_${projectId}`;
+export function getSessionCookieName(projectId?: string): string {
+  void projectId;
+  return process.env.JWT_SESSION_COOKIE_NAME || 'videosphere_session';
 }
 
 /**
@@ -22,14 +24,19 @@ export function getSessionCookieName(projectId: string): string {
 export function getSessionCookieOptions(): {
   path: string;
   httpOnly: boolean;
-  sameSite: 'strict';
+  sameSite: 'lax';
   secure: boolean;
+  maxAge: number;
 } {
   const isProduction = process.env.NODE_ENV === 'production';
+  const defaultMaxAgeSeconds = 60 * 60 * 24 * 7;
+  const parsed = Number(process.env.JWT_SESSION_MAX_AGE_SECONDS);
+  const maxAge = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : defaultMaxAgeSeconds;
   return {
     path: '/',
     httpOnly: true,
-    sameSite: 'strict',
+    sameSite: 'lax',
     secure: isProduction,
+    maxAge,
   };
 }

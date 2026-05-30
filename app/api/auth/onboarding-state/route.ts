@@ -2,7 +2,7 @@
 // GET /api/auth/onboarding-state
 // POST /api/auth/onboarding-state
 // =============================================================================
-// Manage onboarding state persisted to Appwrite user_profiles.
+// Manage onboarding state persisted to user_profiles.
 // GET: Returns { hasCompletedOnboarding: boolean }
 // POST: Updates hasCompletedOnboarding, returns updated state
 // =============================================================================
@@ -80,8 +80,8 @@ export async function POST(req: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
-    const appwriteErr = err as { code?: number };
-    if (appwriteErr?.code === 404) {
+    const repoErr = err as { code?: number };
+    if (repoErr?.code === 404) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
     console.error('[POST /api/auth/onboarding-state]', err);

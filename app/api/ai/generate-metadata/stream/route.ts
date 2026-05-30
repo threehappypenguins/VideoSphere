@@ -8,7 +8,7 @@
 // The client accumulates token deltas until it receives `data: [DONE]`, then
 // parses the assembled JSON string to obtain { title, description, tags }.
 //
-// Auth: requires a valid Appwrite session cookie (401 if missing/invalid).
+// Auth: requires a valid authenticated session cookie (401 if missing/invalid).
 //
 // Request body: identical to POST /api/ai/generate-metadata
 //   {

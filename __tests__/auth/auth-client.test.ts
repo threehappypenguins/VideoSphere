@@ -1,117 +1,83 @@
 // =============================================================================
 // AUTH CLIENT UNIT TESTS
 // =============================================================================
-// Tests for authentication utility functions that interact with Appwrite SDK.
-// Mocks Appwrite SDK to test the core auth logic.
+// Tests for fetch-based auth client wrappers.
 // =============================================================================
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-
-// Using vi.hoisted to define mocks before vi.mock
-const { mockDeleteSession, mockCreateEmailPasswordSession, mockGetSession, mockGetUser } =
-  vi.hoisted(() => ({
-    mockDeleteSession: vi.fn(),
-    mockCreateEmailPasswordSession: vi.fn(),
-    mockGetSession: vi.fn(),
-    mockGetUser: vi.fn(),
-  }));
-
-vi.mock('appwrite', () => {
-  return {
-    Client: class {
-      setEndpoint() {
-        return this;
-      }
-      setProject() {
-        return this;
-      }
-    },
-    Account: class {
-      deleteSession = mockDeleteSession;
-      createEmailPasswordSession = mockCreateEmailPasswordSession;
-      getSession = mockGetSession;
-      get = mockGetUser;
-    },
-  };
-});
-
-// Import after mocking
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loginWithEmail, logout, getCurrentSession, getCurrentUser } from '@/lib/auth-client';
 
+const mockFetch = vi.fn();
+
 beforeEach(() => {
-  // Clear mocks before each test
-  mockDeleteSession.mockClear();
-  mockCreateEmailPasswordSession.mockClear();
-  mockGetSession.mockClear();
-  mockGetUser.mockClear();
+  vi.clearAllMocks();
+  vi.stubGlobal('fetch', mockFetch);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('Auth Client Functions', () => {
   describe('loginWithEmail', () => {
     it('should successfully login with valid credentials', async () => {
-      const mockSession = {
-        $id: 'session123',
-        userId: 'user123',
-        email: 'test@example.com',
-      };
-
-      mockCreateEmailPasswordSession.mockResolvedValue(mockSession);
-      mockDeleteSession.mockRejectedValue(new Error('No session'));
+      mockFetch.mockResolvedValueOnce({ ok: true });
 
       const result = await loginWithEmail('test@example.com', 'password123');
 
-      expect(mockDeleteSession).toHaveBeenCalledWith('current');
-      expect(mockCreateEmailPasswordSession).toHaveBeenCalledWith(
-        'test@example.com',
-        'password123'
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/auth/login',
+        expect.objectContaining({
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'test@example.com', password: 'password123' }),
+        })
       );
-      expect(result).toEqual(mockSession);
+      expect(result).toEqual({ ok: true });
     });
 
     it('should handle login error gracefully', async () => {
-      const loginError = new Error('Invalid credentials');
-      mockCreateEmailPasswordSession.mockRejectedValue(loginError);
-      mockDeleteSession.mockRejectedValue(new Error('No session'));
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Invalid credentials' }),
+      });
 
       await expect(loginWithEmail('test@example.com', 'wrongpassword')).rejects.toThrow(
         'Invalid credentials'
       );
     });
 
-    it('should delete existing session before creating new one', async () => {
-      const mockSession = { $id: 'session123', userId: 'user123' };
-      mockCreateEmailPasswordSession.mockResolvedValue(mockSession);
-      mockDeleteSession.mockResolvedValue(null);
-
-      await loginWithEmail('test@example.com', 'password123');
-
-      expect(mockDeleteSession).toHaveBeenCalledWith('current');
-      expect(mockCreateEmailPasswordSession).toHaveBeenCalled();
-    });
-
-    it('should handle generic error objects', async () => {
-      mockCreateEmailPasswordSession.mockRejectedValue({ some: 'error' });
-      mockDeleteSession.mockRejectedValue(new Error('No session'));
+    it('should fall back to generic message when error response is not parseable', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => {
+          throw new Error('invalid json');
+        },
+      });
 
       await expect(loginWithEmail('test@example.com', 'password123')).rejects.toThrow(
         'Login failed'
       );
     });
+
+    it('should propagate fetch failures', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('network failed'));
+
+      await expect(loginWithEmail('test@example.com', 'password123')).rejects.toThrow('network');
+    });
   });
 
   describe('logout', () => {
     it('should call logout API with credentials', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
-      vi.stubGlobal('fetch', mockFetch);
-      try {
-        await logout();
-        expect(mockFetch).toHaveBeenCalledWith('/api/auth/logout', {
-          method: 'POST',
-          credentials: 'include',
-        });
-      } finally {
-        vi.unstubAllGlobals();
-      }
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      await logout();
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
     });
   });
 
@@ -122,16 +88,19 @@ describe('Auth Client Functions', () => {
         userId: 'user123',
       };
 
-      mockGetSession.mockResolvedValue(mockSession);
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => mockSession });
 
       const session = await getCurrentSession();
 
-      expect(mockGetSession).toHaveBeenCalledWith('current');
+      expect(mockFetch).toHaveBeenCalledWith('/api/auth/session', {
+        method: 'GET',
+        credentials: 'include',
+      });
       expect(session).toEqual(mockSession);
     });
 
     it('should return null when no session exists', async () => {
-      mockGetSession.mockRejectedValue(new Error('No session'));
+      mockFetch.mockResolvedValueOnce({ ok: false });
 
       const session = await getCurrentSession();
 
@@ -139,7 +108,7 @@ describe('Auth Client Functions', () => {
     });
 
     it('should return null for any error', async () => {
-      mockGetSession.mockRejectedValue(new Error('Unauthorized'));
+      mockFetch.mockRejectedValueOnce(new Error('Unauthorized'));
 
       const session = await getCurrentSession();
 
@@ -155,16 +124,19 @@ describe('Auth Client Functions', () => {
         name: 'Test User',
       };
 
-      mockGetUser.mockResolvedValue(mockUser);
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => mockUser });
 
       const user = await getCurrentUser();
 
-      expect(mockGetUser).toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledWith('/api/auth/session', {
+        method: 'GET',
+        credentials: 'include',
+      });
       expect(user).toEqual(mockUser);
     });
 
     it('should return null when user is not authenticated', async () => {
-      mockGetUser.mockRejectedValue(new Error('Not authenticated'));
+      mockFetch.mockResolvedValueOnce({ ok: false });
 
       const user = await getCurrentUser();
 
@@ -172,7 +144,7 @@ describe('Auth Client Functions', () => {
     });
 
     it('should return null for any error', async () => {
-      mockGetUser.mockRejectedValue(new Error('Server error'));
+      mockFetch.mockRejectedValueOnce(new Error('Server error'));
 
       const user = await getCurrentUser();
 

@@ -29,7 +29,7 @@ export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'private';
 /** Matches YouTube Data API `videos.snippet.title` maximum length. */
 export const MAX_DRAFT_TITLE_LENGTH = 100;
 
-/** Appwrite string column max; entire `document` must serialize under this. */
+/** String column max; entire `document` must serialize under this. */
 export const MAX_DRAFT_DOCUMENT_CHARS = 16_383;
 
 /**
@@ -46,7 +46,7 @@ export class DraftDocumentTooLargeError extends Error {
 export function assertDraftDocumentJsonWithinLimit(json: string): void {
   if (json.length > MAX_DRAFT_DOCUMENT_CHARS) {
     throw new DraftDocumentTooLargeError(
-      `Draft document JSON is ${json.length} characters; Appwrite allows at most ${MAX_DRAFT_DOCUMENT_CHARS} in the document column. Shorten description, tags, or platform-specific fields.`
+      `Draft document JSON is ${json.length} characters; storage allows at most ${MAX_DRAFT_DOCUMENT_CHARS} in the document column. Shorten description, tags, or platform-specific fields.`
     );
   }
 }

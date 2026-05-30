@@ -7,7 +7,7 @@ import type { ApiError, ApiResponse } from '@/types';
  * Defines one user row returned by the admin users listing endpoint.
  */
 export interface AdminUserRow {
-  /** Stable id (Appwrite Auth user id / `user_profiles.userId`); use for client keys, not email. */
+  /** Stable id (auth user id / `user_profiles.userId`); use for client keys, not email. */
   userId: string;
   email: string;
   role: 'user' | 'admin';

@@ -8,34 +8,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mockGet = vi.fn();
+const mockGetAuthenticatedUserId = vi.fn();
 
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-
-  function MockAccount() {
-    this.get = mockGet;
-  }
-
-  function MockClient() {
-    return mockClient;
-  }
-
-  return {
-    Client: MockClient,
-    Account: MockAccount,
-  };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
   getUploadJobById: vi.fn(),
@@ -71,6 +48,8 @@ import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/uplo
 import { getUserById } from '@/lib/repositories/users';
 import { decrementUsage } from '@/lib/repositories/upload-usage';
 import { deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
+
+const SESSION_COOKIE = 'videosphere_session';
 
 const baseJob = {
   id: 'job-123',
@@ -114,10 +93,11 @@ function makeParams(jobId: string) {
 describe('POST /api/uploads/[jobId]/cancel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
-
-    mockGet.mockResolvedValue({ $id: 'user-123' });
+    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+      const token = req.cookies.get(SESSION_COOKIE)?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return req.headers.get('x-test-user-id') || 'user-123';
+    });
     vi.mocked(getUploadJobById).mockResolvedValue({ ...baseJob });
     vi.mocked(getUserById).mockResolvedValue(freeUser);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
@@ -138,7 +118,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       vi.mocked(getUploadJobById).mockResolvedValueOnce(null);
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -158,7 +138,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       });
 
       const response = await POST(
-        createRequest('job-other', { 'a_session_test-project': 'token' }),
+        createRequest('job-other', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-other')
       );
 
@@ -175,11 +155,11 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
   describe('User lookup before cancellation (legacy jobs)', () => {
     it('returns 500 and does not delete R2 or update job when getUserById fails', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.mocked(getUserById).mockRejectedValueOnce(new Error('Appwrite unavailable'));
+      vi.mocked(getUserById).mockRejectedValueOnce(new Error('User repository unavailable'));
       vi.mocked(getUploadJobById).mockResolvedValueOnce({ ...baseJob, quotaClaimMonth: null });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -205,7 +185,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -221,7 +201,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
   describe('successful cancellation', () => {
     it('returns 200, deletes R2 object, marks job cancelled, and rolls back quota for free users', async () => {
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -241,7 +221,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -256,7 +236,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -272,7 +252,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -288,7 +268,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -304,7 +284,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       });
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -317,7 +297,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       vi.mocked(decrementUsage).mockRejectedValueOnce(new Error('DB unavailable'));
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -337,7 +317,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       );
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -352,7 +332,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       vi.mocked(deleteObject).mockRejectedValueOnce(new Error('R2 unavailable'));
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 
@@ -374,7 +354,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       vi.mocked(updateUploadJobStatus).mockResolvedValueOnce(null);
 
       const response = await POST(
-        createRequest('job-123', { 'a_session_test-project': 'token' }),
+        createRequest('job-123', { [SESSION_COOKIE]: 'token' }),
         makeParams('job-123')
       );
 

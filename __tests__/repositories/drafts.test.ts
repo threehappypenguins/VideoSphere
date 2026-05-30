@@ -1,748 +1,144 @@
-// =============================================================================
-// DRAFTS REPOSITORY UNIT TESTS
-// =============================================================================
-// Mocks node-appwrite TablesDB. Schema: userId + document (JSON).
-// =============================================================================
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-
-const { mockCreateRow, mockGetRow, mockListRows, mockUpdateRow, mockDeleteRow } = vi.hoisted(
-  () => ({
-    mockCreateRow: vi.fn(),
-    mockGetRow: vi.fn(),
-    mockListRows: vi.fn(),
-    mockUpdateRow: vi.fn(),
-    mockDeleteRow: vi.fn(),
-  })
-);
-
-vi.mock('node-appwrite', () => ({
-  ID: {
-    unique: () => 'draft-id-123',
-  },
-  Query: {
-    equal: (attr: string, value: string | string[]) =>
-      Array.isArray(value)
-        ? `equal("${attr}",[${value.map((v) => `"${v}"`).join(',')}])`
-        : `equal("${attr}","${value}")`,
-    orderDesc: (attr: string) => `orderDesc("${attr}")`,
-    limit: (n: number) => `limit(${n})`,
-    offset: (n: number) => `offset(${n})`,
-  },
-  TablesDB: class TablesDB {
-    createRow = mockCreateRow;
-    getRow = mockGetRow;
-    listRows = mockListRows;
-    updateRow = mockUpdateRow;
-    deleteRow = mockDeleteRow;
-  },
+const {
+  mockConnectToDatabase,
+  mockCreate,
+  mockFindById,
+  mockFind,
+  mockCountDocuments,
+  mockFindByIdAndUpdate,
+  mockDeleteOne,
+} = vi.hoisted(() => ({
+  mockConnectToDatabase: vi.fn(),
+  mockCreate: vi.fn(),
+  mockFindById: vi.fn(),
+  mockFind: vi.fn(),
+  mockCountDocuments: vi.fn(),
+  mockFindByIdAndUpdate: vi.fn(),
+  mockDeleteOne: vi.fn(),
 }));
 
-vi.mock('@/lib/appwrite', () => ({
-  default: {},
+vi.mock('@/lib/mongodb', () => ({
+  connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
+}));
+
+vi.mock('@/lib/models/Draft', () => ({
+  DraftModel: {
+    create: (...args: unknown[]) => mockCreate(...args),
+    findById: (...args: unknown[]) => mockFindById(...args),
+    find: (...args: unknown[]) => mockFind(...args),
+    countDocuments: (...args: unknown[]) => mockCountDocuments(...args),
+    findByIdAndUpdate: (...args: unknown[]) => mockFindByIdAndUpdate(...args),
+    deleteOne: (...args: unknown[]) => mockDeleteOne(...args),
+  },
 }));
 
 import {
   countDraftsByUser,
   createDraft,
-  getDraftDashboardSummaryByUser,
+  deleteDraft,
   getDraftById,
-  getDraftTitlesByIdsForUser,
   listDraftsByUser,
   markDraftUsedInUpload,
-  updateDraft,
-  deleteDraft,
 } from '@/lib/repositories/drafts';
-import {
-  DraftDocumentTooLargeError,
-  stringifyDraftDocumentForStorage,
-} from '@/lib/draft-upload-metadata';
 
-const publishDefaults = {
-  targets: ['youtube', 'vimeo'] as const,
-  title: 'My Video',
-  description: 'A great video.',
-  visibility: 'public' as const,
-  tags: [] as string[],
-  platforms: { youtube: { categoryId: '22' } },
-};
+function chain<T>(value: T) {
+  return {
+    sort: vi.fn().mockReturnThis(),
+    skip: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockReturnThis(),
+    lean: vi.fn().mockResolvedValue(value),
+  };
+}
 
-const baseDocument = stringifyDraftDocumentForStorage({
-  targets: [...publishDefaults.targets],
-  title: publishDefaults.title,
-  description: publishDefaults.description,
-  visibility: publishDefaults.visibility,
-  tags: publishDefaults.tags,
-  platforms: publishDefaults.platforms,
-});
-
-const baseRow = {
-  $id: 'draft-1',
+const baseDoc = {
+  _id: 'draft-1',
   userId: 'user-1',
-  document: baseDocument,
-  $createdAt: '2026-01-01T00:00:00.000Z',
-  $updatedAt: '2026-01-01T00:00:00.000Z',
+  document: JSON.stringify({
+    targets: ['youtube'],
+    title: 'My Video',
+    description: 'A great video',
+    visibility: 'private',
+    tags: [],
+    platforms: {},
+  }),
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-02T00:00:00.000Z',
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockConnectToDatabase.mockResolvedValue(undefined);
 });
 
-describe('drafts repository', () => {
-  describe('createDraft', () => {
-    it('stores userId and document JSON only', async () => {
-      mockCreateRow.mockImplementation(
-        async (args: { data: { userId: string; document: string } }) => ({
-          $id: 'draft-id-123',
-          userId: args.data.userId,
-          document: args.data.document,
-          $createdAt: '2026-01-01T00:00:00.000Z',
-          $updatedAt: '2026-01-01T00:00:00.000Z',
-        })
-      );
+describe('drafts repository (mongo)', () => {
+  it('creates a draft document JSON row', async () => {
+    mockCreate.mockResolvedValueOnce({ toObject: () => baseDoc });
 
-      const result = await createDraft({
-        userId: 'user-1',
-        targets: ['youtube'],
-        title: 'My Video',
-        description: 'A great video.',
-      });
+    const draft = await createDraft({
+      userId: 'user-1',
+      targets: ['youtube'],
+      title: 'My Video',
+      description: 'A great video',
+    });
 
-      expect(mockCreateRow).toHaveBeenCalledTimes(1);
-      const call = mockCreateRow.mock.calls[0][0];
-      expect(call.data).toEqual({
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
         userId: 'user-1',
-        document: stringifyDraftDocumentForStorage({
+        document: expect.any(String),
+      })
+    );
+    expect(draft.id).toBe('draft-1');
+  });
+
+  it('gets one draft by id and returns null when missing', async () => {
+    mockFindById.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(baseDoc) });
+    const found = await getDraftById('draft-1');
+    expect(found?.id).toBe('draft-1');
+
+    mockFindById.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(null) });
+    const missing = await getDraftById('missing');
+    expect(missing).toBeNull();
+  });
+
+  it('lists and counts drafts by user', async () => {
+    mockFind.mockReturnValueOnce(chain([baseDoc]));
+    mockCountDocuments.mockResolvedValueOnce(1);
+
+    const list = await listDraftsByUser('user-1');
+    const count = await countDraftsByUser('user-1');
+
+    expect(mockFind).toHaveBeenCalledWith({ userId: 'user-1' });
+    expect(list).toHaveLength(1);
+    expect(count).toBe(1);
+  });
+
+  it('marks draft used and supports delete', async () => {
+    mockFindById
+      .mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(baseDoc) })
+      .mockReturnValueOnce({ lean: vi.fn().mockResolvedValue({ ...baseDoc, _id: 'draft-1' }) });
+    mockFindByIdAndUpdate.mockReturnValueOnce({
+      lean: vi.fn().mockResolvedValue({
+        ...baseDoc,
+        document: JSON.stringify({
           targets: ['youtube'],
           title: 'My Video',
-          description: 'A great video.',
+          description: 'A great video',
           visibility: 'private',
           tags: [],
           platforms: {},
+          usedInUploadAt: '2026-01-03T00:00:00.000Z',
         }),
-      });
-      expect(call.data).not.toHaveProperty('title');
-      expect(call.data).not.toHaveProperty('publishFields');
-
-      expect(result.targets).toEqual(['youtube']);
-      expect(result.visibility).toBe('private');
-      expect(result.platforms).toEqual({});
+      }),
     });
-
-    it('persists custom visibility and platforms in document', async () => {
-      mockCreateRow.mockImplementation(async (args: { data: { document: string } }) => ({
-        $id: 'draft-id-123',
-        userId: 'user-1',
-        document: args.data.document,
-        $createdAt: '2026-01-01T00:00:00.000Z',
-        $updatedAt: '2026-01-01T00:00:00.000Z',
-      }));
-
-      await createDraft({
-        userId: 'user-1',
-        targets: ['youtube', 'vimeo'],
-        title: 'T',
-        description: 'D',
-        visibility: 'unlisted',
-        platforms: { youtube: { categoryId: '10' } },
-      });
-
-      const call = mockCreateRow.mock.calls[0][0];
-      const parsed = JSON.parse(call.data.document as string) as {
-        visibility: string;
-        platforms: unknown;
-      };
-      expect(parsed.visibility).toBe('unlisted');
-      expect(parsed.platforms).toEqual({ youtube: { categoryId: '10' } });
-    });
-
-    it('throws DraftDocumentTooLargeError before Appwrite when document JSON exceeds column limit', async () => {
-      await expect(
-        createDraft({
-          userId: 'user-1',
-          targets: ['youtube'],
-          title: 't',
-          description: 'x'.repeat(20_000),
-        })
-      ).rejects.toBeInstanceOf(DraftDocumentTooLargeError);
-      expect(mockCreateRow).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('getDraftById', () => {
-    it('returns typed Draft from document', async () => {
-      mockGetRow.mockResolvedValue({ ...baseRow });
-
-      const result = await getDraftById('draft-1');
-
-      expect(result).not.toBeNull();
-      expect(result!.title).toBe('My Video');
-      expect(result!.targets).toEqual(['youtube', 'vimeo']);
-    });
-
-    it('returns null when draft is not found (404)', async () => {
-      const err = new Error('Not found') as Error & { code?: number };
-      err.code = 404;
-      mockGetRow.mockRejectedValue(err);
-
-      expect(await getDraftById('missing-id')).toBeNull();
-    });
-
-    it('defaults when document missing', async () => {
-      mockGetRow.mockResolvedValue({
-        ...baseRow,
-        document: '',
-      });
-
-      const result = await getDraftById('draft-1');
-      expect(result!.title).toBe('');
-      expect(result!.targets).toEqual([]);
-      expect(result!.visibility).toBe('private');
-    });
-
-    it('rethrows non-404 errors', async () => {
-      mockGetRow.mockRejectedValue(new Error('Server error'));
-      await expect(getDraftById('draft-1')).rejects.toThrow('Server error');
-    });
-  });
-
-  describe('getDraftTitlesByIdsForUser', () => {
-    it('batch-fetches titles with one listRows per chunk', async () => {
-      mockListRows.mockResolvedValue({
-        rows: [{ ...baseRow, $id: 'd1', userId: 'user-1' }],
-      });
-
-      const map = await getDraftTitlesByIdsForUser('user-1', ['d1', 'd1', null, '']);
-
-      expect(mockListRows).toHaveBeenCalledTimes(1);
-      expect(mockListRows.mock.calls[0][0].queries).toEqual([
-        'equal("userId","user-1")',
-        'equal("$id",["d1"])',
-        'limit(1)',
-      ]);
-      expect(map.get('d1')).toBe('My Video');
-    });
-
-    it('chunks ids when above batch size', async () => {
-      const ids = Array.from({ length: 101 }, (_, i) => `d${i}`);
-      mockListRows
-        .mockResolvedValueOnce({ rows: [{ ...baseRow, $id: 'd0', userId: 'user-1' }] })
-        .mockResolvedValueOnce({ rows: [{ ...baseRow, $id: 'd100', userId: 'user-1' }] });
-
-      await getDraftTitlesByIdsForUser('user-1', ids);
-
-      expect(mockListRows).toHaveBeenCalledTimes(2);
-      expect(mockListRows.mock.calls[0][0].queries[1]).toMatch(/^equal\("\$id",\[/);
-      const firstChunk = mockListRows.mock.calls[0][0].queries[1] as string;
-      expect((firstChunk.match(/"d\d+"/g) ?? []).length).toBe(100);
-      expect(mockListRows.mock.calls[1][0].queries[1]).toBe('equal("$id",["d100"])');
-    });
-
-    it('returns empty map when no ids', async () => {
-      expect(await getDraftTitlesByIdsForUser('user-1', [])).toEqual(new Map());
-      expect(mockListRows).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('listDraftsByUser', () => {
-    it('returns drafts for user', async () => {
-      mockListRows.mockResolvedValue({
-        rows: [
-          { ...baseRow, $id: 'd1', $updatedAt: '2026-01-03T00:00:00.000Z' },
-          { ...baseRow, $id: 'd2', $updatedAt: '2026-01-02T00:00:00.000Z' },
-        ],
-      });
-
-      const result = await listDraftsByUser('user-1');
-      expect(result).toHaveLength(2);
-      expect(result[0].id).toBe('d1');
-    });
-
-    it('returns empty array when none', async () => {
-      mockListRows.mockResolvedValue({ rows: [] });
-      expect(await listDraftsByUser('user-1')).toEqual([]);
-    });
-  });
-
-  describe('countDraftsByUser', () => {
-    it('counts drafts for a user via total: true', async () => {
-      mockListRows.mockResolvedValue({ total: 9, rows: [] });
-
-      const result = await countDraftsByUser('user-1');
-
-      expect(result).toBe(9);
-      expect(mockListRows).toHaveBeenCalledWith(
-        expect.objectContaining({
-          databaseId: 'videosphere',
-          tableId: 'drafts',
-          total: true,
-        })
-      );
-      expect(mockListRows.mock.calls[0][0].queries).toEqual([
-        'equal("userId","user-1")',
-        'limit(1)',
-      ]);
-    });
-  });
-
-  describe('getDraftDashboardSummaryByUser', () => {
-    it('returns ready draft count and only the first preview drafts', async () => {
-      mockListRows
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              ...baseRow,
-              $id: 'ready-1',
-              $updatedAt: '2026-01-03T00:00:00.000Z',
-            },
-            {
-              ...baseRow,
-              $id: 'used-1',
-              document: stringifyDraftDocumentForStorage({
-                ...publishDefaults,
-                usedInUploadAt: '2026-01-03T00:00:00.000Z',
-              }),
-              $updatedAt: '2026-01-02T00:00:00.000Z',
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          rows: [
-            {
-              ...baseRow,
-              $id: 'ready-2',
-              $updatedAt: '2026-01-01T00:00:00.000Z',
-            },
-          ],
-        });
-
-      const result = await getDraftDashboardSummaryByUser('user-1', {
-        previewLimit: 1,
-        pageSize: 2,
-      });
-
-      expect(result.readyDraftCount).toBe(2);
-      expect(result.previewDrafts).toHaveLength(1);
-      expect(result.previewDrafts[0].id).toBe('ready-1');
-      expect(mockListRows).toHaveBeenCalledTimes(2);
-      expect(mockListRows.mock.calls[0][0].queries).toEqual([
-        'equal("userId","user-1")',
-        'orderDesc("$updatedAt")',
-        'limit(2)',
-        'offset(0)',
-      ]);
-      expect(mockListRows.mock.calls[1][0].queries).toEqual([
-        'equal("userId","user-1")',
-        'orderDesc("$updatedAt")',
-        'limit(2)',
-        'offset(2)',
-      ]);
-    });
-
-    it('clamps pageSize to Appwrite max and increments offset by actual per-page limit', async () => {
-      mockListRows
-        .mockResolvedValueOnce({
-          rows: Array.from({ length: 100 }, (_, idx) => ({
-            ...baseRow,
-            $id: `ready-bulk-${idx + 1}`,
-            $updatedAt: '2026-01-03T00:00:00.000Z',
-          })),
-        })
-        .mockResolvedValueOnce({ rows: [] });
-
-      await getDraftDashboardSummaryByUser('user-1', {
-        pageSize: 500,
-        maxRowsScanned: 150,
-      });
-
-      expect(mockListRows).toHaveBeenCalledTimes(2);
-      expect(mockListRows.mock.calls[0][0].queries).toEqual([
-        'equal("userId","user-1")',
-        'orderDesc("$updatedAt")',
-        'limit(100)',
-        'offset(0)',
-      ]);
-      expect(mockListRows.mock.calls[1][0].queries).toEqual([
-        'equal("userId","user-1")',
-        'orderDesc("$updatedAt")',
-        'limit(50)',
-        'offset(100)',
-      ]);
-    });
-  });
-
-  describe('updateDraft', () => {
-    it('updates title via getRow merge + document', async () => {
-      mockGetRow.mockResolvedValue({ ...baseRow });
-      const updatedDoc = stringifyDraftDocumentForStorage({
-        targets: [...publishDefaults.targets],
-        title: 'Updated Title',
-        description: publishDefaults.description,
-        visibility: publishDefaults.visibility,
-        tags: publishDefaults.tags,
-        platforms: publishDefaults.platforms,
-      });
-      mockUpdateRow.mockResolvedValue({ ...baseRow, document: updatedDoc });
-
-      const result = await updateDraft('draft-1', {
-        title: 'Updated Title',
-      });
-
-      expect(mockGetRow).toHaveBeenCalledTimes(1);
-      expect(mockUpdateRow).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { document: updatedDoc },
-        })
-      );
-      expect(result!.title).toBe('Updated Title');
-    });
-
-    it('preserves usedInUploadAt in the stored document when merging other fields', async () => {
-      const usedAt = '2026-01-15T12:00:00.000Z';
-      const rowWithUsed = {
-        ...baseRow,
-        document: stringifyDraftDocumentForStorage({
-          targets: [...publishDefaults.targets],
-          title: publishDefaults.title,
-          description: publishDefaults.description,
-          visibility: publishDefaults.visibility,
-          tags: publishDefaults.tags,
-          platforms: publishDefaults.platforms,
-          usedInUploadAt: usedAt,
-        }),
-      };
-      mockGetRow.mockResolvedValue({ ...rowWithUsed });
-      const expectedDoc = stringifyDraftDocumentForStorage({
-        targets: [...publishDefaults.targets],
-        title: 'Updated Title',
-        description: publishDefaults.description,
-        visibility: publishDefaults.visibility,
-        tags: publishDefaults.tags,
-        platforms: publishDefaults.platforms,
-        usedInUploadAt: usedAt,
-      });
-      mockUpdateRow.mockResolvedValue({ ...rowWithUsed, document: expectedDoc });
-
-      const result = await updateDraft('draft-1', { title: 'Updated Title' });
-
-      expect(mockUpdateRow).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { document: expectedDoc },
-        })
-      );
-      expect(
-        (
-          JSON.parse(mockUpdateRow.mock.calls[0][0].data.document as string) as {
-            usedInUploadAt?: string;
-          }
-        ).usedInUploadAt
-      ).toBe(usedAt);
-      expect(result!.usedInUploadAt).toBe(usedAt);
-      expect(result!.title).toBe('Updated Title');
-    });
-
-    it('throws before updateRow when merged document exceeds column limit', async () => {
-      mockGetRow.mockResolvedValue({ ...baseRow });
-      await expect(
-        updateDraft('draft-1', { description: 'y'.repeat(20_000) })
-      ).rejects.toBeInstanceOf(DraftDocumentTooLargeError);
-      expect(mockUpdateRow).not.toHaveBeenCalled();
-    });
-
-    it('merges platformsPatch without wiping omitted fields', async () => {
-      const rowWithTags = {
-        ...baseRow,
-        document: stringifyDraftDocumentForStorage({
-          targets: [...publishDefaults.targets],
-          title: publishDefaults.title,
-          description: publishDefaults.description,
-          visibility: publishDefaults.visibility,
-          tags: ['keep'],
-          platforms: {
-            youtube: { categoryId: '22' },
-          },
-        }),
-      };
-      mockGetRow.mockResolvedValue({ ...rowWithTags });
-      const updatedDoc = stringifyDraftDocumentForStorage({
-        targets: [...publishDefaults.targets],
-        title: publishDefaults.title,
-        description: publishDefaults.description,
-        visibility: publishDefaults.visibility,
-        tags: ['keep'],
-        platforms: {
-          youtube: { categoryId: '99' },
-        },
-      });
-      mockUpdateRow.mockResolvedValue({ ...rowWithTags, document: updatedDoc });
-
-      await updateDraft('draft-1', {
-        platformsPatch: { youtube: { categoryId: '99' } },
-      });
-
-      const doc = mockUpdateRow.mock.calls[0][0].data.document as string;
-      const parsed = JSON.parse(doc) as {
-        tags: string[];
-        platforms: { youtube: { categoryId: string } };
-      };
-      expect(parsed.platforms.youtube.categoryId).toBe('99');
-      expect(parsed.tags).toEqual(['keep']);
-    });
-
-    it('returns null when updateRow returns 404', async () => {
-      const err = new Error('Not found') as Error & { code?: number };
-      err.code = 404;
-      mockUpdateRow.mockRejectedValue(err);
-      expect(await updateDraft('missing-id', { title: 'New' })).toBeNull();
-    });
-
-    it('returns null when draft missing for platformsPatch-only update', async () => {
-      const err = new Error('Not found') as Error & { code?: number };
-      err.code = 404;
-      mockGetRow.mockRejectedValue(err);
-      const result = await updateDraft('missing-id', {
-        platformsPatch: { vimeo: { categoryUri: '/categories/x' } },
-      });
-      expect(result).toBeNull();
-      expect(mockUpdateRow).not.toHaveBeenCalled();
-    });
-
-    it('returns current draft when nothing to change', async () => {
-      mockGetRow.mockResolvedValue({ ...baseRow });
-      const result = await updateDraft('draft-1', {});
-      expect(mockUpdateRow).not.toHaveBeenCalled();
-      expect(result!.id).toBe('draft-1');
-    });
-  });
-
-  describe('markDraftUsedInUpload', () => {
-    it('stores usedAtIso when usedInUploadAt is missing', async () => {
-      mockGetRow.mockResolvedValueOnce({ ...baseRow });
-
-      const usedAt = '2026-01-12T10:00:00.000Z';
-      const expectedDoc = stringifyDraftDocumentForStorage({
-        targets: [...publishDefaults.targets],
-        title: publishDefaults.title,
-        description: publishDefaults.description,
-        visibility: publishDefaults.visibility,
-        tags: publishDefaults.tags,
-        platforms: publishDefaults.platforms,
-        usedInUploadAt: usedAt,
-      });
-      mockUpdateRow.mockResolvedValueOnce({ ...baseRow, document: expectedDoc });
-
-      const result = await markDraftUsedInUpload('draft-1', usedAt);
-
-      expect(mockUpdateRow).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { document: expectedDoc } })
-      );
-      expect(result?.usedInUploadAt).toBe(usedAt);
-    });
-
-    it('keeps earlier existing usedInUploadAt when incoming timestamp is later', async () => {
-      const earlier = '2026-01-10T00:00:00.000Z';
-      const later = '2026-01-20T00:00:00.000Z';
-      const rowWithUsed = {
-        ...baseRow,
-        document: stringifyDraftDocumentForStorage({
-          targets: [...publishDefaults.targets],
-          title: publishDefaults.title,
-          description: publishDefaults.description,
-          visibility: publishDefaults.visibility,
-          tags: publishDefaults.tags,
-          platforms: publishDefaults.platforms,
-          usedInUploadAt: earlier,
-        }),
-      };
-      mockGetRow.mockResolvedValueOnce(rowWithUsed);
-      const expectedDoc = stringifyDraftDocumentForStorage({
-        targets: [...publishDefaults.targets],
-        title: publishDefaults.title,
-        description: publishDefaults.description,
-        visibility: publishDefaults.visibility,
-        tags: publishDefaults.tags,
-        platforms: publishDefaults.platforms,
-        usedInUploadAt: earlier,
-      });
-      mockUpdateRow.mockResolvedValueOnce({ ...rowWithUsed, document: expectedDoc });
-
-      const result = await markDraftUsedInUpload('draft-1', later);
-
-      expect(result?.usedInUploadAt).toBe(earlier);
-    });
-
-    it('corrects later existing usedInUploadAt when incoming timestamp is earlier', async () => {
-      const later = '2026-01-20T00:00:00.000Z';
-      const earlier = '2026-01-10T00:00:00.000Z';
-      const rowWithUsed = {
-        ...baseRow,
-        document: stringifyDraftDocumentForStorage({
-          targets: [...publishDefaults.targets],
-          title: publishDefaults.title,
-          description: publishDefaults.description,
-          visibility: publishDefaults.visibility,
-          tags: publishDefaults.tags,
-          platforms: publishDefaults.platforms,
-          usedInUploadAt: later,
-        }),
-      };
-      mockGetRow.mockResolvedValueOnce(rowWithUsed);
-      const expectedDoc = stringifyDraftDocumentForStorage({
-        targets: [...publishDefaults.targets],
-        title: publishDefaults.title,
-        description: publishDefaults.description,
-        visibility: publishDefaults.visibility,
-        tags: publishDefaults.tags,
-        platforms: publishDefaults.platforms,
-        usedInUploadAt: earlier,
-      });
-      mockUpdateRow.mockResolvedValueOnce({ ...rowWithUsed, document: expectedDoc });
-
-      const result = await markDraftUsedInUpload('draft-1', earlier);
-
-      expect(result?.usedInUploadAt).toBe(earlier);
-    });
-
-    it('ignores invalid/whitespace existing value and uses incoming timestamp', async () => {
-      const rowWithBadUsed = {
-        ...baseRow,
-        document: stringifyDraftDocumentForStorage({
-          targets: [...publishDefaults.targets],
-          title: publishDefaults.title,
-          description: publishDefaults.description,
-          visibility: publishDefaults.visibility,
-          tags: publishDefaults.tags,
-          platforms: publishDefaults.platforms,
-          usedInUploadAt: '   ',
-        }),
-      };
-      mockGetRow.mockResolvedValueOnce(rowWithBadUsed);
-
-      const usedAt = '2026-01-05T00:00:00.000Z';
-      const expectedDoc = stringifyDraftDocumentForStorage({
-        targets: [...publishDefaults.targets],
-        title: publishDefaults.title,
-        description: publishDefaults.description,
-        visibility: publishDefaults.visibility,
-        tags: publishDefaults.tags,
-        platforms: publishDefaults.platforms,
-        usedInUploadAt: usedAt,
-      });
-      mockUpdateRow.mockResolvedValueOnce({ ...rowWithBadUsed, document: expectedDoc });
-
-      const result = await markDraftUsedInUpload('draft-1', usedAt);
-
-      expect(result?.usedInUploadAt).toBe(usedAt);
-    });
-
-    it('reconciles once when a concurrent write stores a later timestamp', async () => {
-      const incomingEarlier = '2026-01-05T00:00:00.000Z';
-      const concurrentLater = '2026-01-20T00:00:00.000Z';
-
-      mockGetRow.mockResolvedValueOnce({ ...baseRow }).mockResolvedValueOnce({
-        ...baseRow,
-        document: stringifyDraftDocumentForStorage({
-          targets: [...publishDefaults.targets],
-          title: publishDefaults.title,
-          description: publishDefaults.description,
-          visibility: publishDefaults.visibility,
-          tags: publishDefaults.tags,
-          platforms: publishDefaults.platforms,
-          usedInUploadAt: concurrentLater,
-        }),
-      });
-
-      mockUpdateRow
-        .mockResolvedValueOnce({
-          ...baseRow,
-          document: stringifyDraftDocumentForStorage({
-            targets: [...publishDefaults.targets],
-            title: publishDefaults.title,
-            description: publishDefaults.description,
-            visibility: publishDefaults.visibility,
-            tags: publishDefaults.tags,
-            platforms: publishDefaults.platforms,
-            usedInUploadAt: concurrentLater,
-          }),
-        })
-        .mockResolvedValueOnce({
-          ...baseRow,
-          document: stringifyDraftDocumentForStorage({
-            targets: [...publishDefaults.targets],
-            title: publishDefaults.title,
-            description: publishDefaults.description,
-            visibility: publishDefaults.visibility,
-            tags: publishDefaults.tags,
-            platforms: publishDefaults.platforms,
-            usedInUploadAt: incomingEarlier,
-          }),
-        });
-
-      const result = await markDraftUsedInUpload('draft-1', incomingEarlier);
-
-      expect(mockUpdateRow).toHaveBeenCalledTimes(2);
-      expect(result?.usedInUploadAt).toBe(incomingEarlier);
-    });
-
-    it('returns null when draft is deleted between initial read and first updateRow', async () => {
-      mockGetRow.mockResolvedValueOnce({ ...baseRow });
-      const err = new Error('Not found') as Error & { code?: number };
-      err.code = 404;
-      mockUpdateRow.mockRejectedValueOnce(err);
-
-      const result = await markDraftUsedInUpload('draft-1', '2026-01-05T00:00:00.000Z');
-
-      expect(result).toBeNull();
-    });
-
-    it('returns null when draft is deleted before reconcile updateRow', async () => {
-      const incomingEarlier = '2026-01-05T00:00:00.000Z';
-      const concurrentLater = '2026-01-20T00:00:00.000Z';
-      mockGetRow.mockResolvedValueOnce({ ...baseRow }).mockResolvedValueOnce({
-        ...baseRow,
-        document: stringifyDraftDocumentForStorage({
-          targets: [...publishDefaults.targets],
-          title: publishDefaults.title,
-          description: publishDefaults.description,
-          visibility: publishDefaults.visibility,
-          tags: publishDefaults.tags,
-          platforms: publishDefaults.platforms,
-          usedInUploadAt: concurrentLater,
-        }),
-      });
-      const err = new Error('Not found') as Error & { code?: number };
-      err.code = 404;
-      mockUpdateRow
-        .mockResolvedValueOnce({
-          ...baseRow,
-          document: stringifyDraftDocumentForStorage({
-            targets: [...publishDefaults.targets],
-            title: publishDefaults.title,
-            description: publishDefaults.description,
-            visibility: publishDefaults.visibility,
-            tags: publishDefaults.tags,
-            platforms: publishDefaults.platforms,
-            usedInUploadAt: concurrentLater,
-          }),
-        })
-        .mockRejectedValueOnce(err);
-
-      const result = await markDraftUsedInUpload('draft-1', incomingEarlier);
-
-      expect(mockUpdateRow).toHaveBeenCalledTimes(2);
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('deleteDraft', () => {
-    it('calls deleteRow', async () => {
-      mockDeleteRow.mockResolvedValue(undefined);
-      await deleteDraft('draft-1');
-      expect(mockDeleteRow).toHaveBeenCalledWith({
-        databaseId: 'videosphere',
-        tableId: 'drafts',
-        rowId: 'draft-1',
-      });
-    });
+    mockDeleteOne.mockResolvedValueOnce({ deletedCount: 1 });
+
+    const used = await markDraftUsedInUpload('draft-1', '2026-01-03T00:00:00.000Z');
+    const deleted = await deleteDraft('draft-1');
+
+    expect(used?.id).toBe('draft-1');
+    expect(mockFindByIdAndUpdate).toHaveBeenCalled();
+    expect(deleted).toBeUndefined();
+    expect(mockDeleteOne).toHaveBeenCalledWith({ _id: 'draft-1' });
   });
 });

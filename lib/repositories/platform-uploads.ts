@@ -3,44 +3,40 @@
 // =============================================================================
 // All platform upload (per-platform upload state for a job) data access goes
 // through this module. API routes and Server Components should call these
-// functions only — not the Appwrite SDK directly.
+// functions only.
 //
-// Uses Appwrite Server SDK (Tables API) for the platform_uploads table.
+// Uses Mongoose for the platform_uploads collection.
 // =============================================================================
 
-import { ID, Query, TablesDB } from 'node-appwrite';
+import { randomUUID } from 'crypto';
 import type { PlatformUpload, ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
-import appwriteClient from '@/lib/appwrite';
-import { DATABASE_ID, PLATFORM_UPLOADS_COLLECTION_ID } from '@/lib/appwrite-constants';
-import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
+import { connectToDatabase } from '@/lib/mongodb';
+import { PlatformUploadModel, type PlatformUploadDocument } from '@/lib/models/PlatformUpload';
 import {
   platformUploadDocumentFromRow,
   platformUploadDocumentJsonForCreateRow,
   type PlatformUploadRowDocumentInput,
 } from '@/lib/platform-upload-document';
 
-const tablesDb = new TablesDB(appwriteClient);
-
-/** Map an Appwrite row to the shared PlatformUpload type. */
-export function rowToPlatformUpload(row: Record<string, unknown>): PlatformUpload {
-  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
-  const doc = platformUploadDocumentFromRow(row);
+/** Map a MongoDB document to the shared PlatformUpload type. */
+export function rowToPlatformUpload(doc: PlatformUploadDocument): PlatformUpload {
+  const parsed = platformUploadDocumentFromRow({ document: doc.document });
   return {
-    id: String(row.$id ?? row.id),
-    uploadJobId: String(row.uploadJobId),
-    platform: String(row.platform) as ConnectedAccountPlatform,
-    status: String(row.status) as PlatformUploadStatus,
-    platformVideoId: String(row.platformVideoId ?? ''),
-    platformUrl: String(row.platformUrl ?? ''),
-    title: doc.title,
-    description: doc.description,
-    tags: [...doc.tags],
-    visibility: doc.visibility,
-    scheduledAt: row.scheduledAt != null && row.scheduledAt !== '' ? String(row.scheduledAt) : null,
+    id: String(doc._id),
+    uploadJobId: String(doc.uploadJobId),
+    platform: String(doc.platform) as ConnectedAccountPlatform,
+    status: String(doc.status) as PlatformUploadStatus,
+    platformVideoId: String(doc.platformVideoId ?? ''),
+    platformUrl: String(doc.platformUrl ?? ''),
+    title: parsed.title,
+    description: parsed.description,
+    tags: [...parsed.tags],
+    visibility: parsed.visibility,
+    scheduledAt: doc.scheduledAt != null && doc.scheduledAt !== '' ? String(doc.scheduledAt) : null,
     errorMessage:
-      row.errorMessage != null && row.errorMessage !== '' ? String(row.errorMessage) : null,
-    $createdAt,
-    $updatedAt,
+      doc.errorMessage != null && doc.errorMessage !== '' ? String(doc.errorMessage) : null,
+    $createdAt: new Date(doc.createdAt).toISOString(),
+    $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
 }
 
@@ -64,25 +60,44 @@ export interface CreatePlatformUploadInput extends PlatformUploadRowDocumentInpu
 export async function createPlatformUpload(
   data: CreatePlatformUploadInput
 ): Promise<PlatformUpload> {
-  const rowData: Record<string, unknown> = {
-    uploadJobId: data.uploadJobId,
-    platform: data.platform,
-    status: 'pending',
-    platformVideoId: '',
-    platformUrl: '',
-    document: platformUploadDocumentJsonForCreateRow(data),
-    errorMessage: '',
-  };
-  if (data.scheduledAt != null && data.scheduledAt !== '') {
-    rowData.scheduledAt = data.scheduledAt;
+  await connectToDatabase();
+
+  try {
+    const created = await PlatformUploadModel.create({
+      _id: randomUUID(),
+      uploadJobId: data.uploadJobId,
+      platform: data.platform,
+      status: 'pending',
+      platformVideoId: '',
+      platformUrl: '',
+      document: platformUploadDocumentJsonForCreateRow(data),
+      errorMessage: '',
+      scheduledAt: data.scheduledAt != null && data.scheduledAt !== '' ? data.scheduledAt : '',
+    });
+
+    return rowToPlatformUpload(created.toObject());
+  } catch (error) {
+    const duplicateKeyError =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: number }).code === 11000;
+
+    if (!duplicateKeyError) {
+      throw error;
+    }
+
+    const existing = await PlatformUploadModel.findOne({
+      uploadJobId: data.uploadJobId,
+      platform: data.platform,
+    }).lean<PlatformUploadDocument | null>();
+
+    if (!existing) {
+      throw error;
+    }
+
+    return rowToPlatformUpload(existing);
   }
-  const row = await tablesDb.createRow({
-    databaseId: DATABASE_ID,
-    tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-    rowId: ID.unique(),
-    data: rowData,
-  });
-  return rowToPlatformUpload(row as unknown as Record<string, unknown>);
 }
 
 /** Newest row per platform (input must be ordered with newest first, as from {@link getPlatformUploadsByJob}). */
@@ -120,26 +135,26 @@ export async function resetPlatformUploadForRetry(
   id: string,
   data: CreatePlatformUploadInput
 ): Promise<PlatformUpload> {
-  const document = platformUploadDocumentJsonForCreateRow(data);
-  const rowData: Record<string, unknown> = {
-    status: 'pending',
-    platformVideoId: '',
-    platformUrl: '',
-    errorMessage: '',
-    document,
-  };
-  if (data.scheduledAt != null && data.scheduledAt !== '') {
-    rowData.scheduledAt = data.scheduledAt;
-  } else {
-    rowData.scheduledAt = '';
+  await connectToDatabase();
+
+  const updated = await PlatformUploadModel.findByIdAndUpdate(
+    id,
+    {
+      status: 'pending',
+      platformVideoId: '',
+      platformUrl: '',
+      errorMessage: '',
+      document: platformUploadDocumentJsonForCreateRow(data),
+      scheduledAt: data.scheduledAt != null && data.scheduledAt !== '' ? data.scheduledAt : '',
+    },
+    { returnDocument: 'after', runValidators: true }
+  ).lean<PlatformUploadDocument | null>();
+
+  if (!updated) {
+    throw new Error('Platform upload not found for retry reset');
   }
-  const row = await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-    rowId: id,
-    data: rowData,
-  });
-  return rowToPlatformUpload(row as unknown as Record<string, unknown>);
+
+  return rowToPlatformUpload(updated);
 }
 
 /**
@@ -185,26 +200,20 @@ export async function ensurePlatformUploadsForJobTargets(
  * Return all platform uploads for a given upload job, ordered by `$createdAt` descending.
  */
 export async function getPlatformUploadsByJob(uploadJobId: string): Promise<PlatformUpload[]> {
+  await connectToDatabase();
+
   const pageSize = 100;
   let offset = 0;
   const uploads: PlatformUpload[] = [];
 
   while (true) {
-    const { rows } = await tablesDb.listRows({
-      databaseId: DATABASE_ID,
-      tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-      queries: [
-        Query.equal('uploadJobId', uploadJobId),
-        Query.orderDesc('$createdAt'),
-        Query.limit(pageSize),
-        Query.offset(offset),
-      ],
-      total: false,
-    });
+    const docs = await PlatformUploadModel.find({ uploadJobId })
+      .sort({ createdAt: -1 })
+      .skip(offset)
+      .limit(pageSize)
+      .lean<PlatformUploadDocument[]>();
 
-    const pageUploads = (rows ?? []).map((r) =>
-      rowToPlatformUpload(r as unknown as Record<string, unknown>)
-    );
+    const pageUploads = docs.map(rowToPlatformUpload);
     uploads.push(...pageUploads);
 
     if (pageUploads.length < pageSize) break;
@@ -231,9 +240,9 @@ export async function updatePlatformUploadStatus(
   platformUrl?: string,
   errorMessage?: string | null
 ): Promise<PlatformUpload | null> {
-  const data: Record<string, unknown> = {
-    status,
-  };
+  await connectToDatabase();
+
+  const data: Partial<PlatformUploadDocument> = { status };
   if (platformVideoId !== undefined) {
     data.platformVideoId = platformVideoId;
   }
@@ -243,17 +252,12 @@ export async function updatePlatformUploadStatus(
   if (errorMessage !== undefined) {
     data.errorMessage = errorMessage ?? '';
   }
-  try {
-    const row = await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: PLATFORM_UPLOADS_COLLECTION_ID,
-      rowId: id,
-      data,
-    });
-    return rowToPlatformUpload(row as unknown as Record<string, unknown>);
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code === 404) return null;
-    throw err;
-  }
+
+  const updated = await PlatformUploadModel.findByIdAndUpdate(id, data, {
+    returnDocument: 'after',
+    runValidators: true,
+  }).lean<PlatformUploadDocument | null>();
+
+  if (!updated) return null;
+  return rowToPlatformUpload(updated);
 }

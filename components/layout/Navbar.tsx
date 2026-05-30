@@ -3,7 +3,7 @@
 // =============================================================================
 // The main navigation bar displayed at the top of every page.
 // Auth state: GET /api/auth/session (credentials: 'include') — 200 = logged in,
-// 401 = logged out. Logout via POST /api/auth/logout (existing API). No Appwrite
+// 401 = logged out. Logout via POST /api/auth/logout (existing API). No external auth
 // browser SDK for session; cookie is server-side only.
 // =============================================================================
 
@@ -119,7 +119,7 @@ function ThemeDropdown({
   );
 }
 
-/** User shape returned by GET /api/auth/session (Appwrite User). */
+/** User shape returned by GET /api/auth/session. */
 interface SessionUser {
   $id?: string;
   name?: string;

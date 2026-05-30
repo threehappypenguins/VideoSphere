@@ -44,7 +44,7 @@ import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 function makeRequest(
   method: string,
@@ -88,8 +88,6 @@ const baseDraft = {
 describe('POST /api/drafts', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
@@ -106,7 +104,7 @@ describe('POST /api/drafts', () => {
       expect(body.error).toMatch(/unauthorized/i);
     });
 
-    it('returns 401 when Appwrite rejects the session', async () => {
+    it('returns 401 when session is invalid', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const req = makeRequest('POST', { title: 'Test' }, { [SESSION_COOKIE]: 'bad-token' });
       const res = await POST(req);
@@ -337,7 +335,7 @@ describe('POST /api/drafts', () => {
     it('returns 400 when createDraft throws DraftDocumentTooLargeError', async () => {
       vi.mocked(createDraft).mockRejectedValueOnce(
         new DraftDocumentTooLargeError(
-          'Draft document JSON is 20000 characters; Appwrite allows at most 16383 in the document column.'
+          'Draft document JSON is 20000 characters; storage layer allows at most 16383 in the document column.'
         )
       );
 
@@ -360,8 +358,6 @@ describe('POST /api/drafts', () => {
 describe('GET /api/drafts', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {
@@ -376,7 +372,7 @@ describe('GET /api/drafts', () => {
       expect(res.status).toBe(401);
     });
 
-    it('returns 401 when Appwrite rejects the session', async () => {
+    it('returns 401 when session is invalid', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
       const req = makeRequest('GET', undefined, { [SESSION_COOKIE]: 'bad' });
       const res = await GET(req);

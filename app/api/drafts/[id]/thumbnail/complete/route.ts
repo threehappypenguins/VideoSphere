@@ -156,7 +156,7 @@ export async function POST(
     }
 
     // Pending object cleaned up only after the draft update is confirmed so that
-    // a transient Appwrite failure leaves the pending key intact for a retry.
+    // a transient persistence failure leaves the pending key intact for a retry.
     await deleteObject(pendingKey).catch((e) => {
       console.error('[POST /api/drafts/:id/thumbnail/complete] delete pending', e);
     });

@@ -6,7 +6,7 @@
 
 **📋 VitePress Docs:** [https://nscc-itc-winter2026-prog5016-700-mca.github.io/project-videosphere-team/](https://nscc-itc-winter2026-prog5016-700-mca.github.io/project-videosphere-team/)
 
-**📋 Daily workflow:** [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — Before you start (Docker, Appwrite, branch from main) and before you push (format, lint, test, build).
+**📋 Daily workflow:** [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — Before you start (Docker, MongoDB, branch from main) and before you push (format, lint, test, build).
 
 **📝 Draft JSON & manual uploads:** [docs/draft-document-and-upload-testing.md](docs/draft-document-and-upload-testing.md) — `document` on `drafts` / `platform_uploads`, field reference, presign → R2 → complete → distribute.
 
@@ -14,8 +14,8 @@
 
 | Tool    | Version  | Check Command    |
 | ------- | -------- | ---------------- |
-| Node.js | ≥ 20.0.0 | `node --version` |
-| pnpm    | ≥ 9.0.0  | `pnpm --version` |
+| Node.js | ≥ 20.19.0 | `node --version` |
+| pnpm    | ≥ 10.0.0 | `pnpm --version` |
 | Git     | Latest   | `git --version`  |
 
 ## Getting Started

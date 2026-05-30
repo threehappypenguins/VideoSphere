@@ -40,7 +40,7 @@ import { getDraftTitlesByIdsForUser } from '@/lib/repositories/drafts';
 import { R2ObjectNotFoundError } from '@/lib/r2';
 import type { PlatformUpload, UploadJobWithPlatformUploads } from '@/types';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 function makePlatformUpload(overrides: Partial<PlatformUpload> = {}): PlatformUpload {
   return {
@@ -92,8 +92,6 @@ function createRequest(search = ''): NextRequest {
 describe('GET /api/uploads/jobs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     mockHeadObject.mockResolvedValue(1024);
   });
 

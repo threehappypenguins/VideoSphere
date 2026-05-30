@@ -192,8 +192,8 @@ export default function HomePage() {
               </div>
               <h3 className="text-lg font-semibold text-foreground">Secure by Default</h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Your credentials and content are protected with Appwrite Auth. Platform connections
-                use OAuth so VideoSphere never stores your passwords.
+                Your credentials and content are protected with secure authentication. Platform
+                connections use OAuth so VideoSphere never stores your passwords.
               </p>
             </div>
 

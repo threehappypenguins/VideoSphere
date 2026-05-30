@@ -25,7 +25,7 @@ import { getUploadJobById } from '@/lib/repositories/upload-jobs';
 import { getPlatformUploadsByJob } from '@/lib/repositories/platform-uploads';
 import type { ConnectedAccountPlatform, PlatformUpload, PlatformUploadStatus } from '@/types';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 
 const baseJob = {
   id: 'job-abc',
@@ -82,8 +82,6 @@ function makeParams(id: string) {
 describe('GET /api/uploads/jobs/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   it('returns 401 when unauthenticated', async () => {

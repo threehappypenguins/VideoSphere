@@ -6,25 +6,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const accountGetMock = vi.hoisted(() => vi.fn());
+const getAuthenticatedUserIdMock = vi.hoisted(() => vi.fn());
 const getUserByIdMock = vi.hoisted(() => vi.fn());
 
-vi.mock('node-appwrite', () => ({
-  __esModule: true,
-  Client: class {
-    setEndpoint() {
-      return this;
-    }
-    setProject() {
-      return this;
-    }
-    setSession() {
-      return this;
-    }
-  },
-  Account: class {
-    get = accountGetMock;
-  },
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => getAuthenticatedUserIdMock(...args),
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
@@ -49,8 +35,7 @@ function createRequest(cookies?: Record<string, string>): NextRequest {
 describe('GET /api/auth/profile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'http://localhost/v1');
-    vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
+    getAuthenticatedUserIdMock.mockResolvedValue('user_123');
   });
 
   afterEach(() => {
@@ -58,6 +43,7 @@ describe('GET /api/auth/profile', () => {
   });
 
   it('returns 401 when session cookie is missing', async () => {
+    getAuthenticatedUserIdMock.mockResolvedValueOnce(null);
     const res = await GET(createRequest());
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'Not authenticated' });
@@ -65,17 +51,17 @@ describe('GET /api/auth/profile', () => {
   });
 
   it('returns 404 when user profile is not found', async () => {
-    accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+    getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
     getUserByIdMock.mockResolvedValueOnce(null);
 
-    const res = await GET(createRequest({ 'a_session_test-project': 'session-secret' }));
+    const res = await GET(createRequest({ videosphere_session: 'session-secret' }));
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Profile not found' });
   });
 
   it('returns user profile with isSupporter status', async () => {
-    accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+    getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
     getUserByIdMock.mockResolvedValueOnce({
       userId: 'user_123',
       email: 'test@example.com',
@@ -85,7 +71,7 @@ describe('GET /api/auth/profile', () => {
       $updatedAt: '2026-03-25T00:00:00.000Z',
     });
 
-    const res = await GET(createRequest({ 'a_session_test-project': 'session-secret' }));
+    const res = await GET(createRequest({ videosphere_session: 'session-secret' }));
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -96,7 +82,7 @@ describe('GET /api/auth/profile', () => {
   });
 
   it('returns free-tier user profile correctly', async () => {
-    accountGetMock.mockResolvedValueOnce({ $id: 'user_456' });
+    getAuthenticatedUserIdMock.mockResolvedValueOnce('user_456');
     getUserByIdMock.mockResolvedValueOnce({
       userId: 'user_456',
       email: 'free@example.com',
@@ -106,7 +92,7 @@ describe('GET /api/auth/profile', () => {
       $updatedAt: '2026-03-01T00:00:00.000Z',
     });
 
-    const res = await GET(createRequest({ 'a_session_test-project': 'session-secret' }));
+    const res = await GET(createRequest({ videosphere_session: 'session-secret' }));
 
     expect(res.status).toBe(200);
     const body = await res.json();

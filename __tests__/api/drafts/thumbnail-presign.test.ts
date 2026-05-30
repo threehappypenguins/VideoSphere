@@ -29,7 +29,7 @@ import { getDraftById } from '@/lib/repositories/drafts';
 import { getPresignedUploadUrl } from '@/lib/r2';
 import { MAX_DRAFT_THUMBNAIL_BYTES } from '@/lib/draft-thumbnail';
 
-const SESSION_COOKIE = 'a_session_test-project';
+const SESSION_COOKIE = 'videosphere_session';
 const USER_ID = 'user-123';
 const DRAFT_ID = 'draft-abc';
 
@@ -73,8 +73,6 @@ describe('POST /api/drafts/[id]/thumbnail/presign', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example/presigned-put');
-    process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
-    process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
   });
 
   afterEach(() => {

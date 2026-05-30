@@ -495,7 +495,7 @@ describe('POST /api/webhooks/stripe', () => {
         },
       });
     setSupporterStatusMock
-      .mockRejectedValueOnce(new Error('Appwrite unavailable'))
+      .mockRejectedValueOnce(new Error('Persistence unavailable'))
       .mockResolvedValueOnce(undefined);
 
     const firstRes = await POST(
@@ -509,7 +509,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(await firstRes.json()).toEqual({ error: 'Failed to process webhook event' });
     expect(markStripeWebhookEventFailedMock).toHaveBeenCalledWith(
       'evt_retryable',
-      'Appwrite unavailable'
+      'Persistence unavailable'
     );
     expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
 
@@ -538,7 +538,7 @@ describe('POST /api/webhooks/stripe', () => {
       },
     });
     setSupporterStatusMock.mockResolvedValueOnce(undefined);
-    markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+    markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Persistence update outage'));
 
     const res = await runRequestWithFakeTimers(
       createRequest({
@@ -553,7 +553,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
     expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
       'evt_completion_mark_fail',
-      'Appwrite update outage'
+      'Persistence update outage'
     );
     expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
     expect(deleteStripeWebhookEventMock).not.toHaveBeenCalled();
@@ -571,7 +571,7 @@ describe('POST /api/webhooks/stripe', () => {
       },
     });
     setSupporterStatusMock.mockResolvedValueOnce(undefined);
-    markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Appwrite update outage'));
+    markStripeWebhookEventCompletedMock.mockRejectedValue(new Error('Persistence update outage'));
     markStripeWebhookEventBookkeepingFailedMock.mockRejectedValueOnce(
       new Error('terminal status write failed')
     );
@@ -590,7 +590,7 @@ describe('POST /api/webhooks/stripe', () => {
     expect(markStripeWebhookEventCompletedMock).toHaveBeenCalledTimes(3);
     expect(markStripeWebhookEventBookkeepingFailedMock).toHaveBeenCalledWith(
       'evt_completion_terminal_persist_fail',
-      'Appwrite update outage'
+      'Persistence update outage'
     );
     expect(markStripeWebhookEventFailedMock).not.toHaveBeenCalled();
   });

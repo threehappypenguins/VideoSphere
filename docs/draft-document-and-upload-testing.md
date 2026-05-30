@@ -2,7 +2,7 @@
 
 This guide covers:
 
-1. How **Appwrite** stores draft and platform-upload payloads in the **`document`** column (stringified JSON).
+1. How MongoDB stores draft and platform-upload payloads in the `document` field (stringified JSON).
 2. The **draft JSON shape** for frontend and API use, with a **short** sample for quick tests and a **long** sample for full UI wiring.
 3. **Field reference** (YouTube / Vimeo / OAuth).
 4. **End-to-end manual steps**: presign → PUT to R2 with `curl` → complete → distribute.
@@ -11,22 +11,22 @@ Canonical TypeScript types live in [`types/index.ts`](../types/index.ts) (`Draft
 
 ---
 
-## `document` in Appwrite
+## `document` in MongoDB
 
-### `drafts` table
+### `drafts` collection
 
-- Each row includes a **`document`** column: a **single JSON string** (max length enforced by Appwrite column size).
+- Each document includes a `document` field: a single JSON string (validated and bounded by application limits).
 - That string must deserialize to an object with at least:
   - **`targets`**: `["youtube"]`, `["vimeo"]`, or both (order preserved, deduped by the API when saving).
   - **`title`**, **`description`**, **`visibility`** (`public` | `unlisted` | `private`).
   - **`tags`**: string array — **one shared list** for every platform (not per-platform).
   - **`platforms`**: object with optional **`youtube`** and **`vimeo`** nested objects (platform-only fields).
 
-The app’s draft APIs (`POST/PATCH /api/drafts`, `GET /api/drafts`, …) read and write this structure; the repository persists it as **`document`** on the `drafts` table.
+The app’s draft APIs (`POST/PATCH /api/drafts`, `GET /api/drafts`, …) read and write this structure; the repository persists it as **`document`** on the `drafts` collection.
 
-### `platform_uploads` table
+### `platform_uploads` collection
 
-- Each row has a **`document`** column: JSON string snapshot **at distribution time**.
+- Each document has a **`document`** field: JSON string snapshot **at distribution time**.
 - Typical contents: `title`, `description`, `tags`, `visibility`, optional `categoryId` / `madeForKids` (YouTube), `vimeoCategoryUri`, and optional audit copies **`draftYoutube`** / **`draftVimeo`** (the `platforms.youtube` / `platforms.vimeo` slices from the draft when distribute ran).
 - Purpose: debugging, support, and correlating what was sent to each platform without re-reading the draft.
 
@@ -36,7 +36,7 @@ See [`lib/platform-upload-document.ts`](../lib/platform-upload-document.ts) for 
 
 ## Frontend: wiring the editor to the draft
 
-1. **Load**: `GET /api/drafts` or `GET /api/drafts/[id]` returns a `Draft` with **`targets`**, **`title`**, **`description`**, **`tags`**, **`visibility`**, and **`platforms`** already parsed from `document` (you do not manually parse the Appwrite row in the client if you use these routes).
+1. **Load**: `GET /api/drafts` or `GET /api/drafts/[id]` returns a `Draft` with **`targets`**, **`title`**, **`description`**, **`tags`**, **`visibility`**, and **`platforms`** already parsed from `document` (you do not manually parse raw MongoDB documents in the client if you use these routes).
 2. **Save**: `POST /api/drafts` or `PATCH /api/drafts/[id]` with a JSON body using the **same keys** as the stored document: `targets`, `title`, `description`, `visibility`, `tags`, `platforms` (partial updates on PATCH merge per server rules).
 3. **Validate in UI** using the types in `types/index.ts` so `platforms.youtube` / `platforms.vimeo` stay consistent with the server.
 
@@ -189,7 +189,7 @@ Vimeo: connect still requires upload + edit-related scopes for tags/categories (
 **Prerequisites**
 
 - Dev server running (`pnpm dev`) and you are **logged in** in the browser (session cookie sent with `fetch`).
-- A draft row whose **`document`** matches one of the JSON samples above; note its **`draftId`** (Appwrite `$id` / API `id`).
+- A draft document whose `document` field matches one of the JSON samples above; note its `draftId` (API `id`).
 
 ### 1. Presign (browser DevTools → Console)
 
@@ -264,7 +264,7 @@ const d = await fetch('/api/uploads/distribute', {
 d;
 ```
 
-You should get **`202`** with a **`jobId`** while distribution runs asynchronously. Check platform upload rows and logs if a platform fails.
+You should get **`202`** with a **`jobId`** while distribution runs asynchronously. Check platform upload documents and logs if a platform fails.
 
 ---
 
@@ -279,4 +279,4 @@ You should get **`202`** with a **`jobId`** while distribution runs asynchronous
 | Distribute | `app/api/uploads/distribute/route.ts` |
 | YouTube upload + playlists | `lib/platforms/youtube.ts` |
 | Vimeo upload | `lib/platforms/vimeo.ts` |
-| Appwrite schema notes | `docs/appwrite-databases.md` |
+| MongoDB schema notes | `docs/mongodb-data-model.md` |

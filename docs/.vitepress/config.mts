@@ -29,6 +29,7 @@ export default defineConfig({
         text: 'Guides',
         items: [
           { text: 'Daily Dev Workflow', link: '/daily-dev-workflow' },
+          { text: 'MongoDB Data Model', link: '/mongodb-data-model' },
           { text: 'Code Quality', link: '/code-quality' },
           { text: 'Testing', link: '/testing' },
           { text: 'Deployment Guide', link: '/deployment-guide' },
