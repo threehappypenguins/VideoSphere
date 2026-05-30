@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockCookies, mockJwtVerify, mockGetUserById } = vi.hoisted(() => ({
   mockCookies: vi.fn(),
@@ -34,9 +34,13 @@ function cookieStoreWith(token: string | null) {
 describe('getSessionUserFromCookies', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.JWT_SECRET = 'test-secret';
-    process.env.JWT_SESSION_COOKIE_NAME = 'videosphere_session';
-    process.env.NODE_ENV = 'test';
+    vi.stubEnv('JWT_SECRET', 'test-secret');
+    vi.stubEnv('JWT_SESSION_COOKIE_NAME', 'videosphere_session');
+    vi.stubEnv('NODE_ENV', 'test');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('returns session user when JWT is valid and profile exists', async () => {
