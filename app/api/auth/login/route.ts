@@ -1,14 +1,15 @@
 // =============================================================================
 // POST /api/auth/login
 // =============================================================================
-// Creates session via admin client (API key with sessions.write) and sets
-// cookie server-side. Per Appwrite Next.js SSR tutorial.
-// https://appwrite.io/docs/tutorials/nextjs-ssr-auth/step-5
+// Verifies credentials against MongoDB and sets a signed JWT session cookie.
 // =============================================================================
 
+import bcrypt from 'bcryptjs';
+import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
+import { connectToDatabase } from '@/lib/mongodb';
+import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
-import { appwriteAuth } from '@/lib/appwrite';
 
 /**
  * Handles POST requests for this route.
@@ -41,30 +42,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
     }
 
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    if (!projectId) {
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
       return NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 });
     }
 
-    let session: { secret?: string } | undefined;
-    try {
-      session = await appwriteAuth.createEmailPasswordSession({ email, password });
-    } catch (sessionErr) {
-      const err = sessionErr as { code?: number };
-      if (err?.code === 401 || (sessionErr as Error)?.message?.toLowerCase().includes('invalid')) {
-        return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
-      }
-      throw sessionErr;
+    await connectToDatabase();
+    const user = await UserProfileModel.findOne({ email }).lean<UserProfileDocument | null>();
+    if (!user?.passwordHash) {
+      return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
-    const secret =
-      session && typeof session === 'object' && 'secret' in session ? session.secret : undefined;
-    if (typeof secret !== 'string' || secret.length === 0) {
-      return NextResponse.json({ error: 'Session could not be created.' }, { status: 500 });
+    const validPassword = await bcrypt.compare(password, user.passwordHash);
+    if (!validPassword) {
+      return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
+
+    const token = await new SignJWT({ role: user.role })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(user.userId)
+      .setIssuedAt()
+      .setExpirationTime(`${getSessionCookieOptions().maxAge}s`)
+      .sign(new TextEncoder().encode(jwtSecret));
 
     const res = NextResponse.json({ ok: true }, { status: 200 });
-    res.cookies.set(getSessionCookieName(projectId), secret, getSessionCookieOptions());
+    res.cookies.set(getSessionCookieName(), token, getSessionCookieOptions());
     return res;
   } catch (err) {
     console.error('[POST /api/auth/login]', err);

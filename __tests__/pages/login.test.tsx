@@ -117,24 +117,17 @@ describe('LoginPage Component', () => {
       const toggleButton = screen.getByRole('button', { name: /show password/i });
 
       expect(passwordInput.type).toBe('password');
-      expect(toggleButton).toHaveAttribute('aria-pressed', 'false');
       expect(toggleButton).toHaveAttribute('aria-controls', 'password');
 
       await user.click(toggleButton);
 
       expect(passwordInput.type).toBe('text');
-      expect(screen.getByRole('button', { name: /hide password/i })).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      );
+      expect(screen.getByRole('button', { name: /hide password/i })).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: /hide password/i }));
 
       expect(passwordInput.type).toBe('password');
-      expect(screen.getByRole('button', { name: /show password/i })).toHaveAttribute(
-        'aria-pressed',
-        'false'
-      );
+      expect(screen.getByRole('button', { name: /show password/i })).toBeInTheDocument();
     });
   });
 

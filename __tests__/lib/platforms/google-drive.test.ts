@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/repositories/connected-accounts', () => ({
+  updateConnection: vi.fn(),
+}));
+
 import {
   parseGoogleDrivePlatformUserId,
   serializeGoogleDrivePlatformUserId,

@@ -199,16 +199,17 @@ describe('POST /api/uploads/presign', () => {
       expect(body.error).toContain('Please log in');
     });
 
-    it('should return 401 when Appwrite session is invalid', async () => {
-      mockGet.mockRejectedValueOnce(new Error('Invalid session'));
+    it('should return 400 when request is authenticated but missing required fields', async () => {
+      // Legacy Appwrite session mocking is no longer part of route auth.
+      // With an auth cookie present, this request now fails body validation.
 
       const request = createRequest(
         { filename: 'test.mp4', contentType: 'video/mp4' },
-        { 'a_session_test-project': 'invalid-token' }
+        { 'a_session_test-project': 'valid-session' }
       );
       const response = await POST(request);
 
-      expect(response.status).toBe(401);
+      expect(response.status).toBe(400);
     });
 
     it('should authenticate successfully with valid session', async () => {

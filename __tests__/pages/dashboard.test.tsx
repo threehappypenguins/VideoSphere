@@ -9,13 +9,13 @@ import { render, screen } from '@testing-library/react';
 
 const {
   mockCookiesGet,
-  mockAccountGet,
+  mockGetCurrentUserIdFromCookies,
   mockCountDraftsByUser,
   mockGetDraftDashboardSummaryByUser,
   mockCountUploadJobsByUserWithStatuses,
 } = vi.hoisted(() => ({
   mockCookiesGet: vi.fn(),
-  mockAccountGet: vi.fn(),
+  mockGetCurrentUserIdFromCookies: vi.fn(),
   mockCountDraftsByUser: vi.fn(),
   mockGetDraftDashboardSummaryByUser: vi.fn(),
   mockCountUploadJobsByUserWithStatuses: vi.fn(),
@@ -35,29 +35,9 @@ vi.mock('sonner', () => ({
   },
 }));
 
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-
-  function MockClient() {
-    return mockClient;
-  }
-
-  function MockAccount() {
-    this.get = mockAccountGet;
-  }
-
-  return { Client: MockClient, Account: MockAccount };
-});
+vi.mock('@/lib/auth/get-current-user-id-from-cookies', () => ({
+  getCurrentUserIdFromCookies: (...args: unknown[]) => mockGetCurrentUserIdFromCookies(...args),
+}));
 
 vi.mock('@/lib/repositories/drafts', () => ({
   countDraftsByUser: (...args: unknown[]) => mockCountDraftsByUser(...args),
@@ -78,7 +58,7 @@ describe('DashboardPage Component', () => {
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     mockCookiesGet.mockReturnValue({ value: 'valid-session-token' });
-    mockAccountGet.mockResolvedValue({ $id: 'user-123' });
+    mockGetCurrentUserIdFromCookies.mockResolvedValue('user-123');
     mockCountDraftsByUser.mockResolvedValue(0);
     mockGetDraftDashboardSummaryByUser.mockResolvedValue({ readyDraftCount: 0, previewDrafts: [] });
     mockCountUploadJobsByUserWithStatuses.mockResolvedValue(0);

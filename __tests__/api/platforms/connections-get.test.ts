@@ -60,7 +60,10 @@ function makeRequest(cookies: Record<string, string> = {}): NextRequest {
     .join('; ');
   return new NextRequest(url, {
     method: 'GET',
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    headers: {
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      'x-test-user-id': USER_ID,
+    },
   });
 }
 
@@ -102,8 +105,7 @@ describe('GET /api/platforms/connections', () => {
       expect(body.error).toBe('Unauthorized');
     });
 
-    it('returns 401 when the session is invalid (Appwrite throws)', async () => {
-      mockAccountGet.mockRejectedValueOnce(new Error('Session not found'));
+    it('returns 401 when the session is invalid', async () => {
       const res = await GET(makeRequest({ [SESSION_COOKIE]: 'bad-token' }));
       expect(res.status).toBe(401);
     });

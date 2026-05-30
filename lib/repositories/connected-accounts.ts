@@ -3,48 +3,47 @@
 // =============================================================================
 // All connected account (OAuth platform connections) data access goes through
 // this module. API routes and Server Components should call these functions
-// only — not the Appwrite SDK directly.
+// only.
 //
-// Uses Appwrite Server SDK (Tables API) for the connected_accounts table.
+// Uses Mongoose for the connected_accounts collection.
 // OAuth tokens are encrypted at rest (PRD NF-05) via lib/crypto/token-encryption.
 // =============================================================================
 
-import { ID, Query, TablesDB } from 'node-appwrite';
+import { randomUUID } from 'crypto';
 import type { ConnectedAccount, ConnectedAccountPlatform, ConnectedAccountPublic } from '@/types';
-import appwriteClient from '@/lib/appwrite';
-import { DATABASE_ID, CONNECTED_ACCOUNTS_COLLECTION_ID } from '@/lib/appwrite-constants';
+import { connectToDatabase } from '@/lib/mongodb';
+import {
+  ConnectedAccountModel,
+  type ConnectedAccountDocument,
+} from '@/lib/models/ConnectedAccount';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
-import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
-
-const tablesDb = new TablesDB(appwriteClient);
 
 /** Map row to full type (includes tokens). Use only for server-side token retrieval. */
-function rowToConnectedAccount(row: Record<string, unknown>): ConnectedAccount {
-  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
-  const refresh = String(row.refreshToken ?? '');
+function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount {
+  const refresh = String(doc.refreshToken ?? '');
   return {
-    id: String(row.$id ?? row.id),
-    userId: String(row.userId),
-    platform: row.platform as ConnectedAccountPlatform,
-    accessToken: String(row.accessToken),
+    id: String(doc._id),
+    userId: String(doc.userId),
+    platform: doc.platform as ConnectedAccountPlatform,
+    accessToken: String(doc.accessToken),
     refreshToken: refresh,
-    tokenExpiry: String(row.tokenExpiry),
+    tokenExpiry: String(doc.tokenExpiry),
     hasRefreshToken: refresh.trim().length > 0,
-    platformUserId: String(row.platformUserId),
-    platformName: String(row.platformName),
-    $createdAt,
-    $updatedAt,
+    platformUserId: String(doc.platformUserId),
+    platformName: String(doc.platformName),
+    $createdAt: new Date(doc.createdAt).toISOString(),
+    $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
 }
 
-function hasRefreshTokenFromStoredRow(row: Record<string, unknown>): boolean {
-  const raw = String(row.refreshToken ?? '').trim();
+function hasRefreshTokenFromStoredRow(doc: ConnectedAccountDocument): boolean {
+  const raw = String(doc.refreshToken ?? '').trim();
   if (!raw) return false;
   try {
     return decryptToken(raw).length > 0;
   } catch (error) {
-    const rowId = String(row.$id ?? row.id ?? 'unknown');
-    const platform = String(row.platform ?? 'unknown');
+    const rowId = String(doc._id ?? 'unknown');
+    const platform = String(doc.platform ?? 'unknown');
     console.error(
       `[connected-accounts] Failed to decrypt refreshToken for row ${rowId} (${platform})`,
       error
@@ -54,18 +53,17 @@ function hasRefreshTokenFromStoredRow(row: Record<string, unknown>): boolean {
 }
 
 /** Map row to public type (no tokens). Safe for API responses and UI. */
-function rowToConnectedAccountPublic(row: Record<string, unknown>): ConnectedAccountPublic {
-  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAccountPublic {
   return {
-    id: String(row.$id ?? row.id),
-    userId: String(row.userId),
-    platform: row.platform as ConnectedAccountPlatform,
-    tokenExpiry: String(row.tokenExpiry),
-    hasRefreshToken: hasRefreshTokenFromStoredRow(row),
-    platformUserId: String(row.platformUserId),
-    platformName: String(row.platformName),
-    $createdAt,
-    $updatedAt,
+    id: String(doc._id),
+    userId: String(doc.userId),
+    platform: doc.platform as ConnectedAccountPlatform,
+    tokenExpiry: String(doc.tokenExpiry),
+    hasRefreshToken: hasRefreshTokenFromStoredRow(doc),
+    platformUserId: String(doc.platformUserId),
+    platformName: String(doc.platformName),
+    $createdAt: new Date(doc.createdAt).toISOString(),
+    $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
 }
 
@@ -94,21 +92,18 @@ export interface CreateConnectedAccountData {
 export async function createConnectedAccount(
   data: CreateConnectedAccountData
 ): Promise<ConnectedAccountPublic> {
-  const row = await tablesDb.createRow({
-    databaseId: DATABASE_ID,
-    tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-    rowId: ID.unique(),
-    data: {
-      userId: data.userId,
-      platform: data.platform,
-      accessToken: encryptToken(data.accessToken),
-      refreshToken: encryptToken(data.refreshToken),
-      tokenExpiry: data.tokenExpiry,
-      platformUserId: data.platformUserId,
-      platformName: data.platformName,
-    },
+  await connectToDatabase();
+  const created = await ConnectedAccountModel.create({
+    _id: randomUUID(),
+    userId: data.userId,
+    platform: data.platform,
+    accessToken: encryptToken(data.accessToken),
+    refreshToken: encryptToken(data.refreshToken),
+    tokenExpiry: data.tokenExpiry,
+    platformUserId: data.platformUserId,
+    platformName: data.platformName,
   });
-  return rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
+  return rowToConnectedAccountPublic(created.toObject());
 }
 
 // -----------------------------------------------------------------------------
@@ -122,15 +117,11 @@ export async function createConnectedAccount(
 export async function getConnectedAccountsByUser(
   userId: string
 ): Promise<ConnectedAccountPublic[]> {
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.orderAsc('platform')],
-    total: false,
-  });
-  return (rows ?? []).map((r) =>
-    rowToConnectedAccountPublic(r as unknown as Record<string, unknown>)
-  );
+  await connectToDatabase();
+  const docs = await ConnectedAccountModel.find({ userId })
+    .sort({ platform: 1 })
+    .lean<ConnectedAccountDocument[]>();
+  return docs.map(rowToConnectedAccountPublic);
 }
 
 /**
@@ -141,14 +132,13 @@ export async function getConnectedAccount(
   userId: string,
   platform: ConnectedAccountPlatform
 ): Promise<ConnectedAccountPublic | null> {
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.equal('platform', platform), Query.limit(1)],
-    total: false,
-  });
-  if (rows.length === 0) return null;
-  return rowToConnectedAccountPublic(rows[0] as unknown as Record<string, unknown>);
+  await connectToDatabase();
+  const doc = await ConnectedAccountModel.findOne({
+    userId,
+    platform,
+  }).lean<ConnectedAccountDocument | null>();
+  if (!doc) return null;
+  return rowToConnectedAccountPublic(doc);
 }
 
 /**
@@ -161,17 +151,15 @@ export async function getConnectedAccountRowId(
   userId: string,
   platform: ConnectedAccountPlatform
 ): Promise<{ id: string; platformUserId: string } | null> {
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.equal('platform', platform), Query.limit(1)],
-    total: false,
-  });
-  if (rows.length === 0) return null;
-  const row = rows[0];
+  await connectToDatabase();
+  const doc = await ConnectedAccountModel.findOne({ userId, platform })
+    .select({ _id: 1, platformUserId: 1 })
+    .lean<ConnectedAccountDocument | null>();
+
+  if (!doc) return null;
   return {
-    id: String(row?.$id ?? row?.id),
-    platformUserId: String(row?.platformUserId ?? ''),
+    id: String(doc._id),
+    platformUserId: String(doc.platformUserId ?? ''),
   };
 }
 
@@ -183,18 +171,16 @@ export async function getConnectedAccountWithTokens(
   userId: string,
   platform: ConnectedAccountPlatform
 ): Promise<ConnectedAccount | null> {
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.equal('platform', platform), Query.limit(1)],
-    total: false,
-  });
-  if (rows.length === 0) return null;
-  const row = rows[0] as unknown as Record<string, unknown>;
-  const decrypted = {
-    ...row,
-    accessToken: decryptToken(String(row.accessToken)),
-    refreshToken: decryptToken(String(row.refreshToken)),
+  await connectToDatabase();
+  const doc = await ConnectedAccountModel.findOne({
+    userId,
+    platform,
+  }).lean<ConnectedAccountDocument | null>();
+  if (!doc) return null;
+  const decrypted: ConnectedAccountDocument = {
+    ...doc,
+    accessToken: decryptToken(String(doc.accessToken)),
+    refreshToken: decryptToken(String(doc.refreshToken)),
   };
   return rowToConnectedAccount(decrypted);
 }
@@ -208,19 +194,11 @@ export async function getConnectedAccountForUser(
   id: string,
   userId: string
 ): Promise<ConnectedAccountPublic | null> {
-  try {
-    const row = await tablesDb.getRow({
-      databaseId: DATABASE_ID,
-      tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-      rowId: id,
-    });
-    const account = rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
-    return account.userId === userId ? account : null;
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code === 404) return null;
-    throw err;
-  }
+  await connectToDatabase();
+  const doc = await ConnectedAccountModel.findById(id).lean<ConnectedAccountDocument | null>();
+  if (!doc) return null;
+  const account = rowToConnectedAccountPublic(doc);
+  return account.userId === userId ? account : null;
 }
 
 // -----------------------------------------------------------------------------
@@ -237,23 +215,19 @@ export async function updateTokens(
   refreshToken: string,
   tokenExpiry: string
 ): Promise<ConnectedAccountPublic | null> {
-  try {
-    const row = await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-      rowId: id,
-      data: {
-        accessToken: encryptToken(accessToken),
-        refreshToken: encryptToken(refreshToken),
-        tokenExpiry,
-      },
-    });
-    return rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code === 404) return null;
-    throw err;
-  }
+  await connectToDatabase();
+  const updated = await ConnectedAccountModel.findByIdAndUpdate(
+    id,
+    {
+      accessToken: encryptToken(accessToken),
+      refreshToken: encryptToken(refreshToken),
+      tokenExpiry,
+    },
+    { new: true, runValidators: true }
+  ).lean<ConnectedAccountDocument | null>();
+
+  if (!updated) return null;
+  return rowToConnectedAccountPublic(updated);
 }
 
 /**
@@ -269,25 +243,21 @@ export async function updateConnection(
   platformUserId: string,
   platformName: string
 ): Promise<ConnectedAccountPublic | null> {
-  try {
-    const row = await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-      rowId: id,
-      data: {
-        accessToken: encryptToken(accessToken),
-        refreshToken: encryptToken(refreshToken),
-        tokenExpiry,
-        platformUserId,
-        platformName,
-      },
-    });
-    return rowToConnectedAccountPublic(row as unknown as Record<string, unknown>);
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code === 404) return null;
-    throw err;
-  }
+  await connectToDatabase();
+  const updated = await ConnectedAccountModel.findByIdAndUpdate(
+    id,
+    {
+      accessToken: encryptToken(accessToken),
+      refreshToken: encryptToken(refreshToken),
+      tokenExpiry,
+      platformUserId,
+      platformName,
+    },
+    { new: true, runValidators: true }
+  ).lean<ConnectedAccountDocument | null>();
+
+  if (!updated) return null;
+  return rowToConnectedAccountPublic(updated);
 }
 
 // -----------------------------------------------------------------------------
@@ -298,9 +268,6 @@ export async function updateConnection(
  * Remove a connected account and its stored tokens.
  */
 export async function deleteConnectedAccount(id: string): Promise<void> {
-  await tablesDb.deleteRow({
-    databaseId: DATABASE_ID,
-    tableId: CONNECTED_ACCOUNTS_COLLECTION_ID,
-    rowId: id,
-  });
+  await connectToDatabase();
+  await ConnectedAccountModel.deleteOne({ _id: id });
 }

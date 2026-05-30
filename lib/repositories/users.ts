@@ -2,30 +2,25 @@
 // USER REPOSITORY
 // =============================================================================
 // All user data access goes through this module. API routes and Server
-// Components should call these functions only — not the Appwrite SDK directly.
+// Components should call these functions only.
 //
-// Uses Appwrite Server SDK (Tables API) for the user_profiles table.
+// Uses Mongoose for the user_profiles collection.
 // =============================================================================
 
-import { Query, TablesDB } from 'node-appwrite';
 import type { User, UserRole } from '@/types';
-import appwriteClient from '@/lib/appwrite';
-import { DATABASE_ID, USER_PROFILES_COLLECTION_ID } from '@/lib/appwrite-constants';
-import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
+import { connectToDatabase } from '@/lib/mongodb';
+import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
 
-const tablesDb = new TablesDB(appwriteClient);
-
-/** Map an Appwrite row to the shared User type. */
-function rowToUser(row: Record<string, unknown>): User {
-  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+/** Map a MongoDB document to the shared User type. */
+function mongoDocToUser(doc: UserProfileDocument): User {
   return {
-    userId: String(row.userId ?? row.$id),
-    email: String(row.email),
-    isSupporter: Boolean(row.isSupporter),
-    hasCompletedOnboarding: Boolean(row.hasCompletedOnboarding),
-    role: (row.role as UserRole) ?? 'user',
-    $createdAt,
-    $updatedAt,
+    userId: String(doc.userId ?? doc._id),
+    email: String(doc.email),
+    isSupporter: Boolean(doc.isSupporter),
+    hasCompletedOnboarding: Boolean(doc.hasCompletedOnboarding),
+    role: (doc.role as UserRole) ?? 'user',
+    $createdAt: new Date(doc.createdAt).toISOString(),
+    $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
 }
 
@@ -45,23 +40,20 @@ export interface CreateUserData {
 }
 
 /**
- * Create a user_profiles row. Row ID is data.userId.
+ * Create a user_profiles document. Document ID is data.userId.
  * Used by register and OAuth callback; callers must ensure the Auth user exists first.
  */
 export async function createUser(data: CreateUserData): Promise<User> {
-  const row = await tablesDb.createRow({
-    databaseId: DATABASE_ID,
-    tableId: USER_PROFILES_COLLECTION_ID,
-    rowId: data.userId,
-    data: {
-      userId: data.userId,
-      email: data.email.trim().toLowerCase(),
-      isSupporter: data.isSupporter ?? false,
-      hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
-      role: data.role ?? 'user',
-    },
+  await connectToDatabase();
+  const created = await UserProfileModel.create({
+    _id: data.userId,
+    userId: data.userId,
+    email: data.email.trim().toLowerCase(),
+    isSupporter: data.isSupporter ?? false,
+    hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
+    role: data.role ?? 'user',
   });
-  return rowToUser(row as unknown as Record<string, unknown>);
+  return mongoDocToUser(created.toObject());
 }
 
 // -----------------------------------------------------------------------------
@@ -69,50 +61,34 @@ export async function createUser(data: CreateUserData): Promise<User> {
 // -----------------------------------------------------------------------------
 
 /**
- * Fetch a user by Auth user `$id` from user_profiles.
+ * Fetch a user by Auth user id from user_profiles.
  *
- * Primary path: row `$id` equals Auth id (`createUser` uses `rowId: data.userId`).
- * Fallback: `getRow` 404 then `listRows` by `userId` column (console-created or
- * imported rows where `$id` differs). Requires a unique `userId` index.
+ * Primary path: _id equals Auth id.
+ * Fallback: query by userId field for migrated data where _id may differ.
  */
 export async function getUserById(userId: string): Promise<User | null> {
-  try {
-    const row = await tablesDb.getRow({
-      databaseId: DATABASE_ID,
-      tableId: USER_PROFILES_COLLECTION_ID,
-      rowId: userId,
-    });
-    return rowToUser(row as unknown as Record<string, unknown>);
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code !== 404) throw err;
-  }
+  await connectToDatabase();
 
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: USER_PROFILES_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.limit(1)],
-    total: false,
-  });
-  if (rows.length === 0) return null;
-  return rowToUser(rows[0] as unknown as Record<string, unknown>);
+  const byId = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  if (byId) return mongoDocToUser(byId);
+
+  const byUserId = await UserProfileModel.findOne({ userId }).lean<UserProfileDocument | null>();
+  if (!byUserId) return null;
+  return mongoDocToUser(byUserId);
 }
 
 /**
  * Fetch a user by email. Returns null if not found.
- * Requires an index on the email column for the user_profiles table.
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
+  await connectToDatabase();
   const normalized = email.trim().toLowerCase();
   if (!normalized) return null;
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: USER_PROFILES_COLLECTION_ID,
-    queries: [Query.equal('email', normalized), Query.limit(1)],
-    total: false,
-  });
-  if (rows.length === 0) return null;
-  return rowToUser(rows[0] as unknown as Record<string, unknown>);
+  const doc = await UserProfileModel.findOne({
+    email: normalized,
+  }).lean<UserProfileDocument | null>();
+  if (!doc) return null;
+  return mongoDocToUser(doc);
 }
 
 // -----------------------------------------------------------------------------
@@ -131,52 +107,32 @@ export interface UpdateUserData {
 /**
  * Update user_profiles fields (e.g. isSupporter, role). Only provided fields are updated.
  *
- * Mirrors getUserById's fallback: if updateRow 404s (console-created rows where
- * `$id !== userId`), resolves the actual row `$id` via listRows and retries.
+ * Mirrors getUserById's fallback: if _id lookup misses, resolves by userId and retries.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
-  const payload: Record<string, unknown> = Object.fromEntries(
-    Object.entries(data).filter(([, v]) => v !== undefined)
-  );
+  await connectToDatabase();
 
-  try {
-    const row = await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: USER_PROFILES_COLLECTION_ID,
-      rowId: userId,
-      data: payload,
-    });
-    return rowToUser(row as unknown as Record<string, unknown>);
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code !== 404) throw err;
-  }
+  const payload: Partial<
+    Pick<UserProfileDocument, 'isSupporter' | 'hasCompletedOnboarding' | 'role'>
+  > = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
 
-  // Primary row id differs from Auth id — resolve via userId column and retry.
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: USER_PROFILES_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.limit(1)],
-    total: false,
-  });
+  const byId = await UserProfileModel.findByIdAndUpdate(userId, payload, {
+    new: true,
+    runValidators: true,
+  }).lean<UserProfileDocument | null>();
+  if (byId) return mongoDocToUser(byId);
 
-  if (rows.length === 0) {
+  const byUserId = await UserProfileModel.findOneAndUpdate({ userId }, payload, {
+    new: true,
+    runValidators: true,
+  }).lean<UserProfileDocument | null>();
+
+  if (!byUserId) {
     const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
     throw notFound;
   }
 
-  const actualRowId = String((rows[0] as unknown as Record<string, unknown>).$id ?? '');
-  if (!actualRowId) {
-    throw new Error('User profile row missing $id');
-  }
-
-  const updatedRow = await tablesDb.updateRow({
-    databaseId: DATABASE_ID,
-    tableId: USER_PROFILES_COLLECTION_ID,
-    rowId: actualRowId,
-    data: payload,
-  });
-  return rowToUser(updatedRow as unknown as Record<string, unknown>);
+  return mongoDocToUser(byUserId);
 }
 
 /**
@@ -211,19 +167,24 @@ export interface ListUsersResult {
  * List users with pagination. For admin dashboard only; enforce admin role at call site.
  */
 export async function listUsers(options: ListUsersOptions = {}): Promise<ListUsersResult> {
+  await connectToDatabase();
+
   const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
   const offset = Math.max(options.offset ?? 0, 0);
-  const queries = [Query.limit(limit), Query.offset(offset), Query.orderAsc('$createdAt')];
-  const result = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: USER_PROFILES_COLLECTION_ID,
-    queries,
-    total: true,
-  });
-  const users = (result.rows ?? []).map((row) =>
-    rowToUser(row as unknown as Record<string, unknown>)
-  );
-  return { users, total: result.total ?? 0 };
+
+  const [docs, total] = await Promise.all([
+    UserProfileModel.find({})
+      .sort({ createdAt: 1 })
+      .skip(offset)
+      .limit(limit)
+      .lean<UserProfileDocument[]>(),
+    UserProfileModel.countDocuments({}),
+  ]);
+
+  return {
+    users: docs.map(mongoDocToUser),
+    total,
+  };
 }
 
 /**
@@ -238,23 +199,15 @@ export interface UserCounts {
  * Return aggregate user counts for admin dashboard stats.
  */
 export async function getUserCounts(): Promise<UserCounts> {
-  const [allUsers, supporterUsers] = await Promise.all([
-    tablesDb.listRows({
-      databaseId: DATABASE_ID,
-      tableId: USER_PROFILES_COLLECTION_ID,
-      queries: [Query.limit(1)],
-      total: true,
-    }),
-    tablesDb.listRows({
-      databaseId: DATABASE_ID,
-      tableId: USER_PROFILES_COLLECTION_ID,
-      queries: [Query.equal('isSupporter', true), Query.limit(1)],
-      total: true,
-    }),
+  await connectToDatabase();
+
+  const [totalUsers, totalSupporters] = await Promise.all([
+    UserProfileModel.countDocuments({}),
+    UserProfileModel.countDocuments({ isSupporter: true }),
   ]);
 
   return {
-    totalUsers: allUsers.total ?? 0,
-    totalSupporters: supporterUsers.total ?? 0,
+    totalUsers,
+    totalSupporters,
   };
 }

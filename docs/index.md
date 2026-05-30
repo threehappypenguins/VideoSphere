@@ -5,6 +5,7 @@ Welcome to the VideoSphere project docs.
 ## Start Here
 
 - [Daily Dev Workflow](/daily-dev-workflow)
+- [MongoDB Data Model](/mongodb-data-model)
 - [Code Quality](/code-quality)
 - [Testing](/testing)
 - [Deployment Guide](/deployment-guide)

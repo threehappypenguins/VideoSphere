@@ -1,204 +1,81 @@
 # First-Run Setup Guide
 
-Complete these steps **immediately** after receiving your GitHub Classroom assignment. Do them in order — each step builds on the previous one.
+Complete these steps after cloning the repository. This guide is MongoDB-first and self-hostable.
 
 ---
 
-## ~~Step 1: Clone and Install~~
+## 1. Clone and Install
 
-## ~~Step 2: Verify It Runs~~
+```bash
+git clone https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team.git
+cd project-videosphere-team
+pnpm install
+```
 
-[Set up the dev environment](#setting-up-the-dev-environment)** (clone, install, Appwrite, env, verify)
+## 2. Configure Environment Variables
 
----
+```bash
+cp .env.example .env.local
+```
 
-## Setting up the dev environment
+Required minimum values in `.env.local`:
 
-Use this when you're cloning the project for the first time or onboarding a new developer. It covers clone, install, env, Appwrite, and running the app.
+- `MONGODB_URI`
+- `JWT_SECRET`
+- `JWT_SESSION_COOKIE_NAME`
+- `TOKEN_ENCRYPTION_KEY`
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team.git
-   cd project-videosphere-team
-   ```
+If you use Google login and platform connections, also set:
 
-2. **Install dependencies**
-   ```bash
-   pnpm install
-   ```
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `YOUTUBE_CLIENT_ID`
+- `YOUTUBE_CLIENT_SECRET`
+- `VIMEO_CLIENT_ID`
+- `VIMEO_CLIENT_SECRET`
+- `GOOGLE_DRIVE_CLIENT_ID`
+- `GOOGLE_DRIVE_CLIENT_SECRET`
 
-### VS Code workspace settings
+## 3. Start MongoDB (Docker Compose)
 
-This repository commits a shared [.vscode/settings.json](.vscode/settings.json) so the team gets a consistent formatter, linter, and TypeScript experience out of the box without imposing broader editor preferences.
+```bash
+docker compose up -d mongo
+```
 
-- **Prettier as the default formatter** keeps file formatting consistent across the team.
-- **Format on save** reduces manual cleanup before commits.
-- **ESLint auto-fix on save** applies fixable lint rules whenever VS Code saves a file.
-- **ESLint validation for JS/TS files** surfaces lint errors inline in the editor.
-- **Built-in JavaScript and TypeScript validation** keeps editor diagnostics enabled even before you run CLI checks.
-- **Workspace TypeScript SDK** keeps language service behavior aligned with the version installed in this project.
-- **Prompt to use workspace TypeScript** helps developers switch to the repo version when VS Code is using a different global version.
-- **ESLint status in the status bar** makes it obvious when the extension is active for this workspace.
-- **Spell check disabled in the workspace** avoids noisy warnings for project-specific terms.
+This project ships a self-contained compose stack with `mongo:8` and persistent storage.
 
-Note: VS Code 1.110 unified many JavaScript and TypeScript setting IDs under the `js/ts.*` namespace. If you see older `javascript.*` or `typescript.*` keys in examples, treat them as legacy forms and keep this workspace on the newer `js/ts.*` settings to avoid deprecation warnings.
+## 4. Start the App
 
-These settings are intentionally lightweight: they do not force a theme, keybindings, terminal profile, or other personal editor preferences.
+```bash
+pnpm dev
+```
 
-For local overrides, prefer your VS Code User Settings or a personal VS Code profile. If you want to keep a repo-local scratch file for personal notes or experimental settings without committing it, use `.vscode/settings.json.local`, which is gitignored. VS Code does not load that `.local` file automatically.
+Open [http://localhost:3000](http://localhost:3000).
 
-To verify the shared settings manually, temporarily move or rename `.vscode/settings.json`, reload the window, restore the file, and reload again. Then save a `.ts` or `.tsx` file and confirm that Prettier formatting runs, ESLint diagnostics appear inline, and TypeScript errors are reported in the editor.
+## 5. Quick Verification
 
-3. **Copy environment variables**
-   ```bash
-   cp .env.example .env.local
-   ```
-   You'll fill in Appwrite (and other) values in step 4.
+Use this checklist:
 
-4. **Set up Appwrite (auth + database)**
-   Put `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, and `APPWRITE_API_KEY` into `.env.local`.
-   If you are validating platform distribution, also set:
-   `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET`,
-   `GOOGLE_DRIVE_CLIENT_ID`, and `GOOGLE_DRIVE_CLIENT_SECRET`.
+- App loads at [http://localhost:3000](http://localhost:3000)
+- Register works with email/password
+- Login issues session cookie and redirects to dashboard
+- `docker compose ps` shows `videosphere-mongo` healthy
 
-5. **Start the app and verify**
-   ```bash
-   pnpm dev
-   ```
-   Open [http://localhost:3000](http://localhost:3000). To confirm the app can talk to Appwrite, open [http://localhost:3000/api/dev/test-appwrite](http://localhost:3000/api/dev/test-appwrite) — you should see `{ "ok": true, "message": "Connected to Appwrite" }`.
+## 6. Before Opening a PR
 
----
+```bash
+pnpm format
+pnpm lint
+pnpm test run
+pnpm build
+```
 
-## Step 3: Team Decides on a Maintainer
-
-One team member takes the **Maintainer** role on the GitHub repository. This person will:
-
-- Coordinate pull request reviews
-- Help manage the project board
-- Serve as the primary point of contact for repository workflow questions
-
-> **Note:** The **instructor** is the Admin for all project repositories and manages repository settings, branch protection rules, and access permissions.
-
-**Document this decision:**
-
-- Who is the Maintainer? **\*\***\_\_\_**\*\***
-- Date decided: **\*\***\_\_\_**\*\***
-
-The remaining team members will have **Write** access to contribute code.
-
-## Step 4: Branch Protection on `main`
-
-The **instructor** configures branch protection on the `main` branch for all project repositories. This ensures all code goes through pull request review before merging.
-
-You do **not** need to configure these rules yourself — they are already in place. However, you should understand what they enforce:
-
-| Protection                                       | Setting     |
-| ------------------------------------------------ | ----------- |
-| **Require a pull request before merging**        | ✅ Enabled  |
-| **Required number of approving reviews**         | 2           |
-| **Require status checks to pass before merging** | ✅ Enabled  |
-| **Status checks: select your CI workflow**       | ✅ Selected |
-| **Do not allow bypassing the above settings**    | ✅ Enabled  |
-
-**Why this matters:** Without branch protection, anyone can push directly to `main`, bypassing code review and CI checks. This is both a security risk and a process violation.
-
-For a detailed explanation of each rule and why it is enabled, see [docs/branch-protection.md](docs/branch-protection.md). For CI/CD status checks that are enforced, see [docs/ci-cd-requirements.md](docs/ci-cd-requirements.md).
-
-## Step 5: Verify Team Access
-
-The instructor has already configured repository access. Verify that your team has the correct permissions:
-
-- **1 team member** should have the **Maintainer** role (as decided in Step 3)
-- **All other team members** should have **Write** access
-
-If any team member cannot push branches or open pull requests, contact your instructor to resolve access issues.
-
-## Step 6: Team Agrees on AI Tools
-
-Read the [AI Usage Policy](docs/ai-usage-policy.md) together as a team.
-
-Complete the **Team AI Agreement** in that document:
-
-1. Decide which AI tool(s) your team will use
-2. Agree on what you will and won't use AI for
-3. Fill in the agreement template
-4. Commit the completed agreement
-
-> ⚠️ **Remember the hard rule:** AI must NEVER perform any git operations. All commits, pushes, PRs, and merges must be done by a human team member. See the full policy for details.
-
-## Step 7: Set Up GitHub Projects Board
-
-Follow the guide in [docs/agile-process.md](docs/agile-process.md) to set up your Kanban board:
-
-1. Go to your repository → **Projects** tab
-2. Create a new Board project
-3. Set up columns: Backlog, Sprint, In Progress, In Review, Done
-4. This is where you'll track all your work throughout the project
-
-## Step 8: Create Sprint 1 Issues
-
-Hold your first sprint planning session:
-
-1. Decide on your product idea and branding
-2. Create issues for Sprint 1 using the [issue templates](.github/ISSUE_TEMPLATE/)
-3. Assign issues to team members
-4. Move them to the "Sprint" column on your board
-
-**Suggested Sprint 1 tasks:**
-
-- Replace all `[Your App Name]` placeholders with your product name
-- Update the logo and branding colors
-- Customize the landing page content
-
-## Step 9: Replace Placeholder Branding
-
-Search the project for `[Your App Name]` and replace it with your actual product name. Files that contain placeholders:
-
-- [ ] `app/layout.tsx` — site title and description in metadata
-- [ ] `components/layout/Navbar.tsx` — logo text and navigation links
-- [ ] `components/layout/Footer.tsx` — brand name and links
-- [ ] `app/(marketing)/page.tsx` — landing page content
-- [ ] `app/(marketing)/pricing/page.tsx` — pricing page content
-- [ ] `app/(marketing)/about/page.tsx` — about page content
-- [ ] `public/logo.svg` — replace with your logo
-- [ ] `.env.example` — app name variable
-
-**Tip:** Use your editor's "Find and Replace" across all files (Cmd+Shift+H or Ctrl+Shift+H in VS Code) to find all instances of `[Your App Name]`.
-
-## Step 10: Set up VideoSphere backend (Appwrite)
-
-VideoSphere uses **Appwrite** for authentication and the database. Every developer needs Appwrite running locally and the app configured to talk to it.
-
-1. Copy `.env.example` to `.env.local` (if you haven’t already) and set the three Appwrite variables: `NEXT_PUBLIC_APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY`.
-2. Start the Next.js app (`pnpm dev`) and open **[http://localhost:3000/api/dev/test-appwrite](http://localhost:3000/api/dev/test-appwrite)**. When you see `{ "ok": true, "message": "Connected to Appwrite" }`, the backend is ready.
-
-## Step 11: Practice Run
-
-Before starting real work, do a practice run of the full workflow:
-
-1. Create a feature branch: `git checkout -b feat/practice-change`
-2. Make a small change (e.g., update a heading on the landing page)
-3. Commit with a conventional commit message: `git commit -m "feat: update landing page heading"`
-4. Push the branch: `git push origin feat/practice-change`
-5. Open a Pull Request on GitHub
-6. Have a teammate review and approve it
-7. Merge it to `main`
-
-This ensures everyone understands the workflow **before** real development begins. Fix any issues now — not during Sprint 1.
+If all pass, push your branch and open a PR.
 
 ---
 
-## You're Ready!
+## Notes
 
-Once all 11 steps are complete, your team is set up and ready to build. Start your Sprint 1 work by picking up the issues you created in Step 8.
-
-**Key resources to keep handy:**
-
-- [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — before/after development checklist (Docker, Appwrite, branch from main; format, lint, test, build)
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute code
-- [docs/git-workflow.md](docs/git-workflow.md) — git branching workflow
-- [docs/agile-process.md](docs/agile-process.md) — sprint process
-- [docs/ai-usage-policy.md](docs/ai-usage-policy.md) — AI tool policy
-
-## Note
-- Initially setting up Appwrite requires `pnpm run setup:appwrite`, but this only needs to be done once, since we are not all sharing a cloud Appwrite instance.
+- This repository uses MongoDB for auth/session-related data and application persistence.
+- Docker deployment uses app + MongoDB from one compose file.
+- For production deployment details, see [docs/deployment-guide.md](docs/deployment-guide.md).

@@ -133,7 +133,7 @@ Client                          NextJS API                 R2
   |       <---- 200 OK ------------------+                  |
   |                               |                          |
   +------------- Verify ---------> Create Upload Job
-  |       (Poll /api/uploads/job) Record in Appwrite
+  |       (Poll /api/uploads/job) Persist document in MongoDB
 ```
 
 ### Key Design Decisions

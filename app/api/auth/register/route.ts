@@ -1,16 +1,16 @@
 // =============================================================================
 // POST /api/auth/register
 // =============================================================================
-// Creates user + user_profiles, then creates session via admin client and sets
-// cookie server-side. Per Appwrite Next.js SSR tutorial; API key needs sessions.write.
-// https://appwrite.io/docs/tutorials/nextjs-ssr-auth/step-5
+// Creates a MongoDB user document with a hashed password and sets a JWT cookie.
 // =============================================================================
 
+import { randomUUID } from 'crypto';
+import bcrypt from 'bcryptjs';
+import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
-import { ID } from 'node-appwrite';
-import { appwriteUsers, appwriteAuth } from '@/lib/appwrite';
+import { connectToDatabase } from '@/lib/mongodb';
+import { UserProfileModel } from '@/lib/models/UserProfile';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
-import { createUser } from '@/lib/repositories/users';
 
 /**
  * Handles POST requests for this route.
@@ -36,7 +36,6 @@ export async function POST(req: NextRequest) {
       name: rawName,
     } = body as Record<string, unknown>;
 
-    // ── Server-side validation (types + presence + format) ────────────────────
     if (typeof rawEmail !== 'string' || typeof rawPassword !== 'string') {
       return NextResponse.json(
         { error: 'Email and password are required and must be strings.' },
@@ -58,29 +57,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const name =
-      rawName === undefined || rawName === null
-        ? undefined
-        : typeof rawName === 'string'
-          ? rawName.trim() || undefined
-          : undefined;
+    if (rawName !== undefined && rawName !== null && typeof rawName !== 'string') {
+      return NextResponse.json({ error: 'name must be a string when provided.' }, { status: 400 });
+    }
 
-    // ── 1. Create Appwrite Auth user ──────────────────────────────────────────
-    let authUser;
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      return NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 });
+    }
+
+    await connectToDatabase();
+
+    const userId = randomUUID();
+    const passwordHash = await bcrypt.hash(password, 10);
+
     try {
-      authUser = await appwriteUsers.create(
-        ID.unique(),
+      await UserProfileModel.create({
+        _id: userId,
+        userId,
         email,
-        undefined, // phone
-        password,
-        name
-      );
+        passwordHash,
+        isSupporter: false,
+        hasCompletedOnboarding: false,
+        role: 'user',
+      });
     } catch (err: unknown) {
-      const appwriteErr = err as { type?: string; message?: string };
-      if (
-        appwriteErr?.type === 'user_already_exists' ||
-        appwriteErr?.message?.toLowerCase().includes('already exists')
-      ) {
+      const mongoErr = err as { code?: number; message?: string };
+      if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
         return NextResponse.json(
           { error: 'Email already registered. Please sign in instead.' },
           { status: 409 }
@@ -89,53 +92,19 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
-    // ── 2. user_profiles row — source of truth for role, isSupporter (same as Google OAuth createUser)
-    try {
-      await createUser({
-        userId: authUser.$id,
-        email,
-        isSupporter: false,
-        role: 'user',
-      });
-    } catch (profileErr: unknown) {
-      const err = profileErr as { code?: number };
-      if (err.code === 409) {
-        // Row already exists (e.g. race); keep auth user
-      } else {
-        try {
-          await appwriteUsers.delete(authUser.$id);
-        } catch (rollbackErr) {
-          console.error('[POST /api/auth/register] Failed to rollback user creation', rollbackErr);
-        }
-        throw profileErr;
-      }
-    }
+    const token = await new SignJWT({ role: 'user' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(userId)
+      .setIssuedAt()
+      .setExpirationTime(`${getSessionCookieOptions().maxAge}s`)
+      .sign(new TextEncoder().encode(jwtSecret));
 
     const response = NextResponse.json(
-      { message: 'Account created successfully.', userId: authUser.$id },
+      { message: 'Account created successfully.', userId },
       { status: 201 }
     );
 
-    // Create session with admin client (API key with sessions.write); SDK returns session.secret
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    if (projectId) {
-      try {
-        const session = await appwriteAuth.createEmailPasswordSession({
-          email,
-          password,
-        });
-        const secret =
-          session && typeof session === 'object' && 'secret' in session
-            ? (session as { secret?: string }).secret
-            : undefined;
-        if (typeof secret === 'string' && secret.length > 0) {
-          response.cookies.set(getSessionCookieName(projectId), secret, getSessionCookieOptions());
-        }
-      } catch (sessionErr) {
-        console.error('[POST /api/auth/register] createEmailPasswordSession', sessionErr);
-        // User is created; cookie not set — client can log in on login page
-      }
-    }
+    response.cookies.set(getSessionCookieName(), token, getSessionCookieOptions());
 
     return response;
   } catch (err: unknown) {

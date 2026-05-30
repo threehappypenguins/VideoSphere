@@ -12,8 +12,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 
 /**
  * Defines the VIMEO_OAUTH_STATE_COOKIE constant.
@@ -29,37 +28,18 @@ const VIMEO_SCOPES = ['upload', 'edit', 'public', 'private'].join(' ');
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   const clientId = process.env.VIMEO_CLIENT_ID;
 
   const origin = req.nextUrl.origin;
   const failureUrl = `${origin}/profile/connections?error=vimeo`;
 
-  if (!endpoint || !projectId || !clientId) {
+  if (!clientId) {
     console.error('[GET /api/platforms/connect/vimeo] Missing required environment variables');
     return NextResponse.redirect(failureUrl);
   }
 
-  // Verify the user has an active Appwrite session
-  const cookieName = getSessionCookieName(projectId);
-  const sessionSecret = req.cookies.get(cookieName)?.value;
-
-  if (!sessionSecret) {
-    return NextResponse.redirect(`${origin}/login`);
-  }
-
-  let userId: string;
-  try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-
-    const account = new Account(client);
-    const user = await account.get();
-    userId = user.$id;
-  } catch {
+  const userId = await getAuthenticatedUserId(req);
+  if (!userId) {
     return NextResponse.redirect(`${origin}/login`);
   }
 

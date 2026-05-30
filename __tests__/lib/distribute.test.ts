@@ -36,6 +36,11 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
   updateUploadJobStatus: (...args: unknown[]) => mockUpdateUploadJobStatus(...args),
 }));
 
+vi.mock('@/lib/repositories/drafts', () => ({
+  getDraftById: vi.fn(),
+  updateDraft: vi.fn(),
+}));
+
 vi.mock('@/lib/platforms/youtube', () => ({
   uploadToYouTube: (...args: unknown[]) => mockUploadToYouTube(...args),
   refreshYouTubeAccessToken: vi.fn(),

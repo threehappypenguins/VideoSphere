@@ -1,16 +1,12 @@
 // =============================================================================
 // GET /api/auth/session-role
 // =============================================================================
-// Used by proxy (middleware) for admin RBAC without importing node-appwrite
-// Tables / lib/appwrite in the middleware bundle.
-//
-// Validates the session the same way as GET /api/auth/session, then loads
-// `user_profiles.role` via the users repository (server route only).
+// Used by middleware-side RBAC checks and navbar role hydration.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getUserById } from '@/lib/repositories/users';
 
 /**
  * Handles GET requests for this route.
@@ -18,40 +14,27 @@ import { getSessionCookieName } from '@/lib/auth-session-cookie';
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  const cookieName = projectId ? getSessionCookieName(projectId) : null;
-  const sessionSecret = cookieName ? req.cookies.get(cookieName)?.value : null;
-
-  if (!endpoint || !projectId || !sessionSecret) {
+  const userId = await getAuthenticatedUserId(req);
+  if (!userId) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
   try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-
-    const account = new Account(client);
-    const user = await account.get();
-
-    let role: 'user' | 'admin' = 'user';
-    try {
-      const { getUserById } = await import('@/lib/repositories/users');
-      const profile = await getUserById(user.$id);
-      if (profile?.role === 'admin') role = 'admin';
-    } catch (profileErr) {
-      console.error('[GET /api/auth/session-role] profile lookup failed', profileErr);
+    const profile = await getUserById(userId);
+    if (!profile) {
       return NextResponse.json(
         { error: 'Profile unavailable', message: 'Could not load user profile' },
         { status: 503 }
       );
     }
 
+    const role: 'user' | 'admin' = profile.role === 'admin' ? 'admin' : 'user';
     return NextResponse.json({ role });
-  } catch (err) {
-    console.error('[GET /api/auth/session-role]', err);
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  } catch (profileErr) {
+    console.error('[GET /api/auth/session-role] profile lookup failed', profileErr);
+    return NextResponse.json(
+      { error: 'Profile unavailable', message: 'Could not load user profile' },
+      { status: 503 }
+    );
   }
 }

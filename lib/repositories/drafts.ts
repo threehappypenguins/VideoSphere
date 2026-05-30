@@ -2,22 +2,20 @@
 // DRAFT REPOSITORY
 // =============================================================================
 // All draft (video metadata) data access goes through this module. API routes
-// and Server Components should call these functions only — not the Appwrite
-// SDK directly.
+// and Server Components should call these functions only.
 //
-// Tables: `userId` (indexed, for list queries) + `document` (JSON blob:
-// targets, title, description, visibility, tags, platforms).
+// Uses Mongoose for the drafts collection.
 // =============================================================================
 
-import { ID, Query, TablesDB } from 'node-appwrite';
+import { randomUUID } from 'crypto';
 import type {
   ConnectedAccountPlatform,
   Draft,
   DraftPlatforms,
   PlatformUploadVisibility,
 } from '@/types';
-import appwriteClient from '@/lib/appwrite';
-import { DATABASE_ID, DRAFTS_COLLECTION_ID } from '@/lib/appwrite-constants';
+import { connectToDatabase } from '@/lib/mongodb';
+import { DraftModel, type DraftDocument } from '@/lib/models/Draft';
 import {
   assertDraftDocumentJsonWithinLimit,
   DEFAULT_DRAFT_VISIBILITY,
@@ -25,28 +23,24 @@ import {
   mergeDraftPlatformsPatch,
   stringifyDraftDocumentForStorage,
 } from '@/lib/draft-upload-metadata';
-import { assertAppwriteRowTimestamps } from '@/lib/assert-appwrite-row-timestamps';
 
-const tablesDb = new TablesDB(appwriteClient);
-
-/** Map an Appwrite row to the shared Draft type. */
-function rowToDraft(row: Record<string, unknown>): Draft {
-  const doc = draftDocumentFromRow(row);
-  const { $createdAt, $updatedAt } = assertAppwriteRowTimestamps(row);
+/** Map a MongoDB document to the shared Draft type. */
+function mongoDocToDraft(doc: DraftDocument): Draft {
+  const parsed = draftDocumentFromRow({ document: doc.document });
   return {
-    id: String(row.$id ?? row.id),
-    userId: String(row.userId),
-    targets: doc.targets,
-    title: doc.title,
-    description: doc.description,
-    tags: doc.tags,
-    visibility: doc.visibility,
-    platforms: doc.platforms,
-    ...(doc.thumbnailR2Key ? { thumbnailR2Key: doc.thumbnailR2Key } : {}),
-    ...(doc.thumbnailContentType ? { thumbnailContentType: doc.thumbnailContentType } : {}),
-    ...(doc.usedInUploadAt ? { usedInUploadAt: doc.usedInUploadAt } : {}),
-    $createdAt,
-    $updatedAt,
+    id: String(doc._id),
+    userId: String(doc.userId),
+    targets: parsed.targets,
+    title: parsed.title,
+    description: parsed.description,
+    tags: parsed.tags,
+    visibility: parsed.visibility,
+    platforms: parsed.platforms,
+    ...(parsed.thumbnailR2Key ? { thumbnailR2Key: parsed.thumbnailR2Key } : {}),
+    ...(parsed.thumbnailContentType ? { thumbnailContentType: parsed.thumbnailContentType } : {}),
+    ...(parsed.usedInUploadAt ? { usedInUploadAt: parsed.usedInUploadAt } : {}),
+    $createdAt: new Date(doc.createdAt).toISOString(),
+    $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
 }
 
@@ -60,11 +54,6 @@ export async function markDraftUsedInUpload(
   id: string,
   usedAtIso: string = new Date().toISOString()
 ): Promise<Draft | null> {
-  const isNotFoundError = (err: unknown): boolean => {
-    const e = err as { code?: number };
-    return e?.code === 404;
-  };
-
   const buildDocumentJson = (draft: Draft, normalizedUsedAtIso: string) =>
     stringifyDraftDocumentForStorage({
       targets: draft.targets,
@@ -90,8 +79,6 @@ export async function markDraftUsedInUpload(
     return new Date(t).toISOString();
   };
 
-  // Keep the earliest valid timestamp so "first used" remains stable even if
-  // calls arrive out of order or prior data was set to a later value.
   const existingIso = normalizeIso(current.usedInUploadAt);
   const incomingIso = normalizeIso(usedAtIso) ?? new Date().toISOString();
   const usedInUploadAt =
@@ -104,22 +91,15 @@ export async function markDraftUsedInUpload(
   const documentJson = buildDocumentJson(current, usedInUploadAt);
   assertDraftDocumentJsonWithinLimit(documentJson);
 
-  let row: unknown;
-  try {
-    row = await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: DRAFTS_COLLECTION_ID,
-      rowId: id,
-      data: { document: documentJson },
-    });
-  } catch (err: unknown) {
-    if (isNotFoundError(err)) return null;
-    throw err;
-  }
-  const updated = rowToDraft(row as unknown as Record<string, unknown>);
+  await connectToDatabase();
+  const updatedDoc = await DraftModel.findByIdAndUpdate(
+    id,
+    { document: documentJson },
+    { new: true, runValidators: true }
+  ).lean<DraftDocument | null>();
+  if (!updatedDoc) return null;
+  const updated = mongoDocToDraft(updatedDoc);
 
-  // Best-effort race reconciliation: if a concurrent write stored a later value,
-  // try once more using fresh state so "first used" converges back to earliest.
   const persistedIso = normalizeIso(updated.usedInUploadAt);
   if (persistedIso !== null && Date.parse(persistedIso) <= Date.parse(usedInUploadAt)) {
     return updated;
@@ -134,19 +114,14 @@ export async function markDraftUsedInUpload(
 
   const reconcileDocumentJson = buildDocumentJson(latest, usedInUploadAt);
   assertDraftDocumentJsonWithinLimit(reconcileDocumentJson);
-  let reconciledRow: unknown;
-  try {
-    reconciledRow = await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: DRAFTS_COLLECTION_ID,
-      rowId: id,
-      data: { document: reconcileDocumentJson },
-    });
-  } catch (err: unknown) {
-    if (isNotFoundError(err)) return null;
-    throw err;
-  }
-  return rowToDraft(reconciledRow as unknown as Record<string, unknown>);
+
+  const reconciled = await DraftModel.findByIdAndUpdate(
+    id,
+    { document: reconcileDocumentJson },
+    { new: true, runValidators: true }
+  ).lean<DraftDocument | null>();
+  if (!reconciled) return null;
+  return mongoDocToDraft(reconciled);
 }
 
 // -----------------------------------------------------------------------------
@@ -188,16 +163,13 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
   });
   assertDraftDocumentJsonWithinLimit(documentJson);
 
-  const row = await tablesDb.createRow({
-    databaseId: DATABASE_ID,
-    tableId: DRAFTS_COLLECTION_ID,
-    rowId: ID.unique(),
-    data: {
-      userId: input.userId,
-      document: documentJson,
-    },
+  await connectToDatabase();
+  const created = await DraftModel.create({
+    _id: randomUUID(),
+    userId: input.userId,
+    document: documentJson,
   });
-  return rowToDraft(row as unknown as Record<string, unknown>);
+  return mongoDocToDraft(created.toObject());
 }
 
 // -----------------------------------------------------------------------------
@@ -208,31 +180,24 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
  * Fetch a draft by ID. Returns null if not found.
  */
 export async function getDraftById(id: string): Promise<Draft | null> {
-  try {
-    const row = await tablesDb.getRow({
-      databaseId: DATABASE_ID,
-      tableId: DRAFTS_COLLECTION_ID,
-      rowId: id,
-    });
-    return rowToDraft(row as unknown as Record<string, unknown>);
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code === 404) return null;
-    throw err;
-  }
+  await connectToDatabase();
+  const doc = await DraftModel.findById(id).lean<DraftDocument | null>();
+  if (!doc) return null;
+  return mongoDocToDraft(doc);
 }
 
-/** Max draft IDs per `listRows` call (Appwrite `equal` with an array is an IN query). */
+/** Max draft IDs per query batch. */
 const DRAFT_TITLES_BY_IDS_BATCH = 100;
 
 /**
  * Titles for drafts referenced by upload jobs on the current page.
- * Only IDs that exist and belong to `userId` are included — one batched `listRows` per chunk of ids.
+ * Only IDs that exist and belong to `userId` are included — one batched query per chunk of ids.
  */
 export async function getDraftTitlesByIdsForUser(
   userId: string,
   draftIds: Array<string | null | undefined>
 ): Promise<Map<string, string>> {
+  await connectToDatabase();
   const unique = [
     ...new Set(draftIds.filter((id): id is string => typeof id === 'string' && id !== '')),
   ];
@@ -241,19 +206,12 @@ export async function getDraftTitlesByIdsForUser(
   const map = new Map<string, string>();
   for (let i = 0; i < unique.length; i += DRAFT_TITLES_BY_IDS_BATCH) {
     const chunk = unique.slice(i, i + DRAFT_TITLES_BY_IDS_BATCH);
-    const { rows } = await tablesDb.listRows({
-      databaseId: DATABASE_ID,
-      tableId: DRAFTS_COLLECTION_ID,
-      queries: [
-        Query.equal('userId', userId),
-        Query.equal('$id', chunk),
-        Query.limit(chunk.length),
-      ],
-      total: false,
-    });
-    for (const r of rows ?? []) {
-      const row = r as Record<string, unknown>;
-      const draft = rowToDraft(row);
+    const docs = await DraftModel.find({ userId, _id: { $in: chunk } })
+      .select({ _id: 1, document: 1, userId: 1, createdAt: 1, updatedAt: 1 })
+      .lean<DraftDocument[]>();
+
+    for (const doc of docs) {
+      const draft = mongoDocToDraft(doc);
       map.set(draft.id, draft.title);
     }
   }
@@ -264,24 +222,15 @@ export async function getDraftTitlesByIdsForUser(
  * List drafts for a user, sorted by most recent (`$updatedAt` descending).
  */
 export async function listDraftsByUser(userId: string): Promise<Draft[]> {
-  const { rows } = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: DRAFTS_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.orderDesc('$updatedAt')],
-    total: false,
-  });
-  return (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
+  await connectToDatabase();
+  const docs = await DraftModel.find({ userId }).sort({ updatedAt: -1 }).lean<DraftDocument[]>();
+  return docs.map(mongoDocToDraft);
 }
 
 /** Count all drafts for a user. */
 export async function countDraftsByUser(userId: string): Promise<number> {
-  const result = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: DRAFTS_COLLECTION_ID,
-    queries: [Query.equal('userId', userId), Query.limit(1)],
-    total: true,
-  });
-  return typeof result.total === 'number' ? result.total : 0;
+  await connectToDatabase();
+  return DraftModel.countDocuments({ userId });
 }
 
 /**
@@ -292,7 +241,7 @@ export interface DraftDashboardSummary {
   previewDrafts: Draft[];
 }
 
-const APPWRITE_LIST_ROWS_MAX_LIMIT = 100;
+const LIST_DRAFTS_PAGE_SIZE_MAX = 100;
 
 function isDraftReadyToUpload(draft: Draft): boolean {
   return typeof draft.usedInUploadAt !== 'string' || draft.usedInUploadAt.trim() === '';
@@ -300,25 +249,17 @@ function isDraftReadyToUpload(draft: Draft): boolean {
 
 /**
  * Summarize drafts for the dashboard without materializing the user's full draft history.
- *
- * Because `usedInUploadAt` is stored inside the draft `document` JSON, Appwrite cannot
- * currently count "ready to upload" drafts server-side with an indexed query. We page
- * through rows and keep only the count plus the first few ready drafts needed for preview.
- *
- * To prevent runaway queries on large draft histories, we stop after scanning `maxRowsScanned`
- * rows (default 500). For users with fewer than this threshold, the count is exact; for those
- * with larger histories, it's an approximation based on the scanned prefix.
- *
- * Future: Move `usedInUploadAt` to an indexed column to enable bounded queries server-side.
  */
 export async function getDraftDashboardSummaryByUser(
   userId: string,
   options?: { previewLimit?: number; pageSize?: number; maxRowsScanned?: number }
 ): Promise<DraftDashboardSummary> {
+  await connectToDatabase();
+
   const previewLimit = Math.max(0, options?.previewLimit ?? 5);
   const pageSize = Math.min(
-    Math.max(1, options?.pageSize ?? APPWRITE_LIST_ROWS_MAX_LIMIT),
-    APPWRITE_LIST_ROWS_MAX_LIMIT
+    Math.max(1, options?.pageSize ?? LIST_DRAFTS_PAGE_SIZE_MAX),
+    LIST_DRAFTS_PAGE_SIZE_MAX
   );
   const maxRowsScanned = Math.max(1, options?.maxRowsScanned ?? 500);
 
@@ -331,19 +272,13 @@ export async function getDraftDashboardSummaryByUser(
     const remainingBudget = maxRowsScanned - rowsScanned;
     const limitForThisPage = Math.min(pageSize, remainingBudget);
 
-    const { rows } = await tablesDb.listRows({
-      databaseId: DATABASE_ID,
-      tableId: DRAFTS_COLLECTION_ID,
-      queries: [
-        Query.equal('userId', userId),
-        Query.orderDesc('$updatedAt'),
-        Query.limit(limitForThisPage),
-        Query.offset(offset),
-      ],
-      total: false,
-    });
+    const docs = await DraftModel.find({ userId })
+      .sort({ updatedAt: -1 })
+      .skip(offset)
+      .limit(limitForThisPage)
+      .lean<DraftDocument[]>();
 
-    const pageDrafts = (rows ?? []).map((r) => rowToDraft(r as unknown as Record<string, unknown>));
+    const pageDrafts = docs.map(mongoDocToDraft);
 
     for (const draft of pageDrafts) {
       if (!isDraftReadyToUpload(draft)) continue;
@@ -367,13 +302,8 @@ export async function getDraftDashboardSummaryByUser(
  * Drafts currently have no archived/deleted status, so "active" means existing rows.
  */
 export async function countActiveDrafts(): Promise<number> {
-  const result = await tablesDb.listRows({
-    databaseId: DATABASE_ID,
-    tableId: DRAFTS_COLLECTION_ID,
-    queries: [Query.limit(1)],
-    total: true,
-  });
-  return result.total ?? 0;
+  await connectToDatabase();
+  return DraftModel.countDocuments({});
 }
 
 // -----------------------------------------------------------------------------
@@ -415,70 +345,62 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     input.thumbnailR2Key !== undefined ||
     input.thumbnailContentType !== undefined;
 
-  const data: Record<string, unknown> = {};
-
-  if (needsDocMerge) {
-    const current = await getDraftById(id);
-    if (!current) return null;
-    const mergedPlatforms =
-      input.platformsPatch !== undefined
-        ? mergeDraftPlatformsPatch(current.platforms, input.platformsPatch)
-        : current.platforms;
-    let nextThumbKey: string | undefined;
-    let nextThumbType: string | undefined;
-    if (input.thumbnailR2Key === null) {
-      nextThumbKey = undefined;
-      nextThumbType = undefined;
-    } else if (input.thumbnailR2Key !== undefined) {
-      nextThumbKey = input.thumbnailR2Key;
-      nextThumbType =
-        input.thumbnailContentType === undefined
-          ? current.thumbnailContentType
-          : input.thumbnailContentType === null
-            ? undefined
-            : input.thumbnailContentType;
-    } else {
-      nextThumbKey = current.thumbnailR2Key;
-      nextThumbType =
-        input.thumbnailContentType === undefined
-          ? current.thumbnailContentType
-          : input.thumbnailContentType === null
-            ? undefined
-            : input.thumbnailContentType;
-    }
-    const documentJson = stringifyDraftDocumentForStorage({
-      targets: input.targets ?? current.targets,
-      title: input.title ?? current.title,
-      description: input.description ?? current.description,
-      tags: input.tags ?? current.tags,
-      visibility: input.visibility ?? current.visibility,
-      platforms: mergedPlatforms,
-      ...(nextThumbKey !== undefined ? { thumbnailR2Key: nextThumbKey } : {}),
-      ...(nextThumbType !== undefined ? { thumbnailContentType: nextThumbType } : {}),
-      // Denormalized in document JSON; stringify omits empty/whitespace (see markDraftUsedInUpload).
-      usedInUploadAt: current.usedInUploadAt,
-    });
-    assertDraftDocumentJsonWithinLimit(documentJson);
-    data.document = documentJson;
-  }
-
-  if (Object.keys(data).length === 0) {
+  if (!needsDocMerge) {
     return getDraftById(id);
   }
 
-  try {
-    const row = await tablesDb.updateRow({
-      databaseId: DATABASE_ID,
-      tableId: DRAFTS_COLLECTION_ID,
-      rowId: id,
-      data,
-    });
-    return rowToDraft(row as unknown as Record<string, unknown>);
-  } catch (err: unknown) {
-    const e = err as { code?: number };
-    if (e.code === 404) return null;
-    throw err;
+  const current = await getDraftById(id);
+  if (!current) return null;
+
+  const mergedPlatforms =
+    input.platformsPatch !== undefined
+      ? mergeDraftPlatformsPatch(current.platforms, input.platformsPatch)
+      : current.platforms;
+
+  let nextThumbKey: string | undefined;
+  let nextThumbType: string | undefined;
+  if (input.thumbnailR2Key === null) {
+    nextThumbKey = undefined;
+    nextThumbType = undefined;
+  } else if (input.thumbnailR2Key !== undefined) {
+    nextThumbKey = input.thumbnailR2Key;
+    nextThumbType =
+      input.thumbnailContentType === undefined
+        ? current.thumbnailContentType
+        : input.thumbnailContentType === null
+          ? undefined
+          : input.thumbnailContentType;
+  } else {
+    nextThumbKey = current.thumbnailR2Key;
+    nextThumbType =
+      input.thumbnailContentType === undefined
+        ? current.thumbnailContentType
+        : input.thumbnailContentType === null
+          ? undefined
+          : input.thumbnailContentType;
   }
+
+  const documentJson = stringifyDraftDocumentForStorage({
+    targets: input.targets ?? current.targets,
+    title: input.title ?? current.title,
+    description: input.description ?? current.description,
+    tags: input.tags ?? current.tags,
+    visibility: input.visibility ?? current.visibility,
+    platforms: mergedPlatforms,
+    ...(nextThumbKey !== undefined ? { thumbnailR2Key: nextThumbKey } : {}),
+    ...(nextThumbType !== undefined ? { thumbnailContentType: nextThumbType } : {}),
+    usedInUploadAt: current.usedInUploadAt,
+  });
+  assertDraftDocumentJsonWithinLimit(documentJson);
+
+  await connectToDatabase();
+  const updated = await DraftModel.findByIdAndUpdate(
+    id,
+    { document: documentJson },
+    { new: true, runValidators: true }
+  ).lean<DraftDocument | null>();
+  if (!updated) return null;
+  return mongoDocToDraft(updated);
 }
 
 // -----------------------------------------------------------------------------
@@ -486,12 +408,9 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
 // -----------------------------------------------------------------------------
 
 /**
- * Remove a draft row by ID.
+ * Remove a draft document by ID.
  */
 export async function deleteDraft(id: string): Promise<void> {
-  await tablesDb.deleteRow({
-    databaseId: DATABASE_ID,
-    tableId: DRAFTS_COLLECTION_ID,
-    rowId: id,
-  });
+  await connectToDatabase();
+  await DraftModel.deleteOne({ _id: id });
 }

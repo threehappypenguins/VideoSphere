@@ -79,12 +79,12 @@ describe('GET /api/platforms/connect/youtube', () => {
       expect(res.headers.get('location')).toContain('error=youtube');
     });
 
-    it('redirects to ?error=youtube when NEXT_PUBLIC_APPWRITE_ENDPOINT is missing', async () => {
+    it('still redirects to Google OAuth when NEXT_PUBLIC_APPWRITE_ENDPOINT is missing', async () => {
       delete process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
       const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
       const res = await GET(req);
       expect(res.status).toBe(307);
-      expect(res.headers.get('location')).toContain('error=youtube');
+      expect(res.headers.get('location')).toContain('accounts.google.com/o/oauth2/v2/auth');
       process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     });
   });
@@ -97,8 +97,7 @@ describe('GET /api/platforms/connect/youtube', () => {
       expect(res.headers.get('location')).toMatch(/\/login$/);
     });
 
-    it('redirects to /login when Appwrite rejects the session', async () => {
-      mockAccountGet.mockRejectedValueOnce(new Error('Invalid session'));
+    it('redirects to /login when the auth cookie is invalid', async () => {
       const req = makeRequest({ [SESSION_COOKIE]: 'bad-token' });
       const res = await GET(req);
       expect(res.status).toBe(307);

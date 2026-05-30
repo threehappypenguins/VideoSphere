@@ -4,9 +4,9 @@ This guide explains how to test the Stripe webhook integration locally using **S
 
 ## Overview
 
-When a user completes a payment via Stripe Checkout, Stripe sends a webhook event (`checkout.session.completed`) to your application. For currently handled event types, the webhook handler verifies the event signature, claims a durable idempotency record keyed by Stripe `event.id`, and then updates the user's `isSupporter` status in Appwrite.
+When a user completes a payment via Stripe Checkout, Stripe sends a webhook event (`checkout.session.completed`) to your application. For currently handled event types, the webhook handler verifies the event signature, claims a durable idempotency document keyed by Stripe `event.id`, and then updates the user's `isSupporter` status in MongoDB.
 
-Verified but currently unhandled Stripe event types are acknowledged without writing a `processed_webhook_events` row, so future handler additions can still opt into processing historical replays.
+Verified but currently unhandled Stripe event types are acknowledged without writing a `processed_webhook_events` document, so future handler additions can still opt into processing historical replays.
 
 Duplicate deliveries, Stripe retries, and manual replays are safe no-ops after the first successful handling of a given Stripe event ID.
 
@@ -183,9 +183,9 @@ Check three places:
    [POST /api/webhooks/stripe] checkout.session.completed: Set isSupporter=true for userId=user_xxx eventId=evt_...
    ```
 
-3. **Appwrite Console** - Check both tables:
+3. **MongoDB** - Check both collections:
    - `user_profiles`: the test user's `isSupporter` field was updated to `true`
-   - `processed_webhook_events`: the row for that Stripe `event.id` exists with `status=completed`
+   - `processed_webhook_events`: the document for that Stripe `event.id` exists with `status=completed`
 
 ### Step 7: Replay the Exact Same Event ID
 
@@ -208,13 +208,13 @@ Expected result:
    [POST /api/webhooks/stripe] Duplicate event ignored: eventId=evt_123
    ```
 3. No second supporter-upgrade side effect runs.
-4. The `processed_webhook_events` row remains the original completed record.
+4. The `processed_webhook_events` document remains the original completed document.
 
 ---
 
 ## Idempotency Storage and Retry Policy
 
-The webhook route uses the `processed_webhook_events` Appwrite table with these fields:
+The webhook route uses the `processed_webhook_events` MongoDB collection with these fields:
 
 | Field | Purpose |
 | --- | --- |
@@ -226,12 +226,12 @@ The webhook route uses the `processed_webhook_events` Appwrite table with these 
 
 `completed_with_bookkeeping_error` is a terminal success-like state used when business side effects succeeded but final completion bookkeeping failed. `failed_non_retryable` is a terminal non-retryable state for permanently invalid payload/config paths (for example, missing user mapping in `checkout.session.completed`). Claim logic treats both statuses as already-handled duplicate/no-op for the same Stripe `event.id`.
 
-For timing/observability, the implementation uses Appwrite system timestamps instead of custom datetime columns:
+For timing/observability, the implementation uses model timestamps instead of custom datetime fields:
 
-- `$createdAt`: when the webhook event row was first claimed.
+- `$createdAt`: when the webhook event document was first claimed.
 - `$updatedAt`: the most recent attempt/status transition time, including reclaim and terminal-state updates.
 
-Stale-processing detection uses `$updatedAt`, so retry timing reflects the latest in-flight attempt without introducing redundant business timestamp columns.
+Stale-processing detection uses `$updatedAt`, so retry timing reflects the latest in-flight attempt without introducing redundant business timestamp fields.
 
 ### Response Rules
 
@@ -241,10 +241,10 @@ Stale-processing detection uses `$updatedAt`, so retry timing reflects the lates
 - In-progress duplicate claim: `500` with retry-required body so Stripe keeps retrying
 - Processing failure before side effects complete: `500`, after recording failure for retry/reclaim
 - Completion bookkeeping failure after side effects succeed: `200` with `bookkeepingWarning: true`, but only if the terminal bookkeeping status is persisted successfully
-- Terminal bookkeeping status persistence failure after side effects succeed: `500` so the route does not acknowledge a non-terminal `processing` row as complete
+- Terminal bookkeeping status persistence failure after side effects succeed: `500` so the route does not acknowledge a non-terminal `processing` document as complete
 - Non-retryable payload/config issue: `200` with `nonRetryable: true`, but only after recording terminal non-retryable status successfully
-- Non-retryable terminal status persistence failure: `500` so the route does not acknowledge a still-`processing` row as complete
-- Currently unhandled event type: `200` with `ignored: true` and no durable claim record
+- Non-retryable terminal status persistence failure: `500` so the route does not acknowledge a still-`processing` document as complete
+- Currently unhandled event type: `200` with `ignored: true` and no durable claim document
 
 ### Success Response Variants
 
@@ -260,13 +260,13 @@ The webhook can return one of these success payloads depending on claim/result s
 
 If business side effects already succeeded (for example, supporter status update) but writing the final `completed` marker fails, returning `500` would cause Stripe to retry and risk re-running side effects.
 
-Returning `200` with `bookkeepingWarning: true` intentionally acknowledges receipt only after the terminal bookkeeping-failure status is persisted, so later claims still dedupe safely. If that terminal status cannot be written, the route returns `500` instead of acknowledging a still-`processing` row.
+Returning `200` with `bookkeepingWarning: true` intentionally acknowledges receipt only after the terminal bookkeeping-failure status is persisted, so later claims still dedupe safely. If that terminal status cannot be written, the route returns `500` instead of acknowledging a still-`processing` document.
 
 ### Retention and Cleanup
 
-Completed terminal rows (`completed`, `completed_with_bookkeeping_error`, and `failed_non_retryable`) are retained for replay protection and troubleshooting. Retryable failed rows (`failed`) are also retained and reclaimed via status/age-based claim logic, so retry behavior does not depend on delete succeeding during transient outages.
+Completed terminal documents (`completed`, `completed_with_bookkeeping_error`, and `failed_non_retryable`) are retained for replay protection and troubleshooting. Retryable failed documents (`failed`) are also retained and reclaimed via status/age-based claim logic, so retry behavior does not depend on delete succeeding during transient outages.
 
-If webhook volume grows enough to justify pruning, add a scheduled cleanup job for old completed rows after an agreed retention window. The current approach keeps the implementation simple and preserves strong duplicate protection.
+If webhook volume grows enough to justify pruning, add a scheduled cleanup job for old completed documents after an agreed retention window. The current approach keeps the implementation simple and preserves strong duplicate protection.
 
 ---
 
@@ -334,7 +334,7 @@ ls -la /usr/bin/stripe
 
 **Check:**
 1. Confirm the dev server logged `Duplicate event ignored`
-2. Confirm the matching row already exists in `processed_webhook_events`
+2. Confirm the matching document already exists in `processed_webhook_events`
 3. Verify the original event already upgraded the user
 
 ### Webhook Returns 403 (Secret Not Configured)
@@ -375,7 +375,7 @@ To test end-to-end (checkout creation + webhook):
 6. Click **Pay**
 7. On success, you're redirected to `/profile?upgrade=success`
 8. Check webhook logs (both terminals)
-9. Verify user `isSupporter` was set to `true` in Appwrite
+9. Verify user `isSupporter` was set to `true` in MongoDB
 
 ### Option 2: Via API (For Automation)
 
@@ -402,7 +402,7 @@ curl -X POST http://localhost:3000/api/payments/checkout \
 | 3 | Editor | Update `.env.local` with `STRIPE_WEBHOOK_SECRET` |
 | 4 | VS Code | `pnpm dev` |
 | 5 | Host (new tab) | `stripe trigger checkout.session.completed` |
-| 6 | Check | Verify user + processed-event records |
+| 6 | Check | Verify user + processed-event documents |
 | 7 | Host / Dashboard | Replay same `event.id` and confirm duplicate no-op |
 
 When you restart `stripe listen`, repeat steps 2-4.

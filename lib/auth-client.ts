@@ -1,92 +1,72 @@
 // =============================================================================
-// APPWRITE CLIENT-SIDE AUTH
+// CLIENT-SIDE AUTH HELPERS
 // =============================================================================
-// Session is set server-side (Route Handlers) via httpOnly cookie; no localStorage.
-// getCurrentUser / getCurrentSession use the SDK and send the cookie (credentials).
-// logout() calls POST /api/auth/logout to clear the server-set cookie.
+// Thin fetch wrappers around server auth routes.
 // =============================================================================
 
-import { Client, Account } from 'appwrite';
-
-const COOKIE_FALLBACK_KEY = 'cookieFallback';
-
-/** Remove Appwrite session from localStorage so we rely on cookie only (same-origin). */
+/**
+ * Kept for backward compatibility with OAuth callback pages.
+ * No local cookie fallback is used in JWT mode.
+ */
 export function clearCookieFallback(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(COOKIE_FALLBACK_KEY);
-  } catch {
-    // ignore
-  }
+  // no-op
 }
 
-// Initialize Appwrite client
-const client = new Client()
-  .setEndpoint(process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT!)
-  .setProject(process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID!);
-
-const account = new Account(client);
-
 /**
- * Login with email and password (client fallback; prefer POST /api/auth/login).
- * Use the login API route so the session cookie is set server-side (SSR).
+ * Login with email and password via API route.
  */
-export async function loginWithEmail(email: string, password: string) {
-  try {
+export async function loginWithEmail(email: string, password: string): Promise<{ ok: true }> {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!res.ok) {
+    let message = 'Login failed';
     try {
-      await account.deleteSession('current');
+      const data = (await res.json()) as { error?: string };
+      if (typeof data.error === 'string' && data.error.trim() !== '') {
+        message = data.error;
+      }
     } catch {
-      // ignore
+      // ignore parse errors
     }
-    const session = await account.createEmailPasswordSession(email, password);
-    setTimeout(clearCookieFallback, 0);
-    return session;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Login failed';
-    throw new Error(errorMessage);
+    throw new Error(message);
   }
+
+  return { ok: true };
 }
 
 /**
- * Logout: call API to delete session and clear cookie (SSR).
+ * Logout via API route; this clears the session cookie.
  */
-export async function logout() {
-  clearCookieFallback();
-  try {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-  } catch {
-    // still clear local state
-  }
+export async function logout(): Promise<void> {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
 /**
- * Get current user session
- * Returns null if no active session exists
- *
- * @returns Session object or null if not authenticated
+ * Get current user session.
+ * Returns null if no active session exists.
  */
-export async function getCurrentSession() {
+export async function getCurrentSession(): Promise<{ $id?: string; email?: string } | null> {
   try {
-    const session = await account.getSession('current');
-    return session;
+    const res = await fetch('/api/auth/session', {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { $id?: string; email?: string };
   } catch {
-    // No active session
     return null;
   }
 }
 
 /**
- * Get current authenticated user
- * Returns null if no user is logged in
- *
- * @returns User object or null if not authenticated
+ * Get current authenticated user.
+ * Returns null if no user is logged in.
  */
-export async function getCurrentUser() {
-  try {
-    const user = await account.get();
-    return user;
-  } catch {
-    // No authenticated user
-    return null;
-  }
+export async function getCurrentUser(): Promise<{ $id?: string; email?: string } | null> {
+  return getCurrentSession();
 }

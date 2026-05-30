@@ -9,13 +9,10 @@
 //   - Form submission POSTs to /api/auth/login; on success, redirects to ?redirect or /dashboard.
 //
 // Google OAuth:
-//   - "Sign in with Google" navigates to /api/auth/oauth/google (server creates OAuth token, redirects to Google).
-//   - Works for both existing users (sign in) and new users (sign up): Appwrite creates the
-//     auth user on first Google sign-in; our callback ensures a user_profiles document.
-//   - Flow: User → Google consent → Appwrite callback → our /api/auth/oauth/callback (sets cookie)
-//     → /callback/google runs and POSTs to /api/auth/callback/google, then redirects to ?redirect or dashboard.
-//
-// Reference: https://appwrite.io/docs/references/web/client-web/auth
+//   - "Sign in with Google" navigates to /api/auth/oauth/google (server redirects to Google).
+//   - Works for both existing users and new users: callback upserts user_profiles in MongoDB.
+//   - Flow: User → Google consent → our /api/auth/oauth/callback (sets JWT cookie)
+//     → /callback/google immediately redirects to ?redirect or dashboard.
 // =============================================================================
 
 'use client';
@@ -201,7 +198,6 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => setShowPassword((p) => !p)}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showPassword}
                 aria-controls="password"
                 disabled={isLoading}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

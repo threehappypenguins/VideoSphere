@@ -68,7 +68,10 @@ function makeRequest(
     .join('; ');
   const req = new NextRequest(url, {
     method: 'DELETE',
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    headers: {
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      'x-test-user-id': USER_ID,
+    },
   });
   return [req, { params: Promise.resolve({ id }) }];
 }
@@ -112,8 +115,7 @@ describe('DELETE /api/platforms/connections/[id]', () => {
       expect(body.error).toBe('Unauthorized');
     });
 
-    it('returns 401 when the session is invalid (Appwrite throws)', async () => {
-      mockAccountGet.mockRejectedValueOnce(new Error('Session not found'));
+    it('returns 401 when the session is invalid', async () => {
       const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'bad-token' });
       const res = await DELETE(req, ctx);
       expect(res.status).toBe(401);

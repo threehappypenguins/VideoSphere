@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 
 /**
  * Defines the GOOGLE_DRIVE_OAUTH_STATE_COOKIE constant.
@@ -20,35 +19,18 @@ const GOOGLE_DRIVE_SCOPES = [
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
 
   const origin = req.nextUrl.origin;
   const failureUrl = `${origin}/profile/connections?error=google_drive`;
 
-  if (!endpoint || !projectId || !clientId) {
+  if (!clientId) {
     console.error('[GET /api/platforms/connect/drive] Missing required environment variables');
     return NextResponse.redirect(failureUrl);
   }
 
-  const cookieName = getSessionCookieName(projectId);
-  const sessionSecret = req.cookies.get(cookieName)?.value;
-
-  if (!sessionSecret) {
-    return NextResponse.redirect(`${origin}/login`);
-  }
-
-  let userId: string;
-  try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-    const account = new Account(client);
-    const user = await account.get();
-    userId = user.$id;
-  } catch {
+  const userId = await getAuthenticatedUserId(req);
+  if (!userId) {
     return NextResponse.redirect(`${origin}/login`);
   }
 

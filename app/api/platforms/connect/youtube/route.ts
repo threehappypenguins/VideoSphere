@@ -1,7 +1,7 @@
 // =============================================================================
 // GET /api/platforms/connect/youtube
 // =============================================================================
-// Initiates the YouTube OAuth2 connection flow. Verifies the user's Appwrite
+// Initiates the YouTube OAuth2 connection flow. Verifies the user's JWT
 // session, builds the Google OAuth2 consent URL requesting YouTube upload
 // permissions (youtube.upload scope), generates a random CSRF nonce for the
 // `state` parameter (stored in a short-lived httpOnly cookie), then redirects
@@ -13,8 +13,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { Client, Account } from 'node-appwrite';
-import { getSessionCookieName } from '@/lib/auth-session-cookie';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 
 /**
  * Defines the YOUTUBE_OAUTH_STATE_COOKIE constant.
@@ -40,37 +39,18 @@ const YOUTUBE_SCOPES = [
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const endpoint = process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT;
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
   const clientId = process.env.YOUTUBE_CLIENT_ID;
 
   const origin = req.nextUrl.origin;
   const failureUrl = `${origin}/profile/connections?error=youtube`;
 
-  if (!endpoint || !projectId || !clientId) {
+  if (!clientId) {
     console.error('[GET /api/platforms/connect/youtube] Missing required environment variables');
     return NextResponse.redirect(failureUrl);
   }
 
-  // Verify the user has an active Appwrite session
-  const cookieName = getSessionCookieName(projectId);
-  const sessionSecret = req.cookies.get(cookieName)?.value;
-
-  if (!sessionSecret) {
-    return NextResponse.redirect(`${origin}/login`);
-  }
-
-  let userId: string;
-  try {
-    const client = new Client()
-      .setEndpoint(endpoint)
-      .setProject(projectId)
-      .setSession(sessionSecret);
-
-    const account = new Account(client);
-    const user = await account.get();
-    userId = user.$id;
-  } catch {
+  const userId = await getAuthenticatedUserId(req);
+  if (!userId) {
     return NextResponse.redirect(`${origin}/login`);
   }
 
@@ -78,8 +58,8 @@ export async function GET(req: NextRequest) {
 
   // Generate a cryptographically random CSRF nonce. It is stored in a
   // short-lived httpOnly cookie alongside the userId so the callback can
-  // verify identity without needing to re-read the Appwrite session cookie
-  // (which is sameSite=strict and would be dropped on the cross-site redirect
+  // verify identity without relying on JWT session cookies
+  // (which may be dropped on the cross-site redirect
   // back from Google). Format: "<nonce>|<userId>".
   const csrfNonce = randomBytes(32).toString('hex');
   const cookieValue = `${csrfNonce}|${userId}`;
@@ -97,9 +77,7 @@ export async function GET(req: NextRequest) {
   const response = NextResponse.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
 
   // Store the nonce+userId in a short-lived httpOnly cookie (10 minutes).
-  // SameSite=lax so it survives the redirect back from Google. This is the
-  // only cookie in the flow that needs lax — the Appwrite session cookie
-  // stays strict.
+  // SameSite=lax so it survives the redirect back from Google.
   response.cookies.set(YOUTUBE_OAUTH_STATE_COOKIE, cookieValue, {
     httpOnly: true,
     sameSite: 'lax',

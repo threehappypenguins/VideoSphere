@@ -68,15 +68,23 @@ function getFullPath(request: NextRequest): string {
   return search ? `${pathname}${search}` : pathname;
 }
 
+function getSessionTokenFromCookies(request: NextRequest): string | null {
+  const jwtCookieToken = request.cookies.get(getSessionCookieName())?.value;
+  if (jwtCookieToken) return jwtCookieToken;
+
+  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
+  if (!projectId) return null;
+
+  const legacyCookie = request.cookies.get(`a_session_${projectId}`)?.value;
+  return legacyCookie ?? null;
+}
+
 export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
     const fullPath = getFullPath(request);
 
-    // Use NEXT_PUBLIC_APPWRITE_PROJECT_ID to match /api/auth/session precedence
-    const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-    const cookieName = projectId ? getSessionCookieName(projectId) : null;
-    const sessionToken = cookieName ? request.cookies.get(cookieName)?.value : null;
+    const sessionToken = getSessionTokenFromCookies(request);
 
     if (pathname === '/') {
       if (!sessionToken) {

@@ -1,8 +1,8 @@
 // =============================================================================
 // TOKEN ENCRYPTION (PRD NF-05: OAuth tokens encrypted at rest)
 // =============================================================================
-// Encrypts/decrypts OAuth tokens before persisting to Appwrite. Uses AES-256-GCM.
-// Key must be 32 bytes; provide as base64 in APPWRITE_TOKEN_ENCRYPTION_KEY.
+// Encrypts/decrypts OAuth tokens before persisting to MongoDB. Uses AES-256-GCM.
+// Key must be 32 bytes; provide as base64 in TOKEN_ENCRYPTION_KEY.
 // Generate: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 // =============================================================================
 
@@ -37,17 +37,17 @@ export function isTokenDecryptError(err: unknown): err is TokenDecryptError {
 }
 
 function getKey(): Buffer {
-  const raw = process.env.APPWRITE_TOKEN_ENCRYPTION_KEY;
+  const raw = process.env.TOKEN_ENCRYPTION_KEY;
   if (!raw || raw.trim() === '') {
     throw new Error(
-      'APPWRITE_TOKEN_ENCRYPTION_KEY is required for OAuth token encryption (PRD NF-05). ' +
+      'TOKEN_ENCRYPTION_KEY is required for OAuth token encryption (PRD NF-05). ' +
         "Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\""
     );
   }
   const key = Buffer.from(raw.trim(), 'base64');
   if (key.length !== KEY_LENGTH) {
     throw new Error(
-      `APPWRITE_TOKEN_ENCRYPTION_KEY must decode to 32 bytes (got ${key.length}). Use base64-encoded 32-byte key.`
+      `TOKEN_ENCRYPTION_KEY must decode to 32 bytes (got ${key.length}). Use base64-encoded 32-byte key.`
     );
   }
   return key;
