@@ -1,8 +1,5 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI!;
-if (!MONGODB_URI) throw new Error('MONGODB_URI is not set');
-
 // Singleton for Next.js hot-reload
 const globalWithMongoose = global as typeof global & { mongoose?: typeof import('mongoose') };
 
@@ -22,7 +19,11 @@ if (!cached) {
 export async function connectToDatabase() {
   if (cached!.conn) return cached!.conn;
   if (!cached!.promise) {
-    cached!.promise = mongoose.connect(MONGODB_URI, { bufferCommands: false });
+    const mongodbUri = process.env.MONGODB_URI;
+    if (!mongodbUri) {
+      throw new Error('MONGODB_URI is not set');
+    }
+    cached!.promise = mongoose.connect(mongodbUri, { bufferCommands: false });
   }
   try {
     cached!.conn = await cached!.promise;
