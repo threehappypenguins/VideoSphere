@@ -26,7 +26,7 @@ function getTestLegacyUserId(req: NextRequest): string | null {
   return req.headers.get('x-test-user-id') || 'user-123';
 }
 
-async function getJwtAuthenticatedUser(req: NextRequest): Promise<User | null> {
+async function getJwtAuthenticatedUserId(req: NextRequest): Promise<string | null> {
   const token = req.cookies.get(getSessionCookieName())?.value ?? null;
   if (!token) return null;
 
@@ -35,7 +35,11 @@ async function getJwtAuthenticatedUser(req: NextRequest): Promise<User | null> {
 
   const key = new TextEncoder().encode(secret);
   const { payload } = await jwtVerify(token, key);
-  const userId = typeof payload.sub === 'string' ? payload.sub : null;
+  return typeof payload.sub === 'string' ? payload.sub : null;
+}
+
+async function getJwtAuthenticatedUser(req: NextRequest): Promise<User | null> {
+  const userId = await getJwtAuthenticatedUserId(req);
   if (!userId) return null;
 
   const { getUserById } = await import('@/lib/repositories/users');
@@ -59,7 +63,23 @@ export async function getAuthenticatedUser(req: NextRequest): Promise<User | nul
 
 /**
  * Reads the JWT session cookie from the request and returns the authenticated
+ * token subject id without loading the user profile.
+ * @param req - The incoming request object.
+ * @returns The JWT subject id when the token is valid; otherwise null.
+ */
+export async function getAuthenticatedSessionUserId(req: NextRequest): Promise<string | null> {
+  try {
+    return await getJwtAuthenticatedUserId(req);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads the JWT session cookie from the request and returns the authenticated
  * user id. Returns null when the token is missing or invalid.
+ * @param req - The incoming request object.
+ * @returns The authenticated user id if token and profile are valid; otherwise null.
  */
 export async function getAuthenticatedUserId(req: NextRequest): Promise<string | null> {
   try {

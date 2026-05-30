@@ -14,7 +14,7 @@ vi.mock('@/lib/repositories/users', () => ({
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
 }));
 
-import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getAuthenticatedSessionUserId, getAuthenticatedUserId } from '@/lib/api/auth';
 
 function createRequest(cookies: Record<string, string> = {}): NextRequest {
   const cookieHeader = Object.entries(cookies)
@@ -25,6 +25,35 @@ function createRequest(cookies: Record<string, string> = {}): NextRequest {
     headers: cookieHeader ? { Cookie: cookieHeader } : {},
   });
 }
+
+describe('getAuthenticatedSessionUserId', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.JWT_SECRET = 'test-secret';
+  });
+
+  it('returns user id when JWT is valid', async () => {
+    mockJwtVerify.mockResolvedValueOnce({ payload: { sub: 'user-1' } });
+
+    const userId = await getAuthenticatedSessionUserId(
+      createRequest({ videosphere_session: 'valid-jwt-token' })
+    );
+
+    expect(userId).toBe('user-1');
+    expect(mockGetUserById).not.toHaveBeenCalled();
+  });
+
+  it('returns null when JWT verification fails', async () => {
+    mockJwtVerify.mockRejectedValueOnce(new Error('invalid token'));
+
+    const userId = await getAuthenticatedSessionUserId(
+      createRequest({ videosphere_session: 'broken-jwt' })
+    );
+
+    expect(userId).toBeNull();
+    expect(mockGetUserById).not.toHaveBeenCalled();
+  });
+});
 
 describe('getAuthenticatedUserId', () => {
   beforeEach(() => {

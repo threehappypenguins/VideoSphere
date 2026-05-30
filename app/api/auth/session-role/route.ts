@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
 import { getUserById } from '@/lib/repositories/users';
 
 /**
@@ -14,7 +14,7 @@ import { getUserById } from '@/lib/repositories/users';
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const userId = await getAuthenticatedUserId(req);
+  const userId = await getAuthenticatedSessionUserId(req);
   if (!userId) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }

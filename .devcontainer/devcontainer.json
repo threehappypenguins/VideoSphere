@@ -16,7 +16,7 @@
   //    (requires sudo — postCreateCommand runs as the non-root 'node' user,
   //    but corepack enable needs to write a symlink to /usr/local/bin/)
   // 2. Install all project dependencies (also runs the `prepare` script which sets up Husky)
-  "postCreateCommand": "sudo corepack enable && pnpm install",
+  "postCreateCommand": "node -e \"const [maj,min]=process.versions.node.split('.').map(Number); if(maj<20 || (maj===20 && min<19)){console.error('Node.js 20.19.0+ is required. Current: ' + process.versions.node); process.exit(1);}\" && sudo corepack enable && pnpm install",
 
   "mounts": ["source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,consistency=cached"],
 
