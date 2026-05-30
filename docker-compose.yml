@@ -11,6 +11,9 @@ services:
     env_file:
       - .env.local
     environment:
+      # NOTE: Compose interpolates ${...} before service env_file is loaded.
+      # MONGO_ROOT_PASSWORD must be available to Compose itself (shell env,
+      # a project-level .env, or `docker compose --env-file .env.local ...`).
       MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:?required}@mongo:27017/videosphere?authSource=admin
     depends_on:
       mongo:
@@ -23,6 +26,8 @@ services:
     ports:
       - '127.0.0.1:27017:27017'
     environment:
+      # NOTE: This required interpolation is resolved by Compose (not env_file).
+      # Ensure MONGO_ROOT_PASSWORD is provided via shell/.env/--env-file.
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?required}
       MONGO_INITDB_DATABASE: videosphere
