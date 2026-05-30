@@ -3,7 +3,7 @@
 // =============================================================================
 // Email/password: POST /api/auth/login sets session cookie server-side (SSR, no localStorage).
 // Google OAuth: initiated via GET /api/auth/oauth/google (server); httpOnly session cookie
-//   set in GET /api/auth/oauth/callback, then redirect to /callback/google.
+//   set in GET /api/auth/oauth/callback, then redirect directly to safe ?redirect or /dashboard.
 //
 // Email/Password Auth:
 //   - Form submission POSTs to /api/auth/login; on success, redirects to ?redirect or /dashboard.
@@ -12,7 +12,7 @@
 //   - "Sign in with Google" navigates to /api/auth/oauth/google (server redirects to Google).
 //   - Works for both existing users and new users: callback upserts user_profiles in MongoDB.
 //   - Flow: User → Google consent → our /api/auth/oauth/callback (sets JWT cookie)
-//     → /callback/google immediately redirects to ?redirect or dashboard.
+//     → safe ?redirect or /dashboard.
 // =============================================================================
 
 'use client';

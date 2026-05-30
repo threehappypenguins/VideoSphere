@@ -228,10 +228,10 @@ The webhook route uses the `processed_webhook_events` MongoDB collection with th
 
 For timing/observability, the implementation uses model timestamps instead of custom datetime fields:
 
-- `$createdAt`: when the webhook event document was first claimed.
-- `$updatedAt`: the most recent attempt/status transition time, including reclaim and terminal-state updates.
+- `createdAt`: when the webhook event document was first claimed.
+- `updatedAt`: the most recent attempt/status transition time, including reclaim and terminal-state updates.
 
-Stale-processing detection uses `$updatedAt`, so retry timing reflects the latest in-flight attempt without introducing redundant business timestamp fields.
+Stale-processing detection uses `updatedAt`, so retry timing reflects the latest in-flight attempt without introducing redundant business timestamp fields.
 
 ### Response Rules
 
