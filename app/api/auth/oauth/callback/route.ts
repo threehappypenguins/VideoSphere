@@ -26,6 +26,11 @@ interface GoogleUserInfoResponse {
   email_verified?: boolean;
 }
 
+function isMongoDuplicateKeyError(error: unknown): boolean {
+  const mongoError = error as { code?: number } | null;
+  return mongoError?.code === 11000;
+}
+
 function getGoogleClientId(): string | null {
   return (
     process.env.GOOGLE_CLIENT_ID ||
@@ -140,23 +145,36 @@ export async function GET(req: NextRequest) {
 
     await connectToDatabase();
 
-    let user = await UserProfileModel.findOne({ email }).lean<UserProfileDocument | null>();
+    const userId = randomUUID();
+    try {
+      await UserProfileModel.updateOne(
+        { email },
+        {
+          $setOnInsert: {
+            _id: userId,
+            userId,
+            email,
+            isSupporter: false,
+            hasCompletedOnboarding: false,
+            role: 'user',
+          },
+        },
+        { upsert: true }
+      );
+    } catch (error) {
+      if (!isMongoDuplicateKeyError(error)) {
+        throw error;
+      }
+    }
+
+    const user = await UserProfileModel.findOne({ email }).lean<UserProfileDocument | null>();
     if (!user) {
-      const userId = randomUUID();
-      const created = await UserProfileModel.create({
-        _id: userId,
-        userId,
-        email,
-        isSupporter: false,
-        hasCompletedOnboarding: false,
-        role: 'user',
-      });
-      user = created.toObject();
+      throw new Error('User profile upsert failed');
     }
 
     const token = await new SignJWT({ role: user.role, oauthProvider: 'google' })
       .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(user.userId)
+      .setSubject(String(user.userId ?? user._id))
       .setIssuedAt()
       .setExpirationTime(`${getSessionCookieOptions().maxAge}s`)
       .sign(new TextEncoder().encode(jwtSecret));

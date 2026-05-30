@@ -15,6 +15,10 @@ if (!cached) {
   cached = (globalWithMongoose as any)._mongooseCache = { conn: null, promise: null };
 }
 
+/**
+ * Establishes and caches the shared MongoDB connection for the current process.
+ * @returns The connected Mongoose instance.
+ */
 export async function connectToDatabase() {
   if (cached!.conn) return cached!.conn;
   if (!cached!.promise) {
