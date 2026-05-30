@@ -47,6 +47,7 @@ export async function getSessionUserFromCookies(): Promise<SessionUserFromCookie
 
     const { getUserById } = await import('@/lib/repositories/users');
     const profile = await getUserById(userId);
+    if (!profile) return null;
 
     return {
       $id: userId,

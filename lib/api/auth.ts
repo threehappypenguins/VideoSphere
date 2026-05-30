@@ -39,7 +39,12 @@ export async function getAuthenticatedUserId(req: NextRequest): Promise<string |
     if (!secret) return null;
     const key = new TextEncoder().encode(secret);
     const { payload } = await jwtVerify(token, key);
-    return typeof payload.sub === 'string' ? payload.sub : null;
+    const userId = typeof payload.sub === 'string' ? payload.sub : null;
+    if (!userId) return null;
+
+    const { getUserById } = await import('@/lib/repositories/users');
+    const user = await getUserById(userId);
+    return user ? userId : null;
   } catch {
     return getTestLegacyUserId(req);
   }
