@@ -9,6 +9,7 @@
  *
  * The optional projectId argument is kept for backward compatibility with
  * existing call sites that previously passed an auth provider project id.
+ * @param projectId - Backward-compatibility argument from older call sites; ignored.
  * @returns The computed result.
  */
 export function getSessionCookieName(projectId?: string): string {

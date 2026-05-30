@@ -53,7 +53,6 @@ describe('upload-usage repository (mongo)', () => {
     expect(mockUpdateOne).toHaveBeenNthCalledWith(2, { _id: 'user-1_2026-01' }, [
       {
         $set: {
-          _id: 'user-1_2026-01',
           userId: { $ifNull: ['$userId', 'user-1'] },
           month: { $ifNull: ['$month', '2026-01'] },
           uploadCount: {

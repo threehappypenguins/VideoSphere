@@ -105,7 +105,6 @@ export async function decrementUsage(userId: string, monthArg?: string): Promise
   await UploadUsageModel.updateOne({ _id: rowId }, [
     {
       $set: {
-        _id: rowId,
         userId: { $ifNull: ['$userId', userId] },
         month: { $ifNull: ['$month', month] },
         uploadCount: {
