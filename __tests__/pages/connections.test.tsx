@@ -15,9 +15,8 @@ import { render, screen } from '@testing-library/react';
 // the top of the file at compile-time, so plain `const` refs are TDZ).
 // ---------------------------------------------------------------------------
 
-const { mockCookiesGet, mockAccountGet, mockGetConnectedAccountsByUser } = vi.hoisted(() => ({
-  mockCookiesGet: vi.fn(),
-  mockAccountGet: vi.fn(),
+const { mockGetCurrentUserIdFromCookies, mockGetConnectedAccountsByUser } = vi.hoisted(() => ({
+  mockGetCurrentUserIdFromCookies: vi.fn(),
   mockGetConnectedAccountsByUser: vi.fn(),
 }));
 
@@ -33,30 +32,9 @@ vi.mock('next/cache', () => ({
   revalidatePath: vi.fn(),
 }));
 
-vi.mock('next/headers', () => ({
-  cookies: vi.fn(async () => ({ get: mockCookiesGet })),
+vi.mock('@/lib/auth/get-current-user-id-from-cookies', () => ({
+  getCurrentUserIdFromCookies: (...args: unknown[]) => mockGetCurrentUserIdFromCookies(...args),
 }));
-
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-  function MockClient() {
-    return mockClient;
-  }
-  function MockAccount() {
-    this.get = mockAccountGet;
-  }
-  return { Client: MockClient, Account: MockAccount };
-});
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   getConnectedAccountsByUser: (...args: unknown[]) => mockGetConnectedAccountsByUser(...args),
@@ -71,15 +49,12 @@ import { redirect } from 'next/navigation';
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SESSION_COOKIE_NAME = 'a_session_test-project';
-
 function makeSearchParams(params: Record<string, string> = {}) {
   return Promise.resolve(params);
 }
 
 function setupAuthenticatedUser(userId = 'user-123') {
-  mockCookiesGet.mockReturnValue({ value: 'valid-session-token' });
-  mockAccountGet.mockResolvedValue({ $id: userId });
+  mockGetCurrentUserIdFromCookies.mockResolvedValue(userId);
 }
 
 // ---------------------------------------------------------------------------
@@ -92,19 +67,19 @@ describe('ConnectionsPage', () => {
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     mockGetConnectedAccountsByUser.mockResolvedValue([]);
+    mockGetCurrentUserIdFromCookies.mockResolvedValue('user-123');
   });
 
   describe('Authentication', () => {
     it('redirects to /login when no session cookie is present', async () => {
-      mockCookiesGet.mockReturnValue(undefined);
+      mockGetCurrentUserIdFromCookies.mockResolvedValueOnce(null);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
       expect(redirect).toHaveBeenCalledWith('/login?redirect=%2Fprofile%2Fconnections');
     });
 
-    it('redirects to /login when Appwrite rejects the session', async () => {
-      mockCookiesGet.mockReturnValue({ value: 'bad-token' });
-      mockAccountGet.mockRejectedValue(new Error('Invalid session'));
+    it('redirects to /login when cookie-based auth helper returns null', async () => {
+      mockGetCurrentUserIdFromCookies.mockResolvedValueOnce(null);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
       expect(redirect).toHaveBeenCalledWith('/login?redirect=%2Fprofile%2Fconnections');

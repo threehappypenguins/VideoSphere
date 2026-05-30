@@ -12,7 +12,7 @@ import { NextRequest } from 'next/server';
 const checkoutSessionCreateMock = vi.hoisted(() => vi.fn());
 const constructEventMock = vi.hoisted(() => vi.fn());
 const setSupporterStatusMock = vi.hoisted(() => vi.fn());
-const accountGetMock = vi.hoisted(() => vi.fn());
+const getAuthenticatedUserIdMock = vi.hoisted(() => vi.fn());
 const getUserByIdMock = vi.hoisted(() => vi.fn());
 const claimStripeWebhookEventMock = vi.hoisted(() => vi.fn());
 const markStripeWebhookEventBookkeepingFailedMock = vi.hoisted(() => vi.fn());
@@ -35,28 +35,9 @@ vi.mock('stripe', () => {
   return { __esModule: true, default: StripeMock };
 });
 
-vi.mock('node-appwrite', () => {
-  return {
-    __esModule: true,
-    Client: class ClientMock {
-      setEndpoint() {
-        return this;
-      }
-      setProject() {
-        return this;
-      }
-      setSession() {
-        return this;
-      }
-    },
-    Account: class AccountMock {
-      constructor(..._args: any[]) {
-        // no-op
-      }
-      get = accountGetMock;
-    },
-  };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => getAuthenticatedUserIdMock(...args),
+}));
 
 vi.mock('@/lib/repositories/users', () => ({
   setSupporterStatus: setSupporterStatusMock,
@@ -147,6 +128,13 @@ describe('Stripe integration (checkout + webhook)', () => {
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', 'whsec_test_webhook');
     vi.stubEnv('STRIPE_PRICE_ID', '');
     getUserByIdMock.mockResolvedValue({ role: 'user' });
+    getAuthenticatedUserIdMock.mockImplementation(async (req: NextRequest) => {
+      const token =
+        req.cookies.get('videosphere_session')?.value ??
+        req.cookies.get('a_session_test-project')?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return 'user-123';
+    });
     claimStripeWebhookEventMock.mockResolvedValue({ claimed: true, status: 'processing' });
     markStripeWebhookEventBookkeepingFailedMock.mockResolvedValue(undefined);
     markStripeWebhookEventCompletedMock.mockResolvedValue(undefined);
@@ -270,14 +258,14 @@ describe('Stripe integration (checkout + webhook)', () => {
       expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ error: 'Not authenticated' });
 
-      expect(accountGetMock).not.toHaveBeenCalled();
+      expect(getAuthenticatedUserIdMock).toHaveBeenCalledTimes(1);
       expect(checkoutSessionCreateMock).not.toHaveBeenCalled();
     });
 
     it('returns 500 when STRIPE_SECRET_KEY is missing', async () => {
       vi.stubEnv('STRIPE_SECRET_KEY', '');
 
-      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
 
       const req = createCheckoutRequest({
         projectId: 'test-project',
@@ -294,7 +282,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     });
 
     it('returns 403 when authenticated user has admin role', async () => {
-      accountGetMock.mockResolvedValueOnce({ $id: 'admin_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('admin_123');
       getUserByIdMock.mockResolvedValueOnce({ role: 'admin' });
 
       const req = createCheckoutRequest({
@@ -312,7 +300,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     });
 
     it('creates a Stripe checkout session and returns checkoutUrl', async () => {
-      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('user-123');
       checkoutSessionCreateMock.mockResolvedValueOnce({
         url: 'https://checkout.stripe.com/pay/test',
       });
@@ -350,7 +338,7 @@ describe('Stripe integration (checkout + webhook)', () => {
     it('uses STRIPE_PRICE_ID when provided', async () => {
       vi.stubEnv('STRIPE_PRICE_ID', 'price_test_123');
 
-      accountGetMock.mockResolvedValueOnce({ $id: 'user_123' });
+      getAuthenticatedUserIdMock.mockResolvedValueOnce('user-123');
       checkoutSessionCreateMock.mockResolvedValueOnce({
         url: 'https://checkout.stripe.com/pay/test',
       });

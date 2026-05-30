@@ -9,35 +9,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// Mock Appwrite — must be defined before importing the route
-const mockGet = vi.fn();
+const mockGetAuthenticatedUserId = vi.fn();
 
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-
-  function MockAccount(client: any) {
-    this.get = mockGet;
-  }
-
-  function MockClient() {
-    return mockClient;
-  }
-
-  return {
-    Client: MockClient,
-    Account: MockAccount,
-  };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 // Mock upload-jobs repository
 vi.mock('@/lib/repositories/upload-jobs', () => ({
@@ -172,10 +148,16 @@ function makeParams(jobId: string) {
 describe('POST /api/uploads/[jobId]/complete', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+      const token =
+        req.cookies.get('videosphere_session')?.value ??
+        req.cookies.get('a_session_test-project')?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return req.headers.get('x-test-user-id') || 'user-123';
+    });
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
 
-    mockGet.mockResolvedValue({ $id: 'user-123' });
     vi.mocked(headObject).mockResolvedValue(1024);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
     vi.mocked(getUploadJobById).mockResolvedValue({

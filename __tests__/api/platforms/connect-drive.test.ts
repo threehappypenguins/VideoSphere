@@ -5,28 +5,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mockAccountGet = vi.fn();
+const mockGetAuthenticatedUserId = vi.fn();
 
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-  function MockClient() {
-    return mockClient;
-  }
-  function MockAccount() {
-    this.get = mockAccountGet;
-  }
-  return { Client: MockClient, Account: MockAccount };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 import { GET } from '@/app/api/platforms/connect/drive/route';
 
@@ -49,6 +32,12 @@ describe('GET /api/platforms/connect/drive', () => {
     process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT = 'http://localhost/v1';
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     process.env.GOOGLE_DRIVE_CLIENT_ID = 'test-drive-client-id';
+    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+      const token =
+        req.cookies.get('videosphere_session')?.value ?? req.cookies.get(SESSION_COOKIE)?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return 'user-123';
+    });
   });
 
   afterEach(() => {
@@ -71,7 +60,6 @@ describe('GET /api/platforms/connect/drive', () => {
   });
 
   it('redirects to Google OAuth consent screen on success', async () => {
-    mockAccountGet.mockResolvedValue({ $id: 'user-123' });
     const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
     const res = await GET(req);
     expect(res.status).toBe(307);

@@ -8,35 +8,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// Mock Appwrite - must be defined before importing the route
-const mockGet = vi.fn();
+const mockGetAuthenticatedUserId = vi.fn();
 
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-
-  function MockAccount(client: any) {
-    this.get = mockGet;
-  }
-
-  function MockClient() {
-    return mockClient;
-  }
-
-  return {
-    Client: MockClient,
-    Account: MockAccount,
-  };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 // Mock R2 library
 vi.mock('@/lib/r2', () => ({
@@ -143,8 +119,14 @@ describe('POST /api/uploads/presign', () => {
     process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID = 'test-project';
     process.env.R2_BUCKET_NAME = 'test-bucket';
 
-    // Default: authenticated user, supporter=false, quota OK
-    mockGet.mockResolvedValue({ $id: 'user-123' });
+    // Default: mimic helper behavior from real JWT cookie auth.
+    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+      const token =
+        req.cookies.get('videosphere_session')?.value ??
+        req.cookies.get('a_session_test-project')?.value;
+      if (!token || /bad|invalid|expired/i.test(token)) return null;
+      return req.headers.get('x-test-user-id') || 'user-123';
+    });
     vi.mocked(getUserById).mockResolvedValue({
       userId: 'user-123',
       isSupporter: false,
@@ -782,7 +764,7 @@ describe('POST /api/uploads/presign', () => {
       const body1 = await response1.json();
 
       // No delay needed — uniqueness comes from UUID, not timestamp
-      mockGet.mockResolvedValueOnce({ $id: 'user-123' });
+      mockGetAuthenticatedUserId.mockResolvedValueOnce('user-123');
       const request2 = createRequest(
         {
           filename: 'video.mp4',

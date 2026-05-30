@@ -47,7 +47,7 @@ describe('Proxy Middleware', () => {
 
     it('should redirect authenticated users from home to dashboard after verifying session', async () => {
       const request = createMockRequest('/', {
-        a_session_69aae95b002b81fe4fdb: 'valid_session_token_xyz',
+        videosphere_session: 'valid_session_token_xyz',
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -63,7 +63,7 @@ describe('Proxy Middleware', () => {
 
     it('should allow home through when a stale session cookie fails verification', async () => {
       const request = createMockRequest('/', {
-        a_session_69aae95b002b81fe4fdb: 'stale_session_token_xyz',
+        videosphere_session: 'stale_session_token_xyz',
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -91,7 +91,7 @@ describe('Proxy Middleware', () => {
     it('should allow authenticated users through', async () => {
       const sessionToken = 'valid_session_token_xyz';
       const request = createMockRequest('/dashboard/videos', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       // Mock successful session verification
@@ -108,7 +108,7 @@ describe('Proxy Middleware', () => {
     it('should redirect to login when session verification fails', async () => {
       const sessionToken = 'invalid_session_token_xyz';
       const request = createMockRequest('/profile/settings', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       // Mock failed session verification (401 response)
@@ -128,7 +128,7 @@ describe('Proxy Middleware', () => {
     it('should redirect to login when session fetch throws', async () => {
       const sessionToken = 'error_session_token_xyz';
       const request = createMockRequest('/dashboard', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       // Mock fetch error
@@ -146,7 +146,7 @@ describe('Proxy Middleware', () => {
     it('should redirect to login when session-role returns 401', async () => {
       const sessionToken = 'expired_session';
       const request = createMockRequest('/admin/dashboard', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -165,7 +165,7 @@ describe('Proxy Middleware', () => {
     it('should allow admin users to access /admin routes', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/admin/dashboard', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -185,7 +185,7 @@ describe('Proxy Middleware', () => {
     it('should block non-admin users from /admin routes', async () => {
       const sessionToken = 'user_session_token';
       const request = createMockRequest('/admin/users', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -205,7 +205,7 @@ describe('Proxy Middleware', () => {
     it('should block users with missing role from /admin routes', async () => {
       const sessionToken = 'user_session_token';
       const request = createMockRequest('/admin/settings', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -224,7 +224,7 @@ describe('Proxy Middleware', () => {
     it('should redirect to dashboard when session-role returns 503 (profile unavailable)', async () => {
       const sessionToken = 'user_session_token';
       const request = createMockRequest('/admin/settings', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -241,7 +241,7 @@ describe('Proxy Middleware', () => {
     it('should redirect to dashboard when session-role fetch throws (e.g. network)', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/admin/dashboard', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
@@ -255,7 +255,7 @@ describe('Proxy Middleware', () => {
     it('should redirect to dashboard when session-role response JSON is invalid', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/admin/dashboard', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockResolvedValueOnce({
@@ -275,7 +275,7 @@ describe('Proxy Middleware', () => {
     it('should allow admin users to access /dashboard routes', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/dashboard/videos', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       // Mock successful session verification
@@ -312,7 +312,7 @@ describe('Proxy Middleware', () => {
       delete process.env.APPWRITE_PROJECT_ID;
 
       const request = createMockRequest('/dashboard', {
-        a_session_consistent_project_id: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       // Mock successful session verification
@@ -331,7 +331,7 @@ describe('Proxy Middleware', () => {
     it('should redirect to login when fetch throws during session verification', async () => {
       const sessionToken = 'token';
       const request = createMockRequest('/dashboard', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       // When fetch throws during session verification, getSessionUser returns null
@@ -366,7 +366,7 @@ describe('Proxy Middleware', () => {
     it('should preserve query params when session verification fails', async () => {
       const sessionToken = 'invalid_token';
       const request = createMockRequest('/profile?upgrade=success', {
-        a_session_69aae95b002b81fe4fdb: sessionToken,
+        videosphere_session: sessionToken,
       });
 
       (global.fetch as any).mockResolvedValueOnce({

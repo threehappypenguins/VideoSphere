@@ -69,14 +69,7 @@ function getFullPath(request: NextRequest): string {
 }
 
 function getSessionTokenFromCookies(request: NextRequest): string | null {
-  const jwtCookieToken = request.cookies.get(getSessionCookieName())?.value;
-  if (jwtCookieToken) return jwtCookieToken;
-
-  const projectId = process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID;
-  if (!projectId) return null;
-
-  const legacyCookie = request.cookies.get(`a_session_${projectId}`)?.value;
-  return legacyCookie ?? null;
+  return request.cookies.get(getSessionCookieName())?.value ?? null;
 }
 
 export async function proxy(request: NextRequest) {

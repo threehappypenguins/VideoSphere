@@ -50,6 +50,7 @@ export async function getSessionUserFromCookies(): Promise<SessionUserFromCookie
 
     return {
       $id: userId,
+      ...(profile?.name ? { name: profile.name } : {}),
       ...(profile?.email ? { email: profile.email } : {}),
     };
   } catch {

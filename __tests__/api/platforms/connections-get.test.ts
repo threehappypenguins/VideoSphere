@@ -16,32 +16,11 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
   getConnectedAccountsByUser: vi.fn(),
 }));
 
-// ---------------------------------------------------------------------------
-// Mock node-appwrite Client + Account (needed by getAuthenticatedUserId)
-// ---------------------------------------------------------------------------
+const mockGetAuthenticatedUserId = vi.fn();
 
-const mockAccountGet = vi.fn();
-
-vi.mock('node-appwrite', () => {
-  const mockClient = {
-    setEndpoint: vi.fn(function () {
-      return this;
-    }),
-    setProject: vi.fn(function () {
-      return this;
-    }),
-    setSession: vi.fn(function () {
-      return this;
-    }),
-  };
-  function MockClient() {
-    return mockClient;
-  }
-  function MockAccount() {
-    this.get = mockAccountGet;
-  }
-  return { Client: MockClient, Account: MockAccount };
-});
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+}));
 
 import { GET } from '@/app/api/platforms/connections/route';
 import { getConnectedAccountsByUser } from '@/lib/repositories/connected-accounts';
@@ -84,7 +63,12 @@ const MOCK_ACCOUNT = {
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_APPWRITE_PROJECT_ID', 'test-project');
   vi.stubEnv('NEXT_PUBLIC_APPWRITE_ENDPOINT', 'https://appwrite.test/v1');
-  mockAccountGet.mockResolvedValue({ $id: USER_ID });
+  mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
+    const token =
+      req.cookies.get('videosphere_session')?.value ?? req.cookies.get(SESSION_COOKIE)?.value;
+    if (!token || /bad|invalid|expired/i.test(token)) return null;
+    return req.headers.get('x-test-user-id') || USER_ID;
+  });
 });
 
 afterEach(() => {
