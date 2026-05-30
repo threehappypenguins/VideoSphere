@@ -163,7 +163,7 @@ async function tryTransitionWebhookEventToProcessing(
       status: 'processing',
       lastError: '',
     },
-    { new: true }
+    { returnDocument: 'after' }
   ).lean<ProcessedWebhookEventDocument | null>();
 
   return updated !== null;

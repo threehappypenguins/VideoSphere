@@ -223,7 +223,7 @@ export async function updateTokens(
       refreshToken: encryptToken(refreshToken),
       tokenExpiry,
     },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   ).lean<ConnectedAccountDocument | null>();
 
   if (!updated) return null;
@@ -253,7 +253,7 @@ export async function updateConnection(
       platformUserId,
       platformName,
     },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   ).lean<ConnectedAccountDocument | null>();
 
   if (!updated) return null;

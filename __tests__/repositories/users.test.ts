@@ -84,7 +84,7 @@ describe('users repository (mongo)', () => {
     expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
       'auth-user-1',
       { isSupporter: true },
-      expect.objectContaining({ new: true })
+      expect.objectContaining({ returnDocument: 'after' })
     );
     expect(user.isSupporter).toBe(true);
   });

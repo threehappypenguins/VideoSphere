@@ -117,13 +117,13 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
   > = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
 
   const byId = await UserProfileModel.findByIdAndUpdate(userId, payload, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   }).lean<UserProfileDocument | null>();
   if (byId) return mongoDocToUser(byId);
 
   const byUserId = await UserProfileModel.findOneAndUpdate({ userId }, payload, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   }).lean<UserProfileDocument | null>();
 

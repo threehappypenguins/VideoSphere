@@ -124,7 +124,7 @@ export async function resetPlatformUploadForRetry(
       document: platformUploadDocumentJsonForCreateRow(data),
       scheduledAt: data.scheduledAt != null && data.scheduledAt !== '' ? data.scheduledAt : '',
     },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   ).lean<PlatformUploadDocument | null>();
 
   if (!updated) {
@@ -231,7 +231,7 @@ export async function updatePlatformUploadStatus(
   }
 
   const updated = await PlatformUploadModel.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   }).lean<PlatformUploadDocument | null>();
 

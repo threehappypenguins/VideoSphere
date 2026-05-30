@@ -392,7 +392,7 @@ export async function updateUploadJobStatus(
   }
 
   const updated = await UploadJobModel.findByIdAndUpdate(id, data, {
-    new: true,
+    returnDocument: 'after',
     runValidators: true,
   }).lean<UploadJobDocument | null>();
 

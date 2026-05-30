@@ -95,7 +95,7 @@ export async function markDraftUsedInUpload(
   const updatedDoc = await DraftModel.findByIdAndUpdate(
     id,
     { document: documentJson },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   ).lean<DraftDocument | null>();
   if (!updatedDoc) return null;
   const updated = mongoDocToDraft(updatedDoc);
@@ -118,7 +118,7 @@ export async function markDraftUsedInUpload(
   const reconciled = await DraftModel.findByIdAndUpdate(
     id,
     { document: reconcileDocumentJson },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   ).lean<DraftDocument | null>();
   if (!reconciled) return null;
   return mongoDocToDraft(reconciled);
@@ -397,7 +397,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
   const updated = await DraftModel.findByIdAndUpdate(
     id,
     { document: documentJson },
-    { new: true, runValidators: true }
+    { returnDocument: 'after', runValidators: true }
   ).lean<DraftDocument | null>();
   if (!updated) return null;
   return mongoDocToDraft(updated);
