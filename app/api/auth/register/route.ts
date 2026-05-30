@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createUser } from '@/lib/repositories/users';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 
+const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /**
  * Handles POST requests for this route.
  * @param req - The incoming request object.
@@ -47,6 +49,10 @@ export async function POST(req: NextRequest) {
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
+    }
+
+    if (!EMAIL_FORMAT_RE.test(email)) {
+      return NextResponse.json({ error: 'Email must be a valid email address.' }, { status: 400 });
     }
 
     if (password.length < 8) {

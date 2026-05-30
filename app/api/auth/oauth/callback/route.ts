@@ -24,6 +24,7 @@ interface GoogleUserInfoResponse {
   sub?: string;
   email?: string;
   email_verified?: boolean;
+  name?: string;
 }
 
 function isMongoDuplicateKeyError(error: unknown): boolean {
@@ -139,6 +140,7 @@ export async function GET(req: NextRequest) {
     const userInfo = (await userInfoRes.json()) as GoogleUserInfoResponse;
     const email = userInfo.email?.trim().toLowerCase();
     const googleSub = userInfo.sub?.trim();
+    const googleDisplayName = userInfo.name?.trim();
     if (!email || !googleSub || userInfo.email_verified !== true) {
       return NextResponse.redirect(`${origin}/login?error=oauth_auth_failed`);
     }
@@ -154,6 +156,7 @@ export async function GET(req: NextRequest) {
             _id: userId,
             userId,
             email,
+            ...(googleDisplayName ? { name: googleDisplayName } : {}),
             isSupporter: false,
             hasCompletedOnboarding: false,
             role: 'user',

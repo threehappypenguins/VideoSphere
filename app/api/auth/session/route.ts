@@ -5,8 +5,7 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUserById } from '@/lib/repositories/users';
+import { getAuthenticatedUser } from '@/lib/api/auth';
 
 /**
  * Handles GET requests for this route.
@@ -14,13 +13,8 @@ import { getUserById } from '@/lib/repositories/users';
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const userId = await getAuthenticatedUserId(req);
-  if (!userId) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  }
-
   try {
-    const user = await getUserById(userId);
+    const user = await getAuthenticatedUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }

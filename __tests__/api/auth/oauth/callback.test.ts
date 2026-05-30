@@ -72,12 +72,14 @@ function mockGoogleSuccess() {
         sub: 'google-subject',
         email: 'creator@example.com',
         email_verified: true,
+        name: 'Creator Name',
       }),
       text: async () =>
         JSON.stringify({
           sub: 'google-subject',
           email: 'creator@example.com',
           email_verified: true,
+          name: 'Creator Name',
         }),
     });
 }
@@ -126,6 +128,7 @@ describe('GET /api/auth/oauth/callback', () => {
       expect.objectContaining({
         $setOnInsert: expect.objectContaining({
           email: 'creator@example.com',
+          name: 'Creator Name',
           isSupporter: false,
           hasCompletedOnboarding: false,
           role: 'user',

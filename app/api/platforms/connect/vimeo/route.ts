@@ -47,8 +47,9 @@ export async function GET(req: NextRequest) {
 
   // Generate a cryptographically random CSRF nonce. Stored in a short-lived
   // httpOnly cookie alongside userId so the callback can verify identity
-  // without relying on the authenticated session cookie (which is sameSite=strict
-  // and is dropped on the cross-site redirect back from Vimeo).
+  // without relying on the authenticated session cookie. Binding identity to
+  // the OAuth state cookie keeps callback verification robust across browser
+  // same-site behavior changes and cookie policy adjustments.
   // Format: "<nonce>|<userId>".
   const csrfNonce = randomBytes(32).toString('hex');
   const cookieValue = `${csrfNonce}|${userId}`;

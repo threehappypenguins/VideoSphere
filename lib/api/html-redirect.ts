@@ -5,11 +5,10 @@
 // via JavaScript (window.location.replace) and a <meta refresh> fallback.
 //
 // WHY: OAuth callbacks arrive via a cross-site redirect chain (Google/Vimeo →
-// our callback URL). Browsers apply sameSite=strict semantics throughout the
-// chain, so the authenticated session cookie is dropped. Returning a 200 HTML page
-// here "lands" the browser on our origin, ending the cross-site chain. The
-// subsequent JS navigation to /profile/... is a fresh same-origin request where
-// sameSite=strict cookies ARE sent.
+// our callback URL). Returning a 200 HTML page here "lands" the browser on our
+// origin, ending the cross-site chain before continuing to /profile/....
+// This keeps OAuth callback behavior robust across browser same-site policy
+// differences and future cookie-setting changes.
 //
 // The `clearCookieName` option removes a single httpOnly cookie (e.g. the
 // short-lived CSRF nonce set during the OAuth initiation step).

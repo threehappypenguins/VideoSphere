@@ -1,15 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const getAuthenticatedUserIdMock = vi.hoisted(() => vi.fn());
-const getUserByIdMock = vi.hoisted(() => vi.fn());
+const getAuthenticatedUserMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api/auth', () => ({
-  getAuthenticatedUserId: getAuthenticatedUserIdMock,
-}));
-
-vi.mock('@/lib/repositories/users', () => ({
-  getUserById: getUserByIdMock,
+  getAuthenticatedUser: getAuthenticatedUserMock,
 }));
 
 import { GET } from '@/app/api/auth/session/route';
@@ -26,8 +21,7 @@ describe('GET /api/auth/session', () => {
   });
 
   it('returns the persisted profile name for authenticated users', async () => {
-    getAuthenticatedUserIdMock.mockResolvedValueOnce('user-1');
-    getUserByIdMock.mockResolvedValueOnce({
+    getAuthenticatedUserMock.mockResolvedValueOnce({
       userId: 'user-1',
       email: 'creator@example.com',
       name: 'Ada Lovelace',
