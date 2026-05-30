@@ -100,12 +100,20 @@ export async function decrementUsage(userId: string, monthArg?: string): Promise
   const month = monthArg ?? currentMonth();
   const rowId = usageRowId(userId, month);
 
-  await UploadUsageModel.updateOne({ _id: rowId }, { $inc: { uploadCount: -1 } });
-
-  // Keep non-negative semantics from the previous implementation.
+  // Atomic decrement+clamp to prevent concurrent readers from observing
+  // intermediate negative values between separate writes.
   await UploadUsageModel.updateOne(
-    { _id: rowId, uploadCount: { $lt: 0 } },
-    { $set: { uploadCount: 0 } }
+    { _id: rowId },
+    {
+      $setOnInsert: {
+        _id: rowId,
+        userId,
+        month,
+      } satisfies Partial<UploadUsageDocument>,
+      $inc: { uploadCount: -1 },
+      $max: { uploadCount: 0 },
+    },
+    { upsert: true }
   );
 }
 

@@ -45,7 +45,7 @@ const PlatformUploadSchema = new Schema<PlatformUploadDocument>(
   { timestamps: true }
 );
 
-PlatformUploadSchema.index({ uploadJobId: 1, platform: 1 });
+PlatformUploadSchema.index({ uploadJobId: 1, platform: 1 }, { unique: true });
 
 export const PlatformUploadModel =
   (mongoose.models.PlatformUpload as mongoose.Model<PlatformUploadDocument> | undefined) ||

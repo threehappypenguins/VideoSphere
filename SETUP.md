@@ -21,9 +21,13 @@ cp .env.example .env.local
 Required minimum values in `.env.local`:
 
 - `MONGODB_URI`
+- `MONGO_ROOT_PASSWORD`
 - `JWT_SECRET`
 - `JWT_SESSION_COOKIE_NAME`
 - `TOKEN_ENCRYPTION_KEY`
+
+When running MongoDB with Docker Compose, `MONGO_ROOT_PASSWORD` is required by `docker-compose.yml`.
+Use the same password value in both `MONGO_ROOT_PASSWORD` and `MONGODB_URI`.
 
 If you use Google login and platform connections, also set:
 
@@ -37,6 +41,12 @@ If you use Google login and platform connections, also set:
 - `GOOGLE_DRIVE_CLIENT_SECRET`
 
 ## 3. Start MongoDB (Docker Compose)
+
+If you have not set it yet, add this to `.env.local` before starting Mongo:
+
+```bash
+MONGO_ROOT_PASSWORD=change_me
+```
 
 ```bash
 docker compose up -d mongo

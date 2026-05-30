@@ -43,6 +43,11 @@ interface WebhookEventRow {
   updatedAt: string;
 }
 
+function isMongoDuplicateKeyError(error: unknown): boolean {
+  const mongoError = error as { code?: number } | null;
+  return mongoError?.code === 11000;
+}
+
 function webhookEventRowId(provider: WebhookProvider, eventId: string): string {
   const hash = createHash('sha256').update(`${provider}:${eventId}`).digest('hex').slice(0, 32);
   return `${provider[0]}_${hash}`;
@@ -137,7 +142,10 @@ async function tryTransitionWebhookEventToProcessing(
         eventType,
       });
       return true;
-    } catch {
+    } catch (error) {
+      if (!isMongoDuplicateKeyError(error)) {
+        throw error;
+      }
       return false;
     }
   }
@@ -202,7 +210,11 @@ export async function claimStripeWebhookEvent(
         eventType,
       });
       return { claimed: true, status: 'processing' };
-    } catch {
+    } catch (error) {
+      if (!isMongoDuplicateKeyError(error)) {
+        throw error;
+      }
+
       const existing = await getWebhookEventRow(eventId);
       if (!existing) {
         continue;
@@ -254,10 +266,13 @@ export async function claimStripeWebhookEvent(
 export async function markStripeWebhookEventCompleted(eventId: string): Promise<void> {
   await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await ProcessedWebhookEventModel.updateOne(
+  const result = await ProcessedWebhookEventModel.updateOne(
     { _id: rowId },
     { status: 'completed' satisfies WebhookEventStatus }
   );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**
@@ -272,13 +287,16 @@ export async function markStripeWebhookEventFailed(
 ): Promise<void> {
   await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await ProcessedWebhookEventModel.updateOne(
+  const result = await ProcessedWebhookEventModel.updateOne(
     { _id: rowId },
     {
       status: 'failed' satisfies WebhookEventStatus,
       lastError: trimLastError(lastError),
     }
   );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**
@@ -293,13 +311,16 @@ export async function markStripeWebhookEventBookkeepingFailed(
 ): Promise<void> {
   await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await ProcessedWebhookEventModel.updateOne(
+  const result = await ProcessedWebhookEventModel.updateOne(
     { _id: rowId },
     {
       status: 'completed_with_bookkeeping_error' satisfies WebhookEventStatus,
       lastError: trimLastError(lastError),
     }
   );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**
@@ -314,13 +335,16 @@ export async function markStripeWebhookEventNonRetryableFailed(
 ): Promise<void> {
   await connectToDatabase();
   const rowId = webhookEventRowId('stripe', eventId);
-  await ProcessedWebhookEventModel.updateOne(
+  const result = await ProcessedWebhookEventModel.updateOne(
     { _id: rowId },
     {
       status: 'failed_non_retryable' satisfies WebhookEventStatus,
       lastError: trimLastError(lastError),
     }
   );
+  if (result.matchedCount === 0) {
+    throw new Error('Processed webhook event not found');
+  }
 }
 
 /**

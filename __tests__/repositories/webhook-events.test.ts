@@ -56,7 +56,7 @@ describe('webhook-events repository (mongo)', () => {
   });
 
   it('returns duplicate completed state when claim conflicts and existing row is terminal', async () => {
-    mockCreate.mockRejectedValueOnce(new Error('duplicate'));
+    mockCreate.mockRejectedValueOnce({ code: 11000 });
     mockFindById.mockReturnValueOnce({
       lean: vi
         .fn()
@@ -68,8 +68,16 @@ describe('webhook-events repository (mongo)', () => {
     expect(result).toEqual({ claimed: false, status: 'completed' });
   });
 
+  it('rethrows non-duplicate create failures during claim', async () => {
+    mockCreate.mockRejectedValueOnce(Object.assign(new Error('db down'), { code: 91 }));
+
+    await expect(claimStripeWebhookEvent('evt_1', 'checkout.session.completed')).rejects.toThrow(
+      'db down'
+    );
+  });
+
   it('marks completed and failed statuses', async () => {
-    mockUpdateOne.mockResolvedValue({});
+    mockUpdateOne.mockResolvedValue({ matchedCount: 1 });
 
     await markStripeWebhookEventCompleted('evt_2');
     await markStripeWebhookEventFailed('evt_2', 'oops');
@@ -77,6 +85,14 @@ describe('webhook-events repository (mongo)', () => {
     await markStripeWebhookEventNonRetryableFailed('evt_2', 'non-retryable');
 
     expect(mockUpdateOne).toHaveBeenCalledTimes(4);
+  });
+
+  it('throws when trying to mark terminal status for a missing event row', async () => {
+    mockUpdateOne.mockResolvedValue({ matchedCount: 0 });
+
+    await expect(markStripeWebhookEventCompleted('evt_missing')).rejects.toThrow(
+      'Processed webhook event not found'
+    );
   });
 
   it('deletes webhook event by deterministic row id', async () => {

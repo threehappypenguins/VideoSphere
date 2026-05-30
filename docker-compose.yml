@@ -10,6 +10,8 @@ services:
       - '3000:3000'
     env_file:
       - .env.local
+    environment:
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:?required}@mongo:27017/videosphere?authSource=admin
     depends_on:
       mongo:
         condition: service_healthy
