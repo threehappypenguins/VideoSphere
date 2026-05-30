@@ -8,6 +8,7 @@
 // =============================================================================
 
 import type { User, UserRole } from '@/types';
+import { randomUUID } from 'node:crypto';
 import { connectToDatabase } from '@/lib/mongodb';
 import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
 
@@ -40,6 +41,15 @@ export interface CreateUserData {
   isSupporter?: boolean;
   hasCompletedOnboarding?: boolean;
   role?: UserRole;
+}
+
+/**
+ * Minimal user fields required for credential-based authentication.
+ */
+export interface UserAuthCredentials {
+  userId: string;
+  passwordHash: string;
+  role: UserRole;
 }
 
 /**
@@ -95,6 +105,32 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   }).lean<UserProfileDocument | null>();
   if (!doc) return null;
   return mongoDocToUser(doc);
+}
+
+/**
+ * Fetch the fields needed for password login by email.
+ * @param email - User email address to look up.
+ * @returns The credential fields when present; otherwise null.
+ */
+export async function getUserAuthCredentialsByEmail(
+  email: string
+): Promise<UserAuthCredentials | null> {
+  await connectToDatabase();
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const doc = await UserProfileModel.findOne({ email: normalized })
+    .select({ _id: 1, userId: 1, passwordHash: 1, role: 1 })
+    .lean<UserProfileDocument | null>();
+  if (!doc || typeof doc.passwordHash !== 'string' || doc.passwordHash.length === 0) {
+    return null;
+  }
+
+  return {
+    userId: String(doc.userId ?? doc._id),
+    passwordHash: doc.passwordHash,
+    role: (doc.role as UserRole) ?? 'user',
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -199,6 +235,56 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
 export interface UserCounts {
   totalUsers: number;
   totalSupporters: number;
+}
+
+function isMongoDuplicateKeyError(error: unknown): boolean {
+  const mongoError = error as { code?: number } | null;
+  return mongoError?.code === 11000;
+}
+
+/**
+ * Upsert a user profile by normalized email for OAuth sign-ins.
+ * @param email - OAuth-provided email address.
+ * @param name - OAuth-provided display name.
+ * @returns Existing or newly created user profile.
+ */
+export async function upsertOAuthUserByEmail(email: string, name?: string): Promise<User> {
+  await connectToDatabase();
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const trimmedName = typeof name === 'string' ? name.trim() : '';
+  const userId = randomUUID();
+
+  try {
+    await UserProfileModel.updateOne(
+      { email: normalizedEmail },
+      {
+        $setOnInsert: {
+          _id: userId,
+          userId,
+          email: normalizedEmail,
+          ...(trimmedName ? { name: trimmedName } : {}),
+          isSupporter: false,
+          hasCompletedOnboarding: false,
+          role: 'user',
+        },
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    if (!isMongoDuplicateKeyError(error)) {
+      throw error;
+    }
+  }
+
+  const doc = await UserProfileModel.findOne({
+    email: normalizedEmail,
+  }).lean<UserProfileDocument | null>();
+  if (!doc) {
+    throw new Error('User profile upsert failed');
+  }
+
+  return mongoDocToUser(doc);
 }
 
 /**

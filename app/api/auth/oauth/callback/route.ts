@@ -4,13 +4,11 @@
 // Completes Google OAuth2 Authorization Code flow (no external auth vendor dependency).
 // =============================================================================
 
-import { randomUUID } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
 import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/app/api/auth/oauth/google/route';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
-import { connectToDatabase } from '@/lib/mongodb';
-import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
+import { upsertOAuthUserByEmail } from '@/lib/repositories/users';
 import { safeRedirect } from '@/lib/safe-redirect';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -25,11 +23,6 @@ interface GoogleUserInfoResponse {
   email?: string;
   email_verified?: boolean;
   name?: string;
-}
-
-function isMongoDuplicateKeyError(error: unknown): boolean {
-  const mongoError = error as { code?: number } | null;
-  return mongoError?.code === 11000;
 }
 
 function getGoogleClientId(): string | null {
@@ -145,39 +138,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(`${origin}/login?error=oauth_auth_failed`);
     }
 
-    await connectToDatabase();
-
-    const userId = randomUUID();
-    try {
-      await UserProfileModel.updateOne(
-        { email },
-        {
-          $setOnInsert: {
-            _id: userId,
-            userId,
-            email,
-            ...(googleDisplayName ? { name: googleDisplayName } : {}),
-            isSupporter: false,
-            hasCompletedOnboarding: false,
-            role: 'user',
-          },
-        },
-        { upsert: true }
-      );
-    } catch (error) {
-      if (!isMongoDuplicateKeyError(error)) {
-        throw error;
-      }
-    }
-
-    const user = await UserProfileModel.findOne({ email }).lean<UserProfileDocument | null>();
-    if (!user) {
-      throw new Error('User profile upsert failed');
-    }
+    const user = await upsertOAuthUserByEmail(email, googleDisplayName);
 
     const token = await new SignJWT({ role: user.role, oauthProvider: 'google' })
       .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(String(user.userId ?? user._id))
+      .setSubject(user.userId)
       .setIssuedAt()
       .setExpirationTime(`${getSessionCookieOptions().maxAge}s`)
       .sign(new TextEncoder().encode(jwtSecret));

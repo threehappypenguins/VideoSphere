@@ -1,21 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mockConnectToDatabase = vi.hoisted(() => vi.fn());
-const mockUpdateOne = vi.hoisted(() => vi.fn());
-const mockFindOne = vi.hoisted(() => vi.fn());
+const mockUpsertOAuthUserByEmail = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 const mockJwtSign = vi.hoisted(() => vi.fn().mockResolvedValue('jwt-token'));
 
-vi.mock('@/lib/mongodb', () => ({
-  connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
-}));
-
-vi.mock('@/lib/models/UserProfile', () => ({
-  UserProfileModel: {
-    updateOne: (...args: unknown[]) => mockUpdateOne(...args),
-    findOne: (...args: unknown[]) => mockFindOne(...args),
-  },
+vi.mock('@/lib/repositories/users', () => ({
+  upsertOAuthUserByEmail: (...args: unknown[]) => mockUpsertOAuthUserByEmail(...args),
 }));
 
 vi.mock('jose', () => ({
@@ -97,7 +88,6 @@ describe('GET /api/auth/oauth/callback', () => {
     process.env.GOOGLE_CLIENT_ID = 'client-id';
     process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
     process.env.JWT_SECRET = 'test-jwt-secret-for-vitest-only';
-    mockConnectToDatabase.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -105,63 +95,36 @@ describe('GET /api/auth/oauth/callback', () => {
     delete process.env.GOOGLE_CLIENT_SECRET;
   });
 
-  it('uses an atomic email-keyed upsert when creating the first profile', async () => {
+  it('upserts via the users repository helper and redirects to dashboard', async () => {
     mockGoogleSuccess();
-    mockUpdateOne.mockResolvedValueOnce({ acknowledged: true, matchedCount: 0, upsertedCount: 1 });
-    mockFindOne.mockReturnValueOnce({
-      lean: vi.fn().mockResolvedValue({
-        _id: 'generated-user-id',
-        userId: 'generated-user-id',
-        email: 'creator@example.com',
-        isSupporter: false,
-        hasCompletedOnboarding: false,
-        role: 'user',
-        createdAt: new Date('2026-01-01T00:00:00.000Z'),
-        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      }),
+    mockUpsertOAuthUserByEmail.mockResolvedValueOnce({
+      userId: 'generated-user-id',
+      email: 'creator@example.com',
+      name: 'Creator Name',
+      isSupporter: false,
+      hasCompletedOnboarding: false,
+      role: 'user',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
     });
 
     const res = await GET(validRequest());
 
-    expect(mockUpdateOne).toHaveBeenCalledWith(
-      { email: 'creator@example.com' },
-      expect.objectContaining({
-        $setOnInsert: expect.objectContaining({
-          email: 'creator@example.com',
-          name: 'Creator Name',
-          isSupporter: false,
-          hasCompletedOnboarding: false,
-          role: 'user',
-        }),
-      }),
-      { upsert: true }
-    );
-    expect(mockFindOne).toHaveBeenCalledWith({ email: 'creator@example.com' });
+    expect(mockUpsertOAuthUserByEmail).toHaveBeenCalledWith('creator@example.com', 'Creator Name');
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
   });
 
-  it('recovers from a duplicate-key race by reading the profile that the other callback created', async () => {
+  it('returns oauth_callback_failed when repository upsert fails', async () => {
     mockGoogleSuccess();
-    mockUpdateOne.mockRejectedValueOnce({ code: 11000 });
-    mockFindOne.mockReturnValueOnce({
-      lean: vi.fn().mockResolvedValue({
-        _id: 'existing-user-id',
-        userId: 'existing-user-id',
-        email: 'creator@example.com',
-        isSupporter: false,
-        hasCompletedOnboarding: false,
-        role: 'user',
-        createdAt: new Date('2026-01-01T00:00:00.000Z'),
-        updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-      }),
-    });
+    mockUpsertOAuthUserByEmail.mockRejectedValueOnce(new Error('db unavailable'));
 
     const res = await GET(validRequest());
 
-    expect(mockUpdateOne).toHaveBeenCalledTimes(1);
-    expect(mockFindOne).toHaveBeenCalledWith({ email: 'creator@example.com' });
+    expect(mockUpsertOAuthUserByEmail).toHaveBeenCalledWith('creator@example.com', 'Creator Name');
     expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_callback_failed'
+    );
   });
 });

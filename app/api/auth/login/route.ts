@@ -7,9 +7,8 @@
 import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase } from '@/lib/mongodb';
-import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
+import { getUserAuthCredentialsByEmail } from '@/lib/repositories/users';
 
 /**
  * Handles POST requests for this route.
@@ -47,9 +46,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 });
     }
 
-    await connectToDatabase();
-    const user = await UserProfileModel.findOne({ email }).lean<UserProfileDocument | null>();
-    if (!user?.passwordHash) {
+    const user = await getUserAuthCredentialsByEmail(email);
+    if (!user) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
