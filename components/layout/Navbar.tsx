@@ -266,7 +266,11 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* --- Logo --- */}
-          <Link href="/" className="flex items-center gap-2">
+          <Link
+            href="/"
+            aria-current={pathname === '/' ? 'page' : undefined}
+            className="flex items-center gap-2"
+          >
             <Image
               src="/rawFaviconVideoSphere.png"
               alt="VideoSphere logo"
@@ -276,33 +280,6 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
             />
             <span className="text-xl font-black sm:text-2xl">VideoSphere</span>
           </Link>
-
-          {/* --- Desktop Navigation (hidden when authenticated) --- */}
-          {sessionUser === null && (
-            <div className="hidden items-center gap-8 md:flex">
-              <Link
-                href="/"
-                aria-current={pathname === '/' ? 'page' : undefined}
-                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
-                Home
-              </Link>
-              <Link
-                href="/about"
-                aria-current={pathname === '/about' ? 'page' : undefined}
-                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
-                About
-              </Link>
-              <Link
-                href="/contact"
-                aria-current={pathname === '/contact' ? 'page' : undefined}
-                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
-                Contact
-              </Link>
-            </div>
-          )}
 
           {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
           <div className="hidden items-center gap-4 md:flex">
@@ -440,35 +417,7 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   dropdownClassName="left-3 right-3"
                 />
               </div>
-              {sessionUser === null && (
-                <>
-                  <Link
-                    href="/"
-                    aria-current={pathname === '/' ? 'page' : undefined}
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/' ? 'text-foreground' : 'text-muted-foreground'}`}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Home
-                  </Link>
-                  <Link
-                    href="/about"
-                    aria-current={pathname === '/about' ? 'page' : undefined}
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    About
-                  </Link>
-                  <Link
-                    href="/contact"
-                    aria-current={pathname === '/contact' ? 'page' : undefined}
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/contact' ? 'text-foreground' : 'text-muted-foreground'}`}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Contact
-                  </Link>
-                  <hr className="my-2 border-border" />
-                </>
-              )}
+              {sessionUser === null && <hr className="my-2 border-border" />}
               {sessionUser === 'loading' ? (
                 <span className="px-3 py-2 text-sm text-muted-foreground">…</span>
               ) : isLoggedIn ? (

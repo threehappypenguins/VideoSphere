@@ -36,11 +36,5 @@ export default defineConfig({
         ],
       },
     ],
-    socialLinks: [
-      {
-        icon: 'github',
-        link: 'https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team',
-      },
-    ],
   },
 });

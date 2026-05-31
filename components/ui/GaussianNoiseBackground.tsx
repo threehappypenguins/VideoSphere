@@ -8,8 +8,6 @@
 export const PAGE_SEEDS: Record<string, number> = {
   // Marketing
   '/': 42,
-  '/about': 498,
-  '/contact': 455,
   '/test-background': 77,
   // Auth
   '/login': 603,

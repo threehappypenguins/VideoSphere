@@ -4,8 +4,6 @@
 
 **👉 Start here: [SETUP.md](SETUP.md)** — Complete the first-run setup before doing anything else.
 
-**📋 VitePress Docs:** [https://nscc-itc-winter2026-prog5016-700-mca.github.io/project-videosphere-team/](https://nscc-itc-winter2026-prog5016-700-mca.github.io/project-videosphere-team/)
-
 **📋 Daily workflow:** [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md) — Before you start (Docker, MongoDB, branch from main) and before you push (format, lint, test, build).
 
 **📝 Draft JSON & manual uploads:** [docs/draft-document-and-upload-testing.md](docs/draft-document-and-upload-testing.md) — `document` on `drafts` / `platform_uploads`, field reference, presign → R2 → complete → distribute.
@@ -44,7 +42,7 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 │   ├── (admin)/            # Admin route group (protected — you implement)
 │   ├── (auth)/             # Auth pages: login, signup (you implement logic)
 │   ├── (dashboard)/        # Dashboard route group
-│   ├── (marketing)/        # Public pages: landing, about, contact
+│   ├── (marketing)/        # Public pages: landing
 │   ├── api/                # API routes (Route Handlers)
 │   ├── layout.tsx          # Root layout with Navbar and Footer
 │   ├── globals.css         # Global styles and Tailwind configuration
@@ -147,27 +145,17 @@ After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
 | [SETUP.md](SETUP.md)                                       | First-run setup guide (start here!)               |
 | [docs/daily-dev-workflow.md](docs/daily-dev-workflow.md)   | Before/after development checklist (Docker, branch, format, lint, test, build) |
 | [CONTRIBUTING.md](CONTRIBUTING.md)                         | Team contribution workflow                        |
-| [STRETCH_GOALS.md](STRETCH_GOALS.md)                       | Stretch goals — add-on mark component (~20%)      |
 | [docs/typescript.md](docs/typescript.md)                   | TypeScript overview and configuration             |
-| [docs/styling.md](docs/styling.md)                         | Tailwind CSS v4 and styling approach              |
 | [docs/code-quality.md](docs/code-quality.md)               | ESLint, Prettier, Husky, conventional commits     |
-| [docs/git-workflow.md](docs/git-workflow.md)               | Feature branching and git workflow                |
-| [docs/branch-protection.md](docs/branch-protection.md)     | Branch protection rules and configuration         |
-| [docs/contributing-guide.md](docs/contributing-guide.md)   | Detailed contribution guidelines                  |
-| [docs/agile-process.md](docs/agile-process.md)             | Sprint structure and Agile workflow               |
 | [docs/testing.md](docs/testing.md)                         | Testing with Vitest and Testing Library           |
 | [docs/api-routes.md](docs/api-routes.md)                   | API Route Handlers guide                          |
 | [docs/state-management.md](docs/state-management.md)       | State management options and patterns             |
 | [docs/performance.md](docs/performance.md)                 | Performance optimization guide                    |
 | [docs/accessibility.md](docs/accessibility.md)             | Web accessibility (a11y) guide                    |
 | [docs/deployment-guide.md](docs/deployment-guide.md)       | Deploying to Vercel and other platforms           |
-| [docs/ci-cd-requirements.md](docs/ci-cd-requirements.md)   | CI/CD pipeline explanation                        |
 | [docs/devcontainer.md](docs/devcontainer.md)               | Dev Container setup guide                         |
-| [docs/ai-usage-policy.md](docs/ai-usage-policy.md)         | AI tool policy and team agreement                 |
 | [docs/ai-features.md](docs/ai-features.md)                 | Implementing AI features (OpenRouter + Vercel AI) |
-| [docs/admin-guide.md](docs/admin-guide.md)                 | Admin dashboard and RBAC guide                    |
 | [docs/component-libraries.md](docs/component-libraries.md) | UI component library comparison                   |
-| [docs/enhancements.md](docs/enhancements.md)               | Stretch goals quick reference                     |
 
 ## Docker
 
@@ -179,4 +167,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for team workflow, branching conventions,
 
 ## License
 
-This project is for educational purposes as part of a college-level web development course.
+This project is open source.

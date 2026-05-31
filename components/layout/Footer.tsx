@@ -20,36 +20,13 @@ export default function Footer() {
   return (
     <footer className="border-t border-border bg-muted/50">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
+        <div className="flex flex-wrap items-start justify-center gap-12 text-left">
           {/* --- Brand --- */}
-          <div className="col-span-1 md:col-span-1">
+          <div>
             <h3 className="text-lg font-semibold text-foreground">VideoSphere</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Upload once, distribute everywhere.
             </p>
-          </div>
-
-          {/* --- Product Links --- */}
-          <div>
-            <h4 className="text-sm font-semibold text-foreground">Product</h4>
-            <ul className="mt-4 space-y-2">
-              <li>
-                <Link
-                  href="/about"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  About
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/contact"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Contact
-                </Link>
-              </li>
-            </ul>
           </div>
 
           {/* --- Resources Links --- */}
@@ -82,51 +59,6 @@ export default function Footer() {
               </li>
             </ul>
           </div>
-
-          {/* --- Social / Legal --- */}
-          <div>
-            <h4 className="text-sm font-semibold text-foreground">Connect</h4>
-            <ul className="mt-4 space-y-2">
-              {/* STUDENT: Replace these placeholder URLs with your actual social media URLs */}
-              <li>
-                <a
-                  href="https://twitter.com"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Twitter / X
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  GitHub
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://linkedin.com"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  LinkedIn
-                </a>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        {/* --- Bottom Bar --- */}
-        <div className="mt-12 border-t border-border pt-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} VideoSphere. All rights reserved.
-          </p>
         </div>
       </div>
     </footer>
