@@ -47,7 +47,7 @@ export default function HomePage() {
 
           <div className="mt-16 flex flex-wrap justify-center gap-8">
             {/* Feature Card 1 */}
-            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[calc(50%-1rem)] lg:w-[calc(33.333%-1.333rem)]">
+            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[48%] lg:w-[31%]">
               <div
                 className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-2xl"
                 aria-hidden
@@ -74,7 +74,7 @@ export default function HomePage() {
             </div>
 
             {/* Feature Card 2 */}
-            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[calc(50%-1rem)] lg:w-[calc(33.333%-1.333rem)]">
+            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[48%] lg:w-[31%]">
               <div
                 className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-2xl"
                 aria-hidden
@@ -101,7 +101,7 @@ export default function HomePage() {
             </div>
 
             {/* Feature Card 4 */}
-            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[calc(50%-1rem)] lg:w-[calc(33.333%-1.333rem)]">
+            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[48%] lg:w-[31%]">
               <div
                 className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-2xl"
                 aria-hidden
@@ -128,7 +128,7 @@ export default function HomePage() {
             </div>
 
             {/* Feature Card 5 */}
-            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[calc(50%-1rem)] lg:w-[calc(33.333%-1.333rem)]">
+            <div className="w-full rounded-xl border border-border bg-background p-8 md:w-[48%] lg:w-[31%]">
               <div
                 className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-2xl"
                 aria-hidden
