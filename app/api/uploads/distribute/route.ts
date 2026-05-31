@@ -9,7 +9,6 @@ import { buildMetadataForPlatform, isConnectedAccountPlatform } from '@/lib/draf
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { isTempUploadObjectKeyForUser } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
-import { getUserById } from '@/lib/repositories/users';
 import {
   findUploadJobForDistribution,
   updateUploadJobStatus,
@@ -22,8 +21,6 @@ import {
   PlatformUploadDocumentTooLargeError,
   platformUploadDocumentJsonForCreateRow,
 } from '@/lib/platform-upload-document';
-
-const FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT = 2;
 
 interface DistributeRequestBody {
   draftId: string;
@@ -117,19 +114,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const user = await getUserById(userId);
-    const isSupporter = user?.isSupporter ?? false;
-
     const targetPlatforms = uniquePlatforms(platforms);
-
-    if (!isSupporter && targetPlatforms.length > FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT) {
-      return NextResponse.json(
-        {
-          error: `Free-tier users can distribute to at most ${FREE_TIER_DISTRIBUTION_PLATFORM_LIMIT} platforms per request`,
-        },
-        { status: 403 }
-      );
-    }
 
     const uploadJob = await findUploadJobForDistribution({
       userId,

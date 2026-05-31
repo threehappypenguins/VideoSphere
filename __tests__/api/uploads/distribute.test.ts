@@ -161,7 +161,6 @@ describe('POST /api/uploads/distribute', () => {
     mockGetUserById.mockResolvedValue({
       userId: 'user-123',
       email: 'test@example.com',
-      isSupporter: false,
       role: 'user',
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
@@ -207,7 +206,6 @@ describe('POST /api/uploads/distribute', () => {
       r2Key: 'temp/uploads/user-123/video.mp4',
       status: 'distributing',
       errorMessage: null,
-      quotaClaimMonth: null,
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
     });

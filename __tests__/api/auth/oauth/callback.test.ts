@@ -35,7 +35,7 @@ vi.mock('jose', () => ({
 
 vi.stubGlobal('fetch', mockFetch);
 
-import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/app/api/auth/oauth/google/route';
+import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
 import { GET } from '@/app/api/auth/oauth/callback/route';
 
 function makeRequest(params: Record<string, string> = {}, cookies: Record<string, string> = {}) {
@@ -101,7 +101,6 @@ describe('GET /api/auth/oauth/callback', () => {
       userId: 'generated-user-id',
       email: 'creator@example.com',
       name: 'Creator Name',
-      isSupporter: false,
       hasCompletedOnboarding: false,
       role: 'user',
       $createdAt: '2026-01-01T00:00:00.000Z',

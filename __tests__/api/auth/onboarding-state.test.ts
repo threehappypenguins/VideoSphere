@@ -38,7 +38,6 @@ function makePostRequest(body: unknown): NextRequest {
 const BASE_USER = {
   userId: 'user_123',
   email: 'test@example.com',
-  isSupporter: false,
   role: 'user' as const,
   hasCompletedOnboarding: false,
   $createdAt: '2026-01-01T00:00:00.000Z',

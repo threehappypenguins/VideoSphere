@@ -10,7 +10,6 @@ export interface UserProfileDocument {
   email: string;
   name?: string;
   passwordHash?: string;
-  isSupporter: boolean;
   hasCompletedOnboarding: boolean;
   role: UserRole;
   createdAt: Date;
@@ -24,7 +23,6 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     name: { type: String, required: false, trim: true },
     passwordHash: { type: String, required: false },
-    isSupporter: { type: Boolean, default: false },
     hasCompletedOnboarding: { type: Boolean, default: false },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
   },

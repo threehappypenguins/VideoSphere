@@ -199,12 +199,11 @@ describe('Navbar admin link visibility', () => {
       'fetch',
       vi.fn(() => new Promise(() => {}))
     );
-    mockPathname.mockReturnValue('/pricing');
+    mockPathname.mockReturnValue('/about');
 
     render(<Navbar initialSessionUser={null} initialHasAdminRole={false} />);
 
     expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Pricing' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Contact' })).toBeInTheDocument();
   });
@@ -223,7 +222,6 @@ describe('Navbar admin link visibility', () => {
     );
 
     expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Pricing' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'About' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Contact' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();

@@ -40,7 +40,11 @@ If you use Google login and platform connections, also set:
 - `GOOGLE_DRIVE_CLIENT_ID`
 - `GOOGLE_DRIVE_CLIENT_SECRET`
 
-## 3. Start MongoDB (Docker Compose)
+## 3. Start MongoDB
+
+Choose one local workflow:
+
+### Option A: Docker Compose (recommended)
 
 If you have not set it yet, add this to `.env.local` before starting Mongo:
 
@@ -55,6 +59,31 @@ docker compose --env-file .env.local up -d mongo
 This project ships a self-contained compose stack with `mongo:8` and persistent storage.
 Compose interpolation for `${MONGO_ROOT_PASSWORD}` reads from the shell environment or
 an explicit Compose env file, so this command must include `--env-file .env.local`.
+
+### Option B: Docker run (also valid for local development)
+
+If you prefer running Mongo directly, this is supported:
+
+```bash
+docker pull docker.io/mongo:8
+
+docker run -d \
+	--name videosphere-mongo \
+	-p 27017:27017 \
+	-e MONGO_INITDB_ROOT_USERNAME=admin \
+	-e MONGO_INITDB_ROOT_PASSWORD=localdevpassword \
+	-v videosphere-mongo-data:/data/db \
+	mongo:8
+```
+
+When using this option, ensure your `.env.local` uses matching credentials, for example:
+
+```bash
+MONGO_ROOT_PASSWORD=localdevpassword
+MONGODB_URI=mongodb://admin:localdevpassword@localhost:27017/videosphere?authSource=admin
+```
+
+If the container already exists and is stopped, use `docker start videosphere-mongo` instead of creating it again.
 
 ## 4. Start the App
 
@@ -71,7 +100,8 @@ Use this checklist:
 - App loads at [http://localhost:3000](http://localhost:3000)
 - Register works with email/password
 - Login issues session cookie and redirects to dashboard
-- `docker compose ps` shows `videosphere-mongo` healthy
+- If using Compose: `docker compose ps` shows `videosphere-mongo` healthy
+- If using docker run: `docker ps --filter name=videosphere-mongo` shows the container running
 
 ## 6. Before Opening a PR
 

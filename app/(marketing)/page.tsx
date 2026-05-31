@@ -39,12 +39,6 @@ export default function HomePage() {
             >
               Get Started Free
             </Link>
-            <Link
-              href="/pricing"
-              className="w-full rounded-lg border border-border px-8 py-3 text-center text-sm font-medium text-foreground transition-colors hover:bg-muted sm:w-auto"
-            >
-              View Pricing
-            </Link>
           </div>
         </div>
       </section>
@@ -194,33 +188,6 @@ export default function HomePage() {
               <p className="mt-2 text-sm text-muted-foreground">
                 Your credentials and content are protected with secure authentication. Platform
                 connections use OAuth so VideoSphere never stores your passwords.
-              </p>
-            </div>
-
-            {/* Feature Card 6 */}
-            <div className="rounded-xl border border-border bg-background p-8">
-              <div
-                className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-2xl"
-                aria-hidden
-              >
-                <svg
-                  className="h-6 w-6 text-primary"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-                  />
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-foreground">Supporter Tier</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Free accounts get started instantly. Upgrade to Supporter for unlimited uploads,
-                priority processing, and early access to new distribution platforms.
               </p>
             </div>
           </div>

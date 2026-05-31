@@ -5,14 +5,7 @@
 // All persistence (and future R2/API) access is behind this layer.
 // =============================================================================
 
-export {
-  createUser,
-  getUserById,
-  getUserByEmail,
-  updateUser,
-  setSupporterStatus,
-  listUsers,
-} from './users';
+export { createUser, getUserById, getUserByEmail, updateUser, listUsers } from './users';
 export type { CreateUserData, UpdateUserData, ListUsersOptions, ListUsersResult } from './users';
 
 export {
@@ -56,15 +49,3 @@ export {
   updateTokens,
 } from './connected-accounts';
 export type { CreateConnectedAccountData } from './connected-accounts';
-
-export { getMonthlyUsage, incrementUsage, canUpload } from './upload-usage';
-
-export {
-  claimStripeWebhookEvent,
-  markStripeWebhookEventBookkeepingFailed,
-  markStripeWebhookEventCompleted,
-  markStripeWebhookEventFailed,
-  markStripeWebhookEventNonRetryableFailed,
-  deleteStripeWebhookEvent,
-} from './webhook-events';
-export type { StripeWebhookProcessingClaimResult } from './webhook-events';

@@ -11,7 +11,6 @@ export interface UploadJobDocument {
   r2Key: string;
   status: UploadJobStatus;
   errorMessage: string;
-  quotaClaimMonth: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,7 +28,6 @@ const UploadJobSchema = new Schema<UploadJobDocument>(
       index: true,
     },
     errorMessage: { type: String, default: '' },
-    quotaClaimMonth: { type: String, default: '' },
   },
   { timestamps: true }
 );

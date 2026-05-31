@@ -2,10 +2,8 @@
  * Tests for ProfileContent component.
  *
  * Verifies:
- * - Displays subscription status from API
- * - Shows success banner on ?upgrade=success
- * - Shows upgrade link for free-tier users
- * - Shows supporter badge for upgraded users
+ * - Hides legacy subscription status UI
+ * - Keeps account tools and profile form fields visible
  *
  * Note: Route protection (unauthenticated → login redirect) is handled by
  * proxy.ts middleware, not the component. See __tests__/middleware/proxy.test.ts.
@@ -14,11 +12,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
-// Mock next/navigation
-let mockSearchParams = new URLSearchParams();
-
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => mockSearchParams,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
@@ -38,36 +32,6 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }));
-
-// Mock sonner
-const toastSuccessMock = vi.hoisted(() => vi.fn());
-vi.mock('sonner', () => ({
-  toast: {
-    success: toastSuccessMock,
-    error: vi.fn(),
-  },
-}));
-
-// Mock window.history.replaceState
-let originalHistory: History;
-const replaceStateMock = vi.fn();
-
-beforeEach(() => {
-  originalHistory = window.history;
-  Object.defineProperty(window, 'history', {
-    writable: true,
-    value: { replaceState: replaceStateMock },
-    configurable: true,
-  });
-});
-
-afterEach(() => {
-  Object.defineProperty(window, 'history', {
-    writable: true,
-    value: originalHistory,
-    configurable: true,
-  });
-});
 
 import { ProfileContent } from '@/app/(dashboard)/profile/ProfileContent';
 
@@ -91,7 +55,6 @@ function mockFetchResponses(responses: Array<{ ok: boolean; data?: unknown }>) {
 describe('ProfileContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSearchParams = new URLSearchParams();
   });
 
   afterEach(() => {
@@ -99,7 +62,7 @@ describe('ProfileContent', () => {
   });
 
   it('renders gracefully when session fetch fails (proxy handles redirect)', async () => {
-    mockFetchResponses([{ ok: false }, { ok: false }]);
+    mockFetchResponses([{ ok: false }]);
 
     render(<ProfileContent />);
 
@@ -120,89 +83,27 @@ describe('ProfileContent', () => {
     expect(spinner).toBeInTheDocument();
   });
 
-  it('displays free-tier subscription status', async () => {
+  it('does not display legacy subscription copy', async () => {
     mockFetchResponses([
       // Session
       { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
-      // Profile
-      {
-        ok: true,
-        data: { userId: 'user_123', email: 'test@example.com', isSupporter: false, role: 'user' },
-      },
     ]);
 
     render(<ProfileContent />);
 
     await waitFor(() => {
-      expect(screen.getByText('Free')).toBeInTheDocument();
+      expect(screen.getByText('Account Settings')).toBeInTheDocument();
     });
 
-    expect(
-      screen.getByText('You are currently on the Free plan. Upgrade to unlock premium features.')
-    ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Upgrade to Supporter' })).toHaveAttribute(
-      'href',
-      '/pricing'
-    );
-  });
-
-  it('displays supporter subscription status', async () => {
-    mockFetchResponses([
-      // Session
-      { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
-      // Profile
-      {
-        ok: true,
-        data: { userId: 'user_123', email: 'test@example.com', isSupporter: true, role: 'user' },
-      },
-    ]);
-
-    render(<ProfileContent />);
-
-    await waitFor(() => {
-      expect(screen.getByText('Supporter')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/You're a Supporter!/)).toBeInTheDocument();
-    // Should not show upgrade link
-    expect(screen.queryByRole('link', { name: 'Upgrade to Supporter' })).not.toBeInTheDocument();
-  });
-
-  it('shows success banner on ?upgrade=success', async () => {
-    mockSearchParams = new URLSearchParams('upgrade=success');
-
-    mockFetchResponses([
-      // Session
-      { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
-      // Profile
-      {
-        ok: true,
-        data: { userId: 'user_123', email: 'test@example.com', isSupporter: true, role: 'user' },
-      },
-    ]);
-
-    render(<ProfileContent />);
-
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText(/Welcome to Supporter!/)).toBeInTheDocument();
-    expect(toastSuccessMock).toHaveBeenCalledWith(
-      'Welcome to Supporter! Your account has been upgraded.'
-    );
-    expect(replaceStateMock).toHaveBeenCalledWith({}, '', '/profile');
+    expect(screen.queryByText('Subscription')).not.toBeInTheDocument();
+    expect(screen.queryByText('Standard')).not.toBeInTheDocument();
+    expect(screen.queryByText('Your account is active.')).not.toBeInTheDocument();
   });
 
   it('populates form fields with session user data', async () => {
     mockFetchResponses([
       // Session
       { ok: true, data: { $id: 'user_123', name: 'Jane Doe', email: 'jane@example.com' } },
-      // Profile
-      {
-        ok: true,
-        data: { userId: 'user_123', email: 'jane@example.com', isSupporter: false, role: 'user' },
-      },
     ]);
 
     render(<ProfileContent />);
@@ -217,10 +118,6 @@ describe('ProfileContent', () => {
   it('shows connected accounts link', async () => {
     mockFetchResponses([
       { ok: true, data: { $id: 'user_123', name: 'Test', email: 'test@example.com' } },
-      {
-        ok: true,
-        data: { userId: 'user_123', email: 'test@example.com', isSupporter: false, role: 'user' },
-      },
     ]);
 
     render(<ProfileContent />);
@@ -233,31 +130,15 @@ describe('ProfileContent', () => {
     });
   });
 
-  it('shows admin message and hides upgrade action for admin users', async () => {
+  it('renders account tools for any authenticated user', async () => {
     mockFetchResponses([
       { ok: true, data: { $id: 'admin_123', name: 'Admin', email: 'admin@example.com' } },
-      {
-        ok: true,
-        data: {
-          userId: 'admin_123',
-          email: 'admin@example.com',
-          isSupporter: false,
-          role: 'admin',
-        },
-      },
     ]);
 
     render(<ProfileContent />);
 
     await waitFor(() => {
-      expect(screen.getByText('Admin')).toBeInTheDocument();
+      expect(screen.getByText('Account Tools')).toBeInTheDocument();
     });
-
-    expect(
-      screen.getByText(
-        'You are an admin. Supporter subscription status does not apply to admin accounts.'
-      )
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Upgrade to Supporter' })).not.toBeInTheDocument();
   });
 });

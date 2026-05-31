@@ -263,15 +263,14 @@ The component makes requests to the following endpoints:
   "key": "temp/uploads/user_123/1711273800000-abc123/my-video.mp4",
   "bucketName": "videosphere-staging",
   "expiresIn": 900,
-  "uploadJobId": "job_456",
-  "isSupporter": false
+  "uploadJobId": "job_456"
 }
 ```
 
 **Error Responses:**
 - `400` — Missing/invalid fields, unsupported format, or file exceeds 5 GB
 - `401` — Not authenticated
-- `403` — Free-tier monthly upload quota reached or draft not owned by user
+- `403` — Draft not owned by user
 - `404` — Draft not found
 
 ### 5. `PUT` (Direct to R2)
@@ -413,7 +412,7 @@ The wizard handles several error scenarios:
 8. **Failed to get presigned URL** → Toast: "Failed to get upload URL" + error details
 9. **Network error during upload** → Toast: "Upload failed — network error"
 10. **Server failed to confirm upload** → Toast: "Failed to confirm upload"
-11. **Free-tier quota reached at presign time** → Toast: "Upload limit reached" + monthly usage info
+11. **Presign request rejected** → Toast with the returned error message
 
 ## Accessibility
 

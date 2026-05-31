@@ -7,11 +7,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
-
-/**
- * Defines the GOOGLE_AUTH_OAUTH_STATE_COOKIE constant.
- */
-export const GOOGLE_AUTH_OAUTH_STATE_COOKIE = 'google_auth_oauth_state';
+import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_AUTH_SCOPES = ['openid', 'email', 'profile'].join(' ');

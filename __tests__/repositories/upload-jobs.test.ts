@@ -66,7 +66,6 @@ const baseDoc = {
   r2Key: 'temp/uploads/user-1/v.mp4',
   status: 'pending',
   errorMessage: '',
-  quotaClaimMonth: '2026-01',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
@@ -84,7 +83,6 @@ describe('upload-jobs repository (mongo)', () => {
       userId: 'user-1',
       draftId: 'draft-1',
       r2Key: 'temp/uploads/user-1/v.mp4',
-      quotaClaimMonth: '2026-01',
     });
 
     expect(mockCreate).toHaveBeenCalled();

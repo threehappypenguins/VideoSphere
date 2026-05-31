@@ -831,7 +831,7 @@ WAS SUGGESTED BY CLAUDE BUT COMMENTED OUT BECAUSE ESTIMATED USERS ARE NON TECHNI
 **Acceptance Criteria:**
 
 - [ ] `lib/ai/openrouter.ts` (or similar) configures the OpenRouter API client
-- [ ] Environment variables `OPENROUTER_API_KEY`, `OPENROUTER_FREE_MODEL`, `OPENROUTER_PREMIUM_MODEL` are added to `.env.example`
+- [ ] Environment variables `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` are added to `.env.example`
 - [ ] A `generateMetadata(prompt, model)` function sends a chat completion request and parses the response
 - [ ] The function returns a typed object: `{ title: string, description: string, tags: string[] }`
 - [ ] Error handling covers API failures, rate limits, and malformed responses

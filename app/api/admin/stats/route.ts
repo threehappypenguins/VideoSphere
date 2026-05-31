@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/api/admin-auth';
 import { countActiveDrafts } from '@/lib/repositories/drafts';
-import { getCurrentUsageMonth, getTotalUploadsForMonth } from '@/lib/repositories/upload-usage';
 import { getUserCounts } from '@/lib/repositories/users';
 import type { ApiError, ApiResponse } from '@/types';
 
@@ -10,7 +9,6 @@ import type { ApiError, ApiResponse } from '@/types';
  */
 export interface AdminStats {
   totalUsers: number;
-  totalSupporters: number;
   uploadsThisMonth: number;
   activeDrafts: number;
 }
@@ -25,17 +23,11 @@ export async function GET(request: NextRequest) {
   if (adminCheck.ok === false) return adminCheck.response;
 
   try {
-    const month = getCurrentUsageMonth();
-    const [userCounts, uploadsThisMonth, activeDrafts] = await Promise.all([
-      getUserCounts(),
-      getTotalUploadsForMonth(month),
-      countActiveDrafts(),
-    ]);
+    const [userCounts, activeDrafts] = await Promise.all([getUserCounts(), countActiveDrafts()]);
 
     const stats: AdminStats = {
       totalUsers: userCounts.totalUsers,
-      totalSupporters: userCounts.totalSupporters,
-      uploadsThisMonth,
+      uploadsThisMonth: 0,
       activeDrafts,
     };
 

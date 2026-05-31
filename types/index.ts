@@ -22,16 +22,6 @@
 export type UserRole = 'user' | 'admin';
 
 /**
- * Defines the shape of upload usage.
- */
-export interface UploadUsage {
-  userId: string;
-  /** Current month in "YYYY-MM" format. */
-  month: string;
-  uploadCount: number;
-}
-
-/**
  * Defines the shape of user.
  */
 export interface User {
@@ -39,7 +29,6 @@ export interface User {
   userId: string;
   email: string;
   name?: string;
-  isSupporter: boolean;
   hasCompletedOnboarding: boolean;
   role: UserRole;
   /** Profile creation timestamp in ISO 8601 string format, sourced from Mongo document creation time. */
@@ -268,12 +257,6 @@ export interface UploadJob {
   r2Key: string | null;
   status: UploadJobStatus;
   errorMessage: string | null;
-  /**
-   * UTC month "YYYY-MM" for which a free-tier quota slot was claimed at presign.
-   * Empty string if the user was unlimited at presign (supporter/admin). `null` for
-   * legacy rows created before this field existed (cancel may fall back to current tier).
-   */
-  quotaClaimMonth: string | null;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

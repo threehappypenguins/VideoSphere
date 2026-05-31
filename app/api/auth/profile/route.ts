@@ -1,10 +1,10 @@
 // =============================================================================
 // GET /api/auth/profile
 // =============================================================================
-// Returns the authenticated user's profile from user_profiles, including
-// isSupporter status. Requires a valid session cookie.
+// Returns the authenticated user's profile from user_profiles.
+// Requires a valid session cookie.
 //
-// Response: { userId, email, isSupporter, role, $createdAt, $updatedAt }
+// Response: { userId, email, role, $createdAt, $updatedAt }
 // Errors:   401 (not authenticated), 404 (profile not found), 500 (internal)
 // =============================================================================
 

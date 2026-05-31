@@ -60,12 +60,11 @@ describe('GET /api/auth/profile', () => {
     expect(await res.json()).toEqual({ error: 'Profile not found' });
   });
 
-  it('returns user profile with isSupporter status', async () => {
+  it('returns user profile payload', async () => {
     getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
     getUserByIdMock.mockResolvedValueOnce({
       userId: 'user_123',
       email: 'test@example.com',
-      isSupporter: true,
       role: 'user',
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-03-25T00:00:00.000Z',
@@ -77,16 +76,14 @@ describe('GET /api/auth/profile', () => {
     const body = await res.json();
     expect(body.userId).toBe('user_123');
     expect(body.email).toBe('test@example.com');
-    expect(body.isSupporter).toBe(true);
     expect(body.role).toBe('user');
   });
 
-  it('returns free-tier user profile correctly', async () => {
+  it('returns second user profile payload correctly', async () => {
     getAuthenticatedUserIdMock.mockResolvedValueOnce('user_456');
     getUserByIdMock.mockResolvedValueOnce({
       userId: 'user_456',
       email: 'free@example.com',
-      isSupporter: false,
       role: 'user',
       $createdAt: '2026-02-01T00:00:00.000Z',
       $updatedAt: '2026-03-01T00:00:00.000Z',
@@ -96,6 +93,8 @@ describe('GET /api/auth/profile', () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.isSupporter).toBe(false);
+    expect(body.userId).toBe('user_456');
+    expect(body.email).toBe('free@example.com');
+    expect(body.role).toBe('user');
   });
 });

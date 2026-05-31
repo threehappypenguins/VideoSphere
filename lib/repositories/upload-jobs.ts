@@ -30,10 +30,6 @@ function rowToUploadJob(doc: UploadJobDocument): UploadJob {
     status: String(doc.status) as UploadJobStatus,
     errorMessage:
       doc.errorMessage != null && doc.errorMessage !== '' ? String(doc.errorMessage) : null,
-    quotaClaimMonth:
-      doc.quotaClaimMonth === undefined || doc.quotaClaimMonth === null
-        ? null
-        : String(doc.quotaClaimMonth),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -51,11 +47,6 @@ export interface CreateUploadJobInput {
   draftId: string | null;
   /** R2 object key for the video file (from the presign step). */
   r2Key: string;
-  /**
-   * Month "YYYY-MM" when a free-tier slot was claimed at presign, or "" if the user
-   * was unlimited at presign (supporter/admin).
-   */
-  quotaClaimMonth: string;
 }
 
 /**
@@ -70,7 +61,6 @@ export async function createUploadJob(input: CreateUploadJobInput): Promise<Uplo
     r2Key: input.r2Key,
     status: 'pending',
     errorMessage: '',
-    quotaClaimMonth: input.quotaClaimMonth,
   });
   return rowToUploadJob(created.toObject());
 }

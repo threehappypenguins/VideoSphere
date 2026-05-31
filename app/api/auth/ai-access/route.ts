@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUserById } from '@/lib/repositories/users';
 import type { ApiError } from '@/types';
 
+interface AiAccessResponse {
+  canUseAiMetadata: boolean;
+}
+
 /**
- * Handles GET requests for this route.
- * @param req - The incoming request object.
- * @returns A response describing the request result.
+ * Returns whether the authenticated user can access AI metadata generation.
+ * @param req - Incoming request used to validate authenticated session.
+ * @returns JSON response with `canUseAiMetadata` flag or an unauthorized error.
  */
 export async function GET(req: NextRequest) {
   const userId = await getAuthenticatedUserId(req);
@@ -19,24 +22,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(errRes, { status: 401 });
   }
 
-  try {
-    const user = await getUserById(userId);
-    const isSupporter = user?.isSupporter ?? false;
-    const isAdmin = user?.role === 'admin';
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim() ?? '';
+  const modelList = (process.env.OPENROUTER_MODEL ?? '')
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean);
 
-    return NextResponse.json({
-      // PRD/Roadmap: AI metadata is available to all authenticated users.
-      canUseAiMetadata: true,
-      isSupporter,
-      isAdmin,
-    });
-  } catch (err) {
-    console.error('[GET /api/auth/ai-access] Failed to load user profile:', err);
-    const errRes: ApiError = {
-      error: 'Internal Server Error',
-      message: 'Failed to load user profile',
-      statusCode: 500,
-    };
-    return NextResponse.json(errRes, { status: 500 });
-  }
+  const response: AiAccessResponse = {
+    canUseAiMetadata: Boolean(apiKey) && modelList.length > 0,
+  };
+  return NextResponse.json(response, { status: 200 });
 }

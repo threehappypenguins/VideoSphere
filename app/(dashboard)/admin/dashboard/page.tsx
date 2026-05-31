@@ -6,7 +6,6 @@ const USERS_PAGE_SIZE = 50;
 
 interface AdminStats {
   totalUsers: number;
-  totalSupporters: number;
   uploadsThisMonth: number;
   activeDrafts: number;
 }
@@ -15,7 +14,6 @@ interface AdminUser {
   userId: string;
   email: string;
   role: 'user' | 'admin';
-  isSupporter: boolean;
   createdAt: string;
 }
 
@@ -30,7 +28,6 @@ interface UsersResponseData {
 
 interface StatsResponseData {
   totalUsers: number;
-  totalSupporters: number;
   uploadsThisMonth: number;
   activeDrafts: number;
 }
@@ -131,12 +128,6 @@ export default function AdminDashboardPage() {
             </p>
           </div>
           <div className="rounded-xl border border-border bg-background p-6">
-            <p className="text-sm font-medium text-muted-foreground">Total Supporters</p>
-            <p className="mt-2 text-3xl font-bold text-foreground">
-              {statsLoading ? '...' : (stats?.totalSupporters ?? 0)}
-            </p>
-          </div>
-          <div className="rounded-xl border border-border bg-background p-6">
             <p className="text-sm font-medium text-muted-foreground">Uploads This Month</p>
             <p className="mt-2 text-3xl font-bold text-foreground">
               {statsLoading ? '...' : (stats?.uploadsThisMonth ?? 0)}
@@ -167,20 +158,19 @@ export default function AdminDashboardPage() {
                 <tr className="border-b border-border">
                   <th className="pb-3 font-medium text-muted-foreground">Email</th>
                   <th className="pb-3 font-medium text-muted-foreground">Role</th>
-                  <th className="pb-3 font-medium text-muted-foreground">Supporter</th>
                   <th className="pb-3 font-medium text-muted-foreground">Created</th>
                 </tr>
               </thead>
               <tbody>
                 {usersLoading ? (
                   <tr>
-                    <td className="py-4 text-muted-foreground" colSpan={4}>
+                    <td className="py-4 text-muted-foreground" colSpan={3}>
                       Loading users...
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
                   <tr>
-                    <td className="py-4 text-muted-foreground" colSpan={4}>
+                    <td className="py-4 text-muted-foreground" colSpan={3}>
                       No users found.
                     </td>
                   </tr>
@@ -192,17 +182,6 @@ export default function AdminDashboardPage() {
                     >
                       <td className="py-3 text-foreground">{user.email}</td>
                       <td className="py-3 text-muted-foreground">{user.role}</td>
-                      <td className="py-3">
-                        {user.isSupporter ? (
-                          <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">
-                            Supporter
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
-                            Free
-                          </span>
-                        )}
-                      </td>
                       <td className="py-3 text-muted-foreground">{formatDate(user.createdAt)}</td>
                     </tr>
                   ))

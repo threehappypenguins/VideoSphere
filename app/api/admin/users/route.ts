@@ -11,7 +11,6 @@ export interface AdminUserRow {
   userId: string;
   email: string;
   role: 'user' | 'admin';
-  isSupporter: boolean;
   createdAt: string;
 }
 
@@ -54,7 +53,6 @@ export async function GET(request: NextRequest) {
         userId: user.userId,
         email: user.email,
         role: user.role,
-        isSupporter: user.isSupporter,
         createdAt: user.$createdAt,
       })),
       pagination: {
