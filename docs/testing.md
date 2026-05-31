@@ -4,8 +4,6 @@
 
 Tests are your safety net. They verify that your code works correctly and catch regressions when you make changes. In a team environment, tests give everyone confidence that their changes don't break existing features.
 
-Comprehensive test coverage is a path to a higher grade.
-
 ## Vitest — Our Testing Framework
 
 This project uses [Vitest](https://vitest.dev/) instead of Jest. Vitest is:

@@ -794,7 +794,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 
 | Metric                                      | Target                                   |
 | ------------------------------------------- | ---------------------------------------- |
-| Core workflow implemented end-to-end        | Upload to distribution works for YouTube and Vimeo |
+| Core workflow implemented end-to-end        | Upload to distribution works for YouTube, Vimeo, SermonAudio, and Facebook |
 | AI metadata generation functional            | Returns usable results within 10 seconds |
 | Admin dashboard shows real data              | User table + stats populated             |
 | All CI checks passing                        | Lint, format, type-check, build          |

@@ -2,9 +2,9 @@
 
 ## Why AI Features in SaaS?
 
-AI-powered features are increasingly expected in modern SaaS products. Adding an AI feature to your project demonstrates understanding of current technology trends and gives your users a more intelligent, personalized experience.
+AI-powered features are increasingly expected in modern SaaS products. Adding an AI feature can improve usability and give your users a more intelligent, personalized experience.
 
-Your project requirement: **implement at least one AI-powered feature for end users.**
+For this codebase, implementing at least one end-user AI feature is recommended.
 
 ## AI Feature Ideas
 
@@ -29,7 +29,7 @@ Choose one or more features that make sense for your product:
 **Why OpenRouter?**
 
 - **Single API** that routes to many models (GPT-4o, Claude, Llama, Mixtral, etc.)
-- **Free tier models available** — perfect for student projects with no budget
+- **Free tier models available** — useful for early-stage projects with limited budget
 - **Compatible with OpenAI SDK format** — easy to use with existing tutorials
 - **No vendor lock-in** — switch models by changing one string
 
@@ -153,7 +153,7 @@ Protect your API routes from excessive usage:
 
 ```typescript
 // Basic approach: limit requests per user
-// STUDENT: implement rate limiting for your AI endpoints
+// TODO: implement rate limiting for your AI endpoints
 // Options: Upstash rate limit, custom in-memory counter, or middleware
 ```
 
