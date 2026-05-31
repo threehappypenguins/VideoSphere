@@ -126,12 +126,8 @@ Minimum requirement: **1 approving review** before merge.
 > This includes: commits, pushes, pulls, merges, branch creation, PR creation, or any other GitHub activity.
 >
 > Every commit must be performed by a **human team member** using standard git commands.
->
-> **Any evidence that an AI agent performed git or GitHub operations will result in a team grade penalty. There are no exceptions.**
 
 AI writes code → **You** review it → **You** commit it → **You** push it.
-
-See [docs/ai-usage-policy.md](docs/ai-usage-policy.md) for the complete policy.
 
 ---
 
@@ -154,7 +150,4 @@ pnpm test
 
 ## Additional Resources
 
-- [docs/git-workflow.md](docs/git-workflow.md) — detailed git workflow guide
-- [docs/contributing-guide.md](docs/contributing-guide.md) — extended contribution guidelines
 - [docs/code-quality.md](docs/code-quality.md) — code quality tools reference
-- [docs/agile-process.md](docs/agile-process.md) — sprint and Agile process

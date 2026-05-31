@@ -43,4 +43,4 @@ TypeDoc expectations by export kind:
 
 Reference:
 - [GitHub repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions)
-- [AI usage policy](../docs/ai-usage-policy.md)
+- [Repository agent rules](../AGENTS.md)

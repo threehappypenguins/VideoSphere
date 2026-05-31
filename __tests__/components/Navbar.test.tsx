@@ -194,18 +194,16 @@ describe('Navbar admin link visibility', () => {
     }
   });
 
-  it('shows marketing links immediately for logged-out server state without waiting for session fetch', () => {
+  it('does not render a signed-out Home nav link while waiting for session fetch', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => new Promise(() => {}))
     );
-    mockPathname.mockReturnValue('/about');
+    mockPathname.mockReturnValue('/');
 
     render(<Navbar initialSessionUser={null} initialHasAdminRole={false} />);
 
-    expect(screen.getByRole('link', { name: 'Home' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Contact' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
   });
 
   it('does not flash marketing links for authenticated server state before client fetch resolves', () => {
@@ -222,8 +220,6 @@ describe('Navbar admin link visibility', () => {
     );
 
     expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'About' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Contact' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Profile' })).toBeInTheDocument();
   });

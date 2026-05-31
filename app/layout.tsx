@@ -14,7 +14,6 @@
 //   3. Update the CSS variable name if needed
 //   4. Update globals.css to reference the new CSS variable
 //
-// See /docs/styling.md for detailed font configuration guidance.
 // =============================================================================
 
 import type { Metadata } from 'next';

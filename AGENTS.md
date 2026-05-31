@@ -26,7 +26,6 @@ This repository uses AI coding assistants. Follow these rules on every task.
 
 References:
 - [agents.md](https://agents.md/)
-- [AI usage policy](docs/ai-usage-policy.md)
 
 ## Deprecated Code Policy (Mandatory)
 

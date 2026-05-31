@@ -60,8 +60,8 @@ describe('Navbar accessibility', () => {
     const menuButton = screen.getByRole('button', { name: /toggle navigation menu/i });
     expect(menuButton).toHaveAttribute('aria-controls', 'site-navigation-mobile-menu');
 
-    const homeLinks = screen.getAllByRole('link', { name: /^home$/i });
-    expect(homeLinks.some((link) => link.getAttribute('aria-current') === 'page')).toBe(true);
+    const homeLink = screen.getByRole('link', { name: /videosphere/i });
+    expect(homeLink).toHaveAttribute('aria-current', 'page');
 
     menuButton.focus();
     await user.keyboard('{Enter}');

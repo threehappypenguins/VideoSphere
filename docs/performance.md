@@ -140,15 +140,15 @@ const robotoMono = Roboto_Mono({ subsets: ['latin'], variable: '--font-mono' });
 Next.js provides a built-in `Metadata` API. The project already has base metadata in `app/layout.tsx`. Add page-specific metadata:
 
 ```tsx
-// app/about/page.tsx
+// app/login/page.tsx
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'About Us',
-  description: 'Learn about our team and mission.',
+  title: 'Log In',
+  description: 'Access your VideoSphere account.',
   openGraph: {
-    title: 'About Us',
-    description: 'Learn about our team and mission.',
+    title: 'Log In',
+    description: 'Access your VideoSphere account.',
   },
 };
 ```

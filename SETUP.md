@@ -7,8 +7,8 @@ Complete these steps after cloning the repository. This guide is MongoDB-first a
 ## 1. Clone and Install
 
 ```bash
-git clone https://github.com/NSCC-ITC-Winter2026-PROG5016-700-MCa/project-videosphere-team.git
-cd project-videosphere-team
+git clone [your-repo-url]
+cd [your-repo-name]
 pnpm install
 ```
 
@@ -37,12 +37,25 @@ If you use Google login and platform connections, also set:
 - `YOUTUBE_CLIENT_SECRET`
 - `VIMEO_CLIENT_ID`
 - `VIMEO_CLIENT_SECRET`
+- `FACEBOOK_CLIENT_ID`
+- `FACEBOOK_CLIENT_SECRET`
 - `GOOGLE_DRIVE_CLIENT_ID`
 - `GOOGLE_DRIVE_CLIENT_SECRET`
 
+SermonAudio uses API-key authentication and is entered by each user in the app UI (Connected Accounts), not in `.env.local`.
+
+For Facebook OAuth credentials:
+
+1. Create an app in Facebook Developer Console.
+2. Enable Facebook Login and configure OAuth redirect URI:
+	- `http://localhost:3000/api/platforms/callback/facebook` (local)
+3. Copy the app credentials into:
+	- `FACEBOOK_CLIENT_ID`
+	- `FACEBOOK_CLIENT_SECRET`
+
 ## 3. Start MongoDB
 
-Choose one local workflow:
+Ensure MongoDB is running using one of the local Docker workflows below.
 
 ### Option A: Docker Compose (recommended)
 

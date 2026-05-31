@@ -6,8 +6,7 @@
 // Route protection is already implemented in proxy.ts — unauthenticated users
 // are redirected to /login before this page renders.
 //
-// See /docs/admin-guide.md for route protection guidance and proxy.ts
-// for the auth check implementation.
+// See proxy.ts for route protection guidance and the auth check implementation.
 // =============================================================================
 
 import type { Metadata } from 'next';

@@ -18,7 +18,7 @@ git pull origin main
 git checkout -b feature/your-feature-name
 ```
 
-Use a branch name that matches your task (e.g. `feature/draft-form`, `fix/login-error`). See [git-workflow.md](/git-workflow) for naming conventions.
+Use a branch name that matches your task (e.g. `feature/draft-form`, `fix/login-error`).
 
 ---
 
@@ -59,4 +59,4 @@ pnpm build
 3. `pnpm test run`
 4. `pnpm build`
 
-Then commit (if you haven’t already), push, and open a PR. See [git-workflow.md](/git-workflow) and [contributing-guide.md](/contributing-guide) for the full workflow.
+Then commit (if you haven’t already), push, and open a PR.

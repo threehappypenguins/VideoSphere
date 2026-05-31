@@ -1,17 +1,66 @@
 # Deployment Guide
 
-## Deployment Options
+This guide prioritizes self-hosted Docker deployment. Managed platforms like Vercel can still be used when they fit your environment.
+
+## Recommended: Self-Hosted With Docker
+
+### Why Docker First
+
+- Consistent runtime from local development to production
+- Full control of infrastructure, secrets, and data
+- Simple rollback and repeatable deployments
+
+### Minimum Requirements
+
+- Docker and Docker Compose
+- MongoDB (containerized or external)
+- Cloudflare R2 bucket for temporary media staging
+- Platform credentials (YouTube, Vimeo, SermonAudio, Facebook)
+- OpenRouter API key for AI metadata generation
+
+### Step-by-Step
+
+1. **Create production environment variables**
+   - Copy your local `.env.local` values into a production `.env` file or secret manager.
+   - Do not commit secrets.
+
+2. **Configure compose file for your environment**
+   - Set image/tag, ports, and restart policy.
+   - Configure persistent volumes for MongoDB.
+
+3. **Start the stack**
+
+```bash
+docker-compose up -d
+```
+
+4. **Verify health**
+   - Check container status with `docker ps`.
+   - Verify the app health endpoint and platform integrations.
+
+5. **Operate and update**
+   - Pull new image tags.
+   - Restart with `docker-compose up -d`.
+   - Keep database backups and rotate credentials.
+
+## Optional: Managed Hosting Platforms
+
+If self-hosting is not required, managed platforms can simplify operations.
+
+### Vercel (Optional)
+
+Vercel works well for Next.js application hosting. If you choose Vercel, run MongoDB separately and configure all required environment variables in the project settings.
+
+### Other Options
 
 | Platform   | Best For                    | Free Tier | Ease of Setup |
 | ---------- | --------------------------- | --------- | ------------- |
-| **Vercel** | Next.js (recommended)       | ✅ Yes    | ⭐⭐⭐⭐⭐    |
+| **Vercel** | Next.js app hosting         | ✅ Yes    | ⭐⭐⭐⭐⭐    |
 | Netlify    | Static/JAMstack sites       | ✅ Yes    | ⭐⭐⭐⭐      |
 | Railway    | Full-stack with databases   | ✅ Yes    | ⭐⭐⭐        |
 | Render     | Containers and web services | ✅ Yes    | ⭐⭐⭐        |
 
-## Deploying to Vercel (Recommended)
-
-Vercel is the company behind Next.js. Their platform is optimized for Next.js deployments with zero configuration.
+## Deploying to Vercel
 
 ### Step-by-Step
 
@@ -37,10 +86,6 @@ Vercel is the company behind Next.js. Their platform is optimized for Next.js de
 5. **Automatic Deployments**
    - Every push to `main` triggers a new production deployment
    - Every PR gets a **preview deployment** with its own URL
-
-### Preview Deployments
-
-When you open a PR, Vercel automatically creates a preview deployment. This lets your team (and instructor) see the changes live before merging. The preview URL is posted as a comment on the PR.
 
 ## Environment Variables in Production
 
