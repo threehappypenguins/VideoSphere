@@ -342,7 +342,6 @@ The primary user journey follows this sequence:
 
 ```
 /                           Landing page (marketing)
-/pricing                    Platform overview and distribution capabilities
 /login                      Sign in (email/password, Google OAuth, GitHub OAuth)
 /signup                     Create account
 /dashboard                  Main user dashboard (upload jobs, drafts, quick actions)
