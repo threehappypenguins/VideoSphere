@@ -227,11 +227,6 @@ export function DraftMetadataModal({
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
   const [aiRedoStack, setAiRedoStack] = useState<DraftEditorValues[]>([]);
-  const [uploadLimitState, setUploadLimitState] = useState<{
-    reached: boolean;
-    monthlyUsage?: number;
-    limit?: number;
-  }>({ reached: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
   const thumbnailSectionRef = useRef<HTMLDivElement>(null);
@@ -1046,16 +1041,7 @@ export function DraftMetadataModal({
           message?: string;
           error?: string;
           details?: string;
-          monthlyUsage?: number;
-          limit?: number;
         } | null;
-        if (presignRes.status === 403 && typeof err?.monthlyUsage === 'number') {
-          setUploadLimitState({
-            reached: true,
-            monthlyUsage: err.monthlyUsage,
-            limit: typeof err.limit === 'number' ? err.limit : 10,
-          });
-        }
         const combinedMessage = [
           err?.message ?? err?.error ?? 'Failed to get upload URL',
           err?.details,
@@ -1113,7 +1099,6 @@ export function DraftMetadataModal({
       await loadUploadHistory(draftIdForUpload);
       await onUploadComplete?.();
       setShowUploadHistory(true);
-      setUploadLimitState({ reached: false });
       announceInModal('Video uploaded successfully');
     } catch (error) {
       setUploadProgress(0);
@@ -1125,7 +1110,7 @@ export function DraftMetadataModal({
       }
       if (activeUploadJobId) {
         void fetch(`/api/uploads/${activeUploadJobId}/cancel`, { method: 'POST' }).catch(() => {
-          // Best-effort: release quota / mark cancelled when PUT or complete failed.
+          // Best-effort: mark cancelled when PUT or complete failed.
         });
       }
       setCurrentUploadJobId(null);
@@ -1389,7 +1374,6 @@ export function DraftMetadataModal({
     setUploading(false);
     setCancelServerFailed(false);
     setIsCancellingUpload(false);
-    setUploadLimitState({ reached: false });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -1898,19 +1882,6 @@ export function DraftMetadataModal({
                   </div>
                 </div>
               ) : null}
-              {uploadLimitState.reached ? (
-                <p className="mt-2 text-xs text-red-600">
-                  Upload limit reached
-                  {typeof uploadLimitState.monthlyUsage === 'number' &&
-                  typeof uploadLimitState.limit === 'number'
-                    ? ` (${uploadLimitState.monthlyUsage}/${uploadLimitState.limit} this month). `
-                    : '. '}
-                  <Link href="/pricing" className="underline underline-offset-2">
-                    Upgrade to Supporter
-                  </Link>
-                  .
-                </p>
-              ) : null}
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
@@ -2057,24 +2028,17 @@ export function DraftMetadataModal({
             disabled={
               uploadComplete
                 ? false
-                : !canSave ||
-                  !videoFile ||
-                  uploading ||
-                  cancelServerFailed ||
-                  isSaving ||
-                  uploadLimitState.reached
+                : !canSave || !videoFile || uploading || cancelServerFailed || isSaving
             }
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             {uploadComplete
               ? 'Close'
-              : uploadLimitState.reached
-                ? 'Upload limit reached'
-                : uploading
-                  ? `Uploading ${uploadProgress}%`
-                  : cancelServerFailed
-                    ? 'Pending upload'
-                    : 'Upload & Save'}
+              : uploading
+                ? `Uploading ${uploadProgress}%`
+                : cancelServerFailed
+                  ? 'Pending upload'
+                  : 'Upload & Save'}
           </button>
         </DialogFooter>
       </DialogContent>

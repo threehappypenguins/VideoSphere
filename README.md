@@ -1,6 +1,6 @@
 # VideoSphere
 
-> **Upload once, distribute everywhere.** A Next.js app for uploading videos to Cloudflare R2 and distributing them to YouTube, Vimeo, and optional Google Drive backup — with metadata drafts, supporter payments, and self-hostable Docker deployment.
+> **Upload once, distribute everywhere.** A Next.js app for uploading videos to Cloudflare R2 and distributing them to YouTube, Vimeo, and optional Google Drive backup — with metadata drafts and self-hostable Docker deployment.
 
 **👉 Start here: [SETUP.md](SETUP.md)** — Complete the first-run setup before doing anything else.
 
@@ -44,7 +44,7 @@ Open [http://localhost:3000](http://localhost:3000) to see your app.
 │   ├── (admin)/            # Admin route group (protected — you implement)
 │   ├── (auth)/             # Auth pages: login, signup (you implement logic)
 │   ├── (dashboard)/        # Dashboard route group
-│   ├── (marketing)/        # Public pages: landing, pricing, about, contact
+│   ├── (marketing)/        # Public pages: landing, about, contact
 │   ├── api/                # API routes (Route Handlers)
 │   ├── layout.tsx          # Root layout with Navbar and Footer
 │   ├── globals.css         # Global styles and Tailwind configuration
@@ -165,7 +165,6 @@ After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
 | [docs/devcontainer.md](docs/devcontainer.md)               | Dev Container setup guide                         |
 | [docs/ai-usage-policy.md](docs/ai-usage-policy.md)         | AI tool policy and team agreement                 |
 | [docs/ai-features.md](docs/ai-features.md)                 | Implementing AI features (OpenRouter + Vercel AI) |
-| [docs/payments.md](docs/payments.md)                       | Payment integration guide (Stripe)                |
 | [docs/admin-guide.md](docs/admin-guide.md)                 | Admin dashboard and RBAC guide                    |
 | [docs/component-libraries.md](docs/component-libraries.md) | UI component library comparison                   |
 | [docs/enhancements.md](docs/enhancements.md)               | Stretch goals quick reference                     |

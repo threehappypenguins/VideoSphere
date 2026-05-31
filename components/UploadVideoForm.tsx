@@ -8,7 +8,6 @@ import Link from 'next/link';
 // ---------------------------------------------------------------------------
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB
-const FREE_TIER_LIMIT = 10;
 
 const ALLOWED_MIME_TYPES = new Set([
   'video/mp4',
@@ -52,7 +51,6 @@ function validateFile(file: File): string | null {
 
 type UploadState =
   | { phase: 'idle' }
-  | { phase: 'quota-exceeded'; monthlyUsage: number; limit: number }
   | { phase: 'selected'; file: File; error?: string }
   | { phase: 'uploading'; file: File; progress: number; uploadJobId: string }
   | { phase: 'finalizing'; file: File; uploadJobId: string; r2Key: string }
@@ -80,7 +78,6 @@ export interface UploadVideoFormProps {
  */
 export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormProps) {
   const [state, setState] = useState<UploadState>({ phase: 'idle' });
-  const [isSupporter, setIsSupporter] = useState<boolean | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -147,24 +144,12 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
 
       const json = await res.json();
 
-      if (res.status === 403 && typeof json.monthlyUsage === 'number') {
-        // Quota-exceeded — the server includes monthlyUsage and limit in the body
-        setState({
-          phase: 'quota-exceeded',
-          monthlyUsage: json.monthlyUsage,
-          limit: typeof json.limit === 'number' ? json.limit : FREE_TIER_LIMIT,
-        });
-        setIsSupporter(json.isSupporter ?? false);
-        return;
-      }
-
       if (!res.ok) {
         setState({ phase: 'error', message: json.error ?? 'Failed to start upload.' });
         return;
       }
 
       presignData = json as { uploadUrl: string; key: string; uploadJobId: string };
-      setIsSupporter(json.isSupporter ?? null);
     } catch {
       setState({ phase: 'error', message: 'Network error. Check your connection and try again.' });
       return;
@@ -282,23 +267,6 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
 
   return (
     <div className="space-y-6">
-      {/* Quota-exceeded banner */}
-      {state.phase === 'quota-exceeded' && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-5 text-center space-y-3">
-          <p className="font-semibold text-destructive">Monthly upload limit reached</p>
-          <p className="text-sm text-muted-foreground">
-            You have used {state.monthlyUsage} of {state.limit} free uploads this month.
-          </p>
-          <Link
-            href="/pricing"
-            className="inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Upgrade to Supporter
-          </Link>
-          <p className="text-xs text-muted-foreground">Supporter plan: unlimited uploads.</p>
-        </div>
-      )}
-
       {/* Success state */}
       {state.phase === 'success' && (
         <div className="rounded-lg border border-green-500/40 bg-green-500/10 p-5 space-y-3">
@@ -350,7 +318,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       )}
 
       {/* Upload area — shown when not in terminal states */}
-      {state.phase !== 'success' && state.phase !== 'quota-exceeded' && state.phase !== 'error' && (
+      {state.phase !== 'success' && state.phase !== 'error' && (
         <>
           {/* Drop zone */}
           <div
@@ -487,11 +455,6 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
               </button>
             )}
           </div>
-
-          {/* Supporter indicator */}
-          {isSupporter === true && (
-            <p className="text-xs text-muted-foreground">Supporter plan: unlimited uploads.</p>
-          )}
         </>
       )}
     </div>

@@ -30,7 +30,6 @@ function makeGetRequest(search = ''): NextRequest {
 const adminProfile: User = {
   userId: 'admin-auth-id',
   email: 'admin@example.com',
-  isSupporter: true,
   role: 'admin',
   hasCompletedOnboarding: false,
   $createdAt: '2026-01-01T00:00:00.000Z',
@@ -40,7 +39,6 @@ const adminProfile: User = {
 const listedUser: User = {
   userId: 'user-a',
   email: 'alice@example.com',
-  isSupporter: false,
   role: 'user',
   hasCompletedOnboarding: false,
   $createdAt: '2026-03-01T12:00:00.000Z',
@@ -144,7 +142,6 @@ describe('GET /api/admin/users', () => {
         userId: listedUser.userId,
         email: listedUser.email,
         role: listedUser.role,
-        isSupporter: listedUser.isSupporter,
         createdAt: listedUser.$createdAt,
       });
       expect(body.data.pagination).toEqual({

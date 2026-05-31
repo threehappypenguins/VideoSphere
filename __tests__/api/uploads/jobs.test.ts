@@ -73,7 +73,6 @@ function makeJob(
     r2Key: 'temp/uploads/user-123/x/video.mp4',
     status: 'completed',
     errorMessage: null,
-    quotaClaimMonth: null,
     $createdAt: '2026-01-01T00:00:00.000Z',
     $updatedAt: '2026-01-02T00:00:00.000Z',
     platformUploads: [makePlatformUpload({ uploadJobId: id })],

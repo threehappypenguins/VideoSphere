@@ -2,9 +2,8 @@
 // POST /api/ai/generate-metadata
 // =============================================================================
 // Accepts a video fileName, optional userPrompt, and platforms array.
-// Verifies the session, checks the user's tier (free vs. supporter), selects
-// the appropriate OpenRouter model, and returns AI-generated title, description,
-// and tags for the video.
+// Verifies the session, selects the configured OpenRouter model, and returns
+// AI-generated title, description, and tags for the video.
 //
 // Auth: requires a valid authenticated session cookie (401 if missing/invalid).
 //
@@ -21,8 +20,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUserById } from '@/lib/repositories';
 import { generateMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
+import { getOpenRouterModelConfig } from '@/lib/ai/openrouter-config';
 import {
   MAX_GENERATE_METADATA_FILE_NAME_CHARS,
   MAX_GENERATE_METADATA_USER_PROMPT_CHARS,
@@ -137,28 +136,9 @@ export async function POST(req: NextRequest) {
   const typedPlatforms = platforms as ConnectedAccountPlatform[];
   const typedUserPrompt = userPrompt as string | undefined;
 
-  // 4. Determine user tier and select model
-  const user = await getUserById(userId);
-  if (!user) {
-    const errRes: ApiError = {
-      error: 'Not Found',
-      message: 'User not found',
-      statusCode: 404,
-    };
-    return NextResponse.json(errRes, { status: 404 });
-  }
-
-  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-  const freeModelList = (process.env.OPENROUTER_FREE_MODEL ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const premiumModelList = (process.env.OPENROUTER_PREMIUM_MODEL ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (!openRouterApiKey?.trim() || !freeModelList.length || !premiumModelList.length) {
+  // 4. Validate AI configuration and select model
+  const openRouterConfig = getOpenRouterModelConfig();
+  if (!openRouterConfig) {
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'AI service is not configured',
@@ -166,10 +146,6 @@ export async function POST(req: NextRequest) {
     };
     return NextResponse.json(errRes, { status: 500 });
   }
-
-  const isAdmin = user.role === 'admin';
-  const isSupporter = user.isSupporter || isAdmin;
-  const [model, ...fallbackModels] = isSupporter ? premiumModelList : freeModelList;
 
   // 5. Build prompts and call AI
   const { titleMax, descriptionMax } = getLimits(typedPlatforms);
@@ -181,8 +157,8 @@ export async function POST(req: NextRequest) {
     const metadata = await generateMetadata(
       systemPrompt,
       userMessage,
-      model,
-      fallbackModels.length ? fallbackModels : undefined
+      openRouterConfig.model,
+      openRouterConfig.fallbackModels.length ? openRouterConfig.fallbackModels : undefined
     );
 
     // 6. Defense-in-depth: truncate to platform limits (Issue #39)

@@ -85,7 +85,6 @@ export async function POST(req: NextRequest) {
         email,
         name,
         passwordHash,
-        isSupporter: false,
         hasCompletedOnboarding: false,
         role: 'user',
       });

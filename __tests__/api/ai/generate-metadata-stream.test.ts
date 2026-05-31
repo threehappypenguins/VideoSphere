@@ -4,7 +4,6 @@
  * Covers:
  *   - Authentication (401)
  *   - Input validation (400)
- *   - User not found (404)
  *   - Missing AI config (500)
  *   - Happy path: 200 text/event-stream with upstream body piped through
  *   - Rate-limit forwarding (429)
@@ -24,10 +23,6 @@ vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: vi.fn(),
 }));
 
-vi.mock('@/lib/repositories', () => ({
-  getUserById: vi.fn(),
-}));
-
 vi.mock('@/lib/ai/openrouter', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/ai/openrouter')>();
   return {
@@ -39,7 +34,6 @@ vi.mock('@/lib/ai/openrouter', async (importOriginal) => {
 
 import { POST } from '@/app/api/ai/generate-metadata/stream/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUserById } from '@/lib/repositories';
 import { streamMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
 
 // ---------------------------------------------------------------------------
@@ -85,23 +79,6 @@ function makeSseResponse(chunks: string[] = ['data: [DONE]\n']): Response {
   });
 }
 
-const freeUser = {
-  userId: 'user-123',
-  email: 'free@example.com',
-  isSupporter: false,
-  role: 'user' as const,
-  hasCompletedOnboarding: false,
-  $createdAt: '2026-01-01T00:00:00.000Z',
-  $updatedAt: '2026-01-01T00:00:00.000Z',
-};
-
-const premiumUser = {
-  ...freeUser,
-  userId: 'user-456',
-  email: 'supporter@example.com',
-  isSupporter: true,
-};
-
 const validBody = {
   fileName: 'my-video.mp4',
   platforms: ['youtube'],
@@ -115,8 +92,7 @@ describe('POST /api/ai/generate-metadata/stream', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-test-key');
-    vi.stubEnv('OPENROUTER_FREE_MODEL', 'openrouter/free');
-    vi.stubEnv('OPENROUTER_PREMIUM_MODEL', 'openai/gpt-4o');
+    vi.stubEnv('OPENROUTER_MODEL', 'openrouter/default');
   });
 
   afterEach(() => {
@@ -209,33 +185,12 @@ describe('POST /api/ai/generate-metadata/stream', () => {
   });
 
   // -----------------------------------------------------------------------
-  // User lookup
-  // -----------------------------------------------------------------------
-
-  describe('user lookup', () => {
-    beforeEach(() => {
-      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-    });
-
-    it('returns 404 when user is not found in the database', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce(null);
-
-      const res = await POST(makeRequest(validBody));
-
-      expect(res.status).toBe(404);
-      const body = await res.json();
-      expect(body.message).toBe('User not found');
-    });
-  });
-
-  // -----------------------------------------------------------------------
   // AI configuration
   // -----------------------------------------------------------------------
 
   describe('AI configuration', () => {
     beforeEach(() => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-      vi.mocked(getUserById).mockResolvedValue(freeUser);
     });
 
     it('returns 500 when OPENROUTER_API_KEY is not set', async () => {
@@ -249,8 +204,8 @@ describe('POST /api/ai/generate-metadata/stream', () => {
       expect(streamMetadata).not.toHaveBeenCalled();
     });
 
-    it('returns 500 when OPENROUTER_FREE_MODEL is not set', async () => {
-      vi.stubEnv('OPENROUTER_FREE_MODEL', undefined);
+    it('returns 500 when OPENROUTER_MODEL is not set', async () => {
+      vi.stubEnv('OPENROUTER_MODEL', undefined);
 
       const res = await POST(makeRequest(validBody));
 
@@ -258,16 +213,6 @@ describe('POST /api/ai/generate-metadata/stream', () => {
       const body = await res.json();
       expect(body.message).toBe('AI service is not configured');
       expect(streamMetadata).not.toHaveBeenCalled();
-    });
-
-    it('returns 500 when OPENROUTER_PREMIUM_MODEL is not set', async () => {
-      vi.stubEnv('OPENROUTER_PREMIUM_MODEL', undefined);
-
-      const res = await POST(makeRequest(validBody));
-
-      expect(res.status).toBe(500);
-      const body = await res.json();
-      expect(body.message).toBe('AI service is not configured');
     });
   });
 
@@ -277,8 +222,7 @@ describe('POST /api/ai/generate-metadata/stream', () => {
 
   describe('successful streaming', () => {
     beforeEach(() => {
-      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-456');
-      vi.mocked(getUserById).mockResolvedValue(premiumUser);
+      vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     });
 
     it('returns 200 with Content-Type text/event-stream', async () => {
@@ -301,9 +245,8 @@ describe('POST /api/ai/generate-metadata/stream', () => {
       expect(text).toContain('data: [DONE]');
     });
 
-    it('uses free model for non-supporter users', async () => {
+    it('uses OPENROUTER_MODEL for authenticated users', async () => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-      vi.mocked(getUserById).mockResolvedValue(freeUser);
       vi.mocked(streamMetadata).mockResolvedValueOnce(makeSseResponse());
 
       await POST(makeRequest(validBody));
@@ -311,30 +254,15 @@ describe('POST /api/ai/generate-metadata/stream', () => {
       expect(streamMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'openrouter/free',
+        'openrouter/default',
         expect.anything(),
         undefined
       );
     });
 
-    it('uses premium model for supporter users', async () => {
-      vi.mocked(streamMetadata).mockResolvedValueOnce(makeSseResponse());
-
-      await POST(makeRequest(validBody));
-
-      expect(streamMetadata).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        'openai/gpt-4o',
-        expect.anything(),
-        undefined
-      );
-    });
-
-    it('passes fallback models for free users when OPENROUTER_FREE_MODEL is a comma-separated list', async () => {
-      vi.stubEnv('OPENROUTER_FREE_MODEL', 'free/model-a, free/model-b , free/model-c');
+    it('passes fallback models when OPENROUTER_MODEL is a comma-separated list', async () => {
+      vi.stubEnv('OPENROUTER_MODEL', 'model-a, model-b , model-c');
       vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-      vi.mocked(getUserById).mockResolvedValue(freeUser);
       vi.mocked(streamMetadata).mockResolvedValueOnce(makeSseResponse());
 
       await POST(makeRequest(validBody));
@@ -342,24 +270,9 @@ describe('POST /api/ai/generate-metadata/stream', () => {
       expect(streamMetadata).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
-        'free/model-a',
+        'model-a',
         expect.anything(),
-        ['free/model-b', 'free/model-c']
-      );
-    });
-
-    it('passes fallback models for premium users when OPENROUTER_PREMIUM_MODEL is a comma-separated list', async () => {
-      vi.stubEnv('OPENROUTER_PREMIUM_MODEL', 'premium/model-x, premium/model-y , premium/model-z');
-      vi.mocked(streamMetadata).mockResolvedValueOnce(makeSseResponse());
-
-      await POST(makeRequest(validBody));
-
-      expect(streamMetadata).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(String),
-        'premium/model-x',
-        expect.anything(),
-        ['premium/model-y', 'premium/model-z']
+        ['model-b', 'model-c']
       );
     });
   });
@@ -371,7 +284,6 @@ describe('POST /api/ai/generate-metadata/stream', () => {
   describe('AI service errors', () => {
     beforeEach(() => {
       vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
-      vi.mocked(getUserById).mockResolvedValue(premiumUser);
     });
 
     it('returns 429 when AI raises a rate-limit error', async () => {

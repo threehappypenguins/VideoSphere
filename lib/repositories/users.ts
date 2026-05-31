@@ -18,7 +18,6 @@ function mongoDocToUser(doc: UserProfileDocument): User {
     userId: String(doc.userId ?? doc._id),
     email: String(doc.email),
     name: typeof doc.name === 'string' ? doc.name : undefined,
-    isSupporter: Boolean(doc.isSupporter),
     hasCompletedOnboarding: Boolean(doc.hasCompletedOnboarding),
     role: (doc.role as UserRole) ?? 'user',
     $createdAt: new Date(doc.createdAt).toISOString(),
@@ -38,7 +37,6 @@ export interface CreateUserData {
   email: string;
   name?: string;
   passwordHash?: string;
-  isSupporter?: boolean;
   hasCompletedOnboarding?: boolean;
   role?: UserRole;
 }
@@ -65,7 +63,6 @@ export async function createUser(data: CreateUserData): Promise<User> {
     email: data.email.trim().toLowerCase(),
     ...(name ? { name } : {}),
     ...(data.passwordHash ? { passwordHash: data.passwordHash } : {}),
-    isSupporter: data.isSupporter ?? false,
     hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
     role: data.role ?? 'user',
   });
@@ -141,22 +138,20 @@ export async function getUserAuthCredentialsByEmail(
  * Defines the shape of update user data.
  */
 export interface UpdateUserData {
-  isSupporter?: boolean;
   hasCompletedOnboarding?: boolean;
   role?: UserRole;
 }
 
 /**
- * Update user_profiles fields (e.g. isSupporter, role). Only provided fields are updated.
+ * Update user_profiles fields. Only provided fields are updated.
  *
  * Mirrors getUserById's fallback: if _id lookup misses, resolves by userId and retries.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   await connectToDatabase();
 
-  const payload: Partial<
-    Pick<UserProfileDocument, 'isSupporter' | 'hasCompletedOnboarding' | 'role'>
-  > = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  const payload: Partial<Pick<UserProfileDocument, 'hasCompletedOnboarding' | 'role'>> =
+    Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
 
   const byId = await UserProfileModel.findByIdAndUpdate(userId, payload, {
     returnDocument: 'after',
@@ -175,14 +170,6 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
   }
 
   return mongoDocToUser(byUserId);
-}
-
-/**
- * Set whether the user is a supporter (e.g. after successful Stripe payment).
- * Used by the Stripe webhook (checkout.session.completed).
- */
-export async function setSupporterStatus(userId: string, isSupporter: boolean): Promise<void> {
-  await updateUser(userId, { isSupporter });
 }
 
 // -----------------------------------------------------------------------------
@@ -234,7 +221,6 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
  */
 export interface UserCounts {
   totalUsers: number;
-  totalSupporters: number;
 }
 
 function isMongoDuplicateKeyError(error: unknown): boolean {
@@ -264,7 +250,6 @@ export async function upsertOAuthUserByEmail(email: string, name?: string): Prom
           userId,
           email: normalizedEmail,
           ...(trimmedName ? { name: trimmedName } : {}),
-          isSupporter: false,
           hasCompletedOnboarding: false,
           role: 'user',
         },
@@ -293,13 +278,9 @@ export async function upsertOAuthUserByEmail(email: string, name?: string): Prom
 export async function getUserCounts(): Promise<UserCounts> {
   await connectToDatabase();
 
-  const [totalUsers, totalSupporters] = await Promise.all([
-    UserProfileModel.countDocuments({}),
-    UserProfileModel.countDocuments({ isSupporter: true }),
-  ]);
+  const totalUsers = await UserProfileModel.countDocuments({});
 
   return {
     totalUsers,
-    totalSupporters,
   };
 }

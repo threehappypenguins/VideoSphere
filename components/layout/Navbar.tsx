@@ -288,13 +288,6 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                 Home
               </Link>
               <Link
-                href="/pricing"
-                aria-current={pathname === '/pricing' ? 'page' : undefined}
-                className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
-              >
-                Pricing
-              </Link>
-              <Link
                 href="/about"
                 aria-current={pathname === '/about' ? 'page' : undefined}
                 className={`text-sm font-medium transition-colors hover:text-foreground ${pathname === '/about' ? 'text-foreground' : 'text-muted-foreground'}`}
@@ -456,14 +449,6 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Home
-                  </Link>
-                  <Link
-                    href="/pricing"
-                    aria-current={pathname === '/pricing' ? 'page' : undefined}
-                    className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname === '/pricing' ? 'text-foreground' : 'text-muted-foreground'}`}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Pricing
                   </Link>
                   <Link
                     href="/about"

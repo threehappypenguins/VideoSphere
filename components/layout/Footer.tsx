@@ -35,14 +35,6 @@ export default function Footer() {
             <ul className="mt-4 space-y-2">
               <li>
                 <Link
-                  href="/pricing"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Pricing
-                </Link>
-              </li>
-              <li>
-                <Link
                   href="/about"
                   className="text-sm text-muted-foreground transition-colors hover:text-foreground"
                 >

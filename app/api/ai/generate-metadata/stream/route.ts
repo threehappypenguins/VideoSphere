@@ -23,8 +23,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getUserById } from '@/lib/repositories';
 import { streamMetadata, RateLimitError, OpenRouterTimeoutError } from '@/lib/ai/openrouter';
+import { getOpenRouterModelConfig } from '@/lib/ai/openrouter-config';
 import {
   MAX_GENERATE_METADATA_FILE_NAME_CHARS,
   MAX_GENERATE_METADATA_USER_PROMPT_CHARS,
@@ -139,28 +139,9 @@ export async function POST(req: NextRequest) {
   const typedPlatforms = platforms as ConnectedAccountPlatform[];
   const typedUserPrompt = userPrompt as string | undefined;
 
-  // 4. Determine user tier and select model
-  const user = await getUserById(userId);
-  if (!user) {
-    const errRes: ApiError = {
-      error: 'Not Found',
-      message: 'User not found',
-      statusCode: 404,
-    };
-    return NextResponse.json(errRes, { status: 404 });
-  }
-
-  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-  const freeModelList = (process.env.OPENROUTER_FREE_MODEL ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const premiumModelList = (process.env.OPENROUTER_PREMIUM_MODEL ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (!openRouterApiKey?.trim() || !freeModelList.length || !premiumModelList.length) {
+  // 4. Validate AI configuration and select model
+  const openRouterConfig = getOpenRouterModelConfig();
+  if (!openRouterConfig) {
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'AI service is not configured',
@@ -168,10 +149,6 @@ export async function POST(req: NextRequest) {
     };
     return NextResponse.json(errRes, { status: 500 });
   }
-
-  const isAdmin = user.role === 'admin';
-  const isSupporter = user.isSupporter || isAdmin;
-  const [model, ...fallbackModels] = isSupporter ? premiumModelList : freeModelList;
 
   // 5. Build prompts
   const { titleMax, descriptionMax } = getLimits(typedPlatforms);
@@ -184,9 +161,9 @@ export async function POST(req: NextRequest) {
     const openrouterResponse = await streamMetadata(
       systemPrompt,
       userMessage,
-      model,
+      openRouterConfig.model,
       req.signal,
-      fallbackModels.length ? fallbackModels : undefined
+      openRouterConfig.fallbackModels.length ? openRouterConfig.fallbackModels : undefined
     );
 
     if (!openrouterResponse.body) {

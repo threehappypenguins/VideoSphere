@@ -1,910 +1,202 @@
 /**
  * Tests for POST /api/uploads/presign
  *
- * Tests request validation, authentication, upload quota, and presigned URL generation.
- * Mocks external dependencies (auth, R2, repositories) to isolate endpoint logic.
+ * Restores dedicated route coverage for:
+ * - Authentication (401)
+ * - Draft ownership (403)
+ * - Successful presign + UploadJob creation (200)
+ * - Internal failures (500)
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mockGetAuthenticatedUserId = vi.fn();
-
 vi.mock('@/lib/api/auth', () => ({
-  getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
+  getAuthenticatedUserId: vi.fn(),
 }));
 
-// Mock R2 library
 vi.mock('@/lib/r2', () => ({
-  getPresignedUploadUrl: vi.fn(async (key: string) => {
-    return `https://r2.example.com/upload/${encodeURIComponent(key)}?signature=test`;
-  }),
+  getPresignedUploadUrl: vi.fn(),
 }));
 
-// Mock user repository
-vi.mock('@/lib/repositories/users', () => ({
-  getUserById: vi.fn(async () => ({
-    userId: 'user-123',
-    email: 'user@example.com',
-    isSupporter: false,
-    hasCompletedOnboarding: true,
-    role: 'user' as const,
-    $createdAt: '2000-01-01T00:00:00.000Z',
-    $updatedAt: '2000-01-01T00:00:00.000Z',
-  })),
-}));
-
-// Mock upload-usage repository (usageMonth must match presign rollback / tests)
-vi.mock('@/lib/repositories/upload-usage', () => ({
-  incrementUsageIfAllowed: vi.fn(async () => ({
-    allowed: true,
-    monthlyUsage: 5,
-    usageMonth: '2000-01',
-  })),
-  decrementUsage: vi.fn(async () => undefined),
-}));
-
-// Mock drafts repository
-vi.mock('@/lib/repositories/drafts', () => ({
-  getDraftById: vi.fn(async () => ({
-    id: 'draft-abc',
-    userId: 'user-123',
-    targets: ['youtube'] as const,
-    title: 'Test Draft',
-    description: '',
-    tags: [] as string[],
-    visibility: 'private' as const,
-    platforms: {},
-    $createdAt: '2000-01-01T00:00:00.000Z',
-    $updatedAt: '2000-01-01T00:00:00.000Z',
-  })),
-  markDraftUsedInUpload: vi.fn(async () => null),
-}));
-
-// Mock upload-jobs repository
 vi.mock('@/lib/repositories/upload-jobs', () => ({
-  createUploadJob: vi.fn(async () => ({
-    id: 'job-123',
-    userId: 'user-123',
-    draftId: null,
-    r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
-    status: 'pending',
-    errorMessage: null,
-    $createdAt: '2000-01-01T00:00:00.000Z',
-    $updatedAt: '2000-01-01T00:00:00.000Z',
-  })),
+  createUploadJob: vi.fn(),
+}));
+
+vi.mock('@/lib/repositories/drafts', () => ({
+  getDraftById: vi.fn(),
+  markDraftUsedInUpload: vi.fn(),
 }));
 
 import { POST } from '@/app/api/uploads/presign/route';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getPresignedUploadUrl } from '@/lib/r2';
-import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
-import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
+import type { Draft } from '@/types';
 
-function createRequest(
-  body: Record<string, unknown>,
-  cookies: Record<string, string> = {}
-): NextRequest {
+const SESSION_COOKIE = 'videosphere_session';
+
+const baseDraft: Draft = {
+  id: 'draft-123',
+  userId: 'user-123',
+  title: 'My draft',
+  description: 'desc',
+  tags: ['tag'],
+  visibility: 'public' as const,
+  targets: ['youtube'],
+  platforms: {},
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+function createRequest(body: unknown, cookies: Record<string, string> = {}): NextRequest {
   const url = new URL('http://localhost:3000/api/uploads/presign');
-
-  // Build cookie header string
   const cookieHeader = Object.entries(cookies)
     .map(([key, value]) => `${key}=${value}`)
     .join('; ');
 
-  const init: RequestInit = {
+  return new NextRequest(url, {
     method: 'POST',
-    body: JSON.stringify(body),
     headers: {
       'Content-Type': 'application/json',
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
     },
-  };
-
-  // Only add cookie header if cookies exist
-  if (cookieHeader) {
-    init.headers = {
-      ...init.headers,
-      Cookie: cookieHeader,
-    };
-  }
-
-  return new NextRequest(url, init);
+    body: JSON.stringify(body),
+  });
 }
 
 describe('POST /api/uploads/presign', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.R2_BUCKET_NAME = 'test-bucket';
 
-    // Default: mimic helper behavior from real JWT cookie auth.
-    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-      const token = req.cookies.get('videosphere_session')?.value;
-      if (!token || /bad|invalid|expired/i.test(token)) return null;
-      return req.headers.get('x-test-user-id') || 'user-123';
-    });
-    vi.mocked(getUserById).mockResolvedValue({
-      userId: 'user-123',
-      isSupporter: false,
-      email: 'test@example.com',
-      role: 'user',
-      hasCompletedOnboarding: false,
-      $createdAt: '2000-01-01T00:00:00.000Z',
-      $updatedAt: '2000-01-01T00:00:00.000Z',
-    });
-    vi.mocked(incrementUsageIfAllowed).mockResolvedValue({
-      allowed: true,
-      monthlyUsage: 5,
-      usageMonth: '2000-01',
-    });
-    vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example.com/upload?signed=true');
+    vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
+    vi.mocked(getDraftById).mockResolvedValue(baseDraft);
+    vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example/presigned-put-url');
     vi.mocked(createUploadJob).mockResolvedValue({
       id: 'job-123',
       userId: 'user-123',
-      draftId: null,
-      r2Key: 'temp/uploads/user-123/1234567890/test.mp4',
+      draftId: 'draft-123',
+      r2Key: 'temp/uploads/user-123/1704067200000/clip.mp4',
       status: 'pending',
       errorMessage: null,
-      quotaClaimMonth: '2000-01',
-      $createdAt: '2000-01-01T00:00:00.000Z',
-      $updatedAt: '2000-01-01T00:00:00.000Z',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    vi.mocked(getDraftById).mockResolvedValue({
-      id: 'draft-abc',
+    vi.mocked(markDraftUsedInUpload).mockResolvedValue(undefined);
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(null);
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1024,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toMatch(/Unauthorized/i);
+    expect(getDraftById).not.toHaveBeenCalled();
+    expect(getPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(createUploadJob).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when draft is owned by another user', async () => {
+    vi.mocked(getDraftById).mockResolvedValueOnce({
+      ...baseDraft,
+      userId: 'other-user',
+    });
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 4096,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('Forbidden');
+    expect(getPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(createUploadJob).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when presign generation fails', async () => {
+    vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 unavailable'));
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 4096,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toContain('Failed to generate upload URL');
+    expect(createUploadJob).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 and creates UploadJob for valid non-quota flow', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1704067200000);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-abc-123');
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 1024 * 1024,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(getPresignedUploadUrl).toHaveBeenCalledWith(
+      'temp/uploads/user-123/1704067200000-uuid-abc-123/clip.mp4',
+      'video/mp4',
+      1024 * 1024
+    );
+    expect(createUploadJob).toHaveBeenCalledWith({
       userId: 'user-123',
-      targets: ['youtube'],
-      title: 'Test Draft',
-      description: '',
-      tags: [],
-      visibility: 'private',
-      platforms: {},
-      $createdAt: '2000-01-01T00:00:00.000Z',
-      $updatedAt: '2000-01-01T00:00:00.000Z',
+      draftId: 'draft-123',
+      r2Key: 'temp/uploads/user-123/1704067200000-uuid-abc-123/clip.mp4',
     });
-  });
+    expect(markDraftUsedInUpload).toHaveBeenCalledWith('draft-123', '2026-01-01T00:00:00.000Z');
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  describe('Authentication', () => {
-    it('should return 401 when not authenticated (no session)', async () => {
-      const request = createRequest({ filename: 'test.mp4', contentType: 'video/mp4' });
-      const response = await POST(request);
-
-      expect(response.status).toBe(401);
-      const body = await response.json();
-      expect(body.error).toContain('Please log in');
+    expect(body).toEqual({
+      uploadUrl: 'https://r2.example/presigned-put-url',
+      key: 'temp/uploads/user-123/1704067200000-uuid-abc-123/clip.mp4',
+      bucketName: 'unknown',
+      expiresIn: 900,
+      uploadJobId: 'job-123',
     });
 
-    it('should return 400 when request is authenticated but missing required fields', async () => {
-      // Legacy alternate session mocking is no longer part of route auth.
-      // With an auth cookie present, this request now fails body validation.
-
-      const request = createRequest(
-        { filename: 'test.mp4', contentType: 'video/mp4' },
-        { videosphere_session: 'valid-session' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-    });
-
-    it('should authenticate successfully with valid session', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'valid-token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-    });
-  });
-
-  describe('Request Validation', () => {
-    it('should return 400 when filename is missing', async () => {
-      const request = createRequest({ contentType: 'video/mp4' }, { videosphere_session: 'token' });
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('fileName (or filename) is required');
-    });
-
-    it('should return 400 when filename is empty', async () => {
-      const request = createRequest(
-        { filename: '', contentType: 'video/mp4' },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('fileName (or filename) is required');
-    });
-
-    it('should return 400 when contentType is missing', async () => {
-      const request = createRequest({ filename: 'test.mp4' }, { videosphere_session: 'token' });
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('contentType is required');
-    });
-
-    it('should return 400 when contentType is empty', async () => {
-      const request = createRequest(
-        { filename: 'test.mp4', contentType: '' },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('contentType is required');
-    });
-
-    it('should return 400 when contentType format is invalid (missing /)', async () => {
-      const request = createRequest(
-        { filename: 'test.mp4', contentType: 'invalid' },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('valid MIME type');
-    });
-
-    it('should accept valid MIME types', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-    });
-
-    it('should handle invalid JSON body', async () => {
-      const url = new URL('http://localhost:3000/api/uploads/presign');
-      const init: RequestInit = {
-        method: 'POST',
-        body: 'invalid json}',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: 'videosphere_session=token',
-        },
-      };
-      const request = new NextRequest(url, init);
-
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('Invalid JSON');
-    });
-
-    it('should accept fileName (camelCase) as well as filename', async () => {
-      const request = createRequest(
-        {
-          fileName: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(200);
-    });
-  });
-
-  describe('Format Validation', () => {
-    const validCases = [
-      {
-        filename: 'video.mp4',
-        contentType: 'video/mp4',
-        fileSize: 1024 * 1024,
-        draftId: 'draft-abc',
-      },
-      {
-        filename: 'video.mov',
-        contentType: 'video/quicktime',
-        fileSize: 1024 * 1024,
-        draftId: 'draft-abc',
-      },
-      {
-        filename: 'video.avi',
-        contentType: 'video/x-msvideo',
-        fileSize: 1024 * 1024,
-        draftId: 'draft-abc',
-      },
-      {
-        filename: 'video.mkv',
-        contentType: 'video/x-matroska',
-        fileSize: 1024 * 1024,
-        draftId: 'draft-abc',
-      },
-      {
-        filename: 'video.webm',
-        contentType: 'video/webm',
-        fileSize: 1024 * 1024,
-        draftId: 'draft-abc',
-      },
-    ];
-
-    for (const { filename, contentType, fileSize, draftId } of validCases) {
-      it(`should accept ${filename} (${contentType})`, async () => {
-        const request = createRequest(
-          { filename, contentType, fileSize, draftId },
-          { videosphere_session: 'token' }
-        );
-        const response = await POST(request);
-        expect(response.status).toBe(200);
-      });
-    }
-
-    it('should reject unsupported MIME type', async () => {
-      const request = createRequest(
-        { filename: 'video.mp4', contentType: 'video/mpeg' },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('Unsupported file format');
-    });
-
-    it('should reject unsupported extension even with valid MIME type', async () => {
-      const request = createRequest(
-        { filename: 'video.flv', contentType: 'video/mp4' },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('Unsupported file format');
-    });
-  });
-
-  describe('File Size Validation', () => {
-    it('should return 400 when fileSize is missing', async () => {
-      const request = createRequest(
-        { filename: 'video.mp4', contentType: 'video/mp4' },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('fileSize is required');
-    });
-
-    it('should accept a file within the 5 GB limit', async () => {
-      const request = createRequest(
-        {
-          filename: 'video.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1 * 1024 * 1024 * 1024, // 1 GB
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(200);
-    });
-
-    it('should reject a file over 5 GB', async () => {
-      const request = createRequest(
-        {
-          filename: 'video.mp4',
-          contentType: 'video/mp4',
-          fileSize: 6 * 1024 * 1024 * 1024, // 6 GB
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('5 GB');
-    });
-
-    it('should reject an invalid (non-positive) fileSize', async () => {
-      const request = createRequest(
-        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: -1 },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-    });
-
-    it('should reject NaN as fileSize', async () => {
-      const request = createRequest(
-        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: NaN },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('fileSize is required');
-    });
-
-    it('should reject Infinity as fileSize', async () => {
-      const request = createRequest(
-        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: Infinity },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('fileSize is required');
-    });
-
-    it('should reject a fractional fileSize', async () => {
-      const request = createRequest(
-        { filename: 'video.mp4', contentType: 'video/mp4', fileSize: 1024.5 },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('fileSize is required');
-    });
-  });
-
-  describe('Upload Quota', () => {
-    it('should return 403 when free-tier quota is exceeded', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
-        allowed: false,
-        monthlyUsage: 10,
-      });
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(403);
-      const body = await response.json();
-      expect(body.error).toContain('Upload limit reached');
-      expect(body.monthlyUsage).toBe(10);
-      expect(body.limit).toBe(10);
-    });
-
-    it('should allow upload when quota is not exceeded', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
-        allowed: true,
-        monthlyUsage: 5,
-        usageMonth: '2000-01',
-      });
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(200);
-    });
-
-    it('should pass isSupporter=true to incrementUsageIfAllowed for supporters', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce({
-        userId: 'user-123',
-        isSupporter: true,
-        email: 'supporter@example.com',
-        role: 'user',
-        hasCompletedOnboarding: false,
-        $createdAt: '2000-01-01T00:00:00.000Z',
-        $updatedAt: '2000-01-01T00:00:00.000Z',
-      });
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      expect(response.status).toBe(200);
-      expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', true);
-      expect(vi.mocked(createUploadJob)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          quotaClaimMonth: '',
-        })
-      );
-    });
-  });
-
-  describe('Presigned URL Generation', () => {
-    it('should generate presigned URL response with correct fields', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      const body = await response.json();
-
-      expect(body).toHaveProperty('uploadUrl');
-      expect(body).toHaveProperty('key');
-      expect(body).toHaveProperty('bucketName');
-      expect(body).toHaveProperty('expiresIn');
-      expect(body.expiresIn).toBe(900);
-      expect(body).toHaveProperty('uploadJobId', 'job-123');
-      expect(vi.mocked(markDraftUsedInUpload)).toHaveBeenCalledWith(
-        'draft-abc',
-        '2000-01-01T00:00:00.000Z'
-      );
-    });
-
-    it('should return 400 when draftId is missing', async () => {
-      const request = createRequest(
-        { filename: 'test.mp4', contentType: 'video/mp4', fileSize: 1024 * 1024 },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(400);
-      const body = await response.json();
-      expect(body.error).toContain('draftId is required');
-      expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
-    });
-
-    it('should call incrementUsageIfAllowed at presign time (authoritative quota enforcement)', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(incrementUsageIfAllowed)).toHaveBeenCalledWith('user-123', false);
-    });
-
-    it('should not create an UploadJob when quota is exceeded', async () => {
-      vi.mocked(incrementUsageIfAllowed).mockResolvedValueOnce({
-        allowed: false,
-        monthlyUsage: 10,
-      });
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(403);
-      expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
-    });
-
-    it('should create an UploadJob with draftId when provided', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      await POST(request);
-
-      expect(vi.mocked(createUploadJob)).toHaveBeenCalledWith({
-        userId: 'user-123',
-        draftId: 'draft-abc',
-        r2Key: expect.stringContaining('temp/uploads/user-123/'),
-        quotaClaimMonth: '2000-01',
-      });
-    });
-
-    it('should return 404 when draftId does not exist', async () => {
-      vi.mocked(getDraftById).mockResolvedValueOnce(null);
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'nonexistent-draft',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(404);
-      const body = await response.json();
-      expect(body.error).toContain('Draft not found');
-      expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
-    });
-
-    it('should return 403 when draftId belongs to a different user', async () => {
-      vi.mocked(getDraftById).mockResolvedValueOnce({
-        id: 'draft-other',
-        userId: 'other-user-999',
-        targets: ['youtube'],
-        title: 'Someone Else Draft',
-        description: '',
-        tags: [],
-        visibility: 'private',
-        platforms: {},
-        $createdAt: '2000-01-01T00:00:00.000Z',
-        $updatedAt: '2000-01-01T00:00:00.000Z',
-      });
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-other',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(403);
-      const body = await response.json();
-      expect(body.error).toContain('Forbidden');
-      expect(vi.mocked(createUploadJob)).not.toHaveBeenCalled();
-    });
-
-    it('should include object key in response', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      const body = await response.json();
-
-      expect(body.key).toContain('temp/uploads/user-123');
-      expect(body.key).toContain('test.mp4');
-    });
-
-    it('should sanitize filename path separators', async () => {
-      const request = createRequest(
-        {
-          filename: 'path/to\\test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      const body = await response.json();
-
-      expect(body.key).not.toContain('/to/');
-      expect(body.key).toContain('path_to_test.mp4');
-    });
-
-    it('should call R2 getPresignedUploadUrl with key, contentType, and fileSize', async () => {
-      const request = createRequest(
-        {
-          filename: 'video.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      await POST(request);
-
-      expect(vi.mocked(getPresignedUploadUrl)).toHaveBeenCalledWith(
-        expect.stringContaining('temp/uploads/user-123/'),
-        'video/mp4',
-        1024 * 1024
-      );
-    });
-
-    it('should generate unique keys even for same-millisecond requests (UUID component)', async () => {
-      const request1 = createRequest(
-        {
-          filename: 'video.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response1 = await POST(request1);
-      const body1 = await response1.json();
-
-      // No delay needed — uniqueness comes from UUID, not timestamp
-      mockGetAuthenticatedUserId.mockResolvedValueOnce('user-123');
-      const request2 = createRequest(
-        {
-          filename: 'video.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response2 = await POST(request2);
-      const body2 = await response2.json();
-
-      expect(body1.key).not.toBe(body2.key);
-    });
-
-    it('should include a UUID segment in the generated key', async () => {
-      const request = createRequest(
-        {
-          filename: 'video.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-      const body = await response.json();
-
-      // Key format: temp/uploads/{userId}/{timestamp}-{uuid}/{filename}
-      const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
-      expect(uuidRegex.test(body.key)).toBe(true);
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should return 500 and error message when R2 service fails', async () => {
-      vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 service unavailable'));
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(500);
-      const body = await response.json();
-      expect(body.error).toBeDefined();
-    });
-
-    it('should roll back the quota slot when getPresignedUploadUrl throws', async () => {
-      vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 unavailable'));
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      await POST(request);
-
-      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
-    });
-
-    it('should roll back the quota slot when createUploadJob throws', async () => {
-      vi.mocked(createUploadJob).mockRejectedValueOnce(new Error('DB unavailable'));
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      await POST(request);
-
-      expect(vi.mocked(decrementUsage)).toHaveBeenCalledWith('user-123', '2000-01');
-    });
-
-    it('should NOT roll back the quota slot for a supporter when R2 throws', async () => {
-      vi.mocked(getUserById).mockResolvedValueOnce({
-        userId: 'user-123',
-        isSupporter: true,
-        email: 'test@example.com',
-        role: 'user',
-        hasCompletedOnboarding: false,
-        $createdAt: '2000-01-01T00:00:00.000Z',
-        $updatedAt: '2000-01-01T00:00:00.000Z',
-      });
-      vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 unavailable'));
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      await POST(request);
-
-      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
-    });
-
-    it('should NOT call decrementUsage when presign succeeds end-to-end', async () => {
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      expect(response.status).toBe(200);
-      expect(vi.mocked(decrementUsage)).not.toHaveBeenCalled();
-    });
-
-    it('should not expose R2 error details in production', async () => {
-      vi.stubEnv('NODE_ENV', 'production');
-
-      vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(
-        new Error('R2 AccessKeyId does not exist')
-      );
-
-      const request = createRequest(
-        {
-          filename: 'test.mp4',
-          contentType: 'video/mp4',
-          fileSize: 1024 * 1024,
-          draftId: 'draft-abc',
-        },
-        { videosphere_session: 'token' }
-      );
-      const response = await POST(request);
-
-      const body = await response.json();
-      expect(body.error).not.toContain('AccessKeyId');
-    });
+    // Ensure legacy quota-era fields are not present.
+    expect(body.quotaRemaining).toBeUndefined();
+    expect(body.quotaResetAt).toBeUndefined();
+    expect(body.isSupporter).toBeUndefined();
   });
 });

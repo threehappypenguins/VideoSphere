@@ -35,7 +35,6 @@ const baseDoc = {
   userId: 'auth-user-1',
   email: 'a@example.com',
   name: 'Ada',
-  isSupporter: false,
   hasCompletedOnboarding: false,
   role: 'user',
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -80,15 +79,27 @@ describe('users repository (mongo)', () => {
   });
 
   it('updates user by id and returns updated entity', async () => {
-    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ ...baseDoc, isSupporter: true }));
+    const updatedDoc = {
+      ...baseDoc,
+      role: 'admin',
+      hasCompletedOnboarding: true,
+    };
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult(updatedDoc));
 
-    const user = await updateUser('auth-user-1', { isSupporter: true });
+    const user = await updateUser('auth-user-1', {
+      role: 'admin',
+      hasCompletedOnboarding: true,
+    });
 
     expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
       'auth-user-1',
-      { isSupporter: true },
+      expect.objectContaining({
+        role: 'admin',
+        hasCompletedOnboarding: true,
+      }),
       expect.objectContaining({ returnDocument: 'after' })
     );
-    expect(user.isSupporter).toBe(true);
+    expect(user.role).toBe('admin');
+    expect(user.hasCompletedOnboarding).toBe(true);
   });
 });

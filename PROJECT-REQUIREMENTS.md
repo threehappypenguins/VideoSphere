@@ -85,25 +85,7 @@ Nothing — no database layer, no BaaS SDK, no schema. This is entirely your tea
 
 ---
 
-### Requirement 3: Freemium Model with Payment Processing
-
-Your application must offer a free tier and a premium tier. Users must be able to upgrade by completing a payment, which unlocks additional functionality.
-
-**What this means:**
-- Define what is available for free and what requires a paid upgrade
-- Implement a payment flow that allows users to purchase the premium tier
-- The application must detect a user's subscription status and conditionally show or hide premium features
-- The Pricing page (already provided as a UI shell) must be wired up to your payment solution
-
-**How to approach it:**
-Use test mode throughout development — never process real payments. Refer to `/docs/payments.md` for provider options and integration guidance. Stripe is the recommended option.
-
-**What is provided:**
-The Pricing page UI shell and a placeholder subscription status section on the Profile page. No payment SDK, no webhook handling, no subscription logic — all your team's work.
-
----
-
-### Requirement 4: AI-Powered Feature
+### Requirement 3: AI-Powered Feature
 
 Your application must include at least one AI-powered feature that meaningfully enhances the user experience or adds functionality.
 
@@ -120,7 +102,7 @@ Nothing — no AI SDK, no API routes for AI, no UI components. Entirely your tea
 
 ---
 
-### Requirement 5: Admin Dashboard
+### Requirement 4: Admin Dashboard
 
 Your application must include a protected admin area accessible only to users with an admin role.
 
@@ -138,7 +120,7 @@ The Admin Dashboard UI shell with placeholder stat cards and a data table. `prox
 
 ---
 
-### Requirement 6: Responsive Design
+### Requirement 5: Responsive Design
 
 Your application must work correctly and look professional on mobile, tablet, and desktop screen sizes.
 

@@ -19,18 +19,12 @@
  *   bucketName: string        - R2 bucket name
  *   expiresIn: number         - URL expiry in seconds (900)
  *   uploadJobId: string       - ID of the created UploadJob record in persistent storage
- *   isSupporter: boolean      - Whether the authenticated user is a Supporter (for UI display)
  * }
  *
  * Error responses:
  * - 400 Bad Request: Missing or invalid fields (filename, contentType, fileSize, draftId),
  *                    unsupported format, or file exceeds 5 GB
  * - 401 Unauthorized: Not authenticated
- * - 403 Forbidden (quota): Free-tier monthly upload limit reached (claimed atomically at
- *                  presign time — a slot is reserved even if the upload is later cancelled
- *                  or the presigned URL expires unused; the slot is rolled back if
- *                  URL generation or UploadJob creation fails server-side)
- *                  Body: { error, message, monthlyUsage, limit, isSupporter }
  * - 403 Forbidden (ownership): Supplied draftId belongs to a different user
  *                  Body: { error }
  * - 404 Not Found: Supplied draftId does not exist
@@ -49,20 +43,15 @@
  * - Format validated by both MIME type and file extension
  * - draftId is required; ownership is verified (draft.userId === authenticatedUserId)
  *   before creating an UploadJob — prevents IDOR attacks
- * - Quota is enforced atomically at presign time (increment-first strategy) so that
- *   the limit cannot be bypassed by omitting the /complete call
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getPresignedUploadUrl } from '@/lib/r2';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { incrementUsageIfAllowed, decrementUsage } from '@/lib/repositories/upload-usage';
-import { getUserById } from '@/lib/repositories/users';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
-const FREE_TIER_LIMIT = 10;
 
 const ALLOWED_MIME_TYPES = new Set([
   'video/mp4',
@@ -87,7 +76,6 @@ interface PresignResponse {
   bucketName: string;
   expiresIn: number;
   uploadJobId: string;
-  isSupporter: boolean;
 }
 
 function getExtension(filename: string): string {
@@ -217,44 +205,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Forbidden: you do not own this draft' }, { status: 403 });
     }
 
-    // Atomically claim a quota slot before issuing the presigned URL.
-    // Using incrementUsageIfAllowed here (not canUpload) ensures the limit is
-    // enforced server-side regardless of whether the client ever calls /complete.
-    // Cancelled or expired uploads consume the slot for the month; the 15-minute
-    // URL expiry naturally bounds how long a slot can be "in flight" without use.
-    const user = await getUserById(userId);
-    const isSupporter = user?.isSupporter ?? false;
-    const isAdmin = user?.role === 'admin';
-    const hasUnlimitedUploads = isSupporter || isAdmin;
-    const { allowed, monthlyUsage, usageMonth } = await incrementUsageIfAllowed(
-      userId,
-      hasUnlimitedUploads
-    );
-
-    if (!allowed) {
-      return NextResponse.json(
-        {
-          error: 'Upload limit reached',
-          message: `Free-tier users are limited to ${FREE_TIER_LIMIT} uploads per month. Upgrade to Supporter for unlimited uploads.`,
-          monthlyUsage,
-          limit: FREE_TIER_LIMIT,
-          isSupporter,
-        },
-        { status: 403 }
-      );
-    }
-
     // Generate R2 object key and presigned upload URL, then create the UploadJob.
-    // These steps are wrapped in a try/catch so that any server-side failure after
-    // the quota slot was claimed triggers a best-effort rollback of that slot.
-    // Supporters bypass the counter entirely, so no rollback is needed for them.
+    // These steps are wrapped in a try/catch so failures return a consistent 500.
     const key = generateObjectKey(userId, filename);
     let uploadUrl: string;
     let uploadJob: Awaited<ReturnType<typeof createUploadJob>>;
     try {
-      const quotaClaimMonth = hasUnlimitedUploads ? '' : (usageMonth ?? '');
       uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
-      uploadJob = await createUploadJob({ userId, draftId, r2Key: key, quotaClaimMonth });
+      uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
       await markDraftUsedInUpload(draftId, uploadJob.$createdAt).catch((err) => {
         console.error(
           `[POST /api/uploads/presign] Failed to mark draft ${draftId} usedInUploadAt:`,
@@ -262,16 +220,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       });
     } catch (err) {
-      // Roll back the quota slot so the user isn't charged for a failed presign.
-      // Best-effort: log but don't let a rollback failure shadow the original error.
-      if (!hasUnlimitedUploads && usageMonth) {
-        await decrementUsage(userId, usageMonth).catch((rollbackErr) => {
-          console.error(
-            `Failed to roll back quota slot for user ${userId} after presign error:`,
-            rollbackErr
-          );
-        });
-      }
       throw err; // fall through to outer catch → 500
     }
 
@@ -281,7 +229,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       bucketName: process.env.R2_BUCKET_NAME || 'unknown',
       expiresIn: 900,
       uploadJobId: uploadJob.id,
-      isSupporter,
     };
 
     return NextResponse.json(response, { status: 200 });

@@ -25,7 +25,6 @@ describe('GET /api/auth/session', () => {
       userId: 'user-1',
       email: 'creator@example.com',
       name: 'Ada Lovelace',
-      isSupporter: false,
       hasCompletedOnboarding: false,
       role: 'user',
       $createdAt: '2026-01-01T00:00:00.000Z',

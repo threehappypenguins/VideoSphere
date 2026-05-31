@@ -6,7 +6,7 @@
 
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
-import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/app/api/auth/oauth/google/route';
+import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import { upsertOAuthUserByEmail } from '@/lib/repositories/users';
 import { safeRedirect } from '@/lib/safe-redirect';
