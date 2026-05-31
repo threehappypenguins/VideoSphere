@@ -856,7 +856,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, branching st
 
 ### License
 
-This project is open source. See the LICENSE file for details.
+This project is open source.
 
 ---
 
