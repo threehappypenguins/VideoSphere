@@ -3,8 +3,6 @@
 // =============================================================================
 
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { CardNoiseBackground, PAGE_SEEDS } from '@/components/ui/GaussianNoiseBackground';
 
 /**
  * Provides static page metadata for this route segment.

@@ -142,9 +142,9 @@ The primary user journey follows this sequence:
 │    Platforms  │     │    (metadata + target platform selection) │     │    Video File    │     │    & Track     │
 └──────────────┘     └──────────────────────────────────────────┘     └──────────────────┘     └────────────────┘
  OAuth2 connect       Title, description, tags, thumbnails,            Upload to Cloudflare    VideoSphere uploads
- YouTube, Vimeo       visibility, per-platform overrides,              R2 as temporary         to each platform
- accounts             and which platforms to target — all on           staging storage          via API; user
-                      the draft edit page (/dashboard/drafts/[id])                              tracks job status
+ YouTube, Vimeo,      visibility, per-platform overrides,              R2 as temporary         to each platform
+ Facebook +           and which platforms to target — all on           staging storage          via API; user
+ SermonAudio API key  the draft edit page (/dashboard/drafts/[id])                              tracks job status
 ```
 
 ### Detailed Flow
@@ -152,13 +152,14 @@ The primary user journey follows this sequence:
 1. **Connect Platforms (one-time setup)**
    - User navigates to Settings / Connected Accounts.
    - Clicks "Connect YouTube" → redirected to Google OAuth2 consent screen → grants VideoSphere permission to upload videos on their behalf → redirected back.
-   - Repeats for Vimeo.
-   - Connected accounts are stored securely (OAuth tokens persisted in MongoDB).
+   - Repeats OAuth flow for Vimeo and Facebook.
+   - For SermonAudio, user enters their SermonAudio API key in Connected Accounts (no OAuth redirect).
+   - Connected accounts are stored securely (OAuth tokens and API keys persisted encrypted in MongoDB).
 
 2. **Create Draft with Metadata**
    - User clicks "New Draft" on the Dashboard and is taken to `/dashboard/drafts/[id]`.
    - User enters a default title, description, and tags that apply to all selected platforms.
-   - User selects which connected platforms this video should be distributed to (e.g., YouTube + Vimeo) directly on the draft form.
+   - User selects which connected platforms this video should be distributed to (e.g., YouTube + Vimeo + SermonAudio + Facebook) directly on the draft form.
    - Optionally, user clicks "Customize per platform" to override title/description/tags for a specific platform.
    - User selects or uploads a thumbnail per platform.
    - User optionally clicks "Generate with AI" to auto-fill title, description, and tags based on the video file name or a user-provided prompt.
@@ -176,7 +177,7 @@ The primary user journey follows this sequence:
 4. **Distribute & Track**
    - User clicks "Distribute Now".
    - VideoSphere creates a **Platform Upload** record for each target platform under the Upload Job.
-   - The server-side process reads the video from R2 and uploads it to each platform's API (YouTube Data API v3, Vimeo API).
+   - The server-side process reads the video from R2 and uploads it to each platform's API (YouTube Data API v3, Vimeo API, SermonAudio API, Facebook Graph API).
    - The Dashboard shows real-time job status: `pending → uploading → distributing → completed` (or `failed` with error details).
    - Once all platform uploads complete, the temporary file in R2 is cleaned up (or retained for a configurable period).
    - User receives a notification (in-app) when distribution is complete.

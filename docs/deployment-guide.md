@@ -20,27 +20,39 @@ This guide prioritizes self-hosted Docker deployment. Managed platforms like Ver
 
 ### Step-by-Step
 
-1. **Create production environment variables**
-   - Copy your local `.env.local` values into a production `.env` file or secret manager.
+1. **Create `.env.local` for the compose stack**
+   - `docker-compose.yml` uses `env_file: .env.local` for the app service.
+   - Copy `.env.example` to `.env.local` and set required values.
+   - At minimum, ensure these are set: `MONGO_ROOT_PASSWORD`, `MONGODB_URI`, `JWT_SECRET`, `JWT_SESSION_COOKIE_NAME`, `TOKEN_ENCRYPTION_KEY`.
    - Do not commit secrets.
 
-2. **Configure compose file for your environment**
+2. **Make Compose interpolation variables available**
+   - `MONGO_ROOT_PASSWORD` is interpolated by Compose itself (`${...}`) before service-level `env_file` is loaded.
+   - Start compose with an explicit env file so interpolation works reliably:
+
+```bash
+docker compose --env-file .env.local config
+```
+
+If this command renders successfully, Compose can resolve required variables.
+
+3. **Configure compose file for your environment**
    - Set image/tag, ports, and restart policy.
    - Configure persistent volumes for MongoDB.
 
-3. **Start the stack**
+4. **Start the stack**
 
 ```bash
-docker-compose up -d
+docker compose --env-file .env.local up -d
 ```
 
-4. **Verify health**
+5. **Verify health**
    - Check container status with `docker ps`.
    - Verify the app health endpoint and platform integrations.
 
-5. **Operate and update**
+6. **Operate and update**
    - Pull new image tags.
-   - Restart with `docker-compose up -d`.
+   - Restart with `docker compose --env-file .env.local up -d`.
    - Keep database backups and rotate credentials.
 
 ## Optional: Managed Hosting Platforms
