@@ -6,7 +6,6 @@ const USERS_PAGE_SIZE = 50;
 
 interface AdminStats {
   totalUsers: number;
-  uploadsThisMonth: number;
   activeDrafts: number;
 }
 
@@ -28,7 +27,6 @@ interface UsersResponseData {
 
 interface StatsResponseData {
   totalUsers: number;
-  uploadsThisMonth: number;
   activeDrafts: number;
 }
 
@@ -120,17 +118,11 @@ export default function AdminDashboardPage() {
           <p className="mt-2 text-muted-foreground">Application overview and management tools.</p>
         </div>
 
-        <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-border bg-background p-6">
             <p className="text-sm font-medium text-muted-foreground">Total Users</p>
             <p className="mt-2 text-3xl font-bold text-foreground">
               {statsLoading ? '...' : (stats?.totalUsers ?? 0)}
-            </p>
-          </div>
-          <div className="rounded-xl border border-border bg-background p-6">
-            <p className="text-sm font-medium text-muted-foreground">Uploads This Month</p>
-            <p className="mt-2 text-3xl font-bold text-foreground">
-              {statsLoading ? '...' : (stats?.uploadsThisMonth ?? 0)}
             </p>
           </div>
           <div className="rounded-xl border border-border bg-background p-6">

@@ -9,7 +9,6 @@ import type { ApiError, ApiResponse } from '@/types';
  */
 export interface AdminStats {
   totalUsers: number;
-  uploadsThisMonth: number;
   activeDrafts: number;
 }
 
@@ -27,7 +26,6 @@ export async function GET(request: NextRequest) {
 
     const stats: AdminStats = {
       totalUsers: userCounts.totalUsers,
-      uploadsThisMonth: 0,
       activeDrafts,
     };
 

@@ -106,7 +106,6 @@ describe('GET /api/admin/stats', () => {
     expect(body).toEqual({
       data: {
         totalUsers: 120,
-        uploadsThisMonth: 0,
         activeDrafts: 8,
       },
     });

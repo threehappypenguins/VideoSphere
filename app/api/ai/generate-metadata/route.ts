@@ -21,6 +21,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { generateMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
+import { getOpenRouterModelConfig } from '@/lib/ai/openrouter-config';
 import {
   MAX_GENERATE_METADATA_FILE_NAME_CHARS,
   MAX_GENERATE_METADATA_USER_PROMPT_CHARS,
@@ -136,13 +137,8 @@ export async function POST(req: NextRequest) {
   const typedUserPrompt = userPrompt as string | undefined;
 
   // 4. Validate AI configuration and select model
-  const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-  const modelList = (process.env.OPENROUTER_MODEL ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (!openRouterApiKey?.trim() || !modelList.length) {
+  const openRouterConfig = getOpenRouterModelConfig();
+  if (!openRouterConfig) {
     const errRes: ApiError = {
       error: 'Internal Server Error',
       message: 'AI service is not configured',
@@ -150,8 +146,6 @@ export async function POST(req: NextRequest) {
     };
     return NextResponse.json(errRes, { status: 500 });
   }
-
-  const [model, ...fallbackModels] = modelList;
 
   // 5. Build prompts and call AI
   const { titleMax, descriptionMax } = getLimits(typedPlatforms);
@@ -163,8 +157,8 @@ export async function POST(req: NextRequest) {
     const metadata = await generateMetadata(
       systemPrompt,
       userMessage,
-      model,
-      fallbackModels.length ? fallbackModels : undefined
+      openRouterConfig.model,
+      openRouterConfig.fallbackModels.length ? openRouterConfig.fallbackModels : undefined
     );
 
     // 6. Defense-in-depth: truncate to platform limits (Issue #39)

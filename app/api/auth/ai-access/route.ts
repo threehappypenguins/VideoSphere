@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getOpenRouterModelConfig } from '@/lib/ai/openrouter-config';
 import type { ApiError } from '@/types';
 
 interface AiAccessResponse {
@@ -22,14 +23,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(errRes, { status: 401 });
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim() ?? '';
-  const modelList = (process.env.OPENROUTER_MODEL ?? '')
-    .split(',')
-    .map((model) => model.trim())
-    .filter(Boolean);
+  const openRouterConfig = getOpenRouterModelConfig();
 
   const response: AiAccessResponse = {
-    canUseAiMetadata: Boolean(apiKey) && modelList.length > 0,
+    canUseAiMetadata: openRouterConfig !== null,
   };
   return NextResponse.json(response, { status: 200 });
 }
