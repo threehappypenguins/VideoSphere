@@ -10,6 +10,7 @@ export interface AdminUserRow {
   /** Stable id (auth user id / `user_profiles.userId`); use for client keys, not email. */
   userId: string;
   email: string;
+  name?: string;
   role: 'user' | 'admin';
   createdAt: string;
 }
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
   if (adminCheck.ok === false) return adminCheck.response;
 
   const searchParams = request.nextUrl.searchParams;
-  const limit = Math.min(Math.max(parsePositiveInt(searchParams.get('limit'), 25), 1), 100);
+  const limit = Math.min(Math.max(parsePositiveInt(searchParams.get('limit'), 25), 1), 500);
   const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0);
 
   try {
@@ -52,6 +53,7 @@ export async function GET(request: NextRequest) {
       users: users.map((user) => ({
         userId: user.userId,
         email: user.email,
+        name: user.name,
         role: user.role,
         createdAt: user.$createdAt,
       })),

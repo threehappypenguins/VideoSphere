@@ -158,26 +158,6 @@ describe('Proxy Middleware', () => {
       expect(location).toContain('redirect=');
     });
 
-    it('should allow admin users to access /settings/invites', async () => {
-      const sessionToken = 'admin_session_token';
-      const request = createMockRequest('/settings/invites', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ role: 'admin' }),
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(200);
-      expect((global.fetch as any).mock.calls).toHaveLength(1);
-      const calledUrl = String((global.fetch as any).mock.calls[0][0]);
-      expect(calledUrl).toContain('/api/auth/session-role');
-    });
-
     it('should allow admin users to access /admin routes', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/admin/dashboard', {
@@ -286,6 +266,42 @@ describe('Proxy Middleware', () => {
 
       expect(result.status).toBe(307);
       expect(result.headers.get('location') || '').toContain('/dashboard');
+    });
+
+    it('should block non-admin users from /dashboard/users', async () => {
+      const sessionToken = 'user_session_token';
+      const request = createMockRequest('/dashboard/users', {
+        videosphere_session: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ role: 'user' }),
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      const location = result.headers.get('location') || '';
+      expect(location).toContain('/dashboard');
+    });
+
+    it('should allow admin users to access /dashboard/users', async () => {
+      const sessionToken = 'admin_session_token';
+      const request = createMockRequest('/dashboard/users', {
+        videosphere_session: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ role: 'admin' }),
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(200);
     });
 
     it('should allow admin users to access /dashboard routes', async () => {

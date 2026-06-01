@@ -48,7 +48,7 @@ describe('Navbar admin link visibility', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows Invites links for admin users', async () => {
+  it('does not show a separate Invites nav link for admin users', async () => {
     vi.stubGlobal(
       'fetch',
       vi
@@ -68,18 +68,10 @@ describe('Navbar admin link visibility', () => {
     render(<Navbar />);
 
     await waitFor(() => {
-      const invitesLink = screen.getByRole('link', { name: 'Invites' });
-      expect(invitesLink).toHaveAttribute('href', '/settings/invites');
+      expect(screen.getByRole('link', { name: 'Profile' })).toBeInTheDocument();
     });
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      '/api/auth/session',
-      expect.objectContaining({ credentials: 'include' })
-    );
-    expect(global.fetch).toHaveBeenCalledWith(
-      '/api/auth/session-role',
-      expect.objectContaining({ credentials: 'include' })
-    );
+    expect(screen.queryByRole('link', { name: 'Invites' })).not.toBeInTheDocument();
   });
 
   it('does not show Invites links for non-admin users', async () => {
@@ -112,7 +104,7 @@ describe('Navbar admin link visibility', () => {
     expect(screen.queryByRole('link', { name: 'Invites' })).not.toBeInTheDocument();
   });
 
-  it('shows Invites in mobile menu and closes menu on click', async () => {
+  it('shows Profile in mobile menu and closes menu on click', async () => {
     vi.stubGlobal(
       'fetch',
       vi
@@ -137,28 +129,23 @@ describe('Navbar admin link visibility', () => {
 
     const user = userEvent.setup();
     const menuToggle = screen.getByRole('button', { name: 'Toggle navigation menu' });
-    expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
-
     await user.click(menuToggle);
-    expect(menuToggle).toHaveAttribute('aria-expanded', 'true');
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Invites' })).toHaveLength(2);
+      expect(screen.getAllByRole('link', { name: 'Profile' })).toHaveLength(2);
     });
 
-    expect(screen.getAllByRole('link', { name: 'Invites' })[0]).not.toHaveAttribute('aria-current');
-
-    const invitesLinks = screen.getAllByRole('link', { name: 'Invites' });
-    await user.click(invitesLinks[1]);
+    const profileLinks = screen.getAllByRole('link', { name: 'Profile' });
+    await user.click(profileLinks[1]);
 
     await waitFor(() => {
       expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.getAllByRole('link', { name: 'Invites' })).toHaveLength(1);
+      expect(screen.getAllByRole('link', { name: 'Profile' })).toHaveLength(1);
     });
   });
 
-  it('marks Invites links as current on invite settings routes', async () => {
-    mockPathname.mockReturnValue('/settings/invites');
+  it('marks Profile links as current on profile routes', async () => {
+    mockPathname.mockReturnValue('/profile');
 
     vi.stubGlobal(
       'fetch',
@@ -179,19 +166,19 @@ describe('Navbar admin link visibility', () => {
     render(<Navbar />);
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Invites' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute('aria-current', 'page');
     });
+  });
 
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Toggle navigation menu' }));
+  it('hides Log in links while first-run setup is pending', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {}))
+    );
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Invites' })).toHaveLength(2);
-    });
+    render(<Navbar initialSessionUser={null} initialFirstRunPending />);
 
-    for (const invitesLink of screen.getAllByRole('link', { name: 'Invites' })) {
-      expect(invitesLink).toHaveAttribute('aria-current', 'page');
-    }
+    expect(screen.queryByRole('link', { name: 'Log in' })).not.toBeInTheDocument();
   });
 
   it('does not render a signed-out Home nav link while waiting for session fetch', () => {

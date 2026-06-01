@@ -3,8 +3,10 @@ import { connectToDatabase } from '@/lib/mongodb';
 import {
   InviteTokenModel,
   type InviteTokenDocument,
+  type InviteGrantedRole,
   type InviteTokenPurpose,
 } from '@/lib/models/InviteToken';
+import type { UserRole } from '@/types';
 
 /**
  * Defines an invite token domain type returned by repository helpers.
@@ -12,6 +14,7 @@ import {
 export interface InviteTokenRecord {
   token: string;
   purpose: InviteTokenPurpose;
+  grantedRole?: InviteGrantedRole;
   createdBy?: string;
   createdAt: string;
   expiresAt?: string;
@@ -20,11 +23,31 @@ export interface InviteTokenRecord {
 }
 
 /**
+ * Snapshot of a consumed invite token used to restore it when registration fails.
+ */
+export interface InviteTokenReleaseSnapshot {
+  token: string;
+  grantedRole: InviteGrantedRole;
+  createdBy?: string;
+  createdAt: Date;
+  expiresAt?: Date;
+}
+
+/**
+ * Result of consuming an invite token during registration.
+ */
+export interface ConsumedInviteToken {
+  grantedRole: UserRole;
+  releaseSnapshot: InviteTokenReleaseSnapshot;
+}
+
+/**
  * Defines options used to create an invitation token.
  */
 export interface CreateInviteTokenInput {
   createdBy: string;
   expiresAt?: Date;
+  grantedRole?: UserRole;
 }
 
 /**
@@ -47,6 +70,8 @@ function toRecord(doc: InviteTokenDocument): InviteTokenRecord {
   return {
     token: doc.token,
     purpose: doc.purpose,
+    grantedRole:
+      doc.grantedRole === 'admin' ? 'admin' : doc.purpose === 'invite' ? 'user' : undefined,
     createdBy: typeof doc.createdBy === 'string' ? doc.createdBy : undefined,
     createdAt: new Date(doc.createdAt).toISOString(),
     expiresAt: doc.expiresAt ? new Date(doc.expiresAt).toISOString() : undefined,
@@ -135,6 +160,7 @@ export async function createInviteToken(input: CreateInviteTokenInput): Promise<
         _id: token,
         token,
         purpose: 'invite',
+        grantedRole: input.grantedRole === 'admin' ? 'admin' : 'user',
         createdBy: input.createdBy,
         expiresAt: input.expiresAt,
       });
@@ -158,6 +184,13 @@ export async function listInviteTokens(
   options: ListInviteTokensOptions = {}
 ): Promise<InviteTokenRecord[]> {
   await connectToDatabase();
+
+  if (!options.includeSetup) {
+    await InviteTokenModel.deleteMany({
+      purpose: 'invite',
+      usedAt: { $exists: true },
+    });
+  }
 
   const query: Record<string, unknown> = {};
   if (!options.includeSetup) {
@@ -218,32 +251,37 @@ export async function isSetupTokenValid(token: string): Promise<boolean> {
 }
 
 /**
- * Marks an invite token as used in an atomic operation.
+ * Consumes an invite token by deleting it atomically.
  * @param token - Token to consume.
- * @param usedBy - User id that consumes this token.
- * @returns True when consumed; false if token was invalid or already used.
+ * @param _usedBy - Reserved user id (kept for call-site compatibility).
+ * @returns Consumed invite metadata, or null if token was invalid or already used.
  */
-export async function consumeInviteToken(token: string, usedBy: string): Promise<boolean> {
+export async function consumeInviteToken(
+  token: string,
+  _usedBy: string
+): Promise<ConsumedInviteToken | null> {
   await connectToDatabase();
 
   const now = new Date();
-  const consumed = await InviteTokenModel.findOneAndUpdate(
-    {
-      token,
-      purpose: 'invite',
-      usedAt: { $exists: false },
-      $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: now } }],
-    },
-    {
-      $set: {
-        usedAt: now,
-        usedBy,
-      },
-    },
-    { returnDocument: 'after' }
-  ).lean<InviteTokenDocument | null>();
+  const consumed = await InviteTokenModel.findOneAndDelete({
+    token,
+    purpose: 'invite',
+    usedAt: { $exists: false },
+    $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: now } }],
+  }).lean<InviteTokenDocument | null>();
 
-  return Boolean(consumed);
+  if (!consumed) return null;
+
+  return {
+    grantedRole: consumed.grantedRole === 'admin' ? 'admin' : 'user',
+    releaseSnapshot: {
+      token: consumed.token,
+      grantedRole: consumed.grantedRole === 'admin' ? 'admin' : 'user',
+      createdBy: typeof consumed.createdBy === 'string' ? consumed.createdBy : undefined,
+      createdAt: consumed.createdAt,
+      expiresAt: consumed.expiresAt,
+    },
+  };
 }
 
 /**
@@ -276,30 +314,28 @@ export async function consumeSetupToken(token: string, usedBy: string): Promise<
 }
 
 /**
- * Clears an invite token usage reservation when account creation fails.
- * @param token - Invite token to release.
- * @param reservedUserId - Reserved user id used during consume call.
- * @returns True when release succeeded.
+ * Restores an invite token when account creation fails after consume.
+ * @param snapshot - Invite token snapshot captured during consume.
+ * @returns True when the token was restored.
  */
-export async function releaseInviteToken(token: string, reservedUserId: string): Promise<boolean> {
+export async function releaseInviteToken(snapshot: InviteTokenReleaseSnapshot): Promise<boolean> {
   await connectToDatabase();
 
-  const released = await InviteTokenModel.findOneAndUpdate(
-    {
-      token,
+  try {
+    await InviteTokenModel.create({
+      _id: snapshot.token,
+      token: snapshot.token,
       purpose: 'invite',
-      usedBy: reservedUserId,
-    },
-    {
-      $unset: {
-        usedAt: 1,
-        usedBy: 1,
-      },
-    },
-    { returnDocument: 'after' }
-  ).lean<InviteTokenDocument | null>();
-
-  return Boolean(released);
+      grantedRole: snapshot.grantedRole,
+      createdBy: snapshot.createdBy,
+      createdAt: snapshot.createdAt,
+      expiresAt: snapshot.expiresAt,
+    });
+    return true;
+  } catch (error) {
+    if (isDuplicateKeyError(error)) return true;
+    return false;
+  }
 }
 
 /**

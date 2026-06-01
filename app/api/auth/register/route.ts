@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invite token is no longer valid.' }, { status: 409 });
     }
 
+    const invitedRole = consumed.grantedRole;
     const passwordHash = await bcrypt.hash(password, 10);
 
     try {
@@ -111,10 +112,10 @@ export async function POST(req: NextRequest) {
         name,
         passwordHash,
         hasCompletedOnboarding: false,
-        role: 'user',
+        role: invitedRole,
       });
     } catch (err: unknown) {
-      await releaseInviteToken(inviteToken, userId);
+      await releaseInviteToken(consumed.releaseSnapshot);
       const mongoErr = err as { code?: number; message?: string };
       if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
         return NextResponse.json(
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
-    const token = await new SignJWT({ role: 'user' })
+    const token = await new SignJWT({ role: invitedRole })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(userId)
       .setIssuedAt()

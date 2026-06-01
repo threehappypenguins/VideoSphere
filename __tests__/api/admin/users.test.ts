@@ -39,6 +39,7 @@ const adminProfile: User = {
 const listedUser: User = {
   userId: 'user-a',
   email: 'alice@example.com',
+  name: 'Alice',
   role: 'user',
   hasCompletedOnboarding: false,
   $createdAt: '2026-03-01T12:00:00.000Z',
@@ -141,6 +142,7 @@ describe('GET /api/admin/users', () => {
       expect(body.data.users[0]).toEqual({
         userId: listedUser.userId,
         email: listedUser.email,
+        name: listedUser.name,
         role: listedUser.role,
         createdAt: listedUser.$createdAt,
       });
@@ -162,11 +164,11 @@ describe('GET /api/admin/users', () => {
       expect(body.data.pagination).toEqual({ limit: 25, offset: 0, total: 0 });
     });
 
-    it('caps limit at 100', async () => {
+    it('caps limit at 500', async () => {
       vi.mocked(listUsers).mockResolvedValueOnce({ users: [], total: 0 });
 
-      await GET(makeGetRequest('?limit=500'));
-      expect(listUsers).toHaveBeenCalledWith({ limit: 100, offset: 0 });
+      await GET(makeGetRequest('?limit=1000'));
+      expect(listUsers).toHaveBeenCalledWith({ limit: 500, offset: 0 });
     });
 
     it('returns 500 ApiError when listUsers throws', async () => {

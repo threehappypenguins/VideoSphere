@@ -57,7 +57,14 @@ describe('POST /api/auth/register', () => {
     process.env.JWT_SECRET = 'test-jwt-secret-for-vitest-only';
     mockCreateUser.mockResolvedValue({ userId: 'user-1', email: 'creator@example.com' });
     mockIsInviteTokenValid.mockResolvedValue(true);
-    mockConsumeInviteToken.mockResolvedValue(true);
+    mockConsumeInviteToken.mockResolvedValue({
+      grantedRole: 'user',
+      releaseSnapshot: {
+        token: 'invite-token-1',
+        grantedRole: 'user',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    });
     mockReleaseInviteToken.mockResolvedValue(true);
   });
 
@@ -130,6 +137,10 @@ describe('POST /api/auth/register', () => {
     );
 
     expect(res.status).toBe(500);
-    expect(mockReleaseInviteToken).toHaveBeenCalledWith('invite-token-1', expect.any(String));
+    expect(mockReleaseInviteToken).toHaveBeenCalledWith({
+      token: 'invite-token-1',
+      grantedRole: 'user',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
   });
 });

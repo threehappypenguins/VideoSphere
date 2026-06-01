@@ -17,6 +17,7 @@ interface SessionUser {
 export function ProfileContent() {
   const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const handleReplayTour = () => {
@@ -33,6 +34,12 @@ export function ProfileContent() {
         if (sessionRes.ok) {
           const session: SessionUser = await sessionRes.json();
           setSessionUser(session);
+
+          const roleRes = await fetch('/api/auth/session-role', { credentials: 'include' });
+          if (roleRes.ok) {
+            const roleData = (await roleRes.json()) as { role?: string };
+            setIsAdmin(roleData.role === 'admin');
+          }
         }
       } catch (err) {
         console.warn('[ProfileContent] Failed to load user data:', err);
@@ -56,7 +63,7 @@ export function ProfileContent() {
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-4xl">
         <h1 className="text-3xl font-bold text-foreground">Account Settings</h1>
         <p className="mt-2 text-muted-foreground">Manage your profile and preferences.</p>
 
@@ -128,6 +135,21 @@ export function ProfileContent() {
             </button>
           </div>
         </section>
+
+        {isAdmin ? (
+          <section className="mt-8 rounded-xl border border-border bg-background p-6">
+            <h2 className="text-xl font-semibold text-foreground">User management</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Manage users, roles, and invite links for your VideoSphere instance.
+            </p>
+            <Link
+              href="/dashboard/users"
+              className="mt-4 inline-flex rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Open user management
+            </Link>
+          </section>
+        ) : null}
       </div>
     </div>
   );

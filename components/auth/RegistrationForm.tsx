@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, type FormEvent } from 'react';
+import { useState, useCallback, type FormEvent, type ReactNode } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 
 interface FormState {
@@ -190,6 +190,12 @@ export interface RegistrationFormProps {
   submittingLabel: string;
   /** Persists the validated registration payload. */
   onSubmit: (payload: { name: string; email: string; password: string }) => Promise<void>;
+  /** Optional error shown above the form (e.g. OAuth callback failures). */
+  externalError?: string;
+  /** When true, disables the form while an external action is in progress. */
+  isLoading?: boolean;
+  /** Optional content rendered below the submit button (e.g. OAuth). */
+  footer?: ReactNode;
 }
 
 /**
@@ -204,6 +210,9 @@ export function RegistrationForm({
   submitLabel,
   submittingLabel,
   onSubmit,
+  externalError = '',
+  isLoading: externalLoading = false,
+  footer,
 }: RegistrationFormProps) {
   const [form, setForm] = useState<FormState>({
     name: '',
@@ -223,6 +232,9 @@ export function RegistrationForm({
     },
     []
   );
+
+  const formDisabled = isLoading || externalLoading;
+  const displayError = serverError || externalError;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -260,21 +272,21 @@ export function RegistrationForm({
           <p className="mt-2 text-sm text-muted-foreground">{subtitle}</p>
         </div>
 
-        {serverError && (
+        {displayError && (
           <p
             id={formMessageId}
             className="mt-6 text-sm font-medium text-destructive"
             role="alert"
             aria-live="assertive"
           >
-            {serverError}
+            {displayError}
           </p>
         )}
 
         <form
           className="mt-8 space-y-6"
           onSubmit={handleSubmit}
-          aria-describedby={serverError ? formMessageId : undefined}
+          aria-describedby={displayError ? formMessageId : undefined}
         >
           <InputField
             id="name"
@@ -320,12 +332,14 @@ export function RegistrationForm({
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={formDisabled}
             className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? submittingLabel : submitLabel}
+            {formDisabled ? submittingLabel : submitLabel}
           </button>
         </form>
+
+        {footer ? <div className="mt-6">{footer}</div> : null}
       </div>
     </div>
   );

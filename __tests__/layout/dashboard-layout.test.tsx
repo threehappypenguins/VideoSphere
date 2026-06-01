@@ -286,5 +286,29 @@ describe('DashboardShell', () => {
         expect(elements.length).toBeGreaterThan(0);
       });
     });
+
+    it('shows Users nav link for admin users', () => {
+      (usePathname as any).mockReturnValue('/dashboard');
+
+      render(
+        <DashboardShell isAdmin>
+          <div>Test</div>
+        </DashboardShell>
+      );
+
+      expect(screen.getAllByRole('link', { name: 'Users' }).length).toBeGreaterThan(0);
+    });
+
+    it('hides Users nav link for non-admin users', () => {
+      (usePathname as any).mockReturnValue('/dashboard');
+
+      render(
+        <DashboardShell>
+          <div>Test</div>
+        </DashboardShell>
+      );
+
+      expect(screen.queryByRole('link', { name: 'Users' })).not.toBeInTheDocument();
+    });
   });
 });

@@ -8,11 +8,10 @@ import type { ApiError, ApiResponse } from '@/types';
  */
 export interface AdminInviteRow {
   token: string;
+  grantedRole: 'user' | 'admin';
   createdBy?: string;
   createdAt: string;
   expiresAt?: string;
-  usedAt?: string;
-  usedBy?: string;
 }
 
 /**
@@ -41,16 +40,15 @@ export async function GET(request: NextRequest) {
   if (adminCheck.ok === false) return adminCheck.response;
 
   try {
-    const invites = await listInviteTokens({ includeUsed: true, includeSetup: false });
+    const invites = await listInviteTokens({ includeSetup: false });
     const body: ApiResponse<AdminInvitesResponse> = {
       data: {
         invites: invites.map((invite) => ({
           token: invite.token,
+          grantedRole: invite.grantedRole === 'admin' ? 'admin' : 'user',
           createdBy: invite.createdBy,
           createdAt: invite.createdAt,
           expiresAt: invite.expiresAt,
-          usedAt: invite.usedAt,
-          usedBy: invite.usedBy,
         })),
       },
     };
@@ -87,7 +85,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Body must be a JSON object.' }, { status: 400 });
   }
 
-  const { expiresInDays: rawExpiresInDays } = body as Record<string, unknown>;
+  const { expiresInDays: rawExpiresInDays, role: rawRole } = body as Record<string, unknown>;
+
+  const grantedRole = rawRole === 'admin' ? 'admin' : 'user';
 
   let expiresAt: Date | undefined;
   if (rawExpiresInDays !== undefined) {
@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
     const invite = await createInviteToken({
       createdBy: adminCheck.userId,
       expiresAt,
+      grantedRole,
     });
 
     const inviteUrl = new URL(`/invite/${invite.token}`, request.nextUrl.origin).toString();

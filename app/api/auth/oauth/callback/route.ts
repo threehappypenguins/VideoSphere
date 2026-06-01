@@ -1,15 +1,22 @@
-// =============================================================================
-// GET /api/auth/oauth/callback
-// =============================================================================
-// Completes Google OAuth2 Authorization Code flow (no external auth vendor dependency).
-// =============================================================================
-
+import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
-import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
+import {
+  GOOGLE_AUTH_OAUTH_STATE_COOKIE,
+  parseGoogleOAuthStateCookie,
+  type GoogleOAuthState,
+} from '@/lib/auth/google-oauth';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
-import { upsertOAuthUserByEmail, getUserByEmail } from '@/lib/repositories/users';
-import { safeRedirect } from '@/lib/safe-redirect';
+import {
+  consumeInviteToken,
+  consumeSetupToken,
+  hasAnyUsers,
+  isInviteTokenValid,
+  isSetupTokenValid,
+  releaseInviteToken,
+  releaseSetupToken,
+} from '@/lib/repositories/invites';
+import { createUser, getUserByEmail, upsertOAuthUserByEmail } from '@/lib/repositories/users';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
@@ -38,29 +45,30 @@ function getGoogleClientSecret(): string | null {
   return process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || null;
 }
 
-function parseStateCookie(cookieValue: string): { nonce: string; redirectTo: string | null } {
-  const pipeIndex = cookieValue.indexOf('|');
-  if (pipeIndex === -1) {
-    return { nonce: cookieValue, redirectTo: null };
+function oauthErrorRedirect(origin: string, state: GoogleOAuthState | null, code: string): string {
+  if (state?.flow === 'setup' && state.setupToken) {
+    return `${origin}/setup?token=${encodeURIComponent(state.setupToken)}&error=${code}`;
   }
+  if (state?.flow === 'invite' && state.inviteToken) {
+    return `${origin}/invite/${encodeURIComponent(state.inviteToken)}?error=${code}`;
+  }
+  return `${origin}/login?error=${code}`;
+}
 
-  const nonce = cookieValue.slice(0, pipeIndex);
-  const encodedRedirect = cookieValue.slice(pipeIndex + 1);
-  if (!encodedRedirect) {
-    return { nonce, redirectTo: null };
-  }
-
-  try {
-    return { nonce, redirectTo: safeRedirect(decodeURIComponent(encodedRedirect)) };
-  } catch {
-    return { nonce, redirectTo: null };
-  }
+function clearOAuthStateCookie(response: NextResponse): void {
+  response.cookies.set(GOOGLE_AUTH_OAUTH_STATE_COOKIE, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 0,
+    path: '/',
+  });
 }
 
 /**
  * Handles GET requests for this route.
  * @param req - The incoming request object.
- * @returns A response describing the request result.
+ * @returns Redirect with session cookie on success.
  */
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
@@ -68,22 +76,19 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get('state');
   const oauthError = req.nextUrl.searchParams.get('error');
 
+  const cookieValue = req.cookies.get(GOOGLE_AUTH_OAUTH_STATE_COOKIE)?.value;
+  const oauthState = cookieValue ? parseGoogleOAuthStateCookie(cookieValue) : null;
+
   if (oauthError) {
-    return NextResponse.redirect(`${origin}/login?error=oauth_auth_failed`);
+    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_auth_failed'));
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(`${origin}/login?error=oauth_missing_params`);
+    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_missing_params'));
   }
 
-  const cookieValue = req.cookies.get(GOOGLE_AUTH_OAUTH_STATE_COOKIE)?.value;
-  if (!cookieValue) {
-    return NextResponse.redirect(`${origin}/login?error=oauth_missing_params`);
-  }
-
-  const parsedCookie = parseStateCookie(cookieValue);
-  if (!parsedCookie.nonce || parsedCookie.nonce !== state) {
-    return NextResponse.redirect(`${origin}/login?error=oauth_auth_failed`);
+  if (!oauthState?.nonce || oauthState.nonce !== state) {
+    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_auth_failed'));
   }
 
   const clientId = getGoogleClientId();
@@ -91,7 +96,7 @@ export async function GET(req: NextRequest) {
   const jwtSecret = process.env.JWT_SECRET;
   if (!clientId || !clientSecret || !jwtSecret) {
     console.error('[GET /api/auth/oauth/callback] Missing required OAuth/JWT env vars');
-    return NextResponse.redirect(`${origin}/login?error=oauth_callback_failed`);
+    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
   }
 
   try {
@@ -111,13 +116,13 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
       console.error('[GET /api/auth/oauth/callback] Token exchange failed:', body);
-      return NextResponse.redirect(`${origin}/login?error=oauth_callback_failed`);
+      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
     }
 
     const tokenData = (await tokenRes.json()) as GoogleTokenResponse;
     const accessToken = tokenData.access_token;
     if (!accessToken) {
-      return NextResponse.redirect(`${origin}/login?error=oauth_callback_failed`);
+      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
     }
 
     const userInfoRes = await fetch(GOOGLE_USERINFO_URL, {
@@ -127,7 +132,7 @@ export async function GET(req: NextRequest) {
     if (!userInfoRes.ok) {
       const body = await userInfoRes.text();
       console.error('[GET /api/auth/oauth/callback] Userinfo fetch failed:', body);
-      return NextResponse.redirect(`${origin}/login?error=oauth_callback_failed`);
+      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
     }
 
     const userInfo = (await userInfoRes.json()) as GoogleUserInfoResponse;
@@ -135,37 +140,126 @@ export async function GET(req: NextRequest) {
     const googleSub = userInfo.sub?.trim();
     const googleDisplayName = userInfo.name?.trim();
     if (!email || !googleSub || userInfo.email_verified !== true) {
-      return NextResponse.redirect(`${origin}/login?error=oauth_auth_failed`);
+      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_auth_failed'));
     }
 
-    const existingUser = await getUserByEmail(email);
-    if (!existingUser) {
-      return NextResponse.redirect(`${origin}/login?error=oauth_registration_disabled`);
+    let userId: string;
+    let role: 'admin' | 'user';
+
+    if (oauthState.flow === 'setup') {
+      const setupToken = oauthState.setupToken;
+      if (!setupToken) {
+        return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_setup_invalid'));
+      }
+
+      if (await hasAnyUsers()) {
+        return NextResponse.redirect(
+          oauthErrorRedirect(origin, oauthState, 'oauth_setup_completed')
+        );
+      }
+
+      if (!(await isSetupTokenValid(setupToken))) {
+        return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_setup_invalid'));
+      }
+
+      userId = randomUUID();
+      const consumed = await consumeSetupToken(setupToken, userId);
+      if (!consumed) {
+        return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_setup_invalid'));
+      }
+
+      try {
+        await createUser({
+          userId,
+          email,
+          name: googleDisplayName || undefined,
+          hasCompletedOnboarding: false,
+          role: 'admin',
+        });
+      } catch (error) {
+        await releaseSetupToken(setupToken, userId);
+        const mongoErr = error as { code?: number; message?: string };
+        if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
+          return NextResponse.redirect(
+            oauthErrorRedirect(origin, oauthState, 'oauth_setup_failed')
+          );
+        }
+        throw error;
+      }
+
+      role = 'admin';
+    } else if (oauthState.flow === 'invite') {
+      const inviteToken = oauthState.inviteToken;
+      if (!inviteToken) {
+        return NextResponse.redirect(
+          oauthErrorRedirect(origin, oauthState, 'oauth_invite_invalid')
+        );
+      }
+
+      if (!(await isInviteTokenValid(inviteToken))) {
+        return NextResponse.redirect(
+          oauthErrorRedirect(origin, oauthState, 'oauth_invite_invalid')
+        );
+      }
+
+      userId = randomUUID();
+      const consumed = await consumeInviteToken(inviteToken, userId);
+      if (!consumed) {
+        return NextResponse.redirect(
+          oauthErrorRedirect(origin, oauthState, 'oauth_invite_invalid')
+        );
+      }
+
+      const invitedRole = consumed.grantedRole;
+
+      try {
+        await createUser({
+          userId,
+          email,
+          name: googleDisplayName || undefined,
+          hasCompletedOnboarding: false,
+          role: invitedRole,
+        });
+      } catch (error) {
+        await releaseInviteToken(consumed.releaseSnapshot);
+        const mongoErr = error as { code?: number; message?: string };
+        if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
+          return NextResponse.redirect(
+            oauthErrorRedirect(origin, oauthState, 'oauth_invite_failed')
+          );
+        }
+        throw error;
+      }
+
+      role = invitedRole;
+    } else {
+      const existingUser = await getUserByEmail(email);
+      if (!existingUser) {
+        return NextResponse.redirect(
+          oauthErrorRedirect(origin, oauthState, 'oauth_registration_disabled')
+        );
+      }
+
+      const user = await upsertOAuthUserByEmail(email, googleDisplayName);
+      userId = user.userId;
+      role = user.role === 'admin' ? 'admin' : 'user';
     }
 
-    const user = await upsertOAuthUserByEmail(email, googleDisplayName);
-
-    const token = await new SignJWT({ role: user.role, oauthProvider: 'google' })
+    const token = await new SignJWT({ role, oauthProvider: 'google' })
       .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(user.userId)
+      .setSubject(userId)
       .setIssuedAt()
       .setExpirationTime(`${getSessionCookieOptions().maxAge}s`)
       .sign(new TextEncoder().encode(jwtSecret));
 
-    const callbackTarget = parsedCookie.redirectTo ?? '/dashboard';
+    const callbackTarget = oauthState.redirectTo ?? '/dashboard';
 
     const response = NextResponse.redirect(new URL(callbackTarget, origin));
     response.cookies.set(getSessionCookieName(), token, getSessionCookieOptions());
-    response.cookies.set(GOOGLE_AUTH_OAUTH_STATE_COOKIE, '', {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 0,
-      path: '/',
-    });
+    clearOAuthStateCookie(response);
     return response;
   } catch (err) {
     console.error('[GET /api/auth/oauth/callback]', err);
-    return NextResponse.redirect(`${origin}/login?error=oauth_callback_failed`);
+    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
   }
 }

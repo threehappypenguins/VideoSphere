@@ -284,3 +284,28 @@ export async function getUserCounts(): Promise<UserCounts> {
     totalUsers,
   };
 }
+
+/**
+ * Counts users with a specific role.
+ * @param role - Role to count.
+ * @returns Number of matching user profiles.
+ */
+export async function countUsersWithRole(role: UserRole): Promise<number> {
+  await connectToDatabase();
+  return UserProfileModel.countDocuments({ role });
+}
+
+/**
+ * Deletes a user profile by id.
+ * @param userId - Auth user id to delete.
+ * @returns True when a profile was removed.
+ */
+export async function deleteUserById(userId: string): Promise<boolean> {
+  await connectToDatabase();
+
+  const byId = await UserProfileModel.deleteOne({ _id: userId });
+  if (byId.deletedCount > 0) return true;
+
+  const byUserId = await UserProfileModel.deleteOne({ userId });
+  return byUserId.deletedCount > 0;
+}

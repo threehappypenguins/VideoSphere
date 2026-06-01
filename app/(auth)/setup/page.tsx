@@ -1,4 +1,5 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { getFirstRunSetupToken } from '@/lib/auth/first-run-setup';
 import { hasAnyUsers, isSetupTokenValid } from '@/lib/repositories/invites';
 import SetupPageClient from './SetupPageClient';
 
@@ -22,9 +23,16 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
     notFound();
   }
 
-  if (!token?.trim() || !(await isSetupTokenValid(token.trim()))) {
+  const trimmedToken = token?.trim();
+  if (!trimmedToken) {
+    const setupToken = await getFirstRunSetupToken();
+    if (!setupToken) notFound();
+    redirect(`/setup?token=${setupToken}`);
+  }
+
+  if (!(await isSetupTokenValid(trimmedToken))) {
     notFound();
   }
 
-  return <SetupPageClient token={token.trim()} />;
+  return <SetupPageClient token={trimmedToken} />;
 }

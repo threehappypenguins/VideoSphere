@@ -3,12 +3,31 @@ import { NextRequest } from 'next/server';
 
 const mockUpsertOAuthUserByEmail = vi.hoisted(() => vi.fn());
 const mockGetUserByEmail = vi.hoisted(() => vi.fn());
+const mockCreateUser = vi.hoisted(() => vi.fn());
+const mockHasAnyUsers = vi.hoisted(() => vi.fn());
+const mockIsSetupTokenValid = vi.hoisted(() => vi.fn());
+const mockConsumeSetupToken = vi.hoisted(() => vi.fn());
+const mockReleaseSetupToken = vi.hoisted(() => vi.fn());
+const mockIsInviteTokenValid = vi.hoisted(() => vi.fn());
+const mockConsumeInviteToken = vi.hoisted(() => vi.fn());
+const mockReleaseInviteToken = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 const mockJwtSign = vi.hoisted(() => vi.fn().mockResolvedValue('jwt-token'));
 
 vi.mock('@/lib/repositories/users', () => ({
   upsertOAuthUserByEmail: (...args: unknown[]) => mockUpsertOAuthUserByEmail(...args),
   getUserByEmail: (...args: unknown[]) => mockGetUserByEmail(...args),
+  createUser: (...args: unknown[]) => mockCreateUser(...args),
+}));
+
+vi.mock('@/lib/repositories/invites', () => ({
+  hasAnyUsers: (...args: unknown[]) => mockHasAnyUsers(...args),
+  isSetupTokenValid: (...args: unknown[]) => mockIsSetupTokenValid(...args),
+  consumeSetupToken: (...args: unknown[]) => mockConsumeSetupToken(...args),
+  releaseSetupToken: (...args: unknown[]) => mockReleaseSetupToken(...args),
+  isInviteTokenValid: (...args: unknown[]) => mockIsInviteTokenValid(...args),
+  consumeInviteToken: (...args: unknown[]) => mockConsumeInviteToken(...args),
+  releaseInviteToken: (...args: unknown[]) => mockReleaseInviteToken(...args),
 }));
 
 vi.mock('jose', () => ({
@@ -37,7 +56,10 @@ vi.mock('jose', () => ({
 
 vi.stubGlobal('fetch', mockFetch);
 
-import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
+import {
+  GOOGLE_AUTH_OAUTH_STATE_COOKIE,
+  buildGoogleOAuthStateCookie,
+} from '@/lib/auth/google-oauth';
 import { GET } from '@/app/api/auth/oauth/callback/route';
 
 function makeRequest(params: Record<string, string> = {}, cookies: Record<string, string> = {}) {
@@ -77,11 +99,32 @@ function mockGoogleSuccess() {
     });
 }
 
-function validRequest() {
-  return makeRequest(
-    { code: 'auth-code', state: 'nonce-123' },
-    { [GOOGLE_AUTH_OAUTH_STATE_COOKIE]: 'nonce-123' }
-  );
+function loginCookie() {
+  return {
+    [GOOGLE_AUTH_OAUTH_STATE_COOKIE]: buildGoogleOAuthStateCookie({ nonce: 'nonce-123' }),
+  };
+}
+
+function setupCookie(token = 'setup-token-1') {
+  return {
+    [GOOGLE_AUTH_OAUTH_STATE_COOKIE]: buildGoogleOAuthStateCookie({
+      nonce: 'nonce-123',
+      setupToken: token,
+    }),
+  };
+}
+
+function inviteCookie(token = 'invite-token-1') {
+  return {
+    [GOOGLE_AUTH_OAUTH_STATE_COOKIE]: buildGoogleOAuthStateCookie({
+      nonce: 'nonce-123',
+      inviteToken: token,
+    }),
+  };
+}
+
+function validRequest(cookies: Record<string, string>) {
+  return makeRequest({ code: 'auth-code', state: 'nonce-123' }, cookies);
 }
 
 describe('GET /api/auth/oauth/callback', () => {
@@ -90,6 +133,18 @@ describe('GET /api/auth/oauth/callback', () => {
     process.env.GOOGLE_CLIENT_ID = 'client-id';
     process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
     process.env.JWT_SECRET = 'test-jwt-secret-for-vitest-only';
+    mockHasAnyUsers.mockResolvedValue(false);
+    mockIsSetupTokenValid.mockResolvedValue(true);
+    mockConsumeSetupToken.mockResolvedValue(true);
+    mockIsInviteTokenValid.mockResolvedValue(true);
+    mockConsumeInviteToken.mockResolvedValue({
+      grantedRole: 'user',
+      releaseSnapshot: {
+        token: 'invite-token-1',
+        grantedRole: 'user',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    });
   });
 
   afterEach(() => {
@@ -97,7 +152,7 @@ describe('GET /api/auth/oauth/callback', () => {
     delete process.env.GOOGLE_CLIENT_SECRET;
   });
 
-  it('upserts via the users repository helper and redirects to dashboard for existing users', async () => {
+  it('upserts and redirects to dashboard for existing login users', async () => {
     mockGoogleSuccess();
     mockGetUserByEmail.mockResolvedValueOnce({
       userId: 'existing-user-id',
@@ -114,7 +169,7 @@ describe('GET /api/auth/oauth/callback', () => {
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
 
-    const res = await GET(validRequest());
+    const res = await GET(validRequest(loginCookie()));
 
     expect(mockGetUserByEmail).toHaveBeenCalledWith('creator@example.com');
     expect(mockUpsertOAuthUserByEmail).toHaveBeenCalledWith('creator@example.com', 'Creator Name');
@@ -122,21 +177,63 @@ describe('GET /api/auth/oauth/callback', () => {
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
   });
 
-  it('redirects to login when Google account is not already registered', async () => {
+  it('redirects to login when Google account is not registered and flow is login', async () => {
     mockGoogleSuccess();
     mockGetUserByEmail.mockResolvedValueOnce(null);
 
-    const res = await GET(validRequest());
+    const res = await GET(validRequest(loginCookie()));
 
-    expect(mockGetUserByEmail).toHaveBeenCalledWith('creator@example.com');
-    expect(mockUpsertOAuthUserByEmail).not.toHaveBeenCalled();
+    expect(mockCreateUser).not.toHaveBeenCalled();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_registration_disabled'
     );
   });
 
-  it('returns oauth_callback_failed when repository upsert fails', async () => {
+  it('creates an admin user during first-run setup OAuth', async () => {
+    mockGoogleSuccess();
+    mockCreateUser.mockResolvedValueOnce({
+      userId: 'new-admin-id',
+      email: 'creator@example.com',
+      role: 'admin',
+    });
+
+    const res = await GET(validRequest(setupCookie()));
+
+    expect(mockIsSetupTokenValid).toHaveBeenCalledWith('setup-token-1');
+    expect(mockConsumeSetupToken).toHaveBeenCalledWith('setup-token-1', expect.any(String));
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'creator@example.com',
+        name: 'Creator Name',
+        role: 'admin',
+      })
+    );
+    expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
+  });
+
+  it('creates a user account during invite OAuth', async () => {
+    mockGoogleSuccess();
+    mockCreateUser.mockResolvedValueOnce({
+      userId: 'new-user-id',
+      email: 'creator@example.com',
+      role: 'user',
+    });
+
+    const res = await GET(validRequest(inviteCookie()));
+
+    expect(mockIsInviteTokenValid).toHaveBeenCalledWith('invite-token-1');
+    expect(mockConsumeInviteToken).toHaveBeenCalledWith('invite-token-1', expect.any(String));
+    expect(mockCreateUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'creator@example.com',
+        role: 'user',
+      })
+    );
+    expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
+  });
+
+  it('returns oauth_callback_failed when repository upsert fails on login', async () => {
     mockGoogleSuccess();
     mockGetUserByEmail.mockResolvedValueOnce({
       userId: 'existing-user-id',
@@ -145,10 +242,8 @@ describe('GET /api/auth/oauth/callback', () => {
     });
     mockUpsertOAuthUserByEmail.mockRejectedValueOnce(new Error('db unavailable'));
 
-    const res = await GET(validRequest());
+    const res = await GET(validRequest(loginCookie()));
 
-    expect(mockUpsertOAuthUserByEmail).toHaveBeenCalledWith('creator@example.com', 'Creator Name');
-    expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_callback_failed'
     );

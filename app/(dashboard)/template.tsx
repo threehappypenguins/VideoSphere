@@ -15,7 +15,7 @@ export default async function DashboardTemplate({ children }: { children: React.
     <>
       <Navbar initialSessionUser={sessionUser} initialHasAdminRole={hasAdminRole} />
       <main className="flex flex-col">
-        <DashboardShell>{children}</DashboardShell>
+        <DashboardShell isAdmin={hasAdminRole}>{children}</DashboardShell>
       </main>
       <Footer />
     </>

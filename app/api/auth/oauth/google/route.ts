@@ -1,13 +1,10 @@
-// =============================================================================
-// GET /api/auth/oauth/google
-// =============================================================================
-// Initiates Google OAuth2 Authorization Code flow (no external auth vendor dependency).
-// =============================================================================
-
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  GOOGLE_AUTH_OAUTH_STATE_COOKIE,
+  buildGoogleOAuthStateCookie,
+} from '@/lib/auth/google-oauth';
 import { safeRedirect } from '@/lib/safe-redirect';
-import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_AUTH_SCOPES = ['openid', 'email', 'profile'].join(' ');
@@ -24,7 +21,7 @@ function getGoogleClientId(): string | null {
 /**
  * Handles GET requests for this route.
  * @param req - The incoming request object.
- * @returns A response describing the request result.
+ * @returns Redirect to Google OAuth consent screen.
  */
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
@@ -34,11 +31,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=oauth_initiation_failed`);
   }
 
-  const requestedRedirect = safeRedirect(req.nextUrl.searchParams.get('redirect'));
+  const setupToken = req.nextUrl.searchParams.get('setupToken')?.trim() || null;
+  const inviteToken = req.nextUrl.searchParams.get('inviteToken')?.trim() || null;
+  const redirectTo = safeRedirect(req.nextUrl.searchParams.get('redirect'));
+
+  if (setupToken && inviteToken) {
+    return NextResponse.redirect(`${origin}/login?error=oauth_initiation_failed`);
+  }
+
   const csrfNonce = randomBytes(32).toString('hex');
-  const cookieValue = requestedRedirect
-    ? `${csrfNonce}|${encodeURIComponent(requestedRedirect)}`
-    : csrfNonce;
+  const cookieValue = buildGoogleOAuthStateCookie({
+    nonce: csrfNonce,
+    redirectTo,
+    setupToken,
+    inviteToken,
+  });
 
   const callbackUrl = `${origin}/api/auth/oauth/callback`;
   const params = new URLSearchParams({

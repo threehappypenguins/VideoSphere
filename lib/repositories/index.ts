@@ -5,7 +5,15 @@
 // All persistence (and future R2/API) access is behind this layer.
 // =============================================================================
 
-export { createUser, getUserById, getUserByEmail, updateUser, listUsers } from './users';
+export {
+  createUser,
+  getUserById,
+  getUserByEmail,
+  updateUser,
+  listUsers,
+  countUsersWithRole,
+  deleteUserById,
+} from './users';
 export type { CreateUserData, UpdateUserData, ListUsersOptions, ListUsersResult } from './users';
 
 export {
@@ -68,4 +76,6 @@ export type {
   CreateInviteTokenInput,
   ListInviteTokensOptions,
   SetupTokenBootstrapResult,
+  ConsumedInviteToken,
+  InviteTokenReleaseSnapshot,
 } from './invites';

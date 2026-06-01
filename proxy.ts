@@ -8,7 +8,7 @@
 //   /dashboard/*  — authenticated users only
 //   /profile/*    — authenticated users only
 //   /admin/*      — authenticated admin users only
-//   /settings/invites — authenticated admin users only
+//   /dashboard/users — authenticated admin users only
 //
 // Session is stored as an httpOnly cookie. Authentication is verified by
 // calling internal API routes (outside the matcher so no circular routing).
@@ -71,6 +71,10 @@ function getSessionTokenFromCookies(request: NextRequest): string | null {
   return request.cookies.get(getSessionCookieName())?.value ?? null;
 }
 
+function isAdminOnlyDashboardPath(pathname: string): boolean {
+  return pathname === '/dashboard/users' || pathname.startsWith('/dashboard/users/');
+}
+
 export async function proxy(request: NextRequest) {
   try {
     const { pathname } = request.nextUrl;
@@ -98,7 +102,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    if (pathname.startsWith('/admin') || pathname.startsWith('/settings/invites')) {
+    if (pathname.startsWith('/admin') || isAdminOnlyDashboardPath(pathname)) {
       const gate = await getSessionRoleForAdminGate(request);
       if (gate === 'unauthenticated') {
         const loginUrl = new URL('/login', request.url);
@@ -130,5 +134,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/profile/:path*', '/admin/:path*', '/settings/invites'],
+  matcher: ['/', '/dashboard/:path*', '/profile/:path*', '/admin/:path*'],
 };

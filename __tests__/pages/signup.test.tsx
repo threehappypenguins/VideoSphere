@@ -6,9 +6,10 @@ import { PasswordStrengthBar, validateRegistrationForm } from '@/components/auth
 
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(),
+  useSearchParams: vi.fn(),
 }));
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 const mockPush = vi.fn();
 const mockFetch = vi.fn();
@@ -16,6 +17,7 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   (useRouter as any).mockReturnValue({ push: mockPush });
+  (useSearchParams as any).mockReturnValue(new URLSearchParams());
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockResolvedValue({
     ok: true,
