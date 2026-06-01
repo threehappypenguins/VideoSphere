@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   GOOGLE_AUTH_OAUTH_STATE_COOKIE,
+  buildGoogleOAuthErrorRedirect,
   buildGoogleOAuthStateCookie,
 } from '@/lib/auth/google-oauth';
 import { safeRedirect } from '@/lib/safe-redirect';
@@ -25,18 +26,23 @@ function getGoogleClientId(): string | null {
  */
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
-  const clientId = getGoogleClientId();
-  if (!clientId) {
-    console.error('[GET /api/auth/oauth/google] Missing Google OAuth client id env var');
-    return NextResponse.redirect(`${origin}/login?error=oauth_initiation_failed`);
-  }
-
   const setupToken = req.nextUrl.searchParams.get('setupToken')?.trim() || null;
   const inviteToken = req.nextUrl.searchParams.get('inviteToken')?.trim() || null;
   const redirectTo = safeRedirect(req.nextUrl.searchParams.get('redirect'));
+  const oauthContext = { setupToken, inviteToken };
+
+  const clientId = getGoogleClientId();
+  if (!clientId) {
+    console.error('[GET /api/auth/oauth/google] Missing Google OAuth client id env var');
+    return NextResponse.redirect(
+      buildGoogleOAuthErrorRedirect(origin, 'oauth_initiation_failed', oauthContext)
+    );
+  }
 
   if (setupToken && inviteToken) {
-    return NextResponse.redirect(`${origin}/login?error=oauth_initiation_failed`);
+    return NextResponse.redirect(
+      buildGoogleOAuthErrorRedirect(origin, 'oauth_initiation_failed', oauthContext)
+    );
   }
 
   const csrfNonce = randomBytes(32).toString('hex');

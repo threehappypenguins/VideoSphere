@@ -130,3 +130,28 @@ export function buildGoogleOAuthStartSearchParams(input: {
   const query = params.toString();
   return query ? `?${query}` : '';
 }
+
+/**
+ * Builds a redirect URL for OAuth errors based on setup/invite/login flow context.
+ * @param origin - Request origin (scheme + host).
+ * @param code - OAuth error code for the `error` query param.
+ * @param context - Optional setup or invite token from the initiation request.
+ * @returns Absolute redirect URL with a URL-encoded error query param.
+ */
+export function buildGoogleOAuthErrorRedirect(
+  origin: string,
+  code: string,
+  context: { setupToken?: string | null; inviteToken?: string | null } = {}
+): string {
+  const encodedError = encodeURIComponent(code);
+  const setupToken = context.setupToken?.trim() || null;
+  const inviteToken = context.inviteToken?.trim() || null;
+
+  if (setupToken && !inviteToken) {
+    return `${origin}/setup?token=${encodeURIComponent(setupToken)}&error=${encodedError}`;
+  }
+  if (inviteToken && !setupToken) {
+    return `${origin}/invite/${encodeURIComponent(inviteToken)}?error=${encodedError}`;
+  }
+  return `${origin}/login?error=${encodedError}`;
+}

@@ -6,6 +6,7 @@ import {
   type InviteGrantedRole,
   type InviteTokenPurpose,
 } from '@/lib/models/InviteToken';
+import { UserProfileModel } from '@/lib/models/UserProfile';
 import type { UserRole } from '@/types';
 
 /**
@@ -122,9 +123,7 @@ async function pruneExpiredInviteTokens(now: Date): Promise<void> {
  * @returns True when any user profile is present.
  */
 async function userProfileExists(): Promise<boolean> {
-  const doc = await InviteTokenModel.db
-    .collection('user_profiles')
-    .findOne({}, { projection: { _id: 1 } });
+  const doc = await UserProfileModel.exists({});
   return doc !== null;
 }
 
