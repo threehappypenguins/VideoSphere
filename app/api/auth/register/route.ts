@@ -100,9 +100,10 @@ export async function POST(req: NextRequest) {
     }
 
     const invitedRole = consumed.grantedRole;
-    const passwordHash = await bcrypt.hash(password, 10);
 
     try {
+      const passwordHash = await bcrypt.hash(password, 10);
+
       await createUser({
         userId,
         email,

@@ -6,9 +6,16 @@ const mockJwtSign = vi.hoisted(() => vi.fn().mockResolvedValue('jwt-token'));
 const mockIsInviteTokenValid = vi.hoisted(() => vi.fn());
 const mockConsumeInviteToken = vi.hoisted(() => vi.fn());
 const mockReleaseInviteToken = vi.hoisted(() => vi.fn());
+const mockBcryptHash = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/repositories/users', () => ({
   createUser: (...args: unknown[]) => mockCreateUser(...args),
+}));
+
+vi.mock('bcryptjs', () => ({
+  default: {
+    hash: (...args: unknown[]) => mockBcryptHash(...args),
+  },
 }));
 
 vi.mock('@/lib/repositories/invites', () => ({
@@ -66,6 +73,7 @@ describe('POST /api/auth/register', () => {
       },
     });
     mockReleaseInviteToken.mockResolvedValue(true);
+    mockBcryptHash.mockResolvedValue('hashed-password');
   });
 
   it('persists the trimmed name when registering with a valid invite token', async () => {
@@ -138,6 +146,27 @@ describe('POST /api/auth/register', () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Invite token is invalid.' });
     expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
+  it('releases the invite token when password hashing fails', async () => {
+    mockBcryptHash.mockRejectedValueOnce(new Error('hash failed'));
+
+    const res = await POST(
+      makeRequest({
+        name: 'Ada Lovelace',
+        email: 'creator@example.com',
+        password: 'password123',
+        inviteToken: 'invite-token-1',
+      })
+    );
+
+    expect(res.status).toBe(500);
+    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockReleaseInviteToken).toHaveBeenCalledWith({
+      token: 'invite-token-1',
+      grantedRole: 'user',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
   });
 
   it('releases the invite token when user creation fails', async () => {

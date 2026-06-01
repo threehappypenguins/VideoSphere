@@ -126,13 +126,8 @@ interface SessionUser {
   email?: string;
 }
 
-interface SessionRoleResponse {
-  role?: 'user' | 'admin';
-}
-
 interface NavbarProps {
   initialSessionUser?: SessionUser | null;
-  initialHasAdminRole?: boolean;
   /** When true, hide sign-in links until first-run admin setup is complete. */
   initialFirstRunPending?: boolean;
 }
@@ -144,7 +139,6 @@ interface NavbarProps {
  */
 export default function Navbar({
   initialSessionUser,
-  initialHasAdminRole = false,
   initialFirstRunPending = false,
 }: NavbarProps) {
   const router = useRouter();
@@ -153,17 +147,11 @@ export default function Navbar({
   const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>(
     initialSessionUser === undefined ? 'loading' : initialSessionUser
   );
-  const [hasAdminRole, setHasAdminRole] = useState(initialHasAdminRole);
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
   const [grainEnabled, setGrainEnabled] = useState(() => getBackgroundGrainEnabled());
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
   const mobileThemeRef = useRef<HTMLDivElement>(null);
-  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(
-    initialSessionUser?.$id
-      ? { userId: initialSessionUser.$id, isAdmin: initialHasAdminRole }
-      : null
-  );
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -180,50 +168,16 @@ export default function Navbar({
       signal: controller.signal,
     })
       .then(async (res) => {
-        if (!res.ok) return { user: null, isAdmin: false };
-
-        const data = (await res.json()) as SessionUser;
-
-        if (data.$id && adminRoleCacheRef.current?.userId === data.$id) {
-          return { user: data, isAdmin: adminRoleCacheRef.current.isAdmin };
-        }
-
-        try {
-          const roleRes = await fetch('/api/auth/session-role', {
-            credentials: 'include',
-            signal: controller.signal,
-          });
-
-          if (!roleRes.ok) {
-            // Keep authenticated session state, but do not cache fallback role on transient failures.
-            return { user: data, isAdmin: false };
-          }
-
-          const roleData = (await roleRes.json()) as SessionRoleResponse;
-          return { user: data, isAdmin: roleData.role === 'admin', userId: data.$id };
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') throw err;
-          // Role lookup failure should not log out an authenticated user.
-          return { user: data, isAdmin: false };
-        }
+        if (!res.ok) return null;
+        return (await res.json()) as SessionUser;
       })
-      .then(({ user, isAdmin, userId }) => {
+      .then((user) => {
         if (controller.signal.aborted) return;
         setSessionUser(user);
-        setHasAdminRole(isAdmin);
-        if (!user) {
-          adminRoleCacheRef.current = null;
-          return;
-        }
-        if (typeof userId === 'string') {
-          adminRoleCacheRef.current = { userId, isAdmin };
-        }
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setSessionUser(null);
-        setHasAdminRole(false);
-        adminRoleCacheRef.current = null;
       });
     return () => controller.abort();
   }, [pathname]);
@@ -248,8 +202,6 @@ export default function Navbar({
   const handleLogout = async () => {
     await logout();
     setSessionUser(null);
-    setHasAdminRole(false);
-    adminRoleCacheRef.current = null;
     setMobileMenuOpen(false);
     router.push('/');
   };

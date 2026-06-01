@@ -151,28 +151,27 @@ export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrap
   }
 
   const token = randomUUID();
+  const reissued = await InviteTokenModel.findOneAndUpdate(
+    { _id: SETUP_TOKEN_DOCUMENT_ID },
+    {
+      $set: {
+        token,
+        purpose: 'setup',
+        createdAt: now,
+      },
+      $unset: {
+        usedAt: 1,
+        usedBy: 1,
+        expiresAt: 1,
+      },
+    },
+    { upsert: true, returnDocument: 'after' }
+  ).lean<InviteTokenDocument | null>();
 
-  try {
-    await InviteTokenModel.create({
-      _id: SETUP_TOKEN_DOCUMENT_ID,
-      token,
-      purpose: 'setup',
-      createdAt: now,
-    });
-    await pruneDuplicateSetupTokens();
-    return { token, created: true };
-  } catch (error) {
-    if (!isDuplicateKeyError(error)) throw error;
+  if (!reissued) return null;
 
-    const retry = await InviteTokenModel.findOne({
-      _id: SETUP_TOKEN_DOCUMENT_ID,
-      purpose: 'setup',
-    }).lean<InviteTokenDocument | null>();
-    if (!retry || !isTokenActive(retry, now)) return null;
-
-    await pruneDuplicateSetupTokens();
-    return { token: retry.token, created: false };
-  }
+  await pruneDuplicateSetupTokens();
+  return { token: reissued.token, created: !existing };
 }
 
 /**

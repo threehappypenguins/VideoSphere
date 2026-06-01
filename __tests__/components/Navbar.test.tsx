@@ -37,6 +37,17 @@ vi.mock('@/lib/auth-client', () => ({
   logout: vi.fn(),
 }));
 
+function mockSessionFetch(user: Record<string, unknown> | null) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: user !== null,
+      status: user !== null ? 200 : 401,
+      json: async () => user,
+    } as Response)
+  );
+}
+
 describe('Navbar admin link visibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -49,21 +60,7 @@ describe('Navbar admin link visibility', () => {
   });
 
   it('does not show a separate Invites nav link for admin users', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ $id: 'user_admin_1', name: 'Admin User', email: 'admin@test.com' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'admin' }),
-        } as Response)
-    );
+    mockSessionFetch({ $id: 'user_admin_1', name: 'Admin User', email: 'admin@test.com' });
 
     render(<Navbar />);
 
@@ -75,25 +72,11 @@ describe('Navbar admin link visibility', () => {
   });
 
   it('does not show Invites links for non-admin users', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({
-            $id: 'user_regular_1',
-            name: 'Regular User',
-            email: 'user@test.com',
-          }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'user' }),
-        } as Response)
-    );
+    mockSessionFetch({
+      $id: 'user_regular_1',
+      name: 'Regular User',
+      email: 'user@test.com',
+    });
 
     render(<Navbar />);
 
@@ -105,21 +88,7 @@ describe('Navbar admin link visibility', () => {
   });
 
   it('shows Profile in mobile menu and closes menu on click', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ $id: 'user_admin_2', name: 'Admin User', email: 'admin@test.com' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'admin' }),
-        } as Response)
-    );
+    mockSessionFetch({ $id: 'user_admin_2', name: 'Admin User', email: 'admin@test.com' });
 
     render(<Navbar />);
 
@@ -146,22 +115,7 @@ describe('Navbar admin link visibility', () => {
 
   it('marks Profile links as current on profile routes', async () => {
     mockPathname.mockReturnValue('/profile');
-
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ $id: 'user_admin_3', name: 'Admin User', email: 'admin@test.com' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'admin' }),
-        } as Response)
-    );
+    mockSessionFetch({ $id: 'user_admin_3', name: 'Admin User', email: 'admin@test.com' });
 
     render(<Navbar />);
 
@@ -188,7 +142,7 @@ describe('Navbar admin link visibility', () => {
     );
     mockPathname.mockReturnValue('/');
 
-    render(<Navbar initialSessionUser={null} initialHasAdminRole={false} />);
+    render(<Navbar initialSessionUser={null} />);
 
     expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
   });
@@ -202,7 +156,6 @@ describe('Navbar admin link visibility', () => {
     render(
       <Navbar
         initialSessionUser={{ $id: 'user-auth-1', name: 'Auth User', email: 'auth@test.com' }}
-        initialHasAdminRole={false}
       />
     );
 
