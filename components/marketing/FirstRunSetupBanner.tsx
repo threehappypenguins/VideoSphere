@@ -1,19 +1,11 @@
 import Link from 'next/link';
 
 /**
- * Props for the first-run setup callout shown on the marketing home page.
- */
-export interface FirstRunSetupBannerProps {
-  /** Path to the first-run setup page, including the setup token query param. */
-  setupHref: string;
-}
-
-/**
  * Banner prompting the instance owner to complete first-run admin setup.
- * @param props - Banner props.
+ * Links to `/setup` without embedding the token; the setup page issues the token server-side.
  * @returns The first-run setup callout UI.
  */
-export function FirstRunSetupBanner({ setupHref }: FirstRunSetupBannerProps) {
+export function FirstRunSetupBanner() {
   return (
     <div
       role="status"
@@ -28,7 +20,7 @@ export function FirstRunSetupBanner({ setupHref }: FirstRunSetupBannerProps) {
           </p>
         </div>
         <Link
-          href={setupHref}
+          href="/setup"
           className="inline-flex shrink-0 items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           Set up VideoSphere

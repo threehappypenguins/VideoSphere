@@ -29,12 +29,3 @@ export async function getFirstRunSetupToken(): Promise<string | null> {
   const result = await ensureSetupTokenForFirstRun();
   return result?.token ?? null;
 }
-
-/**
- * Returns the href for the first-run setup page when setup is still pending.
- * @returns Setup page path with token query param, or null when setup is complete.
- */
-export async function getFirstRunSetupHref(): Promise<string | null> {
-  const token = await getFirstRunSetupToken();
-  return token ? `/setup?token=${token}` : null;
-}

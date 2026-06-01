@@ -220,7 +220,7 @@ describe('GET /api/auth/oauth/callback', () => {
     );
   });
 
-  it('redirects oauth_invite_invalid to login when the invite token is invalid', async () => {
+  it('redirects oauth_invite_invalid to the invite page when the invite token is invalid', async () => {
     mockGoogleSuccess();
     mockIsInviteTokenValid.mockResolvedValueOnce(false);
 
@@ -228,7 +228,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
-      'http://localhost:3000/login?error=oauth_invite_invalid'
+      'http://localhost:3000/invite/invite-token-1?error=oauth_invite_invalid'
     );
   });
 

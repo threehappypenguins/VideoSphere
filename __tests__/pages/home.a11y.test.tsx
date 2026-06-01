@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { expectNoAxeViolations } from '@/__tests__/utils/a11y';
 
-const mockGetFirstRunSetupHref = vi.hoisted(() => vi.fn());
+const mockIsFirstRunSetupPending = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/auth/first-run-setup', () => ({
-  getFirstRunSetupHref: (...args: unknown[]) => mockGetFirstRunSetupHref(...args),
+  isFirstRunSetupPending: (...args: unknown[]) => mockIsFirstRunSetupPending(...args),
 }));
 
 vi.mock('next/link', () => ({
@@ -20,7 +20,7 @@ import HomePage from '@/app/(marketing)/page';
 
 describe('Home page accessibility', () => {
   beforeEach(() => {
-    mockGetFirstRunSetupHref.mockResolvedValue(null);
+    mockIsFirstRunSetupPending.mockResolvedValue(false);
   });
 
   afterEach(() => {

@@ -4,7 +4,7 @@
 
 import type { Metadata } from 'next';
 import { FirstRunSetupBanner } from '@/components/marketing/FirstRunSetupBanner';
-import { getFirstRunSetupHref } from '@/lib/auth/first-run-setup';
+import { isFirstRunSetupPending } from '@/lib/auth/first-run-setup';
 
 /**
  * Provides static page metadata for this route segment.
@@ -20,11 +20,11 @@ export const metadata: Metadata = {
  * @returns The rendered UI output.
  */
 export default async function HomePage() {
-  const setupHref = await getFirstRunSetupHref();
+  const firstRunPending = await isFirstRunSetupPending();
 
   return (
     <div className="font-sans">
-      {setupHref ? <FirstRunSetupBanner setupHref={setupHref} /> : null}
+      {firstRunPending ? <FirstRunSetupBanner /> : null}
 
       {/* ===== HERO SECTION ===== */}
       <section className="px-4 py-20 sm:px-6 lg:px-8">

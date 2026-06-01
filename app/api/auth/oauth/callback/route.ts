@@ -45,7 +45,7 @@ function getGoogleClientSecret(): string | null {
   return process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || null;
 }
 
-const LOGIN_OAUTH_ERROR_CODES = new Set(['oauth_setup_completed', 'oauth_invite_invalid']);
+const LOGIN_OAUTH_ERROR_CODES = new Set(['oauth_setup_completed']);
 
 function oauthErrorRedirect(origin: string, state: GoogleOAuthState | null, code: string): string {
   const encodedError = encodeURIComponent(code);
