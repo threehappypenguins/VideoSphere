@@ -48,16 +48,17 @@ function getGoogleClientSecret(): string | null {
 const LOGIN_OAUTH_ERROR_CODES = new Set(['oauth_setup_completed', 'oauth_invite_invalid']);
 
 function oauthErrorRedirect(origin: string, state: GoogleOAuthState | null, code: string): string {
+  const encodedError = encodeURIComponent(code);
   if (LOGIN_OAUTH_ERROR_CODES.has(code)) {
-    return `${origin}/login?error=${code}`;
+    return `${origin}/login?error=${encodedError}`;
   }
   if (state?.flow === 'setup' && state.setupToken) {
-    return `${origin}/setup?token=${encodeURIComponent(state.setupToken)}&error=${code}`;
+    return `${origin}/setup?token=${encodeURIComponent(state.setupToken)}&error=${encodedError}`;
   }
   if (state?.flow === 'invite' && state.inviteToken) {
-    return `${origin}/invite/${encodeURIComponent(state.inviteToken)}?error=${code}`;
+    return `${origin}/invite/${encodeURIComponent(state.inviteToken)}?error=${encodedError}`;
   }
-  return `${origin}/login?error=${code}`;
+  return `${origin}/login?error=${encodedError}`;
 }
 
 function clearOAuthStateCookie(response: NextResponse): void {
