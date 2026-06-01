@@ -82,7 +82,6 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
       );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update role');
-      await loadUsers();
     } finally {
       setUpdatingUserId(null);
     }

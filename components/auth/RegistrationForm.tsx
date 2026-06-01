@@ -31,9 +31,11 @@ export function validateRegistrationForm(form: FormState): FieldErrors {
 
   if (!form.name.trim()) errors.name = 'Name is required.';
 
-  if (!form.email.trim()) {
+  const email = form.email.trim();
+
+  if (!email) {
     errors.email = 'Email is required.';
-  } else if (!EMAIL_RE.test(form.email)) {
+  } else if (!EMAIL_RE.test(email)) {
     errors.email = 'Please enter a valid email address.';
   }
 

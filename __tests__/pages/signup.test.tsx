@@ -119,6 +119,17 @@ describe('RegistrationForm validation helpers', () => {
 
     expect(errors.confirmPassword).toBe('Passwords do not match.');
   });
+
+  it('accepts email addresses with surrounding whitespace', () => {
+    const errors = validateRegistrationForm({
+      name: 'Sarah',
+      email: '  sarah@example.com  ',
+      password: 'password123',
+      confirmPassword: 'password123',
+    });
+
+    expect(errors).toEqual({});
+  });
 });
 
 describe('PasswordStrengthBar', () => {
