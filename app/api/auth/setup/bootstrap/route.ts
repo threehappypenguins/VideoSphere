@@ -15,6 +15,10 @@ export async function GET() {
     const result = await ensureSetupTokenForFirstRun();
 
     if (!result) {
+      if (await hasAnyUsers()) {
+        return NextResponse.json({ setupRequired: false });
+      }
+
       return NextResponse.json(
         { setupRequired: true, message: 'Setup token could not be created.' },
         { status: 503 }
