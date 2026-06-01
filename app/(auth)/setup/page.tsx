@@ -7,7 +7,7 @@ import SetupPageClient from './SetupPageClient';
  * Props for the first-run setup page.
  */
 interface SetupPageProps {
-  searchParams: Promise<{ token?: string }>;
+  searchParams: Promise<{ token?: string; error?: string }>;
 }
 
 /**
@@ -17,7 +17,8 @@ interface SetupPageProps {
  * @returns The rendered setup page.
  */
 export default async function SetupPage({ searchParams }: SetupPageProps) {
-  const { token } = await searchParams;
+  const { token, error } = await searchParams;
+  const oauthError = error?.trim();
 
   if (await hasAnyUsers()) {
     notFound();
@@ -27,10 +28,18 @@ export default async function SetupPage({ searchParams }: SetupPageProps) {
   if (!trimmedToken) {
     const setupToken = await getFirstRunSetupToken();
     if (!setupToken) notFound();
-    redirect(`/setup?token=${setupToken}`);
+    const errorQuery = oauthError ? `&error=${encodeURIComponent(oauthError)}` : '';
+    redirect(`/setup?token=${encodeURIComponent(setupToken)}${errorQuery}`);
   }
 
   if (!(await isSetupTokenValid(trimmedToken))) {
+    if (oauthError) {
+      const setupToken = await getFirstRunSetupToken();
+      if (!setupToken) notFound();
+      redirect(
+        `/setup?token=${encodeURIComponent(setupToken)}&error=${encodeURIComponent(oauthError)}`
+      );
+    }
     notFound();
   }
 
