@@ -46,10 +46,11 @@ export async function POST(req: NextRequest) {
     if (
       typeof rawEmail !== 'string' ||
       typeof rawPassword !== 'string' ||
+      typeof rawName !== 'string' ||
       typeof rawInviteToken !== 'string'
     ) {
       return NextResponse.json(
-        { error: 'Email, password, and inviteToken are required and must be strings.' },
+        { error: 'Name, email, password, and inviteToken are required and must be strings.' },
         { status: 400 }
       );
     }
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
     const email = rawEmail.trim().toLowerCase();
     const password = rawPassword;
     const inviteToken = rawInviteToken.trim();
+    const name = rawName.trim();
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
@@ -73,18 +75,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (rawName !== undefined && rawName !== null && typeof rawName !== 'string') {
-      return NextResponse.json({ error: 'name must be a string when provided.' }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
     }
 
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
       return NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 });
-    }
-
-    const name = typeof rawName === 'string' ? rawName.trim() : '';
-    if (!name) {
-      return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
     }
 
     if (!inviteToken) {

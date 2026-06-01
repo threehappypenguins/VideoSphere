@@ -92,6 +92,22 @@ describe('POST /api/auth/register', () => {
     );
   });
 
+  it('rejects missing name with the required-fields message', async () => {
+    const res = await POST(
+      makeRequest({
+        email: 'creator@example.com',
+        password: 'password123',
+        inviteToken: 'invite-token-1',
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Name, email, password, and inviteToken are required and must be strings.',
+    });
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
   it('rejects blank trimmed names', async () => {
     const res = await POST(
       makeRequest({

@@ -24,6 +24,10 @@ function parseUserRole(value: unknown): UserRole | null {
   return null;
 }
 
+function isUserNotFoundError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: number }).code === 404;
+}
+
 async function validateAdminDemotion(
   targetUserId: string,
   nextRole: UserRole
@@ -83,9 +87,6 @@ export async function PATCH(
     }
 
     const updated = await updateUser(targetUserId, { role: nextRole });
-    if (!updated) {
-      return NextResponse.json({ error: 'User not found.' }, { status: 404 });
-    }
 
     const payload: ApiResponse<{ user: AdminUserMutationRow }> = {
       data: {
@@ -101,6 +102,10 @@ export async function PATCH(
 
     return NextResponse.json(payload);
   } catch (error) {
+    if (isUserNotFoundError(error)) {
+      return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+    }
+
     console.error('[PATCH /api/admin/users/[userId]]', error);
     const errRes: ApiError = {
       error: 'Internal Server Error',

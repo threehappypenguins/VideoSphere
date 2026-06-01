@@ -185,13 +185,6 @@ export async function listInviteTokens(
 ): Promise<InviteTokenRecord[]> {
   await connectToDatabase();
 
-  if (!options.includeSetup) {
-    await InviteTokenModel.deleteMany({
-      purpose: 'invite',
-      usedAt: { $exists: true },
-    });
-  }
-
   const query: Record<string, unknown> = {};
   if (!options.includeSetup) {
     query.purpose = 'invite';

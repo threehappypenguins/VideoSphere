@@ -88,6 +88,18 @@ describe('PATCH /api/admin/users/[userId]', () => {
     expect(body.data.user.role).toBe('admin');
   });
 
+  it('returns 404 when updateUser throws a not-found error', async () => {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    vi.mocked(updateUser).mockRejectedValueOnce(notFound);
+
+    const res = await PATCH(makePatchRequest(targetUser.userId, { role: 'admin' }), {
+      params: Promise.resolve({ userId: targetUser.userId }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'User not found.' });
+  });
+
   it('rejects demoting the last admin', async () => {
     const loneAdmin = { ...adminProfile, userId: 'solo-admin' };
     vi.mocked(getUserById).mockResolvedValueOnce(loneAdmin);
