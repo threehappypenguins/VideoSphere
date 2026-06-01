@@ -8,7 +8,7 @@ import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
 import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
-import { upsertOAuthUserByEmail } from '@/lib/repositories/users';
+import { upsertOAuthUserByEmail, getUserByEmail } from '@/lib/repositories/users';
 import { safeRedirect } from '@/lib/safe-redirect';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -136,6 +136,11 @@ export async function GET(req: NextRequest) {
     const googleDisplayName = userInfo.name?.trim();
     if (!email || !googleSub || userInfo.email_verified !== true) {
       return NextResponse.redirect(`${origin}/login?error=oauth_auth_failed`);
+    }
+
+    const existingUser = await getUserByEmail(email);
+    if (!existingUser) {
+      return NextResponse.redirect(`${origin}/login?error=oauth_registration_disabled`);
     }
 
     const user = await upsertOAuthUserByEmail(email, googleDisplayName);

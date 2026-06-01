@@ -8,6 +8,11 @@ import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  consumeInviteToken,
+  isInviteTokenValid,
+  releaseInviteToken,
+} from '@/lib/repositories/invites';
 import { createUser } from '@/lib/repositories/users';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 
@@ -35,17 +40,23 @@ export async function POST(req: NextRequest) {
       email: rawEmail,
       password: rawPassword,
       name: rawName,
+      inviteToken: rawInviteToken,
     } = body as Record<string, unknown>;
 
-    if (typeof rawEmail !== 'string' || typeof rawPassword !== 'string') {
+    if (
+      typeof rawEmail !== 'string' ||
+      typeof rawPassword !== 'string' ||
+      typeof rawInviteToken !== 'string'
+    ) {
       return NextResponse.json(
-        { error: 'Email and password are required and must be strings.' },
+        { error: 'Email, password, and inviteToken are required and must be strings.' },
         { status: 400 }
       );
     }
 
     const email = rawEmail.trim().toLowerCase();
     const password = rawPassword;
+    const inviteToken = rawInviteToken.trim();
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
@@ -76,7 +87,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
     }
 
+    if (!inviteToken) {
+      return NextResponse.json({ error: 'Invite token is required.' }, { status: 400 });
+    }
+
+    const validToken = await isInviteTokenValid(inviteToken);
+    if (!validToken) {
+      return NextResponse.json({ error: 'Invite token is invalid.' }, { status: 404 });
+    }
+
     const userId = randomUUID();
+    const consumed = await consumeInviteToken(inviteToken, userId);
+    if (!consumed) {
+      return NextResponse.json({ error: 'Invite token is no longer valid.' }, { status: 409 });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
 
     try {
@@ -89,6 +114,7 @@ export async function POST(req: NextRequest) {
         role: 'user',
       });
     } catch (err: unknown) {
+      await releaseInviteToken(inviteToken, userId);
       const mongoErr = err as { code?: number; message?: string };
       if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
         return NextResponse.json(

@@ -321,11 +321,11 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                 </Link>
                 {isAdminUser && (
                   <Link
-                    href="/admin/dashboard"
-                    aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
-                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname.startsWith('/admin') ? 'font-extrabold text-foreground' : 'text-muted-foreground'}`}
+                    href="/settings/invites"
+                    aria-current={pathname.startsWith('/settings/invites') ? 'page' : undefined}
+                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname.startsWith('/settings/invites') ? 'font-extrabold text-foreground' : 'text-muted-foreground'}`}
                   >
-                    Admin
+                    Invites
                   </Link>
                 )}
                 <span className="text-sm text-muted-foreground" title={sessionUser?.email}>
@@ -346,12 +346,6 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Log in
-                </Link>
-                <Link
-                  href="/signup"
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  Sign up
                 </Link>
               </>
             )}
@@ -440,12 +434,12 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   </Link>
                   {isAdminUser && (
                     <Link
-                      href="/admin/dashboard"
-                      aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
-                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname.startsWith('/admin') ? 'bg-muted font-bold text-foreground' : 'text-muted-foreground'}`}
+                      href="/settings/invites"
+                      aria-current={pathname.startsWith('/settings/invites') ? 'page' : undefined}
+                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname.startsWith('/settings/invites') ? 'bg-muted font-bold text-foreground' : 'text-muted-foreground'}`}
                       onClick={() => setMobileMenuOpen(false)}
                     >
-                      Admin
+                      Invites
                     </Link>
                   )}
                   <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
@@ -465,13 +459,6 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     Log in
-                  </Link>
-                  <Link
-                    href="/signup"
-                    className="mx-3 rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Sign up
                   </Link>
                 </>
               )}

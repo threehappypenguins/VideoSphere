@@ -48,7 +48,7 @@ describe('Navbar admin link visibility', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows Admin links for admin users', async () => {
+  it('shows Invites links for admin users', async () => {
     vi.stubGlobal(
       'fetch',
       vi
@@ -68,8 +68,8 @@ describe('Navbar admin link visibility', () => {
     render(<Navbar />);
 
     await waitFor(() => {
-      const adminLink = screen.getByRole('link', { name: 'Admin' });
-      expect(adminLink).toHaveAttribute('href', '/admin/dashboard');
+      const invitesLink = screen.getByRole('link', { name: 'Invites' });
+      expect(invitesLink).toHaveAttribute('href', '/settings/invites');
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -82,7 +82,7 @@ describe('Navbar admin link visibility', () => {
     );
   });
 
-  it('does not show Admin links for non-admin users', async () => {
+  it('does not show Invites links for non-admin users', async () => {
     vi.stubGlobal(
       'fetch',
       vi
@@ -109,10 +109,10 @@ describe('Navbar admin link visibility', () => {
       expect(screen.getByText('Regular User')).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Invites' })).not.toBeInTheDocument();
   });
 
-  it('shows Admin in mobile menu and closes menu on click', async () => {
+  it('shows Invites in mobile menu and closes menu on click', async () => {
     vi.stubGlobal(
       'fetch',
       vi
@@ -143,22 +143,22 @@ describe('Navbar admin link visibility', () => {
     expect(menuToggle).toHaveAttribute('aria-expanded', 'true');
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(2);
+      expect(screen.getAllByRole('link', { name: 'Invites' })).toHaveLength(2);
     });
 
-    expect(screen.getAllByRole('link', { name: 'Admin' })[0]).not.toHaveAttribute('aria-current');
+    expect(screen.getAllByRole('link', { name: 'Invites' })[0]).not.toHaveAttribute('aria-current');
 
-    const adminLinks = screen.getAllByRole('link', { name: 'Admin' });
-    await user.click(adminLinks[1]);
+    const invitesLinks = screen.getAllByRole('link', { name: 'Invites' });
+    await user.click(invitesLinks[1]);
 
     await waitFor(() => {
       expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(1);
+      expect(screen.getAllByRole('link', { name: 'Invites' })).toHaveLength(1);
     });
   });
 
-  it('marks Admin links as current on admin routes', async () => {
-    mockPathname.mockReturnValue('/admin/dashboard');
+  it('marks Invites links as current on invite settings routes', async () => {
+    mockPathname.mockReturnValue('/settings/invites');
 
     vi.stubGlobal(
       'fetch',
@@ -179,18 +179,18 @@ describe('Navbar admin link visibility', () => {
     render(<Navbar />);
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('link', { name: 'Invites' })).toHaveAttribute('aria-current', 'page');
     });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Toggle navigation menu' }));
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(2);
+      expect(screen.getAllByRole('link', { name: 'Invites' })).toHaveLength(2);
     });
 
-    for (const adminLink of screen.getAllByRole('link', { name: 'Admin' })) {
-      expect(adminLink).toHaveAttribute('aria-current', 'page');
+    for (const invitesLink of screen.getAllByRole('link', { name: 'Invites' })) {
+      expect(invitesLink).toHaveAttribute('aria-current', 'page');
     }
   });
 

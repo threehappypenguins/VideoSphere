@@ -18,7 +18,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 import { safeRedirect } from '@/lib/safe-redirect';
@@ -113,6 +112,8 @@ export default function LoginPage() {
       oauth_auth_failed: 'Failed to complete Google authentication. Please try again.',
       oauth_callback_failed: 'An error occurred during Google login. Please try again.',
       oauth_failed: 'Google sign-in failed. Please try again.',
+      oauth_registration_disabled:
+        'Google sign-in is only available for existing accounts. Ask an admin for an invite link.',
     };
     return errorMap[message] || message;
   };
@@ -258,13 +259,6 @@ export default function LoginPage() {
           </svg>
           Sign in with Google
         </button>
-
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          Don&apos;t have an account?{' '}
-          <Link href="/signup" className="font-medium text-primary hover:text-primary/90">
-            Sign up
-          </Link>
-        </p>
       </div>
     </div>
   );

@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mockUpsertOAuthUserByEmail = vi.hoisted(() => vi.fn());
+const mockGetUserByEmail = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 const mockJwtSign = vi.hoisted(() => vi.fn().mockResolvedValue('jwt-token'));
 
 vi.mock('@/lib/repositories/users', () => ({
   upsertOAuthUserByEmail: (...args: unknown[]) => mockUpsertOAuthUserByEmail(...args),
+  getUserByEmail: (...args: unknown[]) => mockGetUserByEmail(...args),
 }));
 
 vi.mock('jose', () => ({
@@ -95,10 +97,15 @@ describe('GET /api/auth/oauth/callback', () => {
     delete process.env.GOOGLE_CLIENT_SECRET;
   });
 
-  it('upserts via the users repository helper and redirects to dashboard', async () => {
+  it('upserts via the users repository helper and redirects to dashboard for existing users', async () => {
     mockGoogleSuccess();
+    mockGetUserByEmail.mockResolvedValueOnce({
+      userId: 'existing-user-id',
+      email: 'creator@example.com',
+      role: 'user',
+    });
     mockUpsertOAuthUserByEmail.mockResolvedValueOnce({
-      userId: 'generated-user-id',
+      userId: 'existing-user-id',
       email: 'creator@example.com',
       name: 'Creator Name',
       hasCompletedOnboarding: false,
@@ -109,13 +116,33 @@ describe('GET /api/auth/oauth/callback', () => {
 
     const res = await GET(validRequest());
 
+    expect(mockGetUserByEmail).toHaveBeenCalledWith('creator@example.com');
     expect(mockUpsertOAuthUserByEmail).toHaveBeenCalledWith('creator@example.com', 'Creator Name');
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
   });
 
+  it('redirects to login when Google account is not already registered', async () => {
+    mockGoogleSuccess();
+    mockGetUserByEmail.mockResolvedValueOnce(null);
+
+    const res = await GET(validRequest());
+
+    expect(mockGetUserByEmail).toHaveBeenCalledWith('creator@example.com');
+    expect(mockUpsertOAuthUserByEmail).not.toHaveBeenCalled();
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_registration_disabled'
+    );
+  });
+
   it('returns oauth_callback_failed when repository upsert fails', async () => {
     mockGoogleSuccess();
+    mockGetUserByEmail.mockResolvedValueOnce({
+      userId: 'existing-user-id',
+      email: 'creator@example.com',
+      role: 'user',
+    });
     mockUpsertOAuthUserByEmail.mockRejectedValueOnce(new Error('db unavailable'));
 
     const res = await GET(validRequest());

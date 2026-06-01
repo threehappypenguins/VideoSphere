@@ -11,7 +11,8 @@ export const PAGE_SEEDS: Record<string, number> = {
   '/test-background': 77,
   // Auth
   '/login': 603,
-  '/signup': 721,
+  '/setup': 812,
+  '/invite': 721,
   // Dashboard
   '/dashboard': 137,
   '/dashboard/drafts': 1088,
