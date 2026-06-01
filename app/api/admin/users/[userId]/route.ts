@@ -29,12 +29,23 @@ function isUserNotFoundError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: number }).code === 404;
 }
 
+function createUserNotFoundError(): Error {
+  return Object.assign(new Error('User profile not found'), { code: 404 });
+}
+
+/**
+ * Ensures role changes are allowed (target exists; last admin is not demoted).
+ * @param targetUserId - User id from the route param.
+ * @param nextRole - Requested role after the update.
+ * @throws Error with `code` 404 when the target user does not exist.
+ * @returns Conflict message when demotion is not allowed; otherwise null.
+ */
 async function validateAdminDemotion(
   targetUserId: string,
   nextRole: UserRole
 ): Promise<string | null> {
   const target = await getUserById(targetUserId);
-  if (!target) return 'User not found.';
+  if (!target) throw createUserNotFoundError();
 
   if (target.role === 'admin' && nextRole === 'user') {
     const adminCount = await countUsersWithRole('admin');
