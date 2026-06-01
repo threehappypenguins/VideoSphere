@@ -228,6 +228,14 @@ describe('POST /api/admin/invites', () => {
     expect(createInviteToken).not.toHaveBeenCalled();
   });
 
+  it('rejects JSON null bodies', async () => {
+    const res = await POST(makePostRequest(null));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Body must be a JSON object.' });
+    expect(createInviteToken).not.toHaveBeenCalled();
+  });
+
   it('rejects non-finite expiresInDays', async () => {
     const res = await POST(makePostRequest({ expiresInDays: '7' }));
     expect(res.status).toBe(400);

@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  if (body !== null && typeof body !== 'object') {
+  if (body === null || typeof body !== 'object') {
     return NextResponse.json({ error: 'Body must be a JSON object.' }, { status: 400 });
   }
 
