@@ -125,6 +125,11 @@ function validRequest(cookies: Record<string, string>) {
   return makeRequest({ code: 'auth-code', state: 'nonce-123' }, cookies);
 }
 
+function expectOAuthStateCookieCleared(res: Response) {
+  const setCookie = res.headers.get('set-cookie') ?? '';
+  expect(setCookie).toMatch(/google_auth_oauth_state=;|google_auth_oauth_state=.*Max-Age=0/);
+}
+
 describe('GET /api/auth/oauth/callback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -164,6 +169,17 @@ describe('GET /api/auth/oauth/callback', () => {
     expect(mockCreateUser).not.toHaveBeenCalled();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
+    expectOAuthStateCookieCleared(res);
+  });
+
+  it('clears the OAuth state cookie on early error redirects', async () => {
+    const res = await GET(makeRequest({}, loginCookie()));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_missing_params'
+    );
+    expectOAuthStateCookieCleared(res);
   });
 
   it('redirects to login when Google account is not registered and flow is login', async () => {
@@ -189,6 +205,30 @@ describe('GET /api/auth/oauth/callback', () => {
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_callback_failed'
+    );
+  });
+
+  it('redirects oauth_setup_completed to login when setup is already complete', async () => {
+    mockGoogleSuccess();
+    mockHasAnyUsers.mockResolvedValueOnce(true);
+
+    const res = await GET(validRequest(setupCookie()));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_setup_completed'
+    );
+  });
+
+  it('redirects oauth_invite_invalid to login when the invite token is invalid', async () => {
+    mockGoogleSuccess();
+    mockIsInviteTokenValid.mockResolvedValueOnce(false);
+
+    const res = await GET(validRequest(inviteCookie()));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_invite_invalid'
     );
   });
 

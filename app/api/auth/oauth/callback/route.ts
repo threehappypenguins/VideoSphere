@@ -45,7 +45,12 @@ function getGoogleClientSecret(): string | null {
   return process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_OAUTH_CLIENT_SECRET || null;
 }
 
+const LOGIN_OAUTH_ERROR_CODES = new Set(['oauth_setup_completed', 'oauth_invite_invalid']);
+
 function oauthErrorRedirect(origin: string, state: GoogleOAuthState | null, code: string): string {
+  if (LOGIN_OAUTH_ERROR_CODES.has(code)) {
+    return `${origin}/login?error=${code}`;
+  }
   if (state?.flow === 'setup' && state.setupToken) {
     return `${origin}/setup?token=${encodeURIComponent(state.setupToken)}&error=${code}`;
   }
@@ -65,6 +70,16 @@ function clearOAuthStateCookie(response: NextResponse): void {
   });
 }
 
+function oauthErrorResponse(
+  origin: string,
+  state: GoogleOAuthState | null,
+  code: string
+): NextResponse {
+  const response = NextResponse.redirect(oauthErrorRedirect(origin, state, code));
+  clearOAuthStateCookie(response);
+  return response;
+}
+
 /**
  * Handles GET requests for this route.
  * @param req - The incoming request object.
@@ -80,15 +95,15 @@ export async function GET(req: NextRequest) {
   const oauthState = cookieValue ? parseGoogleOAuthStateCookie(cookieValue) : null;
 
   if (oauthError) {
-    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_auth_failed'));
+    return oauthErrorResponse(origin, oauthState, 'oauth_auth_failed');
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_missing_params'));
+    return oauthErrorResponse(origin, oauthState, 'oauth_missing_params');
   }
 
   if (!oauthState?.nonce || oauthState.nonce !== state) {
-    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_auth_failed'));
+    return oauthErrorResponse(origin, oauthState, 'oauth_auth_failed');
   }
 
   const clientId = getGoogleClientId();
@@ -96,7 +111,7 @@ export async function GET(req: NextRequest) {
   const jwtSecret = process.env.JWT_SECRET;
   if (!clientId || !clientSecret || !jwtSecret) {
     console.error('[GET /api/auth/oauth/callback] Missing required OAuth/JWT env vars');
-    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
+    return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
   }
 
   try {
@@ -116,13 +131,13 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok) {
       const body = await tokenRes.text();
       console.error('[GET /api/auth/oauth/callback] Token exchange failed:', body);
-      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
+      return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
     }
 
     const tokenData = (await tokenRes.json()) as GoogleTokenResponse;
     const accessToken = tokenData.access_token;
     if (!accessToken) {
-      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
+      return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
     }
 
     const userInfoRes = await fetch(GOOGLE_USERINFO_URL, {
@@ -132,7 +147,7 @@ export async function GET(req: NextRequest) {
     if (!userInfoRes.ok) {
       const body = await userInfoRes.text();
       console.error('[GET /api/auth/oauth/callback] Userinfo fetch failed:', body);
-      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
+      return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
     }
 
     const userInfo = (await userInfoRes.json()) as GoogleUserInfoResponse;
@@ -140,7 +155,7 @@ export async function GET(req: NextRequest) {
     const googleSub = userInfo.sub?.trim();
     const googleDisplayName = userInfo.name?.trim();
     if (!email || !googleSub || userInfo.email_verified !== true) {
-      return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_auth_failed'));
+      return oauthErrorResponse(origin, oauthState, 'oauth_auth_failed');
     }
 
     let userId: string;
@@ -149,23 +164,21 @@ export async function GET(req: NextRequest) {
     if (oauthState.flow === 'setup') {
       const setupToken = oauthState.setupToken;
       if (!setupToken) {
-        return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_setup_invalid'));
+        return oauthErrorResponse(origin, oauthState, 'oauth_setup_invalid');
       }
 
       if (await hasAnyUsers()) {
-        return NextResponse.redirect(
-          oauthErrorRedirect(origin, oauthState, 'oauth_setup_completed')
-        );
+        return oauthErrorResponse(origin, oauthState, 'oauth_setup_completed');
       }
 
       if (!(await isSetupTokenValid(setupToken))) {
-        return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_setup_invalid'));
+        return oauthErrorResponse(origin, oauthState, 'oauth_setup_invalid');
       }
 
       userId = randomUUID();
       const consumed = await consumeSetupToken(setupToken, userId);
       if (!consumed) {
-        return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_setup_invalid'));
+        return oauthErrorResponse(origin, oauthState, 'oauth_setup_invalid');
       }
 
       try {
@@ -180,9 +193,7 @@ export async function GET(req: NextRequest) {
         await releaseSetupToken(setupToken, userId);
         const mongoErr = error as { code?: number; message?: string };
         if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
-          return NextResponse.redirect(
-            oauthErrorRedirect(origin, oauthState, 'oauth_setup_failed')
-          );
+          return oauthErrorResponse(origin, oauthState, 'oauth_setup_failed');
         }
         throw error;
       }
@@ -191,23 +202,17 @@ export async function GET(req: NextRequest) {
     } else if (oauthState.flow === 'invite') {
       const inviteToken = oauthState.inviteToken;
       if (!inviteToken) {
-        return NextResponse.redirect(
-          oauthErrorRedirect(origin, oauthState, 'oauth_invite_invalid')
-        );
+        return oauthErrorResponse(origin, oauthState, 'oauth_invite_invalid');
       }
 
       if (!(await isInviteTokenValid(inviteToken))) {
-        return NextResponse.redirect(
-          oauthErrorRedirect(origin, oauthState, 'oauth_invite_invalid')
-        );
+        return oauthErrorResponse(origin, oauthState, 'oauth_invite_invalid');
       }
 
       userId = randomUUID();
       const consumed = await consumeInviteToken(inviteToken, userId);
       if (!consumed) {
-        return NextResponse.redirect(
-          oauthErrorRedirect(origin, oauthState, 'oauth_invite_invalid')
-        );
+        return oauthErrorResponse(origin, oauthState, 'oauth_invite_invalid');
       }
 
       const invitedRole = consumed.grantedRole;
@@ -224,9 +229,7 @@ export async function GET(req: NextRequest) {
         await releaseInviteToken(consumed.releaseSnapshot);
         const mongoErr = error as { code?: number; message?: string };
         if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
-          return NextResponse.redirect(
-            oauthErrorRedirect(origin, oauthState, 'oauth_invite_failed')
-          );
+          return oauthErrorResponse(origin, oauthState, 'oauth_invite_failed');
         }
         throw error;
       }
@@ -235,9 +238,7 @@ export async function GET(req: NextRequest) {
     } else {
       const existingUser = await getUserByEmail(email);
       if (!existingUser) {
-        return NextResponse.redirect(
-          oauthErrorRedirect(origin, oauthState, 'oauth_registration_disabled')
-        );
+        return oauthErrorResponse(origin, oauthState, 'oauth_registration_disabled');
       }
 
       userId = existingUser.userId;
@@ -259,6 +260,6 @@ export async function GET(req: NextRequest) {
     return response;
   } catch (err) {
     console.error('[GET /api/auth/oauth/callback]', err);
-    return NextResponse.redirect(oauthErrorRedirect(origin, oauthState, 'oauth_callback_failed'));
+    return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
   }
 }
