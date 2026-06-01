@@ -6,14 +6,14 @@ const {
   mockFindOne,
   mockFindOneAndUpdate,
   mockDeleteMany,
-  mockUserCountDocuments,
+  mockUserProfileFindOne,
 } = vi.hoisted(() => ({
   mockConnectToDatabase: vi.fn(),
   mockCreate: vi.fn(),
   mockFindOne: vi.fn(),
   mockFindOneAndUpdate: vi.fn(),
   mockDeleteMany: vi.fn(),
-  mockUserCountDocuments: vi.fn(),
+  mockUserProfileFindOne: vi.fn(),
 }));
 
 vi.mock('@/lib/mongodb', () => ({
@@ -28,7 +28,7 @@ vi.mock('@/lib/models/InviteToken', () => ({
     deleteMany: (...args: unknown[]) => mockDeleteMany(...args),
     db: {
       collection: () => ({
-        countDocuments: (...args: unknown[]) => mockUserCountDocuments(...args),
+        findOne: (...args: unknown[]) => mockUserProfileFindOne(...args),
       }),
     },
   },
@@ -52,7 +52,7 @@ describe('ensureSetupTokenForFirstRun', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockConnectToDatabase.mockResolvedValue(undefined);
-    mockUserCountDocuments.mockResolvedValue(0);
+    mockUserProfileFindOne.mockResolvedValue(null);
     mockDeleteMany.mockResolvedValue({ deletedCount: 0 });
   });
 
@@ -137,7 +137,7 @@ describe('ensureSetupTokenForFirstRun', () => {
   });
 
   it('returns null once users already exist', async () => {
-    mockUserCountDocuments.mockResolvedValueOnce(1);
+    mockUserProfileFindOne.mockResolvedValueOnce({ _id: 'user-1' });
 
     const result = await ensureSetupTokenForFirstRun();
 

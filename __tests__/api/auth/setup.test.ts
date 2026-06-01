@@ -7,9 +7,16 @@ const mockHasAnyUsers = vi.hoisted(() => vi.fn());
 const mockIsSetupTokenValid = vi.hoisted(() => vi.fn());
 const mockConsumeSetupToken = vi.hoisted(() => vi.fn());
 const mockReleaseSetupToken = vi.hoisted(() => vi.fn());
+const mockBcryptHash = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/repositories/users', () => ({
   createUser: (...args: unknown[]) => mockCreateUser(...args),
+}));
+
+vi.mock('bcryptjs', () => ({
+  default: {
+    hash: (...args: unknown[]) => mockBcryptHash(...args),
+  },
 }));
 
 vi.mock('@/lib/repositories/invites', () => ({
@@ -69,6 +76,7 @@ describe('POST /api/auth/setup', () => {
     mockConsumeSetupToken.mockResolvedValue(true);
     mockReleaseSetupToken.mockResolvedValue(true);
     mockCreateUser.mockResolvedValue({ userId: 'admin-1', email: 'admin@example.com' });
+    mockBcryptHash.mockResolvedValue('hashed-password');
   });
 
   it('creates the first admin, consumes the setup token, and issues a session cookie', async () => {
@@ -83,7 +91,7 @@ describe('POST /api/auth/setup', () => {
         userId: expect.any(String),
         email: 'admin@example.com',
         name: 'Admin User',
-        passwordHash: expect.any(String),
+        passwordHash: 'hashed-password',
         role: 'admin',
       })
     );

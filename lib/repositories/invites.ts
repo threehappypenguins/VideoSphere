@@ -118,15 +118,23 @@ async function pruneExpiredInviteTokens(now: Date): Promise<void> {
 }
 
 /**
+ * Returns whether at least one user profile document exists.
+ * @returns True when any user profile is present.
+ */
+async function userProfileExists(): Promise<boolean> {
+  const doc = await InviteTokenModel.db
+    .collection('user_profiles')
+    .findOne({}, { projection: { _id: 1 } });
+  return doc !== null;
+}
+
+/**
  * Returns true when at least one user exists.
  * @returns Whether any user profile exists.
  */
 export async function hasAnyUsers(): Promise<boolean> {
   await connectToDatabase();
-  const count = await InviteTokenModel.db
-    .collection('user_profiles')
-    .countDocuments({}, { limit: 1 });
-  return count > 0;
+  return userProfileExists();
 }
 
 /**
@@ -136,10 +144,7 @@ export async function hasAnyUsers(): Promise<boolean> {
 export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrapResult | null> {
   await connectToDatabase();
 
-  const userCount = await InviteTokenModel.db
-    .collection('user_profiles')
-    .countDocuments({}, { limit: 1 });
-  if (userCount > 0) return null;
+  if (await userProfileExists()) return null;
 
   const now = new Date();
   const existing = await InviteTokenModel.findOne({
@@ -266,10 +271,7 @@ export async function isInviteTokenValid(token: string): Promise<boolean> {
 export async function isSetupTokenValid(token: string): Promise<boolean> {
   await connectToDatabase();
 
-  const userCount = await InviteTokenModel.db
-    .collection('user_profiles')
-    .countDocuments({}, { limit: 1 });
-  if (userCount > 0) return false;
+  if (await userProfileExists()) return false;
 
   const now = new Date();
   const doc = await InviteTokenModel.findOne({
