@@ -16,7 +16,7 @@ import {
   releaseInviteToken,
   releaseSetupToken,
 } from '@/lib/repositories/invites';
-import { createUser, getUserByEmail, upsertOAuthUserByEmail } from '@/lib/repositories/users';
+import { createUser, getUserByEmail } from '@/lib/repositories/users';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
@@ -240,9 +240,8 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      const user = await upsertOAuthUserByEmail(email, googleDisplayName);
-      userId = user.userId;
-      role = user.role === 'admin' ? 'admin' : 'user';
+      userId = existingUser.userId;
+      role = existingUser.role === 'admin' ? 'admin' : 'user';
     }
 
     const token = await new SignJWT({ role, oauthProvider: 'google' })

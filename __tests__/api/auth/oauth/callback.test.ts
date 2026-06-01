@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const mockUpsertOAuthUserByEmail = vi.hoisted(() => vi.fn());
 const mockGetUserByEmail = vi.hoisted(() => vi.fn());
 const mockCreateUser = vi.hoisted(() => vi.fn());
 const mockHasAnyUsers = vi.hoisted(() => vi.fn());
@@ -15,7 +14,6 @@ const mockFetch = vi.hoisted(() => vi.fn());
 const mockJwtSign = vi.hoisted(() => vi.fn().mockResolvedValue('jwt-token'));
 
 vi.mock('@/lib/repositories/users', () => ({
-  upsertOAuthUserByEmail: (...args: unknown[]) => mockUpsertOAuthUserByEmail(...args),
   getUserByEmail: (...args: unknown[]) => mockGetUserByEmail(...args),
   createUser: (...args: unknown[]) => mockCreateUser(...args),
 }));
@@ -152,27 +150,18 @@ describe('GET /api/auth/oauth/callback', () => {
     delete process.env.GOOGLE_CLIENT_SECRET;
   });
 
-  it('upserts and redirects to dashboard for existing login users', async () => {
+  it('signs in and redirects to dashboard for existing login users', async () => {
     mockGoogleSuccess();
     mockGetUserByEmail.mockResolvedValueOnce({
       userId: 'existing-user-id',
       email: 'creator@example.com',
       role: 'user',
     });
-    mockUpsertOAuthUserByEmail.mockResolvedValueOnce({
-      userId: 'existing-user-id',
-      email: 'creator@example.com',
-      name: 'Creator Name',
-      hasCompletedOnboarding: false,
-      role: 'user',
-      $createdAt: '2026-01-01T00:00:00.000Z',
-      $updatedAt: '2026-01-01T00:00:00.000Z',
-    });
 
     const res = await GET(validRequest(loginCookie()));
 
     expect(mockGetUserByEmail).toHaveBeenCalledWith('creator@example.com');
-    expect(mockUpsertOAuthUserByEmail).toHaveBeenCalledWith('creator@example.com', 'Creator Name');
+    expect(mockCreateUser).not.toHaveBeenCalled();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
   });
@@ -187,6 +176,19 @@ describe('GET /api/auth/oauth/callback', () => {
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_registration_disabled'
+    );
+  });
+
+  it('returns oauth_callback_failed when getUserByEmail throws on login', async () => {
+    mockGoogleSuccess();
+    mockGetUserByEmail.mockRejectedValueOnce(new Error('db unavailable'));
+
+    const res = await GET(validRequest(loginCookie()));
+
+    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_callback_failed'
     );
   });
 
@@ -231,21 +233,5 @@ describe('GET /api/auth/oauth/callback', () => {
       })
     );
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
-  });
-
-  it('returns oauth_callback_failed when repository upsert fails on login', async () => {
-    mockGoogleSuccess();
-    mockGetUserByEmail.mockResolvedValueOnce({
-      userId: 'existing-user-id',
-      email: 'creator@example.com',
-      role: 'user',
-    });
-    mockUpsertOAuthUserByEmail.mockRejectedValueOnce(new Error('db unavailable'));
-
-    const res = await GET(validRequest(loginCookie()));
-
-    expect(res.headers.get('location')).toBe(
-      'http://localhost:3000/login?error=oauth_callback_failed'
-    );
   });
 });

@@ -74,11 +74,11 @@ export async function POST(request: NextRequest) {
   const adminCheck = await requireAdmin(request, '[POST /api/admin/invites]');
   if (adminCheck.ok === false) return adminCheck.response;
 
-  let body: unknown = {};
+  let body: unknown;
   try {
     body = await request.json();
   } catch {
-    body = {};
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
   if (body !== null && typeof body !== 'object') {

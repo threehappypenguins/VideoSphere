@@ -8,7 +8,6 @@
 // =============================================================================
 
 import type { User, UserRole } from '@/types';
-import { randomUUID } from 'node:crypto';
 import { connectToDatabase } from '@/lib/mongodb';
 import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
 
@@ -221,55 +220,6 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
  */
 export interface UserCounts {
   totalUsers: number;
-}
-
-function isMongoDuplicateKeyError(error: unknown): boolean {
-  const mongoError = error as { code?: number } | null;
-  return mongoError?.code === 11000;
-}
-
-/**
- * Upsert a user profile by normalized email for OAuth sign-ins.
- * @param email - OAuth-provided email address.
- * @param name - OAuth-provided display name.
- * @returns Existing or newly created user profile.
- */
-export async function upsertOAuthUserByEmail(email: string, name?: string): Promise<User> {
-  await connectToDatabase();
-
-  const normalizedEmail = email.trim().toLowerCase();
-  const trimmedName = typeof name === 'string' ? name.trim() : '';
-  const userId = randomUUID();
-
-  try {
-    await UserProfileModel.updateOne(
-      { email: normalizedEmail },
-      {
-        $setOnInsert: {
-          _id: userId,
-          userId,
-          email: normalizedEmail,
-          ...(trimmedName ? { name: trimmedName } : {}),
-          hasCompletedOnboarding: false,
-          role: 'user',
-        },
-      },
-      { upsert: true }
-    );
-  } catch (error) {
-    if (!isMongoDuplicateKeyError(error)) {
-      throw error;
-    }
-  }
-
-  const doc = await UserProfileModel.findOne({
-    email: normalizedEmail,
-  }).lean<UserProfileDocument | null>();
-  if (!doc) {
-    throw new Error('User profile upsert failed');
-  }
-
-  return mongoDocToUser(doc);
 }
 
 /**

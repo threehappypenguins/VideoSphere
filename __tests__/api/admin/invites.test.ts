@@ -214,6 +214,20 @@ describe('POST /api/admin/invites', () => {
     vi.useRealTimers();
   });
 
+  it('rejects invalid JSON bodies', async () => {
+    const res = await POST(
+      new NextRequest(new URL('http://localhost:3000/api/admin/invites'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not-json',
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid JSON body.' });
+    expect(createInviteToken).not.toHaveBeenCalled();
+  });
+
   it('rejects non-finite expiresInDays', async () => {
     const res = await POST(makePostRequest({ expiresInDays: '7' }));
     expect(res.status).toBe(400);
