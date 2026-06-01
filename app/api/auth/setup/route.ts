@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     const existingUsers = await hasAnyUsers();
     if (existingUsers) {
-      return NextResponse.json({ error: 'Setup is already completed.' }, { status: 403 });
+      return NextResponse.json({ error: 'Setup is already complete.' }, { status: 403 });
     }
 
     const validToken = await isSetupTokenValid(token);

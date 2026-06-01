@@ -87,7 +87,13 @@ export async function POST(request: NextRequest) {
 
   const { expiresInDays: rawExpiresInDays, role: rawRole } = body as Record<string, unknown>;
 
-  const grantedRole = rawRole === 'admin' ? 'admin' : 'user';
+  let grantedRole: 'user' | 'admin' = 'user';
+  if (rawRole !== undefined) {
+    if (rawRole !== 'user' && rawRole !== 'admin') {
+      return NextResponse.json({ error: "role must be 'user' or 'admin'." }, { status: 400 });
+    }
+    grantedRole = rawRole;
+  }
 
   let expiresAt: Date | undefined;
   if (rawExpiresInDays !== undefined) {

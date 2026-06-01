@@ -134,7 +134,7 @@ describe('POST /api/auth/setup', () => {
     const res = await POST(makeRequest(validPayload));
 
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: 'Setup is already completed.' });
+    expect(await res.json()).toEqual({ error: 'Setup is already complete.' });
     expect(mockIsSetupTokenValid).not.toHaveBeenCalled();
     expect(mockCreateUser).not.toHaveBeenCalled();
   });

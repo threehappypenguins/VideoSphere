@@ -199,6 +199,24 @@ describe('POST /api/admin/invites', () => {
     expect(await res.json()).toBeDefined();
   });
 
+  it('creates a user-role invite when role is explicitly user', async () => {
+    const res = await POST(makePostRequest({ role: 'user' }));
+    expect(res.status).toBe(201);
+    expect(createInviteToken).toHaveBeenCalledWith({
+      createdBy: adminProfile.userId,
+      expiresAt: undefined,
+      grantedRole: 'user',
+    });
+  });
+
+  it('rejects invalid role values', async () => {
+    const res = await POST(makePostRequest({ role: 'superadmin' }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "role must be 'user' or 'admin'." });
+    expect(createInviteToken).not.toHaveBeenCalled();
+  });
+
   it('forwards expiresInDays as expiresAt', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-01T12:00:00.000Z'));
