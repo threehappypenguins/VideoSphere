@@ -165,6 +165,8 @@ export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrap
         usedAt: 1,
         usedBy: 1,
         expiresAt: 1,
+        createdBy: 1,
+        grantedRole: 1,
       },
     },
     { upsert: true, returnDocument: 'after' }

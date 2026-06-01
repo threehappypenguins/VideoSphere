@@ -21,7 +21,12 @@ type AutoCompleteToken = 'name' | 'email' | 'new-password' | 'off';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function validate(form: FormState): FieldErrors {
+/**
+ * Validates name, email, password, and confirm-password fields for setup and invite registration forms.
+ * @param form - Registration field values to validate.
+ * @returns Field-level error messages keyed by input name; an empty object indicates the form is valid.
+ */
+export function validateRegistrationForm(form: FormState): FieldErrors {
   const errors: FieldErrors = {};
 
   if (!form.name.trim()) errors.name = 'Name is required.';
@@ -47,7 +52,13 @@ function validate(form: FormState): FieldErrors {
   return errors;
 }
 
-function PasswordStrengthBar({ password }: { password: string }) {
+/**
+ * Renders a visual password strength indicator beneath the password field.
+ * @param props - Component props.
+ * @param props.password - Current password value used to compute strength.
+ * @returns Strength bar and label UI, or null when the password is empty.
+ */
+export function PasswordStrengthBar({ password }: { password: string }) {
   const score = (() => {
     if (!password) return 0;
     let s = 0;
@@ -239,7 +250,7 @@ export function RegistrationForm({
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const errors = validate(form);
+    const errors = validateRegistrationForm(form);
     if (Object.keys(errors).length) {
       setFieldErrors(errors);
       setServerError('');
@@ -344,5 +355,3 @@ export function RegistrationForm({
     </div>
   );
 }
-
-export { validate as validateRegistrationForm, PasswordStrengthBar };

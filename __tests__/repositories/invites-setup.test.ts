@@ -95,7 +95,7 @@ describe('ensureSetupTokenForFirstRun', () => {
       { _id: 'setup' },
       expect.objectContaining({
         $set: expect.objectContaining({ purpose: 'setup', token: expect.any(String) }),
-        $unset: { usedAt: 1, usedBy: 1, expiresAt: 1 },
+        $unset: { usedAt: 1, usedBy: 1, expiresAt: 1, createdBy: 1, grantedRole: 1 },
       }),
       { upsert: true, returnDocument: 'after' }
     );
