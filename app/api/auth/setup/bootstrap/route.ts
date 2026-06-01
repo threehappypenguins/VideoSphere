@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { bootstrapFirstRunSetupToken } from '@/lib/bootstrap/setup-token';
 import { ensureSetupTokenForFirstRun, hasAnyUsers } from '@/lib/repositories/invites';
 
 /**
@@ -13,7 +12,6 @@ export async function GET() {
       return NextResponse.json({ setupRequired: false });
     }
 
-    await bootstrapFirstRunSetupToken();
     const result = await ensureSetupTokenForFirstRun();
 
     if (!result) {

@@ -17,7 +17,7 @@ export async function bootstrapFirstRunSetupToken(): Promise<void> {
     const result = await ensureSetupTokenForFirstRun();
     if (!result || !result.created) return;
 
-    console.info('[Setup] No users found. Initial admin setup token created.');
+    console.info('[Setup] No users found. Setup token is ready.');
     console.info(`[Setup] Complete first-run setup at: /setup?token=${result.token}`);
   })().catch((error) => {
     console.error('[Setup] Failed to bootstrap first-run setup token', error);

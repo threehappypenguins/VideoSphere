@@ -99,7 +99,7 @@ describe('ensureSetupTokenForFirstRun', () => {
       }),
       { upsert: true, returnDocument: 'after' }
     );
-    expect(result).toEqual({ token: 'fresh-setup-token', created: false });
+    expect(result).toEqual({ token: 'fresh-setup-token', created: true });
     expect(mockCreate).not.toHaveBeenCalled();
   });
 

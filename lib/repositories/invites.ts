@@ -52,6 +52,8 @@ export interface CreateInviteTokenInput {
 
 /**
  * Defines the result of setup token bootstrap.
+ * @property token - Active setup token string.
+ * @property created - True when a new token was issued (fresh or reissued); false when an existing active token was reused.
  */
 export interface SetupTokenBootstrapResult {
   token: string;
@@ -129,7 +131,7 @@ export async function hasAnyUsers(): Promise<boolean> {
 
 /**
  * Ensures there is one active setup token while no users exist.
- * @returns Existing or newly created setup token and creation flag.
+ * @returns Existing or newly issued setup token and whether a new token value was issued.
  */
 export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrapResult | null> {
   await connectToDatabase();
@@ -171,7 +173,7 @@ export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrap
   if (!reissued) return null;
 
   await pruneDuplicateSetupTokens();
-  return { token: reissued.token, created: !existing };
+  return { token: reissued.token, created: true };
 }
 
 /**
