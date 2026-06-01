@@ -155,3 +155,39 @@ export function buildGoogleOAuthErrorRedirect(
   }
   return `${origin}/login?error=${encodedError}`;
 }
+
+const GOOGLE_REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
+
+/**
+ * OAuth tokens returned from Google's token endpoint during the auth-code exchange.
+ */
+export interface GoogleOAuthGrant {
+  accessToken?: string;
+  refreshToken?: string;
+}
+
+/**
+ * Revokes Google OAuth tokens so the app is removed from the user's connected-apps list.
+ * Failures are logged and do not throw.
+ * @param grant - Access and/or refresh token to revoke.
+ */
+export async function revokeGoogleOAuthTokens(grant: GoogleOAuthGrant): Promise<void> {
+  const tokens = [grant.refreshToken, grant.accessToken].filter(
+    (token): token is string => typeof token === 'string' && token.length > 0
+  );
+
+  for (const token of [...new Set(tokens)]) {
+    try {
+      const res = await fetch(GOOGLE_REVOKE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token }).toString(),
+      });
+      if (!res.ok) {
+        console.warn('[revokeGoogleOAuthTokens] Google revoke returned', res.status);
+      }
+    } catch (error) {
+      console.warn('[revokeGoogleOAuthTokens] Google revoke failed', error);
+    }
+  }
+}

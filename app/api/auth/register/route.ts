@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
         passwordHash,
         hasCompletedOnboarding: false,
         role: invitedRole,
+        authProvider: 'password',
       });
     } catch (err: unknown) {
       await releaseInviteToken(consumed.releaseSnapshot);

@@ -12,6 +12,7 @@ vi.mock('@/lib/api/auth', () => ({
 vi.mock('@/lib/repositories/users', () => ({
   getUserById: vi.fn(),
   updateUser: vi.fn(),
+  revokeStoredGoogleAuthForUser: vi.fn(),
   deleteUserById: vi.fn(),
   countUsersWithRole: vi.fn(),
 }));
@@ -22,6 +23,7 @@ import {
   countUsersWithRole,
   deleteUserById,
   getUserById,
+  revokeStoredGoogleAuthForUser,
   updateUser,
 } from '@/lib/repositories/users';
 import type { User } from '@/types';
@@ -139,6 +141,7 @@ describe('DELETE /api/admin/users/[userId]', () => {
   });
 
   it('deletes another user', async () => {
+    vi.mocked(revokeStoredGoogleAuthForUser).mockResolvedValueOnce(undefined);
     vi.mocked(deleteUserById).mockResolvedValueOnce(true);
 
     const res = await DELETE(makeDeleteRequest(targetUser.userId), {
@@ -146,6 +149,7 @@ describe('DELETE /api/admin/users/[userId]', () => {
     });
 
     expect(res.status).toBe(204);
+    expect(revokeStoredGoogleAuthForUser).toHaveBeenCalledWith(targetUser.userId);
     expect(deleteUserById).toHaveBeenCalledWith(targetUser.userId);
   });
 

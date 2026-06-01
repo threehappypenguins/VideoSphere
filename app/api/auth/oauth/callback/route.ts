@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   GOOGLE_AUTH_OAUTH_STATE_COOKIE,
   parseGoogleOAuthStateCookie,
+  revokeGoogleOAuthTokens,
+  type GoogleOAuthGrant,
   type GoogleOAuthState,
 } from '@/lib/auth/google-oauth';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
@@ -16,13 +18,14 @@ import {
   releaseInviteToken,
   releaseSetupToken,
 } from '@/lib/repositories/invites';
-import { createUser, getUserByEmail } from '@/lib/repositories/users';
+import { createUser, getUserByEmail, persistGoogleAuthForUser } from '@/lib/repositories/users';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
 
 interface GoogleTokenResponse {
   access_token?: string;
+  refresh_token?: string;
 }
 
 interface GoogleUserInfoResponse {
@@ -82,6 +85,33 @@ function oauthErrorResponse(
 }
 
 /**
+ * Revokes an unused Google grant, then redirects with the OAuth error code.
+ * @param origin - Request origin.
+ * @param state - Parsed OAuth state cookie.
+ * @param code - Error code for the redirect query string.
+ * @param grant - Google tokens to revoke when the user will not receive a session.
+ * @returns Redirect response with the OAuth state cookie cleared.
+ */
+async function oauthErrorResponseAfterGrant(
+  origin: string,
+  state: GoogleOAuthState | null,
+  code: string,
+  grant?: GoogleOAuthGrant
+): Promise<NextResponse> {
+  if (grant?.accessToken || grant?.refreshToken) {
+    await revokeGoogleOAuthTokens(grant);
+  }
+  return oauthErrorResponse(origin, state, code);
+}
+
+function googleGrantFromTokenResponse(tokenData: GoogleTokenResponse): GoogleOAuthGrant {
+  return {
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token,
+  };
+}
+
+/**
  * Handles GET requests for this route.
  * @param req - The incoming request object.
  * @returns Redirect with session cookie on success.
@@ -115,6 +145,8 @@ export async function GET(req: NextRequest) {
     return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
   }
 
+  let pendingGoogleGrant: GoogleOAuthGrant | undefined;
+
   try {
     const callbackUrl = `${origin}/api/auth/oauth/callback`;
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
@@ -136,9 +168,11 @@ export async function GET(req: NextRequest) {
     }
 
     const tokenData = (await tokenRes.json()) as GoogleTokenResponse;
+    const googleGrant = googleGrantFromTokenResponse(tokenData);
+    pendingGoogleGrant = googleGrant;
     const accessToken = tokenData.access_token;
     if (!accessToken) {
-      return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
+      return oauthErrorResponseAfterGrant(origin, oauthState, 'oauth_callback_failed', googleGrant);
     }
 
     const userInfoRes = await fetch(GOOGLE_USERINFO_URL, {
@@ -148,7 +182,7 @@ export async function GET(req: NextRequest) {
     if (!userInfoRes.ok) {
       const body = await userInfoRes.text();
       console.error('[GET /api/auth/oauth/callback] Userinfo fetch failed:', body);
-      return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
+      return oauthErrorResponseAfterGrant(origin, oauthState, 'oauth_callback_failed', googleGrant);
     }
 
     const userInfo = (await userInfoRes.json()) as GoogleUserInfoResponse;
@@ -156,7 +190,7 @@ export async function GET(req: NextRequest) {
     const googleSub = userInfo.sub?.trim();
     const googleDisplayName = userInfo.name?.trim();
     if (!email || !googleSub || userInfo.email_verified !== true) {
-      return oauthErrorResponse(origin, oauthState, 'oauth_auth_failed');
+      return oauthErrorResponseAfterGrant(origin, oauthState, 'oauth_auth_failed', googleGrant);
     }
 
     let userId: string;
@@ -165,21 +199,26 @@ export async function GET(req: NextRequest) {
     if (oauthState.flow === 'setup') {
       const setupToken = oauthState.setupToken;
       if (!setupToken) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_setup_invalid');
+        return oauthErrorResponseAfterGrant(origin, oauthState, 'oauth_setup_invalid', googleGrant);
       }
 
       if (await hasAnyUsers()) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_setup_completed');
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_setup_completed',
+          googleGrant
+        );
       }
 
       if (!(await isSetupTokenValid(setupToken))) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_setup_invalid');
+        return oauthErrorResponseAfterGrant(origin, oauthState, 'oauth_setup_invalid', googleGrant);
       }
 
       userId = randomUUID();
       const consumed = await consumeSetupToken(setupToken, userId);
       if (!consumed) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_setup_invalid');
+        return oauthErrorResponseAfterGrant(origin, oauthState, 'oauth_setup_invalid', googleGrant);
       }
 
       try {
@@ -189,12 +228,19 @@ export async function GET(req: NextRequest) {
           name: googleDisplayName || undefined,
           hasCompletedOnboarding: false,
           role: 'admin',
+          authProvider: 'google',
+          googleRefreshToken: tokenData.refresh_token,
         });
       } catch (error) {
         await releaseSetupToken(setupToken, userId);
         const mongoErr = error as { code?: number; message?: string };
         if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
-          return oauthErrorResponse(origin, oauthState, 'oauth_setup_failed');
+          return oauthErrorResponseAfterGrant(
+            origin,
+            oauthState,
+            'oauth_setup_failed',
+            googleGrant
+          );
         }
         throw error;
       }
@@ -203,17 +249,32 @@ export async function GET(req: NextRequest) {
     } else if (oauthState.flow === 'invite') {
       const inviteToken = oauthState.inviteToken;
       if (!inviteToken) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_invite_invalid');
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_invite_invalid',
+          googleGrant
+        );
       }
 
       if (!(await isInviteTokenValid(inviteToken))) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_invite_invalid');
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_invite_invalid',
+          googleGrant
+        );
       }
 
       userId = randomUUID();
       const consumed = await consumeInviteToken(inviteToken, userId);
       if (!consumed) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_invite_invalid');
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_invite_invalid',
+          googleGrant
+        );
       }
 
       const invitedRole = consumed.grantedRole;
@@ -225,12 +286,19 @@ export async function GET(req: NextRequest) {
           name: googleDisplayName || undefined,
           hasCompletedOnboarding: false,
           role: invitedRole,
+          authProvider: 'google',
+          googleRefreshToken: tokenData.refresh_token,
         });
       } catch (error) {
         await releaseInviteToken(consumed.releaseSnapshot);
         const mongoErr = error as { code?: number; message?: string };
         if (mongoErr.code === 11000 || mongoErr.message?.toLowerCase().includes('duplicate')) {
-          return oauthErrorResponse(origin, oauthState, 'oauth_invite_failed');
+          return oauthErrorResponseAfterGrant(
+            origin,
+            oauthState,
+            'oauth_invite_failed',
+            googleGrant
+          );
         }
         throw error;
       }
@@ -239,11 +307,17 @@ export async function GET(req: NextRequest) {
     } else {
       const existingUser = await getUserByEmail(email);
       if (!existingUser) {
-        return oauthErrorResponse(origin, oauthState, 'oauth_registration_disabled');
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_registration_disabled',
+          googleGrant
+        );
       }
 
       userId = existingUser.userId;
       role = existingUser.role === 'admin' ? 'admin' : 'user';
+      await persistGoogleAuthForUser(userId, tokenData.refresh_token);
     }
 
     const token = await new SignJWT({ role, oauthProvider: 'google' })
@@ -261,6 +335,11 @@ export async function GET(req: NextRequest) {
     return response;
   } catch (err) {
     console.error('[GET /api/auth/oauth/callback]', err);
-    return oauthErrorResponse(origin, oauthState, 'oauth_callback_failed');
+    return oauthErrorResponseAfterGrant(
+      origin,
+      oauthState,
+      'oauth_callback_failed',
+      pendingGoogleGrant
+    );
   }
 }

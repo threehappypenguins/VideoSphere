@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 const mockGetUserByEmail = vi.hoisted(() => vi.fn());
 const mockCreateUser = vi.hoisted(() => vi.fn());
+const mockPersistGoogleAuthForUser = vi.hoisted(() => vi.fn());
 const mockHasAnyUsers = vi.hoisted(() => vi.fn());
 const mockIsSetupTokenValid = vi.hoisted(() => vi.fn());
 const mockConsumeSetupToken = vi.hoisted(() => vi.fn());
@@ -16,6 +17,7 @@ const mockJwtSign = vi.hoisted(() => vi.fn().mockResolvedValue('jwt-token'));
 vi.mock('@/lib/repositories/users', () => ({
   getUserByEmail: (...args: unknown[]) => mockGetUserByEmail(...args),
   createUser: (...args: unknown[]) => mockCreateUser(...args),
+  persistGoogleAuthForUser: (...args: unknown[]) => mockPersistGoogleAuthForUser(...args),
 }));
 
 vi.mock('@/lib/repositories/invites', () => ({
@@ -72,12 +74,19 @@ function makeRequest(params: Record<string, string> = {}, cookies: Record<string
   });
 }
 
-function mockGoogleSuccess() {
+function mockGoogleSuccess(options?: { refreshToken?: string }) {
   mockFetch
     .mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ access_token: 'access-token' }),
-      text: async () => JSON.stringify({ access_token: 'access-token' }),
+      json: async () => ({
+        access_token: 'access-token',
+        ...(options?.refreshToken ? { refresh_token: options.refreshToken } : {}),
+      }),
+      text: async () =>
+        JSON.stringify({
+          access_token: 'access-token',
+          ...(options?.refreshToken ? { refresh_token: options.refreshToken } : {}),
+        }),
     })
     .mockResolvedValueOnce({
       ok: true,
@@ -94,7 +103,22 @@ function mockGoogleSuccess() {
           email_verified: true,
           name: 'Creator Name',
         }),
+    })
+    .mockResolvedValue({
+      ok: true,
+      text: async () => '',
     });
+}
+
+function expectGoogleTokensRevoked(expectedTokens: string[] = ['access-token']) {
+  const revokeCalls = mockFetch.mock.calls.filter(([url]) =>
+    String(url).includes('https://oauth2.googleapis.com/revoke')
+  );
+  expect(revokeCalls.length).toBeGreaterThanOrEqual(1);
+  const bodies = revokeCalls.map((call) => String((call[1] as RequestInit | undefined)?.body));
+  for (const token of expectedTokens) {
+    expect(bodies.some((body) => body.includes(`token=${token}`))).toBe(true);
+  }
 }
 
 function loginCookie() {
@@ -167,6 +191,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
     expect(mockGetUserByEmail).toHaveBeenCalledWith('creator@example.com');
     expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockPersistGoogleAuthForUser).toHaveBeenCalledWith('existing-user-id', undefined);
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
     expectOAuthStateCookieCleared(res);
@@ -183,12 +208,13 @@ describe('GET /api/auth/oauth/callback', () => {
   });
 
   it('redirects to login when Google account is not registered and flow is login', async () => {
-    mockGoogleSuccess();
+    mockGoogleSuccess({ refreshToken: 'refresh-token' });
     mockGetUserByEmail.mockResolvedValueOnce(null);
 
     const res = await GET(validRequest(loginCookie()));
 
     expect(mockCreateUser).not.toHaveBeenCalled();
+    expectGoogleTokensRevoked(['refresh-token', 'access-token']);
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_registration_disabled'
@@ -202,6 +228,7 @@ describe('GET /api/auth/oauth/callback', () => {
     const res = await GET(validRequest(loginCookie()));
 
     expect(mockCreateUser).not.toHaveBeenCalled();
+    expectGoogleTokensRevoked();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_callback_failed'
@@ -214,6 +241,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
     const res = await GET(validRequest(setupCookie()));
 
+    expectGoogleTokensRevoked();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_setup_completed'
@@ -226,6 +254,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
     const res = await GET(validRequest(inviteCookie()));
 
+    expectGoogleTokensRevoked();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/invite/invite-token-1?error=oauth_invite_invalid'
@@ -249,6 +278,7 @@ describe('GET /api/auth/oauth/callback', () => {
         email: 'creator@example.com',
         name: 'Creator Name',
         role: 'admin',
+        authProvider: 'google',
       })
     );
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
@@ -270,6 +300,7 @@ describe('GET /api/auth/oauth/callback', () => {
       expect.objectContaining({
         email: 'creator@example.com',
         role: 'user',
+        authProvider: 'google',
       })
     );
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');

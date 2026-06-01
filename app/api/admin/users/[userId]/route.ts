@@ -4,6 +4,7 @@ import {
   countUsersWithRole,
   deleteUserById,
   getUserById,
+  revokeStoredGoogleAuthForUser,
   updateUser,
 } from '@/lib/repositories/users';
 import type { ApiError, ApiResponse, UserRole } from '@/types';
@@ -151,6 +152,7 @@ export async function DELETE(
       }
     }
 
+    await revokeStoredGoogleAuthForUser(targetUserId);
     const deleted = await deleteUserById(targetUserId);
     if (!deleted) {
       return NextResponse.json({ error: 'User not found.' }, { status: 404 });

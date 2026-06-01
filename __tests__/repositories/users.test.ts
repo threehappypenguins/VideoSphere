@@ -1,13 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockConnectToDatabase, mockCreate, mockFindById, mockFindOne, mockFindByIdAndUpdate } =
-  vi.hoisted(() => ({
-    mockConnectToDatabase: vi.fn(),
-    mockCreate: vi.fn(),
-    mockFindById: vi.fn(),
-    mockFindOne: vi.fn(),
-    mockFindByIdAndUpdate: vi.fn(),
-  }));
+const {
+  mockConnectToDatabase,
+  mockCreate,
+  mockFindById,
+  mockFindOne,
+  mockFindByIdAndUpdate,
+  mockFindOneAndUpdate,
+  mockRevokeGoogleOAuthTokens,
+} = vi.hoisted(() => ({
+  mockConnectToDatabase: vi.fn(),
+  mockCreate: vi.fn(),
+  mockFindById: vi.fn(),
+  mockFindOne: vi.fn(),
+  mockFindByIdAndUpdate: vi.fn(),
+  mockFindOneAndUpdate: vi.fn(),
+  mockRevokeGoogleOAuthTokens: vi.fn(),
+}));
+
+vi.mock('@/lib/auth/google-oauth', () => ({
+  revokeGoogleOAuthTokens: (...args: unknown[]) => mockRevokeGoogleOAuthTokens(...args),
+}));
 
 vi.mock('@/lib/mongodb', () => ({
   connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
@@ -19,10 +32,17 @@ vi.mock('@/lib/models/UserProfile', () => ({
     findById: (...args: unknown[]) => mockFindById(...args),
     findOne: (...args: unknown[]) => mockFindOne(...args),
     findByIdAndUpdate: (...args: unknown[]) => mockFindByIdAndUpdate(...args),
+    findOneAndUpdate: (...args: unknown[]) => mockFindOneAndUpdate(...args),
   },
 }));
 
-import { createUser, getUserById, updateUser } from '@/lib/repositories/users';
+import {
+  createUser,
+  getUserById,
+  revokeStoredGoogleAuthForUser,
+  updateUser,
+} from '@/lib/repositories/users';
+import { encryptToken } from '@/lib/crypto/token-encryption';
 
 function leanResult<T>(value: T) {
   return {
@@ -101,5 +121,38 @@ describe('users repository (mongo)', () => {
     );
     expect(user.role).toBe('admin');
     expect(user.hasCompletedOnboarding).toBe(true);
+  });
+
+  it('revokes stored Google refresh token for Google auth users', async () => {
+    const encrypted = encryptToken('stored-refresh-token');
+    mockFindById.mockReturnValueOnce({
+      select: () => ({
+        lean: vi.fn().mockResolvedValue({
+          authProvider: 'google',
+          googleRefreshToken: encrypted,
+        }),
+      }),
+    });
+    mockRevokeGoogleOAuthTokens.mockResolvedValueOnce(undefined);
+
+    await revokeStoredGoogleAuthForUser('auth-user-1');
+
+    expect(mockRevokeGoogleOAuthTokens).toHaveBeenCalledWith({
+      refreshToken: 'stored-refresh-token',
+    });
+  });
+
+  it('skips Google revoke for password auth users', async () => {
+    mockFindById.mockReturnValueOnce({
+      select: () => ({
+        lean: vi.fn().mockResolvedValue({
+          authProvider: 'password',
+        }),
+      }),
+    });
+
+    await revokeStoredGoogleAuthForUser('auth-user-1');
+
+    expect(mockRevokeGoogleOAuthTokens).not.toHaveBeenCalled();
   });
 });

@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildGoogleOAuthErrorRedirect,
   buildGoogleOAuthStateCookie,
   buildGoogleOAuthStartSearchParams,
   parseGoogleOAuthStateCookie,
+  revokeGoogleOAuthTokens,
 } from '@/lib/auth/google-oauth';
 
 describe('google-oauth state helpers', () => {
@@ -49,5 +50,37 @@ describe('google-oauth state helpers', () => {
     expect(buildGoogleOAuthErrorRedirect('http://localhost:3000', 'oauth_initiation_failed')).toBe(
       'http://localhost:3000/login?error=oauth_initiation_failed'
     );
+  });
+});
+
+describe('revokeGoogleOAuthTokens', () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('revokes refresh token before access token when both are present', async () => {
+    mockFetch.mockResolvedValue({ ok: true, text: async () => '' });
+
+    await revokeGoogleOAuthTokens({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(String(mockFetch.mock.calls[0][0])).toBe('https://oauth2.googleapis.com/revoke');
+    expect((mockFetch.mock.calls[0][1] as RequestInit).body).toBe('token=refresh-token');
+    expect((mockFetch.mock.calls[1][1] as RequestInit).body).toBe('token=access-token');
+  });
+
+  it('does not call Google when no tokens are provided', async () => {
+    await revokeGoogleOAuthTokens({});
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

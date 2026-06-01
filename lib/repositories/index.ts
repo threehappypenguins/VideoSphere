@@ -12,9 +12,17 @@ export {
   updateUser,
   listUsers,
   countUsersWithRole,
+  persistGoogleAuthForUser,
+  revokeStoredGoogleAuthForUser,
   deleteUserById,
 } from './users';
-export type { CreateUserData, UpdateUserData, ListUsersOptions, ListUsersResult } from './users';
+export type {
+  CreateUserData,
+  UpdateUserData,
+  ListUsersOptions,
+  ListUsersResult,
+  UserAuthProvider,
+} from './users';
 
 export {
   createDraft,

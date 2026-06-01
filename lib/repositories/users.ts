@@ -8,8 +8,16 @@
 // =============================================================================
 
 import type { User, UserRole } from '@/types';
+import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
+import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
-import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
+import {
+  UserProfileModel,
+  type UserAuthProvider,
+  type UserProfileDocument,
+} from '@/lib/models/UserProfile';
+
+export type { UserAuthProvider };
 
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
@@ -38,6 +46,9 @@ export interface CreateUserData {
   passwordHash?: string;
   hasCompletedOnboarding?: boolean;
   role?: UserRole;
+  authProvider?: UserAuthProvider;
+  /** Plaintext Google login refresh token; encrypted before persistence. */
+  googleRefreshToken?: string;
 }
 
 /**
@@ -56,6 +67,7 @@ export interface UserAuthCredentials {
 export async function createUser(data: CreateUserData): Promise<User> {
   await connectToDatabase();
   const name = data.name?.trim();
+  const googleRefreshToken = data.googleRefreshToken?.trim();
   const created = await UserProfileModel.create({
     _id: data.userId,
     userId: data.userId,
@@ -64,6 +76,8 @@ export async function createUser(data: CreateUserData): Promise<User> {
     ...(data.passwordHash ? { passwordHash: data.passwordHash } : {}),
     hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
     role: data.role ?? 'user',
+    ...(data.authProvider ? { authProvider: data.authProvider } : {}),
+    ...(googleRefreshToken ? { googleRefreshToken: encryptToken(googleRefreshToken) } : {}),
   });
   return mongoDocToUser(created.toObject());
 }
@@ -243,6 +257,71 @@ export async function getUserCounts(): Promise<UserCounts> {
 export async function countUsersWithRole(role: UserRole): Promise<number> {
   await connectToDatabase();
   return UserProfileModel.countDocuments({ role });
+}
+
+/**
+ * Records Google OAuth login on an existing profile and stores a refresh token when provided.
+ * @param userId - Auth user id.
+ * @param refreshToken - Google refresh token from the login token exchange, if any.
+ */
+export async function persistGoogleAuthForUser(
+  userId: string,
+  refreshToken?: string
+): Promise<void> {
+  await connectToDatabase();
+
+  const payload: Partial<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'>> = {
+    authProvider: 'google',
+  };
+  const trimmedRefresh = refreshToken?.trim();
+  if (trimmedRefresh) {
+    payload.googleRefreshToken = encryptToken(trimmedRefresh);
+  }
+
+  const byId = await UserProfileModel.findByIdAndUpdate(userId, payload).lean();
+  if (byId) return;
+
+  await UserProfileModel.findOneAndUpdate({ userId }, payload);
+}
+
+/**
+ * Revokes stored Google login tokens so the app is removed from the user's Google account access list.
+ * Best-effort: logs and returns when no token is stored or decryption/revoke fails.
+ * @param userId - Auth user id.
+ */
+export async function revokeStoredGoogleAuthForUser(userId: string): Promise<void> {
+  await connectToDatabase();
+
+  let doc =
+    (await UserProfileModel.findById(userId)
+      .select({ authProvider: 1, googleRefreshToken: 1 })
+      .lean<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'> | null>()) ?? null;
+
+  if (!doc) {
+    doc = await UserProfileModel.findOne({ userId })
+      .select({ authProvider: 1, googleRefreshToken: 1 })
+      .lean<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'> | null>();
+  }
+
+  if (doc?.authProvider !== 'google') return;
+
+  const encrypted = doc.googleRefreshToken?.trim();
+  if (!encrypted) {
+    console.warn(
+      `[revokeStoredGoogleAuthForUser] Google user ${userId} has no stored refresh token to revoke`
+    );
+    return;
+  }
+
+  try {
+    const refreshToken = decryptToken(encrypted);
+    await revokeGoogleOAuthTokens({ refreshToken });
+  } catch (error) {
+    console.warn(
+      `[revokeStoredGoogleAuthForUser] Failed to revoke Google auth for ${userId}`,
+      error
+    );
+  }
 }
 
 /**

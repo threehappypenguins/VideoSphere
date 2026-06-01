@@ -109,6 +109,7 @@ export async function POST(req: NextRequest) {
         passwordHash,
         hasCompletedOnboarding: false,
         role: 'admin',
+        authProvider: 'password',
       });
     } catch (error) {
       await releaseSetupToken(token, userId);
