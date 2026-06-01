@@ -91,6 +91,30 @@ function isTokenActive(doc: InviteTokenDocument, now: Date): boolean {
   return true;
 }
 
+/** Stable document id so only one setup token row can exist in the collection. */
+const SETUP_TOKEN_DOCUMENT_ID = 'setup';
+
+/**
+ * Removes legacy extra setup-token rows created before singleton enforcement.
+ */
+async function pruneDuplicateSetupTokens(): Promise<void> {
+  await InviteTokenModel.deleteMany({
+    purpose: 'setup',
+    _id: { $ne: SETUP_TOKEN_DOCUMENT_ID },
+  });
+}
+
+/**
+ * Removes expired invite-token rows. TTL deletion is asynchronous; this keeps the collection tidy.
+ * @param now - Reference time for expiry comparison.
+ */
+async function pruneExpiredInviteTokens(now: Date): Promise<void> {
+  await InviteTokenModel.deleteMany({
+    purpose: 'invite',
+    expiresAt: { $lte: now },
+  });
+}
+
 /**
  * Returns true when at least one user exists.
  * @returns Whether any user profile exists.
@@ -116,11 +140,13 @@ export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrap
   if (userCount > 0) return null;
 
   const now = new Date();
-  const existing = await InviteTokenModel.findOne({ purpose: 'setup' })
-    .sort({ createdAt: -1 })
-    .lean<InviteTokenDocument | null>();
+  const existing = await InviteTokenModel.findOne({
+    _id: SETUP_TOKEN_DOCUMENT_ID,
+    purpose: 'setup',
+  }).lean<InviteTokenDocument | null>();
 
   if (existing && isTokenActive(existing, now)) {
+    await pruneDuplicateSetupTokens();
     return { token: existing.token, created: false };
   }
 
@@ -128,19 +154,23 @@ export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrap
 
   try {
     await InviteTokenModel.create({
-      _id: token,
+      _id: SETUP_TOKEN_DOCUMENT_ID,
       token,
       purpose: 'setup',
       createdAt: now,
     });
+    await pruneDuplicateSetupTokens();
     return { token, created: true };
   } catch (error) {
     if (!isDuplicateKeyError(error)) throw error;
 
-    const retry = await InviteTokenModel.findOne({ purpose: 'setup' })
-      .sort({ createdAt: -1 })
-      .lean<InviteTokenDocument | null>();
+    const retry = await InviteTokenModel.findOne({
+      _id: SETUP_TOKEN_DOCUMENT_ID,
+      purpose: 'setup',
+    }).lean<InviteTokenDocument | null>();
     if (!retry || !isTokenActive(retry, now)) return null;
+
+    await pruneDuplicateSetupTokens();
     return { token: retry.token, created: false };
   }
 }
@@ -185,9 +215,15 @@ export async function listInviteTokens(
 ): Promise<InviteTokenRecord[]> {
   await connectToDatabase();
 
+  const now = new Date();
+  if (!options.includeSetup) {
+    await pruneExpiredInviteTokens(now);
+  }
+
   const query: Record<string, unknown> = {};
   if (!options.includeSetup) {
     query.purpose = 'invite';
+    query.$or = [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: now } }];
   }
   if (!options.includeUsed) {
     query.usedAt = { $exists: false };

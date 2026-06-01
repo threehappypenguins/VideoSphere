@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { GaussianNoiseBackground, PAGE_SEEDS } from './GaussianNoiseBackground';
+import { GaussianNoiseBackground, resolvePageSeed } from './GaussianNoiseBackground';
 import {
   BACKGROUND_GRAIN_EVENT,
   getBackgroundGrainEnabled,
@@ -38,6 +38,6 @@ export function ThemedBackground() {
 
   if (!grainEnabled) return null;
 
-  const seed = PAGE_SEEDS[pathname] ?? 42;
+  const seed = resolvePageSeed(pathname);
   return <GaussianNoiseBackground seed={seed} />;
 }

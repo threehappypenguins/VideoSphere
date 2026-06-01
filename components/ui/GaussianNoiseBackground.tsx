@@ -22,6 +22,22 @@ export const PAGE_SEEDS: Record<string, number> = {
   '/profile/connections': 1345,
 };
 
+/**
+ * Resolves the background noise seed for a pathname, including dynamic routes.
+ * @param pathname - Current app pathname from the router.
+ * @returns Deterministic seed for the matched route, or the default seed.
+ */
+export function resolvePageSeed(pathname: string): number {
+  const exactSeed = PAGE_SEEDS[pathname];
+  if (exactSeed !== undefined) return exactSeed;
+
+  const prefixKey = Object.keys(PAGE_SEEDS)
+    .filter((key) => key !== '/' && (pathname === key || pathname.startsWith(`${key}/`)))
+    .sort((a, b) => b.length - a.length)[0];
+
+  return prefixKey ? PAGE_SEEDS[prefixKey]! : 42;
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 /**

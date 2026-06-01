@@ -42,7 +42,7 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
   const loadUsers = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch('/api/admin/users?limit=500&offset=0');
+      const res = await fetch('/api/admin/users?limit=100&offset=0');
       if (!res.ok) {
         const payload = (await res.json().catch(() => ({}))) as { message?: string };
         throw new Error(payload.message ?? 'Failed to load users');

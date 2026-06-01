@@ -110,7 +110,7 @@ describe('GET /api/admin/invites', () => {
       vi.mocked(getUserById).mockResolvedValue(adminProfile);
     });
 
-    it('lists pending invite tokens only (exclude setup tokens)', async () => {
+    it('lists valid pending invite tokens only (exclude setup and expired tokens)', async () => {
       vi.mocked(listInviteTokens).mockResolvedValueOnce([pendingInvite]);
 
       const res = await GET(makeGetRequest());

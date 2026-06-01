@@ -14,8 +14,9 @@ export async function isFirstRunSetupPending(): Promise<boolean> {
  * No-op once setup is complete.
  */
 export async function redirectToFirstRunSetupIfNeeded(): Promise<void> {
-  const setupHref = await getFirstRunSetupHref();
-  if (setupHref) redirect(setupHref);
+  if (await isFirstRunSetupPending()) {
+    redirect('/setup');
+  }
 }
 
 /**
@@ -31,7 +32,7 @@ export async function getFirstRunSetupToken(): Promise<string | null> {
 
 /**
  * Returns the href for the first-run setup page when setup is still pending.
- * @returns Setup page path with token, or null when setup is complete.
+ * @returns Setup page path with token query param, or null when setup is complete.
  */
 export async function getFirstRunSetupHref(): Promise<string | null> {
   const token = await getFirstRunSetupToken();

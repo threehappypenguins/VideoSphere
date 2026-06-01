@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
   if (adminCheck.ok === false) return adminCheck.response;
 
   const searchParams = request.nextUrl.searchParams;
-  const limit = Math.min(Math.max(parsePositiveInt(searchParams.get('limit'), 25), 1), 500);
+  const limit = Math.min(Math.max(parsePositiveInt(searchParams.get('limit'), 25), 1), 100);
   const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0);
 
   try {

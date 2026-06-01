@@ -5,7 +5,7 @@ import { ensureSetupTokenForFirstRun, hasAnyUsers } from '@/lib/repositories/inv
 /**
  * Triggers first-run setup token creation and returns setup status.
  * Safe to call on startup (e.g. from Docker healthcheck) when no users exist yet.
- * @returns Setup status and optional setup URL when first-run setup is pending.
+ * @returns Setup status when first-run setup is pending or complete.
  */
 export async function GET() {
   try {
@@ -25,7 +25,6 @@ export async function GET() {
 
     return NextResponse.json({
       setupRequired: true,
-      setupUrl: `/setup?token=${result.token}`,
       created: result.created,
     });
   } catch (error) {

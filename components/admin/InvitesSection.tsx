@@ -18,8 +18,7 @@ function formatDate(value?: string): string {
   return date.toLocaleString();
 }
 
-function inviteStatus(invite: AdminInviteRow): string {
-  if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= Date.now()) return 'Expired';
+function inviteStatus(_invite: AdminInviteRow): string {
   return 'Pending';
 }
 
