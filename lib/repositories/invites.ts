@@ -349,7 +349,8 @@ export async function consumeSetupToken(token: string, usedBy: string): Promise<
 /**
  * Restores an invite token when account creation fails after consume.
  * @param snapshot - Invite token snapshot captured during consume.
- * @returns True when the token was restored.
+ * @returns True when the token was restored (including when it already exists).
+ * Logs non-duplicate failures with the token id before returning false.
  */
 export async function releaseInviteToken(snapshot: InviteTokenReleaseSnapshot): Promise<boolean> {
   await connectToDatabase();
@@ -367,6 +368,7 @@ export async function releaseInviteToken(snapshot: InviteTokenReleaseSnapshot): 
     return true;
   } catch (error) {
     if (isDuplicateKeyError(error)) return true;
+    console.error(`[releaseInviteToken] Failed to restore invite token "${snapshot.token}"`, error);
     return false;
   }
 }
