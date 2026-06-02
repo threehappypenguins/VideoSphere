@@ -95,7 +95,7 @@ export function InvitesSection() {
       const res = await fetch(`/api/admin/invites/${encodeURIComponent(token)}`, {
         method: 'DELETE',
       });
-      if (!res.ok && res.status !== 204) {
+      if (!res.ok) {
         const payload = (await res.json().catch(() => ({}))) as {
           error?: string;
           message?: string;
