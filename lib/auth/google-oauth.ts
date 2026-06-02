@@ -170,6 +170,7 @@ export interface GoogleOAuthGrant {
  * Revokes Google OAuth tokens so the app is removed from the user's connected-apps list.
  * Failures are logged and do not throw.
  * @param grant - Access and/or refresh token to revoke.
+ * @returns Resolves when all revoke requests finish (including failed attempts).
  */
 export async function revokeGoogleOAuthTokens(grant: GoogleOAuthGrant): Promise<void> {
   const tokens = [grant.refreshToken, grant.accessToken].filter(

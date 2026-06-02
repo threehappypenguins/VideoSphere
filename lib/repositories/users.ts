@@ -63,6 +63,8 @@ export interface UserAuthCredentials {
 /**
  * Create a user_profiles document. Document ID is data.userId.
  * Used by register and OAuth callback; callers must ensure the Auth user exists first.
+ * @param data - User profile fields to persist.
+ * @returns The created user profile.
  */
 export async function createUser(data: CreateUserData): Promise<User> {
   await connectToDatabase();
@@ -91,6 +93,8 @@ export async function createUser(data: CreateUserData): Promise<User> {
  *
  * Primary path: _id equals Auth id.
  * Fallback: query by userId field for migrated data where _id may differ.
+ * @param userId - Auth user id to look up.
+ * @returns The matching user profile, or null when not found.
  */
 export async function getUserById(userId: string): Promise<User | null> {
   await connectToDatabase();
@@ -104,7 +108,9 @@ export async function getUserById(userId: string): Promise<User | null> {
 }
 
 /**
- * Fetch a user by email. Returns null if not found.
+ * Fetch a user by email.
+ * @param email - Email address to look up.
+ * @returns The matching user profile, or null when not found.
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
   await connectToDatabase();
@@ -159,6 +165,10 @@ export interface UpdateUserData {
  * Update user_profiles fields. Only provided fields are updated.
  *
  * Mirrors getUserById's fallback: if _id lookup misses, resolves by userId and retries.
+ * @param userId - Auth user id to update.
+ * @param data - Partial profile fields to apply.
+ * @returns The updated user profile.
+ * @throws Error with `code` 404 when no matching profile exists.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   await connectToDatabase();
@@ -207,6 +217,8 @@ export interface ListUsersResult {
 
 /**
  * List users with pagination. For admin dashboard only; enforce admin role at call site.
+ * @param options - Pagination limit and offset.
+ * @returns A page of users and the total profile count.
  */
 export async function listUsers(options: ListUsersOptions = {}): Promise<ListUsersResult> {
   await connectToDatabase();
@@ -238,6 +250,7 @@ export interface UserCounts {
 
 /**
  * Return aggregate user counts for admin dashboard stats.
+ * @returns Total number of user profiles.
  */
 export async function getUserCounts(): Promise<UserCounts> {
   await connectToDatabase();
@@ -263,6 +276,7 @@ export async function countUsersWithRole(role: UserRole): Promise<number> {
  * Records Google OAuth login on an existing profile and stores a refresh token when provided.
  * @param userId - Auth user id.
  * @param refreshToken - Google refresh token from the login token exchange, if any.
+ * @returns Resolves when the profile update completes.
  */
 export async function persistGoogleAuthForUser(
   userId: string,
@@ -288,6 +302,7 @@ export async function persistGoogleAuthForUser(
  * Revokes stored Google login tokens so the app is removed from the user's Google account access list.
  * Best-effort: silently no-ops when no refresh token is stored; logs decryption/revoke failures.
  * @param userId - Auth user id.
+ * @returns Resolves when the revoke attempt finishes (including no-op cases).
  */
 export async function revokeStoredGoogleAuthForUser(userId: string): Promise<void> {
   await connectToDatabase();
