@@ -35,6 +35,14 @@ vi.mock('next/link', () => ({
 
 import { ProfileContent } from '@/app/(dashboard)/profile/ProfileContent';
 
+const defaultOAuthFlash = { oauthSuccess: null, oauthError: null } as const;
+
+function renderProfile(
+  props: Partial<{ oauthSuccess: string | null; oauthError: string | null }> = {}
+) {
+  return render(<ProfileContent {...defaultOAuthFlash} {...props} />);
+}
+
 function mockFetchResponses(responses: Array<{ ok: boolean; data?: unknown }>) {
   const iter = responses[Symbol.iterator]();
   vi.stubGlobal(
@@ -64,7 +72,7 @@ describe('ProfileContent', () => {
   it('renders gracefully when session fetch fails (proxy handles redirect)', async () => {
     mockFetchResponses([{ ok: false }]);
 
-    render(<ProfileContent />);
+    renderProfile();
 
     // Loading spinner should appear then disappear
     await waitFor(() => {
@@ -76,7 +84,7 @@ describe('ProfileContent', () => {
     // Never resolve fetch
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
 
-    render(<ProfileContent />);
+    renderProfile();
 
     // The spinner has the animate-spin class
     const spinner = document.querySelector('.animate-spin');
@@ -85,11 +93,19 @@ describe('ProfileContent', () => {
 
   it('does not display legacy subscription copy', async () => {
     mockFetchResponses([
-      { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
+      {
+        ok: true,
+        data: {
+          $id: 'user_123',
+          name: 'Test User',
+          email: 'test@example.com',
+          authProvider: 'password',
+        },
+      },
       { ok: true, data: { role: 'user' } },
     ]);
 
-    render(<ProfileContent />);
+    renderProfile();
 
     await waitFor(() => {
       expect(screen.getByText('Account Settings')).toBeInTheDocument();
@@ -106,7 +122,7 @@ describe('ProfileContent', () => {
       { ok: true, data: { role: 'user' } },
     ]);
 
-    render(<ProfileContent />);
+    renderProfile();
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('Jane Doe')).toBeInTheDocument();
@@ -121,7 +137,7 @@ describe('ProfileContent', () => {
       { ok: true, data: { role: 'user' } },
     ]);
 
-    render(<ProfileContent />);
+    renderProfile();
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: 'Manage connected accounts' })).toHaveAttribute(
@@ -137,7 +153,7 @@ describe('ProfileContent', () => {
       { ok: true, data: { role: 'user' } },
     ]);
 
-    render(<ProfileContent />);
+    renderProfile();
 
     await waitFor(() => {
       expect(screen.getByText('Account Tools')).toBeInTheDocument();
@@ -150,7 +166,7 @@ describe('ProfileContent', () => {
       { ok: true, data: { role: 'admin' } },
     ]);
 
-    render(<ProfileContent />);
+    renderProfile();
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'User management' })).toBeInTheDocument();
@@ -168,7 +184,7 @@ describe('ProfileContent', () => {
       { ok: true, data: { role: 'user' } },
     ]);
 
-    render(<ProfileContent />);
+    renderProfile();
 
     await waitFor(() => {
       expect(screen.getByText('Account Settings')).toBeInTheDocument();
