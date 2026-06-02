@@ -41,6 +41,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --chown=nextjs:nodejs scripts ./scripts
+COPY --chown=nextjs:nodejs lib/auth/password-policy.cjs ./lib/auth/password-policy.cjs
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000

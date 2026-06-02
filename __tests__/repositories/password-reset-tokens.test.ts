@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { hashPasswordResetToken } from '@/lib/auth/password-reset-token-hash';
 
 const { mockConnectToDatabase, mockFindOneAndUpdate, mockCountDocuments } = vi.hoisted(() => ({
   mockConnectToDatabase: vi.fn(),
@@ -34,12 +35,13 @@ beforeEach(() => {
 });
 
 describe('claimPasswordResetToken', () => {
-  it('atomically claims an unused, unexpired token', async () => {
+  it('atomically claims an unused, unexpired token by hash lookup', async () => {
     const now = new Date('2026-06-02T12:00:00.000Z');
+    const tokenHash = hashPasswordResetToken('valid-token');
     mockFindOneAndUpdate.mockReturnValueOnce(
       leanResult({
         _id: 'token-doc-1',
-        token: 'valid-token',
+        tokenHash,
         userId: 'user-1',
         source: 'forgot-password',
         expiresAt: new Date('2026-06-02T12:15:00.000Z'),
@@ -53,7 +55,7 @@ describe('claimPasswordResetToken', () => {
 
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
       {
-        token: 'valid-token',
+        tokenHash,
         usedAt: { $exists: false },
         expiresAt: { $gt: now },
       },
@@ -62,7 +64,6 @@ describe('claimPasswordResetToken', () => {
     );
     expect(claimed).toEqual({
       id: 'token-doc-1',
-      token: 'valid-token',
       userId: 'user-1',
       source: 'forgot-password',
       expiresAt: '2026-06-02T12:15:00.000Z',

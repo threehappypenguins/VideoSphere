@@ -36,6 +36,25 @@ function makeRequest(body: unknown): NextRequest {
   });
 }
 
+function tokenRecord(
+  overrides: Partial<{
+    id: string;
+    userId: string;
+    expiresAt: string;
+    createdAt: string;
+    source: 'forgot-password' | 'admin';
+  }> = {}
+) {
+  return {
+    id: 'token-doc-1',
+    userId: 'user-1',
+    source: 'forgot-password' as const,
+    expiresAt: '2026-06-02T12:15:00.000Z',
+    createdAt: '2026-06-02T12:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('POST /api/auth/reset-password', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -48,13 +67,7 @@ describe('POST /api/auth/reset-password', () => {
   });
 
   it('updates the password and consumes the token atomically', async () => {
-    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
-      id: 'token-doc-1',
-      token: 'valid-token',
-      userId: 'user-1',
-      expiresAt: '2026-06-02T12:15:00.000Z',
-      createdAt: '2026-06-02T12:00:00.000Z',
-    });
+    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce(tokenRecord());
 
     const res = await POST(
       makeRequest({
@@ -85,13 +98,7 @@ describe('POST /api/auth/reset-password', () => {
   });
 
   it('rejects concurrent token consumption after eligibility checks', async () => {
-    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
-      id: 'token-doc-1',
-      token: 'valid-token',
-      userId: 'user-1',
-      expiresAt: '2026-06-02T12:15:00.000Z',
-      createdAt: '2026-06-02T12:00:00.000Z',
-    });
+    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce(tokenRecord());
     vi.mocked(finalizePasswordReset).mockResolvedValueOnce(false);
 
     const res = await POST(
@@ -130,13 +137,9 @@ describe('POST /api/auth/reset-password', () => {
   });
 
   it('rejects reset when the token user profile no longer exists', async () => {
-    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
-      id: 'token-doc-1',
-      token: 'valid-token',
-      userId: 'deleted-user',
-      expiresAt: '2026-06-02T12:15:00.000Z',
-      createdAt: '2026-06-02T12:00:00.000Z',
-    });
+    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce(
+      tokenRecord({ userId: 'deleted-user' })
+    );
     vi.mocked(getUserPasswordAuthStateById).mockResolvedValueOnce(null);
 
     const res = await POST(
@@ -152,13 +155,7 @@ describe('POST /api/auth/reset-password', () => {
   });
 
   it('rejects reset for Google OAuth-only accounts without claiming the token', async () => {
-    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
-      id: 'token-doc-1',
-      token: 'valid-token',
-      userId: 'user-1',
-      expiresAt: '2026-06-02T12:15:00.000Z',
-      createdAt: '2026-06-02T12:00:00.000Z',
-    });
+    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce(tokenRecord());
     vi.mocked(getUserPasswordAuthStateById).mockResolvedValueOnce({
       userId: 'user-1',
       supportsPasswordReset: false,

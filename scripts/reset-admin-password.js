@@ -18,26 +18,11 @@ const readline = require('node:readline');
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-
-const MIN_PASSWORD_LENGTH = 8;
-const MIN_PASSWORD_STRENGTH_SCORE = 3;
-const OAUTH_PASSWORD_RESET_MESSAGE =
-  'This account uses Google sign-in and does not have a password to reset.';
-
-const COMMON_PASSWORDS = new Set([
-  '12345678',
-  '123456789',
-  '1234567890',
-  'password',
-  'password1',
-  'password12',
-  'password123',
-  'qwerty123',
-  'admin123',
-  'letmein1',
-  'welcome1',
-  'iloveyou',
-]);
+const {
+  OAUTH_PASSWORD_RESET_MESSAGE,
+  validatePassword,
+  userSupportsPasswordReset,
+} = require('../lib/auth/password-policy.cjs');
 
 const UserProfileSchema = new mongoose.Schema(
   {
@@ -54,11 +39,15 @@ const UserProfileSchema = new mongoose.Schema(
 const UserProfileModel =
   mongoose.models.UserProfile || mongoose.model('UserProfile', UserProfileSchema);
 
+/** App/repo root (parent of `scripts/`), used for stable `.env.local` resolution. */
+const APP_ROOT = path.join(__dirname, '..');
+
 /**
- * Loads key/value pairs from `.env.local` when variables are not already set.
+ * Loads key/value pairs from `.env.local` at the app root when variables are not already set.
+ * Existing process environment values (Docker, CI, shell exports) take precedence.
  */
 function loadEnvLocal() {
-  const envPath = path.join(process.cwd(), '.env.local');
+  const envPath = path.join(APP_ROOT, '.env.local');
   if (!fs.existsSync(envPath)) return;
 
   const content = fs.readFileSync(envPath, 'utf8');
@@ -194,57 +183,6 @@ async function promptForNewPassword() {
 
     return password;
   }
-}
-
-/**
- * Scores password strength on a 0–5 scale (matches `lib/auth/password.ts`).
- * @param password - Plaintext password.
- * @returns Strength score.
- */
-function scorePasswordStrength(password) {
-  if (!password) return 0;
-
-  let score = 0;
-  if (password.length >= 8) score++;
-  if (password.length >= 12) score++;
-  if (/[A-Z]/.test(password)) score++;
-  if (/[0-9]/.test(password)) score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
-  return score;
-}
-
-/**
- * Validates password length against application requirements.
- * @param password - Plaintext password.
- * @returns Error message or null when valid.
- */
-function validatePassword(password) {
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
-  }
-
-  if (COMMON_PASSWORDS.has(password.toLowerCase())) {
-    return 'Password is too common. Choose a stronger password.';
-  }
-
-  if (scorePasswordStrength(password) < MIN_PASSWORD_STRENGTH_SCORE) {
-    return 'Password is too weak. Use a mix of letters, numbers, and symbols.';
-  }
-
-  return null;
-}
-
-/**
- * Returns whether the profile supports password reset.
- * @param user - Mongo user profile document.
- * @returns True when a local password can be set or reset.
- */
-function userSupportsPasswordReset(user) {
-  if (typeof user.passwordHash === 'string' && user.passwordHash.length > 0) {
-    return true;
-  }
-
-  return user.authProvider === 'password';
 }
 
 /**

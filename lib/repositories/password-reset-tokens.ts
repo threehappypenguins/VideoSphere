@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { hashPasswordResetToken } from '@/lib/auth/password-reset-token-hash';
 import { connectToDatabase } from '@/lib/mongodb';
 import {
   PasswordResetTokenModel,
@@ -19,7 +20,6 @@ export const FORGOT_PASSWORD_RATE_LIMIT_MAX = 3;
  */
 export interface PasswordResetTokenRecord {
   id: string;
-  token: string;
   userId: string;
   source: PasswordResetTokenSource;
   expiresAt: string;
@@ -30,7 +30,6 @@ export interface PasswordResetTokenRecord {
 function toRecord(doc: PasswordResetTokenDocument): PasswordResetTokenRecord {
   return {
     id: String(doc._id),
-    token: doc.token,
     userId: doc.userId,
     source: doc.source,
     expiresAt: new Date(doc.expiresAt).toISOString(),
@@ -77,8 +76,8 @@ export async function invalidateUnusedPasswordResetTokensForUser(
 
 /**
  * Persists a new password reset token for a user.
- * @param input - Token value, user id, and absolute expiry time.
- * @returns The stored token record.
+ * @param input - Plaintext token value, user id, source, and absolute expiry time.
+ * @returns The stored token record (plaintext token is not returned).
  */
 export async function createPasswordResetToken(input: {
   token: string;
@@ -89,7 +88,7 @@ export async function createPasswordResetToken(input: {
   await connectToDatabase();
   const created = await PasswordResetTokenModel.create({
     _id: randomUUID(),
-    token: input.token,
+    tokenHash: hashPasswordResetToken(input.token),
     userId: input.userId,
     source: input.source,
     expiresAt: input.expiresAt,
@@ -99,7 +98,7 @@ export async function createPasswordResetToken(input: {
 
 /**
  * Atomically claims a reset token by marking it used when still valid.
- * @param token - URL-safe reset token.
+ * @param token - Plaintext URL-safe reset token.
  * @param now - Reference time for expiry comparison.
  * @param usedAt - Consumption timestamp to persist.
  * @returns The claimed token record; null when already used, expired, or missing.
@@ -110,9 +109,10 @@ export async function claimPasswordResetToken(
   usedAt: Date = now
 ): Promise<PasswordResetTokenRecord | null> {
   await connectToDatabase();
+  const tokenHash = hashPasswordResetToken(token);
   const doc = await PasswordResetTokenModel.findOneAndUpdate(
     {
-      token,
+      tokenHash,
       usedAt: { $exists: false },
       expiresAt: { $gt: now },
     },
@@ -124,8 +124,8 @@ export async function claimPasswordResetToken(
 }
 
 /**
- * Finds a reset token by its public token string when still valid.
- * @param token - URL-safe reset token.
+ * Finds a reset token by its plaintext value when still valid.
+ * @param token - Plaintext URL-safe reset token.
  * @param now - Reference time for expiry comparison.
  * @returns The matching record when valid; otherwise null.
  */
@@ -135,7 +135,7 @@ export async function findValidPasswordResetToken(
 ): Promise<PasswordResetTokenRecord | null> {
   await connectToDatabase();
   const doc = await PasswordResetTokenModel.findOne({
-    token,
+    tokenHash: hashPasswordResetToken(token),
     usedAt: { $exists: false },
     expiresAt: { $gt: now },
   }).lean<PasswordResetTokenDocument | null>();

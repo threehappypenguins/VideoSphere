@@ -5,7 +5,8 @@ import mongoose, { Schema } from 'mongoose';
  */
 export interface PasswordResetTokenDocument {
   _id: string;
-  token: string;
+  /** SHA-256 hex digest of the plaintext reset token. */
+  tokenHash: string;
   userId: string;
   /** Distinguishes self-service forgot-password tokens from admin-issued links. */
   source: PasswordResetTokenSource;
@@ -23,7 +24,7 @@ export type PasswordResetTokenSource = 'forgot-password' | 'admin';
 const PasswordResetTokenSchema = new Schema<PasswordResetTokenDocument>(
   {
     _id: { type: String },
-    token: { type: String, required: true, trim: true },
+    tokenHash: { type: String, required: true, trim: true },
     userId: { type: String, required: true, trim: true },
     source: { type: String, required: true, enum: ['forgot-password', 'admin'] },
     expiresAt: { type: Date, required: true },
@@ -33,8 +34,8 @@ const PasswordResetTokenSchema = new Schema<PasswordResetTokenDocument>(
 );
 
 PasswordResetTokenSchema.index(
-  { token: 1 },
-  { unique: true, name: 'password_reset_tokens_token_unique' }
+  { tokenHash: 1 },
+  { unique: true, name: 'password_reset_tokens_token_hash_unique' }
 );
 PasswordResetTokenSchema.index(
   { userId: 1, usedAt: 1, createdAt: -1 },

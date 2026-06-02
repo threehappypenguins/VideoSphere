@@ -41,8 +41,9 @@ node scripts/reset-admin-password.js
 Use the **Forgot password?** link on the login page.
 
 1. Open `/forgot-password` and submit the account email.
-2. The app always shows a generic confirmation message — it does not reveal whether the email exists.
-3. When the email matches a registered user, the reset URL is written to **container stdout only** (never returned in the HTTP response).
+2. After a valid submission, the UI shows a generic confirmation message — it does not reveal whether the email exists.
+3. Malformed submissions (invalid email format, etc.) show a validation error instead.
+4. When the email matches a registered password-capable user, the reset URL is written to **container stdout only** (never returned in the HTTP response).
 
 Retrieve the token from Docker logs:
 
@@ -79,8 +80,8 @@ Send the link to the user through your own channel (chat, in person, etc.).
 
 ## Security notes
 
-- Reset tokens are cryptographically random, single-use, and short-lived.
-- The forgot-password flow never leaks account existence in HTTP responses; tokens appear in server logs only.
+- Reset tokens are cryptographically random, single-use, and short-lived. Only a SHA-256 hash of each token is stored in MongoDB.
+- The forgot-password API returns `{ ok: true }` for every well-formed email without revealing account existence; malformed requests receive 400 validation errors. Tokens appear in server logs only.
 - **Google OAuth-only accounts cannot use password reset.** They have no local password; use Google sign-in instead. Admin reset links, forgot-password log tokens, and the CLI script all refuse OAuth-only accounts.
 - The CLI script requires host- or container-level access and updates passwords directly in MongoDB.
 - Using a reset link invalidates any other pending reset tokens for that user.
