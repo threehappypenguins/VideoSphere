@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import type { NextRequest } from 'next/server';
 import {
   FORGOT_PASSWORD_RATE_LIMIT_MAX,
   FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS,
@@ -27,22 +26,15 @@ export function generatePasswordResetTokenValue(): string {
 }
 
 /**
- * Resolves the public app base URL for reset links.
+ * Resolves the public app base URL for reset links from `NEXT_PUBLIC_APP_URL`.
  *
- * Prefers `NEXT_PUBLIC_APP_URL` when set so links stay correct behind TLS termination
- * and are not derived from attacker-controlled Host headers. Falls back to the
- * request origin only when the env var is unset (typical local development).
- * @param request - Optional incoming request used as a dev fallback origin.
+ * Reset links must not be built from request Host/origin (proxy/TLS and host-header
+ * risks). Set `NEXT_PUBLIC_APP_URL` in `.env.local` / container env (see `.env.example`).
  * @returns Normalized base URL without a trailing slash.
  */
-export function getAppBaseUrl(request?: NextRequest): string {
+export function getAppBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (envUrl) return envUrl.replace(/\/$/, '');
-
-  if (request) {
-    const origin = request.nextUrl.origin.trim();
-    if (origin) return origin.replace(/\/$/, '');
-  }
 
   return 'http://localhost:3000';
 }
@@ -50,11 +42,10 @@ export function getAppBaseUrl(request?: NextRequest): string {
 /**
  * Builds the full reset-password URL for a token.
  * @param token - URL-safe reset token.
- * @param request - Optional incoming request used to derive origin.
  * @returns Absolute reset-password URL.
  */
-export function buildPasswordResetUrl(token: string, request?: NextRequest): string {
-  const baseUrl = getAppBaseUrl(request);
+export function buildPasswordResetUrl(token: string): string {
+  const baseUrl = getAppBaseUrl();
   return `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
 }
 

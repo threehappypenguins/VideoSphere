@@ -353,7 +353,10 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
           if (!open) handleCloseResetModal();
         }}
       >
-        <DialogContent onPointerDownOutside={(event) => event.preventDefault()}>
+        <DialogContent
+          onPointerDownOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Password reset link</DialogTitle>
             <DialogDescription>

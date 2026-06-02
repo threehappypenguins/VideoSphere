@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
           FORGOT_PASSWORD_TOKEN_TTL_MS,
           'forgot-password'
         );
-        const resetUrl = buildPasswordResetUrl(token, req);
+        const resetUrl = buildPasswordResetUrl(token);
         logForgotPasswordResetTokenToStdout(email, resetUrl, expiresAt);
       }
     }

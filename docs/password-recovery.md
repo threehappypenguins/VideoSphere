@@ -83,6 +83,7 @@ Send the link to the user through your own channel (chat, in person, etc.).
 ## Security notes
 
 - Reset tokens are cryptographically random, single-use, and short-lived. Only a SHA-256 hash of each token is stored in MongoDB.
+- Reset links in logs and the admin modal use **`NEXT_PUBLIC_APP_URL`** only (not the request `Host` header). Set it to your public URL in `.env.local` / Docker env so links work behind TLS and stay trustworthy.
 - The forgot-password API returns `{ ok: true }` for every well-formed email without revealing account existence; malformed requests receive 400 validation errors. Tokens appear in server logs only.
 - **Google OAuth-only accounts cannot use password reset.** They have no local password; use Google sign-in instead. Admin reset links, forgot-password log tokens, and the CLI script all refuse OAuth-only accounts.
 - The CLI script requires host- or container-level access and updates passwords directly in MongoDB.
