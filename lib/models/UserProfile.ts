@@ -1,10 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
-import type { UserRole } from '@/types';
-
-/**
- * How the user authenticates to VideoSphere (login/setup/invite), not platform connections.
- */
-export type UserAuthProvider = 'google' | 'password';
+import type { UserAuthProvider, UserRole } from '@/types';
 
 /**
  * Raw MongoDB document shape for the `user_profiles` collection.

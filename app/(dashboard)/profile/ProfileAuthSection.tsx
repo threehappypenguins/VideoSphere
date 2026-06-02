@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { scorePasswordStrength, validatePassword } from '@/lib/auth/password';
 import { authPasswordStrengthLabelClass } from '@/lib/auth/auth-ui-classes';
-import type { UserAuthProvider } from '@/lib/repositories/users';
+import type { UserAuthProvider } from '@/types';
 
 interface ProfileAuthSectionProps {
   authProvider: UserAuthProvider;

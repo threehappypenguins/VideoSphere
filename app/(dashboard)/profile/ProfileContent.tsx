@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ProfileAuthSection } from './ProfileAuthSection';
 import { ProfileOAuthFlash } from './ProfileOAuthFlash';
-import type { UserAuthProvider } from '@/lib/repositories/users';
+import type { UserAuthProvider } from '@/types';
 
 interface ProfileContentProps {
   oauthSuccess: string | null;

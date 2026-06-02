@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { FlashMessage } from './connections/FlashMessage';
 import { getOAuthErrorMessage } from '@/lib/auth/oauth-errors';
 
@@ -15,14 +14,6 @@ interface ProfileOAuthFlashProps {
  * @returns Flash banner or null when no message applies.
  */
 export function ProfileOAuthFlash({ success, error }: ProfileOAuthFlashProps) {
-  useEffect(() => {
-    if (!success && !error) return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete('success');
-    url.searchParams.delete('error');
-    window.history.replaceState(null, '', url.pathname + (url.search || ''));
-  }, [success, error]);
-
   if (success === 'google_connected') {
     return <FlashMessage type="success" message="Google sign-in connected successfully." />;
   }

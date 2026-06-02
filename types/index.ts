@@ -21,7 +21,10 @@
  */
 export type UserRole = 'user' | 'admin';
 
-/** How the user signs in to VideoSphere (mutually exclusive password vs Google). */
+/**
+ * How the user authenticates to VideoSphere (login/setup/invite), not platform connections.
+ * Mutually exclusive password vs Google OAuth.
+ */
 export type UserAuthProvider = 'google' | 'password';
 
 /**

@@ -1,4 +1,4 @@
-import type { UserAuthProvider } from '@/lib/models/UserProfile';
+import type { UserAuthProvider } from '@/types';
 import passwordPolicy from './password-policy.cjs';
 
 /** Minimum password length enforced by registration and password reset flows. */

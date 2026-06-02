@@ -7,18 +7,14 @@
 // Uses Mongoose for the user_profiles collection.
 // =============================================================================
 
-import type { User, UserRole } from '@/types';
+import type { User, UserAuthProvider, UserRole } from '@/types';
 import { userSupportsPasswordReset } from '@/lib/auth/password';
 import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
-import {
-  UserProfileModel,
-  type UserAuthProvider,
-  type UserProfileDocument,
-} from '@/lib/models/UserProfile';
+import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
 
-export type { UserAuthProvider };
+export type { UserAuthProvider } from '@/types';
 
 /** Fields returned for admin user list rows (excludes secrets such as `googleRefreshToken`). */
 const LIST_USER_BASE_SELECT = 'userId email name hasCompletedOnboarding role createdAt updatedAt';
