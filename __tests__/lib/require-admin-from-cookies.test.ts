@@ -58,6 +58,8 @@ describe('requireAdminUserIdFromCookies', () => {
     await expect(
       requireAdminUserIdFromCookies({ loginRedirectPath: '/dashboard/users' })
     ).resolves.toBe('admin-1');
+    expect(mockGetUserById).toHaveBeenCalledTimes(1);
+    expect(mockGetUserById).toHaveBeenCalledWith('admin-1');
     expect(mockRedirect).not.toHaveBeenCalled();
   });
 
@@ -68,6 +70,7 @@ describe('requireAdminUserIdFromCookies', () => {
       requireAdminUserIdFromCookies({ loginRedirectPath: '/dashboard/users' })
     ).rejects.toThrow('NEXT_REDIRECT');
 
+    expect(mockGetUserById).not.toHaveBeenCalled();
     expect(mockRedirect).toHaveBeenCalledWith('/login?redirect=%2Fdashboard%2Fusers');
   });
 
@@ -82,6 +85,7 @@ describe('requireAdminUserIdFromCookies', () => {
 
     await expect(requireAdminUserIdFromCookies()).rejects.toThrow('NEXT_REDIRECT');
 
+    expect(mockGetUserById).toHaveBeenCalledTimes(1);
     expect(mockRedirect).toHaveBeenCalledWith('/dashboard');
   });
 });

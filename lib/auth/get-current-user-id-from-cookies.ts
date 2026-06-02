@@ -115,12 +115,44 @@ export async function requireAdminUserIdFromCookies(
   const loginRedirectPath = options.loginRedirectPath ?? '/dashboard';
   const forbiddenRedirectPath = options.forbiddenRedirectPath ?? '/dashboard';
 
-  const { sessionUser, hasAdminRole } = await getNavbarAuthStateFromCookies();
-  if (!sessionUser) {
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
     redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
   }
-  if (!hasAdminRole) {
+
+  const cookieStore = await cookies();
+  const token = cookieStore.get(getSessionCookieName())?.value;
+  if (!token) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  let userId: string | null = null;
+  try {
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret));
+    userId = typeof payload.sub === 'string' ? payload.sub : null;
+  } catch {
+    userId = null;
+  }
+
+  if (!userId) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  let profile;
+  try {
+    const { getUserById } = await import('@/lib/repositories/users');
+    profile = await getUserById(userId);
+  } catch {
     redirect(forbiddenRedirectPath);
   }
-  return sessionUser.$id;
+
+  if (!profile) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  if (profile.role !== 'admin') {
+    redirect(forbiddenRedirectPath);
+  }
+
+  return userId;
 }
