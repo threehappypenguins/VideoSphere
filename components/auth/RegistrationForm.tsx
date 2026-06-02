@@ -32,9 +32,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * @param target - Event target to inspect.
  * @returns True when capture can be set and released on the element.
  */
-function supportsPointerCapture(
-  target: EventTarget | null
-): target is HTMLElement & {
+function supportsPointerCapture(target: EventTarget | null): target is HTMLElement & {
   setPointerCapture: (pointerId: number) => void;
   hasPointerCapture: (pointerId: number) => boolean;
   releasePointerCapture: (pointerId: number) => void;
