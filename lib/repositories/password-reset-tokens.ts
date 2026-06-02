@@ -164,7 +164,7 @@ export async function findValidPasswordResetToken(
  *
  * @param token - Plaintext URL-safe reset token.
  * @param passwordHash - Bcrypt hash to persist for the account.
- * @param now - Reference time for expiry comparison.
+ * @param now - Reference time for the initial validity check only.
  * @param usedAt - Consumption timestamp to persist on claimed and invalidated tokens.
  * @returns True when the password was updated and the token claimed; false when the token
  *   was already used, expired, or missing, or could not be claimed after the password update.
@@ -185,7 +185,7 @@ export async function completePasswordResetWithPasswordHash(
 
   await updateUserPasswordHash(record.userId, passwordHash);
 
-  const claimed = await claimPasswordResetToken(trimmed, now, usedAt);
+  const claimed = await claimPasswordResetToken(trimmed, new Date(), usedAt);
   if (!claimed) {
     return false;
   }

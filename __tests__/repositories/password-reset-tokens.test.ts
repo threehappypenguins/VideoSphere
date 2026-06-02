@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashPasswordResetToken } from '@/lib/auth/password-reset-token-hash';
 
 const {
@@ -191,6 +191,10 @@ describe('findValidPasswordResetToken', () => {
 describe('completePasswordResetWithPasswordHash', () => {
   const now = new Date('2026-06-02T12:00:00.000Z');
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('updates the password before claiming the token and invalidating siblings', async () => {
     const tokenHash = hashPasswordResetToken('reset-token');
     mockFindOne.mockReturnValueOnce(leanResult(validTokenDoc('reset-token', now)));
@@ -249,6 +253,41 @@ describe('completePasswordResetWithPasswordHash', () => {
     ).resolves.toBe(false);
 
     expect(mockUpdateUserPasswordHash).toHaveBeenCalledWith('user-1', 'new-hash');
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('uses a fresh timestamp for the claim expiry check while persisting the provided usedAt', async () => {
+    const validateNow = new Date('2026-06-02T12:14:00.000Z');
+    const usedAt = new Date('2026-06-02T12:00:00.000Z');
+    const claimNow = new Date('2026-06-02T12:16:00.000Z');
+    const tokenHash = hashPasswordResetToken('reset-token');
+
+    vi.useFakeTimers({ now: validateNow });
+    mockFindOne.mockReturnValueOnce(
+      leanResult(
+        validTokenDoc('reset-token', validateNow, {
+          expiresAt: new Date('2026-06-02T12:15:00.000Z'),
+        })
+      )
+    );
+    mockUpdateUserPasswordHash.mockImplementation(async () => {
+      vi.setSystemTime(claimNow);
+    });
+    mockFindOneAndUpdate.mockReturnValueOnce(leanResult(null));
+
+    await expect(
+      completePasswordResetWithPasswordHash('reset-token', 'new-hash', validateNow, usedAt)
+    ).resolves.toBe(false);
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      {
+        tokenHash,
+        usedAt: { $exists: false },
+        expiresAt: { $gt: claimNow },
+      },
+      { $set: { usedAt } },
+      { returnDocument: 'after' }
+    );
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 });
