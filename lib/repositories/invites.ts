@@ -94,6 +94,56 @@ function isTokenActive(doc: InviteTokenDocument, now: Date): boolean {
   return true;
 }
 
+/**
+ * Mongo filter for an active (unused, unexpired) setup token document.
+ * @param now - Reference time for expiry comparison.
+ * @returns Query matching the singleton setup row when it can be used as-is.
+ */
+function activeSetupTokenQuery(now: Date) {
+  return {
+    _id: SETUP_TOKEN_DOCUMENT_ID,
+    purpose: 'setup' as const,
+    usedAt: { $exists: false },
+    $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: now } }],
+  };
+}
+
+/**
+ * Mongo filter for a consumed or expired setup token eligible for reissue.
+ * @param now - Reference time for expiry comparison.
+ * @returns Query matching only stale setup rows (never active tokens).
+ */
+function staleSetupTokenQuery(now: Date) {
+  return {
+    _id: SETUP_TOKEN_DOCUMENT_ID,
+    purpose: 'setup' as const,
+    $or: [{ usedAt: { $exists: true } }, { expiresAt: { $lte: now } }],
+  };
+}
+
+/**
+ * Update payload that reissues a setup token value and clears consumption metadata.
+ * @param token - New setup token string.
+ * @param now - Timestamp stored on the document.
+ * @returns Mongo update operators for setup reissue.
+ */
+function setupTokenReissueUpdate(token: string, now: Date) {
+  return {
+    $set: {
+      token,
+      purpose: 'setup' as const,
+      createdAt: now,
+    },
+    $unset: {
+      usedAt: 1,
+      usedBy: 1,
+      expiresAt: 1,
+      createdBy: 1,
+      grantedRole: 1,
+    },
+  };
+}
+
 /** Stable document id so only one setup token row can exist in the collection. */
 const SETUP_TOKEN_DOCUMENT_ID = 'setup';
 
@@ -157,29 +207,49 @@ export async function ensureSetupTokenForFirstRun(): Promise<SetupTokenBootstrap
   }
 
   const token = randomUUID();
-  const reissued = await InviteTokenModel.findOneAndUpdate(
-    { _id: SETUP_TOKEN_DOCUMENT_ID },
+
+  const reissuedStale = await InviteTokenModel.findOneAndUpdate(
+    staleSetupTokenQuery(now),
+    setupTokenReissueUpdate(token, now),
+    { returnDocument: 'after' }
+  ).lean<InviteTokenDocument | null>();
+
+  if (reissuedStale) {
+    await pruneDuplicateSetupTokens();
+    return { token: reissuedStale.token, created: true };
+  }
+
+  const insertedOrActive = await InviteTokenModel.findOneAndUpdate(
+    activeSetupTokenQuery(now),
     {
-      $set: {
+      $setOnInsert: {
         token,
         purpose: 'setup',
         createdAt: now,
-      },
-      $unset: {
-        usedAt: 1,
-        usedBy: 1,
-        expiresAt: 1,
-        createdBy: 1,
-        grantedRole: 1,
       },
     },
     { upsert: true, returnDocument: 'after' }
   ).lean<InviteTokenDocument | null>();
 
-  if (!reissued) return null;
+  if (insertedOrActive && isTokenActive(insertedOrActive, now)) {
+    await pruneDuplicateSetupTokens();
+    return {
+      token: insertedOrActive.token,
+      created: insertedOrActive.token === token,
+    };
+  }
 
-  await pruneDuplicateSetupTokens();
-  return { token: reissued.token, created: true };
+  const fallback = await InviteTokenModel.findOne({
+    _id: SETUP_TOKEN_DOCUMENT_ID,
+    purpose: 'setup',
+  }).lean<InviteTokenDocument | null>();
+
+  if (fallback && isTokenActive(fallback, now)) {
+    await pruneDuplicateSetupTokens();
+    return { token: fallback.token, created: false };
+  }
+
+  return null;
 }
 
 /**

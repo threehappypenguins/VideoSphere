@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   mockConnectToDatabase,
@@ -37,6 +37,8 @@ vi.mock('@/lib/models/UserProfile', () => ({
 
 import { ensureSetupTokenForFirstRun } from '@/lib/repositories/invites';
 
+const now = new Date('2026-03-15T12:00:00.000Z');
+
 function mockSetupFindOne(value: unknown) {
   mockFindOne.mockReturnValueOnce({
     lean: vi.fn().mockResolvedValue(value),
@@ -49,12 +51,52 @@ function mockSetupFindOneAndUpdate(value: unknown) {
   });
 }
 
+function mockSetupFindOneAndUpdateFromSetToken() {
+  mockFindOneAndUpdate.mockImplementationOnce(() => ({
+    lean: vi.fn().mockImplementation(async () => {
+      const update = mockFindOneAndUpdate.mock.calls.at(-1)?.[1] as {
+        $set?: { token: string };
+      };
+      const token = update.$set?.token ?? 'unknown-token';
+      return {
+        _id: 'setup',
+        token,
+        purpose: 'setup',
+        createdAt: now,
+      };
+    }),
+  }));
+}
+
+function mockSetupFindOneAndUpdateFromInsertToken() {
+  mockFindOneAndUpdate.mockImplementationOnce(() => ({
+    lean: vi.fn().mockImplementation(async () => {
+      const update = mockFindOneAndUpdate.mock.calls.at(-1)?.[1] as {
+        $setOnInsert?: { token: string };
+      };
+      const token = update.$setOnInsert?.token ?? 'unknown-token';
+      return {
+        _id: 'setup',
+        token,
+        purpose: 'setup',
+        createdAt: now,
+      };
+    }),
+  }));
+}
+
 describe('ensureSetupTokenForFirstRun', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
     mockConnectToDatabase.mockResolvedValue(undefined);
     mockUserProfileExists.mockResolvedValue(null);
     mockDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('returns an existing active setup token without creating a new row', async () => {
@@ -68,6 +110,7 @@ describe('ensureSetupTokenForFirstRun', () => {
     const result = await ensureSetupTokenForFirstRun();
 
     expect(result).toEqual({ token: 'existing-setup-token', created: false });
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockDeleteMany).toHaveBeenCalledWith({
       purpose: 'setup',
@@ -75,7 +118,7 @@ describe('ensureSetupTokenForFirstRun', () => {
     });
   });
 
-  it('reissues a consumed setup token when no users exist yet', async () => {
+  it('reissues only stale setup tokens via a conditional update', async () => {
     mockSetupFindOne({
       _id: 'setup',
       token: 'stale-setup-token',
@@ -83,58 +126,93 @@ describe('ensureSetupTokenForFirstRun', () => {
       usedAt: new Date('2026-01-02T00:00:00.000Z'),
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     });
-    mockSetupFindOneAndUpdate({
-      _id: 'setup',
-      token: 'fresh-setup-token',
-      purpose: 'setup',
-      createdAt: new Date('2026-03-01T00:00:00.000Z'),
-    });
+    mockSetupFindOneAndUpdateFromSetToken();
 
     const result = await ensureSetupTokenForFirstRun();
+    const reissuedToken = (
+      mockFindOneAndUpdate.mock.calls[0]?.[1] as { $set?: { token: string } }
+    ).$set?.token;
 
+    expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
-      { _id: 'setup' },
+      {
+        _id: 'setup',
+        purpose: 'setup',
+        $or: [{ usedAt: { $exists: true } }, { expiresAt: { $lte: now } }],
+      },
       expect.objectContaining({
         $set: expect.objectContaining({ purpose: 'setup', token: expect.any(String) }),
         $unset: { usedAt: 1, usedBy: 1, expiresAt: 1, createdBy: 1, grantedRole: 1 },
       }),
-      { upsert: true, returnDocument: 'after' }
+      { returnDocument: 'after' }
     );
-    expect(result).toEqual({ token: 'fresh-setup-token', created: true });
+    expect(result).toEqual({ token: reissuedToken, created: true });
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('creates the singleton setup row when none exists', async () => {
+  it('upserts only when no active setup token exists', async () => {
     mockSetupFindOne(null);
-    mockSetupFindOneAndUpdate({
-      _id: 'setup',
-      token: 'new-setup-token',
-      purpose: 'setup',
-      createdAt: new Date('2026-03-01T00:00:00.000Z'),
-    });
+    mockSetupFindOneAndUpdate(null);
+    mockSetupFindOneAndUpdateFromInsertToken();
+
+    const result = await ensureSetupTokenForFirstRun();
+    const insertedToken = (
+      mockFindOneAndUpdate.mock.calls[1]?.[1] as { $setOnInsert?: { token: string } }
+    ).$setOnInsert?.token;
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(mockFindOneAndUpdate).toHaveBeenNthCalledWith(
+      2,
+      {
+        _id: 'setup',
+        purpose: 'setup',
+        usedAt: { $exists: false },
+        $or: [{ expiresAt: { $exists: false } }, { expiresAt: { $gt: now } }],
+      },
+      {
+        $setOnInsert: {
+          token: expect.any(String),
+          purpose: 'setup',
+          createdAt: now,
+        },
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
+    expect(result).toEqual({ token: insertedToken, created: true });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns the active token without reissuing when upsert races with another instance', async () => {
+    mockSetupFindOne(null);
+    mockSetupFindOneAndUpdate(null);
+    mockFindOneAndUpdate.mockImplementationOnce(() => ({
+      lean: vi.fn().mockResolvedValue({
+        _id: 'setup',
+        token: 'winner-setup-token',
+        purpose: 'setup',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+    }));
 
     const result = await ensureSetupTokenForFirstRun();
 
-    expect(result).toEqual({ token: 'new-setup-token', created: true });
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(result).toEqual({ token: 'winner-setup-token', created: false });
   });
 
-  it('uses a fixed document id so concurrent upserts collapse to one row', async () => {
+  it('falls back to the current active token when conditional updates do not apply', async () => {
     mockSetupFindOne(null);
-    mockSetupFindOneAndUpdate({
+    mockSetupFindOneAndUpdate(null);
+    mockSetupFindOneAndUpdate(null);
+    mockSetupFindOne({
       _id: 'setup',
-      token: 'winner-setup-token',
+      token: 'concurrent-active-token',
       purpose: 'setup',
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     });
 
     const result = await ensureSetupTokenForFirstRun();
 
-    expect(mockFindOneAndUpdate).toHaveBeenCalledWith({ _id: 'setup' }, expect.any(Object), {
-      upsert: true,
-      returnDocument: 'after',
-    });
-    expect(result).toEqual({ token: 'winner-setup-token', created: true });
+    expect(result).toEqual({ token: 'concurrent-active-token', created: false });
   });
 
   it('returns null once users already exist', async () => {
