@@ -46,6 +46,7 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
 
   const loadUsers = useCallback(
     async (options: { resetError?: boolean } = {}) => {
+      setLoading(true);
       if (options.resetError !== false) {
         setError(null);
       }

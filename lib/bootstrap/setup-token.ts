@@ -22,6 +22,7 @@ export async function bootstrapFirstRunSetupToken(): Promise<void> {
     );
   })().catch((error) => {
     console.error('[Setup] Failed to bootstrap first-run setup token', error);
+    bootstrapPromise = null;
   });
 
   await bootstrapPromise;
