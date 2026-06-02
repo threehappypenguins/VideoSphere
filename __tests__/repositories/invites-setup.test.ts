@@ -129,9 +129,8 @@ describe('ensureSetupTokenForFirstRun', () => {
     mockSetupFindOneAndUpdateFromSetToken();
 
     const result = await ensureSetupTokenForFirstRun();
-    const reissuedToken = (
-      mockFindOneAndUpdate.mock.calls[0]?.[1] as { $set?: { token: string } }
-    ).$set?.token;
+    const reissuedToken = (mockFindOneAndUpdate.mock.calls[0]?.[1] as { $set?: { token: string } })
+      .$set?.token;
 
     expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
