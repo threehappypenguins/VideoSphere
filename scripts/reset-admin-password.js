@@ -2,11 +2,14 @@
 'use strict';
 
 /**
- * Standalone admin password reset script for shell access recovery.
+ * Standalone password reset script for operators with shell access.
+ *
+ * With no args, resets the first admin account. With --email, resets any
+ * password-capable user matching that address.
  *
  * Usage:
  *   node scripts/reset-admin-password.js
- *   node scripts/reset-admin-password.js --email admin@example.com
+ *   node scripts/reset-admin-password.js --email user@example.com
  *
  * In Docker:
  *   docker exec -it videosphere node scripts/reset-admin-password.js
@@ -186,8 +189,8 @@ async function promptForNewPassword() {
 }
 
 /**
- * Finds the admin account to reset.
- * @param email - Optional explicit email target.
+ * Resolves the account to reset.
+ * @param email - Optional email; when omitted, the first admin is used.
  * @returns Matching user profile document.
  */
 async function findTargetUser(email) {

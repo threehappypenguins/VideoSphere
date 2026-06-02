@@ -161,7 +161,7 @@ After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
 ## Docker
 
 - **Run the app in a container:** `docker build -t videosphere .` then `docker run --name videosphere -p 3000:3000 --env-file .env.local videosphere`.
-- **Password recovery (no SMTP):** see [docs/password-recovery.md](docs/password-recovery.md) for CLI reset, log-based forgot-password, and admin reset links.
+- **Password recovery (no SMTP):** see [docs/password-recovery.md](docs/password-recovery.md) for CLI password reset, log-based forgot-password, and admin reset links.
 
 ## Contributing
 

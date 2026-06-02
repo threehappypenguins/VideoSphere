@@ -1,32 +1,33 @@
 # Password Recovery
 
-VideoSphere is designed for homelab and self-hosted deployments where SMTP is not required. Password recovery uses shell access, server logs, or admin-generated reset links instead of email.
+VideoSphere is designed for homelab and self-hosted deployments where SMTP is not required. Password recovery uses shell access, server logs, admin-generated reset links, or a CLI tool instead of email.
 
-## If the admin is locked out (shell access)
+## Reset a password from the shell (CLI)
 
-Use the CLI reset script when you have shell access to the host or container.
+Use `scripts/reset-admin-password.js` when you have shell or container access and want to set a new password directly in MongoDB—without a reset link or SMTP. This works for any account that supports password login, not only admins.
 
 ```bash
 docker exec -it videosphere node scripts/reset-admin-password.js
 ```
 
-To target a specific account instead of the first admin:
+With no arguments, the script targets the **first admin** account (by `createdAt`). That default is convenient when the initial admin is locked out; use `--email` to reset a specific account instead:
 
 ```bash
-docker exec -it videosphere node scripts/reset-admin-password.js --email admin@example.com
+docker exec -it videosphere node scripts/reset-admin-password.js --email user@example.com
 ```
 
 The script:
 
 - Reads `MONGODB_URI` from the environment (or `.env.local` when run locally)
 - Prompts for a new password interactively (input is not echoed and is never passed as a CLI argument)
-- Requires at least 8 characters
+- Applies the same password rules as registration and the reset-password page (minimum length, strength, common-password denylist)
+- Refuses Google OAuth-only accounts (no local password to set)
 - Updates `passwordHash` in MongoDB
 
 Example success output:
 
 ```text
-✅ Password updated for admin@example.com (admin).
+✅ Password updated for user@example.com (user).
 You can now log in with the new password.
 ```
 
@@ -34,9 +35,10 @@ For local development without Docker:
 
 ```bash
 node scripts/reset-admin-password.js
+node scripts/reset-admin-password.js --email user@example.com
 ```
 
-## If the admin is locked out (UI / no direct DB access)
+## Forgot password (UI / log-based token)
 
 Use the **Forgot password?** link on the login page.
 
