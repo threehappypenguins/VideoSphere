@@ -268,6 +268,42 @@ describe('Proxy Middleware', () => {
       expect(result.headers.get('location') || '').toContain('/dashboard');
     });
 
+    it('should block non-admin users from /dashboard/users', async () => {
+      const sessionToken = 'user_session_token';
+      const request = createMockRequest('/dashboard/users', {
+        videosphere_session: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ role: 'user' }),
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(307);
+      const location = result.headers.get('location') || '';
+      expect(location).toContain('/dashboard');
+    });
+
+    it('should allow admin users to access /dashboard/users', async () => {
+      const sessionToken = 'admin_session_token';
+      const request = createMockRequest('/dashboard/users', {
+        videosphere_session: sessionToken,
+      });
+
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ role: 'admin' }),
+      });
+
+      const result = await proxy(request);
+
+      expect(result.status).toBe(200);
+    });
+
     it('should allow admin users to access /dashboard routes', async () => {
       const sessionToken = 'admin_session_token';
       const request = createMockRequest('/dashboard/videos', {

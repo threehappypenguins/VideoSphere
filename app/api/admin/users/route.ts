@@ -10,6 +10,7 @@ export interface AdminUserRow {
   /** Stable id (auth user id / `user_profiles.userId`); use for client keys, not email. */
   userId: string;
   email: string;
+  name?: string;
   role: 'user' | 'admin';
   createdAt: string;
 }
@@ -52,6 +53,7 @@ export async function GET(request: NextRequest) {
       users: users.map((user) => ({
         userId: user.userId,
         email: user.email,
+        name: user.name,
         role: user.role,
         createdAt: user.$createdAt,
       })),

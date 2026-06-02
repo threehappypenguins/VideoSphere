@@ -12,12 +12,31 @@ if (!cached) {
   cached = (globalWithMongoose as any)._mongooseCache = { conn: null, promise: null };
 }
 
+let setupBootstrapStarted = false;
+
+/**
+ * Ensures first-run setup token bootstrap runs once per process after DB connects.
+ */
+function scheduleFirstRunSetupBootstrap(): void {
+  if (setupBootstrapStarted) return;
+  setupBootstrapStarted = true;
+
+  void import('@/lib/bootstrap/setup-token')
+    .then((mod) => mod.bootstrapFirstRunSetupToken())
+    .catch((error) => {
+      console.error('[Setup] Failed to bootstrap first-run setup token', error);
+    });
+}
+
 /**
  * Establishes and caches the shared MongoDB connection for the current process.
  * @returns The connected Mongoose instance.
  */
 export async function connectToDatabase() {
-  if (cached!.conn) return cached!.conn;
+  if (cached!.conn) {
+    scheduleFirstRunSetupBootstrap();
+    return cached!.conn;
+  }
   if (!cached!.promise) {
     const mongodbUri = process.env.MONGODB_URI;
     if (!mongodbUri) {
@@ -27,6 +46,7 @@ export async function connectToDatabase() {
   }
   try {
     cached!.conn = await cached!.promise;
+    scheduleFirstRunSetupBootstrap();
   } catch (error) {
     cached!.promise = null;
     throw error;

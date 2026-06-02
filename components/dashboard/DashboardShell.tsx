@@ -15,6 +15,8 @@ const NAV_ITEMS = [
   { label: 'History', href: '/dashboard/history', exact: false },
 ] as const;
 
+const ADMIN_NAV_ITEMS = [{ label: 'Users', href: '/dashboard/users', exact: true }] as const;
+
 function isActive(pathname: string, href: string, exact: boolean): boolean {
   return exact ? pathname === href : pathname.startsWith(href);
 }
@@ -35,8 +37,15 @@ function isActive(pathname: string, href: string, exact: boolean): boolean {
  * @param props - Component props.
  * @returns The rendered UI output.
  */
-export default function DashboardShell({ children }: { children: React.ReactNode }) {
+export default function DashboardShell({
+  children,
+  isAdmin = false,
+}: {
+  children: React.ReactNode;
+  isAdmin?: boolean;
+}) {
   const pathname = usePathname();
+  const navItems = isAdmin ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS] : NAV_ITEMS;
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)]">
@@ -48,7 +57,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       <aside className="hidden w-56 shrink-0 border-r border-border md:block bg-background/50">
         <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4">
           <nav aria-label="Dashboard navigation">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const { label, href, exact } = item;
               const tourId = 'tourIdDesktop' in item ? item.tourIdDesktop : undefined;
               const active = isActive(pathname, href, exact);
@@ -82,7 +91,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           aria-label="Dashboard navigation"
           className="flex overflow-x-auto border-b border-border md:hidden shrink-0"
         >
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const { label, href, exact } = item;
             const tourId = 'tourIdMobile' in item ? item.tourIdMobile : undefined;
             const active = isActive(pathname, href, exact);

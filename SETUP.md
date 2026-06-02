@@ -48,10 +48,10 @@ For Facebook OAuth credentials:
 
 1. Create an app in Facebook Developer Console.
 2. Enable Facebook Login and configure OAuth redirect URI:
-	- `http://localhost:3000/api/platforms/callback/facebook` (local)
+   - `http://localhost:3000/api/platforms/callback/facebook` (local)
 3. Copy the app credentials into:
-	- `FACEBOOK_CLIENT_ID`
-	- `FACEBOOK_CLIENT_SECRET`
+   - `FACEBOOK_CLIENT_ID`
+   - `FACEBOOK_CLIENT_SECRET`
 
 ## 3. Start MongoDB
 
@@ -81,12 +81,12 @@ If you prefer running Mongo directly, this is supported:
 docker pull docker.io/mongo:8
 
 docker run -d \
-	--name videosphere-mongo \
-	-p 27017:27017 \
-	-e MONGO_INITDB_ROOT_USERNAME=admin \
-	-e MONGO_INITDB_ROOT_PASSWORD=localdevpassword \
-	-v videosphere-mongo-data:/data/db \
-	mongo:8
+  --name videosphere-mongo \
+  -p 27017:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=admin \
+  -e MONGO_INITDB_ROOT_PASSWORD=localdevpassword \
+  -v videosphere-mongo-data:/data/db \
+  mongo:8
 ```
 
 When using this option, ensure your `.env.local` uses matching credentials, for example:
@@ -104,19 +104,38 @@ If the container already exists and is stopped, use `docker start videosphere-mo
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open the app in your browser using the address you will actually use to reach the server:
 
-## 5. Quick Verification
+- **Same machine as the app:** [http://localhost:3000](http://localhost:3000)
+- **Homelab / LAN (Odroid, NAS, Pi, etc.):** `http://<host-ip>:3000` — for example `http://192.168.1.38:3000`
+
+Use whichever address matches how you browse to the box. Many self-hosted setups never use `localhost` because the app runs on another device on your network.
+
+## 5. Create the First Admin Account
+
+VideoSphere uses invite-only registration after the first admin exists. Until then, the instance is in **first-run setup** mode.
+
+1. Open the app at the address you use to reach the host (for example `http://192.168.1.38:3000` on a homelab, or your cloud VM IP while your firewall allows only your address).
+2. Click **Set up VideoSphere** on the home page, or go to `/setup` — both take you to the admin creation form.
+3. Create the first admin account (email/password or Google OAuth).
+
+The setup URL is also printed in server logs on startup if you prefer the terminal (`docker compose logs app` or `pnpm dev` output).
+
+### Keep first-run off the public internet
+
+VideoSphere assumes first-run happens on a network you control — a homelab LAN, a VPN, or a cloud VM whose firewall only allows your IP on the app port. Do not forward the port or publish a public domain until the admin account exists. After setup, normal login and invite-only registration apply.
+
+## 6. Quick Verification
 
 Use this checklist:
 
-- App loads at [http://localhost:3000](http://localhost:3000)
-- Register works with email/password
-- Login issues session cookie and redirects to dashboard
+- App loads at the address you use to reach the host (LAN IP, hostname, or `localhost`)
+- First admin setup completes from the home page or `/setup`
+- Login issues a session cookie and redirects to dashboard
 - If using Compose: `docker compose ps` shows `videosphere-mongo` healthy
 - If using docker run: `docker ps --filter name=videosphere-mongo` shows the container running
 
-## 6. Before Opening a PR
+## 7. Before Opening a PR
 
 ```bash
 pnpm format

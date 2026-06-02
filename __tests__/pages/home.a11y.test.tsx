@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import HomePage from '@/app/(marketing)/page';
 import { expectNoAxeViolations } from '@/__tests__/utils/a11y';
+
+const mockIsFirstRunSetupPending = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/auth/first-run-setup', () => ({
+  isFirstRunSetupPending: (...args: unknown[]) => mockIsFirstRunSetupPending(...args),
+}));
 
 vi.mock('next/link', () => ({
   default: ({ children, href, ...rest }: any) => (
@@ -11,25 +16,19 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+import HomePage from '@/app/(marketing)/page';
+
 describe('Home page accessibility', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(() => new Promise(() => {}))
-    );
+    mockIsFirstRunSetupPending.mockResolvedValue(false);
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it('renders semantic landmarks and heading hierarchy without axe violations', async () => {
-    const { baseElement } = render(
-      <main>
-        <HomePage />
-      </main>
-    );
+    const { baseElement } = render(<main>{await HomePage()}</main>);
 
     expect(screen.getByRole('main')).toBeInTheDocument();
     expect(

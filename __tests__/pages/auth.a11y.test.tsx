@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LoginPage from '@/app/(auth)/login/page';
-import SignUpPage from '@/app/(auth)/signup/page';
+import InviteSignupClient from '@/app/(auth)/invite/[token]/InviteSignupClient';
 import { expectNoAxeViolations, renderWithMain } from '@/__tests__/utils/a11y';
 
 const mockPush = vi.hoisted(() => vi.fn());
@@ -48,9 +48,9 @@ describe('Auth pages accessibility', () => {
     await expectNoAxeViolations(baseElement);
   });
 
-  it('renders the signup form accessibly with described validation errors', async () => {
+  it('renders the invite signup form accessibly with described validation errors', async () => {
     const user = userEvent.setup();
-    const { baseElement } = renderWithMain(<SignUpPage />);
+    const { baseElement } = renderWithMain(<InviteSignupClient token="invite-token-123" />);
 
     await user.click(screen.getByRole('button', { name: /create account/i }));
 

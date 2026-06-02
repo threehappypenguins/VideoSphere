@@ -3,6 +3,8 @@
 // =============================================================================
 
 import type { Metadata } from 'next';
+import { FirstRunSetupBanner } from '@/components/marketing/FirstRunSetupBanner';
+import { isFirstRunSetupPending } from '@/lib/auth/first-run-setup';
 
 /**
  * Provides static page metadata for this route segment.
@@ -17,9 +19,13 @@ export const metadata: Metadata = {
  * Renders the home page component.
  * @returns The rendered UI output.
  */
-export default function HomePage() {
+export default async function HomePage() {
+  const firstRunPending = await isFirstRunSetupPending();
+
   return (
     <div className="font-sans">
+      {firstRunPending ? <FirstRunSetupBanner /> : null}
+
       {/* ===== HERO SECTION ===== */}
       <section className="px-4 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl text-center">

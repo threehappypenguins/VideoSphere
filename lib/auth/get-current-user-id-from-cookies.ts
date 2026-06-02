@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { jwtVerify } from 'jose';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
@@ -17,6 +18,16 @@ export interface SessionUserFromCookies {
 export interface NavbarAuthStateFromCookies {
   sessionUser: SessionUserFromCookies | null;
   hasAdminRole: boolean;
+}
+
+/**
+ * Redirect targets for {@link requireAdminUserIdFromCookies}.
+ */
+export interface RequireAdminFromCookiesOptions {
+  /** Path encoded into the login redirect when the session is missing. */
+  loginRedirectPath?: string;
+  /** Path for authenticated non-admins (defaults to `/dashboard`). */
+  forbiddenRedirectPath?: string;
 }
 
 /**
@@ -90,4 +101,58 @@ export async function getNavbarAuthStateFromCookies(): Promise<NavbarAuthStateFr
   }
 
   return { sessionUser, hasAdminRole };
+}
+
+/**
+ * Ensures the current request has an authenticated admin user.
+ * Authoritative server-side check for admin-only pages; complements `proxy.ts` in Next.js 16.
+ * @param options - Optional redirect targets when access is denied.
+ * @returns The authenticated admin user's id.
+ */
+export async function requireAdminUserIdFromCookies(
+  options: RequireAdminFromCookiesOptions = {}
+): Promise<string> {
+  const loginRedirectPath = options.loginRedirectPath ?? '/dashboard';
+  const forbiddenRedirectPath = options.forbiddenRedirectPath ?? '/dashboard';
+
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  const cookieStore = await cookies();
+  const token = cookieStore.get(getSessionCookieName())?.value;
+  if (!token) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  let userId: string | null = null;
+  try {
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret));
+    userId = typeof payload.sub === 'string' ? payload.sub : null;
+  } catch {
+    userId = null;
+  }
+
+  if (!userId) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  let profile;
+  try {
+    const { getUserById } = await import('@/lib/repositories/users');
+    profile = await getUserById(userId);
+  } catch {
+    redirect(forbiddenRedirectPath);
+  }
+
+  if (!profile) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  if (profile.role !== 'admin') {
+    redirect(forbiddenRedirectPath);
+  }
+
+  return userId;
 }

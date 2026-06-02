@@ -5,8 +5,24 @@
 // All persistence (and future R2/API) access is behind this layer.
 // =============================================================================
 
-export { createUser, getUserById, getUserByEmail, updateUser, listUsers } from './users';
-export type { CreateUserData, UpdateUserData, ListUsersOptions, ListUsersResult } from './users';
+export {
+  createUser,
+  getUserById,
+  getUserByEmail,
+  updateUser,
+  listUsers,
+  countUsersWithRole,
+  persistGoogleAuthForUser,
+  revokeStoredGoogleAuthForUser,
+  deleteUserById,
+} from './users';
+export type {
+  CreateUserData,
+  UpdateUserData,
+  ListUsersOptions,
+  ListUsersResult,
+  UserAuthProvider,
+} from './users';
 
 export {
   createDraft,
@@ -49,3 +65,25 @@ export {
   updateTokens,
 } from './connected-accounts';
 export type { CreateConnectedAccountData } from './connected-accounts';
+
+export {
+  createInviteToken,
+  listInviteTokens,
+  isInviteTokenValid,
+  isSetupTokenValid,
+  consumeInviteToken,
+  consumeSetupToken,
+  releaseInviteToken,
+  releaseSetupToken,
+  revokeInviteToken,
+  ensureSetupTokenForFirstRun,
+  hasAnyUsers,
+} from './invites';
+export type {
+  InviteTokenRecord,
+  CreateInviteTokenInput,
+  ListInviteTokensOptions,
+  SetupTokenBootstrapResult,
+  ConsumedInviteToken,
+  InviteTokenReleaseSnapshot,
+} from './invites';

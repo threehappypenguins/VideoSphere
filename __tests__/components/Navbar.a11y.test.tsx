@@ -53,9 +53,7 @@ describe('Navbar accessibility', () => {
 
   it('exposes current-page semantics and keyboard mobile menu support without axe violations', async () => {
     const user = userEvent.setup();
-    const { baseElement } = render(
-      <Navbar initialSessionUser={null} initialHasAdminRole={false} />
-    );
+    const { baseElement } = render(<Navbar initialSessionUser={null} />);
 
     const menuButton = screen.getByRole('button', { name: /toggle navigation menu/i });
     expect(menuButton).toHaveAttribute('aria-controls', 'site-navigation-mobile-menu');

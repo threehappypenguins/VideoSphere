@@ -49,14 +49,6 @@ export default function Footer() {
                   Log in
                 </Link>
               </li>
-              <li>
-                <Link
-                  href="/signup"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Sign up
-                </Link>
-              </li>
             </ul>
           </div>
         </div>

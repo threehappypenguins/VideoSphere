@@ -126,13 +126,10 @@ interface SessionUser {
   email?: string;
 }
 
-interface SessionRoleResponse {
-  role?: 'user' | 'admin';
-}
-
 interface NavbarProps {
   initialSessionUser?: SessionUser | null;
-  initialHasAdminRole?: boolean;
+  /** When true, hide sign-in links until first-run admin setup is complete. */
+  initialFirstRunPending?: boolean;
 }
 
 /**
@@ -140,24 +137,21 @@ interface NavbarProps {
  * @param props - Component props.
  * @returns The rendered UI output.
  */
-export default function Navbar({ initialSessionUser, initialHasAdminRole = false }: NavbarProps) {
+export default function Navbar({
+  initialSessionUser,
+  initialFirstRunPending = false,
+}: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>(
     initialSessionUser === undefined ? 'loading' : initialSessionUser
   );
-  const [hasAdminRole, setHasAdminRole] = useState(initialHasAdminRole);
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
   const [grainEnabled, setGrainEnabled] = useState(() => getBackgroundGrainEnabled());
   const [mounted, setMounted] = useState(false);
   const desktopThemeRef = useRef<HTMLDivElement>(null);
   const mobileThemeRef = useRef<HTMLDivElement>(null);
-  const adminRoleCacheRef = useRef<{ userId: string; isAdmin: boolean } | null>(
-    initialSessionUser?.$id
-      ? { userId: initialSessionUser.$id, isAdmin: initialHasAdminRole }
-      : null
-  );
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
@@ -174,50 +168,16 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
       signal: controller.signal,
     })
       .then(async (res) => {
-        if (!res.ok) return { user: null, isAdmin: false };
-
-        const data = (await res.json()) as SessionUser;
-
-        if (data.$id && adminRoleCacheRef.current?.userId === data.$id) {
-          return { user: data, isAdmin: adminRoleCacheRef.current.isAdmin };
-        }
-
-        try {
-          const roleRes = await fetch('/api/auth/session-role', {
-            credentials: 'include',
-            signal: controller.signal,
-          });
-
-          if (!roleRes.ok) {
-            // Keep authenticated session state, but do not cache fallback role on transient failures.
-            return { user: data, isAdmin: false };
-          }
-
-          const roleData = (await roleRes.json()) as SessionRoleResponse;
-          return { user: data, isAdmin: roleData.role === 'admin', userId: data.$id };
-        } catch (err) {
-          if (err instanceof DOMException && err.name === 'AbortError') throw err;
-          // Role lookup failure should not log out an authenticated user.
-          return { user: data, isAdmin: false };
-        }
+        if (!res.ok) return null;
+        return (await res.json()) as SessionUser;
       })
-      .then(({ user, isAdmin, userId }) => {
+      .then((user) => {
         if (controller.signal.aborted) return;
         setSessionUser(user);
-        setHasAdminRole(isAdmin);
-        if (!user) {
-          adminRoleCacheRef.current = null;
-          return;
-        }
-        if (typeof userId === 'string') {
-          adminRoleCacheRef.current = { userId, isAdmin };
-        }
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setSessionUser(null);
-        setHasAdminRole(false);
-        adminRoleCacheRef.current = null;
       });
     return () => controller.abort();
   }, [pathname]);
@@ -242,15 +202,13 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
   const handleLogout = async () => {
     await logout();
     setSessionUser(null);
-    setHasAdminRole(false);
-    adminRoleCacheRef.current = null;
     setMobileMenuOpen(false);
     router.push('/');
   };
 
   const isLoggedIn = sessionUser !== null && sessionUser !== 'loading';
   const userLabel = isLoggedIn ? sessionUser.name?.trim() || sessionUser.email || 'Account' : null;
-  const isAdminUser = isLoggedIn && hasAdminRole;
+  const showSignInLinks = !initialFirstRunPending;
 
   const handleToggleGrain = () => {
     const next = !grainEnabled;
@@ -281,24 +239,8 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
             <span className="text-xl font-black sm:text-2xl">VideoSphere</span>
           </Link>
 
-          {/* --- Desktop Auth: login/signup when logged out, user + logout when logged in --- */}
+          {/* --- Desktop nav --- */}
           <div className="hidden items-center gap-4 md:flex">
-            <ThemeDropdown
-              containerRef={desktopThemeRef}
-              isOpen={themeDropdownOpen === 'desktop'}
-              onToggle={() =>
-                setThemeDropdownOpen(themeDropdownOpen === 'desktop' ? false : 'desktop')
-              }
-              onClose={() => setThemeDropdownOpen(false)}
-              theme={theme}
-              setTheme={setTheme}
-              grainEnabled={grainEnabled}
-              onToggleGrain={handleToggleGrain}
-              resolvedTheme={resolvedTheme}
-              mounted={mounted}
-              dropdownClassName="right-0"
-            />
-
             {sessionUser === 'loading' ? (
               <span className="text-sm text-muted-foreground" aria-hidden>
                 …
@@ -319,15 +261,6 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                 >
                   Profile
                 </Link>
-                {isAdminUser && (
-                  <Link
-                    href="/admin/dashboard"
-                    aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
-                    className={`text-sm font-medium transition-colors hover:text-foreground ${pathname.startsWith('/admin') ? 'font-extrabold text-foreground' : 'text-muted-foreground'}`}
-                  >
-                    Admin
-                  </Link>
-                )}
                 <span className="text-sm text-muted-foreground" title={sessionUser?.email}>
                   {userLabel}
                 </span>
@@ -339,85 +272,91 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   Log out
                 </button>
               </>
-            ) : (
-              <>
-                <Link
-                  href="/login"
-                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Log in
-                </Link>
-                <Link
-                  href="/signup"
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  Sign up
-                </Link>
-              </>
-            )}
+            ) : showSignInLinks ? (
+              <Link
+                href="/login"
+                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Log in
+              </Link>
+            ) : null}
+
+            <ThemeDropdown
+              containerRef={desktopThemeRef}
+              isOpen={themeDropdownOpen === 'desktop'}
+              onToggle={() =>
+                setThemeDropdownOpen(themeDropdownOpen === 'desktop' ? false : 'desktop')
+              }
+              onClose={() => setThemeDropdownOpen(false)}
+              theme={theme}
+              setTheme={setTheme}
+              grainEnabled={grainEnabled}
+              onToggleGrain={handleToggleGrain}
+              resolvedTheme={resolvedTheme}
+              mounted={mounted}
+              dropdownClassName="right-0"
+            />
           </div>
 
-          {/* --- Mobile Menu Button --- */}
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground md:hidden"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-expanded={mobileMenuOpen ? 'true' : 'false'}
-            aria-label="Toggle navigation menu"
-            aria-controls="site-navigation-mobile-menu"
-          >
-            {mobileMenuOpen ? (
-              // X icon
-              <svg
-                className="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            ) : (
-              // Hamburger icon
-              <svg
-                className="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-                />
-              </svg>
-            )}
-          </button>
+          {/* --- Mobile controls (theme rightmost) --- */}
+          <div className="flex items-center gap-1 md:hidden">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-expanded={mobileMenuOpen ? 'true' : 'false'}
+              aria-label="Toggle navigation menu"
+              aria-controls="site-navigation-mobile-menu"
+            >
+              {mobileMenuOpen ? (
+                <svg
+                  className="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg
+                  className="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                  />
+                </svg>
+              )}
+            </button>
+            <ThemeDropdown
+              containerRef={mobileThemeRef}
+              isOpen={themeDropdownOpen === 'mobile'}
+              onToggle={() =>
+                setThemeDropdownOpen(themeDropdownOpen === 'mobile' ? false : 'mobile')
+              }
+              onClose={() => setThemeDropdownOpen(false)}
+              theme={theme}
+              setTheme={setTheme}
+              grainEnabled={grainEnabled}
+              onToggleGrain={handleToggleGrain}
+              resolvedTheme={resolvedTheme}
+              mounted={mounted}
+              dropdownClassName="right-0"
+            />
+          </div>
         </div>
 
         {/* --- Mobile Menu --- */}
         {mobileMenuOpen && (
           <div id="site-navigation-mobile-menu" className="border-t border-border pb-4 md:hidden">
             <div className="flex flex-col gap-2 pt-4">
-              <div className="px-3">
-                <ThemeDropdown
-                  containerRef={mobileThemeRef}
-                  isOpen={themeDropdownOpen === 'mobile'}
-                  onToggle={() =>
-                    setThemeDropdownOpen(themeDropdownOpen === 'mobile' ? false : 'mobile')
-                  }
-                  onClose={() => setThemeDropdownOpen(false)}
-                  theme={theme}
-                  setTheme={setTheme}
-                  grainEnabled={grainEnabled}
-                  onToggleGrain={handleToggleGrain}
-                  resolvedTheme={resolvedTheme}
-                  mounted={mounted}
-                  dropdownClassName="left-3 right-3"
-                />
-              </div>
-              {sessionUser === null && <hr className="my-2 border-border" />}
+              {sessionUser === null && showSignInLinks && <hr className="my-2 border-border" />}
               {sessionUser === 'loading' ? (
                 <span className="px-3 py-2 text-sm text-muted-foreground">…</span>
               ) : isLoggedIn ? (
@@ -438,16 +377,6 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                   >
                     Profile
                   </Link>
-                  {isAdminUser && (
-                    <Link
-                      href="/admin/dashboard"
-                      aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
-                      className={`rounded-md px-3 py-2 text-sm font-medium hover:bg-muted hover:text-foreground ${pathname.startsWith('/admin') ? 'bg-muted font-bold text-foreground' : 'text-muted-foreground'}`}
-                      onClick={() => setMobileMenuOpen(false)}
-                    >
-                      Admin
-                    </Link>
-                  )}
                   <span className="px-3 py-2 text-sm text-muted-foreground">{userLabel}</span>
                   <button
                     type="button"
@@ -457,24 +386,15 @@ export default function Navbar({ initialSessionUser, initialHasAdminRole = false
                     Log out
                   </button>
                 </>
-              ) : (
-                <>
-                  <Link
-                    href="/login"
-                    className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Log in
-                  </Link>
-                  <Link
-                    href="/signup"
-                    className="mx-3 rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    Sign up
-                  </Link>
-                </>
-              )}
+              ) : showSignInLinks ? (
+                <Link
+                  href="/login"
+                  className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Log in
+                </Link>
+              ) : null}
             </div>
           </div>
         )}

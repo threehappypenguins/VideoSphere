@@ -85,8 +85,8 @@ describe('ProfileContent', () => {
 
   it('does not display legacy subscription copy', async () => {
     mockFetchResponses([
-      // Session
       { ok: true, data: { $id: 'user_123', name: 'Test User', email: 'test@example.com' } },
+      { ok: true, data: { role: 'user' } },
     ]);
 
     render(<ProfileContent />);
@@ -102,8 +102,8 @@ describe('ProfileContent', () => {
 
   it('populates form fields with session user data', async () => {
     mockFetchResponses([
-      // Session
       { ok: true, data: { $id: 'user_123', name: 'Jane Doe', email: 'jane@example.com' } },
+      { ok: true, data: { role: 'user' } },
     ]);
 
     render(<ProfileContent />);
@@ -118,6 +118,7 @@ describe('ProfileContent', () => {
   it('shows connected accounts link', async () => {
     mockFetchResponses([
       { ok: true, data: { $id: 'user_123', name: 'Test', email: 'test@example.com' } },
+      { ok: true, data: { role: 'user' } },
     ]);
 
     render(<ProfileContent />);
@@ -132,7 +133,8 @@ describe('ProfileContent', () => {
 
   it('renders account tools for any authenticated user', async () => {
     mockFetchResponses([
-      { ok: true, data: { $id: 'admin_123', name: 'Admin', email: 'admin@example.com' } },
+      { ok: true, data: { $id: 'user_123', name: 'User', email: 'user@example.com' } },
+      { ok: true, data: { role: 'user' } },
     ]);
 
     render(<ProfileContent />);
@@ -140,5 +142,38 @@ describe('ProfileContent', () => {
     await waitFor(() => {
       expect(screen.getByText('Account Tools')).toBeInTheDocument();
     });
+  });
+
+  it('shows user management card for admin users', async () => {
+    mockFetchResponses([
+      { ok: true, data: { $id: 'admin_123', name: 'Admin', email: 'admin@example.com' } },
+      { ok: true, data: { role: 'admin' } },
+    ]);
+
+    render(<ProfileContent />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'User management' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('link', { name: 'Open user management' })).toHaveAttribute(
+      'href',
+      '/dashboard/users'
+    );
+  });
+
+  it('hides user management card for non-admin users', async () => {
+    mockFetchResponses([
+      { ok: true, data: { $id: 'user_123', name: 'User', email: 'user@example.com' } },
+      { ok: true, data: { role: 'user' } },
+    ]);
+
+    render(<ProfileContent />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Account Settings')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole('heading', { name: 'User management' })).not.toBeInTheDocument();
   });
 });

@@ -8,9 +8,16 @@
 // =============================================================================
 
 import type { User, UserRole } from '@/types';
-import { randomUUID } from 'node:crypto';
+import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
+import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
-import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
+import {
+  UserProfileModel,
+  type UserAuthProvider,
+  type UserProfileDocument,
+} from '@/lib/models/UserProfile';
+
+export type { UserAuthProvider };
 
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
@@ -39,6 +46,9 @@ export interface CreateUserData {
   passwordHash?: string;
   hasCompletedOnboarding?: boolean;
   role?: UserRole;
+  authProvider?: UserAuthProvider;
+  /** Plaintext Google login refresh token; encrypted before persistence. */
+  googleRefreshToken?: string;
 }
 
 /**
@@ -53,10 +63,13 @@ export interface UserAuthCredentials {
 /**
  * Create a user_profiles document. Document ID is data.userId.
  * Used by register and OAuth callback; callers must ensure the Auth user exists first.
+ * @param data - User profile fields to persist.
+ * @returns The created user profile.
  */
 export async function createUser(data: CreateUserData): Promise<User> {
   await connectToDatabase();
   const name = data.name?.trim();
+  const googleRefreshToken = data.googleRefreshToken?.trim();
   const created = await UserProfileModel.create({
     _id: data.userId,
     userId: data.userId,
@@ -65,6 +78,8 @@ export async function createUser(data: CreateUserData): Promise<User> {
     ...(data.passwordHash ? { passwordHash: data.passwordHash } : {}),
     hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
     role: data.role ?? 'user',
+    ...(data.authProvider ? { authProvider: data.authProvider } : {}),
+    ...(googleRefreshToken ? { googleRefreshToken: encryptToken(googleRefreshToken) } : {}),
   });
   return mongoDocToUser(created.toObject());
 }
@@ -78,6 +93,8 @@ export async function createUser(data: CreateUserData): Promise<User> {
  *
  * Primary path: _id equals Auth id.
  * Fallback: query by userId field for migrated data where _id may differ.
+ * @param userId - Auth user id to look up.
+ * @returns The matching user profile, or null when not found.
  */
 export async function getUserById(userId: string): Promise<User | null> {
   await connectToDatabase();
@@ -91,7 +108,9 @@ export async function getUserById(userId: string): Promise<User | null> {
 }
 
 /**
- * Fetch a user by email. Returns null if not found.
+ * Fetch a user by email.
+ * @param email - Email address to look up.
+ * @returns The matching user profile, or null when not found.
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
   await connectToDatabase();
@@ -146,6 +165,10 @@ export interface UpdateUserData {
  * Update user_profiles fields. Only provided fields are updated.
  *
  * Mirrors getUserById's fallback: if _id lookup misses, resolves by userId and retries.
+ * @param userId - Auth user id to update.
+ * @param data - Partial profile fields to apply.
+ * @returns The updated user profile.
+ * @throws Error with `code` 404 when no matching profile exists.
  */
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   await connectToDatabase();
@@ -194,6 +217,8 @@ export interface ListUsersResult {
 
 /**
  * List users with pagination. For admin dashboard only; enforce admin role at call site.
+ * @param options - Pagination limit and offset.
+ * @returns A page of users and the total profile count.
  */
 export async function listUsers(options: ListUsersOptions = {}): Promise<ListUsersResult> {
   await connectToDatabase();
@@ -223,57 +248,9 @@ export interface UserCounts {
   totalUsers: number;
 }
 
-function isMongoDuplicateKeyError(error: unknown): boolean {
-  const mongoError = error as { code?: number } | null;
-  return mongoError?.code === 11000;
-}
-
-/**
- * Upsert a user profile by normalized email for OAuth sign-ins.
- * @param email - OAuth-provided email address.
- * @param name - OAuth-provided display name.
- * @returns Existing or newly created user profile.
- */
-export async function upsertOAuthUserByEmail(email: string, name?: string): Promise<User> {
-  await connectToDatabase();
-
-  const normalizedEmail = email.trim().toLowerCase();
-  const trimmedName = typeof name === 'string' ? name.trim() : '';
-  const userId = randomUUID();
-
-  try {
-    await UserProfileModel.updateOne(
-      { email: normalizedEmail },
-      {
-        $setOnInsert: {
-          _id: userId,
-          userId,
-          email: normalizedEmail,
-          ...(trimmedName ? { name: trimmedName } : {}),
-          hasCompletedOnboarding: false,
-          role: 'user',
-        },
-      },
-      { upsert: true }
-    );
-  } catch (error) {
-    if (!isMongoDuplicateKeyError(error)) {
-      throw error;
-    }
-  }
-
-  const doc = await UserProfileModel.findOne({
-    email: normalizedEmail,
-  }).lean<UserProfileDocument | null>();
-  if (!doc) {
-    throw new Error('User profile upsert failed');
-  }
-
-  return mongoDocToUser(doc);
-}
-
 /**
  * Return aggregate user counts for admin dashboard stats.
+ * @returns Total number of user profiles.
  */
 export async function getUserCounts(): Promise<UserCounts> {
   await connectToDatabase();
@@ -283,4 +260,91 @@ export async function getUserCounts(): Promise<UserCounts> {
   return {
     totalUsers,
   };
+}
+
+/**
+ * Counts users with a specific role.
+ * @param role - Role to count.
+ * @returns Number of matching user profiles.
+ */
+export async function countUsersWithRole(role: UserRole): Promise<number> {
+  await connectToDatabase();
+  return UserProfileModel.countDocuments({ role });
+}
+
+/**
+ * Records Google OAuth login on an existing profile and stores a refresh token when provided.
+ * @param userId - Auth user id.
+ * @param refreshToken - Google refresh token from the login token exchange, if any.
+ * @returns Resolves when the profile update completes.
+ */
+export async function persistGoogleAuthForUser(
+  userId: string,
+  refreshToken?: string
+): Promise<void> {
+  await connectToDatabase();
+
+  const payload: Partial<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'>> = {
+    authProvider: 'google',
+  };
+  const trimmedRefresh = refreshToken?.trim();
+  if (trimmedRefresh) {
+    payload.googleRefreshToken = encryptToken(trimmedRefresh);
+  }
+
+  const byId = await UserProfileModel.findByIdAndUpdate(userId, payload).lean();
+  if (byId) return;
+
+  await UserProfileModel.findOneAndUpdate({ userId }, payload);
+}
+
+/**
+ * Revokes stored Google login tokens so the app is removed from the user's Google account access list.
+ * Best-effort: silently no-ops when no refresh token is stored; logs decryption/revoke failures.
+ * @param userId - Auth user id.
+ * @returns Resolves when the revoke attempt finishes (including no-op cases).
+ */
+export async function revokeStoredGoogleAuthForUser(userId: string): Promise<void> {
+  await connectToDatabase();
+
+  let doc =
+    (await UserProfileModel.findById(userId)
+      .select({ authProvider: 1, googleRefreshToken: 1 })
+      .lean<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'> | null>()) ?? null;
+
+  if (!doc) {
+    doc = await UserProfileModel.findOne({ userId })
+      .select({ authProvider: 1, googleRefreshToken: 1 })
+      .lean<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'> | null>();
+  }
+
+  if (doc?.authProvider !== 'google') return;
+
+  const encrypted = doc.googleRefreshToken?.trim();
+  if (!encrypted) return;
+
+  try {
+    const refreshToken = decryptToken(encrypted);
+    await revokeGoogleOAuthTokens({ refreshToken });
+  } catch (error) {
+    console.warn(
+      `[revokeStoredGoogleAuthForUser] Failed to revoke Google auth for ${userId}`,
+      error
+    );
+  }
+}
+
+/**
+ * Deletes a user profile by id.
+ * @param userId - Auth user id to delete.
+ * @returns True when a profile was removed.
+ */
+export async function deleteUserById(userId: string): Promise<boolean> {
+  await connectToDatabase();
+
+  const byId = await UserProfileModel.deleteOne({ _id: userId });
+  if (byId.deletedCount > 0) return true;
+
+  const byUserId = await UserProfileModel.deleteOne({ userId });
+  return byUserId.deletedCount > 0;
 }

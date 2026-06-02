@@ -37,6 +37,17 @@ vi.mock('@/lib/auth-client', () => ({
   logout: vi.fn(),
 }));
 
+function mockSessionFetch(user: Record<string, unknown> | null) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: user !== null,
+      status: user !== null ? 200 : 401,
+      json: async () => user,
+    } as Response)
+  );
+}
+
 describe('Navbar admin link visibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -48,60 +59,24 @@ describe('Navbar admin link visibility', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows Admin links for admin users', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ $id: 'user_admin_1', name: 'Admin User', email: 'admin@test.com' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'admin' }),
-        } as Response)
-    );
+  it('does not show a separate Invites nav link for admin users', async () => {
+    mockSessionFetch({ $id: 'user_admin_1', name: 'Admin User', email: 'admin@test.com' });
 
     render(<Navbar />);
 
     await waitFor(() => {
-      const adminLink = screen.getByRole('link', { name: 'Admin' });
-      expect(adminLink).toHaveAttribute('href', '/admin/dashboard');
+      expect(screen.getByRole('link', { name: 'Profile' })).toBeInTheDocument();
     });
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      '/api/auth/session',
-      expect.objectContaining({ credentials: 'include' })
-    );
-    expect(global.fetch).toHaveBeenCalledWith(
-      '/api/auth/session-role',
-      expect.objectContaining({ credentials: 'include' })
-    );
+    expect(screen.queryByRole('link', { name: 'Invites' })).not.toBeInTheDocument();
   });
 
-  it('does not show Admin links for non-admin users', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({
-            $id: 'user_regular_1',
-            name: 'Regular User',
-            email: 'user@test.com',
-          }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'user' }),
-        } as Response)
-    );
+  it('does not show Invites links for non-admin users', async () => {
+    mockSessionFetch({
+      $id: 'user_regular_1',
+      name: 'Regular User',
+      email: 'user@test.com',
+    });
 
     render(<Navbar />);
 
@@ -109,25 +84,11 @@ describe('Navbar admin link visibility', () => {
       expect(screen.getByText('Regular User')).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Invites' })).not.toBeInTheDocument();
   });
 
-  it('shows Admin in mobile menu and closes menu on click', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ $id: 'user_admin_2', name: 'Admin User', email: 'admin@test.com' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'admin' }),
-        } as Response)
-    );
+  it('shows Profile in mobile menu and closes menu on click', async () => {
+    mockSessionFetch({ $id: 'user_admin_2', name: 'Admin User', email: 'admin@test.com' });
 
     render(<Navbar />);
 
@@ -137,61 +98,41 @@ describe('Navbar admin link visibility', () => {
 
     const user = userEvent.setup();
     const menuToggle = screen.getByRole('button', { name: 'Toggle navigation menu' });
-    expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
-
     await user.click(menuToggle);
-    expect(menuToggle).toHaveAttribute('aria-expanded', 'true');
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(2);
+      expect(screen.getAllByRole('link', { name: 'Profile' })).toHaveLength(2);
     });
 
-    expect(screen.getAllByRole('link', { name: 'Admin' })[0]).not.toHaveAttribute('aria-current');
-
-    const adminLinks = screen.getAllByRole('link', { name: 'Admin' });
-    await user.click(adminLinks[1]);
+    const profileLinks = screen.getAllByRole('link', { name: 'Profile' });
+    await user.click(profileLinks[1]);
 
     await waitFor(() => {
       expect(menuToggle).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(1);
+      expect(screen.getAllByRole('link', { name: 'Profile' })).toHaveLength(1);
     });
   });
 
-  it('marks Admin links as current on admin routes', async () => {
-    mockPathname.mockReturnValue('/admin/dashboard');
-
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ $id: 'user_admin_3', name: 'Admin User', email: 'admin@test.com' }),
-        } as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => ({ role: 'admin' }),
-        } as Response)
-    );
+  it('marks Profile links as current on profile routes', async () => {
+    mockPathname.mockReturnValue('/profile');
+    mockSessionFetch({ $id: 'user_admin_3', name: 'Admin User', email: 'admin@test.com' });
 
     render(<Navbar />);
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('link', { name: 'Profile' })).toHaveAttribute('aria-current', 'page');
     });
+  });
 
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Toggle navigation menu' }));
+  it('hides Log in links while first-run setup is pending', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise(() => {}))
+    );
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Admin' })).toHaveLength(2);
-    });
+    render(<Navbar initialSessionUser={null} initialFirstRunPending />);
 
-    for (const adminLink of screen.getAllByRole('link', { name: 'Admin' })) {
-      expect(adminLink).toHaveAttribute('aria-current', 'page');
-    }
+    expect(screen.queryByRole('link', { name: 'Log in' })).not.toBeInTheDocument();
   });
 
   it('does not render a signed-out Home nav link while waiting for session fetch', () => {
@@ -201,7 +142,7 @@ describe('Navbar admin link visibility', () => {
     );
     mockPathname.mockReturnValue('/');
 
-    render(<Navbar initialSessionUser={null} initialHasAdminRole={false} />);
+    render(<Navbar initialSessionUser={null} />);
 
     expect(screen.queryByRole('link', { name: 'Home' })).not.toBeInTheDocument();
   });
@@ -215,7 +156,6 @@ describe('Navbar admin link visibility', () => {
     render(
       <Navbar
         initialSessionUser={{ $id: 'user-auth-1', name: 'Auth User', email: 'auth@test.com' }}
-        initialHasAdminRole={false}
       />
     );
 

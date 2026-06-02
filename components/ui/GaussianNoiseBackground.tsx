@@ -11,7 +11,8 @@ export const PAGE_SEEDS: Record<string, number> = {
   '/test-background': 77,
   // Auth
   '/login': 603,
-  '/signup': 721,
+  '/setup': 812,
+  '/invite': 721,
   // Dashboard
   '/dashboard': 137,
   '/dashboard/drafts': 1088,
@@ -20,6 +21,27 @@ export const PAGE_SEEDS: Record<string, number> = {
   '/profile': 256,
   '/profile/connections': 1345,
 };
+
+/** Prefix route keys sorted longest-first for deterministic nested path matching. */
+const PAGE_SEED_PREFIX_KEYS = Object.keys(PAGE_SEEDS)
+  .filter((key) => key !== '/')
+  .sort((a, b) => b.length - a.length);
+
+/**
+ * Resolves the background noise seed for a pathname, including dynamic routes.
+ * @param pathname - Current app pathname from the router.
+ * @returns Deterministic seed for the matched route, or the default seed.
+ */
+export function resolvePageSeed(pathname: string): number {
+  const exactSeed = PAGE_SEEDS[pathname];
+  if (exactSeed !== undefined) return exactSeed;
+
+  const prefixKey = PAGE_SEED_PREFIX_KEYS.find(
+    (key) => pathname === key || pathname.startsWith(`${key}/`)
+  );
+
+  return prefixKey ? PAGE_SEEDS[prefixKey]! : PAGE_SEEDS['/']!;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

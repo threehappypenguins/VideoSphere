@@ -66,11 +66,10 @@ describe('LoginPage Component', () => {
       expect(passwordInput.required).toBe(true);
     });
 
-    it('should have sign up link', () => {
+    it('does not render a public signup link', () => {
       render(<LoginPage />);
 
-      const signupLink = screen.getByRole('link', { name: /sign up/i });
-      expect(signupLink).toHaveAttribute('href', '/signup');
+      expect(screen.queryByRole('link', { name: /sign up/i })).not.toBeInTheDocument();
     });
   });
 
