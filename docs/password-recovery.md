@@ -88,6 +88,7 @@ Send the link to the user through your own channel (chat, in person, etc.).
 - **Google OAuth-only accounts cannot use password reset.** They have no local password; use Google sign-in instead. Admin reset links, forgot-password log tokens, and the CLI script all refuse OAuth-only accounts.
 - The CLI script requires host- or container-level access and updates passwords directly in MongoDB.
 - Using a reset link invalidates any other pending reset tokens for that user.
+- Completing a reset runs claim → password update → sibling invalidation in a **MongoDB transaction**, so a failed password write does not consume the token and the same link can be retried.
 - Choose strong passwords (minimum 8 characters with mixed character types; common passwords like `password` are rejected).
 
 ## Related pages

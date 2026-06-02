@@ -43,15 +43,26 @@ import {
   createUser,
   deleteUserById,
   getUserById,
+  getUserPasswordAuthStateByEmail,
+  getUserPasswordAuthStateById,
   persistGoogleAuthForUser,
   revokeStoredGoogleAuthForUser,
   updateUser,
+  updateUserPasswordHash,
 } from '@/lib/repositories/users';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 
 function leanResult<T>(value: T) {
   return {
     lean: vi.fn().mockResolvedValue(value),
+  };
+}
+
+function selectLeanResult<T>(value: T) {
+  return {
+    select: () => ({
+      lean: vi.fn().mockResolvedValue(value),
+    }),
   };
 }
 
@@ -158,6 +169,127 @@ describe('users repository (mongo)', () => {
     await revokeStoredGoogleAuthForUser('auth-user-1');
 
     expect(mockRevokeGoogleOAuthTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateUserPasswordHash', () => {
+  it('updates the password hash by user id', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ _id: 'auth-user-1' }));
+
+    await expect(updateUserPasswordHash('auth-user-1', 'new-bcrypt-hash')).resolves.toBeUndefined();
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
+      'auth-user-1',
+      { passwordHash: 'new-bcrypt-hash' },
+      undefined
+    );
+  });
+
+  it('throws a 404 error when no profile matches', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult(null));
+
+    await expect(updateUserPasswordHash('missing-user', 'new-bcrypt-hash')).rejects.toMatchObject({
+      message: 'User profile not found',
+      code: 404,
+    });
+  });
+});
+
+describe('getUserPasswordAuthStateByEmail', () => {
+  it('returns supportsPasswordReset true when a password hash exists', async () => {
+    mockFindOne.mockReturnValueOnce(
+      selectLeanResult({
+        userId: 'auth-user-1',
+        passwordHash: 'stored-hash',
+        authProvider: 'password',
+      })
+    );
+
+    await expect(getUserPasswordAuthStateByEmail('  User@Example.com ')).resolves.toEqual({
+      userId: 'auth-user-1',
+      supportsPasswordReset: true,
+    });
+
+    expect(mockFindOne).toHaveBeenCalledWith({ email: 'user@example.com' });
+  });
+
+  it('returns supportsPasswordReset false for Google OAuth-only accounts', async () => {
+    mockFindOne.mockReturnValueOnce(
+      selectLeanResult({
+        userId: 'auth-user-1',
+        authProvider: 'google',
+      })
+    );
+
+    await expect(getUserPasswordAuthStateByEmail('oauth@example.com')).resolves.toEqual({
+      userId: 'auth-user-1',
+      supportsPasswordReset: false,
+    });
+  });
+
+  it('returns null when no profile matches the email', async () => {
+    mockFindOne.mockReturnValueOnce(selectLeanResult(null));
+
+    await expect(getUserPasswordAuthStateByEmail('missing@example.com')).resolves.toBeNull();
+  });
+
+  it('returns null for blank email without querying', async () => {
+    await expect(getUserPasswordAuthStateByEmail('   ')).resolves.toBeNull();
+
+    expect(mockFindOne).not.toHaveBeenCalled();
+  });
+});
+
+describe('getUserPasswordAuthStateById', () => {
+  it('returns supportsPasswordReset true when a password hash exists', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        userId: 'auth-user-1',
+        passwordHash: 'stored-hash',
+        authProvider: 'google',
+      })
+    );
+
+    await expect(getUserPasswordAuthStateById('auth-user-1')).resolves.toEqual({
+      userId: 'auth-user-1',
+      supportsPasswordReset: true,
+    });
+
+    expect(mockFindById).toHaveBeenCalledWith('auth-user-1');
+  });
+
+  it('returns supportsPasswordReset true for password auth provider without a hash yet', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        userId: 'auth-user-1',
+        authProvider: 'password',
+      })
+    );
+
+    await expect(getUserPasswordAuthStateById('auth-user-1')).resolves.toEqual({
+      userId: 'auth-user-1',
+      supportsPasswordReset: true,
+    });
+  });
+
+  it('returns supportsPasswordReset false for Google OAuth-only accounts', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        userId: 'auth-user-1',
+        authProvider: 'google',
+      })
+    );
+
+    await expect(getUserPasswordAuthStateById('auth-user-1')).resolves.toEqual({
+      userId: 'auth-user-1',
+      supportsPasswordReset: false,
+    });
+  });
+
+  it('returns null when no profile matches the id', async () => {
+    mockFindById.mockReturnValueOnce(selectLeanResult(null));
+
+    await expect(getUserPasswordAuthStateById('missing-user')).resolves.toBeNull();
   });
 });
 

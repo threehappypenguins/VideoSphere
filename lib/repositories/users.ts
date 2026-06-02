@@ -20,6 +20,18 @@ import {
 
 export type { UserAuthProvider };
 
+/** Fields returned for admin user list rows (excludes secrets such as `googleRefreshToken`). */
+const LIST_USER_BASE_SELECT = 'userId email name hasCompletedOnboarding role createdAt updatedAt';
+
+type ListUserProfileLean = Pick<
+  UserProfileDocument,
+  'userId' | 'email' | 'name' | 'hasCompletedOnboarding' | 'role' | 'createdAt' | 'updatedAt'
+> & {
+  authProvider?: UserAuthProvider;
+  /** Set when listing with password-reset eligibility; hash value is never loaded. */
+  hasPasswordHash?: boolean;
+};
+
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
   return {
@@ -163,10 +175,18 @@ export interface UpdateUserData {
  * @returns Resolves when the profile update completes.
  * @throws Error with `code` 404 when no matching profile exists.
  */
-export async function updateUserPasswordHash(userId: string, passwordHash: string): Promise<void> {
+export async function updateUserPasswordHash(
+  userId: string,
+  passwordHash: string,
+  session?: import('mongoose').ClientSession | null
+): Promise<void> {
   await connectToDatabase();
 
-  const updated = await UserProfileModel.findByIdAndUpdate(userId, { passwordHash }).lean();
+  const updated = await UserProfileModel.findByIdAndUpdate(
+    userId,
+    { passwordHash },
+    session ? { session } : undefined
+  ).lean();
   if (!updated) {
     const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
     throw notFound;
@@ -294,19 +314,46 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
   const includePasswordResetEligibility = options.includePasswordResetEligibility === true;
 
   const [docs, total] = await Promise.all([
-    UserProfileModel.find({})
-      .sort({ createdAt: 1 })
-      .skip(offset)
-      .limit(limit)
-      .lean<UserProfileDocument[]>(),
+    includePasswordResetEligibility
+      ? UserProfileModel.aggregate<ListUserProfileLean>([
+          { $sort: { createdAt: 1 } },
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              userId: 1,
+              email: 1,
+              name: 1,
+              hasCompletedOnboarding: 1,
+              role: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              authProvider: 1,
+              hasPasswordHash: {
+                $gt: [{ $strLenCP: { $ifNull: ['$passwordHash', ''] } }, 0],
+              },
+            },
+          },
+        ])
+      : UserProfileModel.find({})
+          .select(LIST_USER_BASE_SELECT)
+          .sort({ createdAt: 1 })
+          .skip(offset)
+          .limit(limit)
+          .lean<ListUserProfileLean[]>(),
     UserProfileModel.countDocuments({}),
   ]);
 
   return {
     users: docs.map((doc) => ({
-      ...mongoDocToUser(doc),
+      ...mongoDocToUser(doc as UserProfileDocument),
       ...(includePasswordResetEligibility
-        ? { canResetPassword: userSupportsPasswordReset(doc) }
+        ? {
+            canResetPassword: userSupportsPasswordReset({
+              authProvider: doc.authProvider,
+              passwordHash: doc.hasPasswordHash ? 'present' : undefined,
+            }),
+          }
         : {}),
     })),
     total,

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import mongoose, { type ClientSession } from 'mongoose';
 import { hashPasswordResetToken } from '@/lib/auth/password-reset-token-hash';
 import { connectToDatabase } from '@/lib/mongodb';
+import { updateUserPasswordHash } from '@/lib/repositories/users';
 import {
   PasswordResetTokenModel,
   type PasswordResetTokenDocument,
@@ -65,12 +67,14 @@ export async function countForgotPasswordResetTokensSince(
  */
 export async function invalidateUnusedPasswordResetTokensForUser(
   userId: string,
-  usedAt: Date = new Date()
+  usedAt: Date = new Date(),
+  session?: ClientSession | null
 ): Promise<void> {
   await connectToDatabase();
   await PasswordResetTokenModel.updateMany(
     { userId, usedAt: { $exists: false } },
-    { $set: { usedAt } }
+    { $set: { usedAt } },
+    session ? { session } : undefined
   );
 }
 
@@ -106,7 +110,8 @@ export async function createPasswordResetToken(input: {
 export async function claimPasswordResetToken(
   token: string,
   now: Date = new Date(),
-  usedAt: Date = now
+  usedAt: Date = now,
+  session?: ClientSession | null
 ): Promise<PasswordResetTokenRecord | null> {
   await connectToDatabase();
   const tokenHash = hashPasswordResetToken(token);
@@ -117,7 +122,7 @@ export async function claimPasswordResetToken(
       expiresAt: { $gt: now },
     },
     { $set: { usedAt } },
-    { returnDocument: 'after' }
+    { returnDocument: 'after', ...(session ? { session } : {}) }
   ).lean<PasswordResetTokenDocument | null>();
   if (!doc) return null;
   return toRecord(doc);
@@ -134,11 +139,52 @@ export async function findValidPasswordResetToken(
   now: Date = new Date()
 ): Promise<PasswordResetTokenRecord | null> {
   await connectToDatabase();
+  const tokenHash = hashPasswordResetToken(token.trim());
   const doc = await PasswordResetTokenModel.findOne({
-    tokenHash: hashPasswordResetToken(token),
+    tokenHash,
     usedAt: { $exists: false },
     expiresAt: { $gt: now },
   }).lean<PasswordResetTokenDocument | null>();
   if (!doc) return null;
   return toRecord(doc);
+}
+
+/**
+ * Atomically claims a reset token, updates the user's password, and invalidates sibling tokens.
+ * @param token - Plaintext URL-safe reset token.
+ * @param passwordHash - Bcrypt hash to persist for the account.
+ * @param now - Reference time for expiry comparison.
+ * @param usedAt - Consumption timestamp to persist on claimed and invalidated tokens.
+ * @returns True when the token was claimed and the password updated; false when the token
+ *   was already used, expired, or missing.
+ * @throws Propagates errors from the password update; the transaction aborts and rolls back
+ *   the token claim when any step fails.
+ */
+export async function completePasswordResetWithPasswordHash(
+  token: string,
+  passwordHash: string,
+  now: Date = new Date(),
+  usedAt: Date = now
+): Promise<boolean> {
+  await connectToDatabase();
+  const session = await mongoose.startSession();
+
+  try {
+    let completed = false;
+
+    await session.withTransaction(async () => {
+      const claimed = await claimPasswordResetToken(token.trim(), now, usedAt, session);
+      if (!claimed) {
+        return;
+      }
+
+      await updateUserPasswordHash(claimed.userId, passwordHash, session);
+      await invalidateUnusedPasswordResetTokensForUser(claimed.userId, usedAt, session);
+      completed = true;
+    });
+
+    return completed;
+  } finally {
+    await session.endSession();
+  }
 }

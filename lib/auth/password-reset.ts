@@ -2,14 +2,13 @@ import { randomBytes } from 'node:crypto';
 import {
   FORGOT_PASSWORD_RATE_LIMIT_MAX,
   FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS,
-  claimPasswordResetToken,
+  completePasswordResetWithPasswordHash,
   countForgotPasswordResetTokensSince,
   createPasswordResetToken,
   findValidPasswordResetToken,
   invalidateUnusedPasswordResetTokensForUser,
   type PasswordResetTokenSource,
 } from '@/lib/repositories/password-reset-tokens';
-import { updateUserPasswordHash } from '@/lib/repositories/users';
 
 /** TTL for self-service forgot-password tokens (15 minutes). */
 export const FORGOT_PASSWORD_TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -122,14 +121,9 @@ export async function findUsablePasswordResetToken(token: string) {
  * @param passwordHash - Bcrypt hash to persist for the account.
  * @returns True when the token was claimed and the password updated; false when
  *   the token was already used, expired, or claimed concurrently.
- * @throws When the password update fails after the token was claimed.
+ * @throws Propagates errors from the transactional reset; failed attempts roll back
+ *   the token claim so the link remains usable.
  */
 export async function finalizePasswordReset(token: string, passwordHash: string): Promise<boolean> {
-  const usedAt = new Date();
-  const claimed = await claimPasswordResetToken(token.trim(), usedAt, usedAt);
-  if (!claimed) return false;
-
-  await updateUserPasswordHash(claimed.userId, passwordHash);
-  await invalidateUnusedPasswordResetTokensForUser(claimed.userId, usedAt);
-  return true;
+  return completePasswordResetWithPasswordHash(token, passwordHash);
 }
