@@ -80,6 +80,19 @@ Admin-generated links use the same `/reset-password?token=…` page as the forgo
 
 Send the link to the user through your own channel (chat, in person, etc.).
 
+## Reset completion: why not MongoDB transactions?
+
+**Do not replace this flow with `session.withTransaction()` unless the deployment runs MongoDB as a replica set (or sharded cluster).** The default homelab stack does not meet that requirement.
+
+| Topic | Detail |
+| --- | --- |
+| **MongoDB constraint** | [Multi-document transactions](https://www.mongodb.com/docs/manual/core/transactions/) are supported on **replica sets and sharded clusters only**. **Standalone** deployments (including the default `mongo:8` service in `docker-compose.yml`, with no `--replSet` / `rs.initiate()`) **do not** support them. |
+| **What broke before** | An earlier implementation claimed the token inside a transaction, then updated the password. That was correct for atomicity but **failed at runtime on standalone** with a transaction-related error, breaking forgot-password and admin reset. |
+| **Intentional fix** | `completePasswordResetWithPasswordHash` (see `lib/repositories/password-reset-tokens.ts`) runs **without** multi-document transactions: validate token → **write password hash** → **atomically claim** token (`findOneAndUpdate`) → invalidate other pending tokens for the user. Claiming stays a single atomic write; only cross-collection steps are ordered instead of transactional. |
+| **Primary guarantee** | If the password update throws (profile missing, transient DB error), the token is **not** claimed and the same link can be retried. |
+| **Accepted trade-off** | If the password update succeeds but claim fails (concurrent use of the same link, expiry in a narrow window), the API may return failure while the password is already changed; the user can log in with the new password. Sibling-token invalidation is skipped when claim fails. This is rare and preferable to requiring a replica set for homelab installs. |
+| **If you need full ACID across collections** | Run MongoDB as a replica set (or shard) and only then consider wrapping the same steps in a transaction; that is an **ops/deployment** change, not something this repo’s default Compose file provides. |
+
 ## Security notes
 
 - Reset tokens are cryptographically random, single-use, and short-lived. Only a SHA-256 hash of each token is stored in MongoDB.
@@ -88,7 +101,7 @@ Send the link to the user through your own channel (chat, in person, etc.).
 - **Google OAuth-only accounts cannot use password reset.** They have no local password; use Google sign-in instead. Admin reset links, forgot-password log tokens, and the CLI script all refuse OAuth-only accounts.
 - The CLI script requires host- or container-level access and updates passwords directly in MongoDB.
 - Using a reset link invalidates any other pending reset tokens for that user.
-- Completing a reset runs claim → password update → sibling invalidation in a **MongoDB transaction**, so a failed password write does not consume the token and the same link can be retried.
+- Reset completion uses **password write → token claim → sibling invalidation** without multi-document transactions; see [Reset completion: why not MongoDB transactions?](#reset-completion-why-not-mongodb-transactions) above.
 - Choose strong passwords (minimum 8 characters with mixed character types; common passwords like `password` are rejected).
 
 ## Related pages

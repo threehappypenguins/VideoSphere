@@ -175,18 +175,10 @@ export interface UpdateUserData {
  * @returns Resolves when the profile update completes.
  * @throws Error with `code` 404 when no matching profile exists.
  */
-export async function updateUserPasswordHash(
-  userId: string,
-  passwordHash: string,
-  session?: import('mongoose').ClientSession | null
-): Promise<void> {
+export async function updateUserPasswordHash(userId: string, passwordHash: string): Promise<void> {
   await connectToDatabase();
 
-  const updated = await UserProfileModel.findByIdAndUpdate(
-    userId,
-    { passwordHash },
-    session ? { session } : undefined
-  ).lean();
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, { passwordHash }).lean();
   if (!updated) {
     const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
     throw notFound;

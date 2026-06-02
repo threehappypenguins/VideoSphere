@@ -178,11 +178,9 @@ describe('updateUserPasswordHash', () => {
 
     await expect(updateUserPasswordHash('auth-user-1', 'new-bcrypt-hash')).resolves.toBeUndefined();
 
-    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
-      'auth-user-1',
-      { passwordHash: 'new-bcrypt-hash' },
-      undefined
-    );
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
+      passwordHash: 'new-bcrypt-hash',
+    });
   });
 
   it('throws a 404 error when no profile matches', async () => {

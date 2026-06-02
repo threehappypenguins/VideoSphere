@@ -113,16 +113,19 @@ export async function findUsablePasswordResetToken(token: string) {
 }
 
 /**
- * Atomically claims a reset token, updates the user's password, and invalidates
- * other pending tokens for the same user.
+ * Completes a password reset: writes the hash, claims the token, invalidates siblings.
+ *
+ * Delegates to `completePasswordResetWithPasswordHash`, which avoids MongoDB multi-document
+ * transactions (unsupported on the default standalone Compose MongoDB). See
+ * `docs/password-recovery.md` — do not reintroduce `withTransaction` without a replica set.
  *
  * Call only after password validation and account eligibility checks succeed.
  * @param token - URL-safe reset token from the client.
  * @param passwordHash - Bcrypt hash to persist for the account.
- * @returns True when the token was claimed and the password updated; false when
- *   the token was already used, expired, or claimed concurrently.
- * @throws Propagates errors from the transactional reset; failed attempts roll back
- *   the token claim so the link remains usable.
+ * @returns True when the password was updated and the token claimed; false when
+ *   the token was already used, expired, or could not be claimed after the password update.
+ * @throws Propagates errors from the password update; the reset link stays valid because
+ *   the token is only claimed after the hash is written successfully.
  */
 export async function finalizePasswordReset(token: string, passwordHash: string): Promise<boolean> {
   return completePasswordResetWithPasswordHash(token, passwordHash);

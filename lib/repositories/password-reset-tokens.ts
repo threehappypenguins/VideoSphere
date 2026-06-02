@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import mongoose, { type ClientSession } from 'mongoose';
 import { hashPasswordResetToken } from '@/lib/auth/password-reset-token-hash';
 import { connectToDatabase } from '@/lib/mongodb';
 import { updateUserPasswordHash } from '@/lib/repositories/users';
@@ -67,14 +66,12 @@ export async function countForgotPasswordResetTokensSince(
  */
 export async function invalidateUnusedPasswordResetTokensForUser(
   userId: string,
-  usedAt: Date = new Date(),
-  session?: ClientSession | null
+  usedAt: Date = new Date()
 ): Promise<void> {
   await connectToDatabase();
   await PasswordResetTokenModel.updateMany(
     { userId, usedAt: { $exists: false } },
-    { $set: { usedAt } },
-    session ? { session } : undefined
+    { $set: { usedAt } }
   );
 }
 
@@ -110,8 +107,7 @@ export async function createPasswordResetToken(input: {
 export async function claimPasswordResetToken(
   token: string,
   now: Date = new Date(),
-  usedAt: Date = now,
-  session?: ClientSession | null
+  usedAt: Date = now
 ): Promise<PasswordResetTokenRecord | null> {
   await connectToDatabase();
   const tokenHash = hashPasswordResetToken(token);
@@ -122,7 +118,7 @@ export async function claimPasswordResetToken(
       expiresAt: { $gt: now },
     },
     { $set: { usedAt } },
-    { returnDocument: 'after', ...(session ? { session } : {}) }
+    { returnDocument: 'after' }
   ).lean<PasswordResetTokenDocument | null>();
   if (!doc) return null;
   return toRecord(doc);
@@ -150,15 +146,29 @@ export async function findValidPasswordResetToken(
 }
 
 /**
- * Atomically claims a reset token, updates the user's password, and invalidates sibling tokens.
+ * Updates the user's password, atomically claims the reset token, and invalidates sibling tokens.
+ *
+ * @remarks
+ * **Intentionally does not use `session.withTransaction()`.** MongoDB multi-document
+ * transactions require a replica set or sharded cluster; the default `docker-compose.yml`
+ * `mongo` service is standalone (`mongo:8` with no replica set), where transactions fail at
+ * runtime and would break all reset flows.
+ *
+ * **Ordering is the standalone-safe fix:** validate → `updateUserPasswordHash` → atomic
+ * `claimPasswordResetToken` → `invalidateUnusedPasswordResetTokensForUser`. A failed password
+ * update leaves the link usable; claim remains a single `findOneAndUpdate`.
+ *
+ * **Do not “fix” this by adding transactions without changing deployment.** See
+ * `docs/password-recovery.md` § “Reset completion: why not MongoDB transactions?” for the
+ * full rationale and accepted trade-offs (e.g. password updated but claim lost on race).
+ *
  * @param token - Plaintext URL-safe reset token.
  * @param passwordHash - Bcrypt hash to persist for the account.
  * @param now - Reference time for expiry comparison.
  * @param usedAt - Consumption timestamp to persist on claimed and invalidated tokens.
- * @returns True when the token was claimed and the password updated; false when the token
- *   was already used, expired, or missing.
- * @throws Propagates errors from the password update; the transaction aborts and rolls back
- *   the token claim when any step fails.
+ * @returns True when the password was updated and the token claimed; false when the token
+ *   was already used, expired, or missing, or could not be claimed after the password update.
+ * @throws Propagates errors from the password update before any token is claimed.
  */
 export async function completePasswordResetWithPasswordHash(
   token: string,
@@ -167,24 +177,19 @@ export async function completePasswordResetWithPasswordHash(
   usedAt: Date = now
 ): Promise<boolean> {
   await connectToDatabase();
-  const session = await mongoose.startSession();
-
-  try {
-    let completed = false;
-
-    await session.withTransaction(async () => {
-      const claimed = await claimPasswordResetToken(token.trim(), now, usedAt, session);
-      if (!claimed) {
-        return;
-      }
-
-      await updateUserPasswordHash(claimed.userId, passwordHash, session);
-      await invalidateUnusedPasswordResetTokensForUser(claimed.userId, usedAt, session);
-      completed = true;
-    });
-
-    return completed;
-  } finally {
-    await session.endSession();
+  const trimmed = token.trim();
+  const record = await findValidPasswordResetToken(trimmed, now);
+  if (!record) {
+    return false;
   }
+
+  await updateUserPasswordHash(record.userId, passwordHash);
+
+  const claimed = await claimPasswordResetToken(trimmed, now, usedAt);
+  if (!claimed) {
+    return false;
+  }
+
+  await invalidateUnusedPasswordResetTokensForUser(record.userId, usedAt);
+  return true;
 }

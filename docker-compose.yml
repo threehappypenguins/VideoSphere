@@ -19,6 +19,8 @@ services:
       mongo:
         condition: service_healthy
 
+  # Standalone MongoDB (no replica set). Multi-document transactions are not supported;
+  # password reset uses ordered writes instead — see docs/password-recovery.md.
   mongo:
     image: mongo:8
     container_name: videosphere-mongo

@@ -7,9 +7,6 @@ const {
   mockFindOneAndUpdate,
   mockCountDocuments,
   mockUpdateMany,
-  mockStartSession,
-  mockEndSession,
-  mockWithTransaction,
   mockUpdateUserPasswordHash,
 } = vi.hoisted(() => ({
   mockConnectToDatabase: vi.fn(),
@@ -17,16 +14,8 @@ const {
   mockFindOneAndUpdate: vi.fn(),
   mockCountDocuments: vi.fn(),
   mockUpdateMany: vi.fn(),
-  mockStartSession: vi.fn(),
-  mockEndSession: vi.fn(),
-  mockWithTransaction: vi.fn(),
   mockUpdateUserPasswordHash: vi.fn(),
 }));
-
-const mockSession = {
-  withTransaction: mockWithTransaction,
-  endSession: mockEndSession,
-};
 
 vi.mock('@/lib/mongodb', () => ({
   connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
@@ -35,18 +24,6 @@ vi.mock('@/lib/mongodb', () => ({
 vi.mock('@/lib/repositories/users', () => ({
   updateUserPasswordHash: (...args: unknown[]) => mockUpdateUserPasswordHash(...args),
 }));
-
-vi.mock('mongoose', async (importOriginal) => {
-  const mongoose = await importOriginal<typeof import('mongoose')>();
-  return {
-    ...mongoose,
-    default: {
-      ...mongoose.default,
-      startSession: mockStartSession,
-    },
-    startSession: mockStartSession,
-  };
-});
 
 vi.mock('@/lib/models/PasswordResetToken', () => ({
   PasswordResetTokenModel: {
@@ -73,17 +50,33 @@ function leanResult<T>(value: T) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockConnectToDatabase.mockResolvedValue(undefined);
-  mockEndSession.mockResolvedValue(undefined);
   mockUpdateUserPasswordHash.mockResolvedValue(undefined);
   mockUpdateMany.mockResolvedValue({ modifiedCount: 0 });
-  mockWithTransaction.mockImplementation(async (fn: () => Promise<void>) => {
-    await fn();
-  });
-  mockStartSession.mockResolvedValue({
-    withTransaction: mockWithTransaction,
-    endSession: mockEndSession,
-  });
 });
+
+function validTokenDoc(
+  token: string,
+  now: Date,
+  overrides: Partial<{
+    _id: string;
+    userId: string;
+    source: 'forgot-password' | 'admin';
+    expiresAt: Date;
+    usedAt: Date;
+  }> = {}
+) {
+  const tokenHash = hashPasswordResetToken(token);
+  return {
+    _id: 'token-doc-1',
+    tokenHash,
+    userId: 'user-1',
+    source: 'forgot-password' as const,
+    expiresAt: new Date('2026-06-02T12:15:00.000Z'),
+    createdAt: new Date('2026-06-02T11:45:00.000Z'),
+    updatedAt: now,
+    ...overrides,
+  };
+}
 
 describe('claimPasswordResetToken', () => {
   it('atomically claims an unused, unexpired token by hash lookup', async () => {
@@ -198,66 +191,43 @@ describe('findValidPasswordResetToken', () => {
 describe('completePasswordResetWithPasswordHash', () => {
   const now = new Date('2026-06-02T12:00:00.000Z');
 
-  it('claims the token, updates the password, and invalidates siblings in one transaction', async () => {
+  it('updates the password before claiming the token and invalidating siblings', async () => {
     const tokenHash = hashPasswordResetToken('reset-token');
+    mockFindOne.mockReturnValueOnce(leanResult(validTokenDoc('reset-token', now)));
     mockFindOneAndUpdate.mockReturnValueOnce(
-      leanResult({
-        _id: 'token-doc-1',
-        tokenHash,
-        userId: 'user-1',
-        source: 'forgot-password',
-        expiresAt: new Date('2026-06-02T12:15:00.000Z'),
-        usedAt: now,
-        createdAt: new Date('2026-06-02T11:45:00.000Z'),
-        updatedAt: now,
-      })
+      leanResult(validTokenDoc('reset-token', now, { usedAt: now }))
     );
 
     await expect(
       completePasswordResetWithPasswordHash('reset-token', 'new-hash', now, now)
     ).resolves.toBe(true);
 
-    expect(mockStartSession).toHaveBeenCalled();
-    expect(mockWithTransaction).toHaveBeenCalled();
-    expect(mockEndSession).toHaveBeenCalled();
+    expect(mockUpdateUserPasswordHash).toHaveBeenCalledWith('user-1', 'new-hash');
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ tokenHash }),
       { $set: { usedAt: now } },
-      { returnDocument: 'after', session: mockSession }
+      { returnDocument: 'after' }
     );
-    expect(mockUpdateUserPasswordHash).toHaveBeenCalledWith('user-1', 'new-hash', mockSession);
     expect(mockUpdateMany).toHaveBeenCalledWith(
       { userId: 'user-1', usedAt: { $exists: false } },
-      { $set: { usedAt: now } },
-      { session: mockSession }
+      { $set: { usedAt: now } }
     );
   });
 
-  it('returns false without updating the password when the token cannot be claimed', async () => {
-    mockFindOneAndUpdate.mockReturnValueOnce(leanResult(null));
+  it('returns false without updating the password when the token is not valid', async () => {
+    mockFindOne.mockReturnValueOnce(leanResult(null));
 
     await expect(
       completePasswordResetWithPasswordHash('invalid-token', 'new-hash', now, now)
     ).resolves.toBe(false);
 
     expect(mockUpdateUserPasswordHash).not.toHaveBeenCalled();
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
-  it('rolls back the claim when the password update fails', async () => {
-    const tokenHash = hashPasswordResetToken('reset-token');
-    mockFindOneAndUpdate.mockReturnValueOnce(
-      leanResult({
-        _id: 'token-doc-1',
-        tokenHash,
-        userId: 'user-1',
-        source: 'forgot-password',
-        expiresAt: new Date('2026-06-02T12:15:00.000Z'),
-        usedAt: now,
-        createdAt: new Date('2026-06-02T11:45:00.000Z'),
-        updatedAt: now,
-      })
-    );
+  it('does not claim the token when the password update fails', async () => {
+    mockFindOne.mockReturnValueOnce(leanResult(validTokenDoc('reset-token', now)));
     mockUpdateUserPasswordHash.mockRejectedValueOnce(
       Object.assign(new Error('User profile not found'), { code: 404 })
     );
@@ -266,6 +236,19 @@ describe('completePasswordResetWithPasswordHash', () => {
       completePasswordResetWithPasswordHash('reset-token', 'new-hash', now, now)
     ).rejects.toMatchObject({ code: 404 });
 
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('returns false without invalidating siblings when the claim fails after the password update', async () => {
+    mockFindOne.mockReturnValueOnce(leanResult(validTokenDoc('reset-token', now)));
+    mockFindOneAndUpdate.mockReturnValueOnce(leanResult(null));
+
+    await expect(
+      completePasswordResetWithPasswordHash('reset-token', 'new-hash', now, now)
+    ).resolves.toBe(false);
+
+    expect(mockUpdateUserPasswordHash).toHaveBeenCalledWith('user-1', 'new-hash');
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 });
