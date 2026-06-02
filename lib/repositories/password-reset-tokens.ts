@@ -3,7 +3,10 @@ import { connectToDatabase } from '@/lib/mongodb';
 import {
   PasswordResetTokenModel,
   type PasswordResetTokenDocument,
+  type PasswordResetTokenSource,
 } from '@/lib/models/PasswordResetToken';
+
+export type { PasswordResetTokenSource };
 
 /** Window for forgot-password rate limiting (3 requests per email per 15 minutes). */
 export const FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
@@ -18,6 +21,7 @@ export interface PasswordResetTokenRecord {
   id: string;
   token: string;
   userId: string;
+  source: PasswordResetTokenSource;
   expiresAt: string;
   usedAt?: string;
   createdAt: string;
@@ -28,6 +32,7 @@ function toRecord(doc: PasswordResetTokenDocument): PasswordResetTokenRecord {
     id: String(doc._id),
     token: doc.token,
     userId: doc.userId,
+    source: doc.source,
     expiresAt: new Date(doc.expiresAt).toISOString(),
     usedAt: doc.usedAt ? new Date(doc.usedAt).toISOString() : undefined,
     createdAt: new Date(doc.createdAt).toISOString(),
@@ -35,15 +40,20 @@ function toRecord(doc: PasswordResetTokenDocument): PasswordResetTokenRecord {
 }
 
 /**
- * Counts reset tokens created for a user since a given time (for rate limiting).
+ * Counts self-service forgot-password tokens created for a user since a given time.
+ * Admin-issued reset links are excluded from this count.
  * @param userId - Target user id.
  * @param since - Earliest creation time to include.
- * @returns Number of matching token documents.
+ * @returns Number of matching forgot-password token documents.
  */
-export async function countPasswordResetTokensSince(userId: string, since: Date): Promise<number> {
+export async function countForgotPasswordResetTokensSince(
+  userId: string,
+  since: Date
+): Promise<number> {
   await connectToDatabase();
   return PasswordResetTokenModel.countDocuments({
     userId,
+    source: 'forgot-password',
     createdAt: { $gte: since },
   });
 }
@@ -73,6 +83,7 @@ export async function invalidateUnusedPasswordResetTokensForUser(
 export async function createPasswordResetToken(input: {
   token: string;
   userId: string;
+  source: PasswordResetTokenSource;
   expiresAt: Date;
 }): Promise<PasswordResetTokenRecord> {
   await connectToDatabase();
@@ -80,6 +91,7 @@ export async function createPasswordResetToken(input: {
     _id: randomUUID(),
     token: input.token,
     userId: input.userId,
+    source: input.source,
     expiresAt: input.expiresAt,
   });
   return toRecord(created.toObject());

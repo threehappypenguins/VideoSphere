@@ -4,10 +4,11 @@ import {
   FORGOT_PASSWORD_RATE_LIMIT_MAX,
   FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS,
   claimPasswordResetToken,
-  countPasswordResetTokensSince,
+  countForgotPasswordResetTokensSince,
   createPasswordResetToken,
   findValidPasswordResetToken,
   invalidateUnusedPasswordResetTokensForUser,
+  type PasswordResetTokenSource,
 } from '@/lib/repositories/password-reset-tokens';
 import { updateUserPasswordHash } from '@/lib/repositories/users';
 
@@ -64,7 +65,7 @@ export async function isForgotPasswordRateLimited(
   now: Date = new Date()
 ): Promise<boolean> {
   const since = new Date(now.getTime() - FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS);
-  const count = await countPasswordResetTokensSince(userId, since);
+  const count = await countForgotPasswordResetTokensSince(userId, since);
   return count >= FORGOT_PASSWORD_RATE_LIMIT_MAX;
 }
 
@@ -72,18 +73,20 @@ export async function isForgotPasswordRateLimited(
  * Creates a password reset token for a user, invalidating prior unused tokens.
  * @param userId - Target user id.
  * @param ttlMs - Token lifetime in milliseconds.
+ * @param source - Whether the token is for self-service forgot-password or admin reset.
  * @returns The new token value and its absolute expiry time.
  */
 export async function issuePasswordResetToken(
   userId: string,
-  ttlMs: number
+  ttlMs: number,
+  source: PasswordResetTokenSource
 ): Promise<{ token: string; expiresAt: Date }> {
   const now = new Date();
   await invalidateUnusedPasswordResetTokensForUser(userId, now);
 
   const token = generatePasswordResetTokenValue();
   const expiresAt = new Date(now.getTime() + ttlMs);
-  await createPasswordResetToken({ token, userId, expiresAt });
+  await createPasswordResetToken({ token, userId, source, expiresAt });
 
   return { token, expiresAt };
 }

@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
       if (!rateLimited) {
         const { token, expiresAt } = await issuePasswordResetToken(
           authState.userId,
-          FORGOT_PASSWORD_TOKEN_TTL_MS
+          FORGOT_PASSWORD_TOKEN_TTL_MS,
+          'forgot-password'
         );
         const resetUrl = buildPasswordResetUrl(token, req);
         logForgotPasswordResetTokenToStdout(email, resetUrl, expiresAt);

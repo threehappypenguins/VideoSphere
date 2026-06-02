@@ -41,7 +41,6 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --chown=nextjs:nodejs scripts ./scripts
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./script_node_modules
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000

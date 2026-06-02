@@ -68,7 +68,11 @@ describe('POST /api/auth/forgot-password', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(getUserPasswordAuthStateByEmail).toHaveBeenCalledWith('admin@example.com');
-    expect(issuePasswordResetToken).toHaveBeenCalledWith('user-1', 15 * 60 * 1000);
+    expect(issuePasswordResetToken).toHaveBeenCalledWith(
+      'user-1',
+      15 * 60 * 1000,
+      'forgot-password'
+    );
     expect(logForgotPasswordResetTokenToStdout).toHaveBeenCalledWith(
       'admin@example.com',
       'http://localhost:3000/reset-password?token=reset-token-value',

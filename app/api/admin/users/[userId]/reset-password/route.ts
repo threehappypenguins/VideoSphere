@@ -36,7 +36,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ us
 
     const { token } = await issuePasswordResetToken(
       targetUserId,
-      ADMIN_RESET_PASSWORD_TOKEN_TTL_MS
+      ADMIN_RESET_PASSWORD_TOKEN_TTL_MS,
+      'admin'
     );
     const resetUrl = buildPasswordResetUrl(token, request);
 

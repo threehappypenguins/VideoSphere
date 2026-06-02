@@ -66,7 +66,11 @@ describe('POST /api/admin/users/[userId]/reset-password', () => {
     expect(await res.json()).toEqual({
       resetUrl: 'http://localhost:3000/reset-password?token=admin-reset-token',
     });
-    expect(issuePasswordResetToken).toHaveBeenCalledWith(targetUser.userId, 24 * 60 * 60 * 1000);
+    expect(issuePasswordResetToken).toHaveBeenCalledWith(
+      targetUser.userId,
+      24 * 60 * 60 * 1000,
+      'admin'
+    );
   });
 
   it('returns 404 when the target user does not exist', async () => {

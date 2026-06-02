@@ -16,9 +16,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
 
-// Allow `require('mongoose')` when deps live in script_node_modules (Docker image).
-module.paths.unshift(path.join(__dirname, '..', 'script_node_modules'));
-
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
