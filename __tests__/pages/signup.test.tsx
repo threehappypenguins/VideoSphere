@@ -7,8 +7,7 @@ import { PasswordStrengthBar, validateRegistrationForm } from '@/components/auth
 const mockBuildGoogleOAuthStartSearchParams = vi.hoisted(() => vi.fn(() => '?mock-google-oauth=1'));
 
 vi.mock('@/lib/auth/google-oauth', () => ({
-  buildGoogleOAuthStartSearchParams: (...args: unknown[]) =>
-    mockBuildGoogleOAuthStartSearchParams(...args),
+  buildGoogleOAuthStartSearchParams: mockBuildGoogleOAuthStartSearchParams,
 }));
 
 vi.mock('next/navigation', () => ({
