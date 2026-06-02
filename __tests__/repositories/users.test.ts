@@ -242,7 +242,7 @@ describe('getUserPasswordAuthStateByEmail', () => {
 });
 
 describe('getUserPasswordAuthStateById', () => {
-  it('returns supportsPasswordReset true when a password hash exists', async () => {
+  it('returns supportsPasswordReset false for google auth even when passwordHash is present', async () => {
     mockFindById.mockReturnValueOnce(
       selectLeanResult({
         userId: 'auth-user-1',
@@ -253,13 +253,13 @@ describe('getUserPasswordAuthStateById', () => {
 
     await expect(getUserPasswordAuthStateById('auth-user-1')).resolves.toEqual({
       userId: 'auth-user-1',
-      supportsPasswordReset: true,
+      supportsPasswordReset: false,
     });
 
     expect(mockFindById).toHaveBeenCalledWith('auth-user-1');
   });
 
-  it('returns supportsPasswordReset true for password auth provider without a hash yet', async () => {
+  it('returns supportsPasswordReset true for password auth provider', async () => {
     mockFindById.mockReturnValueOnce(
       selectLeanResult({
         userId: 'auth-user-1',

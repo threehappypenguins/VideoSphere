@@ -38,13 +38,7 @@ describe('userSupportsPasswordReset', () => {
     expect(userSupportsPasswordReset({ authProvider: 'google' })).toBe(false);
   });
 
-  it('returns true when a password hash exists', () => {
-    expect(
-      userSupportsPasswordReset({ authProvider: 'google', passwordHash: 'hashed-value' })
-    ).toBe(true);
-  });
-
-  it('returns true for password auth provider without hash yet', () => {
+  it('returns true for password auth provider', () => {
     expect(userSupportsPasswordReset({ authProvider: 'password' })).toBe(true);
   });
 });

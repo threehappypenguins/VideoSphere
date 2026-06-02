@@ -30,14 +30,13 @@ type ListUserProfileLean = Pick<
 
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
-  const authProvider = doc.authProvider;
   return {
     userId: String(doc.userId),
     email: String(doc.email),
     name: typeof doc.name === 'string' ? doc.name : undefined,
     hasCompletedOnboarding: Boolean(doc.hasCompletedOnboarding),
     role: (doc.role as UserRole) ?? 'user',
-    ...(authProvider === 'google' || authProvider === 'password' ? { authProvider } : {}),
+    authProvider: doc.authProvider,
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -342,7 +341,6 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
         ? {
             canResetPassword: userSupportsPasswordReset({
               authProvider: doc.authProvider,
-              passwordHash: doc.hasPasswordHash ? 'present' : undefined,
             }),
           }
         : {}),
@@ -447,7 +445,7 @@ export async function revertGoogleAuthToPassword(
 /**
  * Returns the auth provider for a user profile.
  * @param userId - Auth user id.
- * @returns The stored auth provider, or null when the profile is missing.
+ * @returns The stored auth provider, or null when no profile exists for the id.
  */
 export async function getUserAuthProviderById(userId: string): Promise<UserAuthProvider | null> {
   await connectToDatabase();
@@ -457,7 +455,7 @@ export async function getUserAuthProviderById(userId: string): Promise<UserAuthP
     .lean<Pick<UserProfileDocument, 'authProvider'> | null>();
 
   if (!doc) return null;
-  return doc.authProvider ?? null;
+  return doc.authProvider;
 }
 
 /**

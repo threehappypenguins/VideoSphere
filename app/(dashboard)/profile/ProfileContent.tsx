@@ -45,9 +45,7 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
             authProvider?: UserAuthProvider;
           };
           setSessionUser(session);
-          if (session.authProvider === 'google' || session.authProvider === 'password') {
-            setAuthProvider(session.authProvider);
-          }
+          setAuthProvider(session.authProvider);
 
           const roleRes = await fetch('/api/auth/session-role', { credentials: 'include' });
           if (roleRes.ok) {

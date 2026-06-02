@@ -2,15 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mockGetAuthenticatedSessionUserId = vi.hoisted(() => vi.fn());
-const mockGetUserAuthProviderById = vi.hoisted(() => vi.fn());
+const mockGetUserById = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedSessionUserId: (...args: unknown[]) => mockGetAuthenticatedSessionUserId(...args),
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
-  getUserAuthProviderById: (...args: unknown[]) => mockGetUserAuthProviderById(...args),
+  getUserById: (...args: unknown[]) => mockGetUserById(...args),
 }));
+
+const passwordProfile = {
+  userId: 'user-abc',
+  email: 'user@example.com',
+  hasCompletedOnboarding: false,
+  role: 'user' as const,
+  authProvider: 'password' as const,
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
+};
 
 import { GOOGLE_AUTH_OAUTH_STATE_COOKIE } from '@/lib/auth/google-oauth';
 import { GET } from '@/app/api/auth/oauth/connect/route';
@@ -22,7 +32,7 @@ describe('GET /api/auth/oauth/connect', () => {
     vi.clearAllMocks();
     process.env.GOOGLE_CLIENT_ID = 'test-client-id';
     mockGetAuthenticatedSessionUserId.mockResolvedValue('user-abc');
-    mockGetUserAuthProviderById.mockResolvedValue('password');
+    mockGetUserById.mockResolvedValue(passwordProfile);
   });
 
   afterEach(() => {
@@ -44,8 +54,20 @@ describe('GET /api/auth/oauth/connect', () => {
     );
   });
 
+  it('redirects when the user profile no longer exists', async () => {
+    mockGetUserById.mockResolvedValueOnce(null);
+
+    const res = await GET(new NextRequest('http://localhost:3000/api/auth/oauth/connect'));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/profile?error=oauth_initiation_failed'
+    );
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
   it('redirects when Google is already linked', async () => {
-    mockGetUserAuthProviderById.mockResolvedValueOnce('google');
+    mockGetUserById.mockResolvedValueOnce({ ...passwordProfile, authProvider: 'google' });
 
     const res = await GET(new NextRequest('http://localhost:3000/api/auth/oauth/connect'));
 

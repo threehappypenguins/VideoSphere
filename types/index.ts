@@ -37,8 +37,8 @@ export interface User {
   name?: string;
   hasCompletedOnboarding: boolean;
   role: UserRole;
-  /** Sign-in method when set on the profile; omitted on older documents. */
-  authProvider?: UserAuthProvider;
+  /** Sign-in method; set on every profile at creation. */
+  authProvider: UserAuthProvider;
   /** Profile creation timestamp in ISO 8601 string format, sourced from Mongo document creation time. */
   $createdAt: string;
   /** Profile update timestamp in ISO 8601 string format, sourced from Mongo document update time. */

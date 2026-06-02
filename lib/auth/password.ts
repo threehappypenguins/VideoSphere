@@ -31,11 +31,8 @@ export function validatePassword(password: string): string | null {
 /**
  * Returns whether an account can use password-based login or password reset flows.
  * @param profile - User auth fields from `user_profiles`.
- * @returns True when the account has or supports a local password.
+ * @returns True when the account uses password-based sign-in.
  */
-export function userSupportsPasswordReset(profile: {
-  passwordHash?: string;
-  authProvider?: UserAuthProvider;
-}): boolean {
+export function userSupportsPasswordReset(profile: { authProvider?: UserAuthProvider }): boolean {
   return passwordPolicy.userSupportsPasswordReset(profile);
 }

@@ -6,7 +6,7 @@ import {
   buildGoogleOAuthStateCookie,
 } from '@/lib/auth/google-oauth';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
-import { getUserAuthProviderById } from '@/lib/repositories/users';
+import { getUserById } from '@/lib/repositories/users';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_AUTH_SCOPES = ['openid', 'email', 'profile'].join(' ');
@@ -35,8 +35,14 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const authProvider = await getUserAuthProviderById(userId);
-  if (authProvider === 'google') {
+  const profile = await getUserById(userId);
+  if (!profile) {
+    return NextResponse.redirect(
+      buildGoogleOAuthErrorRedirect(origin, 'oauth_initiation_failed', { connect: true })
+    );
+  }
+
+  if (profile.authProvider === 'google') {
     return NextResponse.redirect(
       buildGoogleOAuthErrorRedirect(origin, 'oauth_connect_already_linked', { connect: true })
     );
