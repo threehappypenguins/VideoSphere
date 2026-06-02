@@ -34,7 +34,7 @@ export function generatePasswordResetTokenValue(): string {
  */
 export function getAppBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (envUrl) return envUrl.replace(/\/$/, '');
+  if (envUrl) return envUrl.replace(/\/+$/, '');
 
   return 'http://localhost:3000';
 }

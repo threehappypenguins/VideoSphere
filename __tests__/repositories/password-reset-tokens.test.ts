@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashPasswordResetToken } from '@/lib/auth/password-reset-token-hash';
 
-const { mockConnectToDatabase, mockFindOneAndUpdate, mockCountDocuments } = vi.hoisted(() => ({
-  mockConnectToDatabase: vi.fn(),
-  mockFindOneAndUpdate: vi.fn(),
-  mockCountDocuments: vi.fn(),
-}));
+const { mockConnectToDatabase, mockFindOne, mockFindOneAndUpdate, mockCountDocuments } = vi.hoisted(
+  () => ({
+    mockConnectToDatabase: vi.fn(),
+    mockFindOne: vi.fn(),
+    mockFindOneAndUpdate: vi.fn(),
+    mockCountDocuments: vi.fn(),
+  })
+);
 
 vi.mock('@/lib/mongodb', () => ({
   connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
@@ -13,6 +16,7 @@ vi.mock('@/lib/mongodb', () => ({
 
 vi.mock('@/lib/models/PasswordResetToken', () => ({
   PasswordResetTokenModel: {
+    findOne: (...args: unknown[]) => mockFindOne(...args),
     findOneAndUpdate: (...args: unknown[]) => mockFindOneAndUpdate(...args),
     countDocuments: (...args: unknown[]) => mockCountDocuments(...args),
   },
@@ -21,6 +25,7 @@ vi.mock('@/lib/models/PasswordResetToken', () => ({
 import {
   claimPasswordResetToken,
   countForgotPasswordResetTokensSince,
+  findValidPasswordResetToken,
 } from '@/lib/repositories/password-reset-tokens';
 
 function leanResult<T>(value: T) {
@@ -76,6 +81,71 @@ describe('claimPasswordResetToken', () => {
     mockFindOneAndUpdate.mockReturnValueOnce(leanResult(null));
 
     await expect(claimPasswordResetToken('used-token')).resolves.toBeNull();
+  });
+});
+
+describe('findValidPasswordResetToken', () => {
+  const now = new Date('2026-06-02T12:00:00.000Z');
+
+  it('returns a record for an unused, unexpired token using a hashed lookup', async () => {
+    const token = 'valid-reset-token';
+    const tokenHash = hashPasswordResetToken(token);
+    mockFindOne.mockReturnValueOnce(
+      leanResult({
+        _id: 'token-doc-2',
+        tokenHash,
+        userId: 'user-2',
+        source: 'admin',
+        expiresAt: new Date('2026-06-02T13:00:00.000Z'),
+        createdAt: new Date('2026-06-02T11:00:00.000Z'),
+        updatedAt: now,
+      })
+    );
+
+    const record = await findValidPasswordResetToken(`  ${token}  `, now);
+
+    expect(mockFindOne).toHaveBeenCalledWith({
+      tokenHash,
+      usedAt: { $exists: false },
+      expiresAt: { $gt: now },
+    });
+    expect(record).toEqual({
+      id: 'token-doc-2',
+      userId: 'user-2',
+      source: 'admin',
+      expiresAt: '2026-06-02T13:00:00.000Z',
+      createdAt: '2026-06-02T11:00:00.000Z',
+    });
+  });
+
+  it('returns null when the token is expired', async () => {
+    mockFindOne.mockReturnValueOnce(leanResult(null));
+
+    await expect(findValidPasswordResetToken('expired-token', now)).resolves.toBeNull();
+
+    expect(mockFindOne).toHaveBeenCalledWith({
+      tokenHash: hashPasswordResetToken('expired-token'),
+      usedAt: { $exists: false },
+      expiresAt: { $gt: now },
+    });
+  });
+
+  it('returns null when the token is already used', async () => {
+    mockFindOne.mockReturnValueOnce(leanResult(null));
+
+    await expect(findValidPasswordResetToken('used-token', now)).resolves.toBeNull();
+  });
+
+  it('returns null when no token matches the hash', async () => {
+    mockFindOne.mockReturnValueOnce(leanResult(null));
+
+    await expect(findValidPasswordResetToken('unknown-token', now)).resolves.toBeNull();
+
+    expect(mockFindOne).toHaveBeenCalledWith({
+      tokenHash: hashPasswordResetToken('unknown-token'),
+      usedAt: { $exists: false },
+      expiresAt: { $gt: now },
+    });
   });
 });
 

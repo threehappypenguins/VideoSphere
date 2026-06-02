@@ -12,6 +12,12 @@ describe('getAppBaseUrl', () => {
     expect(getAppBaseUrl()).toBe('https://videosphere.example.com');
   });
 
+  it('strips multiple trailing slashes from NEXT_PUBLIC_APP_URL', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://videosphere.example.com///');
+
+    expect(getAppBaseUrl()).toBe('https://videosphere.example.com');
+  });
+
   it('defaults to localhost when NEXT_PUBLIC_APP_URL is unset', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
 

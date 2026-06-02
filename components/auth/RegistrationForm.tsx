@@ -28,6 +28,26 @@ type AutoCompleteToken = 'name' | 'email' | 'new-password' | 'off';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
+ * Returns whether an element supports the Pointer Events capture API (not available in jsdom).
+ * @param target - Event target to inspect.
+ * @returns True when capture can be set and released on the element.
+ */
+function supportsPointerCapture(
+  target: EventTarget | null
+): target is HTMLElement & {
+  setPointerCapture: (pointerId: number) => void;
+  hasPointerCapture: (pointerId: number) => boolean;
+  releasePointerCapture: (pointerId: number) => void;
+} {
+  return (
+    target instanceof HTMLElement &&
+    typeof target.setPointerCapture === 'function' &&
+    typeof target.hasPointerCapture === 'function' &&
+    typeof target.releasePointerCapture === 'function'
+  );
+}
+
+/**
  * Validates name, email, password, and confirm-password fields for setup and invite registration forms.
  * @param form - Registration field values to validate.
  * @returns Field-level error messages keyed by input name; an empty object indicates the form is valid.
@@ -241,24 +261,48 @@ export function RegistrationForm({
   const footerDisabled = formDisabled || suppressFooterInteraction;
   const displayError = serverError || externalError;
 
-  const handleSubmitPointerDown = () => {
+  const handleSubmitPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (formDisabled) return;
     submitPressPendingRef.current = true;
     setSuppressFooterInteraction(true);
+    if (supportsPointerCapture(event.currentTarget)) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
   };
 
-  const handleSubmitPointerRelease = () => {
+  const clearPendingSubmitPress = () => {
+    submitPressPendingRef.current = false;
+    setSuppressFooterInteraction(false);
+  };
+
+  const releaseSubmitPointerCapture = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (
+      supportsPointerCapture(event.currentTarget) &&
+      event.currentTarget.hasPointerCapture(event.pointerId)
+    ) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleSubmitPointerRelease = (event: React.PointerEvent<HTMLButtonElement>) => {
+    releaseSubmitPointerCapture(event);
     if (!submitPressPendingRef.current) return;
     window.setTimeout(() => {
       if (submitPressPendingRef.current) {
-        submitPressPendingRef.current = false;
-        setSuppressFooterInteraction(false);
+        clearPendingSubmitPress();
       }
     }, 0);
   };
 
-  const handleSubmitPointerCancel = () => {
-    submitPressPendingRef.current = false;
-    setSuppressFooterInteraction(false);
+  const handleSubmitPointerCancel = (event: React.PointerEvent<HTMLButtonElement>) => {
+    releaseSubmitPointerCapture(event);
+    clearPendingSubmitPress();
+  };
+
+  const handleSubmitLostPointerCapture = () => {
+    if (submitPressPendingRef.current) {
+      clearPendingSubmitPress();
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -365,6 +409,7 @@ export function RegistrationForm({
             onPointerDown={handleSubmitPointerDown}
             onPointerUp={handleSubmitPointerRelease}
             onPointerCancel={handleSubmitPointerCancel}
+            onLostPointerCapture={handleSubmitLostPointerCapture}
             className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {formDisabled ? submittingLabel : submitLabel}
