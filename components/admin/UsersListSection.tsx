@@ -11,6 +11,9 @@ interface AdminUserRow {
   createdAt: string;
 }
 
+/** Matches GET /api/admin/users default page size. */
+const USERS_PAGE_SIZE = 25;
+
 function formatDate(value?: string): string {
   if (!value) return '—';
   const date = new Date(value);
@@ -38,23 +41,58 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
   const [error, setError] = useState<string | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
 
-  const loadUsers = useCallback(async () => {
-    setError(null);
-    try {
-      const res = await fetch('/api/admin/users?limit=100&offset=0');
-      if (!res.ok) {
-        const payload = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(payload.message ?? 'Failed to load users');
+  const loadUsers = useCallback(
+    async (options: { resetError?: boolean } = {}) => {
+      if (options.resetError !== false) {
+        setError(null);
       }
-      const payload = (await res.json()) as { data: { users: AdminUserRow[] } };
-      setUsers(payload.data.users);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load users');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      try {
+        const res = await fetch(`/api/admin/users?limit=${USERS_PAGE_SIZE}&offset=${offset}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => ({}))) as { message?: string };
+          throw new Error(payload.message ?? 'Failed to load users');
+        }
+        const payload = (await res.json()) as {
+          data: {
+            users: AdminUserRow[];
+            pagination: { limit: number; offset: number; total: number };
+          };
+        };
+        const { users: pageUsers, pagination } = payload.data;
+        const totalCount = pagination.total;
+
+        if (totalCount === 0) {
+          setUsers([]);
+          setTotal(0);
+          if (offset > 0) setOffset(0);
+          return;
+        }
+
+        setTotal(totalCount);
+
+        const lastPageOffset = Math.max(
+          0,
+          Math.floor((totalCount - 1) / USERS_PAGE_SIZE) * USERS_PAGE_SIZE
+        );
+        if (offset > lastPageOffset) {
+          setOffset(lastPageOffset);
+          return;
+        }
+
+        setUsers(pageUsers);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to load users');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [offset]
+  );
 
   useEffect(() => {
     void loadUsers();
@@ -63,6 +101,10 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
   const handleRoleChange = async (userId: string, role: UserRole) => {
     setUpdatingUserId(userId);
     setError(null);
+    setUsers((current) =>
+      current.map((user) => (user.userId === userId ? { ...user, role } : user))
+    );
+
     try {
       const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
         method: 'PATCH',
@@ -82,6 +124,7 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
       );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update role');
+      await loadUsers({ resetError: false });
     } finally {
       setUpdatingUserId(null);
     }
@@ -103,13 +146,17 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
         };
         throw new Error(payload.error ?? payload.message ?? 'Failed to delete user');
       }
-      setUsers((current) => current.filter((user) => user.userId !== userId));
+      await loadUsers({ resetError: false });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to delete user');
     } finally {
       setDeletingUserId(null);
     }
   };
+
+  const canPrev = offset > 0;
+  const canNext = offset + users.length < total;
+  const showPagination = total > USERS_PAGE_SIZE;
 
   return (
     <section
@@ -124,6 +171,12 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
       </p>
 
       {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
+
+      {!loading && total > 0 ? (
+        <p className="mt-4 text-xs text-muted-foreground">
+          Showing {users.length === 0 ? '—' : `${offset + 1}-${offset + users.length}`} of {total}
+        </p>
+      ) : null}
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[48rem] text-left text-sm">
@@ -199,6 +252,27 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
           </tbody>
         </table>
       </div>
+
+      {showPagination ? (
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setOffset((prev) => Math.max(0, prev - USERS_PAGE_SIZE))}
+            disabled={!canPrev}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            onClick={() => setOffset((prev) => prev + USERS_PAGE_SIZE)}
+            disabled={!canNext}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

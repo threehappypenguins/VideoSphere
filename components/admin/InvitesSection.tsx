@@ -27,6 +27,17 @@ function roleLabel(role: UserRole): string {
 }
 
 /**
+ * Builds the full invite signup URL for a token.
+ * @param token - Invite token id.
+ * @returns Absolute invite URL when running in the browser; otherwise a relative path.
+ */
+function buildInviteUrl(token: string): string {
+  const path = `/invite/${encodeURIComponent(token)}`;
+  if (typeof window === 'undefined') return path;
+  return `${window.location.origin}${path}`;
+}
+
+/**
  * Admin invite management section with role selection when creating links.
  * @returns The rendered invite management UI.
  */
@@ -37,7 +48,8 @@ export function InvitesSection() {
   const [revokingToken, setRevokingToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [latestInviteUrl, setLatestInviteUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [latestInviteToken, setLatestInviteToken] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState<UserRole>('user');
 
   const loadInvites = useCallback(async () => {
@@ -64,7 +76,7 @@ export function InvitesSection() {
   const handleCreateInvite = async () => {
     setCreating(true);
     setError(null);
-    setCopied(false);
+    setCopiedToken(null);
     try {
       const res = await fetch('/api/admin/invites', {
         method: 'POST',
@@ -78,8 +90,9 @@ export function InvitesSection() {
         };
         throw new Error(payload.message ?? payload.error ?? 'Failed to create invite');
       }
-      const payload = (await res.json()) as { data: { inviteUrl: string } };
+      const payload = (await res.json()) as { data: { inviteUrl: string; token: string } };
       setLatestInviteUrl(payload.data.inviteUrl);
+      setLatestInviteToken(payload.data.token);
       await loadInvites();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create invite');
@@ -102,8 +115,9 @@ export function InvitesSection() {
         };
         throw new Error(payload.message ?? payload.error ?? 'Failed to revoke invite');
       }
-      if (latestInviteUrl?.includes(token)) {
+      if (latestInviteToken === token) {
         setLatestInviteUrl(null);
+        setLatestInviteToken(null);
       }
       await loadInvites();
     } catch (err: unknown) {
@@ -113,11 +127,10 @@ export function InvitesSection() {
     }
   };
 
-  const handleCopy = async () => {
-    if (!latestInviteUrl) return;
+  const handleCopyInviteUrl = async (token: string, inviteUrl: string) => {
     try {
-      await navigator.clipboard.writeText(latestInviteUrl);
-      setCopied(true);
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopiedToken(token);
     } catch {
       setError('Could not copy invite link to clipboard.');
     }
@@ -165,22 +178,25 @@ export function InvitesSection() {
         <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4">
           <p className="text-sm font-medium text-foreground">New invite link</p>
           <p className="mt-2 break-all text-sm text-muted-foreground">{latestInviteUrl}</p>
-          <button
-            type="button"
-            onClick={() => void handleCopy()}
-            className="mt-3 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            {copied ? 'Copied' : 'Copy link'}
-          </button>
+          {latestInviteToken ? (
+            <button
+              type="button"
+              onClick={() => void handleCopyInviteUrl(latestInviteToken, latestInviteUrl)}
+              className="mt-3 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              {copiedToken === latestInviteToken ? 'Copied' : 'Copy link'}
+            </button>
+          ) : null}
         </div>
       ) : null}
 
       {error ? <p className="mt-4 text-sm text-destructive">{error}</p> : null}
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[32rem] text-left text-sm">
+        <table className="w-full min-w-[40rem] text-left text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30">
+              <th className="px-4 py-3 font-medium text-muted-foreground">Invite link</th>
               <th className="px-4 py-3 font-medium text-muted-foreground">Status</th>
               <th className="px-4 py-3 font-medium text-muted-foreground">Role</th>
               <th className="px-4 py-3 font-medium text-muted-foreground">Created</th>
@@ -191,13 +207,13 @@ export function InvitesSection() {
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-4 py-4 text-muted-foreground" colSpan={5}>
+                <td className="px-4 py-4 text-muted-foreground" colSpan={6}>
                   Loading invites…
                 </td>
               </tr>
             ) : invites.length === 0 ? (
               <tr>
-                <td className="px-4 py-4 text-muted-foreground" colSpan={5}>
+                <td className="px-4 py-4 text-muted-foreground" colSpan={6}>
                   No pending invites. Generate one to get started.
                 </td>
               </tr>
@@ -205,8 +221,19 @@ export function InvitesSection() {
               invites.map((invite) => {
                 const status = inviteStatus(invite);
                 const canRevoke = status === 'Pending';
+                const inviteUrl = buildInviteUrl(invite.token);
                 return (
                   <tr key={invite.token} className="border-b border-border last:border-b-0">
+                    <td className="px-4 py-3">
+                      <p className="max-w-md break-all text-muted-foreground">{inviteUrl}</p>
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyInviteUrl(invite.token, inviteUrl)}
+                        className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                      >
+                        {copiedToken === invite.token ? 'Copied' : 'Copy link'}
+                      </button>
+                    </td>
                     <td className="px-4 py-3 text-foreground">{status}</td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {roleLabel(invite.grantedRole)}
