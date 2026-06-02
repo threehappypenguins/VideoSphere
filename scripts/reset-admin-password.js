@@ -231,7 +231,15 @@ async function main() {
     const password = await promptForNewPassword();
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await UserProfileModel.updateOne({ _id: user._id }, { $set: { passwordHash } });
+    const updateResult = await UserProfileModel.updateOne(
+      { _id: user._id },
+      { $set: { passwordHash } }
+    );
+    if (updateResult.matchedCount === 0) {
+      throw new Error(
+        `Failed to update password for ${user.email}: no matching user profile was updated.`
+      );
+    }
 
     console.log('');
     console.log(`✅ Password updated for ${user.email} (${user.role}).`);

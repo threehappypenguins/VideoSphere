@@ -21,12 +21,16 @@ const eslintConfig = defineConfig([
           rules: {
             ...config.rules,
             ...jsxA11y.configs.recommended.rules,
-            'no-var': 'error',
-            'prefer-const': 'error',
           },
         }
       : config
   ),
+  {
+    rules: {
+      'no-var': 'error',
+      'prefer-const': 'error',
+    },
+  },
   // Override default ignores
   globalIgnores([
     '.next/**',

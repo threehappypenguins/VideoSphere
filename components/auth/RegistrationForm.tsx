@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, type FormEvent, type ReactNode } from 'react';
+import { useState, useCallback, useRef, type FormEvent, type ReactNode } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { scorePasswordStrength, validatePassword } from '@/lib/auth/password';
 import {
@@ -226,6 +226,7 @@ export function RegistrationForm({
   const [serverError, setServerError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [suppressFooterInteraction, setSuppressFooterInteraction] = useState(false);
+  const submitPressPendingRef = useRef(false);
 
   const update = useCallback(
     (field: keyof FormState) => (value: string) => {
@@ -240,8 +241,29 @@ export function RegistrationForm({
   const footerDisabled = formDisabled || suppressFooterInteraction;
   const displayError = serverError || externalError;
 
+  const handleSubmitPointerDown = () => {
+    submitPressPendingRef.current = true;
+    setSuppressFooterInteraction(true);
+  };
+
+  const handleSubmitPointerRelease = () => {
+    if (!submitPressPendingRef.current) return;
+    window.setTimeout(() => {
+      if (submitPressPendingRef.current) {
+        submitPressPendingRef.current = false;
+        setSuppressFooterInteraction(false);
+      }
+    }, 0);
+  };
+
+  const handleSubmitPointerCancel = () => {
+    submitPressPendingRef.current = false;
+    setSuppressFooterInteraction(false);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    submitPressPendingRef.current = false;
     setSuppressFooterInteraction(true);
 
     const errors = validateRegistrationForm(form);
@@ -340,7 +362,9 @@ export function RegistrationForm({
           <button
             type="submit"
             disabled={formDisabled}
-            onPointerDown={() => setSuppressFooterInteraction(true)}
+            onPointerDown={handleSubmitPointerDown}
+            onPointerUp={handleSubmitPointerRelease}
+            onPointerCancel={handleSubmitPointerCancel}
             className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {formDisabled ? submittingLabel : submitLabel}
