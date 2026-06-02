@@ -286,7 +286,7 @@ export async function persistGoogleAuthForUser(
 
 /**
  * Revokes stored Google login tokens so the app is removed from the user's Google account access list.
- * Best-effort: logs and returns when no token is stored or decryption/revoke fails.
+ * Best-effort: silently no-ops when no refresh token is stored; logs decryption/revoke failures.
  * @param userId - Auth user id.
  */
 export async function revokeStoredGoogleAuthForUser(userId: string): Promise<void> {
@@ -306,12 +306,7 @@ export async function revokeStoredGoogleAuthForUser(userId: string): Promise<voi
   if (doc?.authProvider !== 'google') return;
 
   const encrypted = doc.googleRefreshToken?.trim();
-  if (!encrypted) {
-    console.warn(
-      `[revokeStoredGoogleAuthForUser] Google user ${userId} has no stored refresh token to revoke`
-    );
-    return;
-  }
+  if (!encrypted) return;
 
   try {
     const refreshToken = decryptToken(encrypted);

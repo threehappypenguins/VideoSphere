@@ -33,7 +33,6 @@ const InviteTokenSchema = new Schema<InviteTokenDocument>(
     purpose: { type: String, enum: ['setup', 'invite'], required: true },
     grantedRole: { type: String, enum: ['user', 'admin'], required: false, default: 'user' },
     createdBy: { type: String, required: false, trim: true },
-    createdAt: { type: Date, default: Date.now, required: true },
     expiresAt: { type: Date, required: false },
     usedAt: { type: Date, required: false },
     usedBy: { type: String, required: false, trim: true },
