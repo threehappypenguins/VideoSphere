@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { jwtVerify } from 'jose';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
@@ -17,6 +18,16 @@ export interface SessionUserFromCookies {
 export interface NavbarAuthStateFromCookies {
   sessionUser: SessionUserFromCookies | null;
   hasAdminRole: boolean;
+}
+
+/**
+ * Redirect targets for {@link requireAdminUserIdFromCookies}.
+ */
+export interface RequireAdminFromCookiesOptions {
+  /** Path encoded into the login redirect when the session is missing. */
+  loginRedirectPath?: string;
+  /** Path for authenticated non-admins (defaults to `/dashboard`). */
+  forbiddenRedirectPath?: string;
 }
 
 /**
@@ -90,4 +101,26 @@ export async function getNavbarAuthStateFromCookies(): Promise<NavbarAuthStateFr
   }
 
   return { sessionUser, hasAdminRole };
+}
+
+/**
+ * Ensures the current request has an authenticated admin user.
+ * Authoritative server-side check for admin-only pages; complements `proxy.ts` in Next.js 16.
+ * @param options - Optional redirect targets when access is denied.
+ * @returns The authenticated admin user's id.
+ */
+export async function requireAdminUserIdFromCookies(
+  options: RequireAdminFromCookiesOptions = {}
+): Promise<string> {
+  const loginRedirectPath = options.loginRedirectPath ?? '/dashboard';
+  const forbiddenRedirectPath = options.forbiddenRedirectPath ?? '/dashboard';
+
+  const { sessionUser, hasAdminRole } = await getNavbarAuthStateFromCookies();
+  if (!sessionUser) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+  if (!hasAdminRole) {
+    redirect(forbiddenRedirectPath);
+  }
+  return sessionUser.$id;
 }
