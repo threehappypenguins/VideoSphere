@@ -28,17 +28,21 @@ export function generatePasswordResetTokenValue(): string {
 
 /**
  * Resolves the public app base URL for reset links.
- * @param request - Optional incoming request used to derive origin.
+ *
+ * Prefers `NEXT_PUBLIC_APP_URL` when set so links stay correct behind TLS termination
+ * and are not derived from attacker-controlled Host headers. Falls back to the
+ * request origin only when the env var is unset (typical local development).
+ * @param request - Optional incoming request used as a dev fallback origin.
  * @returns Normalized base URL without a trailing slash.
  */
 export function getAppBaseUrl(request?: NextRequest): string {
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (envUrl) return envUrl.replace(/\/$/, '');
+
   if (request) {
     const origin = request.nextUrl.origin.trim();
     if (origin) return origin.replace(/\/$/, '');
   }
-
-  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (envUrl) return envUrl.replace(/\/$/, '');
 
   return 'http://localhost:3000';
 }
