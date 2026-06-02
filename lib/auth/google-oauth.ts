@@ -8,7 +8,7 @@ export const GOOGLE_AUTH_OAUTH_STATE_COOKIE = 'google_auth_oauth_state';
 /**
  * OAuth flows supported by the Google auth routes.
  */
-export type GoogleOAuthFlow = 'login' | 'setup' | 'invite';
+export type GoogleOAuthFlow = 'login' | 'setup' | 'invite' | 'connect';
 
 /**
  * Parsed OAuth state stored in the httpOnly cookie during the Google redirect dance.
@@ -19,6 +19,8 @@ export interface GoogleOAuthState {
   flow: GoogleOAuthFlow;
   setupToken: string | null;
   inviteToken: string | null;
+  /** Logged-in user id when linking Google to an existing password account. */
+  userId: string | null;
 }
 
 /**
@@ -29,6 +31,10 @@ export interface BuildGoogleOAuthStateInput {
   redirectTo?: string | null;
   setupToken?: string | null;
   inviteToken?: string | null;
+  /** Explicit flow; defaults from tokens when omitted. */
+  flow?: GoogleOAuthFlow;
+  /** User id for the connect flow (link Google to an existing account). */
+  userId?: string | null;
 }
 
 /**
@@ -40,16 +46,19 @@ export function buildGoogleOAuthStateCookie(input: BuildGoogleOAuthStateInput): 
   const redirectTo = input.redirectTo ? safeRedirect(input.redirectTo) : null;
   const setupToken = input.setupToken?.trim() || null;
   const inviteToken = input.inviteToken?.trim() || null;
+  const userId = input.userId?.trim() || null;
 
-  let flow: GoogleOAuthFlow = 'login';
+  let flow: GoogleOAuthFlow = input.flow ?? 'login';
   if (setupToken) flow = 'setup';
   else if (inviteToken) flow = 'invite';
+  else if (flow === 'connect' || userId) flow = 'connect';
 
   const payload = {
     r: redirectTo,
     f: flow,
     s: setupToken,
     i: inviteToken,
+    u: userId,
   };
 
   return `${input.nonce}|${encodeURIComponent(JSON.stringify(payload))}`;
@@ -75,6 +84,7 @@ export function parseGoogleOAuthStateCookie(cookieValue: string): GoogleOAuthSta
       flow: 'login',
       setupToken: null,
       inviteToken: null,
+      userId: null,
     };
   }
 
@@ -84,15 +94,18 @@ export function parseGoogleOAuthStateCookie(cookieValue: string): GoogleOAuthSta
       f?: unknown;
       s?: unknown;
       i?: unknown;
+      u?: unknown;
     };
 
     const redirectTo = typeof payload.r === 'string' && payload.r ? safeRedirect(payload.r) : null;
     const setupToken = typeof payload.s === 'string' && payload.s.trim() ? payload.s.trim() : null;
     const inviteToken = typeof payload.i === 'string' && payload.i.trim() ? payload.i.trim() : null;
+    const userId = typeof payload.u === 'string' && payload.u.trim() ? payload.u.trim() : null;
 
     let flow: GoogleOAuthFlow = 'login';
     if (payload.f === 'setup' || setupToken) flow = 'setup';
     else if (payload.f === 'invite' || inviteToken) flow = 'invite';
+    else if (payload.f === 'connect' || userId) flow = 'connect';
 
     return {
       nonce,
@@ -100,6 +113,7 @@ export function parseGoogleOAuthStateCookie(cookieValue: string): GoogleOAuthSta
       flow,
       setupToken,
       inviteToken,
+      userId,
     };
   } catch {
     return null;
@@ -141,12 +155,19 @@ export function buildGoogleOAuthStartSearchParams(input: {
 export function buildGoogleOAuthErrorRedirect(
   origin: string,
   code: string,
-  context: { setupToken?: string | null; inviteToken?: string | null } = {}
+  context: {
+    setupToken?: string | null;
+    inviteToken?: string | null;
+    connect?: boolean;
+  } = {}
 ): string {
   const encodedError = encodeURIComponent(code);
   const setupToken = context.setupToken?.trim() || null;
   const inviteToken = context.inviteToken?.trim() || null;
 
+  if (context.connect) {
+    return `${origin}/profile?error=${encodedError}`;
+  }
   if (setupToken && !inviteToken) {
     return `${origin}/setup?token=${encodeURIComponent(setupToken)}&error=${encodedError}`;
   }

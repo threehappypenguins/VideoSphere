@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/api/auth';
+import { getUserAuthProviderById } from '@/lib/repositories/users';
 
 /**
  * Handles GET requests for this route.
@@ -19,10 +20,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    const authProvider = await getUserAuthProviderById(user.userId);
+
     return NextResponse.json({
       $id: user.userId,
       email: user.email,
       name: user.name,
+      authProvider: authProvider ?? 'password',
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);

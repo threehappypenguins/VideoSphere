@@ -46,6 +46,8 @@ import {
   getUserPasswordAuthStateByEmail,
   getUserPasswordAuthStateById,
   persistGoogleAuthForUser,
+  revertGoogleAuthToPassword,
+  getUserAuthProviderById,
   revokeStoredGoogleAuthForUser,
   updateUser,
   updateUserPasswordHash,
@@ -298,12 +300,11 @@ describe('persistGoogleAuthForUser', () => {
 
     await persistGoogleAuthForUser('auth-user-1', 'google-refresh-token');
 
-    const payload = mockFindByIdAndUpdate.mock.calls[0]?.[1] as {
-      authProvider: string;
-      googleRefreshToken: string;
+    const update = mockFindByIdAndUpdate.mock.calls[0]?.[1] as {
+      $set: { authProvider: string; googleRefreshToken: string };
     };
-    expect(payload.authProvider).toBe('google');
-    expect(decryptToken(payload.googleRefreshToken)).toBe('google-refresh-token');
+    expect(update.$set.authProvider).toBe('google');
+    expect(decryptToken(update.$set.googleRefreshToken)).toBe('google-refresh-token');
     expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
   });
 
@@ -313,7 +314,7 @@ describe('persistGoogleAuthForUser', () => {
     await persistGoogleAuthForUser('auth-user-1');
 
     expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
-      authProvider: 'google',
+      $set: { authProvider: 'google' },
     });
     expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
   });
@@ -324,8 +325,56 @@ describe('persistGoogleAuthForUser', () => {
     await persistGoogleAuthForUser('auth-user-1', '   ');
 
     expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
-      authProvider: 'google',
+      $set: { authProvider: 'google' },
     });
+  });
+
+  it('unsets passwordHash when connect flow option is set', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ _id: 'auth-user-1' }));
+
+    await persistGoogleAuthForUser('auth-user-1', 'google-refresh-token', {
+      unsetPasswordHash: true,
+    });
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
+      $set: expect.objectContaining({ authProvider: 'google' }),
+      $unset: { passwordHash: 1 },
+    });
+  });
+});
+
+describe('revertGoogleAuthToPassword', () => {
+  it('sets password auth and unsets google refresh token', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ _id: 'auth-user-1' }));
+
+    await revertGoogleAuthToPassword('auth-user-1', 'new-bcrypt-hash');
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
+      $set: { passwordHash: 'new-bcrypt-hash', authProvider: 'password' },
+      $unset: { googleRefreshToken: 1 },
+    });
+  });
+});
+
+describe('getUserAuthProviderById', () => {
+  it('returns the stored auth provider', async () => {
+    mockFindById.mockReturnValueOnce({
+      select: () => ({
+        lean: vi.fn().mockResolvedValue({ authProvider: 'google' }),
+      }),
+    });
+
+    await expect(getUserAuthProviderById('auth-user-1')).resolves.toBe('google');
+  });
+
+  it('returns null when the profile is missing', async () => {
+    mockFindById.mockReturnValueOnce({
+      select: () => ({
+        lean: vi.fn().mockResolvedValue(null),
+      }),
+    });
+
+    await expect(getUserAuthProviderById('missing-user')).resolves.toBeNull();
   });
 });
 

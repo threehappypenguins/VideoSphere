@@ -3,6 +3,14 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ProfileAuthSection } from './ProfileAuthSection';
+import { ProfileOAuthFlash } from './ProfileOAuthFlash';
+import type { UserAuthProvider } from '@/lib/repositories/users';
+
+interface ProfileContentProps {
+  oauthSuccess: string | null;
+  oauthError: string | null;
+}
 
 interface SessionUser {
   $id: string;
@@ -14,9 +22,10 @@ interface SessionUser {
  * Renders the profile content component.
  * @returns The rendered UI output.
  */
-export function ProfileContent() {
+export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps) {
   const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [authProvider, setAuthProvider] = useState<UserAuthProvider>('password');
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -32,8 +41,13 @@ export function ProfileContent() {
         // Fetch authenticated session (display name, email)
         const sessionRes = await fetch('/api/auth/session', { credentials: 'include' });
         if (sessionRes.ok) {
-          const session: SessionUser = await sessionRes.json();
+          const session = (await sessionRes.json()) as SessionUser & {
+            authProvider?: UserAuthProvider;
+          };
           setSessionUser(session);
+          if (session.authProvider === 'google' || session.authProvider === 'password') {
+            setAuthProvider(session.authProvider);
+          }
 
           const roleRes = await fetch('/api/auth/session-role', { credentials: 'include' });
           if (roleRes.ok) {
@@ -51,10 +65,23 @@ export function ProfileContent() {
     loadUser();
   }, []);
 
+  const pageHeader = (
+    <>
+      <h1 className="text-3xl font-bold text-foreground">Account Settings</h1>
+      <p className="mt-2 text-muted-foreground">Manage your profile and preferences.</p>
+      <ProfileOAuthFlash success={oauthSuccess} error={oauthError} />
+    </>
+  );
+
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      <div className="px-4 py-10 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl">
+          {pageHeader}
+          <div className="flex min-h-[40vh] items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -64,8 +91,7 @@ export function ProfileContent() {
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-3xl font-bold text-foreground">Account Settings</h1>
-        <p className="mt-2 text-muted-foreground">Manage your profile and preferences.</p>
+        {pageHeader}
 
         {/* --- Profile Information --- */}
         <section className="mt-8 rounded-xl border border-border bg-background p-6">
@@ -114,6 +140,8 @@ export function ProfileContent() {
             </div>
           </div>
         </section>
+
+        <ProfileAuthSection authProvider={authProvider} onAuthProviderChange={setAuthProvider} />
 
         {/* --- Account Tools --- */}
         <section className="mt-8 rounded-xl border border-border bg-background p-6">

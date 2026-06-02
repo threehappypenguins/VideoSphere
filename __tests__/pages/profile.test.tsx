@@ -11,7 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import ProfilePage from '@/app/(dashboard)/profile/page';
+import { ProfileContent } from '@/app/(dashboard)/profile/ProfileContent';
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
@@ -38,17 +38,34 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+function renderProfile(oauthError: string | null = null) {
+  return render(<ProfileContent oauthSuccess={null} oauthError={oauthError} />);
+}
+
 describe('ProfilePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock fetch to return an authenticated user
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ $id: 'user_1', name: 'Test', email: 'test@test.com' }),
-      } as Response)
+      vi.fn((url: string) => {
+        if (String(url).includes('/api/auth/session-role')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ role: 'user' }),
+          } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            $id: 'user_1',
+            name: 'Test',
+            email: 'test@test.com',
+            authProvider: 'password',
+          }),
+        } as Response);
+      })
     );
   });
 
@@ -57,15 +74,24 @@ describe('ProfilePage', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows OAuth connect error feedback at the top of the page', async () => {
+    renderProfile('oauth_connect_email_mismatch');
+    await waitFor(() => {
+      expect(
+        screen.getByText(/google account email does not match your videosphere account email/i)
+      ).toBeInTheDocument();
+    });
+  });
+
   it('renders the account settings heading', async () => {
-    render(<ProfilePage />);
+    renderProfile();
     await waitFor(() => {
       expect(screen.getByText('Account Settings')).toBeInTheDocument();
     });
   });
 
   it('does not render legacy subscription copy', async () => {
-    render(<ProfilePage />);
+    renderProfile();
     await waitFor(() => {
       expect(screen.queryByText('Subscription')).not.toBeInTheDocument();
       expect(screen.queryByText('Standard')).not.toBeInTheDocument();
@@ -74,7 +100,7 @@ describe('ProfilePage', () => {
   });
 
   it('renders Manage connected accounts link targeting /profile/connections', async () => {
-    render(<ProfilePage />);
+    renderProfile();
     await waitFor(() => {
       const connectionsLink = screen.getByRole('link', { name: /manage connected accounts/i });
       expect(connectionsLink).toBeInTheDocument();
