@@ -176,7 +176,6 @@ export async function completePasswordResetWithPasswordHash(
   now: Date = new Date(),
   usedAt: Date = now
 ): Promise<boolean> {
-  await connectToDatabase();
   const trimmed = token.trim();
   const record = await findValidPasswordResetToken(trimmed, now);
   if (!record) {

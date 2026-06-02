@@ -231,9 +231,10 @@ export interface UserPasswordAuthState {
 export async function getUserPasswordAuthStateByEmail(
   email: string
 ): Promise<UserPasswordAuthState | null> {
-  await connectToDatabase();
   const normalized = email.trim().toLowerCase();
   if (!normalized) return null;
+
+  await connectToDatabase();
 
   const doc = await UserProfileModel.findOne({ email: normalized })
     .select({ _id: 1, userId: 1, passwordHash: 1, authProvider: 1 })

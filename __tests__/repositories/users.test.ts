@@ -234,6 +234,7 @@ describe('getUserPasswordAuthStateByEmail', () => {
   it('returns null for blank email without querying', async () => {
     await expect(getUserPasswordAuthStateByEmail('   ')).resolves.toBeNull();
 
+    expect(mockConnectToDatabase).not.toHaveBeenCalled();
     expect(mockFindOne).not.toHaveBeenCalled();
   });
 });
