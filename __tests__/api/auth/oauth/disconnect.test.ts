@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mockGetAuthenticatedSessionUserId = vi.hoisted(() => vi.fn());
-const mockGetUserAuthProviderById = vi.hoisted(() => vi.fn());
+const mockGetUserById = vi.hoisted(() => vi.fn());
 const mockRevokeStoredGoogleAuthForUser = vi.hoisted(() => vi.fn());
 const mockRevertGoogleAuthToPassword = vi.hoisted(() => vi.fn());
 const mockBcryptHash = vi.hoisted(() => vi.fn());
@@ -12,10 +12,20 @@ vi.mock('@/lib/api/auth', () => ({
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
-  getUserAuthProviderById: (...args: unknown[]) => mockGetUserAuthProviderById(...args),
+  getUserById: (...args: unknown[]) => mockGetUserById(...args),
   revokeStoredGoogleAuthForUser: (...args: unknown[]) => mockRevokeStoredGoogleAuthForUser(...args),
   revertGoogleAuthToPassword: (...args: unknown[]) => mockRevertGoogleAuthToPassword(...args),
 }));
+
+const googleProfile = {
+  userId: 'user-abc',
+  email: 'user@example.com',
+  hasCompletedOnboarding: false,
+  role: 'user' as const,
+  authProvider: 'google' as const,
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
+};
 
 vi.mock('bcryptjs', () => ({
   default: {
@@ -37,7 +47,7 @@ describe('POST /api/auth/oauth/disconnect', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAuthenticatedSessionUserId.mockResolvedValue('user-abc');
-    mockGetUserAuthProviderById.mockResolvedValue('google');
+    mockGetUserById.mockResolvedValue(googleProfile);
     mockRevokeStoredGoogleAuthForUser.mockResolvedValue(undefined);
     mockRevertGoogleAuthToPassword.mockResolvedValue(undefined);
     mockBcryptHash.mockResolvedValue('bcrypt-hash');
@@ -52,8 +62,17 @@ describe('POST /api/auth/oauth/disconnect', () => {
     expect(mockRevokeStoredGoogleAuthForUser).not.toHaveBeenCalled();
   });
 
+  it('returns 404 when the user profile no longer exists', async () => {
+    mockGetUserById.mockResolvedValueOnce(null);
+
+    const res = await POST(makeRequest({ password: 'Abcdefg1!', confirmPassword: 'Abcdefg1!' }));
+
+    expect(res.status).toBe(404);
+    expect(mockRevokeStoredGoogleAuthForUser).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when account is not Google-linked', async () => {
-    mockGetUserAuthProviderById.mockResolvedValueOnce('password');
+    mockGetUserById.mockResolvedValueOnce({ ...googleProfile, authProvider: 'password' });
 
     const res = await POST(makeRequest({ password: 'Abcdefg1!', confirmPassword: 'Abcdefg1!' }));
 

@@ -34,12 +34,14 @@ type ListUserProfileLean = Pick<
 
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
+  const authProvider = doc.authProvider;
   return {
     userId: String(doc.userId),
     email: String(doc.email),
     name: typeof doc.name === 'string' ? doc.name : undefined,
     hasCompletedOnboarding: Boolean(doc.hasCompletedOnboarding),
     role: (doc.role as UserRole) ?? 'user',
+    ...(authProvider === 'google' || authProvider === 'password' ? { authProvider } : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };

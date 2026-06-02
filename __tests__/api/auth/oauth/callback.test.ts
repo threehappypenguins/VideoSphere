@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
+const mockGetAuthenticatedSessionUserId = vi.hoisted(() => vi.fn());
 const mockGetUserByEmail = vi.hoisted(() => vi.fn());
 const mockGetUserById = vi.hoisted(() => vi.fn());
 const mockGetUserPasswordAuthStateById = vi.hoisted(() => vi.fn());
@@ -15,6 +16,10 @@ const mockConsumeInviteToken = vi.hoisted(() => vi.fn());
 const mockReleaseInviteToken = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 const mockJwtSign = vi.hoisted(() => vi.fn().mockResolvedValue('jwt-token'));
+
+vi.mock('@/lib/api/auth', () => ({
+  getAuthenticatedSessionUserId: (...args: unknown[]) => mockGetAuthenticatedSessionUserId(...args),
+}));
 
 vi.mock('@/lib/repositories/users', () => ({
   getUserByEmail: (...args: unknown[]) => mockGetUserByEmail(...args),
@@ -179,6 +184,7 @@ function expectOAuthStateCookieCleared(res: Response) {
 describe('GET /api/auth/oauth/callback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetAuthenticatedSessionUserId.mockResolvedValue(null);
     process.env.GOOGLE_CLIENT_ID = 'client-id';
     process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
     process.env.JWT_SECRET = 'test-jwt-secret-for-vitest-only';
@@ -392,6 +398,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
   it('links Google to an existing account on connect without issuing a new session', async () => {
     mockGoogleSuccess({ refreshToken: 'refresh-token' });
+    mockGetAuthenticatedSessionUserId.mockResolvedValueOnce('existing-user-id');
     mockGetUserById.mockResolvedValueOnce({
       userId: 'existing-user-id',
       email: 'creator@example.com',
@@ -414,8 +421,35 @@ describe('GET /api/auth/oauth/callback', () => {
     expectOAuthStateCookieCleared(res);
   });
 
+  it('rejects connect when the session user does not match the OAuth state user', async () => {
+    mockGoogleSuccess({ refreshToken: 'refresh-token' });
+    mockGetAuthenticatedSessionUserId.mockResolvedValueOnce('other-signed-in-user');
+
+    const res = await GET(validRequest(connectCookie()));
+
+    expect(mockGetUserById).not.toHaveBeenCalled();
+    expect(mockPersistGoogleAuthForUser).not.toHaveBeenCalled();
+    expectGoogleTokensRevoked(['refresh-token', 'access-token']);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/profile?error=oauth_connect_failed'
+    );
+  });
+
+  it('rejects connect when there is no active session', async () => {
+    mockGoogleSuccess({ refreshToken: 'refresh-token' });
+    mockGetAuthenticatedSessionUserId.mockResolvedValueOnce(null);
+
+    const res = await GET(validRequest(connectCookie()));
+
+    expect(mockPersistGoogleAuthForUser).not.toHaveBeenCalled();
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/profile?error=oauth_connect_failed'
+    );
+  });
+
   it('redirects to profile when connect Google email does not match', async () => {
     mockGoogleSuccess({ refreshToken: 'refresh-token' });
+    mockGetAuthenticatedSessionUserId.mockResolvedValueOnce('existing-user-id');
     mockGetUserById.mockResolvedValueOnce({
       userId: 'existing-user-id',
       email: 'other@example.com',

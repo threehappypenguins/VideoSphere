@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
 import { validatePassword } from '@/lib/auth/password';
 import {
-  getUserAuthProviderById,
+  getUserById,
   revertGoogleAuthToPassword,
   revokeStoredGoogleAuthForUser,
 } from '@/lib/repositories/users';
@@ -20,8 +20,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
     }
 
-    const authProvider = await getUserAuthProviderById(userId);
-    if (authProvider !== 'google') {
+    const profile = await getUserById(userId);
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found.' }, { status: 404 });
+    }
+
+    if (profile.authProvider !== 'google') {
       return NextResponse.json(
         { error: 'This account is not linked to Google sign-in.' },
         { status: 400 }

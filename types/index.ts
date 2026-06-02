@@ -21,6 +21,9 @@
  */
 export type UserRole = 'user' | 'admin';
 
+/** How the user signs in to VideoSphere (mutually exclusive password vs Google). */
+export type UserAuthProvider = 'google' | 'password';
+
 /**
  * Defines the shape of user.
  */
@@ -31,6 +34,8 @@ export interface User {
   name?: string;
   hasCompletedOnboarding: boolean;
   role: UserRole;
+  /** Sign-in method when set on the profile; omitted on older documents. */
+  authProvider?: UserAuthProvider;
   /** Profile creation timestamp in ISO 8601 string format, sourced from Mongo document creation time. */
   $createdAt: string;
   /** Profile update timestamp in ISO 8601 string format, sourced from Mongo document update time. */

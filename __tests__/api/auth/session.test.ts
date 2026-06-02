@@ -2,14 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const getAuthenticatedUserMock = vi.hoisted(() => vi.fn());
-const getUserAuthProviderByIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUser: getAuthenticatedUserMock,
-}));
-
-vi.mock('@/lib/repositories/users', () => ({
-  getUserAuthProviderById: (...args: unknown[]) => getUserAuthProviderByIdMock(...args),
 }));
 
 import { GET } from '@/app/api/auth/session/route';
@@ -26,13 +21,13 @@ describe('GET /api/auth/session', () => {
   });
 
   it('returns the persisted profile name and auth provider for authenticated users', async () => {
-    getUserAuthProviderByIdMock.mockResolvedValueOnce('password');
     getAuthenticatedUserMock.mockResolvedValueOnce({
       userId: 'user-1',
       email: 'creator@example.com',
       name: 'Ada Lovelace',
       hasCompletedOnboarding: false,
       role: 'user',
+      authProvider: 'password',
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });

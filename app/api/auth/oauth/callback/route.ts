@@ -8,6 +8,7 @@ import {
   type GoogleOAuthGrant,
   type GoogleOAuthState,
 } from '@/lib/auth/google-oauth';
+import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import {
   consumeInviteToken,
@@ -209,6 +210,16 @@ export async function GET(req: NextRequest) {
     if (oauthState.flow === 'connect') {
       const connectUserId = oauthState.userId;
       if (!connectUserId) {
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_connect_failed',
+          googleGrant
+        );
+      }
+
+      const sessionUserId = await getAuthenticatedSessionUserId(req);
+      if (!sessionUserId || sessionUserId !== connectUserId) {
         return oauthErrorResponseAfterGrant(
           origin,
           oauthState,
