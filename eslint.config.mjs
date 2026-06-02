@@ -14,14 +14,19 @@ import nextVitals from 'eslint-config-next/core-web-vitals';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 
 const eslintConfig = defineConfig([
-  ...nextVitals,
-  // Accessibility rules — catches common a11y issues in JSX
-  // eslint-config-next already registers jsx-a11y as a plugin,
-  // so we only add the recommended rules here.
+  ...nextVitals.map((config) =>
+    config.plugins?.['jsx-a11y']
+      ? {
+          ...config,
+          rules: {
+            ...config.rules,
+            ...jsxA11y.configs.recommended.rules,
+          },
+        }
+      : config
+  ),
   {
     rules: {
-      ...jsxA11y.configs.recommended.rules,
-      // Auto-fix modern declarations: no-var rewrites var -> let, and prefer-const upgrades let -> const when safe.
       'no-var': 'error',
       'prefer-const': 'error',
     },

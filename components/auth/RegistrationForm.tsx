@@ -1,7 +1,13 @@
 'use client';
 
-import { useState, useCallback, type FormEvent, type ReactNode } from 'react';
+import { useState, useCallback, useRef, type FormEvent, type ReactNode } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import { scorePasswordStrength, validatePassword } from '@/lib/auth/password';
+import {
+  AUTH_FIELD_ERROR_CLASS,
+  AUTH_FORM_ERROR_CLASS,
+  authPasswordStrengthLabelClass,
+} from '@/lib/auth/auth-ui-classes';
 
 interface FormState {
   name: string;
@@ -20,6 +26,24 @@ interface FieldErrors {
 type AutoCompleteToken = 'name' | 'email' | 'new-password' | 'off';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Returns whether an element supports the Pointer Events capture API (not available in jsdom).
+ * @param target - Event target to inspect.
+ * @returns True when capture can be set and released on the element.
+ */
+function supportsPointerCapture(target: EventTarget | null): target is HTMLElement & {
+  setPointerCapture: (pointerId: number) => void;
+  hasPointerCapture: (pointerId: number) => boolean;
+  releasePointerCapture: (pointerId: number) => void;
+} {
+  return (
+    target instanceof HTMLElement &&
+    typeof target.setPointerCapture === 'function' &&
+    typeof target.hasPointerCapture === 'function' &&
+    typeof target.releasePointerCapture === 'function'
+  );
+}
 
 /**
  * Validates name, email, password, and confirm-password fields for setup and invite registration forms.
@@ -41,8 +65,9 @@ export function validateRegistrationForm(form: FormState): FieldErrors {
 
   if (!form.password) {
     errors.password = 'Password is required.';
-  } else if (form.password.length < 8) {
-    errors.password = 'Password must be at least 8 characters.';
+  } else {
+    const passwordError = validatePassword(form.password);
+    if (passwordError) errors.password = passwordError;
   }
 
   if (!form.confirmPassword) {
@@ -61,16 +86,7 @@ export function validateRegistrationForm(form: FormState): FieldErrors {
  * @returns Strength bar and label UI, or null when the password is empty.
  */
 export function PasswordStrengthBar({ password }: { password: string }) {
-  const score = (() => {
-    if (!password) return 0;
-    let s = 0;
-    if (password.length >= 8) s++;
-    if (password.length >= 12) s++;
-    if (/[A-Z]/.test(password)) s++;
-    if (/[0-9]/.test(password)) s++;
-    if (/[^A-Za-z0-9]/.test(password)) s++;
-    return s;
-  })();
+  const score = scorePasswordStrength(password);
 
   const labels = ['', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'];
 
@@ -81,15 +97,6 @@ export function PasswordStrengthBar({ password }: { password: string }) {
     'bg-primary/60',
     'bg-primary',
     'bg-primary',
-  ] as const;
-
-  const labelClass = [
-    '',
-    'text-destructive',
-    'text-muted-foreground',
-    'text-foreground',
-    'text-primary',
-    'text-primary',
   ] as const;
 
   if (!password) return null;
@@ -107,7 +114,7 @@ export function PasswordStrengthBar({ password }: { password: string }) {
           />
         ))}
       </div>
-      <p className={`text-xs ${labelClass[score]}`}>{labels[score]}</p>
+      <p className={authPasswordStrengthLabelClass(score)}>{labels[score]}</p>
     </div>
   );
 }
@@ -179,7 +186,7 @@ function InputField({
         )}
       </div>
       {error && (
-        <p id={errorId} className="flex items-center gap-1.5 text-xs text-destructive" role="alert">
+        <p id={errorId} className={AUTH_FIELD_ERROR_CLASS} role="alert">
           {error}
         </p>
       )}
@@ -208,7 +215,7 @@ export interface RegistrationFormProps {
   /** When true, disables the form while an external action is in progress. */
   isLoading?: boolean;
   /** Optional content rendered below the submit button (e.g. OAuth). */
-  footer?: ReactNode;
+  renderFooter?: (state: { formDisabled: boolean }) => ReactNode;
 }
 
 /**
@@ -225,7 +232,7 @@ export function RegistrationForm({
   onSubmit,
   externalError = '',
   isLoading: externalLoading = false,
-  footer,
+  renderFooter,
 }: RegistrationFormProps) {
   const [form, setForm] = useState<FormState>({
     name: '',
@@ -236,6 +243,8 @@ export function RegistrationForm({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [suppressFooterInteraction, setSuppressFooterInteraction] = useState(false);
+  const submitPressPendingRef = useRef(false);
 
   const update = useCallback(
     (field: keyof FormState) => (value: string) => {
@@ -247,15 +256,63 @@ export function RegistrationForm({
   );
 
   const formDisabled = isLoading || externalLoading;
+  const footerDisabled = formDisabled || suppressFooterInteraction;
   const displayError = serverError || externalError;
+
+  const handleSubmitPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (formDisabled) return;
+    submitPressPendingRef.current = true;
+    setSuppressFooterInteraction(true);
+    if (supportsPointerCapture(event.currentTarget)) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  };
+
+  const clearPendingSubmitPress = () => {
+    submitPressPendingRef.current = false;
+    setSuppressFooterInteraction(false);
+  };
+
+  const releaseSubmitPointerCapture = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (
+      supportsPointerCapture(event.currentTarget) &&
+      event.currentTarget.hasPointerCapture(event.pointerId)
+    ) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleSubmitPointerRelease = (event: React.PointerEvent<HTMLButtonElement>) => {
+    releaseSubmitPointerCapture(event);
+    if (!submitPressPendingRef.current) return;
+    window.setTimeout(() => {
+      if (submitPressPendingRef.current) {
+        clearPendingSubmitPress();
+      }
+    }, 0);
+  };
+
+  const handleSubmitPointerCancel = (event: React.PointerEvent<HTMLButtonElement>) => {
+    releaseSubmitPointerCapture(event);
+    clearPendingSubmitPress();
+  };
+
+  const handleSubmitLostPointerCapture = () => {
+    if (submitPressPendingRef.current) {
+      clearPendingSubmitPress();
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    submitPressPendingRef.current = false;
+    setSuppressFooterInteraction(true);
 
     const errors = validateRegistrationForm(form);
     if (Object.keys(errors).length) {
       setFieldErrors(errors);
       setServerError('');
+      setSuppressFooterInteraction(false);
       return;
     }
 
@@ -274,6 +331,7 @@ export function RegistrationForm({
       );
     } finally {
       setIsLoading(false);
+      setSuppressFooterInteraction(false);
     }
   };
 
@@ -288,7 +346,7 @@ export function RegistrationForm({
         {displayError && (
           <p
             id={formMessageId}
-            className="mt-6 text-sm font-medium text-destructive"
+            className={AUTH_FORM_ERROR_CLASS}
             role="alert"
             aria-live="assertive"
           >
@@ -346,13 +404,24 @@ export function RegistrationForm({
           <button
             type="submit"
             disabled={formDisabled}
+            onPointerDown={handleSubmitPointerDown}
+            onPointerUp={handleSubmitPointerRelease}
+            onPointerCancel={handleSubmitPointerCancel}
+            onLostPointerCapture={handleSubmitLostPointerCapture}
             className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {formDisabled ? submittingLabel : submitLabel}
           </button>
         </form>
 
-        {footer ? <div className="mt-6">{footer}</div> : null}
+        {renderFooter ? (
+          <div
+            className={`mt-8 ${footerDisabled ? 'opacity-60' : ''}`}
+            aria-disabled={footerDisabled ? true : undefined}
+          >
+            {renderFooter({ formDisabled: footerDisabled })}
+          </div>
+        ) : null}
       </div>
     </div>
   );

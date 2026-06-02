@@ -13,6 +13,8 @@ export interface AdminUserRow {
   name?: string;
   role: 'user' | 'admin';
   createdAt: string;
+  /** False for Google OAuth-only accounts that cannot receive password reset links. */
+  canResetPassword: boolean;
 }
 
 /**
@@ -48,7 +50,11 @@ export async function GET(request: NextRequest) {
   const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0);
 
   try {
-    const { users, total } = await listUsers({ limit, offset });
+    const { users, total } = await listUsers({
+      limit,
+      offset,
+      includePasswordResetEligibility: true,
+    });
     const response: AdminUsersResponse = {
       users: users.map((user) => ({
         userId: user.userId,
@@ -56,6 +62,7 @@ export async function GET(request: NextRequest) {
         name: user.name,
         role: user.role,
         createdAt: user.$createdAt,
+        canResetPassword: user.canResetPassword ?? false,
       })),
       pagination: {
         limit,

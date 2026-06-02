@@ -153,13 +153,15 @@ After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
 | [docs/performance.md](docs/performance.md)                 | Performance optimization guide                    |
 | [docs/accessibility.md](docs/accessibility.md)             | Web accessibility (a11y) guide                    |
 | [docs/deployment-guide.md](docs/deployment-guide.md)       | Deploying to Vercel and other platforms           |
+| [docs/password-recovery.md](docs/password-recovery.md)     | Admin/user password recovery without email        |
 | [docs/devcontainer.md](docs/devcontainer.md)               | Dev Container setup guide                         |
 | [docs/ai-features.md](docs/ai-features.md)                 | Implementing AI features (OpenRouter + Vercel AI) |
 | [docs/component-libraries.md](docs/component-libraries.md) | UI component library comparison                   |
 
 ## Docker
 
-- **Run the app in a container:** `docker build -t videosphere-app .` then `docker run -p 3000:3000 --env-file .env.local videosphere-app`.
+- **Run the app in a container:** `docker build -t videosphere .` then `docker run --name videosphere -p 3000:3000 --env-file .env.local videosphere`.
+- **Password recovery (no SMTP):** see [docs/password-recovery.md](docs/password-recovery.md) for CLI password reset, log-based forgot-password, and admin reset links.
 
 ## Contributing
 

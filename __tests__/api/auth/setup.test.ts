@@ -63,7 +63,7 @@ function makeRequest(body: unknown): NextRequest {
 const validPayload = {
   name: '  Admin User  ',
   email: 'ADMIN@Example.com',
-  password: 'password123',
+  password: 'Abcdefg1!',
   token: 'setup-token-1',
 };
 
@@ -111,7 +111,7 @@ describe('POST /api/auth/setup', () => {
     const res = await POST(
       makeRequest({
         email: 'admin@example.com',
-        password: 'password123',
+        password: 'Abcdefg1!',
         token: 'setup-token-1',
       })
     );

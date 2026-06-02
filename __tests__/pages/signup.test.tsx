@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import InviteSignupClient from '@/app/(auth)/invite/[token]/InviteSignupClient';
 import { PasswordStrengthBar, validateRegistrationForm } from '@/components/auth/RegistrationForm';
+
+const mockBuildGoogleOAuthStartSearchParams = vi.hoisted(() => vi.fn(() => '?mock-google-oauth=1'));
+
+vi.mock('@/lib/auth/google-oauth', () => ({
+  buildGoogleOAuthStartSearchParams: mockBuildGoogleOAuthStartSearchParams,
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(),
@@ -106,6 +112,61 @@ describe('InviteSignupClient', () => {
       await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/dashboard'));
     });
   });
+
+  describe('submit vs Google OAuth footer', () => {
+    it('starts Google OAuth when the footer button is clicked directly', async () => {
+      const user = userEvent.setup();
+
+      render(<InviteSignupClient token="invite-token-123" />);
+      await user.click(screen.getByRole('button', { name: /sign up with google/i }));
+
+      expect(mockBuildGoogleOAuthStartSearchParams).toHaveBeenCalledWith({
+        redirectTo: null,
+        setupToken: null,
+        inviteToken: 'invite-token-123',
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('submits the form without starting Google OAuth on a normal submit click', async () => {
+      const user = userEvent.setup();
+
+      render(<InviteSignupClient token="invite-token-123" />);
+      await fillValidSignupForm(user);
+      await user.click(screen.getByRole('button', { name: /create account/i }));
+
+      await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      expect(mockBuildGoogleOAuthStartSearchParams).not.toHaveBeenCalled();
+    });
+
+    it('does not start Google OAuth when a click during submit pointer press hits the footer', async () => {
+      render(<InviteSignupClient token="invite-token-123" />);
+      const user = userEvent.setup();
+      await fillValidSignupForm(user);
+
+      const submitBtn = screen.getByRole('button', { name: /create account/i });
+      const googleBtn = screen.getByRole('button', { name: /sign up with google/i });
+      const form = submitBtn.closest('form');
+      expect(form).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.pointerDown(submitBtn);
+      });
+
+      expect(googleBtn).toBeDisabled();
+
+      fireEvent.click(googleBtn);
+
+      await act(async () => {
+        fireEvent.pointerUp(submitBtn);
+      });
+
+      fireEvent.submit(form!);
+
+      await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      expect(mockBuildGoogleOAuthStartSearchParams).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('RegistrationForm validation helpers', () => {
@@ -120,12 +181,23 @@ describe('RegistrationForm validation helpers', () => {
     expect(errors.confirmPassword).toBe('Passwords do not match.');
   });
 
-  it('accepts email addresses with surrounding whitespace', () => {
+  it('rejects weak passwords', () => {
+    const errors = validateRegistrationForm({
+      name: 'Sarah',
+      email: 'sarah@example.com',
+      password: 'password',
+      confirmPassword: 'password',
+    });
+
+    expect(errors.password).toBe('Password is too common. Choose a stronger password.');
+  });
+
+  it('accepts email addresses with surrounding whitespace when password is strong', () => {
     const errors = validateRegistrationForm({
       name: 'Sarah',
       email: '  sarah@example.com  ',
-      password: 'password123',
-      confirmPassword: 'password123',
+      password: 'Abcdefg1!',
+      confirmPassword: 'Abcdefg1!',
     });
 
     expect(errors).toEqual({});

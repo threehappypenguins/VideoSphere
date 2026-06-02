@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: videosphere-app:latest
-    container_name: videosphere-app
+    image: videosphere:latest
+    container_name: videosphere
     restart: unless-stopped
     ports:
       - '3000:3000'
@@ -19,6 +19,8 @@ services:
       mongo:
         condition: service_healthy
 
+  # Standalone MongoDB (no replica set). Multi-document transactions are not supported;
+  # password reset uses ordered writes instead — see docs/password-recovery.md.
   mongo:
     image: mongo:8
     container_name: videosphere-mongo

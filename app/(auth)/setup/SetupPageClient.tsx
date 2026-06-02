@@ -84,19 +84,19 @@ export default function SetupPageClient({ token }: SetupPageClientProps) {
         onSubmit={handleSubmit}
         externalError={oauthError}
         isLoading={isFormLoading}
-        footer={
+        renderFooter={({ formDisabled }) => (
           <>
             <AuthOAuthDivider />
             <div className="mt-6">
               <GoogleOAuthButton
                 label="Set up with Google"
                 setupToken={token}
-                disabled={isFormLoading}
+                disabled={formDisabled}
                 helperText={AUTH_GOOGLE_PLATFORM_ACCOUNT_NOTE}
               />
             </div>
           </>
-        }
+        )}
       />
 
       <p className="pb-12 text-center text-sm text-muted-foreground">

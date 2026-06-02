@@ -70,6 +70,9 @@ docker compose --env-file .env.local up -d mongo
 ```
 
 This project ships a self-contained compose stack with `mongo:8` and persistent storage.
+Mongo runs as a **standalone** instance (not a replica set), so multi-document transactions are
+unavailable; password reset completion is documented in
+[docs/password-recovery.md](docs/password-recovery.md#reset-completion-why-not-mongodb-transactions).
 Compose interpolation for `${MONGO_ROOT_PASSWORD}` reads from the shell environment or
 an explicit Compose env file, so this command must include `--env-file .env.local`.
 

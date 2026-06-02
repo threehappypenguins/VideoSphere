@@ -8,6 +8,7 @@
 // =============================================================================
 
 import type { User, UserRole } from '@/types';
+import { userSupportsPasswordReset } from '@/lib/auth/password';
 import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
@@ -19,10 +20,22 @@ import {
 
 export type { UserAuthProvider };
 
+/** Fields returned for admin user list rows (excludes secrets such as `googleRefreshToken`). */
+const LIST_USER_BASE_SELECT = 'userId email name hasCompletedOnboarding role createdAt updatedAt';
+
+type ListUserProfileLean = Pick<
+  UserProfileDocument,
+  'userId' | 'email' | 'name' | 'hasCompletedOnboarding' | 'role' | 'createdAt' | 'updatedAt'
+> & {
+  authProvider?: UserAuthProvider;
+  /** Set when listing with password-reset eligibility; hash value is never loaded. */
+  hasPasswordHash?: boolean;
+};
+
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
   return {
-    userId: String(doc.userId ?? doc._id),
+    userId: String(doc.userId),
     email: String(doc.email),
     name: typeof doc.name === 'string' ? doc.name : undefined,
     hasCompletedOnboarding: Boolean(doc.hasCompletedOnboarding),
@@ -90,21 +103,15 @@ export async function createUser(data: CreateUserData): Promise<User> {
 
 /**
  * Fetch a user by Auth user id from user_profiles.
- *
- * Primary path: _id equals Auth id.
- * Fallback: query by userId field for migrated data where _id may differ.
  * @param userId - Auth user id to look up.
  * @returns The matching user profile, or null when not found.
  */
 export async function getUserById(userId: string): Promise<User | null> {
   await connectToDatabase();
 
-  const byId = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
-  if (byId) return mongoDocToUser(byId);
-
-  const byUserId = await UserProfileModel.findOne({ userId }).lean<UserProfileDocument | null>();
-  if (!byUserId) return null;
-  return mongoDocToUser(byUserId);
+  const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  if (!doc) return null;
+  return mongoDocToUser(doc);
 }
 
 /**
@@ -143,7 +150,7 @@ export async function getUserAuthCredentialsByEmail(
   }
 
   return {
-    userId: String(doc.userId ?? doc._id),
+    userId: String(doc.userId),
     passwordHash: doc.passwordHash,
     role: (doc.role as UserRole) ?? 'user',
   };
@@ -162,9 +169,24 @@ export interface UpdateUserData {
 }
 
 /**
+ * Updates the bcrypt password hash for a user profile.
+ * @param userId - Auth user id to update.
+ * @param passwordHash - New bcrypt hash to persist.
+ * @returns Resolves when the profile update completes.
+ * @throws Error with `code` 404 when no matching profile exists.
+ */
+export async function updateUserPasswordHash(userId: string, passwordHash: string): Promise<void> {
+  await connectToDatabase();
+
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, { passwordHash }).lean();
+  if (!updated) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+}
+
+/**
  * Update user_profiles fields. Only provided fields are updated.
- *
- * Mirrors getUserById's fallback: if _id lookup misses, resolves by userId and retries.
  * @param userId - Auth user id to update.
  * @param data - Partial profile fields to apply.
  * @returns The updated user profile.
@@ -176,23 +198,17 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
   const payload: Partial<Pick<UserProfileDocument, 'hasCompletedOnboarding' | 'role'>> =
     Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
 
-  const byId = await UserProfileModel.findByIdAndUpdate(userId, payload, {
-    returnDocument: 'after',
-    runValidators: true,
-  }).lean<UserProfileDocument | null>();
-  if (byId) return mongoDocToUser(byId);
-
-  const byUserId = await UserProfileModel.findOneAndUpdate({ userId }, payload, {
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, payload, {
     returnDocument: 'after',
     runValidators: true,
   }).lean<UserProfileDocument | null>();
 
-  if (!byUserId) {
+  if (!updated) {
     const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
     throw notFound;
   }
 
-  return mongoDocToUser(byUserId);
+  return mongoDocToUser(updated);
 }
 
 // -----------------------------------------------------------------------------
@@ -200,18 +216,81 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
 // -----------------------------------------------------------------------------
 
 /**
+ * Password reset eligibility for a user profile.
+ */
+export interface UserPasswordAuthState {
+  userId: string;
+  supportsPasswordReset: boolean;
+}
+
+/**
+ * Fetch password-reset eligibility for a user by email.
+ * @param email - Email address to look up.
+ * @returns Auth state when a profile exists; otherwise null.
+ */
+export async function getUserPasswordAuthStateByEmail(
+  email: string
+): Promise<UserPasswordAuthState | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findOne({ email: normalized })
+    .select({ _id: 1, userId: 1, passwordHash: 1, authProvider: 1 })
+    .lean<Pick<UserProfileDocument, '_id' | 'userId' | 'passwordHash' | 'authProvider'> | null>();
+  if (!doc) return null;
+
+  return {
+    userId: String(doc.userId),
+    supportsPasswordReset: userSupportsPasswordReset(doc),
+  };
+}
+
+/**
+ * Fetch password-reset eligibility for a user by id.
+ * @param userId - Auth user id to look up.
+ * @returns Auth state when a profile exists; otherwise null.
+ */
+export async function getUserPasswordAuthStateById(
+  userId: string
+): Promise<UserPasswordAuthState | null> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ userId: 1, passwordHash: 1, authProvider: 1 })
+    .lean<Pick<UserProfileDocument, 'userId' | 'passwordHash' | 'authProvider'> | null>();
+
+  if (!doc) return null;
+
+  return {
+    userId: String(doc.userId),
+    supportsPasswordReset: userSupportsPasswordReset(doc),
+  };
+}
+
+/**
  * Defines the shape of list users options.
  */
 export interface ListUsersOptions {
   limit?: number;
   offset?: number;
+  /** When true, include `canResetPassword` on each listed user (admin UI). */
+  includePasswordResetEligibility?: boolean;
+}
+
+/**
+ * Admin user list row with optional password-reset eligibility.
+ */
+export interface AdminListUser extends User {
+  canResetPassword?: boolean;
 }
 
 /**
  * Defines the shape of list users result.
  */
 export interface ListUsersResult {
-  users: User[];
+  users: AdminListUser[];
   total: number;
 }
 
@@ -225,18 +304,51 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
 
   const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
   const offset = Math.max(options.offset ?? 0, 0);
+  const includePasswordResetEligibility = options.includePasswordResetEligibility === true;
 
   const [docs, total] = await Promise.all([
-    UserProfileModel.find({})
-      .sort({ createdAt: 1 })
-      .skip(offset)
-      .limit(limit)
-      .lean<UserProfileDocument[]>(),
+    includePasswordResetEligibility
+      ? UserProfileModel.aggregate<ListUserProfileLean>([
+          { $sort: { createdAt: 1 } },
+          { $skip: offset },
+          { $limit: limit },
+          {
+            $project: {
+              userId: 1,
+              email: 1,
+              name: 1,
+              hasCompletedOnboarding: 1,
+              role: 1,
+              createdAt: 1,
+              updatedAt: 1,
+              authProvider: 1,
+              hasPasswordHash: {
+                $gt: [{ $strLenCP: { $ifNull: ['$passwordHash', ''] } }, 0],
+              },
+            },
+          },
+        ])
+      : UserProfileModel.find({})
+          .select(LIST_USER_BASE_SELECT)
+          .sort({ createdAt: 1 })
+          .skip(offset)
+          .limit(limit)
+          .lean<ListUserProfileLean[]>(),
     UserProfileModel.countDocuments({}),
   ]);
 
   return {
-    users: docs.map(mongoDocToUser),
+    users: docs.map((doc) => ({
+      ...mongoDocToUser(doc as UserProfileDocument),
+      ...(includePasswordResetEligibility
+        ? {
+            canResetPassword: userSupportsPasswordReset({
+              authProvider: doc.authProvider,
+              passwordHash: doc.hasPasswordHash ? 'present' : undefined,
+            }),
+          }
+        : {}),
+    })),
     total,
   };
 }
@@ -292,10 +404,7 @@ export async function persistGoogleAuthForUser(
     payload.googleRefreshToken = encryptToken(trimmedRefresh);
   }
 
-  const byId = await UserProfileModel.findByIdAndUpdate(userId, payload).lean();
-  if (byId) return;
-
-  await UserProfileModel.findOneAndUpdate({ userId }, payload);
+  await UserProfileModel.findByIdAndUpdate(userId, payload);
 }
 
 /**
@@ -307,16 +416,9 @@ export async function persistGoogleAuthForUser(
 export async function revokeStoredGoogleAuthForUser(userId: string): Promise<void> {
   await connectToDatabase();
 
-  let doc =
-    (await UserProfileModel.findById(userId)
-      .select({ authProvider: 1, googleRefreshToken: 1 })
-      .lean<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'> | null>()) ?? null;
-
-  if (!doc) {
-    doc = await UserProfileModel.findOne({ userId })
-      .select({ authProvider: 1, googleRefreshToken: 1 })
-      .lean<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'> | null>();
-  }
+  const doc = await UserProfileModel.findById(userId)
+    .select({ authProvider: 1, googleRefreshToken: 1 })
+    .lean<Pick<UserProfileDocument, 'authProvider' | 'googleRefreshToken'> | null>();
 
   if (doc?.authProvider !== 'google') return;
 
@@ -342,9 +444,6 @@ export async function revokeStoredGoogleAuthForUser(userId: string): Promise<voi
 export async function deleteUserById(userId: string): Promise<boolean> {
   await connectToDatabase();
 
-  const byId = await UserProfileModel.deleteOne({ _id: userId });
-  if (byId.deletedCount > 0) return true;
-
-  const byUserId = await UserProfileModel.deleteOne({ userId });
-  return byUserId.deletedCount > 0;
+  const result = await UserProfileModel.deleteOne({ _id: userId });
+  return result.deletedCount > 0;
 }
