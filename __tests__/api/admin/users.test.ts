@@ -127,14 +127,18 @@ describe('GET /api/admin/users', () => {
 
     it('returns 200 ApiResponse with users and pagination', async () => {
       vi.mocked(listUsers).mockResolvedValueOnce({
-        users: [listedUser],
+        users: [{ ...listedUser, canResetPassword: true }],
         total: 128,
       });
 
       const res = await GET(makeGetRequest('?limit=50&offset=10'));
       expect(res.status).toBe(200);
 
-      expect(listUsers).toHaveBeenCalledWith({ limit: 50, offset: 10 });
+      expect(listUsers).toHaveBeenCalledWith({
+        limit: 50,
+        offset: 10,
+        includePasswordResetEligibility: true,
+      });
 
       const body = await res.json();
       expect(body.data).toBeDefined();
@@ -145,6 +149,7 @@ describe('GET /api/admin/users', () => {
         name: listedUser.name,
         role: listedUser.role,
         createdAt: listedUser.$createdAt,
+        canResetPassword: true,
       });
       expect(body.data.pagination).toEqual({
         limit: 50,
@@ -158,7 +163,11 @@ describe('GET /api/admin/users', () => {
 
       const res = await GET(makeGetRequest());
       expect(res.status).toBe(200);
-      expect(listUsers).toHaveBeenCalledWith({ limit: 25, offset: 0 });
+      expect(listUsers).toHaveBeenCalledWith({
+        limit: 25,
+        offset: 0,
+        includePasswordResetEligibility: true,
+      });
 
       const body = await res.json();
       expect(body.data.pagination).toEqual({ limit: 25, offset: 0, total: 0 });
@@ -168,7 +177,11 @@ describe('GET /api/admin/users', () => {
       vi.mocked(listUsers).mockResolvedValueOnce({ users: [], total: 0 });
 
       await GET(makeGetRequest('?limit=1000'));
-      expect(listUsers).toHaveBeenCalledWith({ limit: 100, offset: 0 });
+      expect(listUsers).toHaveBeenCalledWith({
+        limit: 100,
+        offset: 0,
+        includePasswordResetEligibility: true,
+      });
     });
 
     it('returns 500 ApiError when listUsers throws', async () => {

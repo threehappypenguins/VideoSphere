@@ -15,6 +15,7 @@ import {
 } from '@/lib/repositories/invites';
 import { createUser } from '@/lib/repositories/users';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
+import { validatePassword } from '@/lib/auth/password';
 
 const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -68,11 +69,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email must be a valid email address.' }, { status: 400 });
     }
 
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: 'Password must be at least 8 characters.' },
-        { status: 400 }
-      );
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     if (!name) {

@@ -8,6 +8,7 @@
 // =============================================================================
 
 import type { User, UserRole } from '@/types';
+import { userSupportsPasswordReset } from '@/lib/auth/password';
 import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
@@ -162,6 +163,28 @@ export interface UpdateUserData {
 }
 
 /**
+ * Updates the bcrypt password hash for a user profile.
+ * @param userId - Auth user id to update.
+ * @param passwordHash - New bcrypt hash to persist.
+ * @returns Resolves when the profile update completes.
+ * @throws Error with `code` 404 when no matching profile exists.
+ */
+export async function updateUserPasswordHash(userId: string, passwordHash: string): Promise<void> {
+  await connectToDatabase();
+
+  const payload = { passwordHash };
+
+  const byId = await UserProfileModel.findByIdAndUpdate(userId, payload).lean();
+  if (byId) return;
+
+  const byUserId = await UserProfileModel.findOneAndUpdate({ userId }, payload).lean();
+  if (!byUserId) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+}
+
+/**
  * Update user_profiles fields. Only provided fields are updated.
  *
  * Mirrors getUserById's fallback: if _id lookup misses, resolves by userId and retries.
@@ -200,18 +223,88 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
 // -----------------------------------------------------------------------------
 
 /**
+ * Password reset eligibility for a user profile.
+ */
+export interface UserPasswordAuthState {
+  userId: string;
+  supportsPasswordReset: boolean;
+}
+
+/**
+ * Fetch password-reset eligibility for a user by email.
+ * @param email - Email address to look up.
+ * @returns Auth state when a profile exists; otherwise null.
+ */
+export async function getUserPasswordAuthStateByEmail(
+  email: string
+): Promise<UserPasswordAuthState | null> {
+  await connectToDatabase();
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const doc = await UserProfileModel.findOne({ email: normalized })
+    .select({ _id: 1, userId: 1, passwordHash: 1, authProvider: 1 })
+    .lean<Pick<UserProfileDocument, '_id' | 'userId' | 'passwordHash' | 'authProvider'> | null>();
+  if (!doc) return null;
+
+  return {
+    userId: String(doc.userId ?? doc._id),
+    supportsPasswordReset: userSupportsPasswordReset(doc),
+  };
+}
+
+/**
+ * Fetch password-reset eligibility for a user by id.
+ * @param userId - Auth user id to look up.
+ * @returns Auth state when a profile exists; otherwise null.
+ */
+export async function getUserPasswordAuthStateById(
+  userId: string
+): Promise<UserPasswordAuthState | null> {
+  await connectToDatabase();
+
+  const byId = await UserProfileModel.findById(userId)
+    .select({ _id: 1, userId: 1, passwordHash: 1, authProvider: 1 })
+    .lean<Pick<UserProfileDocument, '_id' | 'userId' | 'passwordHash' | 'authProvider'> | null>();
+  const doc =
+    byId ??
+    (await UserProfileModel.findOne({ userId })
+      .select({ _id: 1, userId: 1, passwordHash: 1, authProvider: 1 })
+      .lean<Pick<
+        UserProfileDocument,
+        '_id' | 'userId' | 'passwordHash' | 'authProvider'
+      > | null>());
+
+  if (!doc) return null;
+
+  return {
+    userId: String(doc.userId ?? doc._id),
+    supportsPasswordReset: userSupportsPasswordReset(doc),
+  };
+}
+
+/**
  * Defines the shape of list users options.
  */
 export interface ListUsersOptions {
   limit?: number;
   offset?: number;
+  /** When true, include `canResetPassword` on each listed user (admin UI). */
+  includePasswordResetEligibility?: boolean;
+}
+
+/**
+ * Admin user list row with optional password-reset eligibility.
+ */
+export interface AdminListUser extends User {
+  canResetPassword?: boolean;
 }
 
 /**
  * Defines the shape of list users result.
  */
 export interface ListUsersResult {
-  users: User[];
+  users: AdminListUser[];
   total: number;
 }
 
@@ -225,6 +318,7 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
 
   const limit = Math.min(Math.max(options.limit ?? 25, 1), 100);
   const offset = Math.max(options.offset ?? 0, 0);
+  const includePasswordResetEligibility = options.includePasswordResetEligibility === true;
 
   const [docs, total] = await Promise.all([
     UserProfileModel.find({})
@@ -236,7 +330,12 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
   ]);
 
   return {
-    users: docs.map(mongoDocToUser),
+    users: docs.map((doc) => ({
+      ...mongoDocToUser(doc),
+      ...(includePasswordResetEligibility
+        ? { canResetPassword: userSupportsPasswordReset(doc) }
+        : {}),
+    })),
     total,
   };
 }

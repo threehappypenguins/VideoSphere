@@ -17,12 +17,18 @@
 
 'use client';
 
-import { useState, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useRef, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { AuthOAuthDivider, GoogleOAuthButton } from '@/components/auth/GoogleOAuthButton';
 import { getOAuthErrorMessage } from '@/lib/auth/oauth-errors';
+import {
+  AUTH_FORM_ERROR_CLASS,
+  AUTH_FORM_SUCCESS_CLASS,
+  AUTH_INLINE_LINK_CLASS,
+} from '@/lib/auth/auth-ui-classes';
 
 interface LoginState {
   email: string;
@@ -115,7 +121,7 @@ export default function LoginPage() {
         {error?.type === 'error' && (
           <p
             id={formMessageId}
-            className="mt-6 text-sm font-medium text-red-600 dark:text-red-400"
+            className={AUTH_FORM_ERROR_CLASS}
             role="alert"
             aria-live="assertive"
             aria-atomic="true"
@@ -128,7 +134,7 @@ export default function LoginPage() {
         {error?.type === 'success' && (
           <p
             id={formMessageId}
-            className="mt-6 text-sm font-medium text-green-600 dark:text-green-400"
+            className={AUTH_FORM_SUCCESS_CLASS}
             role="status"
             aria-live="polite"
             aria-atomic="true"
@@ -164,9 +170,14 @@ export default function LoginPage() {
 
           {/* Password */}
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-foreground">
-              Password
-            </label>
+            <div className="flex items-center justify-between">
+              <label htmlFor="password" className="block text-sm font-medium text-foreground">
+                Password
+              </label>
+              <Link href="/forgot-password" className={AUTH_INLINE_LINK_CLASS}>
+                Forgot password?
+              </Link>
+            </div>
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}

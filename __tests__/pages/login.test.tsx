@@ -54,6 +54,13 @@ describe('LoginPage Component', () => {
       expect(screen.getByText(/log in to your videosphere account/i)).toBeInTheDocument();
     });
 
+    it('should render a forgot password link', () => {
+      render(<LoginPage />);
+
+      const link = screen.getByRole('link', { name: /forgot password/i });
+      expect(link).toHaveAttribute('href', '/forgot-password');
+    });
+
     it('should have correct input types and attributes', () => {
       render(<LoginPage />);
 

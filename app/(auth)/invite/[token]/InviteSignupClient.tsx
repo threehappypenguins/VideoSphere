@@ -84,19 +84,19 @@ export default function InviteSignupClient({ token }: InviteSignupClientProps) {
         onSubmit={handleSubmit}
         externalError={oauthError}
         isLoading={isFormLoading}
-        footer={
+        renderFooter={({ formDisabled }) => (
           <>
             <AuthOAuthDivider />
             <div className="mt-6">
               <GoogleOAuthButton
                 label="Sign up with Google"
                 inviteToken={token}
-                disabled={isFormLoading}
+                disabled={formDisabled}
                 helperText={AUTH_GOOGLE_PLATFORM_ACCOUNT_NOTE}
               />
             </div>
           </>
-        }
+        )}
       />
 
       <p className="pb-12 text-center text-sm text-muted-foreground">

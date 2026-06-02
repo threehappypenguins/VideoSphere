@@ -2,6 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { UserRole } from '@/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface AdminUserRow {
   userId: string;
@@ -9,6 +17,7 @@ interface AdminUserRow {
   name?: string;
   role: UserRole;
   createdAt: string;
+  canResetPassword: boolean;
 }
 
 /** Matches GET /api/admin/users default page size. */
@@ -41,6 +50,11 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
   const [error, setError] = useState<string | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetUrl, setResetUrl] = useState('');
+  const [resetTargetEmail, setResetTargetEmail] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [total, setTotal] = useState(0);
 
@@ -155,6 +169,50 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
     }
   };
 
+  const handleResetPassword = async (user: AdminUserRow) => {
+    setResettingUserId(user.userId);
+    setError(null);
+    setCopyFeedback(null);
+
+    try {
+      const res = await fetch(
+        `/api/admin/users/${encodeURIComponent(user.userId)}/reset-password`,
+        { method: 'POST' }
+      );
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+        throw new Error(payload.error ?? payload.message ?? 'Failed to generate reset link');
+      }
+      const payload = (await res.json()) as { resetUrl: string };
+      setResetTargetEmail(user.email);
+      setResetUrl(payload.resetUrl);
+      setResetModalOpen(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to generate reset link');
+    } finally {
+      setResettingUserId(null);
+    }
+  };
+
+  const handleCopyResetUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(resetUrl);
+      setCopyFeedback('Copied to clipboard');
+    } catch {
+      setCopyFeedback('Unable to copy automatically — select the URL and copy manually');
+    }
+  };
+
+  const handleCloseResetModal = () => {
+    setResetModalOpen(false);
+    setResetUrl('');
+    setResetTargetEmail('');
+    setCopyFeedback(null);
+  };
+
   const canPrev = offset > 0;
   const canNext = offset + users.length < total;
   const showPagination = total > USERS_PAGE_SIZE;
@@ -233,18 +291,32 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
                       {formatDate(user.createdAt)}
                     </td>
                     <td className="px-4 py-3">
-                      {isSelf ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={deletingUserId === user.userId}
-                          onClick={() => void handleDelete(user.userId)}
-                          className="text-sm font-medium text-destructive hover:text-destructive/80 disabled:opacity-50"
-                        >
-                          {deletingUserId === user.userId ? 'Deleting…' : 'Delete'}
-                        </button>
-                      )}
+                      <div className="flex flex-wrap items-center gap-3">
+                        {user.canResetPassword ? (
+                          <button
+                            type="button"
+                            disabled={resettingUserId === user.userId}
+                            onClick={() => void handleResetPassword(user)}
+                            className="text-sm font-medium text-primary hover:text-primary/80 disabled:opacity-50"
+                          >
+                            {resettingUserId === user.userId ? 'Generating…' : 'Reset Password'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Google sign-in</span>
+                        )}
+                        {isSelf ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={deletingUserId === user.userId}
+                            onClick={() => void handleDelete(user.userId)}
+                            className="text-sm font-medium text-destructive hover:text-destructive/80 disabled:opacity-50"
+                          >
+                            {deletingUserId === user.userId ? 'Deleting…' : 'Delete'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -274,6 +346,61 @@ export function UsersListSection({ currentUserId }: UsersListSectionProps) {
           </button>
         </div>
       ) : null}
+
+      <Dialog
+        open={resetModalOpen}
+        onOpenChange={(open) => {
+          if (!open) handleCloseResetModal();
+        }}
+      >
+        <DialogContent
+          onPointerDownOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>Password reset link</DialogTitle>
+            <DialogDescription>
+              Share this one-time link with {resetTargetEmail || 'the user'}. It expires in 24 hours
+              and can only be used once.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label htmlFor="reset-url" className="text-sm font-medium text-foreground">
+              Reset URL
+            </label>
+            <input
+              id="reset-url"
+              type="text"
+              readOnly
+              value={resetUrl}
+              className="block w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground"
+              onFocus={(event) => event.target.select()}
+            />
+            <p className="text-xs text-muted-foreground">
+              This link expires in 24 hours and can only be used once. Send it to the user directly.
+            </p>
+            {copyFeedback ? <p className="text-xs text-muted-foreground">{copyFeedback}</p> : null}
+          </div>
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <button
+              type="button"
+              onClick={() => void handleCopyResetUrl()}
+              className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
+            >
+              Copy to clipboard
+            </button>
+            <button
+              type="button"
+              onClick={handleCloseResetModal}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Done
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

@@ -1,8 +1,8 @@
 # =============================================================================
 # VideoSphere — Docker image for the Next.js app
 # =============================================================================
-# Build: docker build -t videosphere-app .
-# Run:   docker run -p 3000:3000 --env-file .env.local videosphere-app
+# Build: docker build -t videosphere .
+# Run:   docker run --name videosphere -p 3000:3000 --env-file .env.local videosphere
 # =============================================================================
 
 # Stage 1: install dependencies
@@ -40,6 +40,8 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --chown=nextjs:nodejs scripts ./scripts
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./script_node_modules
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000

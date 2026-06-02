@@ -1,0 +1,120 @@
+import { randomUUID } from 'node:crypto';
+import { connectToDatabase } from '@/lib/mongodb';
+import {
+  PasswordResetTokenModel,
+  type PasswordResetTokenDocument,
+} from '@/lib/models/PasswordResetToken';
+
+/** Window for forgot-password rate limiting (3 requests per email per 15 minutes). */
+export const FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+
+/** Maximum forgot-password token requests per user within the rate-limit window. */
+export const FORGOT_PASSWORD_RATE_LIMIT_MAX = 3;
+
+/**
+ * Defines a password reset token returned by repository helpers.
+ */
+export interface PasswordResetTokenRecord {
+  id: string;
+  token: string;
+  userId: string;
+  expiresAt: string;
+  usedAt?: string;
+  createdAt: string;
+}
+
+function toRecord(doc: PasswordResetTokenDocument): PasswordResetTokenRecord {
+  return {
+    id: String(doc._id),
+    token: doc.token,
+    userId: doc.userId,
+    expiresAt: new Date(doc.expiresAt).toISOString(),
+    usedAt: doc.usedAt ? new Date(doc.usedAt).toISOString() : undefined,
+    createdAt: new Date(doc.createdAt).toISOString(),
+  };
+}
+
+/**
+ * Counts reset tokens created for a user since a given time (for rate limiting).
+ * @param userId - Target user id.
+ * @param since - Earliest creation time to include.
+ * @returns Number of matching token documents.
+ */
+export async function countPasswordResetTokensSince(userId: string, since: Date): Promise<number> {
+  await connectToDatabase();
+  return PasswordResetTokenModel.countDocuments({
+    userId,
+    createdAt: { $gte: since },
+  });
+}
+
+/**
+ * Marks all unused reset tokens for a user as consumed.
+ * @param userId - Target user id.
+ * @param usedAt - Timestamp to record on invalidated tokens.
+ * @returns Resolves when the update completes.
+ */
+export async function invalidateUnusedPasswordResetTokensForUser(
+  userId: string,
+  usedAt: Date = new Date()
+): Promise<void> {
+  await connectToDatabase();
+  await PasswordResetTokenModel.updateMany(
+    { userId, usedAt: { $exists: false } },
+    { $set: { usedAt } }
+  );
+}
+
+/**
+ * Persists a new password reset token for a user.
+ * @param input - Token value, user id, and absolute expiry time.
+ * @returns The stored token record.
+ */
+export async function createPasswordResetToken(input: {
+  token: string;
+  userId: string;
+  expiresAt: Date;
+}): Promise<PasswordResetTokenRecord> {
+  await connectToDatabase();
+  const created = await PasswordResetTokenModel.create({
+    _id: randomUUID(),
+    token: input.token,
+    userId: input.userId,
+    expiresAt: input.expiresAt,
+  });
+  return toRecord(created.toObject());
+}
+
+/**
+ * Finds a reset token by its public token string when still valid.
+ * @param token - URL-safe reset token.
+ * @param now - Reference time for expiry comparison.
+ * @returns The matching record when valid; otherwise null.
+ */
+export async function findValidPasswordResetToken(
+  token: string,
+  now: Date = new Date()
+): Promise<PasswordResetTokenRecord | null> {
+  await connectToDatabase();
+  const doc = await PasswordResetTokenModel.findOne({
+    token,
+    usedAt: { $exists: false },
+    expiresAt: { $gt: now },
+  }).lean<PasswordResetTokenDocument | null>();
+  if (!doc) return null;
+  return toRecord(doc);
+}
+
+/**
+ * Marks a reset token as used.
+ * @param tokenId - Internal document id.
+ * @param usedAt - Consumption timestamp.
+ * @returns Resolves when the update completes.
+ */
+export async function markPasswordResetTokenUsed(
+  tokenId: string,
+  usedAt: Date = new Date()
+): Promise<void> {
+  await connectToDatabase();
+  await PasswordResetTokenModel.updateOne({ _id: tokenId }, { $set: { usedAt } });
+}

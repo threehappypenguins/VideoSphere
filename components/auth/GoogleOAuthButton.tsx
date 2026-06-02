@@ -40,6 +40,7 @@ export function GoogleOAuthButton({
   helperText,
 }: GoogleOAuthButtonProps) {
   const handleClick = () => {
+    if (disabled) return;
     const params = buildGoogleOAuthStartSearchParams({ redirectTo, setupToken, inviteToken });
     window.location.href = `/api/auth/oauth/google${params}`;
   };

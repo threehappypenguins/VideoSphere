@@ -81,7 +81,7 @@ describe('POST /api/auth/register', () => {
       makeRequest({
         name: '  Ada Lovelace  ',
         email: 'CREATOR@Example.com',
-        password: 'password123',
+        password: 'Abcdefg1!',
         inviteToken: 'invite-token-1',
       })
     );
@@ -104,7 +104,7 @@ describe('POST /api/auth/register', () => {
     const res = await POST(
       makeRequest({
         email: 'creator@example.com',
-        password: 'password123',
+        password: 'Abcdefg1!',
         inviteToken: 'invite-token-1',
       })
     );
@@ -121,7 +121,7 @@ describe('POST /api/auth/register', () => {
       makeRequest({
         name: '   ',
         email: 'creator@example.com',
-        password: 'password123',
+        password: 'Abcdefg1!',
         inviteToken: 'invite-token-1',
       })
     );
@@ -138,7 +138,7 @@ describe('POST /api/auth/register', () => {
       makeRequest({
         name: 'Ada Lovelace',
         email: 'creator@example.com',
-        password: 'password123',
+        password: 'Abcdefg1!',
         inviteToken: 'bad-token',
       })
     );
@@ -155,7 +155,7 @@ describe('POST /api/auth/register', () => {
       makeRequest({
         name: 'Ada Lovelace',
         email: 'creator@example.com',
-        password: 'password123',
+        password: 'Abcdefg1!',
         inviteToken: 'invite-token-1',
       })
     );
@@ -176,7 +176,7 @@ describe('POST /api/auth/register', () => {
       makeRequest({
         name: 'Ada Lovelace',
         email: 'creator@example.com',
-        password: 'password123',
+        password: 'Abcdefg1!',
         inviteToken: 'invite-token-1',
       })
     );

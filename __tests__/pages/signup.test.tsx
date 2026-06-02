@@ -120,12 +120,23 @@ describe('RegistrationForm validation helpers', () => {
     expect(errors.confirmPassword).toBe('Passwords do not match.');
   });
 
-  it('accepts email addresses with surrounding whitespace', () => {
+  it('rejects weak passwords', () => {
+    const errors = validateRegistrationForm({
+      name: 'Sarah',
+      email: 'sarah@example.com',
+      password: 'password',
+      confirmPassword: 'password',
+    });
+
+    expect(errors.password).toBe('Password is too common. Choose a stronger password.');
+  });
+
+  it('accepts email addresses with surrounding whitespace when password is strong', () => {
     const errors = validateRegistrationForm({
       name: 'Sarah',
       email: '  sarah@example.com  ',
-      password: 'password123',
-      confirmPassword: 'password123',
+      password: 'Abcdefg1!',
+      confirmPassword: 'Abcdefg1!',
     });
 
     expect(errors).toEqual({});

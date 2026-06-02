@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
+import { validatePassword } from '@/lib/auth/password';
 import {
   consumeSetupToken,
   hasAnyUsers,
@@ -67,11 +68,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email must be a valid email address.' }, { status: 400 });
     }
 
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: 'Password must be at least 8 characters.' },
-        { status: 400 }
-      );
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     if (!token) {
