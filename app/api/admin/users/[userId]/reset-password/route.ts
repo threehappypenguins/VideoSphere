@@ -6,7 +6,7 @@ import {
   buildPasswordResetUrl,
   issuePasswordResetToken,
 } from '@/lib/auth/password-reset';
-import { getUserById, getUserPasswordAuthStateById } from '@/lib/repositories/users';
+import { getUserPasswordAuthStateById } from '@/lib/repositories/users';
 import type { ApiError } from '@/types';
 
 /**
@@ -25,13 +25,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ us
   }
 
   try {
-    const target = await getUserById(targetUserId);
-    if (!target) {
+    const authState = await getUserPasswordAuthStateById(targetUserId);
+    if (!authState) {
       return NextResponse.json({ error: 'User not found.' }, { status: 404 });
     }
 
-    const authState = await getUserPasswordAuthStateById(targetUserId);
-    if (!authState?.supportsPasswordReset) {
+    if (!authState.supportsPasswordReset) {
       return NextResponse.json({ error: OAUTH_PASSWORD_RESET_MESSAGE }, { status: 409 });
     }
 

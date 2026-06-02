@@ -1,8 +1,10 @@
 import bcrypt from 'bcryptjs';
 import { NextRequest, NextResponse } from 'next/server';
 import { validatePassword, OAUTH_PASSWORD_RESET_MESSAGE } from '@/lib/auth/password';
-import { consumePasswordResetToken, findUsablePasswordResetToken } from '@/lib/auth/password-reset';
-import { getUserPasswordAuthStateById, updateUserPasswordHash } from '@/lib/repositories/users';
+import { finalizePasswordReset, findUsablePasswordResetToken } from '@/lib/auth/password-reset';
+import { getUserPasswordAuthStateById } from '@/lib/repositories/users';
+
+const INVALID_RESET_TOKEN_MESSAGE = 'This reset link is invalid or has expired.';
 
 /**
  * Handles POST requests to reset a password using a single-use token.
@@ -44,20 +46,23 @@ export async function POST(req: NextRequest) {
 
     const tokenRecord = await findUsablePasswordResetToken(token);
     if (!tokenRecord) {
-      return NextResponse.json(
-        { error: 'This reset link is invalid or has expired.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: INVALID_RESET_TOKEN_MESSAGE }, { status: 400 });
     }
 
     const authState = await getUserPasswordAuthStateById(tokenRecord.userId);
-    if (!authState?.supportsPasswordReset) {
+    if (!authState) {
+      return NextResponse.json({ error: INVALID_RESET_TOKEN_MESSAGE }, { status: 400 });
+    }
+
+    if (!authState.supportsPasswordReset) {
       return NextResponse.json({ error: OAUTH_PASSWORD_RESET_MESSAGE }, { status: 400 });
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await updateUserPasswordHash(tokenRecord.userId, passwordHash);
-    await consumePasswordResetToken(tokenRecord.id, tokenRecord.userId);
+    const applied = await finalizePasswordReset(token, passwordHash);
+    if (!applied) {
+      return NextResponse.json({ error: INVALID_RESET_TOKEN_MESSAGE }, { status: 400 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

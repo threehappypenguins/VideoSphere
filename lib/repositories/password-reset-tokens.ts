@@ -86,6 +86,32 @@ export async function createPasswordResetToken(input: {
 }
 
 /**
+ * Atomically claims a reset token by marking it used when still valid.
+ * @param token - URL-safe reset token.
+ * @param now - Reference time for expiry comparison.
+ * @param usedAt - Consumption timestamp to persist.
+ * @returns The claimed token record; null when already used, expired, or missing.
+ */
+export async function claimPasswordResetToken(
+  token: string,
+  now: Date = new Date(),
+  usedAt: Date = now
+): Promise<PasswordResetTokenRecord | null> {
+  await connectToDatabase();
+  const doc = await PasswordResetTokenModel.findOneAndUpdate(
+    {
+      token,
+      usedAt: { $exists: false },
+      expiresAt: { $gt: now },
+    },
+    { $set: { usedAt } },
+    { returnDocument: 'after' }
+  ).lean<PasswordResetTokenDocument | null>();
+  if (!doc) return null;
+  return toRecord(doc);
+}
+
+/**
  * Finds a reset token by its public token string when still valid.
  * @param token - URL-safe reset token.
  * @param now - Reference time for expiry comparison.
@@ -103,18 +129,4 @@ export async function findValidPasswordResetToken(
   }).lean<PasswordResetTokenDocument | null>();
   if (!doc) return null;
   return toRecord(doc);
-}
-
-/**
- * Marks a reset token as used.
- * @param tokenId - Internal document id.
- * @param usedAt - Consumption timestamp.
- * @returns Resolves when the update completes.
- */
-export async function markPasswordResetTokenUsed(
-  tokenId: string,
-  usedAt: Date = new Date()
-): Promise<void> {
-  await connectToDatabase();
-  await PasswordResetTokenModel.updateOne({ _id: tokenId }, { $set: { usedAt } });
 }

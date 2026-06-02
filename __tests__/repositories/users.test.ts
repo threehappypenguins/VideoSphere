@@ -92,14 +92,13 @@ describe('users repository (mongo)', () => {
     expect(user.name).toBe('Ada');
   });
 
-  it('gets by _id first, then falls back to userId', async () => {
-    mockFindById.mockReturnValueOnce(leanResult(null));
-    mockFindOne.mockReturnValueOnce(leanResult(baseDoc));
+  it('gets user by _id', async () => {
+    mockFindById.mockReturnValueOnce(leanResult(baseDoc));
 
     const user = await getUserById('auth-user-1');
 
     expect(mockFindById).toHaveBeenCalledWith('auth-user-1');
-    expect(mockFindOne).toHaveBeenCalledWith({ userId: 'auth-user-1' });
+    expect(mockFindOne).not.toHaveBeenCalled();
     expect(user?.userId).toBe('auth-user-1');
   });
 
@@ -197,28 +196,6 @@ describe('persistGoogleAuthForUser', () => {
       authProvider: 'google',
     });
   });
-
-  it('falls back to userId when findByIdAndUpdate does not match', async () => {
-    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult(null));
-    mockFindOneAndUpdate.mockResolvedValueOnce(null);
-
-    await persistGoogleAuthForUser('legacy-user-id', 'google-refresh-token');
-
-    const byIdPayload = mockFindByIdAndUpdate.mock.calls[0]?.[1] as {
-      googleRefreshToken: string;
-    };
-    const byUserIdPayload = mockFindOneAndUpdate.mock.calls[0]?.[1] as {
-      authProvider: string;
-      googleRefreshToken: string;
-    };
-    expect(decryptToken(byIdPayload.googleRefreshToken)).toBe('google-refresh-token');
-    expect(byUserIdPayload.authProvider).toBe('google');
-    expect(decryptToken(byUserIdPayload.googleRefreshToken)).toBe('google-refresh-token');
-    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
-      { userId: 'legacy-user-id' },
-      byUserIdPayload
-    );
-  });
 });
 
 describe('deleteUserById', () => {
@@ -231,23 +208,12 @@ describe('deleteUserById', () => {
     expect(mockDeleteOne).toHaveBeenCalledWith({ _id: 'auth-user-1' });
   });
 
-  it('falls back to userId and returns true for migrated profiles', async () => {
-    mockDeleteOne.mockResolvedValueOnce({ deletedCount: 0 });
-    mockDeleteOne.mockResolvedValueOnce({ deletedCount: 1 });
-
-    await expect(deleteUserById('legacy-user-id')).resolves.toBe(true);
-
-    expect(mockDeleteOne).toHaveBeenNthCalledWith(1, { _id: 'legacy-user-id' });
-    expect(mockDeleteOne).toHaveBeenNthCalledWith(2, { userId: 'legacy-user-id' });
-  });
-
-  it('returns false when no profile matches _id or userId', async () => {
+  it('returns false when no profile matches _id', async () => {
     mockDeleteOne.mockResolvedValue({ deletedCount: 0 });
 
     await expect(deleteUserById('missing-user')).resolves.toBe(false);
 
-    expect(mockDeleteOne).toHaveBeenCalledTimes(2);
-    expect(mockDeleteOne).toHaveBeenNthCalledWith(1, { _id: 'missing-user' });
-    expect(mockDeleteOne).toHaveBeenNthCalledWith(2, { userId: 'missing-user' });
+    expect(mockDeleteOne).toHaveBeenCalledTimes(1);
+    expect(mockDeleteOne).toHaveBeenCalledWith({ _id: 'missing-user' });
   });
 });

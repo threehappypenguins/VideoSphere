@@ -349,8 +349,8 @@ export function RegistrationForm({
 
         {renderFooter ? (
           <div
-            className={`mt-8 ${footerDisabled ? 'pointer-events-none opacity-60' : ''}`}
-            aria-hidden={footerDisabled ? true : undefined}
+            className={`mt-8 ${footerDisabled ? 'opacity-60' : ''}`}
+            aria-disabled={footerDisabled ? true : undefined}
           >
             {renderFooter({ formDisabled: footerDisabled })}
           </div>

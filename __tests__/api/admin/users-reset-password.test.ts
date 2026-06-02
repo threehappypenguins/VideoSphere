@@ -10,7 +10,6 @@ vi.mock('@/lib/api/admin-auth', () => ({
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
-  getUserById: vi.fn(),
   getUserPasswordAuthStateById: vi.fn(),
 }));
 
@@ -23,7 +22,7 @@ vi.mock('@/lib/auth/password-reset', () => ({
 import { POST } from '@/app/api/admin/users/[userId]/reset-password/route';
 import { requireAdmin } from '@/lib/api/admin-auth';
 import { buildPasswordResetUrl, issuePasswordResetToken } from '@/lib/auth/password-reset';
-import { getUserById, getUserPasswordAuthStateById } from '@/lib/repositories/users';
+import { getUserPasswordAuthStateById } from '@/lib/repositories/users';
 
 const targetUser = {
   userId: 'user-target',
@@ -45,7 +44,6 @@ describe('POST /api/admin/users/[userId]/reset-password', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(requireAdmin).mockResolvedValue({ ok: true, userId: 'admin-auth-id' });
-    vi.mocked(getUserById).mockResolvedValue(targetUser);
     vi.mocked(getUserPasswordAuthStateById).mockResolvedValue({
       userId: targetUser.userId,
       supportsPasswordReset: true,
@@ -72,7 +70,7 @@ describe('POST /api/admin/users/[userId]/reset-password', () => {
   });
 
   it('returns 404 when the target user does not exist', async () => {
-    vi.mocked(getUserById).mockResolvedValueOnce(null);
+    vi.mocked(getUserPasswordAuthStateById).mockResolvedValueOnce(null);
 
     const res = await POST(makeRequest('missing-user'), {
       params: Promise.resolve({ userId: 'missing-user' }),

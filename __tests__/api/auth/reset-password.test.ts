@@ -17,17 +17,16 @@ vi.mock('bcryptjs', () => ({
 
 vi.mock('@/lib/repositories/users', () => ({
   getUserPasswordAuthStateById: vi.fn(),
-  updateUserPasswordHash: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/password-reset', () => ({
   findUsablePasswordResetToken: vi.fn(),
-  consumePasswordResetToken: vi.fn(),
+  finalizePasswordReset: vi.fn(),
 }));
 
 import { POST } from '@/app/api/auth/reset-password/route';
-import { consumePasswordResetToken, findUsablePasswordResetToken } from '@/lib/auth/password-reset';
-import { getUserPasswordAuthStateById, updateUserPasswordHash } from '@/lib/repositories/users';
+import { finalizePasswordReset, findUsablePasswordResetToken } from '@/lib/auth/password-reset';
+import { getUserPasswordAuthStateById } from '@/lib/repositories/users';
 
 function makeRequest(body: unknown): NextRequest {
   return new NextRequest(new URL('http://localhost:3000/api/auth/reset-password'), {
@@ -45,9 +44,10 @@ describe('POST /api/auth/reset-password', () => {
       userId: 'user-1',
       supportsPasswordReset: true,
     });
+    vi.mocked(finalizePasswordReset).mockResolvedValue(true);
   });
 
-  it('updates the password and consumes the token', async () => {
+  it('updates the password and consumes the token atomically', async () => {
     vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
       id: 'token-doc-1',
       token: 'valid-token',
@@ -66,8 +66,7 @@ describe('POST /api/auth/reset-password', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(mockBcryptHash).toHaveBeenCalledWith('new-password-123', 10);
-    expect(updateUserPasswordHash).toHaveBeenCalledWith('user-1', 'new-password-hash');
-    expect(consumePasswordResetToken).toHaveBeenCalledWith('token-doc-1', 'user-1');
+    expect(finalizePasswordReset).toHaveBeenCalledWith('valid-token', 'new-password-hash');
   });
 
   it('rejects invalid or expired tokens', async () => {
@@ -82,8 +81,28 @@ describe('POST /api/auth/reset-password', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'This reset link is invalid or has expired.' });
-    expect(updateUserPasswordHash).not.toHaveBeenCalled();
-    expect(consumePasswordResetToken).not.toHaveBeenCalled();
+    expect(finalizePasswordReset).not.toHaveBeenCalled();
+  });
+
+  it('rejects concurrent token consumption after eligibility checks', async () => {
+    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
+      id: 'token-doc-1',
+      token: 'valid-token',
+      userId: 'user-1',
+      expiresAt: '2026-06-02T12:15:00.000Z',
+      createdAt: '2026-06-02T12:00:00.000Z',
+    });
+    vi.mocked(finalizePasswordReset).mockResolvedValueOnce(false);
+
+    const res = await POST(
+      makeRequest({
+        token: 'valid-token',
+        newPassword: 'new-password-123',
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'This reset link is invalid or has expired.' });
   });
 
   it('rejects passwords shorter than 8 characters', async () => {
@@ -110,7 +129,29 @@ describe('POST /api/auth/reset-password', () => {
     expect(findUsablePasswordResetToken).not.toHaveBeenCalled();
   });
 
-  it('rejects reset for Google OAuth-only accounts', async () => {
+  it('rejects reset when the token user profile no longer exists', async () => {
+    vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
+      id: 'token-doc-1',
+      token: 'valid-token',
+      userId: 'deleted-user',
+      expiresAt: '2026-06-02T12:15:00.000Z',
+      createdAt: '2026-06-02T12:00:00.000Z',
+    });
+    vi.mocked(getUserPasswordAuthStateById).mockResolvedValueOnce(null);
+
+    const res = await POST(
+      makeRequest({
+        token: 'valid-token',
+        newPassword: 'Abcdefg1!',
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'This reset link is invalid or has expired.' });
+    expect(finalizePasswordReset).not.toHaveBeenCalled();
+  });
+
+  it('rejects reset for Google OAuth-only accounts without claiming the token', async () => {
     vi.mocked(findUsablePasswordResetToken).mockResolvedValueOnce({
       id: 'token-doc-1',
       token: 'valid-token',
@@ -131,6 +172,6 @@ describe('POST /api/auth/reset-password', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(updateUserPasswordHash).not.toHaveBeenCalled();
+    expect(finalizePasswordReset).not.toHaveBeenCalled();
   });
 });

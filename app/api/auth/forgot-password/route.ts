@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByEmail, getUserPasswordAuthStateByEmail } from '@/lib/repositories/users';
+import { getUserPasswordAuthStateByEmail } from '@/lib/repositories/users';
 import {
   FORGOT_PASSWORD_TOKEN_TTL_MS,
   buildPasswordResetUrl,
@@ -45,19 +45,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email must be a valid email address.' }, { status: 400 });
     }
 
-    const user = await getUserByEmail(email);
-    if (user) {
-      const authState = await getUserPasswordAuthStateByEmail(email);
-      if (authState?.supportsPasswordReset) {
-        const rateLimited = await isForgotPasswordRateLimited(user.userId);
-        if (!rateLimited) {
-          const { token, expiresAt } = await issuePasswordResetToken(
-            user.userId,
-            FORGOT_PASSWORD_TOKEN_TTL_MS
-          );
-          const resetUrl = buildPasswordResetUrl(token, req);
-          logForgotPasswordResetTokenToStdout(email, resetUrl, expiresAt);
-        }
+    const authState = await getUserPasswordAuthStateByEmail(email);
+    if (authState?.supportsPasswordReset) {
+      const rateLimited = await isForgotPasswordRateLimited(authState.userId);
+      if (!rateLimited) {
+        const { token, expiresAt } = await issuePasswordResetToken(
+          authState.userId,
+          FORGOT_PASSWORD_TOKEN_TTL_MS
+        );
+        const resetUrl = buildPasswordResetUrl(token, req);
+        logForgotPasswordResetTokenToStdout(email, resetUrl, expiresAt);
       }
     }
 

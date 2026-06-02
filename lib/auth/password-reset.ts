@@ -3,12 +3,13 @@ import type { NextRequest } from 'next/server';
 import {
   FORGOT_PASSWORD_RATE_LIMIT_MAX,
   FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS,
+  claimPasswordResetToken,
   countPasswordResetTokensSince,
   createPasswordResetToken,
   findValidPasswordResetToken,
   invalidateUnusedPasswordResetTokensForUser,
-  markPasswordResetTokenUsed,
 } from '@/lib/repositories/password-reset-tokens';
+import { updateUserPasswordHash } from '@/lib/repositories/users';
 
 /** TTL for self-service forgot-password tokens (15 minutes). */
 export const FORGOT_PASSWORD_TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -115,17 +116,22 @@ export async function findUsablePasswordResetToken(token: string) {
 }
 
 /**
- * Consumes a reset token and invalidates other pending tokens for the same user.
- * @param tokenId - Internal token document id.
- * @param userId - User the token belongs to.
- * @param usedAt - Consumption timestamp.
- * @returns Resolves when the token is marked used and siblings invalidated.
+ * Atomically claims a reset token, updates the user's password, and invalidates
+ * other pending tokens for the same user.
+ *
+ * Call only after password validation and account eligibility checks succeed.
+ * @param token - URL-safe reset token from the client.
+ * @param passwordHash - Bcrypt hash to persist for the account.
+ * @returns True when the token was claimed and the password updated; false when
+ *   the token was already used, expired, or claimed concurrently.
+ * @throws When the password update fails after the token was claimed.
  */
-export async function consumePasswordResetToken(
-  tokenId: string,
-  userId: string,
-  usedAt: Date = new Date()
-): Promise<void> {
-  await markPasswordResetTokenUsed(tokenId, usedAt);
-  await invalidateUnusedPasswordResetTokensForUser(userId, usedAt);
+export async function finalizePasswordReset(token: string, passwordHash: string): Promise<boolean> {
+  const usedAt = new Date();
+  const claimed = await claimPasswordResetToken(token.trim(), usedAt, usedAt);
+  if (!claimed) return false;
+
+  await updateUserPasswordHash(claimed.userId, passwordHash);
+  await invalidateUnusedPasswordResetTokensForUser(claimed.userId, usedAt);
+  return true;
 }
