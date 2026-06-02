@@ -35,7 +35,7 @@ vi.mock('@/lib/models/UserProfile', () => ({
   },
 }));
 
-import { ensureSetupTokenForFirstRun } from '@/lib/repositories/invites';
+import { consumeSetupToken, ensureSetupTokenForFirstRun } from '@/lib/repositories/invites';
 
 const now = new Date('2026-03-15T12:00:00.000Z');
 
@@ -222,5 +222,29 @@ describe('ensureSetupTokenForFirstRun', () => {
     expect(result).toBeNull();
     expect(mockFindOne).not.toHaveBeenCalled();
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('consumeSetupToken', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockConnectToDatabase.mockResolvedValue(undefined);
+    mockUserProfileExists.mockResolvedValue(null);
+  });
+
+  it('returns false without consuming when a user profile already exists', async () => {
+    mockUserProfileExists.mockResolvedValueOnce({ _id: 'user-1' });
+
+    await expect(consumeSetupToken('setup-token', 'new-user-id')).resolves.toBe(false);
+
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('consumes the setup token when no users exist yet', async () => {
+    mockSetupFindOneAndUpdate({ _id: 'setup', token: 'setup-token', purpose: 'setup' });
+
+    await expect(consumeSetupToken('setup-token', 'new-user-id')).resolves.toBe(true);
+
+    expect(mockFindOneAndUpdate).toHaveBeenCalled();
   });
 });

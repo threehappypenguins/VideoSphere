@@ -391,10 +391,12 @@ export async function consumeInviteToken(
  * Marks the setup token as used in an atomic operation.
  * @param token - Setup token to consume.
  * @param usedBy - User id that consumes this token.
- * @returns True when consumed; false if token was invalid or already used.
+ * @returns True when consumed; false if setup is no longer allowed, or the token was invalid or already used.
  */
 export async function consumeSetupToken(token: string, usedBy: string): Promise<boolean> {
   await connectToDatabase();
+
+  if (await userProfileExists()) return false;
 
   const now = new Date();
   const consumed = await InviteTokenModel.findOneAndUpdate(

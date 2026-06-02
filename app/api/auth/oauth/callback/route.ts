@@ -133,7 +133,11 @@ export async function GET(req: NextRequest) {
     return oauthErrorResponse(origin, oauthState, 'oauth_missing_params');
   }
 
-  if (!oauthState?.nonce || oauthState.nonce !== state) {
+  if (!oauthState?.nonce) {
+    return oauthErrorResponse(origin, oauthState, 'oauth_missing_params');
+  }
+
+  if (oauthState.nonce !== state) {
     return oauthErrorResponse(origin, oauthState, 'oauth_auth_failed');
   }
 

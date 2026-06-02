@@ -207,6 +207,39 @@ describe('GET /api/auth/oauth/callback', () => {
     expectOAuthStateCookieCleared(res);
   });
 
+  it('returns oauth_missing_params when the OAuth state cookie is absent', async () => {
+    const res = await GET(makeRequest({ code: 'auth-code', state: 'nonce-123' }, {}));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_missing_params'
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('returns oauth_missing_params when the OAuth state cookie cannot be parsed', async () => {
+    const res = await GET(
+      makeRequest(
+        { code: 'auth-code', state: 'nonce-123' },
+        { [GOOGLE_AUTH_OAUTH_STATE_COOKIE]: 'not-valid-state' }
+      )
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_missing_params'
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('returns oauth_auth_failed when the OAuth state nonce does not match', async () => {
+    const res = await GET(makeRequest({ code: 'auth-code', state: 'wrong-nonce' }, loginCookie()));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('http://localhost:3000/login?error=oauth_auth_failed');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('redirects to login when Google account is not registered and flow is login', async () => {
     mockGoogleSuccess({ refreshToken: 'refresh-token' });
     mockGetUserByEmail.mockResolvedValueOnce(null);
