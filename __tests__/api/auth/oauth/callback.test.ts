@@ -121,6 +121,13 @@ function expectGoogleTokensRevoked(expectedTokens: string[] = ['access-token']) 
   }
 }
 
+function expectGoogleTokensNotRevoked() {
+  const revokeCalls = mockFetch.mock.calls.filter(([url]) =>
+    String(url).includes('https://oauth2.googleapis.com/revoke')
+  );
+  expect(revokeCalls).toHaveLength(0);
+}
+
 function loginCookie() {
   return {
     [GOOGLE_AUTH_OAUTH_STATE_COOKIE]: buildGoogleOAuthStateCookie({ nonce: 'nonce-123' }),
@@ -195,6 +202,25 @@ describe('GET /api/auth/oauth/callback', () => {
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
     expectOAuthStateCookieCleared(res);
+  });
+
+  it('does not revoke Google tokens when JWT signing fails after auth is persisted', async () => {
+    mockGoogleSuccess({ refreshToken: 'refresh-token' });
+    mockGetUserByEmail.mockResolvedValueOnce({
+      userId: 'existing-user-id',
+      email: 'creator@example.com',
+      role: 'user',
+    });
+    mockJwtSign.mockRejectedValueOnce(new Error('jwt signing failed'));
+
+    const res = await GET(validRequest(loginCookie()));
+
+    expect(mockPersistGoogleAuthForUser).toHaveBeenCalledWith('existing-user-id', 'refresh-token');
+    expectGoogleTokensNotRevoked();
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/login?error=oauth_callback_failed'
+    );
   });
 
   it('clears the OAuth state cookie on early error redirects', async () => {

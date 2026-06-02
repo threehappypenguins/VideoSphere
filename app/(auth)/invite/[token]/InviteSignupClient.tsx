@@ -68,8 +68,6 @@ export default function InviteSignupClient({ token }: InviteSignupClientProps) {
       }
 
       router.push('/dashboard');
-    } catch (error) {
-      throw error;
     } finally {
       setIsFormLoading(false);
     }

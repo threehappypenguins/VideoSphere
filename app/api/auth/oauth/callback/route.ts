@@ -324,6 +324,8 @@ export async function GET(req: NextRequest) {
       await persistGoogleAuthForUser(userId, tokenData.refresh_token);
     }
 
+    pendingGoogleGrant = undefined;
+
     const token = await new SignJWT({ role, oauthProvider: 'google' })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(userId)

@@ -68,8 +68,6 @@ export default function SetupPageClient({ token }: SetupPageClientProps) {
       }
 
       router.push('/dashboard');
-    } catch (error) {
-      throw error;
     } finally {
       setIsFormLoading(false);
     }
