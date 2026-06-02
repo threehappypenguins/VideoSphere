@@ -18,6 +18,10 @@ interface SessionUser {
   email?: string;
 }
 
+function authProviderFromSession(value: unknown): UserAuthProvider | null {
+  return value === 'google' || value === 'password' ? value : null;
+}
+
 /**
  * Renders the profile content component.
  * @returns The rendered UI output.
@@ -41,11 +45,20 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
         // Fetch authenticated session (display name, email)
         const sessionRes = await fetch('/api/auth/session', { credentials: 'include' });
         if (sessionRes.ok) {
-          const session = (await sessionRes.json()) as SessionUser & {
-            authProvider?: UserAuthProvider;
-          };
-          setSessionUser(session);
-          setAuthProvider(session.authProvider);
+          const payload = (await sessionRes.json()) as Record<string, unknown>;
+          const authProvider = authProviderFromSession(payload.authProvider);
+          if (!authProvider) {
+            console.warn('[ProfileContent] Session response missing valid authProvider');
+          }
+
+          setSessionUser({
+            $id: String(payload.$id ?? ''),
+            name: typeof payload.name === 'string' ? payload.name : undefined,
+            email: typeof payload.email === 'string' ? payload.email : undefined,
+          });
+          if (authProvider) {
+            setAuthProvider(authProvider);
+          }
 
           const roleRes = await fetch('/api/auth/session-role', { credentials: 'include' });
           if (roleRes.ok) {
