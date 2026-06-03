@@ -1,7 +1,7 @@
 // =============================================================================
-// PROFILE PAGE COMPONENT TESTS
+// PROFILE CONTENT COMPONENT TESTS
 // =============================================================================
-// Lightweight UI tests for the Profile page: account status and
+// Lightweight UI tests for ProfileContent: account status and
 // Manage connected accounts link to prevent regressions.
 //
 // The profile page now uses a client component (ProfileContent) that fetches
@@ -42,7 +42,7 @@ function renderProfile(oauthError: string | null = null) {
   return render(<ProfileContent oauthSuccess={null} oauthError={oauthError} />);
 }
 
-describe('ProfilePage', () => {
+describe('ProfileContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal(

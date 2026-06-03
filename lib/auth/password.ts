@@ -29,7 +29,7 @@ export function validatePassword(password: string): string | null {
 }
 
 /**
- * Returns whether an account can use password-based login or admin password reset flows.
+ * Returns whether an account is eligible for password reset and admin-initiated reset flows.
  * Eligibility is determined solely by `authProvider`; `passwordHash` is not consulted.
  * @param profile - User auth fields from `user_profiles` (`authProvider` only).
  * @returns True when `authProvider` is `'password'`; false for `'google'` or missing.
