@@ -2,8 +2,9 @@
 // GET /api/auth/profile
 // PATCH /api/auth/profile
 // =============================================================================
-// Returns or updates the authenticated user's profile from user_profiles.
-// Requires a valid session cookie.
+// Auth: getAuthenticatedSessionUserId (JWT only) plus one getUserById lookup.
+// Avoids the double DB fetch that getAuthenticatedUserId + getUserById would cause,
+// and allows 404 when the JWT is valid but the profile row is missing.
 //
 // GET response: full User object
 // PATCH body: { name?: string, email?: string }

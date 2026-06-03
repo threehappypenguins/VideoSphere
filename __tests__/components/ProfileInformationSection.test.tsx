@@ -24,6 +24,7 @@ describe('ProfileInformationSection', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('shows read-only email with disconnect guidance for Google accounts', () => {

@@ -41,15 +41,7 @@ export async function getSessionUserFromCookies(): Promise<SessionUserFromCookie
   const cookieStore = await cookies();
   const token = cookieStore.get(getSessionCookieName())?.value;
   if (!token) {
-    if (process.env.NODE_ENV !== 'test') return null;
-
-    const legacyCookie = cookieStore
-      .getAll()
-      .find((cookie) => cookie.name.startsWith('a_session_'));
-    const legacyToken = legacyCookie?.value ?? null;
-    if (!legacyToken || /invalid|bad|expired/i.test(legacyToken)) return null;
-
-    return { $id: 'user-123' };
+    return null;
   }
 
   try {

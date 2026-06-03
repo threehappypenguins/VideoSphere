@@ -148,11 +148,7 @@ function makeParams(jobId: string) {
 describe('POST /api/uploads/[jobId]/complete', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-      const token = req.cookies.get(SESSION_COOKIE)?.value;
-      if (!token || /bad|invalid|expired/i.test(token)) return null;
-      return req.headers.get('x-test-user-id') || 'user-123';
-    });
+    mockGetAuthenticatedUserId.mockResolvedValue('user-123');
 
     vi.mocked(headObject).mockResolvedValue(1024);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
@@ -180,6 +176,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
 
   describe('Authentication', () => {
     it('should return 401 when not authenticated (no session cookie)', async () => {
+      mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       const response = await POST(
         createRequest('job-123'), // no cookies
         makeParams('job-123')
