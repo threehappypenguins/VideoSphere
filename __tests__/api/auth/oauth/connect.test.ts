@@ -66,6 +66,18 @@ describe('GET /api/auth/oauth/connect', () => {
     expect(res.headers.get('set-cookie')).toBeNull();
   });
 
+  it('redirects when profile lookup throws', async () => {
+    mockGetUserById.mockRejectedValueOnce(new Error('Database unavailable'));
+
+    const res = await GET(new NextRequest('http://localhost:3000/api/auth/oauth/connect'));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'http://localhost:3000/profile?error=oauth_initiation_failed'
+    );
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
   it('redirects when Google is already linked', async () => {
     mockGetUserById.mockResolvedValueOnce({ ...passwordProfile, authProvider: 'google' });
 

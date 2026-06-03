@@ -2,6 +2,14 @@
 
 import { useCallback, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { scorePasswordStrength, validatePassword } from '@/lib/auth/password';
 import { authPasswordStrengthLabelClass } from '@/lib/auth/auth-ui-classes';
 import type { UserAuthProvider } from '@/types';
@@ -136,119 +144,119 @@ export function ProfileAuthSection({
         )}
       </div>
 
-      {disconnectOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-          role="presentation"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeDisconnectModal();
+      <Dialog
+        open={disconnectOpen}
+        onOpenChange={(open) => {
+          if (!open && !disconnectLoading) closeDisconnectModal();
+        }}
+      >
+        <DialogContent
+          className="max-w-md"
+          onPointerDownOutside={(event) => {
+            if (disconnectLoading) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            if (disconnectLoading) event.preventDefault();
           }}
         >
-          <div
-            role="dialog"
-            aria-labelledby="disconnect-google-title"
-            aria-modal="true"
-            className="w-full max-w-md rounded-xl border border-border bg-background p-6 shadow-lg"
-          >
-            <h3 id="disconnect-google-title" className="text-lg font-semibold text-foreground">
-              Disconnect Google sign-in
-            </h3>
-            <p className="mt-2 text-sm text-muted-foreground">
+          <DialogHeader>
+            <DialogTitle>Disconnect Google sign-in</DialogTitle>
+            <DialogDescription>
               Choose a new password to sign in with email and password. Your Google account will be
               unlinked from VideoSphere.
-            </p>
+            </DialogDescription>
+          </DialogHeader>
 
-            <form onSubmit={handleDisconnectSubmit} className="mt-6 space-y-4">
-              <div>
-                <label
-                  htmlFor="disconnect-password"
-                  className="block text-sm font-medium text-foreground"
-                >
-                  New password
-                </label>
-                <div className="relative mt-2">
-                  <input
-                    id="disconnect-password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="block w-full rounded-lg border border-border bg-background px-4 py-3 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                {password ? (
-                  <p className={`mt-2 ${authPasswordStrengthLabelClass(passwordScore)}`}>
-                    Strength: {['', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'][passwordScore]}
-                  </p>
-                ) : null}
-              </div>
-
-              <div>
-                <label
-                  htmlFor="disconnect-confirm-password"
-                  className="block text-sm font-medium text-foreground"
-                >
-                  Confirm password
-                </label>
-                <div className="relative mt-2">
-                  <input
-                    id="disconnect-confirm-password"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="block w-full rounded-lg border border-border bg-background px-4 py-3 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showConfirmPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {disconnectError ? (
-                <p className="text-sm text-destructive" role="alert">
-                  {disconnectError}
-                </p>
-              ) : null}
-
-              <div className="flex justify-end gap-3 pt-2">
+          <form onSubmit={handleDisconnectSubmit} className="space-y-4">
+            <div>
+              <label
+                htmlFor="disconnect-password"
+                className="block text-sm font-medium text-foreground"
+              >
+                New password
+              </label>
+              <div className="relative mt-2">
+                <input
+                  id="disconnect-password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="block w-full rounded-lg border border-border bg-background px-4 py-3 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
                 <button
                   type="button"
-                  onClick={closeDisconnectModal}
-                  disabled={disconnectLoading}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={disconnectLoading}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {disconnectLoading ? 'Disconnecting…' : 'Disconnect and set password'}
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+              {password ? (
+                <p className={`mt-2 ${authPasswordStrengthLabelClass(passwordScore)}`}>
+                  Strength: {['', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'][passwordScore]}
+                </p>
+              ) : null}
+            </div>
+
+            <div>
+              <label
+                htmlFor="disconnect-confirm-password"
+                className="block text-sm font-medium text-foreground"
+              >
+                Confirm password
+              </label>
+              <div className="relative mt-2">
+                <input
+                  id="disconnect-confirm-password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="block w-full rounded-lg border border-border bg-background px-4 py-3 pr-10 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {disconnectError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {disconnectError}
+              </p>
+            ) : null}
+
+            <DialogFooter className="gap-3 pt-2">
+              <button
+                type="button"
+                onClick={closeDisconnectModal}
+                disabled={disconnectLoading}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={disconnectLoading}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {disconnectLoading ? 'Disconnecting…' : 'Disconnect and set password'}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
