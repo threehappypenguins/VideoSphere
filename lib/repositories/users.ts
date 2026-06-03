@@ -219,33 +219,38 @@ export async function disableTotp(userId: string): Promise<void> {
 }
 
 /**
+ * Result of loading a user's stored TOTP secret for verification flows.
+ */
+export type TotpSecretLookup =
+  | { status: 'disabled' }
+  | { status: 'available'; secret: string }
+  | { status: 'unavailable' };
+
+/**
  * Returns decrypted TOTP configuration for verification flows.
  * @param userId - Auth user id to look up.
- * @returns Enabled flag and decrypted secret when configured.
+ * @returns Whether TOTP is disabled, available, or enabled but unreadable.
  */
-export async function getTotpSecret(
-  userId: string
-): Promise<{ totpEnabled: boolean; secret: string | null }> {
+export async function getTotpSecret(userId: string): Promise<TotpSecretLookup> {
   await connectToDatabase();
 
   const doc = await UserProfileModel.findById(userId)
     .select({ totpSecret: 1, totpEnabled: 1 })
     .lean<Pick<UserProfileDocument, 'totpSecret' | 'totpEnabled'> | null>();
 
-  if (!doc) {
-    return { totpEnabled: false, secret: null };
+  if (!doc || !doc.totpEnabled) {
+    return { status: 'disabled' };
   }
 
-  const totpEnabled = Boolean(doc.totpEnabled);
   const encrypted = doc.totpSecret?.trim();
-  if (!totpEnabled || !encrypted) {
-    return { totpEnabled, secret: null };
+  if (!encrypted) {
+    return { status: 'unavailable' };
   }
 
   try {
-    return { totpEnabled, secret: decryptToken(encrypted) };
+    return { status: 'available', secret: decryptToken(encrypted) };
   } catch {
-    return { totpEnabled, secret: null };
+    return { status: 'unavailable' };
   }
 }
 

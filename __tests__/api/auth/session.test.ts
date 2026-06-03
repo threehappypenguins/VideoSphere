@@ -37,7 +37,32 @@ describe('GET /api/auth/session', () => {
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    getTotpSecretMock.mockResolvedValueOnce({ totpEnabled: false, secret: null });
+    getTotpSecretMock.mockResolvedValueOnce({ status: 'disabled' });
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      $id: 'user-1',
+      email: 'creator@example.com',
+      name: 'Ada Lovelace',
+      authProvider: 'password',
+      totpEnabled: false,
+    });
+  });
+
+  it('returns session data with totpEnabled false when TOTP lookup fails', async () => {
+    getAuthenticatedUserMock.mockResolvedValueOnce({
+      userId: 'user-1',
+      email: 'creator@example.com',
+      name: 'Ada Lovelace',
+      hasCompletedOnboarding: false,
+      role: 'user',
+      authProvider: 'password',
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    getTotpSecretMock.mockRejectedValueOnce(new Error('db unavailable'));
 
     const res = await GET(makeRequest());
 

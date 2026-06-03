@@ -47,15 +47,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { totpEnabled, secret } = await getTotpSecret(userId);
-    if (!totpEnabled || !secret) {
+    const totp = await getTotpSecret(userId);
+    if (totp.status === 'disabled') {
       return NextResponse.json(
         { error: 'Two-factor authentication is not enabled for this account.' },
         { status: 400 }
       );
     }
+    if (totp.status === 'unavailable') {
+      console.error('[POST /api/auth/totp/disable] TOTP secret unavailable for user', userId);
+      return NextResponse.json(
+        { error: 'Two-factor authentication is temporarily unavailable.' },
+        { status: 500 }
+      );
+    }
 
-    const valid = await verifyTotpToken(secret, rawToken);
+    const valid = await verifyTotpToken(totp.secret, rawToken);
     if (!valid) {
       return NextResponse.json({ error: 'Invalid authentication code.' }, { status: 400 });
     }

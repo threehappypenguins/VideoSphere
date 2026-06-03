@@ -20,12 +20,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
+    let totpEnabled = false;
+    try {
+      const totp = await getTotpSecret(user.userId);
+      totpEnabled = totp.status !== 'disabled';
+    } catch (totpErr) {
+      console.error('[GET /api/auth/session] TOTP status lookup failed', totpErr);
+    }
+
     return NextResponse.json({
       $id: user.userId,
       email: user.email,
       name: user.name,
       authProvider: user.authProvider,
-      totpEnabled: (await getTotpSecret(user.userId)).totpEnabled,
+      totpEnabled,
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);
