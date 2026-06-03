@@ -56,6 +56,7 @@ import {
   disableTotp,
   getTotpSecret,
   getTotpEnabledById,
+  getUserSessionById,
 } from '@/lib/repositories/users';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 
@@ -497,6 +498,35 @@ describe('getTotpEnabledById', () => {
     mockFindById.mockReturnValueOnce(selectLeanResult(null));
 
     await expect(getTotpEnabledById('missing-user')).resolves.toBe(false);
+  });
+});
+
+describe('getUserSessionById', () => {
+  it('returns session fields including totpEnabled without loading secrets', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        ...baseDoc,
+        totpEnabled: true,
+      })
+    );
+
+    await expect(getUserSessionById('auth-user-1')).resolves.toEqual({
+      userId: 'auth-user-1',
+      email: 'a@example.com',
+      name: 'Ada',
+      hasCompletedOnboarding: false,
+      role: 'user',
+      authProvider: 'password',
+      totpEnabled: true,
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-02T00:00:00.000Z',
+    });
+  });
+
+  it('returns null when the profile is missing', async () => {
+    mockFindById.mockReturnValueOnce(selectLeanResult(null));
+
+    await expect(getUserSessionById('missing-user')).resolves.toBeNull();
   });
 });
 

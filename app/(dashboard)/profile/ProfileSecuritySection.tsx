@@ -30,6 +30,11 @@ const INPUT_CLASS =
 const TAB_BUTTON_CLASS =
   'rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50';
 
+const PASSWORD_TAB_ID = 'profile-security-tab-password';
+const TOTP_TAB_ID = 'profile-security-tab-totp';
+const PASSWORD_PANEL_ID = 'profile-security-panel-password';
+const TOTP_PANEL_ID = 'profile-security-panel-totp';
+
 /**
  * Security settings for password-based accounts: change password and TOTP 2FA.
  * @param props - User email and TOTP status callbacks.
@@ -49,9 +54,17 @@ export function ProfileSecuritySection({
         Manage your password and two-factor authentication settings.
       </p>
 
-      <div className="mt-6 flex flex-wrap gap-2 border-b border-border pb-4">
+      <div
+        className="mt-6 flex flex-wrap gap-2 border-b border-border pb-4"
+        role="tablist"
+        aria-label="Security settings"
+      >
         <button
           type="button"
+          role="tab"
+          id={PASSWORD_TAB_ID}
+          aria-selected={activeTab === 'password'}
+          aria-controls={PASSWORD_PANEL_ID}
           onClick={() => setActiveTab('password')}
           className={`${TAB_BUTTON_CLASS} ${
             activeTab === 'password'
@@ -63,6 +76,10 @@ export function ProfileSecuritySection({
         </button>
         <button
           type="button"
+          role="tab"
+          id={TOTP_TAB_ID}
+          aria-selected={activeTab === 'totp'}
+          aria-controls={TOTP_PANEL_ID}
           onClick={() => setActiveTab('totp')}
           className={`${TAB_BUTTON_CLASS} ${
             activeTab === 'totp'
@@ -76,13 +93,17 @@ export function ProfileSecuritySection({
 
       <div className="mt-6">
         {activeTab === 'password' ? (
-          <ChangePasswordPanel />
+          <div role="tabpanel" id={PASSWORD_PANEL_ID} aria-labelledby={PASSWORD_TAB_ID}>
+            <ChangePasswordPanel />
+          </div>
         ) : (
-          <TotpPanel
-            userEmail={userEmail}
-            totpEnabled={totpEnabled}
-            onTotpEnabledChange={onTotpEnabledChange}
-          />
+          <div role="tabpanel" id={TOTP_PANEL_ID} aria-labelledby={TOTP_TAB_ID}>
+            <TotpPanel
+              userEmail={userEmail}
+              totpEnabled={totpEnabled}
+              onTotpEnabledChange={onTotpEnabledChange}
+            />
+          </div>
         )}
       </div>
     </section>

@@ -32,6 +32,30 @@ type ListUserProfileLean = Pick<
   | 'updatedAt'
 >;
 
+/** Fields loaded for authenticated session responses (excludes secrets). */
+const SESSION_USER_SELECT =
+  'userId email name hasCompletedOnboarding role authProvider totpEnabled createdAt updatedAt';
+
+type SessionUserProfileLean = Pick<
+  UserProfileDocument,
+  | 'userId'
+  | 'email'
+  | 'name'
+  | 'hasCompletedOnboarding'
+  | 'role'
+  | 'authProvider'
+  | 'totpEnabled'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+/**
+ * User profile fields returned by {@link getUserSessionById} for session APIs.
+ */
+export interface SessionUser extends User {
+  totpEnabled: boolean;
+}
+
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
   return {
@@ -43,6 +67,14 @@ function mongoDocToUser(doc: UserProfileDocument): User {
     authProvider: doc.authProvider,
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
+  };
+}
+
+/** Map a lean session profile document to {@link SessionUser}. */
+function mongoDocToSessionUser(doc: SessionUserProfileLean): SessionUser {
+  return {
+    ...mongoDocToUser(doc as UserProfileDocument),
+    totpEnabled: Boolean(doc.totpEnabled),
   };
 }
 
@@ -114,6 +146,21 @@ export async function getUserById(userId: string): Promise<User | null> {
   const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
   if (!doc) return null;
   return mongoDocToUser(doc);
+}
+
+/**
+ * Fetch session fields for a user by id, including {@link SessionUser.totpEnabled}.
+ * @param userId - Auth user id to look up.
+ * @returns Session user profile, or null when not found.
+ */
+export async function getUserSessionById(userId: string): Promise<SessionUser | null> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select(SESSION_USER_SELECT)
+    .lean<SessionUserProfileLean | null>();
+  if (!doc) return null;
+  return mongoDocToSessionUser(doc);
 }
 
 /**

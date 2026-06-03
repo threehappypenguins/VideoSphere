@@ -5,8 +5,7 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
-import { getTotpEnabledById } from '@/lib/repositories/users';
+import { getAuthenticatedSessionUser } from '@/lib/api/auth';
 
 /**
  * Handles GET requests for this route.
@@ -15,16 +14,9 @@ import { getTotpEnabledById } from '@/lib/repositories/users';
  */
 export async function GET(req: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(req);
+    const user = await getAuthenticatedSessionUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
-
-    let totpEnabled = false;
-    try {
-      totpEnabled = await getTotpEnabledById(user.userId);
-    } catch (totpErr) {
-      console.error('[GET /api/auth/session] TOTP status lookup failed', totpErr);
     }
 
     return NextResponse.json({
@@ -32,7 +24,7 @@ export async function GET(req: NextRequest) {
       email: user.email,
       name: user.name,
       authProvider: user.authProvider,
-      totpEnabled,
+      totpEnabled: user.totpEnabled,
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);

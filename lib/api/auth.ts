@@ -9,6 +9,7 @@ import { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 import type { User } from '@/types';
+import type { SessionUser } from '@/lib/repositories/users';
 
 function getTestLegacyUserId(req: NextRequest): string | null {
   if (process.env.NODE_ENV !== 'test') return null;
@@ -46,6 +47,14 @@ async function getJwtAuthenticatedUser(req: NextRequest): Promise<User | null> {
   return getUserById(userId);
 }
 
+async function getJwtAuthenticatedSessionUser(req: NextRequest): Promise<SessionUser | null> {
+  const userId = await getJwtAuthenticatedUserId(req);
+  if (!userId) return null;
+
+  const { getUserSessionById } = await import('@/lib/repositories/users');
+  return getUserSessionById(userId);
+}
+
 /**
  * Reads the JWT session cookie from the request and returns the authenticated
  * user profile. Returns null when the token is missing/invalid or the user no
@@ -56,6 +65,21 @@ async function getJwtAuthenticatedUser(req: NextRequest): Promise<User | null> {
 export async function getAuthenticatedUser(req: NextRequest): Promise<User | null> {
   try {
     return await getJwtAuthenticatedUser(req);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads the JWT session cookie from the request and returns the authenticated
+ * user profile including session fields such as `totpEnabled`. Returns null
+ * when the token is missing/invalid or the user no longer exists.
+ * @param req - The incoming request object.
+ * @returns The authenticated session user profile or null.
+ */
+export async function getAuthenticatedSessionUser(req: NextRequest): Promise<SessionUser | null> {
+  try {
+    return await getJwtAuthenticatedSessionUser(req);
   } catch {
     return null;
   }

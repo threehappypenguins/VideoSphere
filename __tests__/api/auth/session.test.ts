@@ -1,16 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const getAuthenticatedUserMock = vi.hoisted(() => vi.fn());
+const getAuthenticatedSessionUserMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api/auth', () => ({
-  getAuthenticatedUser: getAuthenticatedUserMock,
-}));
-
-const getTotpEnabledByIdMock = vi.hoisted(() => vi.fn());
-
-vi.mock('@/lib/repositories/users', () => ({
-  getTotpEnabledById: (...args: unknown[]) => getTotpEnabledByIdMock(...args),
+  getAuthenticatedSessionUser: getAuthenticatedSessionUserMock,
 }));
 
 import { GET } from '@/app/api/auth/session/route';
@@ -26,18 +20,18 @@ describe('GET /api/auth/session', () => {
     vi.clearAllMocks();
   });
 
-  it('returns the persisted profile name and auth provider for authenticated users', async () => {
-    getAuthenticatedUserMock.mockResolvedValueOnce({
+  it('returns the persisted profile name, auth provider, and totpEnabled for authenticated users', async () => {
+    getAuthenticatedSessionUserMock.mockResolvedValueOnce({
       userId: 'user-1',
       email: 'creator@example.com',
       name: 'Ada Lovelace',
       hasCompletedOnboarding: false,
       role: 'user',
       authProvider: 'password',
+      totpEnabled: false,
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    getTotpEnabledByIdMock.mockResolvedValueOnce(false);
 
     const res = await GET(makeRequest());
 
@@ -51,28 +45,12 @@ describe('GET /api/auth/session', () => {
     });
   });
 
-  it('returns session data with totpEnabled false when TOTP lookup fails', async () => {
-    getAuthenticatedUserMock.mockResolvedValueOnce({
-      userId: 'user-1',
-      email: 'creator@example.com',
-      name: 'Ada Lovelace',
-      hasCompletedOnboarding: false,
-      role: 'user',
-      authProvider: 'password',
-      $createdAt: '2026-01-01T00:00:00.000Z',
-      $updatedAt: '2026-01-01T00:00:00.000Z',
-    });
-    getTotpEnabledByIdMock.mockRejectedValueOnce(new Error('db unavailable'));
+  it('returns 401 when session user lookup fails', async () => {
+    getAuthenticatedSessionUserMock.mockRejectedValueOnce(new Error('db unavailable'));
 
     const res = await GET(makeRequest());
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      $id: 'user-1',
-      email: 'creator@example.com',
-      name: 'Ada Lovelace',
-      authProvider: 'password',
-      totpEnabled: false,
-    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Not authenticated' });
   });
 });
