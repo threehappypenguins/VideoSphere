@@ -8,11 +8,12 @@
 // GET response: full User object
 // PATCH body: { name?: string, email?: string }
 // PATCH response: updated User object
-// Errors: 401, 403 (Google email change), 404, 409 (email in use), 500
+// Errors:   400 (invalid body/validation), 401, 403 (Google email change),
+//           404, 409 (email in use), 500
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
 import { isValidEmail, normalizeEmail } from '@/lib/auth/email';
 import { getUserByEmail, getUserById, updateUser } from '@/lib/repositories/users';
 
@@ -23,7 +24,7 @@ import { getUserByEmail, getUserById, updateUser } from '@/lib/repositories/user
  */
 export async function GET(req: NextRequest) {
   try {
-    const userId = await getAuthenticatedUserId(req);
+    const userId = await getAuthenticatedSessionUserId(req);
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
  */
 export async function PATCH(req: NextRequest) {
   try {
-    const userId = await getAuthenticatedUserId(req);
+    const userId = await getAuthenticatedSessionUserId(req);
     if (!userId) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }

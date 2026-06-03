@@ -6,13 +6,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const getAuthenticatedUserIdMock = vi.hoisted(() => vi.fn());
+const getAuthenticatedSessionUserIdMock = vi.hoisted(() => vi.fn());
 const getUserByIdMock = vi.hoisted(() => vi.fn());
 const getUserByEmailMock = vi.hoisted(() => vi.fn());
 const updateUserMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api/auth', () => ({
-  getAuthenticatedUserId: (...args: unknown[]) => getAuthenticatedUserIdMock(...args),
+  getAuthenticatedSessionUserId: (...args: unknown[]) => getAuthenticatedSessionUserIdMock(...args),
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
@@ -67,7 +67,7 @@ const BASE_USER = {
 describe('GET /api/auth/profile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getAuthenticatedUserIdMock.mockResolvedValue('user_123');
+    getAuthenticatedSessionUserIdMock.mockResolvedValue('user_123');
   });
 
   afterEach(() => {
@@ -75,7 +75,7 @@ describe('GET /api/auth/profile', () => {
   });
 
   it('returns 401 when session cookie is missing', async () => {
-    getAuthenticatedUserIdMock.mockResolvedValueOnce(null);
+    getAuthenticatedSessionUserIdMock.mockResolvedValueOnce(null);
     const res = await GET(createRequest());
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'Not authenticated' });
@@ -83,7 +83,7 @@ describe('GET /api/auth/profile', () => {
   });
 
   it('returns 404 when user profile is not found', async () => {
-    getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
+    getAuthenticatedSessionUserIdMock.mockResolvedValueOnce('user_123');
     getUserByIdMock.mockResolvedValueOnce(null);
 
     const res = await GET(createRequest({ videosphere_session: 'session-secret' }));
@@ -93,7 +93,7 @@ describe('GET /api/auth/profile', () => {
   });
 
   it('returns user profile payload', async () => {
-    getAuthenticatedUserIdMock.mockResolvedValueOnce('user_123');
+    getAuthenticatedSessionUserIdMock.mockResolvedValueOnce('user_123');
     getUserByIdMock.mockResolvedValueOnce({
       userId: 'user_123',
       email: 'test@example.com',
@@ -112,7 +112,7 @@ describe('GET /api/auth/profile', () => {
   });
 
   it('returns second user profile payload correctly', async () => {
-    getAuthenticatedUserIdMock.mockResolvedValueOnce('user_456');
+    getAuthenticatedSessionUserIdMock.mockResolvedValueOnce('user_456');
     getUserByIdMock.mockResolvedValueOnce({
       userId: 'user_456',
       email: 'free@example.com',
@@ -134,7 +134,7 @@ describe('GET /api/auth/profile', () => {
 describe('PATCH /api/auth/profile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getAuthenticatedUserIdMock.mockResolvedValue('user_123');
+    getAuthenticatedSessionUserIdMock.mockResolvedValue('user_123');
     getUserByIdMock.mockResolvedValue(BASE_USER);
   });
 
@@ -143,7 +143,7 @@ describe('PATCH /api/auth/profile', () => {
   });
 
   it('returns 401 when not authenticated', async () => {
-    getAuthenticatedUserIdMock.mockResolvedValueOnce(null);
+    getAuthenticatedSessionUserIdMock.mockResolvedValueOnce(null);
 
     const res = await PATCH(makePatchRequest({ name: 'New Name' }));
 
