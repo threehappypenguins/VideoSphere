@@ -403,16 +403,22 @@ The data model builds on the types already defined in `types/index.ts`:
 
 #### Connected Account (new — MongoDB `connected_accounts` collection)
 
+Shared columns use the same field names across platforms; meaning depends on `platform`:
+
 | Field           | Type     | Description                                             |
 | --------------- | -------- | ------------------------------------------------------- |
 | `id`            | `string` | Primary key                                             |
 | `userId`        | `string` | Foreign key → User                                      |
 | `platform`      | `string` | `'youtube'`, `'vimeo'`, `'google_drive'`, or `'sftp'`     |
-| `accessToken`   | `string` | Encrypted OAuth2 access token                           |
-| `refreshToken`  | `string` | Encrypted OAuth2 refresh token                          |
-| `tokenExpiry`   | `string` | ISO 8601 timestamp of token expiration                  |
-| `platformUserId`| `string` | User's ID on the connected platform                     |
-| `platformName`  | `string` | Display name from the platform (e.g., channel name)     |
+| `accessToken`   | `string` | Encrypted platform secret. **OAuth platforms:** access token. **SFTP:** private key PEM or password. |
+| `refreshToken`  | `string` | Encrypted platform secret. **OAuth platforms:** refresh token (when issued). **SFTP:** key passphrase when `sftpAuthMethod` is `'key'`; empty otherwise. |
+| `tokenExpiry`   | `string` | ISO 8601 timestamp. **OAuth platforms:** access-token expiration (used for refresh). **SFTP:** far-future sentinel (credentials do not expire). |
+| `platformUserId`| `string` | **OAuth platforms:** user/channel ID on the platform. **SFTP:** SSH username. |
+| `platformName`  | `string` | **OAuth platforms:** display name from the provider (e.g., channel name). **SFTP:** user-chosen connection label. |
+| `sftpHost`      | `string` | SFTP only: server hostname or IP address.               |
+| `sftpPort`      | `number` | SFTP only: server port (default 22).                    |
+| `sftpRemotePath`| `string` | SFTP only: absolute remote backup directory (starts with `/`). |
+| `sftpAuthMethod`| `string` | SFTP only: `'key'` or `'password'`.                     |
 | `createdAt`     | `string` | ISO 8601 timestamp                                      |
 | `updatedAt`     | `string` | ISO 8601 timestamp                                      |
 
@@ -547,7 +553,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 
 | ID    | Requirement                                                                                  |
 | ----- | -------------------------------------------------------------------------------------------- |
-| NF-05 | OAuth2 tokens for connected platforms are encrypted at rest in MongoDB.                      |
+| NF-05 | Connected-platform secrets (OAuth tokens, API keys, SFTP credentials) are encrypted at rest in MongoDB. |
 | NF-07 | All API routes validate input using Zod schemas; reject malformed requests with 400 errors.  |
 | NF-08 | Presigned R2 URLs expire within 15 minutes to prevent unauthorized access.                   |
 | NF-09 | Rate limiting on auth endpoints and AI generation endpoint to prevent abuse.                 |

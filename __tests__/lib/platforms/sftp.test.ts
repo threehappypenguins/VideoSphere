@@ -133,6 +133,37 @@ describe('uploadToSftp', () => {
     });
   });
 
+  it('brackets IPv6 hosts in platformUrl', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount({ sftpHost: '2001:db8::1' }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'IPv6 Backup' },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      platformUrl:
+        'sftp://[2001:db8::1]/backups/2026-04-15T12%3A00%3A00Z%20-%20IPv6%20Backup%20-%20backup.mp4',
+    });
+    expect(mocks.mockConnect).toHaveBeenCalledWith(
+      expect.objectContaining({ host: '2001:db8::1', port: 22 })
+    );
+  });
+
+  it('brackets IPv6 hosts and includes non-default port in platformUrl', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount({ sftpHost: '2001:db8::1', sftpPort: 2222 }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'IPv6 Port Backup' },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      platformUrl:
+        'sftp://[2001:db8::1]:2222/backups/2026-04-15T12%3A00%3A00Z%20-%20IPv6%20Port%20Backup%20-%20backup.mp4',
+    });
+  });
+
   it('uploads successfully with key auth and passphrase', async () => {
     await uploadToSftp({
       connectedAccount: makeSftpAccount({

@@ -1,4 +1,5 @@
 import { posix as pathPosix } from 'node:path';
+import { isIPv6 } from 'node:net';
 import { Readable } from 'node:stream';
 import { Client, type ConnectConfig, type SFTPWrapper } from 'ssh2';
 import { messageFromThrown } from '@/lib/utils/error-message';
@@ -82,8 +83,13 @@ function encodeSftpUriPath(remotePath: string): string {
     .join('/');
 }
 
+function formatSftpAuthorityHost(host: string): string {
+  return isIPv6(host) ? `[${host}]` : host;
+}
+
 function buildSftpPlatformUrl(host: string, port: number, remotePath: string): string {
-  const authority = port === 22 ? host : `${host}:${port}`;
+  const authorityHost = formatSftpAuthorityHost(host);
+  const authority = port === 22 ? authorityHost : `${authorityHost}:${port}`;
   return `sftp://${authority}${encodeSftpUriPath(remotePath)}`;
 }
 

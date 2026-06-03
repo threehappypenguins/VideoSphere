@@ -93,5 +93,10 @@
     "vitepress": "^1.6.4",
     "vitest": "^4",
     "vitest-axe": "^0.1.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/node": "$@types/node"
+    }
   }
 }
