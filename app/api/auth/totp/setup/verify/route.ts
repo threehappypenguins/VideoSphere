@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { verifyTotpToken } from '@/lib/auth/totp';
 import { encryptToken } from '@/lib/crypto/token-encryption';
-import { enableTotp, getUserById } from '@/lib/repositories/users';
+import { enableTotp, getTotpSecret, getUserById } from '@/lib/repositories/users';
 
 /**
  * Verifies a TOTP code against a pending secret and enables two-factor auth.
@@ -43,6 +43,14 @@ export async function POST(req: NextRequest) {
     if (typeof rawSecret !== 'string' || typeof rawToken !== 'string') {
       return NextResponse.json(
         { error: 'secret and token are required and must be strings.' },
+        { status: 400 }
+      );
+    }
+
+    const totp = await getTotpSecret(userId);
+    if (totp.status === 'available') {
+      return NextResponse.json(
+        { error: 'Two-factor authentication is already enabled for this account.' },
         { status: 400 }
       );
     }

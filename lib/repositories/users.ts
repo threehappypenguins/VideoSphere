@@ -219,6 +219,21 @@ export async function disableTotp(userId: string): Promise<void> {
 }
 
 /**
+ * Returns whether TOTP is enabled for a user without decrypting the stored secret.
+ * @param userId - Auth user id to look up.
+ * @returns True when the profile has `totpEnabled`; otherwise false.
+ */
+export async function getTotpEnabledById(userId: string): Promise<boolean> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ totpEnabled: 1 })
+    .lean<Pick<UserProfileDocument, 'totpEnabled'> | null>();
+
+  return Boolean(doc?.totpEnabled);
+}
+
+/**
  * Result of loading a user's stored TOTP secret for verification flows.
  */
 export type TotpSecretLookup =

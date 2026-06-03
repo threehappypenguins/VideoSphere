@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 const mockGetAuthenticatedUserId = vi.hoisted(() => vi.fn());
 const mockGetUserById = vi.hoisted(() => vi.fn());
+const mockGetTotpSecret = vi.hoisted(() => vi.fn());
 const mockVerifyTotpToken = vi.hoisted(() => vi.fn());
 const mockEncryptToken = vi.hoisted(() => vi.fn());
 const mockEnableTotp = vi.hoisted(() => vi.fn());
@@ -13,6 +14,7 @@ vi.mock('@/lib/api/auth', () => ({
 
 vi.mock('@/lib/repositories/users', () => ({
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
+  getTotpSecret: (...args: unknown[]) => mockGetTotpSecret(...args),
   enableTotp: (...args: unknown[]) => mockEnableTotp(...args),
 }));
 
@@ -51,6 +53,7 @@ describe('POST /api/auth/totp/setup/verify', () => {
     vi.clearAllMocks();
     mockGetAuthenticatedUserId.mockResolvedValue('user-abc');
     mockGetUserById.mockResolvedValue(passwordProfile);
+    mockGetTotpSecret.mockResolvedValue({ status: 'disabled' });
     mockVerifyTotpToken.mockResolvedValue(true);
     mockEncryptToken.mockReturnValue('encrypted-totp-secret');
     mockEnableTotp.mockResolvedValue(undefined);
@@ -89,6 +92,22 @@ describe('POST /api/auth/totp/setup/verify', () => {
       error: 'secret and token are required and must be strings.',
     });
     expect(mockVerifyTotpToken).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when two-factor authentication is already enabled', async () => {
+    mockGetTotpSecret.mockResolvedValueOnce({
+      status: 'available',
+      secret: 'existing-secret',
+    });
+
+    const res = await POST(makeRequest({ secret: PENDING_SECRET, token: '123456' }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Two-factor authentication is already enabled for this account.',
+    });
+    expect(mockVerifyTotpToken).not.toHaveBeenCalled();
+    expect(mockEnableTotp).not.toHaveBeenCalled();
   });
 
   it('returns 400 when the authentication code is invalid', async () => {

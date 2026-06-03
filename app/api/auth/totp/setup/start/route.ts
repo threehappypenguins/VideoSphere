@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { generateTotpSetup } from '@/lib/auth/totp';
-import { getUserById } from '@/lib/repositories/users';
+import { getTotpSecret, getUserById } from '@/lib/repositories/users';
 
 /**
  * Starts TOTP setup by generating a new secret and otpauth URI (not persisted yet).
@@ -24,6 +24,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'Two-factor authentication is only available for password-based accounts.' },
         { status: 403 }
+      );
+    }
+
+    const totp = await getTotpSecret(userId);
+    if (totp.status === 'available') {
+      return NextResponse.json(
+        { error: 'Two-factor authentication is already enabled for this account.' },
+        { status: 400 }
       );
     }
 

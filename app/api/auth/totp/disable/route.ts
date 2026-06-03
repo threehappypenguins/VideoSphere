@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getTotpTrustCookieName, getTotpTrustCookieOptions } from '@/lib/auth-session-cookie';
+import { clearTotpTrustCookie } from '@/lib/auth-session-cookie';
 import { verifyTotpToken } from '@/lib/auth/totp';
 import { disableTotp, getTotpSecret, getUserById } from '@/lib/repositories/users';
 
@@ -70,10 +70,7 @@ export async function POST(req: NextRequest) {
     await disableTotp(userId);
 
     const res = NextResponse.json({ ok: true });
-    res.cookies.set(getTotpTrustCookieName(), '', {
-      ...getTotpTrustCookieOptions(0),
-      maxAge: 0,
-    });
+    clearTotpTrustCookie(res);
     return res;
   } catch (err) {
     const code = (err as { code?: number }).code;

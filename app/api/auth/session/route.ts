@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/api/auth';
-import { getTotpSecret } from '@/lib/repositories/users';
+import { getTotpEnabledById } from '@/lib/repositories/users';
 
 /**
  * Handles GET requests for this route.
@@ -22,8 +22,7 @@ export async function GET(req: NextRequest) {
 
     let totpEnabled = false;
     try {
-      const totp = await getTotpSecret(user.userId);
-      totpEnabled = totp.status !== 'disabled';
+      totpEnabled = await getTotpEnabledById(user.userId);
     } catch (totpErr) {
       console.error('[GET /api/auth/session] TOTP status lookup failed', totpErr);
     }

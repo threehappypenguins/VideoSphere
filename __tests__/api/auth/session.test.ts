@@ -7,10 +7,10 @@ vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUser: getAuthenticatedUserMock,
 }));
 
-const getTotpSecretMock = vi.hoisted(() => vi.fn());
+const getTotpEnabledByIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/repositories/users', () => ({
-  getTotpSecret: (...args: unknown[]) => getTotpSecretMock(...args),
+  getTotpEnabledById: (...args: unknown[]) => getTotpEnabledByIdMock(...args),
 }));
 
 import { GET } from '@/app/api/auth/session/route';
@@ -37,7 +37,7 @@ describe('GET /api/auth/session', () => {
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    getTotpSecretMock.mockResolvedValueOnce({ status: 'disabled' });
+    getTotpEnabledByIdMock.mockResolvedValueOnce(false);
 
     const res = await GET(makeRequest());
 
@@ -62,7 +62,7 @@ describe('GET /api/auth/session', () => {
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    getTotpSecretMock.mockRejectedValueOnce(new Error('db unavailable'));
+    getTotpEnabledByIdMock.mockRejectedValueOnce(new Error('db unavailable'));
 
     const res = await GET(makeRequest());
 

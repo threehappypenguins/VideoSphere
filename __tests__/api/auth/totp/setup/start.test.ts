@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 const mockGetAuthenticatedUserId = vi.hoisted(() => vi.fn());
 const mockGetUserById = vi.hoisted(() => vi.fn());
 const mockGenerateTotpSetup = vi.hoisted(() => vi.fn());
+const mockGetTotpSecret = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
@@ -11,6 +12,7 @@ vi.mock('@/lib/api/auth', () => ({
 
 vi.mock('@/lib/repositories/users', () => ({
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
+  getTotpSecret: (...args: unknown[]) => mockGetTotpSecret(...args),
 }));
 
 vi.mock('@/lib/auth/totp', () => ({
@@ -40,6 +42,7 @@ describe('POST /api/auth/totp/setup/start', () => {
     vi.clearAllMocks();
     mockGetAuthenticatedUserId.mockResolvedValue('user-abc');
     mockGetUserById.mockResolvedValue(passwordProfile);
+    mockGetTotpSecret.mockResolvedValue({ status: 'disabled' });
     mockGenerateTotpSetup.mockReturnValue({
       secret: 'JBSWY3DPEHPK3PXP',
       otpauthUri: 'otpauth://totp/VideoSphere:user%40example.com?secret=JBSWY3DPEHPK3PXP',
@@ -67,6 +70,21 @@ describe('POST /api/auth/totp/setup/start', () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
       error: 'Two-factor authentication is only available for password-based accounts.',
+    });
+    expect(mockGenerateTotpSetup).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when two-factor authentication is already enabled', async () => {
+    mockGetTotpSecret.mockResolvedValueOnce({
+      status: 'available',
+      secret: 'existing-secret',
+    });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Two-factor authentication is already enabled for this account.',
     });
     expect(mockGenerateTotpSetup).not.toHaveBeenCalled();
   });
