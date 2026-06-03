@@ -1,10 +1,12 @@
 import mongoose, { Schema } from 'mongoose';
-import type { ConnectedAccountPlatform } from '@/types';
+import type { ConnectedAccountPlatform, SftpAuthMethod } from '@/types';
 
 /**
  * Raw MongoDB document shape for the `connected_accounts` collection.
  *
  * accessToken and refreshToken store encrypted ciphertext strings.
+ * For SFTP, accessToken holds the encrypted private key or password and
+ * refreshToken holds the encrypted key passphrase (empty when none).
  */
 export interface ConnectedAccountDocument {
   _id: string;
@@ -15,6 +17,10 @@ export interface ConnectedAccountDocument {
   tokenExpiry: string;
   platformUserId: string;
   platformName: string;
+  sftpHost?: string;
+  sftpPort?: number;
+  sftpRemotePath?: string;
+  sftpAuthMethod?: SftpAuthMethod;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,12 +29,20 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
   {
     _id: { type: String },
     userId: { type: String, required: true, index: true, trim: true },
-    platform: { type: String, enum: ['youtube', 'vimeo', 'google_drive'], required: true },
+    platform: {
+      type: String,
+      enum: ['youtube', 'vimeo', 'google_drive', 'sftp'],
+      required: true,
+    },
     accessToken: { type: String, required: true },
     refreshToken: { type: String, default: '' },
     tokenExpiry: { type: String, required: true },
     platformUserId: { type: String, required: true },
     platformName: { type: String, required: true },
+    sftpHost: { type: String },
+    sftpPort: { type: Number },
+    sftpRemotePath: { type: String },
+    sftpAuthMethod: { type: String, enum: ['key', 'password'] },
   },
   { timestamps: true }
 );

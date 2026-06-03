@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   output: 'standalone', // required for Docker (produces server.js)
   // Mongoose/MongoDB use Node built-ins (net, tls, etc.); must not be webpack-bundled
   // for instrumentation or other server entry points.
-  serverExternalPackages: ['mongoose', 'mongodb'],
+  serverExternalPackages: ['mongoose', 'mongodb', 'ssh2'],
   images: {
     remotePatterns: [
       {

@@ -26,6 +26,7 @@ import {
 } from '@/lib/repositories/connected-accounts';
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
+import { SftpConnectButton } from './SftpConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
@@ -45,7 +46,7 @@ async function getCurrentUserId(): Promise<string | null> {
   return getCurrentUserIdFromCookies();
 }
 
-const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: string }> = {
+const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: string | null }> = {
   youtube: {
     label: 'YouTube',
     icon: '▶',
@@ -61,15 +62,25 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
     icon: '🗂️',
     connectHref: '/api/platforms/connect/drive',
   },
+  sftp: {
+    label: 'SFTP Server',
+    icon: '🖥️',
+    connectHref: null,
+  },
 };
 
-const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive'] as const;
+const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp'] as const;
 
 /** Derive connection status from tokenExpiry and whether a refresh token exists. */
 function getConnectionStatus(
   account: ConnectedAccountPublic | undefined
 ): 'connected' | 'expired' | 'not-connected' {
   if (!account) return 'not-connected';
+  if (account.platform === 'sftp') {
+    const expiryMs = new Date(account.tokenExpiry).getTime();
+    if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
+    return 'expired';
+  }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
   // YouTube and Google Drive use short-lived access tokens; a stored refresh token means the link can be renewed.
@@ -304,13 +315,17 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                 ) : status === 'expired' && account ? (
                   // Token is expired — offer both reconnect and disconnect.
                   <div className="flex items-center gap-2">
-                    <ConnectButton href={meta.connectHref} label="Reconnect" />
+                    {meta.connectHref ? (
+                      <ConnectButton href={meta.connectHref} label="Reconnect" />
+                    ) : (
+                      <SftpConnectButton label="Reconnect" />
+                    )}
                     <DisconnectButton
                       action={disconnectPlatform.bind(null, account.id)}
                       platformLabel={meta.label}
                     />
                   </div>
-                ) : (
+                ) : meta.connectHref ? (
                   <ConnectButton
                     href={meta.connectHref}
                     label="Connect"
@@ -318,6 +333,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                       ? { 'data-tour': 'first-connect-button' }
                       : {})}
                   />
+                ) : (
+                  <SftpConnectButton label="Connect" />
                 )}
               </div>
             );

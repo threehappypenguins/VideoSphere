@@ -26,6 +26,11 @@ const { mockGetCurrentUserIdFromCookies, mockGetConnectedAccountsByUser } = vi.h
 
 vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+  }),
 }));
 
 vi.mock('next/cache', () => ({
@@ -111,6 +116,12 @@ describe('ConnectionsPage', () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
       expect(screen.getByText('Google Drive')).toBeInTheDocument();
+    });
+
+    it('renders a row for SFTP Server', async () => {
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText('SFTP Server')).toBeInTheDocument();
     });
 
     it('shows Connect button for unconnected platforms', async () => {

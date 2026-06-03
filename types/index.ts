@@ -46,14 +46,21 @@ export interface User {
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
-export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive';
+export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive' | 'sftp';
 
 /** Platforms we support for drafts, uploads, and connections (extend as you add backends). */
 export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = [
   'youtube',
   'vimeo',
   'google_drive',
+  'sftp',
 ];
+
+/** SFTP authentication method stored on a connected account. */
+export type SftpAuthMethod = 'key' | 'password';
+
+/** SFTP-only fields inside the draft `document.platforms` JSON (no publish options yet). */
+export interface SftpDraftFields {}
 
 /** Platform upload status (PRD: pending, uploading, completed, failed). */
 export type PlatformUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
@@ -199,6 +206,7 @@ export interface VimeoDraftFields {
 export interface DraftPlatforms {
   youtube?: YouTubeDraftFields;
   vimeo?: VimeoDraftFields;
+  sftp?: SftpDraftFields;
 }
 
 /**
@@ -323,6 +331,14 @@ export interface ConnectedAccountPublic {
 export interface ConnectedAccount extends ConnectedAccountPublic {
   accessToken: string;
   refreshToken: string;
+  /** SFTP server hostname or IP (SFTP accounts only). */
+  sftpHost?: string;
+  /** SFTP server port (SFTP accounts only; default 22). */
+  sftpPort?: number;
+  /** Absolute remote directory for backups (SFTP accounts only). */
+  sftpRemotePath?: string;
+  /** Whether the stored credential is an SSH key or password (SFTP accounts only). */
+  sftpAuthMethod?: SftpAuthMethod;
 }
 
 // =============================================================================

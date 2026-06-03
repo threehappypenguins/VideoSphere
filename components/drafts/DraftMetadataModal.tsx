@@ -79,7 +79,12 @@ const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> =
   { value: 'private', label: 'Private' },
 ];
 
-const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = ['youtube', 'vimeo', 'google_drive'];
+const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = [
+  'youtube',
+  'vimeo',
+  'google_drive',
+  'sftp',
+];
 
 function comparePlatformsByPreference(
   a: ConnectedAccountPlatform,

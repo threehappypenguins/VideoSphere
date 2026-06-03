@@ -46,6 +46,7 @@ const mockRefreshYouTubeAccessToken = vi.fn();
 const mockRefreshTokenIfNeeded = vi.fn();
 const mockUploadToVimeo = vi.fn();
 const mockUploadToGoogleDrive = vi.fn();
+const mockUploadToSftp = vi.fn();
 const mockGetPlatformUploadsByJob = vi.fn();
 const mockUpdatePlatformUploadStatus = vi.fn();
 const mockGetUploadJobById = vi.fn();
@@ -109,6 +110,10 @@ vi.mock('@/lib/platforms/vimeo', () => ({
 
 vi.mock('@/lib/platforms/google-drive', () => ({
   uploadToGoogleDrive: (...args: unknown[]) => mockUploadToGoogleDrive(...args),
+}));
+
+vi.mock('@/lib/platforms/sftp', () => ({
+  uploadToSftp: (...args: unknown[]) => mockUploadToSftp(...args),
 }));
 
 import { POST } from '@/app/api/uploads/distribute/route';
@@ -306,6 +311,12 @@ describe('POST /api/uploads/distribute', () => {
       platformUrl: 'https://drive.google.com/file/d/drive-1/view',
     });
 
+    mockUploadToSftp.mockResolvedValue({
+      ok: true,
+      platformVideoId: '/backups/file.mp4',
+      platformUrl: 'sftp://sftp.example.com/backups/file.mp4',
+    });
+
     mockUpdatePlatformUploadStatus.mockImplementation(async (id: string, status: string) => ({
       id,
       uploadJobId: 'job-123',
@@ -313,7 +324,9 @@ describe('POST /api/uploads/distribute', () => {
         ? 'vimeo'
         : id.includes('google_drive')
           ? 'google_drive'
-          : 'youtube',
+          : id.includes('sftp')
+            ? 'sftp'
+            : 'youtube',
       status,
       platformVideoId: '',
       platformUrl: '',
@@ -1240,6 +1253,63 @@ describe('POST /api/uploads/distribute', () => {
       'completed',
       'vm-1',
       'https://vimeo.com/vm-1',
+      null
+    );
+  });
+
+  it('uploads to SFTP successfully when selected as a target', async () => {
+    mockGetDraftById.mockResolvedValueOnce({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['sftp'],
+      title: 'Backup title',
+      description: 'Backup description',
+      visibility: 'private',
+      tags: ['backup'],
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockGetPlatformUploadsByJob.mockResolvedValueOnce([
+      {
+        id: 'pu-sftp',
+        uploadJobId: 'job-123',
+        platform: 'sftp',
+        status: 'completed',
+        platformVideoId: '/backups/file.mp4',
+        platformUrl: 'sftp://sftp.example.com/backups/file.mp4',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private',
+        scheduledAt: null,
+        errorMessage: null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['sftp'],
+        },
+        { [SESSION_COOKIE]: 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockUploadToSftp).toHaveBeenCalledTimes(1);
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-sftp',
+      'completed',
+      '/backups/file.mp4',
+      'sftp://sftp.example.com/backups/file.mp4',
       null
     );
   });

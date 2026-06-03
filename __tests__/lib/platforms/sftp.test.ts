@@ -1,0 +1,237 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  mockConnect: vi.fn(),
+  mockEnd: vi.fn(),
+  mockSftp: vi.fn(),
+  mockCreateWriteStream: vi.fn(),
+  mockStat: vi.fn(),
+}));
+
+vi.mock('ssh2', () => {
+  const { EventEmitter } = require('node:events');
+  class MockClient extends EventEmitter {
+    connect = mocks.mockConnect;
+    end = mocks.mockEnd;
+    sftp = mocks.mockSftp;
+  }
+  return { Client: MockClient };
+});
+
+import { PassThrough } from 'node:stream';
+import { EventEmitter } from 'node:events';
+import { testSftpConnection, uploadToSftp } from '@/lib/platforms/sftp';
+import type { ConnectedAccount } from '@/types';
+
+function makeVideoStream(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2, 3]));
+      controller.close();
+    },
+  });
+}
+
+function makeSftpAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAccount {
+  return {
+    id: 'ca-sftp-1',
+    userId: 'user-1',
+    platform: 'sftp',
+    hasRefreshToken: false,
+    platformName: 'My Home Server',
+    platformUserId: 'backup-user',
+    accessToken: 'secret-password',
+    refreshToken: '',
+    tokenExpiry: '2099-01-01T00:00:00.000Z',
+    sftpHost: 'sftp.example.com',
+    sftpPort: 22,
+    sftpRemotePath: '/backups',
+    sftpAuthMethod: 'password',
+    $createdAt: new Date().toISOString(),
+    $updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function setupSuccessfulSftpMocks() {
+  mocks.mockConnect.mockImplementation(function connect(this: InstanceType<typeof EventEmitter>) {
+    queueMicrotask(() => this.emit('ready'));
+  });
+
+  mocks.mockSftp.mockImplementation((callback: (err: Error | null, sftp: unknown) => void) => {
+    callback(null, {
+      stat: mocks.mockStat,
+      createWriteStream: mocks.mockCreateWriteStream,
+    });
+  });
+
+  mocks.mockStat.mockImplementation(
+    (
+      _path: string,
+      callback: (err: Error | null, stats: { isDirectory: () => boolean }) => void
+    ) => {
+      callback(null, { isDirectory: () => true });
+    }
+  );
+
+  mocks.mockCreateWriteStream.mockImplementation(() => {
+    const stream = new PassThrough();
+    queueMicrotask(() => stream.emit('close'));
+    return stream;
+  });
+}
+
+describe('uploadToSftp', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-15T12:00:00Z'));
+    setupSuccessfulSftpMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('uploads successfully with password auth', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      contentType: 'video/mp4',
+      metadata: { title: 'My Backup' },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: '/backups/2026-04-15T12:00:00Z - My Backup - backup.mp4',
+      platformUrl: 'sftp://sftp.example.com/backups/2026-04-15T12:00:00Z - My Backup - backup.mp4',
+    });
+
+    expect(mocks.mockConnect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'sftp.example.com',
+        port: 22,
+        username: 'backup-user',
+        password: 'secret-password',
+      })
+    );
+    expect(mocks.mockEnd).toHaveBeenCalled();
+  });
+
+  it('uploads successfully with key auth and passphrase', async () => {
+    await uploadToSftp({
+      connectedAccount: makeSftpAccount({
+        sftpAuthMethod: 'key',
+        accessToken: '-----BEGIN OPENSSH PRIVATE KEY-----\nabc',
+        refreshToken: 'key-pass',
+      }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Key Backup' },
+    });
+
+    expect(mocks.mockConnect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\nabc',
+        passphrase: 'key-pass',
+      })
+    );
+  });
+
+  it('returns connection failure when connect emits error', async () => {
+    mocks.mockConnect.mockImplementation(function connect(this: InstanceType<typeof EventEmitter>) {
+      queueMicrotask(() => this.emit('error', new Error('ECONNREFUSED connect failed')));
+    });
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Fail' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_CONNECTION_FAILED' },
+    });
+  });
+
+  it('returns write failure when createWriteStream errors', async () => {
+    mocks.mockCreateWriteStream.mockImplementation(() => {
+      const stream = new PassThrough();
+      queueMicrotask(() => stream.emit('error', new Error('disk full')));
+      return stream;
+    });
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Fail' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_WRITE_FAILED' },
+    });
+  });
+
+  it('cancels in-flight upload when abort signal fires', async () => {
+    mocks.mockCreateWriteStream.mockImplementation(() => new PassThrough());
+
+    const controller = new AbortController();
+    const uploadPromise = uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Abort' },
+      signal: controller.signal,
+    });
+
+    controller.abort();
+    const result = await uploadPromise;
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_UPLOAD_ABORTED' },
+    });
+    expect(mocks.mockEnd).toHaveBeenCalled();
+  });
+});
+
+describe('testSftpConnection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupSuccessfulSftpMocks();
+  });
+
+  it('returns ok when remote path exists', async () => {
+    const result = await testSftpConnection({
+      host: 'sftp.example.com',
+      port: 22,
+      username: 'backup-user',
+      remotePath: '/backups',
+      authMethod: 'password',
+      credential: 'secret',
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(mocks.mockStat).toHaveBeenCalledWith('/backups', expect.any(Function));
+  });
+
+  it('returns auth failure for authentication errors', async () => {
+    mocks.mockConnect.mockImplementation(function connect(this: InstanceType<typeof EventEmitter>) {
+      queueMicrotask(() => this.emit('error', new Error('Authentication failed')));
+    });
+
+    const result = await testSftpConnection({
+      host: 'sftp.example.com',
+      port: 22,
+      username: 'backup-user',
+      remotePath: '/backups',
+      authMethod: 'password',
+      credential: 'bad',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_AUTH_FAILED' },
+    });
+  });
+});
