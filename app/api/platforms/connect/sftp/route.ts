@@ -154,9 +154,7 @@ export async function POST(req: NextRequest) {
   const passphraseProvided = passphraseRaw.trim().length > 0;
 
   const existingRow = await getConnectedAccountRowId(userId, 'sftp');
-  const existingAccount = existingRow
-    ? await getConnectedAccountWithTokens(userId, 'sftp')
-    : null;
+  const existingAccount = existingRow ? await getConnectedAccountWithTokens(userId, 'sftp') : null;
 
   if (
     existingAccount &&

@@ -74,9 +74,7 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     ...(doc.sftpHost != null ? { sftpHost: String(doc.sftpHost) } : {}),
     ...(doc.sftpPort != null ? { sftpPort: Number(doc.sftpPort) } : {}),
     ...(doc.sftpRemotePath != null ? { sftpRemotePath: String(doc.sftpRemotePath) } : {}),
-    ...(doc.sftpAuthMethod != null
-      ? { sftpAuthMethod: doc.sftpAuthMethod as SftpAuthMethod }
-      : {}),
+    ...(doc.sftpAuthMethod != null ? { sftpAuthMethod: doc.sftpAuthMethod as SftpAuthMethod } : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
