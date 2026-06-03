@@ -104,7 +104,8 @@ describe('uploadToSftp', () => {
     expect(result).toEqual({
       ok: true,
       platformVideoId: '/backups/2026-04-15T12:00:00Z - My Backup - backup.mp4',
-      platformUrl: 'sftp://sftp.example.com/backups/2026-04-15T12:00:00Z - My Backup - backup.mp4',
+      platformUrl:
+        'sftp://sftp.example.com/backups/2026-04-15T12%3A00%3A00Z%20-%20My%20Backup%20-%20backup.mp4',
     });
 
     expect(mocks.mockConnect).toHaveBeenCalledWith(
@@ -128,7 +129,7 @@ describe('uploadToSftp', () => {
     expect(result).toMatchObject({
       ok: true,
       platformUrl:
-        'sftp://sftp.example.com:2222/backups/2026-04-15T12:00:00Z - Custom Port Backup - backup.mp4',
+        'sftp://sftp.example.com:2222/backups/2026-04-15T12%3A00%3A00Z%20-%20Custom%20Port%20Backup%20-%20backup.mp4',
     });
   });
 
@@ -264,6 +265,61 @@ describe('testSftpConnection', () => {
     expect(result).toMatchObject({
       ok: false,
       error: { code: 'SFTP_AUTH_FAILED' },
+    });
+  });
+
+  it('returns remote path validation error when path is not a directory', async () => {
+    mocks.mockStat.mockImplementation(
+      (
+        _path: string,
+        callback: (err: Error | null, stats: { isDirectory: () => boolean }) => void
+      ) => {
+        callback(null, { isDirectory: () => false });
+      }
+    );
+
+    const result = await testSftpConnection({
+      host: 'sftp.example.com',
+      port: 22,
+      username: 'backup-user',
+      remotePath: '/backups/file.txt',
+      authMethod: 'password',
+      credential: 'secret',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'SFTP_REMOTE_PATH_INVALID',
+        statusCode: 400,
+      },
+    });
+  });
+
+  it('returns remote path validation error when path does not exist', async () => {
+    mocks.mockStat.mockImplementation(
+      (_path: string, callback: (err: Error | null, stats: unknown) => void) => {
+        const err = new Error('No such file') as Error & { code: string };
+        err.code = 'ENOENT';
+        callback(err, null);
+      }
+    );
+
+    const result = await testSftpConnection({
+      host: 'sftp.example.com',
+      port: 22,
+      username: 'backup-user',
+      remotePath: '/missing',
+      authMethod: 'password',
+      credential: 'secret',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'SFTP_REMOTE_PATH_INVALID',
+        statusCode: 400,
+      },
     });
   });
 });

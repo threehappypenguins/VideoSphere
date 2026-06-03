@@ -75,9 +75,16 @@ function normalizeSftpFileName(title: string, contentType: string | undefined, n
   return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
+function encodeSftpUriPath(remotePath: string): string {
+  return remotePath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
 function buildSftpPlatformUrl(host: string, port: number, remotePath: string): string {
   const authority = port === 22 ? host : `${host}:${port}`;
-  return `sftp://${authority}${remotePath}`;
+  return `sftp://${authority}${encodeSftpUriPath(remotePath)}`;
 }
 
 function buildConnectConfig(credentials: SftpCredentials): ConnectConfig {
@@ -145,6 +152,26 @@ function promisifySftp(conn: Client): Promise<SFTPWrapper> {
   });
 }
 
+class SftpRemotePathValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SftpRemotePathValidationError';
+  }
+}
+
+function isRemotePathStatError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code =
+    'code' in err && typeof (err as { code: unknown }).code === 'string'
+      ? (err as { code: string }).code
+      : '';
+  if (code === 'ENOENT' || code === 'ENOTDIR') {
+    return true;
+  }
+  const lower = err.message.toLowerCase();
+  return lower.includes('no such file') || lower.includes('not a directory');
+}
+
 function promisifySftpStat(sftp: SFTPWrapper, remotePath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     sftp.stat(remotePath, (err, stats) => {
@@ -153,7 +180,7 @@ function promisifySftpStat(sftp: SFTPWrapper, remotePath: string): Promise<void>
         return;
       }
       if (!stats.isDirectory()) {
-        reject(new Error(`Remote path is not a directory: ${remotePath}`));
+        reject(new SftpRemotePathValidationError(`Remote path is not a directory: ${remotePath}`));
         return;
       }
       resolve();
@@ -227,6 +254,15 @@ function pipeStreamToSftp(
 function classifyConnectionError(err: unknown): PlatformUploadError {
   const message = messageFromThrown(err);
   const lower = message.toLowerCase();
+
+  if (err instanceof SftpRemotePathValidationError || isRemotePathStatError(err)) {
+    return {
+      code: 'SFTP_REMOTE_PATH_INVALID',
+      message: 'Remote path must be an existing directory on the SFTP server.',
+      statusCode: 400,
+      details: message,
+    };
+  }
 
   if (
     lower.includes('authentication') ||
