@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
 import { SFTP_TOKEN_EXPIRY, testSftpConnection } from '@/lib/platforms/sftp';
-import type { SftpAuthMethod } from '@/types';
+import type { ConnectedAccount, SftpAuthMethod } from '@/types';
 import {
   createConnectedAccount,
   getConnectedAccountRowId,
@@ -59,6 +60,28 @@ function httpStatusFromPlatformError(error: { statusCode?: number }): number {
     return error.statusCode;
   }
   return 400;
+}
+
+/**
+ * Loads decrypted SFTP credentials when available.
+ * Decrypt failures are treated as missing stored secrets so users can reconnect.
+ * @param userId - Authenticated user id.
+ * @returns Connected account with tokens, or null when absent or undecryptable.
+ */
+async function loadExistingAccountWithTokens(userId: string): Promise<ConnectedAccount | null> {
+  try {
+    return await getConnectedAccountWithTokens(userId, 'sftp');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isTokenDecryptError(err)) {
+      console.warn(
+        '[POST /api/platforms/connect/sftp] Could not decrypt stored SFTP credentials; treating as unavailable:',
+        message
+      );
+      return null;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -154,7 +177,7 @@ export async function POST(req: NextRequest) {
   const passphraseProvided = passphraseRaw.trim().length > 0;
 
   const existingRow = await getConnectedAccountRowId(userId, 'sftp');
-  const existingAccount = existingRow ? await getConnectedAccountWithTokens(userId, 'sftp') : null;
+  const existingAccount = existingRow ? await loadExistingAccountWithTokens(userId) : null;
 
   if (
     existingAccount &&
@@ -209,7 +232,7 @@ export async function POST(req: NextRequest) {
   if (authMethod === 'key') {
     if (passphraseProvided) {
       resolvedPassphrase = passphraseRaw;
-    } else if (!credentialProvided && existingAccount?.refreshToken?.trim()) {
+    } else if (existingAccount?.refreshToken?.trim()) {
       resolvedPassphrase = existingAccount.refreshToken;
     }
   }
@@ -246,9 +269,7 @@ export async function POST(req: NextRequest) {
     authMethod === 'key'
       ? passphraseProvided
         ? passphraseRaw
-        : credentialProvided
-          ? ''
-          : (existingAccount?.refreshToken ?? '')
+        : (existingAccount?.refreshToken ?? '')
       : '';
 
   const sftpFields = {

@@ -25,6 +25,7 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
 }));
 
 import { POST } from '@/app/api/platforms/connect/sftp/route';
+import { TokenDecryptError } from '@/lib/crypto/token-encryption';
 
 function createRequest(body: Record<string, unknown>): NextRequest {
   return new NextRequest('http://localhost:3000/api/platforms/connect/sftp', {
@@ -203,6 +204,42 @@ describe('POST /api/platforms/connect/sftp', () => {
     expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
   });
 
+  it('keeps stored passphrase when re-submitting a private key without a new passphrase', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+      id: 'existing-1',
+      accessToken: '-----BEGIN OPENSSH PRIVATE KEY-----\nabc',
+      refreshToken: 'stored-passphrase',
+      sftpAuthMethod: 'key',
+    });
+    mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
+
+    const res = await POST(
+      createRequest({
+        ...validBody,
+        authMethod: 'key',
+        credential: '-----BEGIN OPENSSH PRIVATE KEY-----\nabc',
+      })
+    );
+    expect(res.status).toBe(200);
+
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credential: '-----BEGIN OPENSSH PRIVATE KEY-----\nabc',
+        passphrase: 'stored-passphrase',
+      })
+    );
+    expect(mockUpdateConnection).toHaveBeenCalledWith(
+      'existing-1',
+      '-----BEGIN OPENSSH PRIVATE KEY-----\nabc',
+      'stored-passphrase',
+      '2099-01-01T00:00:00.000Z',
+      'backup-user',
+      'My Home Server',
+      expect.objectContaining({ sftpAuthMethod: 'key' })
+    );
+  });
+
   it('updates metadata without resubmitting credentials when editing', async () => {
     mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
     mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
@@ -265,5 +302,42 @@ describe('POST /api/platforms/connect/sftp', () => {
     const body = await res.json();
     expect(body.error.code).toBe('SFTP_CREDENTIAL_REQUIRED');
     expect(mockTestSftpConnection).not.toHaveBeenCalled();
+  });
+
+  it('requires credential when stored tokens cannot be decrypted', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockRejectedValueOnce(
+      new TokenDecryptError('Unsupported state or unable to authenticate data')
+    );
+
+    const { credential: _credential, ...bodyWithoutCredential } = validBody;
+    const res = await POST(createRequest(bodyWithoutCredential));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('SFTP_CREDENTIAL_REQUIRED');
+    expect(mockTestSftpConnection).not.toHaveBeenCalled();
+  });
+
+  it('allows reconnect when stored tokens cannot be decrypted but new credentials are supplied', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockRejectedValueOnce(
+      new TokenDecryptError('Unsupported state or unable to authenticate data')
+    );
+    mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
+
+    const res = await POST(createRequest(validBody));
+    expect(res.status).toBe(200);
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ credential: 'secret-password' })
+    );
+    expect(mockUpdateConnection).toHaveBeenCalledWith(
+      'existing-1',
+      'secret-password',
+      '',
+      '2099-01-01T00:00:00.000Z',
+      'backup-user',
+      'My Home Server',
+      expect.objectContaining({ sftpAuthMethod: 'password' })
+    );
   });
 });
