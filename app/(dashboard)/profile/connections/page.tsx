@@ -1,7 +1,7 @@
 // =============================================================================
 // CONNECTED ACCOUNTS PAGE  (/profile/connections)
 // =============================================================================
-// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive) and provides
+// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP) and provides
 // links to connect new ones via the OAuth flow.
 //
 // Session is read server-side via the authenticated session cookie so the page can

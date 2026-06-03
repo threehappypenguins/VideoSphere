@@ -1,6 +1,6 @@
 # VideoSphere
 
-> **Upload once, distribute everywhere.** A Next.js app for uploading videos to Cloudflare R2 and distributing them to YouTube, Vimeo, and optional Google Drive backup — with metadata drafts and self-hostable Docker deployment.
+> **Upload once, distribute everywhere.** A Next.js app for uploading videos to Cloudflare R2 and distributing them to YouTube, Vimeo, and optional Google Drive or SFTP backup — with metadata drafts and self-hostable Docker deployment.
 
 **👉 Start here: [SETUP.md](SETUP.md)** — Complete the first-run setup before doing anything else.
 

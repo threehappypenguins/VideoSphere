@@ -135,10 +135,75 @@ function credentialsFromConnectedAccount(account: ConnectedAccount): SftpCredent
   };
 }
 
-function promisifyConnect(conn: Client, config: ConnectConfig): Promise<void> {
+function promisifyConnect(
+  conn: Client,
+  config: ConnectConfig,
+  signal?: AbortSignal
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    conn.once('ready', () => resolve());
-    conn.once('error', (err) => reject(err));
+    let settled = false;
+
+    const cleanup = () => {
+      conn.off('ready', onReady);
+      conn.off('error', onError);
+      conn.off('close', onClose);
+      conn.off('end', onEnd);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+
+    const settle = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      action();
+    };
+
+    const onReady = () => {
+      settle(resolve);
+    };
+
+    const onError = (err: Error) => {
+      settle(() => reject(err));
+    };
+
+    const onClose = () => {
+      settle(() => {
+        reject(
+          new Error(
+            signal?.aborted ? 'SFTP connection aborted' : 'SFTP connection closed before ready'
+          )
+        );
+      });
+    };
+
+    const onEnd = () => {
+      settle(() => {
+        reject(
+          new Error(
+            signal?.aborted ? 'SFTP connection aborted' : 'SFTP connection ended before ready'
+          )
+        );
+      });
+    };
+
+    const onAbort = () => {
+      conn.end();
+      settle(() => reject(new Error('SFTP connection aborted')));
+    };
+
+    conn.once('ready', onReady);
+    conn.once('error', onError);
+    conn.once('close', onClose);
+    conn.once('end', onEnd);
+
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     conn.connect(config);
   });
 }
@@ -333,7 +398,7 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
   }
 
   try {
-    await promisifyConnect(conn, buildConnectConfig(credentials));
+    await promisifyConnect(conn, buildConnectConfig(credentials), input.signal);
     const sftp = await promisifySftp(conn);
 
     const fileName = normalizeSftpFileName(input.metadata.title, input.contentType, new Date());

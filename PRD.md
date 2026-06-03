@@ -407,7 +407,7 @@ The data model builds on the types already defined in `types/index.ts`:
 | --------------- | -------- | ------------------------------------------------------- |
 | `id`            | `string` | Primary key                                             |
 | `userId`        | `string` | Foreign key → User                                      |
-| `platform`      | `string` | `'youtube'` or `'vimeo'`                                |
+| `platform`      | `string` | `'youtube'`, `'vimeo'`, `'google_drive'`, or `'sftp'`     |
 | `accessToken`   | `string` | Encrypted OAuth2 access token                           |
 | `refreshToken`  | `string` | Encrypted OAuth2 refresh token                          |
 | `tokenExpiry`   | `string` | ISO 8601 timestamp of token expiration                  |
@@ -422,7 +422,7 @@ The data model builds on the types already defined in `types/index.ts`:
 | ---------------- | -------- | ---------------------------------------------------- |
 | `id`             | `string` | Primary key                                          |
 | `uploadJobId`    | `string` | Foreign key → Upload Job                             |
-| `platform`       | `string` | `'youtube'` or `'vimeo'`                             |
+| `platform`       | `string` | `'youtube'`, `'vimeo'`, `'google_drive'`, or `'sftp'` |
 | `status`         | `string` | `pending`, `uploading`, `completed`, `failed`        |
 | `platformVideoId`| `string` | Video ID on the target platform (set on completion)  |
 | `platformUrl`    | `string` | Direct URL to the video on the platform              |
@@ -478,6 +478,8 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | ------ | ----------------------------------- | -------------------------------------- | ------------- |
 | GET    | `/api/platforms/connect/youtube`    | Initiate YouTube OAuth2 flow           | Yes           |
 | GET    | `/api/platforms/connect/vimeo`      | Initiate Vimeo OAuth2 flow             | Yes           |
+| GET    | `/api/platforms/connect/drive`      | Initiate Google Drive OAuth2 flow      | Yes           |
+| POST   | `/api/platforms/connect/sftp`       | Save SFTP backup destination credentials | Yes         |
 | POST   | `/api/platforms/connect/sermonaudio`| Save SermonAudio API key for the user  | Yes           |
 | GET    | `/api/platforms/connect/facebook`   | Initiate Facebook OAuth2 flow          | Yes           |
 | GET    | `/api/platforms/callback/youtube`   | YouTube OAuth2 callback                | Yes           |

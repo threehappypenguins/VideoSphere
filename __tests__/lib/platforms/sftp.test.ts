@@ -187,6 +187,49 @@ describe('uploadToSftp', () => {
     });
   });
 
+  it('rejects when connection closes before ready', async () => {
+    mocks.mockConnect.mockImplementation(function connect(this: InstanceType<typeof EventEmitter>) {
+      queueMicrotask(() => this.emit('close'));
+    });
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Fail' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_CONNECTION_FAILED' },
+    });
+  });
+
+  it('rejects when aborted during connection handshake', async () => {
+    mocks.mockConnect.mockImplementation(function connect(this: InstanceType<typeof EventEmitter>) {
+      // Simulate a handshake that never completes until aborted.
+    });
+    mocks.mockEnd.mockImplementation(function end(this: InstanceType<typeof EventEmitter>) {
+      queueMicrotask(() => this.emit('close'));
+    });
+
+    const controller = new AbortController();
+    const uploadPromise = uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Abort During Connect' },
+      signal: controller.signal,
+    });
+
+    controller.abort();
+    const result = await uploadPromise;
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_UPLOAD_ABORTED' },
+    });
+    expect(mocks.mockEnd).toHaveBeenCalled();
+  });
+
   it('returns write failure when createWriteStream errors', async () => {
     mocks.mockCreateWriteStream.mockImplementation(() => {
       const stream = new PassThrough();

@@ -27,11 +27,13 @@ See [docs/draft-document-and-upload-testing.md](/draft-document-and-upload-testi
 
 ## Encryption at Rest for OAuth Tokens
 
-Connected account tokens are encrypted before persistence.
+Connected account tokens and SFTP credentials are encrypted before persistence.
 
 - Key env var: `TOKEN_ENCRYPTION_KEY`
 - Algorithm: AES-256-GCM
 - Implementation: [lib/crypto/token-encryption.ts](../lib/crypto/token-encryption.ts)
+
+Supported `connected_accounts.platform` values: `youtube`, `vimeo`, `google_drive`, `sftp`.
 
 ## Migration Notes
 
