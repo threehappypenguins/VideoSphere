@@ -47,10 +47,7 @@ function makeRequest(
     .join('; ');
   const req = new NextRequest(url, {
     method: 'DELETE',
-    headers: {
-      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-      'x-test-user-id': USER_ID,
-    },
+    headers: cookieHeader ? { Cookie: cookieHeader } : {},
   });
   return [req, { params: Promise.resolve({ id }) }];
 }
@@ -70,11 +67,7 @@ const MOCK_ACCOUNT = {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-    const token = req.cookies.get(SESSION_COOKIE)?.value;
-    if (!token || /bad|invalid|expired/i.test(token)) return null;
-    return req.headers.get('x-test-user-id') || USER_ID;
-  });
+  mockGetAuthenticatedUserId.mockResolvedValue(USER_ID);
 });
 
 afterEach(() => {
@@ -89,6 +82,7 @@ afterEach(() => {
 describe('DELETE /api/platforms/connections/[id]', () => {
   describe('authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
+      mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       const [req, ctx] = makeRequest(ACCOUNT_ID);
       const res = await DELETE(req, ctx);
       expect(res.status).toBe(401);
@@ -97,12 +91,14 @@ describe('DELETE /api/platforms/connections/[id]', () => {
     });
 
     it('returns 401 when the session is invalid', async () => {
+      mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       const [req, ctx] = makeRequest(ACCOUNT_ID, { [SESSION_COOKIE]: 'bad-token' });
       const res = await DELETE(req, ctx);
       expect(res.status).toBe(401);
     });
 
     it('does not call repository when unauthenticated', async () => {
+      mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       const [req, ctx] = makeRequest(ACCOUNT_ID);
       await DELETE(req, ctx);
       expect(getConnectedAccountForUser).not.toHaveBeenCalled();

@@ -139,11 +139,7 @@ function createRequest(
 describe('POST /api/uploads/distribute', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-      const token = req.cookies.get(SESSION_COOKIE)?.value;
-      if (!token || /bad|invalid|expired/i.test(token)) return null;
-      return req.headers.get('x-test-user-id') || 'user-123';
-    });
+    mockGetAuthenticatedUserId.mockResolvedValue('user-123');
 
     mockGetDraftById.mockResolvedValue({
       id: 'draft-1',
@@ -342,6 +338,7 @@ describe('POST /api/uploads/distribute', () => {
   });
 
   it('returns 401 when user is not authenticated', async () => {
+    mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
     const response = await POST(
       createRequest({ draftId: 'd1', r2ObjectKey: 'k1', platforms: ['youtube'] })
     );

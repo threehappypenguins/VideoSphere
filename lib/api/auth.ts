@@ -11,22 +11,6 @@ import { getSessionCookieName } from '@/lib/auth-session-cookie';
 import type { User } from '@/types';
 import type { SessionUser } from '@/lib/repositories/users';
 
-function getTestLegacyUserId(req: NextRequest): string | null {
-  if (process.env.NODE_ENV !== 'test') return null;
-
-  const legacyCookie = req.cookies.getAll().find((cookie) => cookie.name.startsWith('a_session_'));
-  const legacyToken = legacyCookie?.value ?? null;
-  if (!legacyToken) return null;
-
-  // Preserve common invalid-session test semantics from older suites.
-  if (/invalid|bad|expired/i.test(legacyToken)) {
-    return null;
-  }
-
-  // Optional per-test override when a specific user id is required.
-  return req.headers.get('x-test-user-id') || 'user-123';
-}
-
 async function getJwtAuthenticatedUserId(req: NextRequest): Promise<string | null> {
   const token = req.cookies.get(getSessionCookieName())?.value ?? null;
   if (!token) return null;
@@ -108,9 +92,8 @@ export async function getAuthenticatedSessionUserId(req: NextRequest): Promise<s
 export async function getAuthenticatedUserId(req: NextRequest): Promise<string | null> {
   try {
     const user = await getJwtAuthenticatedUser(req);
-    if (user) return user.userId;
-    return getTestLegacyUserId(req);
+    return user?.userId ?? null;
   } catch {
-    return getTestLegacyUserId(req);
+    return null;
   }
 }

@@ -39,10 +39,7 @@ function makeRequest(cookies: Record<string, string> = {}): NextRequest {
     .join('; ');
   return new NextRequest(url, {
     method: 'GET',
-    headers: {
-      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-      'x-test-user-id': USER_ID,
-    },
+    headers: cookieHeader ? { Cookie: cookieHeader } : {},
   });
 }
 
@@ -61,11 +58,7 @@ const MOCK_ACCOUNT = {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
-    const token = req.cookies.get(SESSION_COOKIE)?.value;
-    if (!token || /bad|invalid|expired/i.test(token)) return null;
-    return req.headers.get('x-test-user-id') || USER_ID;
-  });
+  mockGetAuthenticatedUserId.mockResolvedValue(USER_ID);
 });
 
 afterEach(() => {
@@ -80,6 +73,7 @@ afterEach(() => {
 describe('GET /api/platforms/connections', () => {
   describe('authentication', () => {
     it('returns 401 when no session cookie is present', async () => {
+      mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       const res = await GET(makeRequest());
       expect(res.status).toBe(401);
       const body = await res.json();
@@ -87,11 +81,13 @@ describe('GET /api/platforms/connections', () => {
     });
 
     it('returns 401 when the session is invalid', async () => {
+      mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       const res = await GET(makeRequest({ [SESSION_COOKIE]: 'bad-token' }));
       expect(res.status).toBe(401);
     });
 
     it('does not call repository when unauthenticated', async () => {
+      mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       await GET(makeRequest());
       expect(getConnectedAccountsByUser).not.toHaveBeenCalled();
     });

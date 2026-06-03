@@ -136,7 +136,8 @@ describe('ProfileContent', () => {
       expect(screen.getByDisplayValue('Jane Doe')).toBeInTheDocument();
     });
 
-    expect(screen.getByDisplayValue('jane@example.com')).toBeInTheDocument();
+    expect(screen.getByText('jane@example.com')).toBeInTheDocument();
+    expect(screen.getByLabelText('New email address')).toBeInTheDocument();
   });
 
   it('shows connected accounts link', async () => {
