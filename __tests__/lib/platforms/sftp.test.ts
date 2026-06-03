@@ -103,9 +103,9 @@ describe('uploadToSftp', () => {
 
     expect(result).toEqual({
       ok: true,
-      platformVideoId: '/backups/2026-04-15T12:00:00Z - My Backup - backup.mp4',
+      platformVideoId: '/backups/2026-04-15T12-00-00Z - My Backup - backup.mp4',
       platformUrl:
-        'sftp://sftp.example.com/backups/2026-04-15T12%3A00%3A00Z%20-%20My%20Backup%20-%20backup.mp4',
+        'sftp://sftp.example.com/backups/2026-04-15T12-00-00Z%20-%20My%20Backup%20-%20backup.mp4',
     });
 
     expect(mocks.mockConnect).toHaveBeenCalledWith(
@@ -129,7 +129,7 @@ describe('uploadToSftp', () => {
     expect(result).toMatchObject({
       ok: true,
       platformUrl:
-        'sftp://sftp.example.com:2222/backups/2026-04-15T12%3A00%3A00Z%20-%20Custom%20Port%20Backup%20-%20backup.mp4',
+        'sftp://sftp.example.com:2222/backups/2026-04-15T12-00-00Z%20-%20Custom%20Port%20Backup%20-%20backup.mp4',
     });
   });
 
@@ -143,7 +143,7 @@ describe('uploadToSftp', () => {
     expect(result).toMatchObject({
       ok: true,
       platformUrl:
-        'sftp://[2001:db8::1]/backups/2026-04-15T12%3A00%3A00Z%20-%20IPv6%20Backup%20-%20backup.mp4',
+        'sftp://[2001:db8::1]/backups/2026-04-15T12-00-00Z%20-%20IPv6%20Backup%20-%20backup.mp4',
     });
     expect(mocks.mockConnect).toHaveBeenCalledWith(
       expect.objectContaining({ host: '2001:db8::1', port: 22 })
@@ -160,7 +160,7 @@ describe('uploadToSftp', () => {
     expect(result).toMatchObject({
       ok: true,
       platformUrl:
-        'sftp://[2001:db8::1]:2222/backups/2026-04-15T12%3A00%3A00Z%20-%20IPv6%20Port%20Backup%20-%20backup.mp4',
+        'sftp://[2001:db8::1]:2222/backups/2026-04-15T12-00-00Z%20-%20IPv6%20Port%20Backup%20-%20backup.mp4',
     });
   });
 

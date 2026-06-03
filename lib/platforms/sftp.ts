@@ -65,6 +65,13 @@ function extensionFromContentType(contentType: string | undefined): string {
   return 'mp4';
 }
 
+function formatSftpTimestamp(now: Date): string {
+  return now
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
+    .replace(/:/g, '-');
+}
+
 function normalizeSftpFileName(title: string, contentType: string | undefined, now: Date): string {
   const base = title.trim() || 'VideoSphere Backup';
   const safeBase = base
@@ -72,7 +79,7 @@ function normalizeSftpFileName(title: string, contentType: string | undefined, n
     .replace(/\s+/g, ' ')
     .trim();
   const ext = extensionFromContentType(contentType);
-  const timestamp = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const timestamp = formatSftpTimestamp(now);
   return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
