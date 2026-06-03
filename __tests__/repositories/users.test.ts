@@ -148,6 +148,31 @@ describe('users repository (mongo)', () => {
     expect(user.hasCompletedOnboarding).toBe(true);
   });
 
+  it('updates name and email with trimming and lowercasing', async () => {
+    const updatedDoc = {
+      ...baseDoc,
+      name: 'Updated Name',
+      email: 'new@example.com',
+    };
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult(updatedDoc));
+
+    const user = await updateUser('auth-user-1', {
+      name: '  Updated Name  ',
+      email: '  New@Example.com  ',
+    });
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
+      'auth-user-1',
+      expect.objectContaining({
+        name: 'Updated Name',
+        email: 'new@example.com',
+      }),
+      expect.objectContaining({ returnDocument: 'after' })
+    );
+    expect(user.name).toBe('Updated Name');
+    expect(user.email).toBe('new@example.com');
+  });
+
   it('revokes stored Google refresh token for Google auth users', async () => {
     const encrypted = encryptToken('stored-refresh-token');
     mockFindById.mockReturnValueOnce({

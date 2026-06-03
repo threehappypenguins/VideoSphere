@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ProfileAuthSection } from './ProfileAuthSection';
+import { ProfileInformationSection } from './ProfileInformationSection';
 import { ProfileSecuritySection } from './ProfileSecuritySection';
 import { ProfileOAuthFlash } from './ProfileOAuthFlash';
 import type { UserAuthProvider } from '@/types';
@@ -110,52 +111,14 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
         {pageHeader}
 
         {/* --- Profile Information --- */}
-        <section className="mt-8 rounded-xl border border-border bg-background p-6">
-          <h2 className="text-xl font-semibold text-foreground">Profile Information</h2>
-          <div className="mt-6 space-y-6">
-            {/* Avatar Placeholder */}
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-2xl">
-                👤
-              </div>
-              <button
-                type="button"
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                Change avatar
-              </button>
-            </div>
-
-            {/* Name */}
-            <div>
-              <label htmlFor="profile-name" className="block text-sm font-medium text-foreground">
-                Full name
-              </label>
-              <input
-                type="text"
-                id="profile-name"
-                defaultValue={sessionUser.name ?? ''}
-                placeholder="Your name"
-                className="mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-
-            {/* Email */}
-            <div>
-              <label htmlFor="profile-email" className="block text-sm font-medium text-foreground">
-                Email address
-              </label>
-              <input
-                type="email"
-                id="profile-email"
-                defaultValue={sessionUser.email ?? ''}
-                placeholder="your@email.com"
-                readOnly
-                className="mt-2 block w-full rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
-              />
-            </div>
-          </div>
-        </section>
+        <ProfileInformationSection
+          authProvider={authProvider}
+          initialName={sessionUser.name ?? ''}
+          initialEmail={sessionUser.email ?? ''}
+          onProfileUpdated={(updates) => {
+            setSessionUser((prev) => (prev ? { ...prev, ...updates } : prev));
+          }}
+        />
 
         <ProfileAuthSection authProvider={authProvider} onAuthProviderChange={setAuthProvider} />
 

@@ -8,6 +8,8 @@ import { NextRequest } from 'next/server';
 
 const getAuthenticatedUserIdMock = vi.hoisted(() => vi.fn());
 const getUserByIdMock = vi.hoisted(() => vi.fn());
+const getUserByEmailMock = vi.hoisted(() => vi.fn());
+const updateUserMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: (...args: unknown[]) => getAuthenticatedUserIdMock(...args),
@@ -15,9 +17,11 @@ vi.mock('@/lib/api/auth', () => ({
 
 vi.mock('@/lib/repositories/users', () => ({
   getUserById: getUserByIdMock,
+  getUserByEmail: getUserByEmailMock,
+  updateUser: updateUserMock,
 }));
 
-import { GET } from '@/app/api/auth/profile/route';
+import { GET, PATCH } from '@/app/api/auth/profile/route';
 
 function createRequest(cookies?: Record<string, string>): NextRequest {
   const cookieHeader = cookies
@@ -31,6 +35,34 @@ function createRequest(cookies?: Record<string, string>): NextRequest {
     headers: cookieHeader ? { Cookie: cookieHeader } : {},
   });
 }
+
+function makePatchRequest(body: unknown, cookies?: Record<string, string>): NextRequest {
+  const cookieHeader = cookies
+    ? Object.entries(cookies)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ')
+    : '';
+
+  return new NextRequest(new URL('http://localhost:3000/api/auth/profile'), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+const BASE_USER = {
+  userId: 'user_123',
+  email: 'test@example.com',
+  name: 'Test User',
+  role: 'user' as const,
+  authProvider: 'password' as const,
+  hasCompletedOnboarding: true,
+  $createdAt: '2026-01-01T00:00:00.000Z',
+  $updatedAt: '2026-01-01T00:00:00.000Z',
+};
 
 describe('GET /api/auth/profile', () => {
   beforeEach(() => {
@@ -96,5 +128,150 @@ describe('GET /api/auth/profile', () => {
     expect(body.userId).toBe('user_456');
     expect(body.email).toBe('free@example.com');
     expect(body.role).toBe('user');
+  });
+});
+
+describe('PATCH /api/auth/profile', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAuthenticatedUserIdMock.mockResolvedValue('user_123');
+    getUserByIdMock.mockResolvedValue(BASE_USER);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns 401 when not authenticated', async () => {
+    getAuthenticatedUserIdMock.mockResolvedValueOnce(null);
+
+    const res = await PATCH(makePatchRequest({ name: 'New Name' }));
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'Not authenticated' });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when user profile is not found', async () => {
+    getUserByIdMock.mockResolvedValueOnce(null);
+
+    const res = await PATCH(makePatchRequest({ name: 'New Name' }));
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Profile not found' });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when body is invalid JSON', async () => {
+    const req = new NextRequest(new URL('http://localhost:3000/api/auth/profile'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not-json',
+    });
+
+    const res = await PATCH(req);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Invalid JSON body.' });
+  });
+
+  it('returns 400 when neither name nor email is provided', async () => {
+    const res = await PATCH(makePatchRequest({}));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'At least one of name or email must be provided.',
+    });
+  });
+
+  it('returns 400 when name is empty after trim', async () => {
+    const res = await PATCH(makePatchRequest({ name: '   ' }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Name cannot be empty.' });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('updates name successfully', async () => {
+    const updatedUser = { ...BASE_USER, name: 'Updated Name' };
+    updateUserMock.mockResolvedValueOnce(updatedUser);
+
+    const res = await PATCH(makePatchRequest({ name: '  Updated Name  ' }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updatedUser);
+    expect(updateUserMock).toHaveBeenCalledWith('user_123', { name: 'Updated Name' });
+  });
+
+  it('updates email successfully for password accounts', async () => {
+    getUserByEmailMock.mockResolvedValueOnce(null);
+    const updatedUser = { ...BASE_USER, email: 'new@example.com' };
+    updateUserMock.mockResolvedValueOnce(updatedUser);
+
+    const res = await PATCH(makePatchRequest({ email: 'New@Example.com' }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updatedUser);
+    expect(getUserByEmailMock).toHaveBeenCalledWith('new@example.com');
+    expect(updateUserMock).toHaveBeenCalledWith('user_123', { email: 'new@example.com' });
+  });
+
+  it('returns 409 when email is already in use', async () => {
+    getUserByEmailMock.mockResolvedValueOnce({
+      ...BASE_USER,
+      userId: 'other_user',
+      email: 'taken@example.com',
+    });
+
+    const res = await PATCH(makePatchRequest({ email: 'taken@example.com' }));
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'That email address is already in use by another account.',
+    });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when Google account attempts email change', async () => {
+    getUserByIdMock.mockResolvedValueOnce({
+      ...BASE_USER,
+      authProvider: 'google',
+    });
+
+    const res = await PATCH(makePatchRequest({ email: 'new@example.com' }));
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: 'Email change is not available for Google sign-in accounts.',
+    });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for invalid email format', async () => {
+    const res = await PATCH(makePatchRequest({ email: 'not-an-email' }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Email must be a valid email address.' });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when updateUser throws not found', async () => {
+    updateUserMock.mockRejectedValueOnce(
+      Object.assign(new Error('User profile not found'), { code: 404 })
+    );
+
+    const res = await PATCH(makePatchRequest({ name: 'New Name' }));
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Profile not found' });
+  });
+
+  it('returns 500 on unexpected repository error', async () => {
+    updateUserMock.mockRejectedValueOnce(new Error('DB failure'));
+
+    const res = await PATCH(makePatchRequest({ name: 'New Name' }));
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Internal server error' });
   });
 });

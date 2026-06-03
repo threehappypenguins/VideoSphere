@@ -326,6 +326,8 @@ export async function getTotpSecret(userId: string): Promise<TotpSecretLookup> {
 export interface UpdateUserData {
   hasCompletedOnboarding?: boolean;
   role?: UserRole;
+  name?: string;
+  email?: string;
 }
 
 /**
@@ -355,8 +357,22 @@ export async function updateUserPasswordHash(userId: string, passwordHash: strin
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   await connectToDatabase();
 
-  const payload: Partial<Pick<UserProfileDocument, 'hasCompletedOnboarding' | 'role'>> =
-    Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+  const payload: Partial<
+    Pick<UserProfileDocument, 'hasCompletedOnboarding' | 'role' | 'name' | 'email'>
+  > = {};
+
+  if (data.hasCompletedOnboarding !== undefined) {
+    payload.hasCompletedOnboarding = data.hasCompletedOnboarding;
+  }
+  if (data.role !== undefined) {
+    payload.role = data.role;
+  }
+  if (data.name !== undefined) {
+    payload.name = data.name.trim();
+  }
+  if (data.email !== undefined) {
+    payload.email = data.email.trim().toLowerCase();
+  }
 
   const updated = await UserProfileModel.findByIdAndUpdate(userId, payload, {
     returnDocument: 'after',

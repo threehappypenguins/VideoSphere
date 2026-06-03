@@ -95,7 +95,10 @@ export function ProfileAuthSection({
   const passwordScore = scorePasswordStrength(password);
 
   return (
-    <section className="mt-8 rounded-xl border border-border bg-background p-6">
+    <section
+      id="profile-sign-in-method"
+      className="mt-8 rounded-xl border border-border bg-background p-6"
+    >
       <h2 className="text-xl font-semibold text-foreground">Sign-in method</h2>
       <p className="mt-2 text-sm text-muted-foreground">
         {authProvider === 'google'
