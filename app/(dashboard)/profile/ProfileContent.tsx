@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ProfileAuthSection } from './ProfileAuthSection';
+import { ProfileSecuritySection } from './ProfileSecuritySection';
 import { ProfileOAuthFlash } from './ProfileOAuthFlash';
 import type { UserAuthProvider } from '@/types';
 
@@ -30,6 +31,7 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
   const router = useRouter();
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [authProvider, setAuthProvider] = useState<UserAuthProvider>('password');
+  const [totpEnabled, setTotpEnabled] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -58,6 +60,9 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
           });
           if (authProvider) {
             setAuthProvider(authProvider);
+          }
+          if (typeof payload.totpEnabled === 'boolean') {
+            setTotpEnabled(payload.totpEnabled);
           }
 
           const roleRes = await fetch('/api/auth/session-role', { credentials: 'include' });
@@ -153,6 +158,14 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
         </section>
 
         <ProfileAuthSection authProvider={authProvider} onAuthProviderChange={setAuthProvider} />
+
+        {authProvider === 'password' && sessionUser.email ? (
+          <ProfileSecuritySection
+            userEmail={sessionUser.email}
+            totpEnabled={totpEnabled}
+            onTotpEnabledChange={setTotpEnabled}
+          />
+        ) : null}
 
         {/* --- Account Tools --- */}
         <section className="mt-8 rounded-xl border border-border bg-background p-6">

@@ -2,12 +2,14 @@
 // POST /api/auth/login
 // =============================================================================
 // Verifies credentials against MongoDB and sets a signed JWT session cookie.
+// When TOTP is enabled, returns a short-lived challenge token instead of a session.
 // =============================================================================
 
 import bcrypt from 'bcryptjs';
-import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
+import { getTotpTrustCookieName } from '@/lib/auth-session-cookie';
+import { issueSessionResponse } from '@/lib/auth/issue-session';
+import { createTotpChallengeToken, verifyTotpTrustToken } from '@/lib/auth/totp-jwt';
 import { getUserAuthCredentialsByEmail } from '@/lib/repositories/users';
 
 // bcrypt hash for "not-a-real-password" (cost 10); used to keep compare timing
@@ -57,16 +59,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
-    const token = await new SignJWT({ role: user.role })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(user.userId)
-      .setIssuedAt()
-      .setExpirationTime(`${getSessionCookieOptions().maxAge}s`)
-      .sign(new TextEncoder().encode(jwtSecret));
+    if (user.totpEnabled) {
+      const trustToken = req.cookies.get(getTotpTrustCookieName())?.value;
+      if (trustToken && (await verifyTotpTrustToken(trustToken, user.userId))) {
+        return issueSessionResponse(user.userId, user.role);
+      }
 
-    const res = NextResponse.json({ ok: true }, { status: 200 });
-    res.cookies.set(getSessionCookieName(), token, getSessionCookieOptions());
-    return res;
+      const tempToken = await createTotpChallengeToken(user.userId);
+      return NextResponse.json({ requiresTotp: true, tempToken }, { status: 200 });
+    }
+
+    return issueSessionResponse(user.userId, user.role);
   } catch (err) {
     console.error('[POST /api/auth/login]', err);
     return NextResponse.json({ error: 'An unexpected error occurred.' }, { status: 500 });

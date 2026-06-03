@@ -7,6 +7,12 @@ vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUser: getAuthenticatedUserMock,
 }));
 
+const getTotpSecretMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/repositories/users', () => ({
+  getTotpSecret: (...args: unknown[]) => getTotpSecretMock(...args),
+}));
+
 import { GET } from '@/app/api/auth/session/route';
 
 function makeRequest(): NextRequest {
@@ -31,6 +37,7 @@ describe('GET /api/auth/session', () => {
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
+    getTotpSecretMock.mockResolvedValueOnce({ totpEnabled: false, secret: null });
 
     const res = await GET(makeRequest());
 
@@ -40,6 +47,7 @@ describe('GET /api/auth/session', () => {
       email: 'creator@example.com',
       name: 'Ada Lovelace',
       authProvider: 'password',
+      totpEnabled: false,
     });
   });
 });

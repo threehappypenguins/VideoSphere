@@ -76,6 +76,7 @@ describe('POST /api/auth/login', () => {
       userId: 'user-1',
       passwordHash: 'stored-password-hash',
       role: 'admin',
+      totpEnabled: false,
     });
     mockBcryptCompare.mockResolvedValueOnce(true);
 
@@ -107,6 +108,7 @@ describe('POST /api/auth/login', () => {
       userId: 'user-1',
       passwordHash: 'stored-password-hash',
       role: 'user',
+      totpEnabled: false,
     });
     mockBcryptCompare.mockResolvedValueOnce(false);
 

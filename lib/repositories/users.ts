@@ -72,6 +72,7 @@ export interface UserAuthCredentials {
   userId: string;
   passwordHash: string;
   role: UserRole;
+  totpEnabled: boolean;
 }
 
 /**
@@ -144,7 +145,7 @@ export async function getUserAuthCredentialsByEmail(
   if (!normalized) return null;
 
   const doc = await UserProfileModel.findOne({ email: normalized })
-    .select({ _id: 1, userId: 1, passwordHash: 1, role: 1 })
+    .select({ _id: 1, userId: 1, passwordHash: 1, role: 1, totpEnabled: 1 })
     .lean<UserProfileDocument | null>();
   if (!doc || typeof doc.passwordHash !== 'string' || doc.passwordHash.length === 0) {
     return null;
@@ -154,7 +155,98 @@ export async function getUserAuthCredentialsByEmail(
     userId: String(doc.userId),
     passwordHash: doc.passwordHash,
     role: (doc.role as UserRole) ?? 'user',
+    totpEnabled: Boolean(doc.totpEnabled),
   };
+}
+
+/**
+ * Retrieves the stored bcrypt password hash for a user profile.
+ * @param userId - Auth user id to look up.
+ * @returns The password hash when present; otherwise null.
+ */
+export async function getUserPasswordHashById(userId: string): Promise<string | null> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ passwordHash: 1 })
+    .lean<Pick<UserProfileDocument, 'passwordHash'> | null>();
+
+  if (!doc || typeof doc.passwordHash !== 'string' || doc.passwordHash.length === 0) {
+    return null;
+  }
+
+  return doc.passwordHash;
+}
+
+/**
+ * Enables TOTP for a user by persisting an encrypted secret.
+ * @param userId - Auth user id to update.
+ * @param encryptedSecret - AES-256-GCM encrypted TOTP secret.
+ * @returns Resolves when the profile update completes.
+ * @throws Error with `code` 404 when no matching profile exists.
+ */
+export async function enableTotp(userId: string, encryptedSecret: string): Promise<void> {
+  await connectToDatabase();
+
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, {
+    $set: { totpSecret: encryptedSecret, totpEnabled: true },
+  }).lean();
+
+  if (!updated) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+}
+
+/**
+ * Disables TOTP for a user and removes the stored secret.
+ * @param userId - Auth user id to update.
+ * @returns Resolves when the profile update completes.
+ * @throws Error with `code` 404 when no matching profile exists.
+ */
+export async function disableTotp(userId: string): Promise<void> {
+  await connectToDatabase();
+
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, {
+    $set: { totpEnabled: false },
+    $unset: { totpSecret: 1 },
+  }).lean();
+
+  if (!updated) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+}
+
+/**
+ * Returns decrypted TOTP configuration for verification flows.
+ * @param userId - Auth user id to look up.
+ * @returns Enabled flag and decrypted secret when configured.
+ */
+export async function getTotpSecret(
+  userId: string
+): Promise<{ totpEnabled: boolean; secret: string | null }> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ totpSecret: 1, totpEnabled: 1 })
+    .lean<Pick<UserProfileDocument, 'totpSecret' | 'totpEnabled'> | null>();
+
+  if (!doc) {
+    return { totpEnabled: false, secret: null };
+  }
+
+  const totpEnabled = Boolean(doc.totpEnabled);
+  const encrypted = doc.totpSecret?.trim();
+  if (!totpEnabled || !encrypted) {
+    return { totpEnabled, secret: null };
+  }
+
+  try {
+    return { totpEnabled, secret: decryptToken(encrypted) };
+  } catch {
+    return { totpEnabled, secret: null };
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -367,7 +459,7 @@ export async function countUsersWithRole(role: UserRole): Promise<number> {
  * Options for {@link persistGoogleAuthForUser}.
  */
 export interface PersistGoogleAuthOptions {
-  /** When true, removes the stored password hash (connect flow). */
+  /** When true, removes password hash and TOTP config (connect / Google login flows). */
   unsetPasswordHash?: boolean;
 }
 
@@ -395,7 +487,8 @@ export async function persistGoogleAuthForUser(
 
   const update: Record<string, unknown> = { $set: payload };
   if (options?.unsetPasswordHash) {
-    update.$unset = { passwordHash: 1 };
+    (update.$set as Record<string, unknown>).totpEnabled = false;
+    update.$unset = { passwordHash: 1, totpSecret: 1 };
   }
 
   await UserProfileModel.findByIdAndUpdate(userId, update);

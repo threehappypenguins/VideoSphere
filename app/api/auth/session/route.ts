@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/api/auth';
+import { getTotpSecret } from '@/lib/repositories/users';
 
 /**
  * Handles GET requests for this route.
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
       email: user.email,
       name: user.name,
       authProvider: user.authProvider,
+      totpEnabled: (await getTotpSecret(user.userId)).totpEnabled,
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);

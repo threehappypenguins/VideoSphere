@@ -331,7 +331,7 @@ describe('persistGoogleAuthForUser', () => {
     });
   });
 
-  it('unsets passwordHash when connect flow option is set', async () => {
+  it('unsets passwordHash and TOTP fields when connect flow option is set', async () => {
     mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ _id: 'auth-user-1' }));
 
     await persistGoogleAuthForUser('auth-user-1', 'google-refresh-token', {
@@ -339,8 +339,8 @@ describe('persistGoogleAuthForUser', () => {
     });
 
     expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
-      $set: expect.objectContaining({ authProvider: 'google' }),
-      $unset: { passwordHash: 1 },
+      $set: expect.objectContaining({ authProvider: 'google', totpEnabled: false }),
+      $unset: { passwordHash: 1, totpSecret: 1 },
     });
   });
 });
