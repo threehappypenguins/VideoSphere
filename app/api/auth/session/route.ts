@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
       $id: user.userId,
       email: user.email,
       name: user.name,
+      authProvider: user.authProvider,
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);

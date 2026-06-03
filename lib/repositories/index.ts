@@ -13,6 +13,8 @@ export {
   listUsers,
   countUsersWithRole,
   persistGoogleAuthForUser,
+  revertGoogleAuthToPassword,
+  getUserAuthProviderById,
   revokeStoredGoogleAuthForUser,
   deleteUserById,
 } from './users';
@@ -22,6 +24,7 @@ export type {
   ListUsersOptions,
   ListUsersResult,
   UserAuthProvider,
+  PersistGoogleAuthOptions,
 } from './users';
 
 export {

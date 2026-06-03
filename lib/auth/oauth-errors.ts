@@ -17,6 +17,10 @@ export function getOAuthErrorMessage(code: string): string {
     oauth_invite_failed: 'Could not create your account with Google. Try email/password instead.',
     oauth_registration_disabled:
       'Google sign-in is only available for existing accounts. Ask an admin for an invite link.',
+    oauth_connect_email_mismatch:
+      'The Google account email does not match your VideoSphere account email. Use the same Google account or contact support.',
+    oauth_connect_failed: 'Could not connect Google sign-in. Please try again.',
+    oauth_connect_already_linked: 'Google sign-in is already connected to this account.',
   };
 
   return errorMap[code] || 'An error occurred. Please try again.';

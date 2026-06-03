@@ -9,10 +9,16 @@ export const metadata: Metadata = {
   description: 'Manage your account settings and profile.',
 };
 
+interface PageProps {
+  searchParams: Promise<{ success?: string; error?: string }>;
+}
+
 /**
  * Renders the profile page component.
+ * @param props - Route search params for OAuth connect/disconnect flash messages.
  * @returns The rendered UI output.
  */
-export default function ProfilePage() {
-  return <ProfileContent />;
+export default async function ProfilePage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  return <ProfileContent oauthSuccess={params.success ?? null} oauthError={params.error ?? null} />;
 }

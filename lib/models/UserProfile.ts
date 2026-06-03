@@ -1,10 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
-import type { UserRole } from '@/types';
-
-/**
- * How the user authenticates to VideoSphere (login/setup/invite), not platform connections.
- */
-export type UserAuthProvider = 'google' | 'password';
+import type { UserAuthProvider, UserRole } from '@/types';
 
 /**
  * Raw MongoDB document shape for the `user_profiles` collection.
@@ -17,8 +12,8 @@ export interface UserProfileDocument {
   passwordHash?: string;
   hasCompletedOnboarding: boolean;
   role: UserRole;
-  /** Present when the profile was created or last signed in via Google OAuth login. */
-  authProvider?: UserAuthProvider;
+  /** Sign-in method; required on every profile at creation. */
+  authProvider: UserAuthProvider;
   /** AES-256-GCM encrypted Google login refresh token for revoke-on-delete. */
   googleRefreshToken?: string;
   createdAt: Date;
@@ -34,7 +29,12 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
     passwordHash: { type: String, required: false },
     hasCompletedOnboarding: { type: Boolean, default: false },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
-    authProvider: { type: String, enum: ['google', 'password'], required: false },
+    authProvider: {
+      type: String,
+      enum: ['google', 'password'],
+      required: true,
+      default: 'password',
+    },
     googleRefreshToken: { type: String, required: false },
   },
   { timestamps: true }

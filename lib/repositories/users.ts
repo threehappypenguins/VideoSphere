@@ -7,30 +7,30 @@
 // Uses Mongoose for the user_profiles collection.
 // =============================================================================
 
-import type { User, UserRole } from '@/types';
+import type { User, UserAuthProvider, UserRole } from '@/types';
 import { userSupportsPasswordReset } from '@/lib/auth/password';
 import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
-import {
-  UserProfileModel,
-  type UserAuthProvider,
-  type UserProfileDocument,
-} from '@/lib/models/UserProfile';
+import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
 
-export type { UserAuthProvider };
+export type { UserAuthProvider } from '@/types';
 
 /** Fields returned for admin user list rows (excludes secrets such as `googleRefreshToken`). */
-const LIST_USER_BASE_SELECT = 'userId email name hasCompletedOnboarding role createdAt updatedAt';
+const LIST_USER_BASE_SELECT =
+  'userId email name hasCompletedOnboarding role authProvider createdAt updatedAt';
 
 type ListUserProfileLean = Pick<
   UserProfileDocument,
-  'userId' | 'email' | 'name' | 'hasCompletedOnboarding' | 'role' | 'createdAt' | 'updatedAt'
-> & {
-  authProvider?: UserAuthProvider;
-  /** Set when listing with password-reset eligibility; hash value is never loaded. */
-  hasPasswordHash?: boolean;
-};
+  | 'userId'
+  | 'email'
+  | 'name'
+  | 'hasCompletedOnboarding'
+  | 'role'
+  | 'authProvider'
+  | 'createdAt'
+  | 'updatedAt'
+>;
 
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
@@ -40,6 +40,7 @@ function mongoDocToUser(doc: UserProfileDocument): User {
     name: typeof doc.name === 'string' ? doc.name : undefined,
     hasCompletedOnboarding: Boolean(doc.hasCompletedOnboarding),
     role: (doc.role as UserRole) ?? 'user',
+    authProvider: doc.authProvider,
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -91,7 +92,7 @@ export async function createUser(data: CreateUserData): Promise<User> {
     ...(data.passwordHash ? { passwordHash: data.passwordHash } : {}),
     hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
     role: data.role ?? 'user',
-    ...(data.authProvider ? { authProvider: data.authProvider } : {}),
+    authProvider: data.authProvider ?? 'password',
     ...(googleRefreshToken ? { googleRefreshToken: encryptToken(googleRefreshToken) } : {}),
   });
   return mongoDocToUser(created.toObject());
@@ -307,33 +308,12 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
   const includePasswordResetEligibility = options.includePasswordResetEligibility === true;
 
   const [docs, total] = await Promise.all([
-    includePasswordResetEligibility
-      ? UserProfileModel.aggregate<ListUserProfileLean>([
-          { $sort: { createdAt: 1 } },
-          { $skip: offset },
-          { $limit: limit },
-          {
-            $project: {
-              userId: 1,
-              email: 1,
-              name: 1,
-              hasCompletedOnboarding: 1,
-              role: 1,
-              createdAt: 1,
-              updatedAt: 1,
-              authProvider: 1,
-              hasPasswordHash: {
-                $gt: [{ $strLenCP: { $ifNull: ['$passwordHash', ''] } }, 0],
-              },
-            },
-          },
-        ])
-      : UserProfileModel.find({})
-          .select(LIST_USER_BASE_SELECT)
-          .sort({ createdAt: 1 })
-          .skip(offset)
-          .limit(limit)
-          .lean<ListUserProfileLean[]>(),
+    UserProfileModel.find({})
+      .select(LIST_USER_BASE_SELECT)
+      .sort({ createdAt: 1 })
+      .skip(offset)
+      .limit(limit)
+      .lean<ListUserProfileLean[]>(),
     UserProfileModel.countDocuments({}),
   ]);
 
@@ -344,7 +324,6 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
         ? {
             canResetPassword: userSupportsPasswordReset({
               authProvider: doc.authProvider,
-              passwordHash: doc.hasPasswordHash ? 'present' : undefined,
             }),
           }
         : {}),
@@ -385,14 +364,24 @@ export async function countUsersWithRole(role: UserRole): Promise<number> {
 }
 
 /**
+ * Options for {@link persistGoogleAuthForUser}.
+ */
+export interface PersistGoogleAuthOptions {
+  /** When true, removes the stored password hash (connect flow). */
+  unsetPasswordHash?: boolean;
+}
+
+/**
  * Records Google OAuth login on an existing profile and stores a refresh token when provided.
  * @param userId - Auth user id.
  * @param refreshToken - Google refresh token from the login token exchange, if any.
+ * @param options - Optional update flags (e.g. unset password on connect).
  * @returns Resolves when the profile update completes.
  */
 export async function persistGoogleAuthForUser(
   userId: string,
-  refreshToken?: string
+  refreshToken?: string,
+  options?: PersistGoogleAuthOptions
 ): Promise<void> {
   await connectToDatabase();
 
@@ -404,7 +393,52 @@ export async function persistGoogleAuthForUser(
     payload.googleRefreshToken = encryptToken(trimmedRefresh);
   }
 
-  await UserProfileModel.findByIdAndUpdate(userId, payload);
+  const update: Record<string, unknown> = { $set: payload };
+  if (options?.unsetPasswordHash) {
+    update.$unset = { passwordHash: 1 };
+  }
+
+  await UserProfileModel.findByIdAndUpdate(userId, update);
+}
+
+/**
+ * Reverts a Google OAuth account to password-based login.
+ * @param userId - Auth user id.
+ * @param passwordHash - Bcrypt hash for the new password.
+ * @returns Resolves when the profile update completes.
+ * @throws Error with `code` 404 when no matching profile exists.
+ */
+export async function revertGoogleAuthToPassword(
+  userId: string,
+  passwordHash: string
+): Promise<void> {
+  await connectToDatabase();
+
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, {
+    $set: { passwordHash, authProvider: 'password' },
+    $unset: { googleRefreshToken: 1 },
+  }).lean();
+
+  if (!updated) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+}
+
+/**
+ * Returns the auth provider for a user profile.
+ * @param userId - Auth user id.
+ * @returns The stored auth provider, or null when no profile exists for the id.
+ */
+export async function getUserAuthProviderById(userId: string): Promise<UserAuthProvider | null> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ authProvider: 1 })
+    .lean<Pick<UserProfileDocument, 'authProvider'> | null>();
+
+  if (!doc) return null;
+  return doc.authProvider;
 }
 
 /**

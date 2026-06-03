@@ -8,6 +8,7 @@ import {
   type GoogleOAuthGrant,
   type GoogleOAuthState,
 } from '@/lib/auth/google-oauth';
+import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
 import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import {
   consumeInviteToken,
@@ -18,7 +19,12 @@ import {
   releaseInviteToken,
   releaseSetupToken,
 } from '@/lib/repositories/invites';
-import { createUser, getUserByEmail, persistGoogleAuthForUser } from '@/lib/repositories/users';
+import {
+  createUser,
+  getUserByEmail,
+  getUserById,
+  persistGoogleAuthForUser,
+} from '@/lib/repositories/users';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
@@ -52,6 +58,9 @@ const LOGIN_OAUTH_ERROR_CODES = new Set(['oauth_setup_completed']);
 
 function oauthErrorRedirect(origin: string, state: GoogleOAuthState | null, code: string): string {
   const encodedError = encodeURIComponent(code);
+  if (state?.flow === 'connect') {
+    return `${origin}/profile?error=${encodedError}`;
+  }
   if (LOGIN_OAUTH_ERROR_CODES.has(code)) {
     return `${origin}/login?error=${encodedError}`;
   }
@@ -197,6 +206,59 @@ export async function GET(req: NextRequest) {
       return oauthErrorResponseAfterGrant(origin, oauthState, 'oauth_auth_failed', googleGrant);
     }
 
+    if (oauthState.flow === 'connect') {
+      const connectUserId = oauthState.userId;
+      if (!connectUserId) {
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_connect_failed',
+          googleGrant
+        );
+      }
+
+      const sessionUserId = await getAuthenticatedSessionUserId(req);
+      if (!sessionUserId || sessionUserId !== connectUserId) {
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_connect_failed',
+          googleGrant
+        );
+      }
+
+      const profile = await getUserById(connectUserId);
+      if (!profile) {
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_connect_failed',
+          googleGrant
+        );
+      }
+
+      const profileEmail = profile.email.trim().toLowerCase();
+      if (profileEmail !== email) {
+        return oauthErrorResponseAfterGrant(
+          origin,
+          oauthState,
+          'oauth_connect_email_mismatch',
+          googleGrant
+        );
+      }
+
+      await persistGoogleAuthForUser(connectUserId, tokenData.refresh_token, {
+        unsetPasswordHash: true,
+      });
+
+      pendingGoogleGrant = undefined;
+
+      const connectTarget = oauthState.redirectTo ?? '/profile?success=google_connected';
+      const response = NextResponse.redirect(new URL(connectTarget, origin));
+      clearOAuthStateCookie(response);
+      return response;
+    }
+
     let userId: string;
     let role: 'admin' | 'user';
 
@@ -321,7 +383,9 @@ export async function GET(req: NextRequest) {
 
       userId = existingUser.userId;
       role = existingUser.role === 'admin' ? 'admin' : 'user';
-      await persistGoogleAuthForUser(userId, tokenData.refresh_token);
+      await persistGoogleAuthForUser(userId, tokenData.refresh_token, {
+        unsetPasswordHash: true,
+      });
     }
 
     pendingGoogleGrant = undefined;

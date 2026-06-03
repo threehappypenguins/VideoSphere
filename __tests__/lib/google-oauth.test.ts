@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  GOOGLE_AUTH_OAUTH_STATE_COOKIE,
   buildGoogleOAuthErrorRedirect,
   buildGoogleOAuthStateCookie,
   buildGoogleOAuthStartSearchParams,
   parseGoogleOAuthStateCookie,
   revokeGoogleOAuthTokens,
 } from '@/lib/auth/google-oauth';
-
 describe('google-oauth state helpers', () => {
   it('round-trips setup flow state', () => {
     const cookie = buildGoogleOAuthStateCookie({
@@ -21,6 +21,26 @@ describe('google-oauth state helpers', () => {
       flow: 'setup',
       setupToken: 'setup-uuid',
       inviteToken: null,
+      userId: null,
+    });
+  });
+
+  it('round-trips connect flow state with user id', () => {
+    const cookie = buildGoogleOAuthStateCookie({
+      nonce: 'nonce-connect',
+      flow: 'connect',
+      userId: 'user-abc',
+      redirectTo: '/profile?success=google_connected',
+    });
+
+    const parsed = parseGoogleOAuthStateCookie(cookie);
+    expect(parsed).toEqual({
+      nonce: 'nonce-connect',
+      redirectTo: '/profile?success=google_connected',
+      flow: 'connect',
+      setupToken: null,
+      inviteToken: null,
+      userId: 'user-abc',
     });
   });
 
@@ -50,6 +70,14 @@ describe('google-oauth state helpers', () => {
     expect(buildGoogleOAuthErrorRedirect('http://localhost:3000', 'oauth_initiation_failed')).toBe(
       'http://localhost:3000/login?error=oauth_initiation_failed'
     );
+  });
+
+  it('redirects connect OAuth errors to the profile page', () => {
+    expect(
+      buildGoogleOAuthErrorRedirect('http://localhost:3000', 'oauth_connect_failed', {
+        connect: true,
+      })
+    ).toBe('http://localhost:3000/profile?error=oauth_connect_failed');
   });
 });
 

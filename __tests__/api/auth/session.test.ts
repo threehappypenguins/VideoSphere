@@ -20,13 +20,14 @@ describe('GET /api/auth/session', () => {
     vi.clearAllMocks();
   });
 
-  it('returns the persisted profile name for authenticated users', async () => {
+  it('returns the persisted profile name and auth provider for authenticated users', async () => {
     getAuthenticatedUserMock.mockResolvedValueOnce({
       userId: 'user-1',
       email: 'creator@example.com',
       name: 'Ada Lovelace',
       hasCompletedOnboarding: false,
       role: 'user',
+      authProvider: 'password',
       $createdAt: '2026-01-01T00:00:00.000Z',
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
@@ -38,6 +39,7 @@ describe('GET /api/auth/session', () => {
       $id: 'user-1',
       email: 'creator@example.com',
       name: 'Ada Lovelace',
+      authProvider: 'password',
     });
   });
 });

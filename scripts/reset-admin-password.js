@@ -34,7 +34,12 @@ const UserProfileSchema = new mongoose.Schema(
     email: { type: String, required: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: false },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
-    authProvider: { type: String, enum: ['google', 'password'], required: false },
+    authProvider: {
+      type: String,
+      enum: ['google', 'password'],
+      required: true,
+      default: 'password',
+    },
   },
   { timestamps: true, collection: 'user_profiles' }
 );
