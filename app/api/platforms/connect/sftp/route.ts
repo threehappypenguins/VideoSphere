@@ -23,11 +23,30 @@ function parsePort(value: unknown): number {
   if (value === undefined || value === null || value === '') {
     return 22;
   }
-  const port = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return NaN;
+
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value) || value < 1 || value > 65535) {
+      return NaN;
+    }
+    return value;
   }
-  return port;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') {
+      return 22;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      return NaN;
+    }
+    const port = Number.parseInt(trimmed, 10);
+    if (port < 1 || port > 65535) {
+      return NaN;
+    }
+    return port;
+  }
+
+  return NaN;
 }
 
 function isAuthMethod(value: unknown): value is SftpAuthMethod {
@@ -65,8 +84,6 @@ export async function POST(req: NextRequest) {
   const label = typeof body.label === 'string' ? body.label.trim() : '';
   const authMethod = body.authMethod;
   const port = parsePort(body.port);
-  const passphrase =
-    typeof body.passphrase === 'string' && body.passphrase.trim() ? body.passphrase : undefined;
 
   if (!host) {
     return NextResponse.json(
@@ -104,6 +121,12 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  const passphrase =
+    authMethod === 'key' && typeof body.passphrase === 'string' && body.passphrase.trim() !== ''
+      ? body.passphrase
+      : undefined;
+
   if (!credential.trim()) {
     return NextResponse.json(
       {

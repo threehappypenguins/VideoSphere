@@ -71,6 +71,24 @@ describe('POST /api/platforms/connect/sftp', () => {
     expect(body.error.code).toBe('SFTP_AUTH_METHOD_INVALID');
   });
 
+  it('returns 400 for non-integer port values', async () => {
+    for (const port of ['22.5', '22abc', 'abc', 22.5]) {
+      const res = await POST(createRequest({ ...validBody, port }));
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe('SFTP_PORT_INVALID');
+      expect(mockTestSftpConnection).not.toHaveBeenCalled();
+    }
+  });
+
+  it('accepts string port when it is a whole number', async () => {
+    const res = await POST(createRequest({ ...validBody, port: '2222' }));
+    expect(res.status).toBe(200);
+    expect(mockCreateConnectedAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ sftpPort: 2222 })
+    );
+  });
+
   it('returns 400 when test connection fails', async () => {
     mockTestSftpConnection.mockResolvedValueOnce({
       ok: false,
@@ -103,6 +121,9 @@ describe('POST /api/platforms/connect/sftp', () => {
         credential: 'secret-password',
       })
     );
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.not.objectContaining({ passphrase: expect.anything() })
+    );
 
     expect(mockCreateConnectedAccount).toHaveBeenCalledWith({
       userId: 'user-123',
@@ -117,6 +138,16 @@ describe('POST /api/platforms/connect/sftp', () => {
       sftpRemotePath: '/backups',
       sftpAuthMethod: 'password',
     });
+  });
+
+  it('ignores passphrase for password auth', async () => {
+    const res = await POST(
+      createRequest({ ...validBody, authMethod: 'password', passphrase: 'ignored' })
+    );
+    expect(res.status).toBe(200);
+    expect(mockCreateConnectedAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ refreshToken: '' })
+    );
   });
 
   it('updates an existing SFTP connection on reconnect', async () => {
