@@ -53,6 +53,13 @@ function isAuthMethod(value: unknown): value is SftpAuthMethod {
   return value === 'key' || value === 'password';
 }
 
+function httpStatusFromPlatformError(error: { statusCode?: number }): number {
+  if (error.statusCode != null && error.statusCode >= 400 && error.statusCode <= 599) {
+    return error.statusCode;
+  }
+  return 400;
+}
+
 /**
  * Connects an SFTP backup destination using credentials supplied in the request body.
  * @param req - Incoming POST request with SFTP connection details.
@@ -171,17 +178,14 @@ export async function POST(req: NextRequest) {
   const testResult = await testSftpConnection(sftpCredentials);
   if (testResult.ok === false) {
     const { error } = testResult;
-    const status =
-      error.statusCode != null && error.statusCode >= 400 && error.statusCode < 500
-        ? error.statusCode
-        : 400;
+    const status = httpStatusFromPlatformError(error);
     return NextResponse.json(
       {
         ok: false,
         error: {
           code: error.code,
           message: error.message,
-          ...(error.statusCode != null ? { statusCode: error.statusCode } : {}),
+          statusCode: status,
           ...(error.details ? { details: error.details } : {}),
         },
       },

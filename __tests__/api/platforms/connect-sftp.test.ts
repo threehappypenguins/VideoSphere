@@ -89,21 +89,40 @@ describe('POST /api/platforms/connect/sftp', () => {
     );
   });
 
-  it('returns 400 when test connection fails', async () => {
+  it('returns platform HTTP status when test connection fails', async () => {
     mockTestSftpConnection.mockResolvedValueOnce({
       ok: false,
       error: {
         code: 'SFTP_AUTH_FAILED',
         message: 'SFTP authentication failed.',
+        statusCode: 401,
         details: 'bad password',
       },
     });
 
     const res = await POST(createRequest(validBody));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.error.code).toBe('SFTP_AUTH_FAILED');
+    expect(body.error.statusCode).toBe(401);
     expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when SFTP server connection fails during test', async () => {
+    mockTestSftpConnection.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'SFTP_CONNECTION_FAILED',
+        message: 'Failed to connect to the SFTP server.',
+        statusCode: 500,
+        details: 'ECONNREFUSED',
+      },
+    });
+
+    const res = await POST(createRequest(validBody));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.statusCode).toBe(500);
   });
 
   it('creates a connected account on success', async () => {
