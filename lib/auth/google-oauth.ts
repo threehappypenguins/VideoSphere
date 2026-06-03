@@ -152,13 +152,6 @@ export function buildGoogleOAuthStartSearchParams(input: {
 }
 
 /**
- * Builds a redirect URL for OAuth errors based on setup/invite/login flow context.
- * @param origin - Request origin (scheme + host).
- * @param code - OAuth error code for the `error` query param.
- * @param context - Optional setup or invite token from the initiation request.
- * @returns Absolute redirect URL with a URL-encoded error query param.
- */
-/**
  * Resolves the Google OAuth client id from environment variables.
  * @returns Client id when configured, otherwise null.
  */
