@@ -7,6 +7,7 @@
 //
 // Email/Password Auth:
 //   - Form submission POSTs to /api/auth/login; on success, redirects to ?redirect or /dashboard.
+//   - When TOTP is enabled, login returns a challenge step before issuing the session cookie.
 //
 // Google OAuth:
 //   - "Sign in with Google" navigates to /api/auth/oauth/google (server redirects to Google).
@@ -40,6 +41,9 @@ interface ErrorState {
   type: 'error' | 'success';
 }
 
+type LoginStep = 'credentials' | 'totp';
+type RememberDeviceOption = '30d' | '1y' | 'none';
+
 const AUTH_TEXT_INPUT_CLASS =
   'mt-2 block w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground placeholder:opacity-45 placeholder:transition-opacity placeholder:duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:placeholder:opacity-65';
 
@@ -53,6 +57,10 @@ export default function LoginPage() {
   const redirectTo = safeRedirect(searchParams.get('redirect'));
   const formMessageId = 'login-form-message';
 
+  const [loginStep, setLoginStep] = useState<LoginStep>('credentials');
+  const [tempToken, setTempToken] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [rememberDevice, setRememberDevice] = useState<RememberDeviceOption>('none');
   const [formData, setFormData] = useState<LoginState>({
     email: '',
     password: '',
@@ -65,8 +73,17 @@ export default function LoginPage() {
   });
   const submitHandledRef = useRef(false);
 
-  // Email/password login via server (session cookie set by API; no localStorage)
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const completeLogin = () => {
+    if (submitHandledRef.current) return;
+    submitHandledRef.current = true;
+    setError({
+      message: 'Login successful! Redirecting...',
+      type: 'success',
+    });
+    setTimeout(() => router.push(redirectTo ?? '/dashboard'), 1000);
+  };
+
+  const handleCredentialsSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (submitHandledRef.current) return;
     setError(null);
@@ -82,7 +99,11 @@ export default function LoginPage() {
         }),
         credentials: 'include',
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        requiresTotp?: boolean;
+        tempToken?: string;
+      };
 
       if (!res.ok) {
         setError({
@@ -92,13 +113,50 @@ export default function LoginPage() {
         return;
       }
 
-      if (submitHandledRef.current) return;
-      submitHandledRef.current = true;
-      setError({
-        message: 'Login successful! Redirecting...',
-        type: 'success',
+      if (data.requiresTotp && data.tempToken) {
+        setTempToken(data.tempToken);
+        setTotpCode('');
+        setRememberDevice('none');
+        setLoginStep('totp');
+        return;
+      }
+
+      completeLogin();
+    } catch {
+      setError({ message: 'An error occurred during login.', type: 'error' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTotpSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (submitHandledRef.current) return;
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/totp/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tempToken,
+          token: totpCode,
+          rememberDevice,
+        }),
+        credentials: 'include',
       });
-      setTimeout(() => router.push(redirectTo ?? '/dashboard'), 1000);
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+
+      if (!res.ok) {
+        setError({
+          message: data?.error ?? 'Invalid authentication code.',
+          type: 'error',
+        });
+        return;
+      }
+
+      completeLogin();
     } catch {
       setError({ message: 'An error occurred during login.', type: 'error' });
     } finally {
@@ -114,10 +172,13 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-foreground">Welcome back</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Log in to your VideoSphere account</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {loginStep === 'totp'
+              ? 'Enter the code from your authenticator app'
+              : 'Log in to your VideoSphere account'}
+          </p>
         </div>
 
-        {/* Error Message */}
         {error?.type === 'error' && (
           <p
             id={formMessageId}
@@ -130,7 +191,6 @@ export default function LoginPage() {
           </p>
         )}
 
-        {/* Success Message */}
         {error?.type === 'success' && (
           <p
             id={formMessageId}
@@ -143,90 +203,170 @@ export default function LoginPage() {
           </p>
         )}
 
-        {/* Email/Password Form */}
-        <form
-          onSubmit={handleSubmit}
-          className="mt-8 space-y-6"
-          aria-describedby={error ? formMessageId : undefined}
-        >
-          {/* Email */}
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-foreground">
-              Email address
-            </label>
-            <input
-              type="email"
-              id="email"
-              name="email"
-              autoComplete="email"
-              required
-              disabled={isLoading}
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className={AUTH_TEXT_INPUT_CLASS}
-              placeholder="you@example.com"
-            />
-          </div>
+        {loginStep === 'credentials' ? (
+          <>
+            <form
+              onSubmit={handleCredentialsSubmit}
+              className="mt-8 space-y-6"
+              aria-describedby={error ? formMessageId : undefined}
+            >
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-foreground">
+                  Email address
+                </label>
+                <input
+                  type="email"
+                  id="email"
+                  name="email"
+                  autoComplete="email"
+                  required
+                  disabled={isLoading}
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className={AUTH_TEXT_INPUT_CLASS}
+                  placeholder="you@example.com"
+                />
+              </div>
 
-          {/* Password */}
-          <div>
-            <div className="flex items-center justify-between">
-              <label htmlFor="password" className="block text-sm font-medium text-foreground">
-                Password
-              </label>
-              <Link href="/forgot-password" className={AUTH_INLINE_LINK_CLASS}>
-                Forgot password?
-              </Link>
+              <div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="password" className="block text-sm font-medium text-foreground">
+                    Password
+                  </label>
+                  <Link href="/forgot-password" className={AUTH_INLINE_LINK_CLASS}>
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    id="password"
+                    name="password"
+                    autoComplete="current-password"
+                    required
+                    disabled={isLoading}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className={`${AUTH_TEXT_INPUT_CLASS} pr-11`}
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((p) => !p)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                    aria-controls="password"
+                    disabled={isLoading}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? 'Logging in...' : 'Log in'}
+              </button>
+            </form>
+
+            <AuthOAuthDivider />
+            <div className="mt-6">
+              <GoogleOAuthButton
+                label="Sign in with Google"
+                redirectTo={redirectTo}
+                disabled={isLoading}
+              />
             </div>
-            <div className="relative">
+          </>
+        ) : (
+          <form
+            onSubmit={handleTotpSubmit}
+            className="mt-8 space-y-6"
+            aria-describedby={error ? formMessageId : undefined}
+          >
+            <div>
+              <label htmlFor="totp-code" className="block text-sm font-medium text-foreground">
+                Authentication code
+              </label>
               <input
-                type={showPassword ? 'text' : 'password'}
-                id="password"
-                name="password"
-                autoComplete="current-password"
+                type="text"
+                id="totp-code"
+                name="totp-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
                 required
                 disabled={isLoading}
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className={`${AUTH_TEXT_INPUT_CLASS} pr-11`}
-                placeholder="••••••••"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className={AUTH_TEXT_INPUT_CLASS}
+                placeholder="123456"
               />
+            </div>
+
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-foreground">Remember this device?</legend>
+              <p className="text-sm text-muted-foreground">
+                Skip the two-factor prompt on this device for the selected duration.
+              </p>
+              {(
+                [
+                  { value: '30d' as const, label: '30 days' },
+                  { value: '1y' as const, label: '1 year' },
+                  { value: 'none' as const, label: "Don't remember this device" },
+                ] as const
+              ).map((option) => (
+                <label
+                  key={option.value}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-4 py-3 text-sm text-foreground hover:bg-muted"
+                >
+                  <input
+                    type="radio"
+                    name="login-remember-device"
+                    value={option.value}
+                    checked={rememberDevice === option.value}
+                    onChange={() => setRememberDevice(option.value)}
+                    disabled={isLoading}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </fieldset>
+
+            <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => setShowPassword((p) => !p)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                aria-pressed={showPassword}
-                aria-controls="password"
                 disabled={isLoading}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => {
+                  setLoginStep('credentials');
+                  setTempToken('');
+                  setTotpCode('');
+                  setError(null);
+                }}
+                className="rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {showPassword ? (
-                  <EyeOff className="h-4 w-4" aria-hidden="true" />
-                ) : (
-                  <Eye className="h-4 w-4" aria-hidden="true" />
-                )}
+                Back
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || totpCode.length !== 6}
+                className="flex-1 rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? 'Verifying...' : 'Verify'}
               </button>
             </div>
-          </div>
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? 'Logging in...' : 'Log in'}
-          </button>
-        </form>
-
-        <AuthOAuthDivider />
-        <div className="mt-6">
-          <GoogleOAuthButton
-            label="Sign in with Google"
-            redirectTo={redirectTo}
-            disabled={isLoading}
-          />
-        </div>
+          </form>
+        )}
       </div>
     </div>
   );

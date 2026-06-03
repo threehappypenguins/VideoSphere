@@ -51,6 +51,12 @@ import {
   revokeStoredGoogleAuthForUser,
   updateUser,
   updateUserPasswordHash,
+  getUserPasswordHashById,
+  enableTotp,
+  disableTotp,
+  getTotpSecret,
+  getTotpEnabledById,
+  getUserSessionById,
 } from '@/lib/repositories/users';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 
@@ -331,7 +337,7 @@ describe('persistGoogleAuthForUser', () => {
     });
   });
 
-  it('unsets passwordHash when connect flow option is set', async () => {
+  it('unsets passwordHash and TOTP fields when connect flow option is set', async () => {
     mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ _id: 'auth-user-1' }));
 
     await persistGoogleAuthForUser('auth-user-1', 'google-refresh-token', {
@@ -339,8 +345,8 @@ describe('persistGoogleAuthForUser', () => {
     });
 
     expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
-      $set: expect.objectContaining({ authProvider: 'google' }),
-      $unset: { passwordHash: 1 },
+      $set: expect.objectContaining({ authProvider: 'google', totpEnabled: false }),
+      $unset: { passwordHash: 1, totpSecret: 1 },
     });
   });
 });
@@ -397,5 +403,184 @@ describe('deleteUserById', () => {
 
     expect(mockDeleteOne).toHaveBeenCalledTimes(1);
     expect(mockDeleteOne).toHaveBeenCalledWith({ _id: 'missing-user' });
+  });
+});
+
+describe('getUserPasswordHashById', () => {
+  it('returns the stored password hash when present', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        passwordHash: 'stored-bcrypt-hash',
+      })
+    );
+
+    await expect(getUserPasswordHashById('auth-user-1')).resolves.toBe('stored-bcrypt-hash');
+
+    expect(mockFindById).toHaveBeenCalledWith('auth-user-1');
+  });
+
+  it('returns null when no password hash is stored', async () => {
+    mockFindById.mockReturnValueOnce(selectLeanResult({ passwordHash: '' }));
+
+    await expect(getUserPasswordHashById('auth-user-1')).resolves.toBeNull();
+  });
+
+  it('returns null when the profile is missing', async () => {
+    mockFindById.mockReturnValueOnce(selectLeanResult(null));
+
+    await expect(getUserPasswordHashById('missing-user')).resolves.toBeNull();
+  });
+});
+
+describe('enableTotp', () => {
+  it('persists the encrypted secret and enables TOTP', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ _id: 'auth-user-1' }));
+
+    await expect(enableTotp('auth-user-1', 'encrypted-totp-secret')).resolves.toBeUndefined();
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
+      $set: { totpSecret: 'encrypted-totp-secret', totpEnabled: true },
+    });
+  });
+
+  it('throws a 404 error when no profile matches', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult(null));
+
+    await expect(enableTotp('missing-user', 'encrypted-totp-secret')).rejects.toMatchObject({
+      message: 'User profile not found',
+      code: 404,
+    });
+  });
+});
+
+describe('disableTotp', () => {
+  it('disables TOTP and unsets the stored secret', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult({ _id: 'auth-user-1' }));
+
+    await expect(disableTotp('auth-user-1')).resolves.toBeUndefined();
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith('auth-user-1', {
+      $set: { totpEnabled: false },
+      $unset: { totpSecret: 1 },
+    });
+  });
+
+  it('throws a 404 error when no profile matches', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult(null));
+
+    await expect(disableTotp('missing-user')).rejects.toMatchObject({
+      message: 'User profile not found',
+      code: 404,
+    });
+  });
+});
+
+describe('getTotpEnabledById', () => {
+  it('returns true when TOTP is enabled on the profile', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        totpEnabled: true,
+      })
+    );
+
+    await expect(getTotpEnabledById('auth-user-1')).resolves.toBe(true);
+  });
+
+  it('returns false when TOTP is disabled or the profile is missing', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        totpEnabled: false,
+      })
+    );
+
+    await expect(getTotpEnabledById('auth-user-1')).resolves.toBe(false);
+
+    mockFindById.mockReturnValueOnce(selectLeanResult(null));
+
+    await expect(getTotpEnabledById('missing-user')).resolves.toBe(false);
+  });
+});
+
+describe('getUserSessionById', () => {
+  it('returns session fields including totpEnabled without loading secrets', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        ...baseDoc,
+        totpEnabled: true,
+      })
+    );
+
+    await expect(getUserSessionById('auth-user-1')).resolves.toEqual({
+      userId: 'auth-user-1',
+      email: 'a@example.com',
+      name: 'Ada',
+      hasCompletedOnboarding: false,
+      role: 'user',
+      authProvider: 'password',
+      totpEnabled: true,
+      $createdAt: '2026-01-01T00:00:00.000Z',
+      $updatedAt: '2026-01-02T00:00:00.000Z',
+    });
+  });
+
+  it('returns null when the profile is missing', async () => {
+    mockFindById.mockReturnValueOnce(selectLeanResult(null));
+
+    await expect(getUserSessionById('missing-user')).resolves.toBeNull();
+  });
+});
+
+describe('getTotpSecret', () => {
+  it('returns disabled when TOTP is not enabled', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        totpEnabled: false,
+        totpSecret: encryptToken('unused-secret'),
+      })
+    );
+
+    await expect(getTotpSecret('auth-user-1')).resolves.toEqual({ status: 'disabled' });
+  });
+
+  it('returns unavailable when enabled but no secret is stored', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        totpEnabled: true,
+      })
+    );
+
+    await expect(getTotpSecret('auth-user-1')).resolves.toEqual({ status: 'unavailable' });
+  });
+
+  it('returns unavailable when the stored secret cannot be decrypted', async () => {
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        totpEnabled: true,
+        totpSecret: 'invalid-ciphertext',
+      })
+    );
+
+    await expect(getTotpSecret('auth-user-1')).resolves.toEqual({ status: 'unavailable' });
+  });
+
+  it('returns the decrypted secret when TOTP is enabled', async () => {
+    const encrypted = encryptToken('totp-plaintext-secret');
+    mockFindById.mockReturnValueOnce(
+      selectLeanResult({
+        totpEnabled: true,
+        totpSecret: encrypted,
+      })
+    );
+
+    await expect(getTotpSecret('auth-user-1')).resolves.toEqual({
+      status: 'available',
+      secret: 'totp-plaintext-secret',
+    });
+  });
+
+  it('returns disabled when the profile is missing', async () => {
+    mockFindById.mockReturnValueOnce(selectLeanResult(null));
+
+    await expect(getTotpSecret('missing-user')).resolves.toEqual({ status: 'disabled' });
   });
 });

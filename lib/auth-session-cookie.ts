@@ -40,3 +40,61 @@ export function getSessionCookieOptions(): {
     maxAge,
   };
 }
+
+/** Max-age values for TOTP "remember this device" trust cookies. */
+export const TOTP_TRUST_MAX_AGE_SECONDS = {
+  '30d': 60 * 60 * 24 * 30,
+  '1y': 60 * 60 * 24 * 365,
+} as const;
+
+/** Supported remember-device durations for TOTP trust cookies. */
+export type TotpRememberDeviceDuration = keyof typeof TOTP_TRUST_MAX_AGE_SECONDS | 'none';
+
+/**
+ * Returns the configured TOTP trust cookie name.
+ * @returns Cookie name used for remembered-device TOTP bypass.
+ */
+export function getTotpTrustCookieName(): string {
+  return process.env.TOTP_TRUST_COOKIE_NAME || 'videosphere_totp_trust';
+}
+
+/**
+ * Cookie options for the TOTP trust cookie, mirroring session cookie attributes.
+ * @param maxAgeSeconds - Trust duration in seconds.
+ * @returns Cookie attributes for `NextResponse.cookies.set`.
+ */
+export function getTotpTrustCookieOptions(maxAgeSeconds: number): {
+  path: string;
+  httpOnly: boolean;
+  sameSite: 'lax';
+  secure: boolean;
+  maxAge: number;
+} {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProduction,
+    maxAge: maxAgeSeconds,
+  };
+}
+
+/**
+ * Clears the TOTP trust cookie on a response (e.g. when switching to Google sign-in).
+ * @param response - Response whose cookies should be updated.
+ */
+export function clearTotpTrustCookie(response: {
+  cookies: {
+    set: (
+      name: string,
+      value: string,
+      options: ReturnType<typeof getTotpTrustCookieOptions>
+    ) => void;
+  };
+}): void {
+  response.cookies.set(getTotpTrustCookieName(), '', {
+    ...getTotpTrustCookieOptions(0),
+    maxAge: 0,
+  });
+}

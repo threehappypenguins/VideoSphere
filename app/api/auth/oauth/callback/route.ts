@@ -9,7 +9,11 @@ import {
   type GoogleOAuthState,
 } from '@/lib/auth/google-oauth';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
-import { getSessionCookieName, getSessionCookieOptions } from '@/lib/auth-session-cookie';
+import {
+  getSessionCookieName,
+  getSessionCookieOptions,
+  clearTotpTrustCookie,
+} from '@/lib/auth-session-cookie';
 import {
   consumeInviteToken,
   consumeSetupToken,
@@ -256,6 +260,7 @@ export async function GET(req: NextRequest) {
       const connectTarget = oauthState.redirectTo ?? '/profile?success=google_connected';
       const response = NextResponse.redirect(new URL(connectTarget, origin));
       clearOAuthStateCookie(response);
+      clearTotpTrustCookie(response);
       return response;
     }
 
@@ -402,6 +407,7 @@ export async function GET(req: NextRequest) {
     const response = NextResponse.redirect(new URL(callbackTarget, origin));
     response.cookies.set(getSessionCookieName(), token, getSessionCookieOptions());
     clearOAuthStateCookie(response);
+    clearTotpTrustCookie(response);
     return response;
   } catch (err) {
     console.error('[GET /api/auth/oauth/callback]', err);

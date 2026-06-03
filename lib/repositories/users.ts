@@ -32,6 +32,30 @@ type ListUserProfileLean = Pick<
   | 'updatedAt'
 >;
 
+/** Fields loaded for authenticated session responses (excludes secrets). */
+const SESSION_USER_SELECT =
+  'userId email name hasCompletedOnboarding role authProvider totpEnabled createdAt updatedAt';
+
+type SessionUserProfileLean = Pick<
+  UserProfileDocument,
+  | 'userId'
+  | 'email'
+  | 'name'
+  | 'hasCompletedOnboarding'
+  | 'role'
+  | 'authProvider'
+  | 'totpEnabled'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+/**
+ * User profile fields returned by {@link getUserSessionById} for session APIs.
+ */
+export interface SessionUser extends User {
+  totpEnabled: boolean;
+}
+
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
   return {
@@ -43,6 +67,14 @@ function mongoDocToUser(doc: UserProfileDocument): User {
     authProvider: doc.authProvider,
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
+  };
+}
+
+/** Map a lean session profile document to {@link SessionUser}. */
+function mongoDocToSessionUser(doc: SessionUserProfileLean): SessionUser {
+  return {
+    ...mongoDocToUser(doc as UserProfileDocument),
+    totpEnabled: Boolean(doc.totpEnabled),
   };
 }
 
@@ -72,6 +104,7 @@ export interface UserAuthCredentials {
   userId: string;
   passwordHash: string;
   role: UserRole;
+  totpEnabled: boolean;
 }
 
 /**
@@ -116,6 +149,21 @@ export async function getUserById(userId: string): Promise<User | null> {
 }
 
 /**
+ * Fetch session fields for a user by id, including {@link SessionUser.totpEnabled}.
+ * @param userId - Auth user id to look up.
+ * @returns Session user profile, or null when not found.
+ */
+export async function getUserSessionById(userId: string): Promise<SessionUser | null> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select(SESSION_USER_SELECT)
+    .lean<SessionUserProfileLean | null>();
+  if (!doc) return null;
+  return mongoDocToSessionUser(doc);
+}
+
+/**
  * Fetch a user by email.
  * @param email - Email address to look up.
  * @returns The matching user profile, or null when not found.
@@ -144,7 +192,7 @@ export async function getUserAuthCredentialsByEmail(
   if (!normalized) return null;
 
   const doc = await UserProfileModel.findOne({ email: normalized })
-    .select({ _id: 1, userId: 1, passwordHash: 1, role: 1 })
+    .select({ _id: 1, userId: 1, passwordHash: 1, role: 1, totpEnabled: 1 })
     .lean<UserProfileDocument | null>();
   if (!doc || typeof doc.passwordHash !== 'string' || doc.passwordHash.length === 0) {
     return null;
@@ -154,7 +202,118 @@ export async function getUserAuthCredentialsByEmail(
     userId: String(doc.userId),
     passwordHash: doc.passwordHash,
     role: (doc.role as UserRole) ?? 'user',
+    totpEnabled: Boolean(doc.totpEnabled),
   };
+}
+
+/**
+ * Retrieves the stored bcrypt password hash for a user profile.
+ * @param userId - Auth user id to look up.
+ * @returns The password hash when present; otherwise null.
+ */
+export async function getUserPasswordHashById(userId: string): Promise<string | null> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ passwordHash: 1 })
+    .lean<Pick<UserProfileDocument, 'passwordHash'> | null>();
+
+  if (!doc || typeof doc.passwordHash !== 'string' || doc.passwordHash.length === 0) {
+    return null;
+  }
+
+  return doc.passwordHash;
+}
+
+/**
+ * Enables TOTP for a user by persisting an encrypted secret.
+ * @param userId - Auth user id to update.
+ * @param encryptedSecret - AES-256-GCM encrypted TOTP secret.
+ * @returns Resolves when the profile update completes.
+ * @throws Error with `code` 404 when no matching profile exists.
+ */
+export async function enableTotp(userId: string, encryptedSecret: string): Promise<void> {
+  await connectToDatabase();
+
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, {
+    $set: { totpSecret: encryptedSecret, totpEnabled: true },
+  }).lean();
+
+  if (!updated) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+}
+
+/**
+ * Disables TOTP for a user and removes the stored secret.
+ * @param userId - Auth user id to update.
+ * @returns Resolves when the profile update completes.
+ * @throws Error with `code` 404 when no matching profile exists.
+ */
+export async function disableTotp(userId: string): Promise<void> {
+  await connectToDatabase();
+
+  const updated = await UserProfileModel.findByIdAndUpdate(userId, {
+    $set: { totpEnabled: false },
+    $unset: { totpSecret: 1 },
+  }).lean();
+
+  if (!updated) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+}
+
+/**
+ * Returns whether TOTP is enabled for a user without decrypting the stored secret.
+ * @param userId - Auth user id to look up.
+ * @returns True when the profile has `totpEnabled`; otherwise false.
+ */
+export async function getTotpEnabledById(userId: string): Promise<boolean> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ totpEnabled: 1 })
+    .lean<Pick<UserProfileDocument, 'totpEnabled'> | null>();
+
+  return Boolean(doc?.totpEnabled);
+}
+
+/**
+ * Result of loading a user's stored TOTP secret for verification flows.
+ */
+export type TotpSecretLookup =
+  | { status: 'disabled' }
+  | { status: 'available'; secret: string }
+  | { status: 'unavailable' };
+
+/**
+ * Returns decrypted TOTP configuration for verification flows.
+ * @param userId - Auth user id to look up.
+ * @returns Whether TOTP is disabled, available, or enabled but unreadable.
+ */
+export async function getTotpSecret(userId: string): Promise<TotpSecretLookup> {
+  await connectToDatabase();
+
+  const doc = await UserProfileModel.findById(userId)
+    .select({ totpSecret: 1, totpEnabled: 1 })
+    .lean<Pick<UserProfileDocument, 'totpSecret' | 'totpEnabled'> | null>();
+
+  if (!doc || !doc.totpEnabled) {
+    return { status: 'disabled' };
+  }
+
+  const encrypted = doc.totpSecret?.trim();
+  if (!encrypted) {
+    return { status: 'unavailable' };
+  }
+
+  try {
+    return { status: 'available', secret: decryptToken(encrypted) };
+  } catch {
+    return { status: 'unavailable' };
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -367,7 +526,7 @@ export async function countUsersWithRole(role: UserRole): Promise<number> {
  * Options for {@link persistGoogleAuthForUser}.
  */
 export interface PersistGoogleAuthOptions {
-  /** When true, removes the stored password hash (connect flow). */
+  /** When true, removes password hash and TOTP config (connect / Google login flows). */
   unsetPasswordHash?: boolean;
 }
 
@@ -395,7 +554,8 @@ export async function persistGoogleAuthForUser(
 
   const update: Record<string, unknown> = { $set: payload };
   if (options?.unsetPasswordHash) {
-    update.$unset = { passwordHash: 1 };
+    (update.$set as Record<string, unknown>).totpEnabled = false;
+    update.$unset = { passwordHash: 1, totpSecret: 1 };
   }
 
   await UserProfileModel.findByIdAndUpdate(userId, update);

@@ -16,6 +16,10 @@ export interface UserProfileDocument {
   authProvider: UserAuthProvider;
   /** AES-256-GCM encrypted Google login refresh token for revoke-on-delete. */
   googleRefreshToken?: string;
+  /** AES-256-GCM encrypted TOTP secret when two-factor auth is configured. */
+  totpSecret?: string;
+  /** Whether TOTP second factor is required at login. */
+  totpEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,6 +40,8 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
       default: 'password',
     },
     googleRefreshToken: { type: String, required: false },
+    totpSecret: { type: String, required: false },
+    totpEnabled: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

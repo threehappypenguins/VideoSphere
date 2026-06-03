@@ -7,16 +7,25 @@ const {
   mockJwtSign,
   mockJwtSetSubject,
   mockJwtSetExpirationTime,
+  mockCreateTotpChallengeToken,
+  mockVerifyTotpTrustToken,
 } = vi.hoisted(() => ({
   mockGetUserAuthCredentialsByEmail: vi.fn(),
   mockBcryptCompare: vi.fn(),
   mockJwtSign: vi.fn().mockResolvedValue('signed-jwt-token'),
   mockJwtSetSubject: vi.fn(),
   mockJwtSetExpirationTime: vi.fn(),
+  mockCreateTotpChallengeToken: vi.fn(),
+  mockVerifyTotpTrustToken: vi.fn(),
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
   getUserAuthCredentialsByEmail: (...args: unknown[]) => mockGetUserAuthCredentialsByEmail(...args),
+}));
+
+vi.mock('@/lib/auth/totp-jwt', () => ({
+  createTotpChallengeToken: (...args: unknown[]) => mockCreateTotpChallengeToken(...args),
+  verifyTotpTrustToken: (...args: unknown[]) => mockVerifyTotpTrustToken(...args),
 }));
 
 vi.mock('bcryptjs', () => ({
@@ -53,13 +62,33 @@ vi.mock('jose', () => ({
 
 import { POST } from '@/app/api/auth/login/route';
 
-function makeRequest(body: unknown): NextRequest {
-  return new NextRequest(new URL('http://localhost:3000/api/auth/login'), {
+function makeRequest(body: unknown, cookies?: Record<string, string>): NextRequest {
+  const req = new NextRequest(new URL('http://localhost:3000/api/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+
+  if (cookies) {
+    for (const [name, value] of Object.entries(cookies)) {
+      req.cookies.set(name, value);
+    }
+  }
+
+  return req;
 }
+
+const TOTP_USER = {
+  userId: 'user-1',
+  passwordHash: 'stored-password-hash',
+  role: 'user',
+  totpEnabled: true,
+};
+
+const LOGIN_BODY = {
+  email: 'creator@example.com',
+  password: 'password123',
+};
 
 const DUMMY_PASSWORD_HASH = '$2b$10$C6UzMDM.H6dfI/f/IKcEeO5bVJY4UqVaki3P6KyHRxY6z3n9JVpaz';
 
@@ -69,6 +98,8 @@ describe('POST /api/auth/login', () => {
     process.env.JWT_SECRET = 'test-jwt-secret-for-vitest-only';
     delete process.env.JWT_SESSION_COOKIE_NAME;
     delete process.env.JWT_SESSION_MAX_AGE_SECONDS;
+    mockCreateTotpChallengeToken.mockResolvedValue('totp-challenge-token');
+    mockVerifyTotpTrustToken.mockResolvedValue(false);
   });
 
   it('returns 200, signs JWT, and sets session cookie for valid credentials', async () => {
@@ -76,6 +107,7 @@ describe('POST /api/auth/login', () => {
       userId: 'user-1',
       passwordHash: 'stored-password-hash',
       role: 'admin',
+      totpEnabled: false,
     });
     mockBcryptCompare.mockResolvedValueOnce(true);
 
@@ -107,6 +139,7 @@ describe('POST /api/auth/login', () => {
       userId: 'user-1',
       passwordHash: 'stored-password-hash',
       role: 'user',
+      totpEnabled: false,
     });
     mockBcryptCompare.mockResolvedValueOnce(false);
 
@@ -176,5 +209,58 @@ describe('POST /api/auth/login', () => {
     expect(mockGetUserAuthCredentialsByEmail).toHaveBeenCalledWith('oauth-user@example.com');
     expect(mockBcryptCompare).toHaveBeenCalledWith('password123', DUMMY_PASSWORD_HASH);
     expect(mockJwtSign).not.toHaveBeenCalled();
+  });
+
+  it('returns requiresTotp and tempToken for TOTP-enabled users without a trusted device', async () => {
+    mockGetUserAuthCredentialsByEmail.mockResolvedValueOnce(TOTP_USER);
+    mockBcryptCompare.mockResolvedValueOnce(true);
+
+    const res = await POST(makeRequest(LOGIN_BODY));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      requiresTotp: true,
+      tempToken: 'totp-challenge-token',
+    });
+    expect(mockVerifyTotpTrustToken).not.toHaveBeenCalled();
+    expect(mockCreateTotpChallengeToken).toHaveBeenCalledWith('user-1');
+    expect(mockJwtSign).not.toHaveBeenCalled();
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('issues a session when a valid TOTP trust cookie is present', async () => {
+    mockGetUserAuthCredentialsByEmail.mockResolvedValueOnce(TOTP_USER);
+    mockBcryptCompare.mockResolvedValueOnce(true);
+    mockVerifyTotpTrustToken.mockResolvedValueOnce(true);
+
+    const res = await POST(
+      makeRequest(LOGIN_BODY, { videosphere_totp_trust: 'trusted-device-token' })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mockVerifyTotpTrustToken).toHaveBeenCalledWith('trusted-device-token', 'user-1');
+    expect(mockCreateTotpChallengeToken).not.toHaveBeenCalled();
+    expect(mockJwtSign).toHaveBeenCalledTimes(1);
+    expect(res.headers.get('set-cookie')).toContain('videosphere_session=signed-jwt-token');
+  });
+
+  it('requires TOTP when the trust cookie is invalid or expired', async () => {
+    mockGetUserAuthCredentialsByEmail.mockResolvedValueOnce(TOTP_USER);
+    mockBcryptCompare.mockResolvedValueOnce(true);
+
+    const res = await POST(
+      makeRequest(LOGIN_BODY, { videosphere_totp_trust: 'expired-trust-token' })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      requiresTotp: true,
+      tempToken: 'totp-challenge-token',
+    });
+    expect(mockVerifyTotpTrustToken).toHaveBeenCalledWith('expired-trust-token', 'user-1');
+    expect(mockCreateTotpChallengeToken).toHaveBeenCalledWith('user-1');
+    expect(mockJwtSign).not.toHaveBeenCalled();
+    expect(res.headers.get('set-cookie')).toBeNull();
   });
 });

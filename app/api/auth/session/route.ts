@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUser } from '@/lib/api/auth';
+import { getAuthenticatedSessionUser } from '@/lib/api/auth';
 
 /**
  * Handles GET requests for this route.
@@ -14,7 +14,7 @@ import { getAuthenticatedUser } from '@/lib/api/auth';
  */
 export async function GET(req: NextRequest) {
   try {
-    const user = await getAuthenticatedUser(req);
+    const user = await getAuthenticatedSessionUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
       email: user.email,
       name: user.name,
       authProvider: user.authProvider,
+      totpEnabled: user.totpEnabled,
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);
