@@ -228,6 +228,13 @@ export function createGoogleOAuthStartRedirect(
   return response;
 }
 
+/**
+ * Builds a redirect URL for OAuth errors based on setup, invite, connect, or login flow.
+ * @param origin - Request origin (scheme + host).
+ * @param code - OAuth error code for the `error` query param.
+ * @param context - Optional setup/invite tokens or connect flag from the initiation request.
+ * @returns Absolute redirect URL with a URL-encoded error query param.
+ */
 export function buildGoogleOAuthErrorRedirect(
   origin: string,
   code: string,
