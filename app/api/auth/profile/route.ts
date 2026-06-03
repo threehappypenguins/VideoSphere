@@ -2,9 +2,9 @@
 // GET /api/auth/profile
 // PATCH /api/auth/profile
 // =============================================================================
-// Auth: getAuthenticatedSessionUserId (JWT only) plus one getUserById lookup.
-// Avoids the double DB fetch that getAuthenticatedUserId + getUserById would cause,
-// and allows 404 when the JWT is valid but the profile row is missing.
+// Auth (PATCH): JWT via getAuthenticatedSessionUserId; getUserById only when email
+// is being updated (authProvider guard and current-email comparison).
+// GET still uses getAuthenticatedSessionUserId plus one getUserById lookup.
 //
 // GET response: full User object
 // PATCH body: { name?: string, email?: string }
@@ -54,11 +54,6 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const profile = await getUserById(userId);
-    if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
-    }
-
     let body: unknown;
     try {
       body = await req.json();
@@ -100,13 +95,6 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: 'email must be a string.' }, { status: 400 });
       }
 
-      if (profile.authProvider !== 'password') {
-        return NextResponse.json(
-          { error: 'Email change is not available for Google sign-in accounts.' },
-          { status: 403 }
-        );
-      }
-
       const normalizedEmail = normalizeEmail(rawEmail);
       if (!normalizedEmail) {
         return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
@@ -115,6 +103,18 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json(
           { error: 'Email must be a valid email address.' },
           { status: 400 }
+        );
+      }
+
+      const profile = await getUserById(userId);
+      if (!profile) {
+        return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+      }
+
+      if (profile.authProvider !== 'password') {
+        return NextResponse.json(
+          { error: 'Email change is not available for Google sign-in accounts.' },
+          { status: 403 }
         );
       }
 

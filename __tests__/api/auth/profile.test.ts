@@ -152,10 +152,10 @@ describe('PATCH /api/auth/profile', () => {
     expect(updateUserMock).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when user profile is not found', async () => {
+  it('returns 404 when user profile is not found during email update', async () => {
     getUserByIdMock.mockResolvedValueOnce(null);
 
-    const res = await PATCH(makePatchRequest({ name: 'New Name' }));
+    const res = await PATCH(makePatchRequest({ email: 'new@example.com' }));
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Profile not found' });
@@ -173,6 +173,7 @@ describe('PATCH /api/auth/profile', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'Invalid JSON body.' });
+    expect(getUserByIdMock).not.toHaveBeenCalled();
   });
 
   it('returns 400 when neither name nor email is provided', async () => {
@@ -182,6 +183,7 @@ describe('PATCH /api/auth/profile', () => {
     expect(await res.json()).toEqual({
       error: 'At least one of name or email must be provided.',
     });
+    expect(getUserByIdMock).not.toHaveBeenCalled();
   });
 
   it('returns 400 when name is empty after trim', async () => {
@@ -189,10 +191,11 @@ describe('PATCH /api/auth/profile', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'Name cannot be empty.' });
+    expect(getUserByIdMock).not.toHaveBeenCalled();
     expect(updateUserMock).not.toHaveBeenCalled();
   });
 
-  it('updates name successfully', async () => {
+  it('updates name successfully without loading profile first', async () => {
     const updatedUser = { ...BASE_USER, name: 'Updated Name' };
     updateUserMock.mockResolvedValueOnce(updatedUser);
 
@@ -200,6 +203,7 @@ describe('PATCH /api/auth/profile', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(updatedUser);
+    expect(getUserByIdMock).not.toHaveBeenCalled();
     expect(updateUserMock).toHaveBeenCalledWith('user_123', { name: 'Updated Name' });
   });
 
@@ -252,6 +256,7 @@ describe('PATCH /api/auth/profile', () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'Email must be a valid email address.' });
+    expect(getUserByIdMock).not.toHaveBeenCalled();
     expect(updateUserMock).not.toHaveBeenCalled();
   });
 
