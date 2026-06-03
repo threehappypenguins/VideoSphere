@@ -63,13 +63,13 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
     setError(null);
 
     try {
-      const parsedPort = port.trim() === '' ? 22 : Number.parseInt(port, 10);
+      const trimmedPort = port.trim();
       const response = await fetch('/api/platforms/connect/sftp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           host: host.trim(),
-          port: Number.isNaN(parsedPort) ? 22 : parsedPort,
+          ...(trimmedPort ? { port: trimmedPort } : {}),
           username: username.trim(),
           remotePath: remotePath.trim(),
           authMethod,
