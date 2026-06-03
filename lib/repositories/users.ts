@@ -30,10 +30,7 @@ type ListUserProfileLean = Pick<
   | 'authProvider'
   | 'createdAt'
   | 'updatedAt'
-> & {
-  /** Set when listing with password-reset eligibility; hash value is never loaded. */
-  hasPasswordHash?: boolean;
-};
+>;
 
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
@@ -311,33 +308,12 @@ export async function listUsers(options: ListUsersOptions = {}): Promise<ListUse
   const includePasswordResetEligibility = options.includePasswordResetEligibility === true;
 
   const [docs, total] = await Promise.all([
-    includePasswordResetEligibility
-      ? UserProfileModel.aggregate<ListUserProfileLean>([
-          { $sort: { createdAt: 1 } },
-          { $skip: offset },
-          { $limit: limit },
-          {
-            $project: {
-              userId: 1,
-              email: 1,
-              name: 1,
-              hasCompletedOnboarding: 1,
-              role: 1,
-              createdAt: 1,
-              updatedAt: 1,
-              authProvider: 1,
-              hasPasswordHash: {
-                $gt: [{ $strLenCP: { $ifNull: ['$passwordHash', ''] } }, 0],
-              },
-            },
-          },
-        ])
-      : UserProfileModel.find({})
-          .select(LIST_USER_BASE_SELECT)
-          .sort({ createdAt: 1 })
-          .skip(offset)
-          .limit(limit)
-          .lean<ListUserProfileLean[]>(),
+    UserProfileModel.find({})
+      .select(LIST_USER_BASE_SELECT)
+      .sort({ createdAt: 1 })
+      .skip(offset)
+      .limit(limit)
+      .lean<ListUserProfileLean[]>(),
     UserProfileModel.countDocuments({}),
   ]);
 

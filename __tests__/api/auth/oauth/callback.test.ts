@@ -4,7 +4,6 @@ import { NextRequest } from 'next/server';
 const mockGetAuthenticatedSessionUserId = vi.hoisted(() => vi.fn());
 const mockGetUserByEmail = vi.hoisted(() => vi.fn());
 const mockGetUserById = vi.hoisted(() => vi.fn());
-const mockGetUserPasswordAuthStateById = vi.hoisted(() => vi.fn());
 const mockCreateUser = vi.hoisted(() => vi.fn());
 const mockPersistGoogleAuthForUser = vi.hoisted(() => vi.fn());
 const mockHasAnyUsers = vi.hoisted(() => vi.fn());
@@ -24,7 +23,6 @@ vi.mock('@/lib/api/auth', () => ({
 vi.mock('@/lib/repositories/users', () => ({
   getUserByEmail: (...args: unknown[]) => mockGetUserByEmail(...args),
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
-  getUserPasswordAuthStateById: (...args: unknown[]) => mockGetUserPasswordAuthStateById(...args),
   createUser: (...args: unknown[]) => mockCreateUser(...args),
   persistGoogleAuthForUser: (...args: unknown[]) => mockPersistGoogleAuthForUser(...args),
 }));
@@ -214,10 +212,6 @@ describe('GET /api/auth/oauth/callback', () => {
       email: 'creator@example.com',
       role: 'user',
     });
-    mockGetUserPasswordAuthStateById.mockResolvedValueOnce({
-      userId: 'existing-user-id',
-      supportsPasswordReset: true,
-    });
 
     const res = await GET(validRequest(loginCookie()));
 
@@ -231,22 +225,18 @@ describe('GET /api/auth/oauth/callback', () => {
     expectOAuthStateCookieCleared(res);
   });
 
-  it('does not unset password when an existing Google user signs in again', async () => {
+  it('always unsets passwordHash when an existing user signs in with Google', async () => {
     mockGoogleSuccess({ refreshToken: 'refresh-token' });
     mockGetUserByEmail.mockResolvedValueOnce({
       userId: 'existing-user-id',
       email: 'creator@example.com',
       role: 'user',
     });
-    mockGetUserPasswordAuthStateById.mockResolvedValueOnce({
-      userId: 'existing-user-id',
-      supportsPasswordReset: false,
-    });
 
     const res = await GET(validRequest(loginCookie()));
 
     expect(mockPersistGoogleAuthForUser).toHaveBeenCalledWith('existing-user-id', 'refresh-token', {
-      unsetPasswordHash: false,
+      unsetPasswordHash: true,
     });
     expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard');
   });
@@ -257,10 +247,6 @@ describe('GET /api/auth/oauth/callback', () => {
       userId: 'existing-user-id',
       email: 'creator@example.com',
       role: 'user',
-    });
-    mockGetUserPasswordAuthStateById.mockResolvedValueOnce({
-      userId: 'existing-user-id',
-      supportsPasswordReset: true,
     });
     mockJwtSign.mockRejectedValueOnce(new Error('jwt signing failed'));
 

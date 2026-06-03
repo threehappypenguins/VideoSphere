@@ -23,7 +23,6 @@ import {
   createUser,
   getUserByEmail,
   getUserById,
-  getUserPasswordAuthStateById,
   persistGoogleAuthForUser,
 } from '@/lib/repositories/users';
 
@@ -384,9 +383,8 @@ export async function GET(req: NextRequest) {
 
       userId = existingUser.userId;
       role = existingUser.role === 'admin' ? 'admin' : 'user';
-      const authState = await getUserPasswordAuthStateById(userId);
       await persistGoogleAuthForUser(userId, tokenData.refresh_token, {
-        unsetPasswordHash: authState?.supportsPasswordReset ?? false,
+        unsetPasswordHash: true,
       });
     }
 
