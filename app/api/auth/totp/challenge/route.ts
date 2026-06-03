@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  clearTotpTrustCookie,
   getTotpTrustCookieName,
   getTotpTrustCookieOptions,
   TOTP_TRUST_MAX_AGE_SECONDS,
@@ -95,6 +96,8 @@ export async function POST(req: NextRequest) {
       const maxAge = TOTP_TRUST_MAX_AGE_SECONDS[rememberDevice];
       const trustToken = await createTotpTrustToken(userId, maxAge);
       res.cookies.set(getTotpTrustCookieName(), trustToken, getTotpTrustCookieOptions(maxAge));
+    } else {
+      clearTotpTrustCookie(res);
     }
 
     return res;

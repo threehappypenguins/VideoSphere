@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 const mockVerifyTotpChallengeToken = vi.hoisted(() => vi.fn());
+const mockCreateTotpTrustToken = vi.hoisted(() => vi.fn());
 const mockGetUserById = vi.hoisted(() => vi.fn());
 const mockGetTotpSecret = vi.hoisted(() => vi.fn());
 const mockVerifyTotpToken = vi.hoisted(() => vi.fn());
@@ -9,7 +10,7 @@ const mockIssueSessionResponse = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/auth/totp-jwt', () => ({
   verifyTotpChallengeToken: (...args: unknown[]) => mockVerifyTotpChallengeToken(...args),
-  createTotpTrustToken: vi.fn(),
+  createTotpTrustToken: (...args: unknown[]) => mockCreateTotpTrustToken(...args),
 }));
 
 vi.mock('@/lib/repositories/users', () => ({
@@ -43,6 +44,10 @@ describe('POST /api/auth/totp/challenge', () => {
       userId: 'user-1',
       role: 'user',
     });
+    mockGetTotpSecret.mockResolvedValue({ status: 'available', secret: 'totp-secret' });
+    mockVerifyTotpToken.mockResolvedValue(true);
+    mockIssueSessionResponse.mockResolvedValue(NextResponse.json({ ok: true }));
+    mockCreateTotpTrustToken.mockResolvedValue('trust-token');
   });
 
   it('returns 400 when TOTP is not enabled', async () => {
@@ -71,5 +76,35 @@ describe('POST /api/auth/totp/challenge', () => {
       error: 'Two-factor authentication is temporarily unavailable.',
     });
     expect(mockVerifyTotpToken).not.toHaveBeenCalled();
+  });
+
+  it('issues a session for a valid challenge when rememberDevice is none', async () => {
+    const res = await POST(
+      makeRequest({ tempToken: 'temp-token', token: '123456', rememberDevice: 'none' })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mockVerifyTotpChallengeToken).toHaveBeenCalledWith('temp-token');
+    expect(mockVerifyTotpToken).toHaveBeenCalledWith('totp-secret', '123456');
+    expect(mockIssueSessionResponse).toHaveBeenCalledWith('user-1', 'user');
+    expect(mockCreateTotpTrustToken).not.toHaveBeenCalled();
+
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain('videosphere_totp_trust=');
+    expect(setCookie).toMatch(/Max-Age=0/i);
+  });
+
+  it('sets a trust cookie when rememberDevice is 30d', async () => {
+    const res = await POST(
+      makeRequest({ tempToken: 'temp-token', token: '123456', rememberDevice: '30d' })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockCreateTotpTrustToken).toHaveBeenCalledWith('user-1', 60 * 60 * 24 * 30);
+    expect(mockIssueSessionResponse).toHaveBeenCalledWith('user-1', 'user');
+
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain('videosphere_totp_trust=trust-token');
   });
 });

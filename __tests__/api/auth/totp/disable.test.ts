@@ -39,6 +39,9 @@ describe('POST /api/auth/totp/disable', () => {
       userId: 'user-1',
       authProvider: 'password',
     });
+    mockGetTotpSecret.mockResolvedValue({ status: 'available', secret: 'decrypted-totp-secret' });
+    mockVerifyTotpToken.mockResolvedValue(true);
+    mockDisableTotp.mockResolvedValue(undefined);
   });
 
   it('returns 400 when TOTP is not enabled', async () => {
@@ -64,5 +67,18 @@ describe('POST /api/auth/totp/disable', () => {
     });
     expect(mockVerifyTotpToken).not.toHaveBeenCalled();
     expect(mockDisableTotp).not.toHaveBeenCalled();
+  });
+
+  it('disables TOTP, verifies the code, and clears the trust cookie on success', async () => {
+    const res = await POST(makeRequest({ token: '123456' }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mockVerifyTotpToken).toHaveBeenCalledWith('decrypted-totp-secret', '123456');
+    expect(mockDisableTotp).toHaveBeenCalledWith('user-1');
+
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain('videosphere_totp_trust=');
+    expect(setCookie).toMatch(/Max-Age=0/i);
   });
 });
