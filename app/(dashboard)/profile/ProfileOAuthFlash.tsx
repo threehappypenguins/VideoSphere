@@ -9,7 +9,9 @@ interface ProfileOAuthFlashProps {
 }
 
 /**
- * Renders one-time OAuth connect/disconnect feedback from query params.
+ * Renders OAuth connect/disconnect feedback from query params supplied by the profile page.
+ * Uses {@link FlashMessage}, which strips `success` and `error` from the URL on mount so a
+ * full page reload will not show the banner again.
  * @param props - Success and error codes from the profile page URL.
  * @returns Flash banner or null when no message applies.
  */

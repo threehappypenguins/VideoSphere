@@ -29,7 +29,12 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
     passwordHash: { type: String, required: false },
     hasCompletedOnboarding: { type: Boolean, default: false },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
-    authProvider: { type: String, enum: ['google', 'password'], required: true },
+    authProvider: {
+      type: String,
+      enum: ['google', 'password'],
+      required: true,
+      default: 'password',
+    },
     googleRefreshToken: { type: String, required: false },
   },
   { timestamps: true }

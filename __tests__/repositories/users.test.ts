@@ -75,6 +75,7 @@ const baseDoc = {
   name: 'Ada',
   hasCompletedOnboarding: false,
   role: 'user',
+  authProvider: 'password',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-02T00:00:00.000Z',
 };
@@ -98,6 +99,7 @@ describe('users repository (mongo)', () => {
         email: 'a@example.com',
         name: 'Ada',
         role: 'user',
+        authProvider: 'password',
       })
     );
     expect(user.userId).toBe('auth-user-1');

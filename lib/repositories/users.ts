@@ -17,13 +17,20 @@ import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserPro
 export type { UserAuthProvider } from '@/types';
 
 /** Fields returned for admin user list rows (excludes secrets such as `googleRefreshToken`). */
-const LIST_USER_BASE_SELECT = 'userId email name hasCompletedOnboarding role createdAt updatedAt';
+const LIST_USER_BASE_SELECT =
+  'userId email name hasCompletedOnboarding role authProvider createdAt updatedAt';
 
 type ListUserProfileLean = Pick<
   UserProfileDocument,
-  'userId' | 'email' | 'name' | 'hasCompletedOnboarding' | 'role' | 'createdAt' | 'updatedAt'
+  | 'userId'
+  | 'email'
+  | 'name'
+  | 'hasCompletedOnboarding'
+  | 'role'
+  | 'authProvider'
+  | 'createdAt'
+  | 'updatedAt'
 > & {
-  authProvider?: UserAuthProvider;
   /** Set when listing with password-reset eligibility; hash value is never loaded. */
   hasPasswordHash?: boolean;
 };
@@ -88,7 +95,7 @@ export async function createUser(data: CreateUserData): Promise<User> {
     ...(data.passwordHash ? { passwordHash: data.passwordHash } : {}),
     hasCompletedOnboarding: data.hasCompletedOnboarding ?? false,
     role: data.role ?? 'user',
-    ...(data.authProvider ? { authProvider: data.authProvider } : {}),
+    authProvider: data.authProvider ?? 'password',
     ...(googleRefreshToken ? { googleRefreshToken: encryptToken(googleRefreshToken) } : {}),
   });
   return mongoDocToUser(created.toObject());
