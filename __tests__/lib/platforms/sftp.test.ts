@@ -76,7 +76,7 @@ function setupSuccessfulSftpMocks() {
 
   mocks.mockCreateWriteStream.mockImplementation(() => {
     const stream = new PassThrough();
-    queueMicrotask(() => stream.emit('close'));
+    queueMicrotask(() => stream.emit('finish'));
     return stream;
   });
 }
@@ -149,6 +149,24 @@ describe('uploadToSftp', () => {
         passphrase: 'key-pass',
       })
     );
+  });
+
+  it('completes upload when write stream emits finish without close', async () => {
+    mocks.mockCreateWriteStream.mockImplementation(() => {
+      const stream = new PassThrough();
+      stream.on('pipe', () => {
+        queueMicrotask(() => stream.emit('finish'));
+      });
+      return stream;
+    });
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Finish Only' },
+    });
+
+    expect(result).toMatchObject({ ok: true });
   });
 
   it('returns connection failure when connect emits error', async () => {

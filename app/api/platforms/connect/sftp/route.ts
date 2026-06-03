@@ -170,16 +170,22 @@ export async function POST(req: NextRequest) {
 
   const testResult = await testSftpConnection(sftpCredentials);
   if (testResult.ok === false) {
+    const { error } = testResult;
+    const status =
+      error.statusCode != null && error.statusCode >= 400 && error.statusCode < 500
+        ? error.statusCode
+        : 400;
     return NextResponse.json(
       {
         ok: false,
         error: {
-          code: testResult.error.code,
-          message: testResult.error.message,
-          ...(testResult.error.details ? { details: testResult.error.details } : {}),
+          code: error.code,
+          message: error.message,
+          ...(error.statusCode != null ? { statusCode: error.statusCode } : {}),
+          ...(error.details ? { details: error.details } : {}),
         },
       },
-      { status: 400 }
+      { status }
     );
   }
 

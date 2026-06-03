@@ -169,6 +169,14 @@ function pipeStreamToSftp(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const writeStream = sftp.createWriteStream(remotePath, { flags: 'w', mode: 0o644 });
+    let settled = false;
+
+    const settle = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (signal) signal.removeEventListener('abort', onAbort);
+      action();
+    };
 
     const cleanup = () => {
       source.destroy();
@@ -176,8 +184,10 @@ function pipeStreamToSftp(
     };
 
     const onAbort = () => {
-      cleanup();
-      reject(new Error('SFTP upload aborted'));
+      settle(() => {
+        cleanup();
+        reject(new Error('SFTP upload aborted'));
+      });
     };
 
     if (signal) {
@@ -189,20 +199,25 @@ function pipeStreamToSftp(
     }
 
     source.on('error', (err) => {
-      if (signal) signal.removeEventListener('abort', onAbort);
-      cleanup();
-      reject(err);
+      settle(() => {
+        cleanup();
+        reject(err);
+      });
     });
 
     writeStream.on('error', (err) => {
-      if (signal) signal.removeEventListener('abort', onAbort);
-      cleanup();
-      reject(err);
+      settle(() => {
+        cleanup();
+        reject(err);
+      });
+    });
+
+    writeStream.on('finish', () => {
+      settle(resolve);
     });
 
     writeStream.on('close', () => {
-      if (signal) signal.removeEventListener('abort', onAbort);
-      resolve();
+      settle(resolve);
     });
 
     source.pipe(writeStream);
@@ -238,13 +253,11 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
 /**
  * Validates SFTP credentials by opening a connection and checking the remote directory exists.
  * @param credentials - SFTP connection parameters (plaintext; not yet encrypted).
- * @returns Whether the test connection succeeded.
+ * @returns Whether the test connection succeeded, or a classified platform error on failure.
  */
 export async function testSftpConnection(
   credentials: SftpCredentials
-): Promise<
-  { ok: true } | { ok: false; error: { code: string; message: string; details?: string } }
-> {
+): Promise<{ ok: true } | { ok: false; error: PlatformUploadError }> {
   const conn = new Client();
 
   try {
