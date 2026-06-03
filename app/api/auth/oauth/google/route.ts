@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  buildGoogleOAuthErrorRedirect,
-  createGoogleOAuthStartRedirect,
-} from '@/lib/auth/google-oauth';
+import { buildGoogleOAuthErrorRedirect } from '@/lib/auth/google-oauth';
+import { createGoogleOAuthStartRedirect } from '@/lib/auth/google-oauth-server';
 import { safeRedirect } from '@/lib/safe-redirect';
 
 /**

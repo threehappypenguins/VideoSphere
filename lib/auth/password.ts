@@ -29,9 +29,10 @@ export function validatePassword(password: string): string | null {
 }
 
 /**
- * Returns whether an account can use password-based login or password reset flows.
- * @param profile - User auth fields from `user_profiles`.
- * @returns True when the account uses password-based sign-in.
+ * Returns whether an account can use password-based login or admin password reset flows.
+ * Eligibility is determined solely by `authProvider`; `passwordHash` is not consulted.
+ * @param profile - User auth fields from `user_profiles` (`authProvider` only).
+ * @returns True when `authProvider` is `'password'`; false for `'google'` or missing.
  */
 export function userSupportsPasswordReset(profile: { authProvider?: UserAuthProvider }): boolean {
   return passwordPolicy.userSupportsPasswordReset(profile);
