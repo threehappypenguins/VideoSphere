@@ -339,14 +339,6 @@ export interface ConnectedAccountPublic {
 export interface ConnectedAccount extends ConnectedAccountPublic {
   accessToken: string;
   refreshToken: string;
-  /** SFTP server hostname or IP (SFTP accounts only). */
-  sftpHost?: string;
-  /** SFTP server port (SFTP accounts only; default 22). */
-  sftpPort?: number;
-  /** Absolute remote directory for backups (SFTP accounts only). */
-  sftpRemotePath?: string;
-  /** Whether the stored credential is an SSH key or password (SFTP accounts only). */
-  sftpAuthMethod?: SftpAuthMethod;
 }
 
 // =============================================================================

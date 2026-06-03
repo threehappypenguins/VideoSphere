@@ -3,7 +3,8 @@
  *
  * Stored shape:
  * - **Shared:** `targets`, `title`, `description`, `visibility`, `tags` (one list for all targets)
- * - **Per platform:** `platforms.youtube` / `platforms.vimeo` (e.g. YouTube `categoryId`, Vimeo `categoryUri`)
+ * - **Per platform:** `platforms.youtube` / `platforms.vimeo` (e.g. YouTube `categoryId`, Vimeo `categoryUri`);
+ *   backup targets (`platforms.sftp`) are carried through as empty objects until fields exist.
  */
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
@@ -19,6 +20,7 @@ import {
   type VimeoVideoLicense,
   type YouTubeDraftFields,
   type VimeoDraftFields,
+  type SftpDraftFields,
 } from '@/types';
 
 /**
@@ -282,6 +284,11 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
   };
 }
 
+/** Backup destinations with no publish-specific fields yet; preserve `{}` when sent by clients. */
+function normalizeSftpFields(_value: Record<string, unknown>): SftpDraftFields {
+  return {};
+}
+
 /**
  * Executes normalize draft platforms.
  * @param value - Input value for value.
@@ -299,6 +306,10 @@ export function normalizeDraftPlatforms(value: unknown): DraftPlatforms {
   if (isPlainObject(value.vimeo)) {
     const vm = normalizeVimeoFields(value.vimeo);
     out.vimeo = Object.keys(vm).length > 0 ? vm : undefined;
+  }
+
+  if (isPlainObject(value.sftp)) {
+    out.sftp = normalizeSftpFields(value.sftp);
   }
 
   return out;
@@ -485,6 +496,9 @@ export function mergeDraftPlatforms(base: DraftPlatforms, patch: DraftPlatforms)
   if (patch.vimeo !== undefined) {
     next.vimeo = { ...base.vimeo, ...patch.vimeo };
   }
+  if (patch.sftp !== undefined) {
+    next.sftp = { ...base.sftp, ...patch.sftp };
+  }
   return next;
 }
 
@@ -597,6 +611,10 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       vm.embed = normalizeVimeoEmbed(p.embed);
     }
     next.vimeo = vm;
+  }
+
+  if (isPlainObject(patch.sftp)) {
+    next.sftp = { ...base.sftp, ...normalizeSftpFields(patch.sftp) };
   }
 
   return next;
