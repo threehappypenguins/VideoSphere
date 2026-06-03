@@ -424,7 +424,7 @@ function TotpPanel({ userEmail, totpEnabled, onTotpEnabledChange }: TotpPanelPro
                   type="text"
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  pattern="\d{6}"
+                  pattern="[0-9]{6}"
                   maxLength={6}
                   value={disableCode}
                   onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -526,7 +526,7 @@ function TotpPanel({ userEmail, totpEnabled, onTotpEnabledChange }: TotpPanelPro
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
-            pattern="\d{6}"
+            pattern="[0-9]{6}"
             maxLength={6}
             value={verifyCode}
             onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}

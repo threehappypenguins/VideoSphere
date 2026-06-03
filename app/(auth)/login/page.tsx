@@ -302,7 +302,7 @@ export default function LoginPage() {
                 name="totp-code"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                pattern="\d{6}"
+                pattern="[0-9]{6}"
                 maxLength={6}
                 required
                 disabled={isLoading}
