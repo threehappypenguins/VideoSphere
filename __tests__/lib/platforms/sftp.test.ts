@@ -118,6 +118,20 @@ describe('uploadToSftp', () => {
     expect(mocks.mockEnd).toHaveBeenCalled();
   });
 
+  it('includes non-default port in platformUrl', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount({ sftpPort: 2222 }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Custom Port Backup' },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      platformUrl:
+        'sftp://sftp.example.com:2222/backups/2026-04-15T12:00:00Z - Custom Port Backup - backup.mp4',
+    });
+  });
+
   it('uploads successfully with key auth and passphrase', async () => {
     await uploadToSftp({
       connectedAccount: makeSftpAccount({

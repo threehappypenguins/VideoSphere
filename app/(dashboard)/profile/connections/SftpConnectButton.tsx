@@ -2,6 +2,14 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import type { SftpAuthMethod } from '@/types';
 
 interface SftpConnectButtonProps {
@@ -41,10 +49,12 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
     setError(null);
   };
 
-  const handleClose = () => {
+  const handleOpenChange = (nextOpen: boolean) => {
     if (submitting) return;
-    setOpen(false);
-    resetForm();
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      resetForm();
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -104,214 +114,205 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
         {label}
       </button>
 
-      {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Close dialog"
-            disabled={submitting}
-            className="absolute inset-0 bg-black/50"
-            onClick={handleClose}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="sftp-connect-title"
-            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-background p-6 shadow-lg"
-          >
-            <h2 id="sftp-connect-title" className="text-lg font-semibold text-foreground">
-              Connect SFTP Server
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          className="max-h-[90vh] max-w-lg overflow-y-auto"
+          onPointerDownOutside={(event) => {
+            if (submitting) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            if (submitting) event.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Connect SFTP Server</DialogTitle>
+            <DialogDescription>
               Enter your SFTP server details. Credentials are stored encrypted and used only for
               server-side backups.
-            </p>
+            </DialogDescription>
+          </DialogHeader>
 
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="sftp-host" className="block text-sm font-medium text-foreground">
+                Host
+              </label>
+              <input
+                id="sftp-host"
+                type="text"
+                required
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                autoComplete="off"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="sftp-port" className="block text-sm font-medium text-foreground">
+                Port
+              </label>
+              <input
+                id="sftp-port"
+                type="number"
+                min={1}
+                max={65535}
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="sftp-username" className="block text-sm font-medium text-foreground">
+                Username
+              </label>
+              <input
+                id="sftp-username"
+                type="text"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                autoComplete="username"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="sftp-remote-path"
+                className="block text-sm font-medium text-foreground"
+              >
+                Remote path
+              </label>
+              <input
+                id="sftp-remote-path"
+                type="text"
+                required
+                placeholder="/backups"
+                value={remotePath}
+                onChange={(e) => setRemotePath(e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div>
+              <span className="block text-sm font-medium text-foreground">Auth method</span>
+              <div className="mt-2 flex gap-4">
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="sftp-auth-method"
+                    value="key"
+                    checked={authMethod === 'key'}
+                    onChange={() => setAuthMethod('key')}
+                  />
+                  Key
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="sftp-auth-method"
+                    value="password"
+                    checked={authMethod === 'password'}
+                    onChange={() => setAuthMethod('password')}
+                  />
+                  Password
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="sftp-credential"
+                className="block text-sm font-medium text-foreground"
+              >
+                {authMethod === 'key' ? 'Private key' : 'Password'}
+              </label>
+              {authMethod === 'key' ? (
+                <textarea
+                  id="sftp-credential"
+                  required
+                  rows={6}
+                  value={credential}
+                  onChange={(e) => setCredential(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                  autoComplete="off"
+                />
+              ) : (
+                <input
+                  id="sftp-credential"
+                  type="password"
+                  required
+                  value={credential}
+                  onChange={(e) => setCredential(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  autoComplete="current-password"
+                />
+              )}
+            </div>
+
+            {authMethod === 'key' ? (
               <div>
-                <label htmlFor="sftp-host" className="block text-sm font-medium text-foreground">
-                  Host
+                <label
+                  htmlFor="sftp-passphrase"
+                  className="block text-sm font-medium text-foreground"
+                >
+                  Passphrase (optional)
                 </label>
                 <input
-                  id="sftp-host"
-                  type="text"
-                  required
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
+                  id="sftp-passphrase"
+                  type="password"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
                   className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                   autoComplete="off"
                 />
               </div>
+            ) : null}
 
-              <div>
-                <label htmlFor="sftp-port" className="block text-sm font-medium text-foreground">
-                  Port
-                </label>
-                <input
-                  id="sftp-port"
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                />
-              </div>
+            <div>
+              <label htmlFor="sftp-label" className="block text-sm font-medium text-foreground">
+                Label
+              </label>
+              <input
+                id="sftp-label"
+                type="text"
+                required
+                placeholder="My Home Server"
+                value={connectionLabel}
+                onChange={(e) => setConnectionLabel(e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
 
-              <div>
-                <label
-                  htmlFor="sftp-username"
-                  className="block text-sm font-medium text-foreground"
-                >
-                  Username
-                </label>
-                <input
-                  id="sftp-username"
-                  type="text"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                  autoComplete="username"
-                />
-              </div>
+            {error ? (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            ) : null}
 
-              <div>
-                <label
-                  htmlFor="sftp-remote-path"
-                  className="block text-sm font-medium text-foreground"
-                >
-                  Remote path
-                </label>
-                <input
-                  id="sftp-remote-path"
-                  type="text"
-                  required
-                  placeholder="/backups"
-                  value={remotePath}
-                  onChange={(e) => setRemotePath(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div>
-                <span className="block text-sm font-medium text-foreground">Auth method</span>
-                <div className="mt-2 flex gap-4">
-                  <label className="inline-flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="sftp-auth-method"
-                      value="key"
-                      checked={authMethod === 'key'}
-                      onChange={() => setAuthMethod('key')}
-                    />
-                    Key
-                  </label>
-                  <label className="inline-flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="sftp-auth-method"
-                      value="password"
-                      checked={authMethod === 'password'}
-                      onChange={() => setAuthMethod('password')}
-                    />
-                    Password
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="sftp-credential"
-                  className="block text-sm font-medium text-foreground"
-                >
-                  {authMethod === 'key' ? 'Private key' : 'Password'}
-                </label>
-                {authMethod === 'key' ? (
-                  <textarea
-                    id="sftp-credential"
-                    required
-                    rows={6}
-                    value={credential}
-                    onChange={(e) => setCredential(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
-                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                    autoComplete="off"
-                  />
-                ) : (
-                  <input
-                    id="sftp-credential"
-                    type="password"
-                    required
-                    value={credential}
-                    onChange={(e) => setCredential(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                    autoComplete="current-password"
-                  />
-                )}
-              </div>
-
-              {authMethod === 'key' ? (
-                <div>
-                  <label
-                    htmlFor="sftp-passphrase"
-                    className="block text-sm font-medium text-foreground"
-                  >
-                    Passphrase (optional)
-                  </label>
-                  <input
-                    id="sftp-passphrase"
-                    type="password"
-                    value={passphrase}
-                    onChange={(e) => setPassphrase(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                    autoComplete="off"
-                  />
-                </div>
-              ) : null}
-
-              <div>
-                <label htmlFor="sftp-label" className="block text-sm font-medium text-foreground">
-                  Label
-                </label>
-                <input
-                  id="sftp-label"
-                  type="text"
-                  required
-                  placeholder="My Home Server"
-                  value={connectionLabel}
-                  onChange={(e) => setConnectionLabel(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                />
-              </div>
-
-              {error ? (
-                <p className="text-sm text-destructive" role="alert">
-                  {error}
-                </p>
-              ) : null}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  disabled={submitting}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                >
-                  {submitting ? 'Connecting…' : 'Connect'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+            <DialogFooter className="gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => handleOpenChange(false)}
+                disabled={submitting}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              >
+                {submitting ? 'Connecting…' : 'Connect'}
+              </button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -14,6 +14,17 @@ interface UploadToSftpInput {
   signal?: AbortSignal;
 }
 
+/**
+ * Plaintext SFTP connection parameters used for test connections and upload auth.
+ * Values are encrypted before persistence on a {@link ConnectedAccount}.
+ * @property host - SFTP server hostname or IP address.
+ * @property port - SFTP server port (typically 22).
+ * @property username - SSH login username.
+ * @property authMethod - Whether `credential` is a private key PEM or a password.
+ * @property credential - Private key PEM string or password, depending on `authMethod`.
+ * @property passphrase - Key passphrase when `authMethod` is `key` and the key is encrypted.
+ * @property remotePath - Absolute remote directory for backups (must start with `/`).
+ */
 interface SftpCredentials {
   host: string;
   port: number;
@@ -64,6 +75,11 @@ function normalizeSftpFileName(title: string, contentType: string | undefined, n
   return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
+function buildSftpPlatformUrl(host: string, port: number, remotePath: string): string {
+  const authority = port === 22 ? host : `${host}:${port}`;
+  return `sftp://${authority}${remotePath}`;
+}
+
 function buildConnectConfig(credentials: SftpCredentials): ConnectConfig {
   const config: ConnectConfig = {
     host: credentials.host,
@@ -74,8 +90,8 @@ function buildConnectConfig(credentials: SftpCredentials): ConnectConfig {
 
   if (credentials.authMethod === 'key') {
     config.privateKey = credentials.credential;
-    if (credentials.passphrase?.trim()) {
-      config.passphrase = credentials.passphrase.trim();
+    if (credentials.passphrase != null && credentials.passphrase.trim() !== '') {
+      config.passphrase = credentials.passphrase;
     }
   } else {
     config.password = credentials.credential;
@@ -89,9 +105,9 @@ function credentialsFromConnectedAccount(account: ConnectedAccount): SftpCredent
   const username = account.platformUserId?.trim();
   const remotePath = account.sftpRemotePath?.trim();
   const authMethod = account.sftpAuthMethod;
-  const credential = account.accessToken?.trim();
+  const credential = account.accessToken;
 
-  if (!host || !username || !remotePath || !authMethod || !credential) {
+  if (!host || !username || !remotePath || !authMethod || credential.trim() === '') {
     return null;
   }
 
@@ -105,7 +121,9 @@ function credentialsFromConnectedAccount(account: ConnectedAccount): SftpCredent
     username,
     authMethod,
     credential,
-    ...(account.refreshToken?.trim() ? { passphrase: account.refreshToken.trim() } : {}),
+    ...(account.refreshToken != null && account.refreshToken.trim() !== ''
+      ? { passphrase: account.refreshToken }
+      : {}),
     remotePath,
   };
 }
@@ -281,7 +299,7 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
     return {
       ok: true,
       platformVideoId: fullRemotePath,
-      platformUrl: `sftp://${credentials.host}${fullRemotePath}`,
+      platformUrl: buildSftpPlatformUrl(credentials.host, credentials.port, fullRemotePath),
     };
   } catch (err) {
     if (input.signal?.aborted) {
