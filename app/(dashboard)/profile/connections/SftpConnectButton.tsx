@@ -12,18 +12,35 @@ import {
 } from '@/components/ui/dialog';
 import type { SftpAuthMethod } from '@/types';
 
+/** Non-secret SFTP settings used to prefill the connect/edit form. */
+export interface SftpExistingConnection {
+  host: string;
+  port: number;
+  username: string;
+  remotePath: string;
+  authMethod: SftpAuthMethod;
+  label: string;
+}
+
 interface SftpConnectButtonProps {
   label: string;
   className?: string;
+  /** When set, opens the form in edit mode with these values prefilled. */
+  existingConnection?: SftpExistingConnection;
 }
 
 /**
- * Opens an inline modal form to connect an SFTP backup destination.
- * @param props - Button label and optional className.
- * @returns Connect / Reconnect button with modal form.
+ * Opens an inline modal form to connect or edit an SFTP backup destination.
+ * @param props - Button label, optional className, and optional existing connection settings.
+ * @returns Connect / Edit button with modal form.
  */
-export function SftpConnectButton({ label, className }: SftpConnectButtonProps) {
+export function SftpConnectButton({
+  label,
+  className,
+  existingConnection,
+}: SftpConnectButtonProps) {
   const router = useRouter();
+  const isEditing = existingConnection != null;
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +66,27 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
     setError(null);
   };
 
+  const loadExistingConnection = (connection: SftpExistingConnection) => {
+    setHost(connection.host);
+    setPort(String(connection.port));
+    setUsername(connection.username);
+    setRemotePath(connection.remotePath);
+    setAuthMethod(connection.authMethod);
+    setCredential('');
+    setPassphrase('');
+    setConnectionLabel(connection.label);
+    setError(null);
+  };
+
+  const handleOpen = () => {
+    if (existingConnection) {
+      loadExistingConnection(existingConnection);
+    } else {
+      resetForm();
+    }
+    setOpen(true);
+  };
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (submitting) return;
     setOpen(nextOpen);
@@ -64,6 +102,7 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
 
     try {
       const trimmedPort = port.trim();
+      const trimmedCredential = credential.trim();
       const response = await fetch('/api/platforms/connect/sftp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -73,7 +112,7 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
           username: username.trim(),
           remotePath: remotePath.trim(),
           authMethod,
-          credential,
+          ...(trimmedCredential ? { credential: trimmedCredential } : {}),
           ...(authMethod === 'key' && passphrase.trim() ? { passphrase } : {}),
           label: connectionLabel.trim(),
         }),
@@ -85,7 +124,7 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
       };
 
       if (!response.ok || !payload.ok) {
-        const message = payload.error?.message ?? 'Failed to connect SFTP server.';
+        const message = payload.error?.message ?? 'Failed to save SFTP connection.';
         const details = payload.error?.details?.trim();
         setError(details ? `${message} ${details}` : message);
         return;
@@ -95,17 +134,23 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
       resetForm();
       router.refresh();
     } catch {
-      setError('Failed to connect SFTP server. Please try again.');
+      setError('Failed to save SFTP connection. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
+  const dialogTitle = isEditing ? 'Edit SFTP Server' : 'Connect SFTP Server';
+  const dialogDescription = isEditing
+    ? 'Update your SFTP server settings. Leave the private key or password blank to keep the stored credential.'
+    : 'Enter your SFTP server details. Credentials are stored encrypted and used only for server-side backups.';
+  const submitLabel = submitting ? 'Saving…' : isEditing ? 'Save changes' : 'Connect';
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className={
           className ??
           'rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90'
@@ -125,11 +170,8 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
           }}
         >
           <DialogHeader>
-            <DialogTitle>Connect SFTP Server</DialogTitle>
-            <DialogDescription>
-              Enter your SFTP server details. Credentials are stored encrypted and used only for
-              server-side backups.
-            </DialogDescription>
+            <DialogTitle>{dialogTitle}</DialogTitle>
+            <DialogDescription>{dialogDescription}</DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -232,22 +274,27 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
               {authMethod === 'key' ? (
                 <textarea
                   id="sftp-credential"
-                  required
+                  required={!isEditing}
                   rows={6}
                   value={credential}
                   onChange={(e) => setCredential(e.target.value)}
                   className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-xs"
-                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                  placeholder={
+                    isEditing
+                      ? 'Leave blank to keep the stored private key'
+                      : '-----BEGIN OPENSSH PRIVATE KEY-----'
+                  }
                   autoComplete="off"
                 />
               ) : (
                 <input
                   id="sftp-credential"
                   type="password"
-                  required
+                  required={!isEditing}
                   value={credential}
                   onChange={(e) => setCredential(e.target.value)}
                   className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  placeholder={isEditing ? 'Leave blank to keep the stored password' : undefined}
                   autoComplete="current-password"
                 />
               )}
@@ -267,6 +314,7 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
                   className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  placeholder={isEditing ? 'Leave blank to keep the stored passphrase' : undefined}
                   autoComplete="off"
                 />
               </div>
@@ -307,7 +355,7 @@ export function SftpConnectButton({ label, className }: SftpConnectButtonProps) 
                 disabled={submitting}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
               >
-                {submitting ? 'Connecting…' : 'Connect'}
+                {submitLabel}
               </button>
             </DialogFooter>
           </form>

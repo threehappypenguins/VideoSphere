@@ -181,6 +181,31 @@ describe('ConnectionsPage', () => {
       expect(screen.getByText('Connected')).toBeInTheDocument();
       expect(screen.queryByText(/expired/i)).not.toBeInTheDocument();
     });
+
+    it('shows Edit and Disconnect when SFTP is connected', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
+      expect(screen.getByText('My Home Server')).toBeInTheDocument();
+    });
   });
 
   describe('Flash messages', () => {

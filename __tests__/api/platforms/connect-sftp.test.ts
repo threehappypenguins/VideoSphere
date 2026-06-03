@@ -5,6 +5,7 @@ const mockGetAuthenticatedUserId = vi.fn();
 const mockTestSftpConnection = vi.fn();
 const mockCreateConnectedAccount = vi.fn();
 const mockGetConnectedAccountRowId = vi.fn();
+const mockGetConnectedAccountWithTokens = vi.fn();
 const mockUpdateConnection = vi.fn();
 
 vi.mock('@/lib/api/auth', () => ({
@@ -19,6 +20,7 @@ vi.mock('@/lib/platforms/sftp', () => ({
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: (...args: unknown[]) => mockCreateConnectedAccount(...args),
   getConnectedAccountRowId: (...args: unknown[]) => mockGetConnectedAccountRowId(...args),
+  getConnectedAccountWithTokens: (...args: unknown[]) => mockGetConnectedAccountWithTokens(...args),
   updateConnection: (...args: unknown[]) => mockUpdateConnection(...args),
 }));
 
@@ -171,6 +173,12 @@ describe('POST /api/platforms/connect/sftp', () => {
 
   it('updates an existing SFTP connection on reconnect', async () => {
     mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+      id: 'existing-1',
+      accessToken: 'secret-password',
+      refreshToken: '',
+      sftpAuthMethod: 'password',
+    });
     mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
 
     const res = await POST(
@@ -193,5 +201,69 @@ describe('POST /api/platforms/connect/sftp', () => {
       }
     );
     expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('updates metadata without resubmitting credentials when editing', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+      id: 'existing-1',
+      accessToken: 'stored-password',
+      refreshToken: '',
+      sftpAuthMethod: 'password',
+    });
+    mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
+
+    const { credential: _credential, ...bodyWithoutCredential } = validBody;
+    const res = await POST(
+      createRequest({
+        ...bodyWithoutCredential,
+        label: 'Renamed Server',
+        remotePath: '/archive',
+        port: 2222,
+      })
+    );
+    expect(res.status).toBe(200);
+
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credential: 'stored-password',
+        remotePath: '/archive',
+        port: 2222,
+      })
+    );
+    expect(mockUpdateConnection).toHaveBeenCalledWith(
+      'existing-1',
+      'stored-password',
+      '',
+      '2099-01-01T00:00:00.000Z',
+      'backup-user',
+      'Renamed Server',
+      expect.objectContaining({
+        sftpRemotePath: '/archive',
+        sftpPort: 2222,
+      })
+    );
+  });
+
+  it('requires a new credential when changing auth method during edit', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+      id: 'existing-1',
+      accessToken: 'stored-password',
+      refreshToken: '',
+      sftpAuthMethod: 'password',
+    });
+
+    const { credential: _credential, ...bodyWithoutCredential } = validBody;
+    const res = await POST(
+      createRequest({
+        ...bodyWithoutCredential,
+        authMethod: 'key',
+      })
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('SFTP_CREDENTIAL_REQUIRED');
+    expect(mockTestSftpConnection).not.toHaveBeenCalled();
   });
 });

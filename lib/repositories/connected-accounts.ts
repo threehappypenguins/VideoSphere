@@ -71,6 +71,12 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     hasRefreshToken: hasRefreshTokenFromStoredRow(doc),
     platformUserId: String(doc.platformUserId),
     platformName: String(doc.platformName),
+    ...(doc.sftpHost != null ? { sftpHost: String(doc.sftpHost) } : {}),
+    ...(doc.sftpPort != null ? { sftpPort: Number(doc.sftpPort) } : {}),
+    ...(doc.sftpRemotePath != null ? { sftpRemotePath: String(doc.sftpRemotePath) } : {}),
+    ...(doc.sftpAuthMethod != null
+      ? { sftpAuthMethod: doc.sftpAuthMethod as SftpAuthMethod }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };

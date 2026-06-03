@@ -5,6 +5,7 @@ import type { SftpAuthMethod } from '@/types';
 import {
   createConnectedAccount,
   getConnectedAccountRowId,
+  getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
 
@@ -61,7 +62,8 @@ function httpStatusFromPlatformError(error: { statusCode?: number }): number {
 }
 
 /**
- * Connects an SFTP backup destination using credentials supplied in the request body.
+ * Connects or updates an SFTP backup destination using credentials supplied in the request body.
+ * On update, credential and passphrase may be omitted to keep the stored secrets.
  * @param req - Incoming POST request with SFTP connection details.
  * @returns JSON success or structured error response.
  */
@@ -128,24 +130,6 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-
-  const passphrase =
-    authMethod === 'key' && typeof body.passphrase === 'string' && body.passphrase.trim() !== ''
-      ? body.passphrase
-      : undefined;
-
-  if (!credential.trim()) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: {
-          code: 'SFTP_CREDENTIAL_REQUIRED',
-          message: 'credential is required (private key PEM or password).',
-        },
-      },
-      { status: 400 }
-    );
-  }
   if (!label) {
     return NextResponse.json(
       { ok: false, error: { code: 'SFTP_LABEL_REQUIRED', message: 'label is required.' } },
@@ -165,14 +149,81 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const passphraseRaw = typeof body.passphrase === 'string' ? body.passphrase : '';
+  const credentialProvided = credential.trim().length > 0;
+  const passphraseProvided = passphraseRaw.trim().length > 0;
+
+  const existingRow = await getConnectedAccountRowId(userId, 'sftp');
+  const existingAccount = existingRow
+    ? await getConnectedAccountWithTokens(userId, 'sftp')
+    : null;
+
+  if (
+    existingAccount &&
+    existingAccount.sftpAuthMethod != null &&
+    existingAccount.sftpAuthMethod !== authMethod &&
+    !credentialProvided
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'SFTP_CREDENTIAL_REQUIRED',
+          message: 'Provide a new private key or password when changing the auth method.',
+        },
+      },
+      { status: 400 }
+    );
+  }
+
+  if (!existingRow && !credentialProvided) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'SFTP_CREDENTIAL_REQUIRED',
+          message: 'credential is required (private key PEM or password).',
+        },
+      },
+      { status: 400 }
+    );
+  }
+
+  let resolvedCredential = credential;
+  if (!credentialProvided) {
+    const storedCredential = existingAccount?.accessToken?.trim() ?? '';
+    if (!storedCredential) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: 'SFTP_CREDENTIAL_REQUIRED',
+            message: 'credential is required (private key PEM or password).',
+          },
+        },
+        { status: 400 }
+      );
+    }
+    resolvedCredential = storedCredential;
+  }
+
+  let resolvedPassphrase: string | undefined;
+  if (authMethod === 'key') {
+    if (passphraseProvided) {
+      resolvedPassphrase = passphraseRaw;
+    } else if (!credentialProvided && existingAccount?.refreshToken?.trim()) {
+      resolvedPassphrase = existingAccount.refreshToken;
+    }
+  }
+
   const sftpCredentials = {
     host,
     port,
     username,
     remotePath,
     authMethod,
-    credential,
-    ...(passphrase ? { passphrase } : {}),
+    credential: resolvedCredential,
+    ...(resolvedPassphrase ? { passphrase: resolvedPassphrase } : {}),
   };
 
   const testResult = await testSftpConnection(sftpCredentials);
@@ -193,7 +244,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const refreshToken = passphrase ?? '';
+  const refreshToken =
+    authMethod === 'key'
+      ? passphraseProvided
+        ? passphraseRaw
+        : credentialProvided
+          ? ''
+          : (existingAccount?.refreshToken ?? '')
+      : '';
+
   const sftpFields = {
     sftpHost: host,
     sftpPort: port,
@@ -202,12 +261,10 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    const existing = await getConnectedAccountRowId(userId, 'sftp');
-
-    if (existing) {
+    if (existingRow) {
       const updated = await updateConnection(
-        existing.id,
-        credential,
+        existingRow.id,
+        resolvedCredential,
         refreshToken,
         SFTP_TOKEN_EXPIRY,
         username,
@@ -230,7 +287,7 @@ export async function POST(req: NextRequest) {
       await createConnectedAccount({
         userId,
         platform: 'sftp',
-        accessToken: credential,
+        accessToken: resolvedCredential,
         refreshToken,
         tokenExpiry: SFTP_TOKEN_EXPIRY,
         platformUserId: username,

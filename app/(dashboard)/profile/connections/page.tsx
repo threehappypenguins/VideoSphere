@@ -26,7 +26,7 @@ import {
 } from '@/lib/repositories/connected-accounts';
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
-import { SftpConnectButton } from './SftpConnectButton';
+import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
@@ -70,6 +70,29 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
 };
 
 const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp'] as const;
+
+/** Build editable SFTP settings from a connected account row (non-secret fields only). */
+function toSftpExistingConnection(
+  account: ConnectedAccountPublic
+): SftpExistingConnection | undefined {
+  if (
+    account.platform !== 'sftp' ||
+    !account.sftpHost ||
+    !account.sftpRemotePath ||
+    !account.sftpAuthMethod
+  ) {
+    return undefined;
+  }
+
+  return {
+    host: account.sftpHost,
+    port: account.sftpPort ?? 22,
+    username: account.platformUserId,
+    remotePath: account.sftpRemotePath,
+    authMethod: account.sftpAuthMethod,
+    label: account.platformName,
+  };
+}
 
 /** Derive connection status from tokenExpiry and whether a refresh token exists. */
 function getConnectionStatus(
@@ -308,17 +331,34 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                 </div>
 
                 {status === 'connected' && account ? (
-                  <DisconnectButton
-                    action={disconnectPlatform.bind(null, account.id)}
-                    platformLabel={meta.label}
-                  />
+                  platform === 'sftp' ? (
+                    <div className="flex items-center gap-2">
+                      <SftpConnectButton
+                        label="Edit"
+                        existingConnection={toSftpExistingConnection(account)}
+                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      />
+                      <DisconnectButton
+                        action={disconnectPlatform.bind(null, account.id)}
+                        platformLabel={meta.label}
+                      />
+                    </div>
+                  ) : (
+                    <DisconnectButton
+                      action={disconnectPlatform.bind(null, account.id)}
+                      platformLabel={meta.label}
+                    />
+                  )
                 ) : status === 'expired' && account ? (
                   // Token is expired — offer both reconnect and disconnect.
                   <div className="flex items-center gap-2">
                     {meta.connectHref ? (
                       <ConnectButton href={meta.connectHref} label="Reconnect" />
                     ) : (
-                      <SftpConnectButton label="Reconnect" />
+                      <SftpConnectButton
+                        label="Reconnect"
+                        existingConnection={toSftpExistingConnection(account)}
+                      />
                     )}
                     <DisconnectButton
                       action={disconnectPlatform.bind(null, account.id)}
