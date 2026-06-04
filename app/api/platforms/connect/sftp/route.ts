@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
+import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
 import { isValidSftpRemotePath, SFTP_TOKEN_EXPIRY, testSftpConnection } from '@/lib/platforms/sftp';
 import type { ConnectedAccount, SftpAuthMethod } from '@/types';
 import {
@@ -258,9 +259,10 @@ export async function POST(req: NextRequest) {
     storedSftpPortRaw != null && storedSftpPortRaw > 0 ? storedSftpPortRaw : 22;
   const sameSftpEndpoint = storedSftpHost === host && storedSftpPort === port;
   const storedHostKeyFingerprint = existingMetadata?.sftpHostKeyFingerprint;
-  const pinnedHostKeyFingerprint = sameSftpEndpoint
-    ? storedHostKeyFingerprint?.trim().toLowerCase()
-    : undefined;
+  const pinnedHostKeyFingerprint =
+    sameSftpEndpoint && typeof storedHostKeyFingerprint === 'string'
+      ? (normalizeConnectedAccountSftpHostKeyFingerprint(storedHostKeyFingerprint) ?? undefined)
+      : undefined;
 
   const sftpCredentials = {
     host,

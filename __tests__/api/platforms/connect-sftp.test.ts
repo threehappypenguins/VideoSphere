@@ -426,6 +426,33 @@ describe('POST /api/platforms/connect/sftp', () => {
     );
   });
 
+  it('re-pins host key when stored fingerprint is malformed on the same endpoint', async () => {
+    mockExistingAccountWithTokens({
+      accessToken: 'stored-password',
+      refreshToken: '',
+      sftpAuthMethod: 'password',
+      sftpHostKeyFingerprint: 'corrupted-fingerprint',
+    });
+    mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
+
+    const { credential: _credential, ...bodyWithoutCredential } = validBody;
+    const res = await POST(createRequest(bodyWithoutCredential));
+    expect(res.status).toBe(200);
+
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.not.objectContaining({ hostKeyFingerprint: expect.anything() })
+    );
+    expect(mockUpdateConnection).toHaveBeenCalledWith(
+      'existing-1',
+      'stored-password',
+      '',
+      '2099-01-01T00:00:00.000Z',
+      'backup-user',
+      'My Home Server',
+      expect.objectContaining({ sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT })
+    );
+  });
+
   it('preserves stored credential whitespace when editing metadata only', async () => {
     mockExistingAccountWithTokens({
       accessToken: '  secret-with-spaces  ',
