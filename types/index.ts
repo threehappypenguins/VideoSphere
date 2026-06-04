@@ -201,7 +201,9 @@ export interface VimeoDraftFields {
 
 /**
  * Per-platform metadata on a draft (inside `document` JSON).
- * Backup destinations (`google_drive`, `sftp`) have no publish-specific fields yet.
+ * Publish targets use `platforms.youtube` / `platforms.vimeo`.
+ * Google Drive is selected via `targets` only (no `platforms.google_drive` key).
+ * SFTP may use `platforms.sftp` as an empty placeholder until backup-specific fields exist.
  */
 export interface DraftPlatforms {
   youtube?: YouTubeDraftFields;

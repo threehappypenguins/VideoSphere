@@ -20,7 +20,7 @@ Canonical TypeScript types live in [`types/index.ts`](../types/index.ts) (`Draft
   - **`targets`**: one or more of `"youtube"`, `"vimeo"`, `"google_drive"`, `"sftp"` (order preserved, deduped by the API when saving).
   - **`title`**, **`description`**, **`visibility`** (`public` | `unlisted` | `private`).
   - **`tags`**: string array — **one shared list** for every platform (not per-platform).
-  - **`platforms`**: object with optional **`youtube`** and **`vimeo`** nested objects (platform-only fields).
+  - **`platforms`**: object with optional **`youtube`** and **`vimeo`** nested objects (platform-only fields), and optional **`sftp`** (empty object placeholder). **Google Drive** is selected via **`targets` only** — there is no `platforms.google_drive` key.
 
 The app’s draft APIs (`POST/PATCH /api/drafts`, `GET /api/drafts`, …) read and write this structure; the repository persists it as **`document`** on the `drafts` collection.
 
@@ -169,7 +169,7 @@ Sent on Vimeo **`POST /me/videos`** using **snake_case** on the wire where the A
 
 ## Backup destinations (Google Drive, SFTP)
 
-These targets copy the uploaded video to a connected backup account. They have no platform-specific publish fields in `platforms.*` yet (omit the key or use an empty object).
+These targets copy the uploaded video to a connected backup account. Neither has publish-specific draft fields today. Include **`google_drive`** only in **`targets`** (no `platforms.google_drive` — it is not part of `DraftPlatforms`). For **SFTP**, you may include **`platforms.sftp: {}`** so server-side draft parsing preserves the backup target through merge; otherwise omit it.
 
 | Destination | Connect flow | Server env |
 |-------------|--------------|------------|
