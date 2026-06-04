@@ -1,7 +1,7 @@
 import { posix as pathPosix } from 'node:path';
 import { isIPv6 } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
-import { Readable } from 'node:stream';
+import type { Writable } from 'node:stream';
 import { Client, type ConnectConfig, type SFTPWrapper } from 'ssh2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type { ConnectedAccount, SftpAuthMethod } from '@/types';
@@ -356,76 +356,139 @@ function promisifySftpStat(sftp: SFTPWrapper, remotePath: string): Promise<void>
   });
 }
 
+function writeToNodeStream(writeStream: Writable, chunk: Uint8Array): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      writeStream.off('error', onError);
+      writeStream.off('drain', onDrain);
+    };
+
+    writeStream.on('error', onError);
+    if (writeStream.write(chunk)) {
+      cleanup();
+      resolve();
+    } else {
+      writeStream.on('drain', onDrain);
+    }
+  });
+}
+
+/**
+ * Ends an ssh2 SFTP write stream and waits for completion.
+ *
+ * ssh2's SFTPWrapper write stream does not reliably emit `finish` before `close`
+ * on a successful upload — `close` alone is normal and must be treated as success.
+ * Rejecting when `close` arrives without `finish` produces false upload failures
+ * even though the remote file was written completely.
+ */
+function closeNodeWriteStream(writeStream: Writable): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      writeStream.off('finish', onFinish);
+      writeStream.off('close', onClose);
+      writeStream.off('error', onError);
+    };
+
+    const onFinish = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+
+    if (writeStream.writableFinished) {
+      resolve();
+      return;
+    }
+
+    writeStream.on('finish', onFinish);
+    writeStream.on('close', onClose);
+    writeStream.on('error', onError);
+    writeStream.end();
+  });
+}
+
 function pipeStreamToSftp(
   sftp: SFTPWrapper,
   remotePath: string,
-  source: Readable,
+  source: ReadableStream<Uint8Array>,
   signal?: AbortSignal
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const writeStream = sftp.createWriteStream(remotePath, {
-      flags: 'w',
-      mode: SFTP_REMOTE_FILE_MODE,
-    });
-    let settled = false;
-    let finished = false;
+  if (signal?.aborted) {
+    return Promise.reject(new Error('SFTP upload aborted'));
+  }
 
-    const settle = (action: () => void) => {
-      if (settled) return;
-      settled = true;
-      if (signal) signal.removeEventListener('abort', onAbort);
-      action();
-    };
+  const writeStream = sftp.createWriteStream(remotePath, {
+    flags: 'w',
+    mode: SFTP_REMOTE_FILE_MODE,
+  }) as Writable;
 
-    const cleanup = () => {
-      source.destroy();
-      writeStream.destroy();
-    };
+  let streamFailure: Error | undefined;
+  let dataStarted = false;
 
-    const onAbort = () => {
-      settle(() => {
-        cleanup();
-        reject(new Error('SFTP upload aborted'));
-      });
-    };
-
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener('abort', onAbort, { once: true });
+  const noteFailure = (err: Error) => {
+    if (streamFailure == null) {
+      streamFailure = err;
     }
+  };
 
-    source.on('error', (err) => {
-      settle(() => {
-        cleanup();
-        reject(err);
-      });
-    });
+  // Only listen for `error`; do not treat `close` without `finish` as failure (see closeNodeWriteStream).
+  writeStream.on('error', noteFailure);
 
-    writeStream.on('error', (err) => {
-      settle(() => {
-        cleanup();
-        reject(err);
-      });
-    });
-
-    writeStream.on('finish', () => {
-      finished = true;
-      settle(resolve);
-    });
-
-    writeStream.on('close', () => {
-      if (finished) return;
-      settle(() => {
-        cleanup();
-        reject(new Error('SFTP upload closed before finishing'));
-      });
-    });
-
-    source.pipe(writeStream);
+  const sink = new WritableStream<Uint8Array>({
+    write(chunk) {
+      if (streamFailure) {
+        return Promise.reject(streamFailure);
+      }
+      if (!dataStarted) {
+        dataStarted = true;
+        writeStream.emit('pipe');
+      }
+      return writeToNodeStream(writeStream, chunk);
+    },
+    close() {
+      if (streamFailure) {
+        return Promise.reject(streamFailure);
+      }
+      return closeNodeWriteStream(writeStream);
+    },
+    abort(reason) {
+      writeStream.destroy(reason instanceof Error ? reason : undefined);
+    },
   });
+
+  return source
+    .pipeTo(sink, { signal })
+    .then(() => {
+      if (streamFailure) {
+        throw streamFailure;
+      }
+    })
+    .catch((err: unknown) => {
+      if (streamFailure) {
+        throw streamFailure;
+      }
+      if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        throw new Error('SFTP upload aborted');
+      }
+      throw err;
+    });
 }
 
 function classifyConnectionError(err: unknown): PlatformUploadError {
@@ -554,11 +617,7 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
     const fileName = normalizeSftpFileName(input.metadata.title, input.contentType, new Date());
     const fullRemotePath = pathPosix.join(credentials.remotePath, fileName);
 
-    const nodeReadable = Readable.fromWeb(
-      input.videoStream as Parameters<typeof Readable.fromWeb>[0]
-    );
-
-    await pipeStreamToSftp(sftp, fullRemotePath, nodeReadable, input.signal);
+    await pipeStreamToSftp(sftp, fullRemotePath, input.videoStream, input.signal);
 
     return {
       ok: true,

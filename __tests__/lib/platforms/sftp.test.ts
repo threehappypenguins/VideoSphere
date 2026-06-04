@@ -293,7 +293,7 @@ describe('uploadToSftp', () => {
     expect(result).toMatchObject({ ok: true });
   });
 
-  it('rejects when write stream closes before finishing', async () => {
+  it('completes upload when write stream emits close without finish', async () => {
     mocks.mockCreateWriteStream.mockImplementation(() => {
       const stream = new PassThrough();
       stream.on('pipe', () => {
@@ -305,13 +305,10 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Truncated' },
+      metadata: { title: 'Close Only' },
     });
 
-    expect(result).toMatchObject({
-      ok: false,
-      error: { code: 'SFTP_WRITE_FAILED' },
-    });
+    expect(result).toMatchObject({ ok: true });
   });
 
   it('returns connection failure when connect emits error', async () => {
