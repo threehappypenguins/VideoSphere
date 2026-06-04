@@ -554,7 +554,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | ID    | Requirement                                                                                  |
 | ----- | -------------------------------------------------------------------------------------------- |
 | NF-05 | Connected-platform secrets (OAuth tokens, API keys, SFTP credentials) are encrypted at rest in MongoDB. |
-| NF-07 | All API routes validate input using Zod schemas; reject malformed requests with 400 errors.  |
+| NF-07 | All API routes validate request input before use (JSON parsing, TypeScript type guards, route-local validators, and shared `lib/` parsers); reject malformed requests with 400 errors. Persisted data is validated by Mongoose schemas.  |
 | NF-08 | Presigned R2 URLs expire within 15 minutes to prevent unauthorized access.                   |
 | NF-09 | Rate limiting on auth endpoints and AI generation endpoint to prevent abuse.                 |
 | NF-10 | Server-side route protection via `proxy.ts` for all protected routes.                   |

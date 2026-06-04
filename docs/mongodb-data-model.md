@@ -23,7 +23,7 @@ VideoSphere stores application data in MongoDB via Mongoose models in [lib/model
 - `drafts.document` stores JSON string payload for draft metadata.
 - `platform_uploads.document` stores JSON snapshot captured at distribution time.
 
-See [docs/draft-document-and-upload-testing.md](/draft-document-and-upload-testing) for full payload shape and manual upload flow.
+See [draft-document-and-upload-testing.md](./draft-document-and-upload-testing.md) for full payload shape and manual upload flow.
 
 ## Encryption at Rest for Connected Account Secrets
 
