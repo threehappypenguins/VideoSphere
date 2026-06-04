@@ -5,6 +5,7 @@ import { isValidSftpRemotePath, SFTP_TOKEN_EXPIRY, testSftpConnection } from '@/
 import type { ConnectedAccount, SftpAuthMethod } from '@/types';
 import {
   createConnectedAccount,
+  getConnectedAccount,
   getConnectedAccountRowId,
   getConnectedAccountWithTokens,
   updateConnection,
@@ -178,12 +179,16 @@ export async function POST(req: NextRequest) {
   const passphraseProvided = passphraseRaw.trim().length > 0;
 
   const existingRow = await getConnectedAccountRowId(userId, 'sftp');
+  const existingAccountPublic = existingRow ? await getConnectedAccount(userId, 'sftp') : null;
   const existingAccount = existingRow ? await loadExistingAccountWithTokens(userId) : null;
 
+  const existingSftpAuthMethod =
+    existingAccount?.sftpAuthMethod ?? existingAccountPublic?.sftpAuthMethod;
+
   if (
-    existingAccount &&
-    existingAccount.sftpAuthMethod != null &&
-    existingAccount.sftpAuthMethod !== authMethod &&
+    existingRow &&
+    existingSftpAuthMethod != null &&
+    existingSftpAuthMethod !== authMethod &&
     !credentialProvided
   ) {
     return NextResponse.json(
@@ -238,13 +243,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const existingPort =
-    existingAccount?.sftpPort != null && existingAccount.sftpPort > 0
-      ? existingAccount.sftpPort
-      : 22;
-  const sameSftpEndpoint = existingAccount?.sftpHost === host && existingPort === port;
+  const storedSftpHost = existingAccount?.sftpHost ?? existingAccountPublic?.sftpHost;
+  const storedSftpPortRaw = existingAccount?.sftpPort ?? existingAccountPublic?.sftpPort;
+  const storedSftpPort =
+    storedSftpPortRaw != null && storedSftpPortRaw > 0 ? storedSftpPortRaw : 22;
+  const sameSftpEndpoint = storedSftpHost === host && storedSftpPort === port;
+  const storedHostKeyFingerprint =
+    existingAccount?.sftpHostKeyFingerprint ?? existingAccountPublic?.sftpHostKeyFingerprint;
   const pinnedHostKeyFingerprint = sameSftpEndpoint
-    ? existingAccount?.sftpHostKeyFingerprint?.trim().toLowerCase()
+    ? storedHostKeyFingerprint?.trim().toLowerCase()
     : undefined;
 
   const sftpCredentials = {

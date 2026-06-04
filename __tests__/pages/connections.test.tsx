@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — these must be declared with vi.hoisted() so they are
@@ -252,6 +253,37 @@ describe('ConnectionsPage', () => {
       expect(screen.getByText(/expired/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
       expect(screen.queryByText(/^connected$/i)).not.toBeInTheDocument();
+    });
+
+    it('prefills the reconnect modal when SFTP settings exist but host key is not pinned', async () => {
+      const user = userEvent.setup();
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+
+      await user.click(screen.getByRole('button', { name: /^reconnect$/i }));
+
+      expect(screen.getByLabelText(/^host$/i)).toHaveValue('sftp.example.com');
+      expect(screen.getByLabelText(/^port$/i)).toHaveValue(22);
+      expect(screen.getByLabelText(/^username$/i)).toHaveValue('backup-user');
+      expect(screen.getByLabelText(/^remote path$/i)).toHaveValue('/backups');
+      expect(screen.getByLabelText(/^label$/i)).toHaveValue('My Home Server');
     });
   });
 

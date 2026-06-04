@@ -86,16 +86,21 @@ function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
 function toSftpExistingConnection(
   account: ConnectedAccountPublic
 ): SftpExistingConnection | undefined {
-  if (!isSftpConnectionReady(account)) {
+  if (
+    account.platform !== 'sftp' ||
+    !account.sftpHost?.trim() ||
+    !account.sftpRemotePath?.trim() ||
+    !account.sftpAuthMethod
+  ) {
     return undefined;
   }
 
   return {
-    host: account.sftpHost!,
+    host: account.sftpHost,
     port: account.sftpPort ?? 22,
     username: account.platformUserId,
-    remotePath: account.sftpRemotePath!,
-    authMethod: account.sftpAuthMethod!,
+    remotePath: account.sftpRemotePath,
+    authMethod: account.sftpAuthMethod,
     label: account.platformName,
   };
 }
