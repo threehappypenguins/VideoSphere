@@ -201,6 +201,27 @@ describe('uploadToSftp', () => {
     expect(result).toMatchObject({ ok: true });
   });
 
+  it('rejects when write stream closes before finishing', async () => {
+    mocks.mockCreateWriteStream.mockImplementation(() => {
+      const stream = new PassThrough();
+      stream.on('pipe', () => {
+        queueMicrotask(() => stream.emit('close'));
+      });
+      return stream;
+    });
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Truncated' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_WRITE_FAILED' },
+    });
+  });
+
   it('returns connection failure when connect emits error', async () => {
     mocks.mockConnect.mockImplementation(function connect(this: InstanceType<typeof EventEmitter>) {
       queueMicrotask(() => this.emit('error', new Error('ECONNREFUSED connect failed')));

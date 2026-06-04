@@ -282,6 +282,39 @@ describe('POST /api/platforms/connect/sftp', () => {
     );
   });
 
+  it('preserves stored credential whitespace when editing metadata only', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+      id: 'existing-1',
+      accessToken: '  secret-with-spaces  ',
+      refreshToken: '',
+      sftpAuthMethod: 'password',
+    });
+    mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
+
+    const { credential: _credential, ...bodyWithoutCredential } = validBody;
+    const res = await POST(
+      createRequest({
+        ...bodyWithoutCredential,
+        label: 'Whitespace Label',
+      })
+    );
+    expect(res.status).toBe(200);
+
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ credential: '  secret-with-spaces  ' })
+    );
+    expect(mockUpdateConnection).toHaveBeenCalledWith(
+      'existing-1',
+      '  secret-with-spaces  ',
+      '',
+      '2099-01-01T00:00:00.000Z',
+      'backup-user',
+      'Whitespace Label',
+      expect.objectContaining({ sftpAuthMethod: 'password' })
+    );
+  });
+
   it('requires a new credential when changing auth method during edit', async () => {
     mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
     mockGetConnectedAccountWithTokens.mockResolvedValueOnce({

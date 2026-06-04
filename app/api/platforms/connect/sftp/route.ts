@@ -212,8 +212,8 @@ export async function POST(req: NextRequest) {
 
   let resolvedCredential = credential;
   if (!credentialProvided) {
-    const storedCredential = existingAccount?.accessToken?.trim() ?? '';
-    if (!storedCredential) {
+    const storedCredential = existingAccount?.accessToken ?? '';
+    if (storedCredential.length === 0) {
       return NextResponse.json(
         {
           ok: false,
@@ -232,8 +232,8 @@ export async function POST(req: NextRequest) {
   if (authMethod === 'key') {
     if (passphraseProvided) {
       resolvedPassphrase = passphraseRaw;
-    } else if (existingAccount?.refreshToken?.trim()) {
-      resolvedPassphrase = existingAccount.refreshToken;
+    } else if ((existingAccount?.refreshToken ?? '').length > 0) {
+      resolvedPassphrase = existingAccount!.refreshToken;
     }
   }
 

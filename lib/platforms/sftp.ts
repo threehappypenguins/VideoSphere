@@ -275,6 +275,7 @@ function pipeStreamToSftp(
   return new Promise((resolve, reject) => {
     const writeStream = sftp.createWriteStream(remotePath, { flags: 'w', mode: 0o644 });
     let settled = false;
+    let finished = false;
 
     const settle = (action: () => void) => {
       if (settled) return;
@@ -318,11 +319,16 @@ function pipeStreamToSftp(
     });
 
     writeStream.on('finish', () => {
+      finished = true;
       settle(resolve);
     });
 
     writeStream.on('close', () => {
-      settle(resolve);
+      if (finished) return;
+      settle(() => {
+        cleanup();
+        reject(new Error('SFTP upload closed before finishing'));
+      });
     });
 
     source.pipe(writeStream);
