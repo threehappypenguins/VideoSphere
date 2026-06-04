@@ -44,7 +44,7 @@ If you use Google login and platform connections, also set:
 
 SermonAudio uses API-key authentication and is entered by each user in the app UI (Connected Accounts), not in `.env.local`.
 
-SFTP and SMB backup destinations are configured per user in Connected Accounts (host, share, credentials, and remote path). No SFTP- or SMB-related environment variables are required on the server.
+SFTP and SMB backup destinations are configured per user in Connected Accounts (SFTP: host, port, credentials, and remote path; SMB: host, share, credentials, and remote path). No SFTP- or SMB-related environment variables are required on the server.
 
 For SMB, use the share name exactly as listed by `smbclient -L` (case-sensitive, e.g. `Storage`). If smbclient shows `WORKGROUP\youruser`, leave the domain field blank — VideoSphere defaults to `WORKGROUP` for NTLMv2 auth on Samba.
 

@@ -4,7 +4,6 @@ import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Writable } from 'node:stream';
 import { Client } from 'node-smb2';
-import type Tree from 'node-smb2/dist/client/Tree';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type { ConnectedAccount } from '@/types';
 import type { PlatformUploadError, PlatformUploadResult } from '@/lib/platforms/types';
@@ -64,6 +63,15 @@ const SMB_NT_STATUS_LABELS: Record<number, string> = {
   [SMB_NT_STATUS.LOGON_FAILURE]: 'STATUS_LOGON_FAILURE',
   [SMB_NT_STATUS.BAD_NETWORK_NAME]: 'STATUS_BAD_NETWORK_NAME',
 };
+
+/**
+ * Minimal SMB share tree surface returned by `session.connectTree`.
+ * `node-smb2` does not export `Tree` from its public entry; this avoids brittle `dist/` imports.
+ */
+interface SmbShareTree {
+  readDirectory(path?: string): Promise<unknown>;
+  createFileWriteStream(path: string): Promise<Writable>;
+}
 
 /** SMB2 response shape thrown by `node-smb2` when `header.status` is not success. */
 interface Smb2ResponseError {
@@ -291,7 +299,7 @@ function isRemotePathStatError(err: unknown): boolean {
  * @param tree - Connected SMB tree for the target share.
  * @param remotePath - User-configured directory within the share.
  */
-async function verifySmbRemoteDirectory(tree: Tree, remotePath: string): Promise<void> {
+async function verifySmbRemoteDirectory(tree: SmbShareTree, remotePath: string): Promise<void> {
   const directoryPath = toSmbClientDirectoryPath(remotePath);
   try {
     await tree.readDirectory(directoryPath);
@@ -404,7 +412,7 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
  */
 async function withSmbTree<T>(
   credentials: SmbCredentials,
-  fn: (tree: Tree) => Promise<T>
+  fn: (tree: SmbShareTree) => Promise<T>
 ): Promise<T> {
   const client = new Client(credentials.host);
   let pendingError: Error | undefined;
