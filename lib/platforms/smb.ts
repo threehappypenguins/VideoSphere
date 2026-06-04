@@ -25,7 +25,7 @@ interface UploadToSmbInput {
  * @property domain - Windows domain or workgroup (optional).
  * @property username - Login username.
  * @property password - Login password.
- * @property remotePath - Directory within the share (POSIX-style `/`; `/` = share root).
+ * @property remotePath - Directory within the share. Share root: empty string, `/`, or `\`; otherwise a path starting with `/` or `\` (POSIX or Windows separators), without `.` or `..` segments.
  */
 interface SmbCredentials {
   host: string;

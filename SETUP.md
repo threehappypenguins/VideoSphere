@@ -162,10 +162,12 @@ SMB uses TCP port 445 to reach a NAS or Windows share on your LAN. The app conta
 On **Linux**, run the app container with host networking so it can reach LAN hosts:
 
 ```bash
-docker run --name videosphere -p 3000:3000 --network host --env-file .env.local videosphere
+docker run --name videosphere --network host --env-file .env.local videosphere
 ```
 
-With Docker Compose, set `network_mode: host` on the `app` service (see comments in `docker-compose.yml`). You may still map port `3000` for documentation, but with host networking the app listens on the host’s interfaces.
+The app listens on port 3000 on the host directly; do not add `-p`—published ports are ignored in host networking mode.
+
+With Docker Compose, uncomment `network_mode: host` on the `app` service (see `docker-compose.yml`). Compose ignores `ports:` in host mode—the app listens on port 3000 on the host directly; leave or remove the `ports` block, but do not expect publish mappings to work.
 
 `--network host` is **Linux-only**. On macOS and Windows, Docker Desktop’s “host” network is a VM, so LAN reachability to a NAS depends on your Docker and network setup.
 
