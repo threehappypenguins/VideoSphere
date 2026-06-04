@@ -255,6 +255,32 @@ describe('ConnectionsPage', () => {
       expect(screen.queryByText(/^connected$/i)).not.toBeInTheDocument();
     });
 
+    it('shows Expired and Reconnect when SFTP host key fingerprint format is invalid', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          sftpHostKeyFingerprint: 'corrupted-fingerprint',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    });
+
     it('prefills the reconnect modal when SFTP settings exist but host key is not pinned', async () => {
       const user = userEvent.setup();
       mockGetConnectedAccountsByUser.mockResolvedValue([

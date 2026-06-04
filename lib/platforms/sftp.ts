@@ -86,6 +86,15 @@ export function isValidSftpRemotePath(remotePath: string): boolean {
   return true;
 }
 
+/**
+ * Returns whether `port` is a valid TCP port for SFTP connections.
+ * @param port - Candidate port number.
+ * @returns True when the port is an integer from 1 through 65535.
+ */
+export function isValidSftpPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 function invalidRemotePathError(): PlatformUploadError {
   return {
     code: 'SFTP_REMOTE_PATH_INVALID',
@@ -203,14 +212,19 @@ function credentialsFromConnectedAccount(account: ConnectedAccount): SftpCredent
     return null;
   }
 
-  // Defense-in-depth: match connect-route validation even for legacy DB values.
+  // Defense-in-depth: match connect-route validation even for invalid DB values.
   if (!isValidSftpRemotePath(remotePath)) {
+    return null;
+  }
+
+  const port = account.sftpPort ?? 22;
+  if (!isValidSftpPort(port)) {
     return null;
   }
 
   return {
     host,
-    port: account.sftpPort && account.sftpPort > 0 ? account.sftpPort : 22,
+    port,
     username,
     authMethod,
     credential,

@@ -24,6 +24,7 @@ import {
   getConnectedAccountWithTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
+import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
 import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
@@ -73,12 +74,14 @@ const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp'] as const;
 
 /** True when an SFTP row has the fields required for backups (including a pinned host key). */
 function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
+  const fingerprint = account.sftpHostKeyFingerprint;
   return (
     account.platform === 'sftp' &&
     Boolean(account.sftpHost?.trim()) &&
     Boolean(account.sftpRemotePath?.trim()) &&
     Boolean(account.sftpAuthMethod) &&
-    Boolean(account.sftpHostKeyFingerprint?.trim())
+    fingerprint != null &&
+    normalizeConnectedAccountSftpHostKeyFingerprint(fingerprint) != null
   );
 }
 

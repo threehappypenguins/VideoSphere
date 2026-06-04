@@ -197,6 +197,20 @@ describe('uploadToSftp', () => {
     expect(mocks.mockConnect).not.toHaveBeenCalled();
   });
 
+  it('rejects upload when stored sftpPort is outside the valid TCP range', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount({ sftpPort: 70000 }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Bad Port' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_CONFIG_INVALID' },
+    });
+    expect(mocks.mockConnect).not.toHaveBeenCalled();
+  });
+
   it('includes non-default port in platformUrl', async () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpPort: 2222 }),
