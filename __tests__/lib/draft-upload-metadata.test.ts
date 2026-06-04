@@ -105,7 +105,7 @@ describe('draft-upload-metadata', () => {
     });
     expect(parseDraftTargetsFromRequestBody([])).toEqual({
       ok: false,
-      error: 'targets must include at least one of: youtube, vimeo, google_drive, sftp',
+      error: 'targets must include at least one of: youtube, vimeo, google_drive, sftp, smb',
     });
     expect(parseDraftTargetsFromRequestBody(['youtube', 'youtube'])).toEqual({
       ok: true,
@@ -287,6 +287,17 @@ describe('draft-upload-metadata', () => {
     expect(parsed.ok && parsed.value.youtube).toEqual({
       playlistTitles: ['a', 'b'],
       playlistIds: ['PL1', 'PL2'],
+    });
+  });
+
+  it('normalizeDraftPlatforms preserves platforms.smb as an empty object', () => {
+    const parsed = parsePlatformsFromRequestBody({
+      youtube: { categoryId: '22' },
+      smb: {},
+    });
+    expect(parsed.ok && parsed.value).toEqual({
+      youtube: { categoryId: '22' },
+      smb: {},
     });
   });
 

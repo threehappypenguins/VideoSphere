@@ -1,6 +1,6 @@
 # VideoSphere
 
-> **Upload once, distribute everywhere.** A Next.js app for uploading videos to Cloudflare R2 and distributing them to YouTube, Vimeo, and optional Google Drive or SFTP backup — with metadata drafts and self-hostable Docker deployment.
+> **Upload once, distribute everywhere.** A Next.js app for uploading videos to Cloudflare R2 and distributing them to YouTube, Vimeo, and optional Google Drive, SFTP, or SMB backup — with metadata drafts and self-hostable Docker deployment.
 
 **👉 Start here: [SETUP.md](SETUP.md)** — Complete the first-run setup before doing anything else.
 
@@ -161,6 +161,7 @@ After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
 ## Docker
 
 - **Run the app in a container:** `docker build -t videosphere .` then `docker run --name videosphere -p 3000:3000 --env-file .env.local videosphere`.
+- **SMB backup from Docker (Linux):** add `--network host` so the container can reach NAS/Windows shares on your LAN (see [SETUP.md](SETUP.md#smb-backup-docker--lan-reachability)). On macOS/Windows Docker Desktop, host networking does not expose the physical LAN the same way.
 - **Password recovery (no SMTP):** see [docs/password-recovery.md](docs/password-recovery.md) for CLI password reset, log-based forgot-password, and admin reset links.
 
 ## Contributing

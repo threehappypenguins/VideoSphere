@@ -43,6 +43,10 @@ function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount 
     ...(doc.sftpHostKeyFingerprint != null
       ? { sftpHostKeyFingerprint: String(doc.sftpHostKeyFingerprint) }
       : {}),
+    ...(doc.smbHost != null ? { smbHost: String(doc.smbHost) } : {}),
+    ...(doc.smbShare != null ? { smbShare: String(doc.smbShare) } : {}),
+    ...(doc.smbDomain != null ? { smbDomain: String(doc.smbDomain) } : {}),
+    ...(doc.smbRemotePath != null ? { smbRemotePath: String(doc.smbRemotePath) } : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -81,6 +85,10 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     ...(doc.sftpHostKeyFingerprint != null
       ? { sftpHostKeyFingerprint: String(doc.sftpHostKeyFingerprint) }
       : {}),
+    ...(doc.smbHost != null ? { smbHost: String(doc.smbHost) } : {}),
+    ...(doc.smbShare != null ? { smbShare: String(doc.smbShare) } : {}),
+    ...(doc.smbDomain != null ? { smbDomain: String(doc.smbDomain) } : {}),
+    ...(doc.smbRemotePath != null ? { smbRemotePath: String(doc.smbRemotePath) } : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -106,6 +114,10 @@ export interface CreateConnectedAccountData {
   sftpRemotePath?: string;
   sftpAuthMethod?: SftpAuthMethod;
   sftpHostKeyFingerprint?: string;
+  smbHost?: string;
+  smbShare?: string;
+  smbDomain?: string;
+  smbRemotePath?: string;
 }
 
 /**
@@ -133,6 +145,10 @@ export async function createConnectedAccount(
     ...(data.sftpHostKeyFingerprint != null
       ? { sftpHostKeyFingerprint: data.sftpHostKeyFingerprint }
       : {}),
+    ...(data.smbHost != null ? { smbHost: data.smbHost } : {}),
+    ...(data.smbShare != null ? { smbShare: data.smbShare } : {}),
+    ...(data.smbDomain != null ? { smbDomain: data.smbDomain } : {}),
+    ...(data.smbRemotePath != null ? { smbRemotePath: data.smbRemotePath } : {}),
   });
   return rowToConnectedAccountPublic(created.toObject());
 }
@@ -279,6 +295,12 @@ export async function updateConnection(
     sftpRemotePath: string;
     sftpAuthMethod: SftpAuthMethod;
     sftpHostKeyFingerprint: string;
+  },
+  smbFields?: {
+    smbHost: string;
+    smbShare: string;
+    smbDomain?: string;
+    smbRemotePath: string;
   }
 ): Promise<ConnectedAccountPublic | null> {
   await connectToDatabase();
@@ -297,6 +319,16 @@ export async function updateConnection(
             sftpRemotePath: sftpFields.sftpRemotePath,
             sftpAuthMethod: sftpFields.sftpAuthMethod,
             sftpHostKeyFingerprint: sftpFields.sftpHostKeyFingerprint,
+          }
+        : {}),
+      ...(smbFields
+        ? {
+            smbHost: smbFields.smbHost,
+            smbShare: smbFields.smbShare,
+            ...(smbFields.smbDomain != null && smbFields.smbDomain !== ''
+              ? { smbDomain: smbFields.smbDomain }
+              : { smbDomain: '' }),
+            smbRemotePath: smbFields.smbRemotePath,
           }
         : {}),
     },

@@ -46,7 +46,7 @@ export interface User {
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
-export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive' | 'sftp';
+export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive' | 'sftp' | 'smb';
 
 /** Platforms we support for drafts, uploads, and connections (extend as you add backends). */
 export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = [
@@ -54,6 +54,7 @@ export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = 
   'vimeo',
   'google_drive',
   'sftp',
+  'smb',
 ];
 
 /** SFTP authentication method stored on a connected account. */
@@ -61,6 +62,9 @@ export type SftpAuthMethod = 'key' | 'password';
 
 /** SFTP-only fields inside the draft `document.platforms` JSON (no publish options yet). */
 export interface SftpDraftFields {}
+
+/** SMB/CIFS draft fields placeholder (no publish-specific options yet). */
+export interface SmbDraftFields {}
 
 /** Platform upload status (PRD: pending, uploading, completed, failed). */
 export type PlatformUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
@@ -203,12 +207,13 @@ export interface VimeoDraftFields {
  * Per-platform metadata on a draft (inside `document` JSON).
  * Publish targets use `platforms.youtube` / `platforms.vimeo`.
  * Google Drive is selected via `targets` only (no `platforms.google_drive` key).
- * SFTP may use `platforms.sftp` as an empty placeholder until backup-specific fields exist.
+ * SFTP / SMB may use `platforms.sftp` / `platforms.smb` as empty placeholders until backup-specific fields exist.
  */
 export interface DraftPlatforms {
   youtube?: YouTubeDraftFields;
   vimeo?: VimeoDraftFields;
   sftp?: SftpDraftFields;
+  smb?: SmbDraftFields;
 }
 
 /**
@@ -330,6 +335,14 @@ export interface ConnectedAccountPublic {
   sftpAuthMethod?: SftpAuthMethod;
   /** SHA-256 host key fingerprint pinned after the first successful SFTP connect (SFTP accounts only). */
   sftpHostKeyFingerprint?: string;
+  /** SMB server hostname or IP (SMB accounts only). */
+  smbHost?: string;
+  /** SMB share name without UNC prefix (SMB accounts only). */
+  smbShare?: string;
+  /** Windows domain or workgroup (SMB accounts only; optional). */
+  smbDomain?: string;
+  /** Path within the share for backups, e.g. `/VideoSphere` (SMB accounts only). */
+  smbRemotePath?: string;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

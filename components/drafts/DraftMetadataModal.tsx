@@ -84,6 +84,7 @@ const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = [
   'vimeo',
   'google_drive',
   'sftp',
+  'smb',
 ];
 
 function comparePlatformsByPreference(

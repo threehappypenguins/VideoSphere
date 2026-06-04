@@ -182,4 +182,28 @@ describe('refreshTokenIfNeeded', () => {
     expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
     expect(mockUpdateTokens).not.toHaveBeenCalled();
   });
+
+  it('returns stored SMB credentials without remote refresh', async () => {
+    const acc: ConnectedAccount = {
+      id: 'acc-smb',
+      userId: 'user-1',
+      platform: 'smb',
+      accessToken: 'smb-secret',
+      refreshToken: '',
+      tokenExpiry: '2099-01-01T00:00:00.000Z',
+      hasRefreshToken: false,
+      platformUserId: 'backup-user',
+      platformName: 'My NAS',
+      smbHost: '192.168.1.10',
+      smbShare: 'Backups',
+      smbRemotePath: '/VideoSphere',
+      $createdAt: '2020-01-01T00:00:00.000Z',
+      $updatedAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    const out = await refreshTokenIfNeeded(acc);
+    expect(out.accessToken).toBe('smb-secret');
+    expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
+    expect(mockUpdateTokens).not.toHaveBeenCalled();
+  });
 });

@@ -16,7 +16,7 @@ This guide prioritizes self-hosted Docker deployment. Managed platforms like Ver
 - MongoDB (containerized or external)
 - Cloudflare R2 bucket for temporary media staging
 - Platform OAuth credentials (YouTube, Vimeo, Google Drive; plus Facebook if enabled)
-- Per-user connection credentials entered in the app (SermonAudio API keys, SFTP host/auth)
+- Per-user connection credentials entered in the app (SermonAudio API keys, SFTP host/auth, SMB share credentials)
 - OpenRouter API key for AI metadata generation
 
 ### Step-by-Step
@@ -40,6 +40,7 @@ If this command renders successfully, Compose can resolve required variables.
 3. **Configure compose file for your environment**
    - Set image/tag, ports, and restart policy.
    - Configure persistent volumes for MongoDB.
+   - **SMB backup (Linux):** use `network_mode: host` on the app service so the container can reach LAN NAS/Windows shares on port 445. See [SETUP.md](../SETUP.md#smb-backup-docker--lan-reachability). macOS/Windows Docker Desktop does not provide true host LAN access.
 
 4. **Start the stack**
 

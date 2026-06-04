@@ -1,0 +1,582 @@
+import { isIPv6 } from 'node:net';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import type { Writable } from 'node:stream';
+import { Client } from 'node-smb2';
+import type Tree from 'node-smb2/dist/client/Tree';
+import { messageFromThrown } from '@/lib/utils/error-message';
+import type { ConnectedAccount } from '@/types';
+import type { PlatformUploadError, PlatformUploadResult } from '@/lib/platforms/types';
+
+interface UploadToSmbInput {
+  connectedAccount: ConnectedAccount;
+  videoStream: ReadableStream<Uint8Array>;
+  contentLength?: number;
+  contentType?: string;
+  metadata: { title: string };
+  signal?: AbortSignal;
+}
+
+/**
+ * Plaintext SMB connection parameters used for test connections and upload auth.
+ * Values are encrypted before persistence on a {@link ConnectedAccount}.
+ * @property host - SMB server hostname or IP address.
+ * @property share - Share name (without UNC prefix).
+ * @property domain - Windows domain or workgroup (optional).
+ * @property username - Login username.
+ * @property password - Login password.
+ * @property remotePath - Directory within the share (POSIX-style `/`; `/` = share root).
+ */
+interface SmbCredentials {
+  host: string;
+  share: string;
+  domain?: string;
+  username: string;
+  password: string;
+  remotePath: string;
+}
+
+/** Far-future expiry for SMB connected accounts (credentials do not expire). */
+export const SMB_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z';
+
+/**
+ * Default NTLM domain/workgroup when the user leaves the domain field empty.
+ * Matches the typical Samba standalone default (`WORKGROUP`), as shown by smbclient.
+ */
+export const SMB_DEFAULT_DOMAIN = 'WORKGROUP';
+
+/** NTSTATUS values returned in SMB2 response headers (unsigned 32-bit). */
+const SMB_NT_STATUS = {
+  ACCESS_DENIED: 0xc0000022,
+  OBJECT_NAME_NOT_FOUND: 0xc0000034,
+  OBJECT_PATH_NOT_FOUND: 0xc000003a,
+  WRONG_PASSWORD: 0xc000006a,
+  LOGON_FAILURE: 0xc000006d,
+  BAD_NETWORK_NAME: 0xc00000cc,
+} as const;
+
+const SMB_NT_STATUS_LABELS: Record<number, string> = {
+  [SMB_NT_STATUS.ACCESS_DENIED]: 'STATUS_ACCESS_DENIED',
+  [SMB_NT_STATUS.OBJECT_NAME_NOT_FOUND]: 'STATUS_OBJECT_NAME_NOT_FOUND',
+  [SMB_NT_STATUS.OBJECT_PATH_NOT_FOUND]: 'STATUS_OBJECT_PATH_NOT_FOUND',
+  [SMB_NT_STATUS.WRONG_PASSWORD]: 'STATUS_WRONG_PASSWORD',
+  [SMB_NT_STATUS.LOGON_FAILURE]: 'STATUS_LOGON_FAILURE',
+  [SMB_NT_STATUS.BAD_NETWORK_NAME]: 'STATUS_BAD_NETWORK_NAME',
+};
+
+/** SMB2 response shape thrown by `node-smb2` when `header.status` is not success. */
+interface Smb2ResponseError {
+  header?: { status?: number };
+  typeName?: string;
+}
+
+function isSmb2ResponseError(err: unknown): err is Smb2ResponseError {
+  return typeof err === 'object' && err !== null && 'header' in err;
+}
+
+/**
+ * Reads the NTSTATUS code from a `node-smb2` response rejection.
+ * @param err - Thrown value from the SMB client.
+ * @returns Unsigned NTSTATUS, if present.
+ */
+function smbNtStatusFromThrown(err: unknown): number | undefined {
+  if (!isSmb2ResponseError(err)) return undefined;
+  const status = err.header?.status;
+  if (typeof status !== 'number') return undefined;
+  return status >>> 0;
+}
+
+function smbNtStatusLabel(status: number): string {
+  return (
+    SMB_NT_STATUS_LABELS[status >>> 0] ?? `NTSTATUS 0x${(status >>> 0).toString(16).toUpperCase()}`
+  );
+}
+
+/**
+ * Builds a human-readable message from SMB client errors, including non-Error response rejections.
+ * @param err - Thrown value from the SMB client.
+ * @returns Message suitable for logs and API `details`.
+ */
+function messageFromSmbThrown(err: unknown): string {
+  if (err instanceof Error && err.message.trim() !== '') {
+    return err.message;
+  }
+
+  if (isSmb2ResponseError(err)) {
+    const nt = smbNtStatusFromThrown(err);
+    const typeName = err.typeName?.trim() || 'SMB';
+    if (nt != null) {
+      return `${typeName}: ${smbNtStatusLabel(nt)}`;
+    }
+    return `${typeName} request failed`;
+  }
+
+  return messageFromThrown(err);
+}
+
+class SmbRemotePathValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SmbRemotePathValidationError';
+  }
+}
+
+/**
+ * Returns whether `remotePath` is a safe directory path within an SMB share.
+ * Accepts empty string (share root), `/`, or paths starting with `/` or `\` without `.` / `..` segments.
+ * @param remotePath - Candidate remote directory path.
+ * @returns True when the path is allowed.
+ */
+export function isValidSmbRemotePath(remotePath: string): boolean {
+  if (remotePath === '') return true;
+  if (remotePath === '/' || remotePath === '\\') return true;
+  const normalized = remotePath.replace(/\\/g, '/');
+  if (!normalized.startsWith('/')) return false;
+  for (const segment of normalized.split('/')) {
+    if (segment === '.' || segment === '..') return false;
+  }
+  return true;
+}
+
+function invalidRemotePathError(): PlatformUploadError {
+  return {
+    code: 'SMB_REMOTE_PATH_INVALID',
+    message:
+      'Remote path must be empty (share root) or start with / or \\, without . or .. segments.',
+    statusCode: 400,
+  };
+}
+
+function toError(
+  code: string,
+  message: string,
+  statusCode?: number,
+  details?: string
+): PlatformUploadResult {
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      statusCode,
+      details,
+    },
+  };
+}
+
+function extensionFromContentType(contentType: string | undefined): string {
+  const ct = (contentType ?? '').toLowerCase();
+  if (ct.includes('mp4')) return 'mp4';
+  if (ct.includes('quicktime')) return 'mov';
+  if (ct.includes('webm')) return 'webm';
+  if (ct.includes('x-matroska')) return 'mkv';
+  return 'mp4';
+}
+
+function formatSmbTimestamp(now: Date): string {
+  return now
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
+    .replace(/:/g, '-');
+}
+
+function normalizeSmbFileName(title: string, contentType: string | undefined, now: Date): string {
+  const base = title.trim() || 'VideoSphere Backup';
+  const safeBase = base
+    .replace(/[\\/:*?"<>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const ext = extensionFromContentType(contentType);
+  const timestamp = formatSmbTimestamp(now);
+  return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
+}
+
+/**
+ * Converts a stored remote path to a POSIX path within the share (`/` = share root).
+ * @param remotePath - User-facing path (POSIX or Windows style).
+ * @returns Directory path passed to the SMB client (`/` for share root).
+ */
+export function toSmbClientDirectoryPath(remotePath: string): string {
+  const trimmed = remotePath.trim();
+  if (trimmed === '' || trimmed === '/' || trimmed === '\\') return '/';
+
+  const segments = trimmed
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
+
+  if (segments.length === 0) return '/';
+  return `/${segments.join('/')}`;
+}
+
+function joinSmbFilePath(directoryPath: string, fileName: string): string {
+  if (directoryPath === '/') return `/${fileName}`;
+  return `${directoryPath}/${fileName}`;
+}
+
+function formatSmbAuthorityHost(host: string): string {
+  return isIPv6(host) ? `[${host}]` : host;
+}
+
+function buildSmbPlatformUrl(host: string, share: string, fullRemotePath: string): string {
+  const authorityHost = formatSmbAuthorityHost(host);
+  const encodedShare = encodeURIComponent(share);
+  const pathPart = fullRemotePath
+    .split('/')
+    .filter((segment) => segment.length > 0)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  return pathPart
+    ? `smb://${authorityHost}/${encodedShare}/${pathPart}`
+    : `smb://${authorityHost}/${encodedShare}`;
+}
+
+/**
+ * Resolves the NTLM domain/workgroup sent during SMB session setup.
+ * @param credentials - SMB connection parameters.
+ * @returns Domain string (defaults to {@link SMB_DEFAULT_DOMAIN} when unset).
+ */
+export function resolveSmbAuthDomain(credentials: Pick<SmbCredentials, 'domain'>): string {
+  const explicit = credentials.domain?.trim();
+  return explicit ? explicit : SMB_DEFAULT_DOMAIN;
+}
+
+function credentialsFromConnectedAccount(account: ConnectedAccount): SmbCredentials | null {
+  const host = account.smbHost?.trim();
+  const share = account.smbShare?.trim();
+  const username = account.platformUserId?.trim();
+  const remotePath = account.smbRemotePath?.trim() ?? '';
+  const password = account.accessToken;
+
+  if (!host || !share || !username || password.trim() === '') {
+    return null;
+  }
+
+  if (!isValidSmbRemotePath(remotePath)) {
+    return null;
+  }
+
+  return {
+    host,
+    share,
+    ...(account.smbDomain?.trim() ? { domain: account.smbDomain.trim() } : {}),
+    username,
+    password,
+    remotePath,
+  };
+}
+
+function isRemotePathStatError(err: unknown): boolean {
+  const nt = smbNtStatusFromThrown(err);
+  if (nt === SMB_NT_STATUS.OBJECT_NAME_NOT_FOUND || nt === SMB_NT_STATUS.OBJECT_PATH_NOT_FOUND) {
+    return true;
+  }
+
+  if (!(err instanceof Error)) return false;
+  const lower = err.message.toLowerCase();
+  return (
+    lower.includes('no such file') ||
+    lower.includes('not found') ||
+    lower.includes('not a directory') ||
+    lower.includes('object name not found') ||
+    lower.includes('path not found') ||
+    lower.includes('status_object_name_not_found') ||
+    lower.includes('status_object_path_not_found')
+  );
+}
+
+/**
+ * Verifies the remote directory exists by listing it (including share root `/`).
+ * @param tree - Connected SMB tree for the target share.
+ * @param remotePath - User-configured directory within the share.
+ */
+async function verifySmbRemoteDirectory(tree: Tree, remotePath: string): Promise<void> {
+  const directoryPath = toSmbClientDirectoryPath(remotePath);
+  try {
+    await tree.readDirectory(directoryPath);
+  } catch (err) {
+    if (isRemotePathStatError(err)) {
+      throw new SmbRemotePathValidationError(
+        `Remote path is not an existing directory on the SMB share: ${remotePath}`
+      );
+    }
+    throw err;
+  }
+}
+
+function classifyConnectionError(err: unknown): PlatformUploadError {
+  const message = messageFromSmbThrown(err);
+  const lower = message.toLowerCase();
+  const nt = smbNtStatusFromThrown(err);
+
+  if (err instanceof SmbRemotePathValidationError || isRemotePathStatError(err)) {
+    return {
+      code: 'SMB_REMOTE_PATH_INVALID',
+      message: 'Remote path must be an existing directory on the SMB share.',
+      statusCode: 400,
+      details: message,
+    };
+  }
+
+  if (lower.includes('err_ossl_evp_unsupported') || lower.includes('digital envelope routines')) {
+    return {
+      code: 'SMB_CONNECTION_FAILED',
+      message:
+        'SMB authentication is not supported by the legacy SMB client on this Node.js version. Update VideoSphere or contact your administrator.',
+      statusCode: 500,
+      details: message,
+    };
+  }
+
+  if (
+    nt === SMB_NT_STATUS.LOGON_FAILURE ||
+    nt === SMB_NT_STATUS.WRONG_PASSWORD ||
+    lower.includes('status_logon_failure') ||
+    lower.includes('logon failure') ||
+    lower.includes('access denied') ||
+    lower.includes('authentication') ||
+    lower.includes('invalid user') ||
+    lower.includes('wrong password') ||
+    lower.includes('status_wrong_password')
+  ) {
+    return {
+      code: 'SMB_AUTH_FAILED',
+      message: 'SMB authentication failed. Check the username, password, and domain.',
+      statusCode: 401,
+      details: message,
+    };
+  }
+
+  if (nt === SMB_NT_STATUS.ACCESS_DENIED) {
+    return {
+      code: 'SMB_AUTH_FAILED',
+      message: 'SMB access denied. The account may lack permission for this share.',
+      statusCode: 401,
+      details: message,
+    };
+  }
+
+  if (
+    nt === SMB_NT_STATUS.BAD_NETWORK_NAME ||
+    lower.includes('status_bad_network_name') ||
+    lower.includes('bad network name') ||
+    (lower.includes('share') && lower.includes('not found'))
+  ) {
+    return {
+      code: 'SMB_SHARE_NOT_FOUND',
+      message: 'SMB share was not found on the server.',
+      statusCode: 400,
+      details: message,
+    };
+  }
+
+  if (
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('econnrefused') ||
+    lower.includes('enotfound') ||
+    lower.includes('ehostunreach') ||
+    lower.includes('network') ||
+    lower.includes('unreachable')
+  ) {
+    return {
+      code: 'SMB_CONNECTION_FAILED',
+      message: 'Failed to connect to the SMB server.',
+      statusCode: 500,
+      details: message,
+    };
+  }
+
+  return {
+    code: 'SMB_CONNECTION_FAILED',
+    message: 'Failed to connect to the SMB server.',
+    statusCode: 500,
+    details: message,
+  };
+}
+
+/**
+ * Runs `fn` with an authenticated SMB session and share tree; always closes the client.
+ * @param credentials - SMB connection parameters.
+ * @param fn - Callback receiving the connected tree.
+ * @returns The callback result.
+ */
+async function withSmbTree<T>(
+  credentials: SmbCredentials,
+  fn: (tree: Tree) => Promise<T>
+): Promise<T> {
+  const client = new Client(credentials.host);
+  let pendingError: Error | undefined;
+
+  client.on('error', (err) => {
+    pendingError = err;
+  });
+
+  try {
+    const session = await client.authenticate({
+      domain: resolveSmbAuthDomain(credentials),
+      username: credentials.username,
+      password: credentials.password,
+      forceNtlmVersion: 'v2',
+    });
+    if (pendingError) {
+      throw pendingError;
+    }
+
+    const tree = await session.connectTree(credentials.share);
+    if (pendingError) {
+      throw pendingError;
+    }
+
+    return await fn(tree);
+  } finally {
+    await client.close().catch(() => undefined);
+  }
+}
+
+/** Waits until the SMB file write stream finishes flushing (and closes when emitted). */
+function waitForWritableComplete(writeStream: Writable): Promise<void> {
+  if (writeStream.writableFinished) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      writeStream.off('finish', onFinish);
+      writeStream.off('close', onClose);
+      writeStream.off('error', onError);
+      resolve();
+    };
+
+    const onFinish = () => done();
+    const onClose = () => done();
+    const onError = (err: Error) => {
+      writeStream.off('finish', onFinish);
+      writeStream.off('close', onClose);
+      writeStream.off('error', onError);
+      reject(err);
+    };
+
+    writeStream.on('finish', onFinish);
+    writeStream.on('close', onClose);
+    writeStream.on('error', onError);
+  });
+}
+
+async function pipeWebStreamToSmbWriteStream(
+  source: ReadableStream<Uint8Array>,
+  writeStream: Writable,
+  signal?: AbortSignal
+): Promise<void> {
+  if (signal?.aborted) {
+    throw new Error('SMB upload aborted');
+  }
+
+  const nodeReadable = Readable.fromWeb(source as NodeReadableStream<Uint8Array>);
+
+  const onAbort = () => {
+    nodeReadable.destroy(new Error('SMB upload aborted'));
+    writeStream.destroy(new Error('SMB upload aborted'));
+  };
+
+  if (signal) {
+    signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  try {
+    await pipeline(nodeReadable, writeStream);
+    await waitForWritableComplete(writeStream);
+  } finally {
+    if (signal) {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+}
+
+/**
+ * Opens a test connection, checks the remote directory exists, then disconnects.
+ * @param credentials - SMB connection parameters (plaintext; not yet encrypted).
+ * @returns Whether the test connection succeeded, or a classified platform error on failure.
+ */
+export async function testSmbConnection(
+  credentials: SmbCredentials
+): Promise<{ ok: true } | { ok: false; error: PlatformUploadError }> {
+  if (!isValidSmbRemotePath(credentials.remotePath)) {
+    return { ok: false as const, error: invalidRemotePathError() };
+  }
+
+  try {
+    await withSmbTree(credentials, async (tree) => {
+      await verifySmbRemoteDirectory(tree, credentials.remotePath);
+    });
+    return { ok: true as const };
+  } catch (err) {
+    return { ok: false as const, error: classifyConnectionError(err) };
+  }
+}
+
+/**
+ * Streams a video backup to an SMB/CIFS network share.
+ * @param input - Upload payload including the connected account and video stream.
+ * @returns Platform upload result with remote path on success.
+ */
+export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUploadResult> {
+  const credentials = credentialsFromConnectedAccount(input.connectedAccount);
+  if (!credentials) {
+    return toError('SMB_CONFIG_INVALID', 'SMB connection settings are incomplete or invalid.');
+  }
+
+  if (input.signal?.aborted) {
+    return toError('SMB_UPLOAD_ABORTED', 'SMB upload was cancelled.');
+  }
+
+  try {
+    const fileName = normalizeSmbFileName(input.metadata.title, input.contentType, new Date());
+    const directoryPath = toSmbClientDirectoryPath(credentials.remotePath);
+    const fullRemotePath = joinSmbFilePath(directoryPath, fileName);
+
+    await withSmbTree(credentials, async (tree) => {
+      const writeStream = await tree.createFileWriteStream(fullRemotePath);
+      await pipeWebStreamToSmbWriteStream(input.videoStream, writeStream, input.signal);
+    });
+
+    return {
+      ok: true,
+      platformVideoId: fullRemotePath,
+      platformUrl: buildSmbPlatformUrl(credentials.host, credentials.share, fullRemotePath),
+    };
+  } catch (err) {
+    if (input.signal?.aborted) {
+      return toError('SMB_UPLOAD_ABORTED', 'SMB upload was cancelled.');
+    }
+
+    const classified = classifyConnectionError(err);
+    if (classified.code !== 'SMB_CONNECTION_FAILED') {
+      return toError(
+        classified.code,
+        classified.message,
+        classified.statusCode,
+        classified.details
+      );
+    }
+
+    const message = messageFromSmbThrown(err);
+    const lower = message.toLowerCase();
+    if (
+      lower.includes('timeout') ||
+      lower.includes('timed out') ||
+      lower.includes('econnrefused') ||
+      lower.includes('enotfound') ||
+      lower.includes('ehostunreach') ||
+      lower.includes('network') ||
+      lower.includes('unreachable')
+    ) {
+      return toError('SMB_CONNECTION_FAILED', classified.message, classified.statusCode, message);
+    }
+
+    return toError('SMB_WRITE_FAILED', 'Failed to upload backup to the SMB share.', 500, message);
+  }
+}
+
+export type { SmbCredentials };

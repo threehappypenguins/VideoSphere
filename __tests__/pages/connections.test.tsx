@@ -125,6 +125,12 @@ describe('ConnectionsPage', () => {
       expect(screen.getByText('SFTP Server')).toBeInTheDocument();
     });
 
+    it('renders a row for SMB / Network Share', async () => {
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText('SMB / Network Share')).toBeInTheDocument();
+    });
+
     it('shows Connect button for unconnected platforms', async () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);

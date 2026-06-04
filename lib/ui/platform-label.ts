@@ -8,6 +8,7 @@ export const PLATFORM_LABELS: Record<ConnectedAccountPlatform, string> = {
   vimeo: 'Vimeo',
   google_drive: 'Google Drive',
   sftp: 'SFTP Server',
+  smb: 'SMB / Network Share',
 };
 
 /**

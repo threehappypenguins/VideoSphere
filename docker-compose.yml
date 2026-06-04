@@ -6,6 +6,8 @@ services:
     image: videosphere:latest
     container_name: videosphere
     restart: unless-stopped
+    # For SMB backup to LAN NAS/Windows shares (TCP 445) on Linux, uncomment:
+    # network_mode: host
     ports:
       - '3000:3000'
     env_file:

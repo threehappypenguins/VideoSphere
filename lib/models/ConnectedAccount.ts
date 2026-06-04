@@ -59,6 +59,10 @@ export interface ConnectedAccountDocument {
   sftpRemotePath?: string;
   sftpAuthMethod?: SftpAuthMethod;
   sftpHostKeyFingerprint?: string;
+  smbHost?: string;
+  smbShare?: string;
+  smbDomain?: string;
+  smbRemotePath?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -69,7 +73,7 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
     userId: { type: String, required: true, index: true, trim: true },
     platform: {
       type: String,
-      enum: ['youtube', 'vimeo', 'google_drive', 'sftp'],
+      enum: ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb'],
       required: true,
     },
     accessToken: { type: String, required: true },
@@ -98,6 +102,10 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
         message: 'sftpHostKeyFingerprint must be a 64-character lowercase hex SHA-256 fingerprint.',
       },
     },
+    smbHost: { type: String, trim: true },
+    smbShare: { type: String, trim: true },
+    smbDomain: { type: String, trim: true },
+    smbRemotePath: { type: String, trim: true },
   },
   { timestamps: true }
 );

@@ -29,6 +29,7 @@ import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/yout
 import { uploadToVimeo } from '@/lib/platforms/vimeo';
 import { uploadToGoogleDrive } from '@/lib/platforms/google-drive';
 import { uploadToSftp } from '@/lib/platforms/sftp';
+import { uploadToSmb } from '@/lib/platforms/smb';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
@@ -198,6 +199,17 @@ async function runSinglePlatformUpload(
 
       if (platformUpload.platform === 'sftp') {
         return uploadToSftp({
+          connectedAccount,
+          videoStream: stream,
+          contentLength,
+          contentType,
+          metadata: { title: metadata.title },
+          signal,
+        });
+      }
+
+      if (platformUpload.platform === 'smb') {
+        return uploadToSmb({
           connectedAccount,
           videoStream: stream,
           contentLength,

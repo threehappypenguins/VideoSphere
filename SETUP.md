@@ -44,7 +44,9 @@ If you use Google login and platform connections, also set:
 
 SermonAudio uses API-key authentication and is entered by each user in the app UI (Connected Accounts), not in `.env.local`.
 
-SFTP backup destinations are also configured per user in Connected Accounts (host, port, credentials, and remote path). No SFTP-related environment variables are required on the server.
+SFTP and SMB backup destinations are configured per user in Connected Accounts (host, share, credentials, and remote path). No SFTP- or SMB-related environment variables are required on the server.
+
+For SMB, use the share name exactly as listed by `smbclient -L` (case-sensitive, e.g. `Storage`). If smbclient shows `WORKGROUP\youruser`, leave the domain field blank — VideoSphere defaults to `WORKGROUP` for NTLMv2 auth on Samba.
 
 For Facebook OAuth credentials:
 
@@ -152,6 +154,22 @@ pnpm build
 If all pass, push your branch and open a PR.
 
 ---
+
+## SMB backup (Docker / LAN reachability)
+
+SMB uses TCP port 445 to reach a NAS or Windows share on your LAN. The app container does not need a volume mount; backups stream over SMB2 directly.
+
+On **Linux**, run the app container with host networking so it can reach LAN hosts:
+
+```bash
+docker run --name videosphere -p 3000:3000 --network host --env-file .env.local videosphere
+```
+
+With Docker Compose, set `network_mode: host` on the `app` service (see comments in `docker-compose.yml`). You may still map port `3000` for documentation, but with host networking the app listens on the host’s interfaces.
+
+`--network host` is **Linux-only**. On macOS and Windows, Docker Desktop’s “host” network is a VM, so LAN reachability to a NAS depends on your Docker and network setup.
+
+`pnpm dev` on the host (without Docker) can reach the LAN directly; host networking is only required when the app runs inside a container.
 
 ## Notes
 
