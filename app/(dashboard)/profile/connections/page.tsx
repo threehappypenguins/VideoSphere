@@ -348,8 +348,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   platform === 'sftp' ? (
                     <div className="flex items-center gap-2">
                       <SftpConnectButton
-                        label={sftpExistingConnection ? 'Edit' : 'Reconnect'}
-                        existingConnection={sftpExistingConnection}
+                        label="Edit"
+                        existingConnection={sftpExistingConnection!}
                         className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                       />
                       <DisconnectButton
