@@ -55,6 +55,7 @@ const TEST_HOST_KEY_FINGERPRINT = 'a'.repeat(64);
 describe('POST /api/platforms/connect/sftp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('NODE_ENV', 'test');
     mockGetAuthenticatedUserId.mockResolvedValue('user-123');
     mockTestSftpConnection.mockResolvedValue({
       ok: true,
@@ -62,6 +63,10 @@ describe('POST /api/platforms/connect/sftp', () => {
     });
     mockGetConnectedAccountRowId.mockResolvedValue(null);
     mockCreateConnectedAccount.mockResolvedValue({ id: 'ca-1' });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -137,7 +142,26 @@ describe('POST /api/platforms/connect/sftp', () => {
     const body = await res.json();
     expect(body.error.code).toBe('SFTP_AUTH_FAILED');
     expect(body.error.statusCode).toBe(401);
+    expect(body.error.details).toBeUndefined();
     expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('includes SFTP error details only in development', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    mockTestSftpConnection.mockResolvedValueOnce({
+      ok: false,
+      error: {
+        code: 'SFTP_CONNECTION_FAILED',
+        message: 'Failed to connect to the SFTP server.',
+        statusCode: 500,
+        details: 'ECONNREFUSED',
+      },
+    });
+
+    const res = await POST(createRequest(validBody));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error.details).toBe('ECONNREFUSED');
   });
 
   it('returns 500 when SFTP server connection fails during test', async () => {
@@ -155,6 +179,7 @@ describe('POST /api/platforms/connect/sftp', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error.statusCode).toBe(500);
+    expect(body.error.details).toBeUndefined();
   });
 
   it('creates a connected account on success', async () => {

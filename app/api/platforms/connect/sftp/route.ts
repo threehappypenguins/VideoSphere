@@ -269,7 +269,9 @@ export async function POST(req: NextRequest) {
           code: error.code,
           message: error.message,
           statusCode: status,
-          ...(error.details ? { details: error.details } : {}),
+          ...(process.env.NODE_ENV === 'development' && error.details
+            ? { details: error.details }
+            : {}),
         },
       },
       { status }
