@@ -105,7 +105,7 @@ describe('draft-upload-metadata', () => {
     });
     expect(parseDraftTargetsFromRequestBody([])).toEqual({
       ok: false,
-      error: 'targets must include at least one of: youtube, vimeo, google_drive',
+      error: 'targets must include at least one of: youtube, vimeo, google_drive, sftp',
     });
     expect(parseDraftTargetsFromRequestBody(['youtube', 'youtube'])).toEqual({
       ok: true,
@@ -288,6 +288,50 @@ describe('draft-upload-metadata', () => {
       playlistTitles: ['a', 'b'],
       playlistIds: ['PL1', 'PL2'],
     });
+  });
+
+  it('normalizeDraftPlatforms preserves platforms.sftp as an empty object', () => {
+    const parsed = parsePlatformsFromRequestBody({
+      youtube: { categoryId: '22' },
+      sftp: {},
+    });
+    expect(parsed.ok && parsed.value).toEqual({
+      youtube: { categoryId: '22' },
+      sftp: {},
+    });
+  });
+
+  it('mergeDraftPlatforms carries sftp through', () => {
+    const base: DraftPlatforms = {
+      youtube: { categoryId: '22' },
+      sftp: {},
+    };
+    expect(mergeDraftPlatforms(base, { sftp: {} })).toEqual({
+      youtube: { categoryId: '22' },
+      sftp: {},
+    });
+  });
+
+  it('mergeDraftPlatformsPatch preserves platforms.sftp', () => {
+    const base: DraftPlatforms = { youtube: { categoryId: '22' } };
+    expect(mergeDraftPlatformsPatch(base, { sftp: {} })).toEqual({
+      youtube: { categoryId: '22' },
+      sftp: {},
+    });
+  });
+
+  it('draftDocumentFromRow round-trips platforms.sftp', () => {
+    const doc = draftDocumentFromRow({
+      document: JSON.stringify({
+        targets: ['sftp'],
+        title: 'Backup',
+        description: '',
+        visibility: 'private',
+        tags: [],
+        platforms: { sftp: {} },
+      }),
+    });
+    expect(doc.platforms.sftp).toEqual({});
   });
 
   it('buildMetadataForPlatform uses empty tags when draft has none', () => {

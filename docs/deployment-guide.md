@@ -15,7 +15,8 @@ This guide prioritizes self-hosted Docker deployment. Managed platforms like Ver
 - Docker and Docker Compose
 - MongoDB (containerized or external)
 - Cloudflare R2 bucket for temporary media staging
-- Platform credentials (YouTube, Vimeo, SermonAudio, Facebook)
+- Platform OAuth credentials (YouTube, Vimeo, Google Drive; plus Facebook if enabled)
+- Per-user connection credentials entered in the app (SermonAudio API keys, SFTP host/auth)
 - OpenRouter API key for AI metadata generation
 
 ### Step-by-Step

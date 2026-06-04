@@ -4,7 +4,7 @@ This guide covers:
 
 1. How MongoDB stores draft and platform-upload payloads in the `document` field (stringified JSON).
 2. The **draft JSON shape** for frontend and API use, with a **short** sample for quick tests and a **long** sample for full UI wiring.
-3. **Field reference** (YouTube / Vimeo / OAuth).
+3. **Field reference** (YouTube / Vimeo / OAuth; backup destinations: Google Drive, SFTP).
 4. **End-to-end manual steps**: presign → PUT to R2 with `curl` → complete → distribute.
 
 Canonical TypeScript types live in [`types/index.ts`](../types/index.ts) (`Draft`, `DraftPlatforms`, `YouTubeDraftFields`, `VimeoDraftFields`). Parsing and merge helpers live in [`lib/draft-upload-metadata.ts`](../lib/draft-upload-metadata.ts).
@@ -17,10 +17,10 @@ Canonical TypeScript types live in [`types/index.ts`](../types/index.ts) (`Draft
 
 - Each document includes a `document` field: a single JSON string (validated and bounded by application limits).
 - That string must deserialize to an object with at least:
-  - **`targets`**: `["youtube"]`, `["vimeo"]`, or both (order preserved, deduped by the API when saving).
+  - **`targets`**: one or more of `"youtube"`, `"vimeo"`, `"google_drive"`, `"sftp"` (order preserved, deduped by the API when saving).
   - **`title`**, **`description`**, **`visibility`** (`public` | `unlisted` | `private`).
   - **`tags`**: string array — **one shared list** for every platform (not per-platform).
-  - **`platforms`**: object with optional **`youtube`** and **`vimeo`** nested objects (platform-only fields).
+  - **`platforms`**: object with optional **`youtube`** and **`vimeo`** nested objects (platform-only fields), and optional **`sftp`** (empty object placeholder). **Google Drive** is selected via **`targets` only** — there is no `platforms.google_drive` key.
 
 The app’s draft APIs (`POST/PATCH /api/drafts`, `GET /api/drafts`, …) read and write this structure; the repository persists it as **`document`** on the `drafts` collection.
 
@@ -167,6 +167,19 @@ Sent on Vimeo **`POST /me/videos`** using **snake_case** on the wire where the A
 
 ---
 
+## Backup destinations (Google Drive, SFTP)
+
+These targets copy the uploaded video to a connected backup account. Neither has publish-specific draft fields today. Include **`google_drive`** only in **`targets`** (no `platforms.google_drive` — it is not part of `DraftPlatforms`). For **SFTP**, you may include **`platforms.sftp: {}`** so server-side draft parsing preserves the backup target through merge; otherwise omit it.
+
+| Destination | Connect flow | Server env |
+|-------------|--------------|------------|
+| Google Drive | OAuth: [`/api/platforms/connect/drive`](../app/api/platforms/connect/drive/route.ts) → [`/api/platforms/callback/drive`](../app/api/platforms/callback/drive/route.ts) | `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` |
+| SFTP | Form in Connected Accounts → [`POST /api/platforms/connect/sftp`](../app/api/platforms/connect/sftp/route.ts) (SSH key or password) | None — credentials stored encrypted per user |
+
+Upload implementations: [`lib/platforms/google-drive.ts`](../lib/platforms/google-drive.ts), [`lib/platforms/sftp.ts`](../lib/platforms/sftp.ts).
+
+---
+
 ## OAuth scopes (YouTube)
 
 Connect flow: [`app/api/platforms/connect/youtube/route.ts`](../app/api/platforms/connect/youtube/route.ts).
@@ -279,4 +292,6 @@ You should get **`202`** with a **`jobId`** while distribution runs asynchronous
 | Distribute | `app/api/uploads/distribute/route.ts` |
 | YouTube upload + playlists | `lib/platforms/youtube.ts` |
 | Vimeo upload | `lib/platforms/vimeo.ts` |
+| Google Drive backup | `lib/platforms/google-drive.ts` |
+| SFTP backup | `lib/platforms/sftp.ts` |
 | MongoDB schema notes | `docs/mongodb-data-model.md` |

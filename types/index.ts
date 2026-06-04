@@ -46,14 +46,21 @@ export interface User {
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
-export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive';
+export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive' | 'sftp';
 
 /** Platforms we support for drafts, uploads, and connections (extend as you add backends). */
 export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = [
   'youtube',
   'vimeo',
   'google_drive',
+  'sftp',
 ];
+
+/** SFTP authentication method stored on a connected account. */
+export type SftpAuthMethod = 'key' | 'password';
+
+/** SFTP-only fields inside the draft `document.platforms` JSON (no publish options yet). */
+export interface SftpDraftFields {}
 
 /** Platform upload status (PRD: pending, uploading, completed, failed). */
 export type PlatformUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
@@ -194,11 +201,14 @@ export interface VimeoDraftFields {
 
 /**
  * Per-platform metadata on a draft (inside `document` JSON).
- * Extend with e.g. `google_drive` when you add that destination.
+ * Publish targets use `platforms.youtube` / `platforms.vimeo`.
+ * Google Drive is selected via `targets` only (no `platforms.google_drive` key).
+ * SFTP may use `platforms.sftp` as an empty placeholder until backup-specific fields exist.
  */
 export interface DraftPlatforms {
   youtube?: YouTubeDraftFields;
   vimeo?: VimeoDraftFields;
+  sftp?: SftpDraftFields;
 }
 
 /**
@@ -310,6 +320,16 @@ export interface ConnectedAccountPublic {
   hasRefreshToken: boolean;
   platformUserId: string;
   platformName: string;
+  /** SFTP server hostname or IP (SFTP accounts only). */
+  sftpHost?: string;
+  /** SFTP server port (SFTP accounts only; default 22). */
+  sftpPort?: number;
+  /** Absolute remote directory for backups (SFTP accounts only). */
+  sftpRemotePath?: string;
+  /** Whether the stored credential is an SSH key or password (SFTP accounts only). */
+  sftpAuthMethod?: SftpAuthMethod;
+  /** SHA-256 host key fingerprint pinned after the first successful SFTP connect (SFTP accounts only). */
+  sftpHostKeyFingerprint?: string;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

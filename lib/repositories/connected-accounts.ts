@@ -10,7 +10,12 @@
 // =============================================================================
 
 import { randomUUID } from 'crypto';
-import type { ConnectedAccount, ConnectedAccountPlatform, ConnectedAccountPublic } from '@/types';
+import type {
+  ConnectedAccount,
+  ConnectedAccountPlatform,
+  ConnectedAccountPublic,
+  SftpAuthMethod,
+} from '@/types';
 import { connectToDatabase } from '@/lib/mongodb';
 import {
   ConnectedAccountModel,
@@ -31,6 +36,13 @@ function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount 
     hasRefreshToken: refresh.trim().length > 0,
     platformUserId: String(doc.platformUserId),
     platformName: String(doc.platformName),
+    ...(doc.sftpHost != null ? { sftpHost: String(doc.sftpHost) } : {}),
+    ...(doc.sftpPort != null ? { sftpPort: Number(doc.sftpPort) } : {}),
+    ...(doc.sftpRemotePath != null ? { sftpRemotePath: String(doc.sftpRemotePath) } : {}),
+    ...(doc.sftpAuthMethod != null ? { sftpAuthMethod: doc.sftpAuthMethod as SftpAuthMethod } : {}),
+    ...(doc.sftpHostKeyFingerprint != null
+      ? { sftpHostKeyFingerprint: String(doc.sftpHostKeyFingerprint) }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -62,6 +74,13 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     hasRefreshToken: hasRefreshTokenFromStoredRow(doc),
     platformUserId: String(doc.platformUserId),
     platformName: String(doc.platformName),
+    ...(doc.sftpHost != null ? { sftpHost: String(doc.sftpHost) } : {}),
+    ...(doc.sftpPort != null ? { sftpPort: Number(doc.sftpPort) } : {}),
+    ...(doc.sftpRemotePath != null ? { sftpRemotePath: String(doc.sftpRemotePath) } : {}),
+    ...(doc.sftpAuthMethod != null ? { sftpAuthMethod: doc.sftpAuthMethod as SftpAuthMethod } : {}),
+    ...(doc.sftpHostKeyFingerprint != null
+      ? { sftpHostKeyFingerprint: String(doc.sftpHostKeyFingerprint) }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -82,6 +101,11 @@ export interface CreateConnectedAccountData {
   tokenExpiry: string;
   platformUserId: string;
   platformName: string;
+  sftpHost?: string;
+  sftpPort?: number;
+  sftpRemotePath?: string;
+  sftpAuthMethod?: SftpAuthMethod;
+  sftpHostKeyFingerprint?: string;
 }
 
 /**
@@ -102,6 +126,13 @@ export async function createConnectedAccount(
     tokenExpiry: data.tokenExpiry,
     platformUserId: data.platformUserId,
     platformName: data.platformName,
+    ...(data.sftpHost != null ? { sftpHost: data.sftpHost } : {}),
+    ...(data.sftpPort != null ? { sftpPort: data.sftpPort } : {}),
+    ...(data.sftpRemotePath != null ? { sftpRemotePath: data.sftpRemotePath } : {}),
+    ...(data.sftpAuthMethod != null ? { sftpAuthMethod: data.sftpAuthMethod } : {}),
+    ...(data.sftpHostKeyFingerprint != null
+      ? { sftpHostKeyFingerprint: data.sftpHostKeyFingerprint }
+      : {}),
   });
   return rowToConnectedAccountPublic(created.toObject());
 }
@@ -241,7 +272,14 @@ export async function updateConnection(
   refreshToken: string,
   tokenExpiry: string,
   platformUserId: string,
-  platformName: string
+  platformName: string,
+  sftpFields?: {
+    sftpHost: string;
+    sftpPort: number;
+    sftpRemotePath: string;
+    sftpAuthMethod: SftpAuthMethod;
+    sftpHostKeyFingerprint: string;
+  }
 ): Promise<ConnectedAccountPublic | null> {
   await connectToDatabase();
   const updated = await ConnectedAccountModel.findByIdAndUpdate(
@@ -252,6 +290,15 @@ export async function updateConnection(
       tokenExpiry,
       platformUserId,
       platformName,
+      ...(sftpFields
+        ? {
+            sftpHost: sftpFields.sftpHost,
+            sftpPort: sftpFields.sftpPort,
+            sftpRemotePath: sftpFields.sftpRemotePath,
+            sftpAuthMethod: sftpFields.sftpAuthMethod,
+            sftpHostKeyFingerprint: sftpFields.sftpHostKeyFingerprint,
+          }
+        : {}),
     },
     { returnDocument: 'after', runValidators: true }
   ).lean<ConnectedAccountDocument | null>();

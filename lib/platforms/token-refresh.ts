@@ -137,6 +137,17 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
     };
   }
 
+  if (account.platform === 'sftp') {
+    if (!account.accessToken.trim()) {
+      throw new Error('SFTP credential is missing. Reconnect your SFTP account to continue.');
+    }
+    return {
+      accessToken: account.accessToken,
+      refreshToken: account.refreshToken,
+      tokenExpiry: account.tokenExpiry,
+    };
+  }
+
   const _exhaustive: never = account.platform;
   throw new Error(`Unsupported platform: ${String(_exhaustive)}`);
 }

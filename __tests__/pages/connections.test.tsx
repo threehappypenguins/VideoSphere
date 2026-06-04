@@ -8,6 +8,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — these must be declared with vi.hoisted() so they are
@@ -26,6 +27,11 @@ const { mockGetCurrentUserIdFromCookies, mockGetConnectedAccountsByUser } = vi.h
 
 vi.mock('next/navigation', () => ({
   redirect: vi.fn(),
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+  }),
 }));
 
 vi.mock('next/cache', () => ({
@@ -113,6 +119,12 @@ describe('ConnectionsPage', () => {
       expect(screen.getByText('Google Drive')).toBeInTheDocument();
     });
 
+    it('renders a row for SFTP Server', async () => {
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText('SFTP Server')).toBeInTheDocument();
+    });
+
     it('shows Connect button for unconnected platforms', async () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
@@ -169,6 +181,135 @@ describe('ConnectionsPage', () => {
       render(page);
       expect(screen.getByText('Connected')).toBeInTheDocument();
       expect(screen.queryByText(/expired/i)).not.toBeInTheDocument();
+    });
+
+    it('shows Edit and Disconnect when SFTP is connected', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          sftpHostKeyFingerprint: 'a'.repeat(64),
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByRole('button', { name: /^edit$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
+      expect(screen.getByText('My Home Server')).toBeInTheDocument();
+    });
+
+    it('shows Expired and Reconnect when SFTP row is missing required fields', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Expired and Reconnect when SFTP host key is not pinned', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
+      expect(screen.queryByText(/^connected$/i)).not.toBeInTheDocument();
+    });
+
+    it('shows Expired and Reconnect when SFTP host key fingerprint format is invalid', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          sftpHostKeyFingerprint: 'corrupted-fingerprint',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    });
+
+    it('prefills the reconnect modal when SFTP settings exist but host key is not pinned', async () => {
+      const user = userEvent.setup();
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+
+      await user.click(screen.getByRole('button', { name: /^reconnect$/i }));
+
+      expect(screen.getByLabelText(/^host$/i)).toHaveValue('sftp.example.com');
+      expect(screen.getByLabelText(/^port$/i)).toHaveValue(22);
+      expect(screen.getByLabelText(/^username$/i)).toHaveValue('backup-user');
+      expect(screen.getByLabelText(/^remote path$/i)).toHaveValue('/backups');
+      expect(screen.getByLabelText(/^label$/i)).toHaveValue('My Home Server');
     });
   });
 

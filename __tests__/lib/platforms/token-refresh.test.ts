@@ -157,4 +157,29 @@ describe('refreshTokenIfNeeded', () => {
     await expect(refreshTokenIfNeeded(acc)).rejects.toThrow(/Reconnect your Vimeo account/i);
     expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
   });
+
+  it('returns stored SFTP credentials without remote refresh', async () => {
+    const acc: ConnectedAccount = {
+      id: 'acc-sftp',
+      userId: 'user-1',
+      platform: 'sftp',
+      accessToken: 'sftp-secret',
+      refreshToken: '',
+      tokenExpiry: '2099-01-01T00:00:00.000Z',
+      hasRefreshToken: false,
+      platformUserId: 'backup-user',
+      platformName: 'Home Server',
+      sftpHost: 'sftp.example.com',
+      sftpPort: 22,
+      sftpRemotePath: '/backups',
+      sftpAuthMethod: 'password',
+      $createdAt: '2020-01-01T00:00:00.000Z',
+      $updatedAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    const out = await refreshTokenIfNeeded(acc);
+    expect(out.accessToken).toBe('sftp-secret');
+    expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
+    expect(mockUpdateTokens).not.toHaveBeenCalled();
+  });
 });

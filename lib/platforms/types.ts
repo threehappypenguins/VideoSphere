@@ -1,5 +1,5 @@
 /**
- * Cross-platform upload types — shared between YouTube, Vimeo, and draft → distribute metadata.
+ * Cross-platform upload types — shared between YouTube, Vimeo, Google Drive, SFTP, and draft → distribute metadata.
  * Per-platform fields stay in separate optional interfaces and are composed into {@link PlatformUploadMetadata}.
  */
 

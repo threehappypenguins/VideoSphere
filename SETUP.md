@@ -44,6 +44,8 @@ If you use Google login and platform connections, also set:
 
 SermonAudio uses API-key authentication and is entered by each user in the app UI (Connected Accounts), not in `.env.local`.
 
+SFTP backup destinations are also configured per user in Connected Accounts (host, port, credentials, and remote path). No SFTP-related environment variables are required on the server.
+
 For Facebook OAuth credentials:
 
 1. Create an app in Facebook Developer Console.

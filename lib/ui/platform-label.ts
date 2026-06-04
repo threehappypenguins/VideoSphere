@@ -7,6 +7,7 @@ export const PLATFORM_LABELS: Record<ConnectedAccountPlatform, string> = {
   youtube: 'YouTube',
   vimeo: 'Vimeo',
   google_drive: 'Google Drive',
+  sftp: 'SFTP Server',
 };
 
 /**

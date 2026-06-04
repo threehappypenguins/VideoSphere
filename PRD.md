@@ -403,16 +403,22 @@ The data model builds on the types already defined in `types/index.ts`:
 
 #### Connected Account (new — MongoDB `connected_accounts` collection)
 
+Shared columns use the same field names across platforms; meaning depends on `platform`:
+
 | Field           | Type     | Description                                             |
 | --------------- | -------- | ------------------------------------------------------- |
 | `id`            | `string` | Primary key                                             |
 | `userId`        | `string` | Foreign key → User                                      |
-| `platform`      | `string` | `'youtube'` or `'vimeo'`                                |
-| `accessToken`   | `string` | Encrypted OAuth2 access token                           |
-| `refreshToken`  | `string` | Encrypted OAuth2 refresh token                          |
-| `tokenExpiry`   | `string` | ISO 8601 timestamp of token expiration                  |
-| `platformUserId`| `string` | User's ID on the connected platform                     |
-| `platformName`  | `string` | Display name from the platform (e.g., channel name)     |
+| `platform`      | `string` | `'youtube'`, `'vimeo'`, `'google_drive'`, or `'sftp'`     |
+| `accessToken`   | `string` | Encrypted platform secret. **OAuth platforms:** access token. **SFTP:** private key PEM or password. |
+| `refreshToken`  | `string` | Encrypted platform secret. **OAuth platforms:** refresh token (when issued). **SFTP:** key passphrase when `sftpAuthMethod` is `'key'`; empty otherwise. |
+| `tokenExpiry`   | `string` | ISO 8601 timestamp. **OAuth platforms:** access-token expiration (used for refresh). **SFTP:** far-future sentinel (credentials do not expire). |
+| `platformUserId`| `string` | **OAuth platforms:** user/channel ID on the platform. **SFTP:** SSH username. |
+| `platformName`  | `string` | **OAuth platforms:** display name from the provider (e.g., channel name). **SFTP:** user-chosen connection label. |
+| `sftpHost`      | `string` | SFTP only: server hostname or IP address.               |
+| `sftpPort`      | `number` | SFTP only: server port (default 22).                    |
+| `sftpRemotePath`| `string` | SFTP only: absolute remote backup directory (starts with `/`). |
+| `sftpAuthMethod`| `string` | SFTP only: `'key'` or `'password'`.                     |
 | `createdAt`     | `string` | ISO 8601 timestamp                                      |
 | `updatedAt`     | `string` | ISO 8601 timestamp                                      |
 
@@ -422,7 +428,7 @@ The data model builds on the types already defined in `types/index.ts`:
 | ---------------- | -------- | ---------------------------------------------------- |
 | `id`             | `string` | Primary key                                          |
 | `uploadJobId`    | `string` | Foreign key → Upload Job                             |
-| `platform`       | `string` | `'youtube'` or `'vimeo'`                             |
+| `platform`       | `string` | `'youtube'`, `'vimeo'`, `'google_drive'`, or `'sftp'` |
 | `status`         | `string` | `pending`, `uploading`, `completed`, `failed`        |
 | `platformVideoId`| `string` | Video ID on the target platform (set on completion)  |
 | `platformUrl`    | `string` | Direct URL to the video on the platform              |
@@ -478,6 +484,8 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | ------ | ----------------------------------- | -------------------------------------- | ------------- |
 | GET    | `/api/platforms/connect/youtube`    | Initiate YouTube OAuth2 flow           | Yes           |
 | GET    | `/api/platforms/connect/vimeo`      | Initiate Vimeo OAuth2 flow             | Yes           |
+| GET    | `/api/platforms/connect/drive`      | Initiate Google Drive OAuth2 flow      | Yes           |
+| POST   | `/api/platforms/connect/sftp`       | Save SFTP backup destination credentials | Yes         |
 | POST   | `/api/platforms/connect/sermonaudio`| Save SermonAudio API key for the user  | Yes           |
 | GET    | `/api/platforms/connect/facebook`   | Initiate Facebook OAuth2 flow          | Yes           |
 | GET    | `/api/platforms/callback/youtube`   | YouTube OAuth2 callback                | Yes           |
@@ -545,8 +553,8 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 
 | ID    | Requirement                                                                                  |
 | ----- | -------------------------------------------------------------------------------------------- |
-| NF-05 | OAuth2 tokens for connected platforms are encrypted at rest in MongoDB.                      |
-| NF-07 | All API routes validate input using Zod schemas; reject malformed requests with 400 errors.  |
+| NF-05 | Connected-platform secrets (OAuth tokens, API keys, SFTP credentials) are encrypted at rest in MongoDB. |
+| NF-07 | All API routes validate request input before use (JSON parsing, TypeScript type guards, route-local validators, and shared `lib/` parsers); reject malformed requests with 400 errors. Persisted data is validated by Mongoose schemas.  |
 | NF-08 | Presigned R2 URLs expire within 15 minutes to prevent unauthorized access.                   |
 | NF-09 | Rate limiting on auth endpoints and AI generation endpoint to prevent abuse.                 |
 | NF-10 | Server-side route protection via `proxy.ts` for all protected routes.                   |

@@ -1,8 +1,8 @@
 // =============================================================================
 // CONNECTED ACCOUNTS PAGE  (/profile/connections)
 // =============================================================================
-// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive) and provides
-// links to connect new ones via the OAuth flow.
+// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP) and provides
+// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive, and an in-page modal for SFTP.
 //
 // Session is read server-side via the authenticated session cookie so the page can
 // fetch real connected-account data without an extra client round-trip.
@@ -24,8 +24,10 @@ import {
   getConnectedAccountWithTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
+import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
+import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
@@ -45,7 +47,7 @@ async function getCurrentUserId(): Promise<string | null> {
   return getCurrentUserIdFromCookies();
 }
 
-const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: string }> = {
+const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: string | null }> = {
   youtube: {
     label: 'YouTube',
     icon: '▶',
@@ -61,15 +63,59 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
     icon: '🗂️',
     connectHref: '/api/platforms/connect/drive',
   },
+  sftp: {
+    label: 'SFTP Server',
+    icon: '🖥️',
+    connectHref: null,
+  },
 };
 
-const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive'] as const;
+const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp'] as const;
+
+/** True when an SFTP row has the fields required for backups (including a pinned host key). */
+function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
+  const fingerprint = account.sftpHostKeyFingerprint;
+  return (
+    account.platform === 'sftp' &&
+    Boolean(account.sftpHost?.trim()) &&
+    Boolean(account.sftpRemotePath?.trim()) &&
+    Boolean(account.sftpAuthMethod) &&
+    fingerprint != null &&
+    normalizeConnectedAccountSftpHostKeyFingerprint(fingerprint) != null
+  );
+}
+
+/** Build editable SFTP settings from a connected account row (non-secret fields only). */
+function toSftpExistingConnection(
+  account: ConnectedAccountPublic
+): SftpExistingConnection | undefined {
+  if (
+    account.platform !== 'sftp' ||
+    !account.sftpHost?.trim() ||
+    !account.sftpRemotePath?.trim() ||
+    !account.sftpAuthMethod
+  ) {
+    return undefined;
+  }
+
+  return {
+    host: account.sftpHost,
+    port: account.sftpPort ?? 22,
+    username: account.platformUserId,
+    remotePath: account.sftpRemotePath,
+    authMethod: account.sftpAuthMethod,
+    label: account.platformName,
+  };
+}
 
 /** Derive connection status from tokenExpiry and whether a refresh token exists. */
 function getConnectionStatus(
   account: ConnectedAccountPublic | undefined
 ): 'connected' | 'expired' | 'not-connected' {
   if (!account) return 'not-connected';
+  if (account.platform === 'sftp') {
+    return isSftpConnectionReady(account) ? 'connected' : 'expired';
+  }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
   // YouTube and Google Drive use short-lived access tokens; a stored refresh token means the link can be renewed.
@@ -272,6 +318,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
             const meta = PLATFORM_META[platform];
             const account = accounts.find((a) => a.platform === platform);
             const status = getConnectionStatus(account);
+            const sftpExistingConnection =
+              account?.platform === 'sftp' ? toSftpExistingConnection(account) : undefined;
 
             return (
               <div
@@ -297,20 +345,41 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                 </div>
 
                 {status === 'connected' && account ? (
-                  <DisconnectButton
-                    action={disconnectPlatform.bind(null, account.id)}
-                    platformLabel={meta.label}
-                  />
+                  platform === 'sftp' ? (
+                    <div className="flex items-center gap-2">
+                      <SftpConnectButton
+                        label="Edit"
+                        existingConnection={sftpExistingConnection!}
+                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      />
+                      <DisconnectButton
+                        action={disconnectPlatform.bind(null, account.id)}
+                        platformLabel={meta.label}
+                      />
+                    </div>
+                  ) : (
+                    <DisconnectButton
+                      action={disconnectPlatform.bind(null, account.id)}
+                      platformLabel={meta.label}
+                    />
+                  )
                 ) : status === 'expired' && account ? (
                   // Token is expired — offer both reconnect and disconnect.
                   <div className="flex items-center gap-2">
-                    <ConnectButton href={meta.connectHref} label="Reconnect" />
+                    {meta.connectHref ? (
+                      <ConnectButton href={meta.connectHref} label="Reconnect" />
+                    ) : (
+                      <SftpConnectButton
+                        label="Reconnect"
+                        existingConnection={sftpExistingConnection}
+                      />
+                    )}
                     <DisconnectButton
                       action={disconnectPlatform.bind(null, account.id)}
                       platformLabel={meta.label}
                     />
                   </div>
-                ) : (
+                ) : meta.connectHref ? (
                   <ConnectButton
                     href={meta.connectHref}
                     label="Connect"
@@ -318,6 +387,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                       ? { 'data-tour': 'first-connect-button' }
                       : {})}
                   />
+                ) : (
+                  <SftpConnectButton label="Connect" />
                 )}
               </div>
             );

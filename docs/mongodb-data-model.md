@@ -23,15 +23,17 @@ VideoSphere stores application data in MongoDB via Mongoose models in [lib/model
 - `drafts.document` stores JSON string payload for draft metadata.
 - `platform_uploads.document` stores JSON snapshot captured at distribution time.
 
-See [docs/draft-document-and-upload-testing.md](/draft-document-and-upload-testing) for full payload shape and manual upload flow.
+See [draft-document-and-upload-testing.md](./draft-document-and-upload-testing.md) for full payload shape and manual upload flow.
 
-## Encryption at Rest for OAuth Tokens
+## Encryption at Rest for Connected Account Secrets
 
-Connected account tokens are encrypted before persistence.
+Connected account tokens and SFTP credentials are encrypted before persistence.
 
 - Key env var: `TOKEN_ENCRYPTION_KEY`
 - Algorithm: AES-256-GCM
 - Implementation: [lib/crypto/token-encryption.ts](../lib/crypto/token-encryption.ts)
+
+Supported `connected_accounts.platform` values: `youtube`, `vimeo`, `google_drive`, `sftp`.
 
 ## Migration Notes
 
