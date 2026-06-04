@@ -12,10 +12,15 @@ vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
 }));
 
-vi.mock('@/lib/platforms/sftp', () => ({
-  testSftpConnection: (...args: unknown[]) => mockTestSftpConnection(...args),
-  SFTP_TOKEN_EXPIRY: '2099-01-01T00:00:00.000Z',
-}));
+vi.mock('@/lib/platforms/sftp', async () => {
+  const actual =
+    await vi.importActual<typeof import('@/lib/platforms/sftp')>('@/lib/platforms/sftp');
+  return {
+    ...actual,
+    testSftpConnection: (...args: unknown[]) => mockTestSftpConnection(...args),
+    SFTP_TOKEN_EXPIRY: '2099-01-01T00:00:00.000Z',
+  };
+});
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: (...args: unknown[]) => mockCreateConnectedAccount(...args),
@@ -65,6 +70,22 @@ describe('POST /api/platforms/connect/sftp', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe('SFTP_HOST_REQUIRED');
+  });
+
+  it('returns 400 for unsafe remotePath segments', async () => {
+    for (const remotePath of ['/backups/../etc', '/backups/./sub', '/backups\\sub']) {
+      vi.clearAllMocks();
+      mockGetAuthenticatedUserId.mockResolvedValue('user-123');
+      mockTestSftpConnection.mockResolvedValue({ ok: true });
+      mockGetConnectedAccountRowId.mockResolvedValue(null);
+      mockCreateConnectedAccount.mockResolvedValue({ id: 'ca-1' });
+
+      const res = await POST(createRequest({ ...validBody, remotePath }));
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe('SFTP_REMOTE_PATH_INVALID');
+      expect(mockTestSftpConnection).not.toHaveBeenCalled();
+    }
   });
 
   it('returns 400 for invalid auth method', async () => {

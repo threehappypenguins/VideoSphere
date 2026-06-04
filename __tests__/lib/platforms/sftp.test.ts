@@ -119,6 +119,20 @@ describe('uploadToSftp', () => {
     expect(mocks.mockEnd).toHaveBeenCalled();
   });
 
+  it('rejects upload when stored remotePath contains parent-directory segments', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount({ sftpRemotePath: '/backups/../etc' }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Unsafe Path' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_CONFIG_INVALID' },
+    });
+    expect(mocks.mockConnect).not.toHaveBeenCalled();
+  });
+
   it('includes non-default port in platformUrl', async () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpPort: 2222 }),
@@ -341,6 +355,23 @@ describe('testSftpConnection', () => {
 
     expect(result).toEqual({ ok: true });
     expect(mocks.mockStat).toHaveBeenCalledWith('/backups', expect.any(Function));
+  });
+
+  it('rejects remote paths with parent-directory segments before connecting', async () => {
+    const result = await testSftpConnection({
+      host: 'sftp.example.com',
+      port: 22,
+      username: 'backup-user',
+      remotePath: '/backups/../etc',
+      authMethod: 'password',
+      credential: 'secret',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_REMOTE_PATH_INVALID', statusCode: 400 },
+    });
+    expect(mocks.mockConnect).not.toHaveBeenCalled();
   });
 
   it('returns auth failure for authentication errors', async () => {

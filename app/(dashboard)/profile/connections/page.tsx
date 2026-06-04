@@ -306,6 +306,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
             const meta = PLATFORM_META[platform];
             const account = accounts.find((a) => a.platform === platform);
             const status = getConnectionStatus(account);
+            const sftpExistingConnection =
+              account?.platform === 'sftp' ? toSftpExistingConnection(account) : undefined;
 
             return (
               <div
@@ -334,8 +336,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   platform === 'sftp' ? (
                     <div className="flex items-center gap-2">
                       <SftpConnectButton
-                        label="Edit"
-                        existingConnection={toSftpExistingConnection(account)}
+                        label={sftpExistingConnection ? 'Edit' : 'Reconnect'}
+                        existingConnection={sftpExistingConnection}
                         className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                       />
                       <DisconnectButton
@@ -357,7 +359,7 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                     ) : (
                       <SftpConnectButton
                         label="Reconnect"
-                        existingConnection={toSftpExistingConnection(account)}
+                        existingConnection={sftpExistingConnection}
                       />
                     )}
                     <DisconnectButton

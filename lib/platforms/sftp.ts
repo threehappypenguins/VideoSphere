@@ -39,6 +39,29 @@ interface SftpCredentials {
 /** Far-future expiry for SFTP connected accounts (credentials do not expire). */
 export const SFTP_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z';
 
+/**
+ * Returns whether `remotePath` is a safe absolute POSIX directory for SFTP backups.
+ * Rejects backslashes and `.` / `..` path segments.
+ * @param remotePath - Candidate remote directory path.
+ * @returns True when the path is allowed.
+ */
+export function isValidSftpRemotePath(remotePath: string): boolean {
+  if (!remotePath.startsWith('/')) return false;
+  if (remotePath.includes('\\')) return false;
+  for (const segment of remotePath.split('/')) {
+    if (segment === '.' || segment === '..') return false;
+  }
+  return true;
+}
+
+function invalidRemotePathError(): PlatformUploadError {
+  return {
+    code: 'SFTP_REMOTE_PATH_INVALID',
+    message: 'Remote path must be an absolute path without . or .. segments or backslashes.',
+    statusCode: 400,
+  };
+}
+
 function toError(
   code: string,
   message: string,
@@ -131,7 +154,8 @@ function credentialsFromConnectedAccount(account: ConnectedAccount): SftpCredent
     return null;
   }
 
-  if (!remotePath.startsWith('/')) {
+  // Defense-in-depth: match connect-route validation even for legacy DB values.
+  if (!isValidSftpRemotePath(remotePath)) {
     return null;
   }
 
@@ -378,6 +402,10 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
 export async function testSftpConnection(
   credentials: SftpCredentials
 ): Promise<{ ok: true } | { ok: false; error: PlatformUploadError }> {
+  if (!isValidSftpRemotePath(credentials.remotePath)) {
+    return { ok: false as const, error: invalidRemotePathError() };
+  }
+
   const conn = new Client();
 
   try {

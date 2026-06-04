@@ -206,6 +206,26 @@ describe('ConnectionsPage', () => {
       expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument();
       expect(screen.getByText('My Home Server')).toBeInTheDocument();
     });
+
+    it('shows Reconnect when connected SFTP row is missing editable fields', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    });
   });
 
   describe('Flash messages', () => {

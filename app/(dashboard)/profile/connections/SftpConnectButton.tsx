@@ -102,7 +102,7 @@ export function SftpConnectButton({
 
     try {
       const trimmedPort = port.trim();
-      const trimmedCredential = credential.trim();
+      const credentialProvided = credential.length > 0;
       const response = await fetch('/api/platforms/connect/sftp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -112,8 +112,8 @@ export function SftpConnectButton({
           username: username.trim(),
           remotePath: remotePath.trim(),
           authMethod,
-          ...(trimmedCredential ? { credential: trimmedCredential } : {}),
-          ...(authMethod === 'key' && passphrase.trim() ? { passphrase } : {}),
+          ...(credentialProvided ? { credential } : {}),
+          ...(authMethod === 'key' && passphrase.length > 0 ? { passphrase } : {}),
           label: connectionLabel.trim(),
         }),
       });

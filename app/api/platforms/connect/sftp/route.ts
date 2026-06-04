@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
-import { SFTP_TOKEN_EXPIRY, testSftpConnection } from '@/lib/platforms/sftp';
+import { isValidSftpRemotePath, SFTP_TOKEN_EXPIRY, testSftpConnection } from '@/lib/platforms/sftp';
 import type { ConnectedAccount, SftpAuthMethod } from '@/types';
 import {
   createConnectedAccount,
@@ -129,13 +129,14 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (!remotePath || !remotePath.startsWith('/')) {
+  if (!remotePath || !isValidSftpRemotePath(remotePath)) {
     return NextResponse.json(
       {
         ok: false,
         error: {
           code: 'SFTP_REMOTE_PATH_INVALID',
-          message: 'remotePath is required and must start with /.',
+          message:
+            'remotePath must be an absolute path starting with /, without . or .. segments or backslashes.',
         },
       },
       { status: 400 }
