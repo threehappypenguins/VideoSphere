@@ -196,6 +196,7 @@ describe('ConnectionsPage', () => {
           sftpPort: 22,
           sftpRemotePath: '/backups',
           sftpAuthMethod: 'password',
+          sftpHostKeyFingerprint: 'a'.repeat(64),
           $createdAt: new Date().toISOString(),
           $updatedAt: new Date().toISOString(),
         },
@@ -207,7 +208,7 @@ describe('ConnectionsPage', () => {
       expect(screen.getByText('My Home Server')).toBeInTheDocument();
     });
 
-    it('shows Reconnect when connected SFTP row is missing editable fields', async () => {
+    it('shows Expired and Reconnect when SFTP row is missing required fields', async () => {
       mockGetConnectedAccountsByUser.mockResolvedValue([
         {
           id: 'sftp-1',
@@ -223,8 +224,34 @@ describe('ConnectionsPage', () => {
       ]);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
+      expect(screen.getByText(/expired/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Expired and Reconnect when SFTP host key is not pinned', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
+      expect(screen.queryByText(/^connected$/i)).not.toBeInTheDocument();
     });
   });
 

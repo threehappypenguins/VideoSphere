@@ -71,25 +71,31 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
 
 const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp'] as const;
 
+/** True when an SFTP row has the fields required for backups (including a pinned host key). */
+function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
+  return (
+    account.platform === 'sftp' &&
+    Boolean(account.sftpHost?.trim()) &&
+    Boolean(account.sftpRemotePath?.trim()) &&
+    Boolean(account.sftpAuthMethod) &&
+    Boolean(account.sftpHostKeyFingerprint?.trim())
+  );
+}
+
 /** Build editable SFTP settings from a connected account row (non-secret fields only). */
 function toSftpExistingConnection(
   account: ConnectedAccountPublic
 ): SftpExistingConnection | undefined {
-  if (
-    account.platform !== 'sftp' ||
-    !account.sftpHost ||
-    !account.sftpRemotePath ||
-    !account.sftpAuthMethod
-  ) {
+  if (!isSftpConnectionReady(account)) {
     return undefined;
   }
 
   return {
-    host: account.sftpHost,
+    host: account.sftpHost!,
     port: account.sftpPort ?? 22,
     username: account.platformUserId,
-    remotePath: account.sftpRemotePath,
-    authMethod: account.sftpAuthMethod,
+    remotePath: account.sftpRemotePath!,
+    authMethod: account.sftpAuthMethod!,
     label: account.platformName,
   };
 }
@@ -100,9 +106,7 @@ function getConnectionStatus(
 ): 'connected' | 'expired' | 'not-connected' {
   if (!account) return 'not-connected';
   if (account.platform === 'sftp') {
-    const expiryMs = new Date(account.tokenExpiry).getTime();
-    if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
-    return 'expired';
+    return isSftpConnectionReady(account) ? 'connected' : 'expired';
   }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
