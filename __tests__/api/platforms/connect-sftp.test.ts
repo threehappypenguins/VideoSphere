@@ -5,7 +5,6 @@ const mockGetAuthenticatedUserId = vi.fn();
 const mockTestSftpConnection = vi.fn();
 const mockCreateConnectedAccount = vi.fn();
 const mockGetConnectedAccount = vi.fn();
-const mockGetConnectedAccountRowId = vi.fn();
 const mockGetConnectedAccountWithTokens = vi.fn();
 const mockUpdateConnection = vi.fn();
 
@@ -26,7 +25,6 @@ vi.mock('@/lib/platforms/sftp', async () => {
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   createConnectedAccount: (...args: unknown[]) => mockCreateConnectedAccount(...args),
   getConnectedAccount: (...args: unknown[]) => mockGetConnectedAccount(...args),
-  getConnectedAccountRowId: (...args: unknown[]) => mockGetConnectedAccountRowId(...args),
   getConnectedAccountWithTokens: (...args: unknown[]) => mockGetConnectedAccountWithTokens(...args),
   updateConnection: (...args: unknown[]) => mockUpdateConnection(...args),
 }));
@@ -74,6 +72,27 @@ function mockExistingPublicSftpAccount(overrides: Record<string, unknown> = {}) 
   });
 }
 
+function mockExistingAccountWithTokens(overrides: Record<string, unknown> = {}) {
+  mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+    id: 'existing-1',
+    userId: 'user-123',
+    platform: 'sftp',
+    accessToken: 'secret-password',
+    refreshToken: '',
+    tokenExpiry: '2099-01-01T00:00:00.000Z',
+    platformUserId: 'backup-user',
+    platformName: 'My Home Server',
+    sftpHost: 'sftp.example.com',
+    sftpPort: 22,
+    sftpRemotePath: '/backups',
+    sftpAuthMethod: 'password',
+    sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
+    $createdAt: new Date().toISOString(),
+    $updatedAt: new Date().toISOString(),
+    ...overrides,
+  });
+}
+
 describe('POST /api/platforms/connect/sftp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -83,7 +102,7 @@ describe('POST /api/platforms/connect/sftp', () => {
       ok: true,
       hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
     });
-    mockGetConnectedAccountRowId.mockResolvedValue(null);
+    mockGetConnectedAccountWithTokens.mockResolvedValue(null);
     mockGetConnectedAccount.mockResolvedValue(null);
     mockCreateConnectedAccount.mockResolvedValue({ id: 'ca-1' });
   });
@@ -113,7 +132,7 @@ describe('POST /api/platforms/connect/sftp', () => {
         ok: true,
         hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
       });
-      mockGetConnectedAccountRowId.mockResolvedValue(null);
+      mockGetConnectedAccountWithTokens.mockResolvedValue(null);
       mockCreateConnectedAccount.mockResolvedValue({ id: 'ca-1' });
 
       const res = await POST(createRequest({ ...validBody, remotePath }));
@@ -211,6 +230,9 @@ describe('POST /api/platforms/connect/sftp', () => {
     const body = await res.json();
     expect(body).toEqual({ ok: true });
 
+    expect(mockGetConnectedAccountWithTokens).toHaveBeenCalledWith('user-123', 'sftp');
+    expect(mockGetConnectedAccount).not.toHaveBeenCalled();
+
     expect(mockTestSftpConnection).toHaveBeenCalledWith(
       expect.objectContaining({
         host: 'sftp.example.com',
@@ -251,14 +273,7 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('updates an existing SFTP connection on reconnect', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
-    mockExistingPublicSftpAccount();
-    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
-      id: 'existing-1',
-      accessToken: 'secret-password',
-      refreshToken: '',
-      sftpAuthMethod: 'password',
-    });
+    mockExistingAccountWithTokens();
     mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
 
     const res = await POST(
@@ -285,10 +300,7 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('keeps stored passphrase when re-submitting a private key without a new passphrase', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
-    mockExistingPublicSftpAccount({ sftpAuthMethod: 'key' });
-    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
-      id: 'existing-1',
+    mockExistingAccountWithTokens({
       accessToken: '-----BEGIN OPENSSH PRIVATE KEY-----\nabc',
       refreshToken: 'stored-passphrase',
       sftpAuthMethod: 'key',
@@ -322,10 +334,7 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('updates metadata without resubmitting credentials when editing', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
-    mockExistingPublicSftpAccount();
-    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
-      id: 'existing-1',
+    mockExistingAccountWithTokens({
       accessToken: 'stored-password',
       refreshToken: '',
       sftpAuthMethod: 'password',
@@ -366,15 +375,10 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('re-pins host key when host or port changes', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
-    mockExistingPublicSftpAccount({ sftpHostKeyFingerprint: 'old-fingerprint' });
-    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
-      id: 'existing-1',
+    mockExistingAccountWithTokens({
       accessToken: 'stored-password',
       refreshToken: '',
       sftpAuthMethod: 'password',
-      sftpHost: 'sftp.example.com',
-      sftpPort: 22,
       sftpHostKeyFingerprint: 'old-fingerprint',
     });
     mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
@@ -406,16 +410,10 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('verifies pinned host key when host and port are unchanged', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
-    mockExistingPublicSftpAccount();
-    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
-      id: 'existing-1',
+    mockExistingAccountWithTokens({
       accessToken: 'stored-password',
       refreshToken: '',
       sftpAuthMethod: 'password',
-      sftpHost: 'sftp.example.com',
-      sftpPort: 22,
-      sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
     });
     mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
 
@@ -429,10 +427,7 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('preserves stored credential whitespace when editing metadata only', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
-    mockExistingPublicSftpAccount();
-    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
-      id: 'existing-1',
+    mockExistingAccountWithTokens({
       accessToken: '  secret-with-spaces  ',
       refreshToken: '',
       sftpAuthMethod: 'password',
@@ -463,10 +458,7 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('requires a new credential when changing auth method during edit', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
-    mockExistingPublicSftpAccount();
-    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
-      id: 'existing-1',
+    mockExistingAccountWithTokens({
       accessToken: 'stored-password',
       refreshToken: '',
       sftpAuthMethod: 'password',
@@ -486,7 +478,7 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('requires credential when stored tokens cannot be decrypted', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockExistingPublicSftpAccount();
     mockGetConnectedAccountWithTokens.mockRejectedValueOnce(
       new TokenDecryptError('Unsupported state or unable to authenticate data')
     );
@@ -500,7 +492,6 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('allows reconnect when stored tokens cannot be decrypted but new credentials are supplied', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
     mockExistingPublicSftpAccount();
     mockGetConnectedAccountWithTokens.mockRejectedValueOnce(
       new TokenDecryptError('Unsupported state or unable to authenticate data')
@@ -509,6 +500,7 @@ describe('POST /api/platforms/connect/sftp', () => {
 
     const res = await POST(createRequest(validBody));
     expect(res.status).toBe(200);
+    expect(mockGetConnectedAccount).toHaveBeenCalledWith('user-123', 'sftp');
     expect(mockTestSftpConnection).toHaveBeenCalledWith(
       expect.objectContaining({
         credential: 'secret-password',
@@ -527,7 +519,6 @@ describe('POST /api/platforms/connect/sftp', () => {
   });
 
   it('requires a new credential when changing auth method and stored tokens cannot be decrypted', async () => {
-    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
     mockExistingPublicSftpAccount();
     mockGetConnectedAccountWithTokens.mockRejectedValueOnce(
       new TokenDecryptError('Unsupported state or unable to authenticate data')

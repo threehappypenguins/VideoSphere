@@ -6,10 +6,10 @@ import type { ConnectedAccount, SftpAuthMethod } from '@/types';
 import {
   createConnectedAccount,
   getConnectedAccount,
-  getConnectedAccountRowId,
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
+import type { ConnectedAccountPublic } from '@/types';
 
 interface ConnectSftpBody {
   host?: unknown;
@@ -64,14 +64,21 @@ function httpStatusFromPlatformError(error: { statusCode?: number }): number {
 }
 
 /**
- * Loads decrypted SFTP credentials when available.
- * Decrypt failures are treated as missing stored secrets so users can reconnect.
+ * Loads an existing SFTP connection, preferring decrypted credentials when available.
+ * Falls back to the public row only when token decryption fails (e.g. key rotation).
  * @param userId - Authenticated user id.
- * @returns Connected account with tokens, or null when absent or undecryptable.
+ * @returns Decrypted account when available, otherwise public metadata only, or both null when absent.
  */
-async function loadExistingAccountWithTokens(userId: string): Promise<ConnectedAccount | null> {
+async function loadExistingSftpConnection(userId: string): Promise<{
+  account: ConnectedAccount | null;
+  publicAccount: ConnectedAccountPublic | null;
+}> {
   try {
-    return await getConnectedAccountWithTokens(userId, 'sftp');
+    const account = await getConnectedAccountWithTokens(userId, 'sftp');
+    if (account) {
+      return { account, publicAccount: account };
+    }
+    return { account: null, publicAccount: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (isTokenDecryptError(err)) {
@@ -79,7 +86,8 @@ async function loadExistingAccountWithTokens(userId: string): Promise<ConnectedA
         '[POST /api/platforms/connect/sftp] Could not decrypt stored SFTP credentials; treating as unavailable:',
         message
       );
-      return null;
+      const publicAccount = await getConnectedAccount(userId, 'sftp');
+      return { account: null, publicAccount };
     }
     throw err;
   }
@@ -178,15 +186,16 @@ export async function POST(req: NextRequest) {
   const credentialProvided = credential.trim().length > 0;
   const passphraseProvided = passphraseRaw.trim().length > 0;
 
-  const existingRow = await getConnectedAccountRowId(userId, 'sftp');
-  const existingAccountPublic = existingRow ? await getConnectedAccount(userId, 'sftp') : null;
-  const existingAccount = existingRow ? await loadExistingAccountWithTokens(userId) : null;
+  const { account: existingAccount, publicAccount: existingAccountPublic } =
+    await loadExistingSftpConnection(userId);
 
-  const existingSftpAuthMethod =
-    existingAccount?.sftpAuthMethod ?? existingAccountPublic?.sftpAuthMethod;
+  const existingRowId = existingAccount?.id ?? existingAccountPublic?.id ?? null;
+  const existingMetadata = existingAccount ?? existingAccountPublic;
+
+  const existingSftpAuthMethod = existingMetadata?.sftpAuthMethod;
 
   if (
-    existingRow &&
+    existingRowId &&
     existingSftpAuthMethod != null &&
     existingSftpAuthMethod !== authMethod &&
     !credentialProvided
@@ -203,7 +212,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!existingRow && !credentialProvided) {
+  if (!existingRowId && !credentialProvided) {
     return NextResponse.json(
       {
         ok: false,
@@ -243,13 +252,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const storedSftpHost = existingAccount?.sftpHost ?? existingAccountPublic?.sftpHost;
-  const storedSftpPortRaw = existingAccount?.sftpPort ?? existingAccountPublic?.sftpPort;
+  const storedSftpHost = existingMetadata?.sftpHost;
+  const storedSftpPortRaw = existingMetadata?.sftpPort;
   const storedSftpPort =
     storedSftpPortRaw != null && storedSftpPortRaw > 0 ? storedSftpPortRaw : 22;
   const sameSftpEndpoint = storedSftpHost === host && storedSftpPort === port;
-  const storedHostKeyFingerprint =
-    existingAccount?.sftpHostKeyFingerprint ?? existingAccountPublic?.sftpHostKeyFingerprint;
+  const storedHostKeyFingerprint = existingMetadata?.sftpHostKeyFingerprint;
   const pinnedHostKeyFingerprint = sameSftpEndpoint
     ? storedHostKeyFingerprint?.trim().toLowerCase()
     : undefined;
@@ -301,9 +309,9 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    if (existingRow) {
+    if (existingRowId) {
       const updated = await updateConnection(
-        existingRow.id,
+        existingRowId,
         resolvedCredential,
         refreshToken,
         SFTP_TOKEN_EXPIRY,
