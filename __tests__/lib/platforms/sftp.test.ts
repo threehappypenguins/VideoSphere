@@ -23,6 +23,33 @@ import { EventEmitter } from 'node:events';
 import { testSftpConnection, uploadToSftp } from '@/lib/platforms/sftp';
 import type { ConnectedAccount } from '@/types';
 
+const TEST_HOST_KEY_FINGERPRINT = 'a'.repeat(64);
+
+function runMockHostVerifier(
+  client: InstanceType<typeof EventEmitter>,
+  config: { hostVerifier?: (key: string, verify: (accepted: boolean) => void) => boolean | void }
+): void {
+  const verifier = config.hostVerifier;
+  if (!verifier) {
+    queueMicrotask(() => client.emit('ready'));
+    return;
+  }
+
+  const finish = (accepted: boolean) => {
+    queueMicrotask(() => {
+      if (accepted) client.emit('ready');
+      else client.emit('error', new Error('Host denied (verification failed)'));
+    });
+  };
+
+  const result = verifier(TEST_HOST_KEY_FINGERPRINT, finish);
+  if (result === false) {
+    finish(false);
+  } else if (result === true) {
+    finish(true);
+  }
+}
+
 function makeVideoStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -47,6 +74,7 @@ function makeSftpAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAc
     sftpPort: 22,
     sftpRemotePath: '/backups',
     sftpAuthMethod: 'password',
+    sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
     $createdAt: new Date().toISOString(),
     $updatedAt: new Date().toISOString(),
     ...overrides,
@@ -54,8 +82,11 @@ function makeSftpAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAc
 }
 
 function setupSuccessfulSftpMocks() {
-  mocks.mockConnect.mockImplementation(function connect(this: InstanceType<typeof EventEmitter>) {
-    queueMicrotask(() => this.emit('ready'));
+  mocks.mockConnect.mockImplementation(function connect(
+    this: InstanceType<typeof EventEmitter>,
+    config: { hostVerifier?: (key: string, verify: (accepted: boolean) => void) => boolean | void }
+  ) {
+    runMockHostVerifier(this, config);
   });
 
   mocks.mockSftp.mockImplementation((callback: (err: Error | null, sftp: unknown) => void) => {
@@ -114,9 +145,42 @@ describe('uploadToSftp', () => {
         port: 22,
         username: 'backup-user',
         password: 'secret-password',
+        hostHash: 'sha256',
+        hostVerifier: expect.any(Function),
       })
     );
+    expect(mocks.mockCreateWriteStream).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/backups\//),
+      expect.objectContaining({ flags: 'w', mode: 0o600 })
+    );
     expect(mocks.mockEnd).toHaveBeenCalled();
+  });
+
+  it('rejects upload when host key fingerprint is not pinned', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount({ sftpHostKeyFingerprint: undefined }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Unpinned' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_HOST_KEY_UNPINNED', statusCode: 400 },
+    });
+    expect(mocks.mockConnect).not.toHaveBeenCalled();
+  });
+
+  it('rejects upload when pinned host key does not match', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount({ sftpHostKeyFingerprint: 'b'.repeat(64) }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'Mismatch' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_HOST_KEY_MISMATCH', statusCode: 400 },
+    });
   });
 
   it('rejects upload when stored remotePath contains parent-directory segments', async () => {
@@ -353,8 +417,39 @@ describe('testSftpConnection', () => {
       credential: 'secret',
     });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT });
     expect(mocks.mockStat).toHaveBeenCalledWith('/backups', expect.any(Function));
+  });
+
+  it('verifies a pinned host key fingerprint on reconnect', async () => {
+    const result = await testSftpConnection({
+      host: 'sftp.example.com',
+      port: 22,
+      username: 'backup-user',
+      remotePath: '/backups',
+      authMethod: 'password',
+      credential: 'secret',
+      hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
+    });
+
+    expect(result).toEqual({ ok: true, hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT });
+  });
+
+  it('returns host key mismatch when pinned fingerprint does not match', async () => {
+    const result = await testSftpConnection({
+      host: 'sftp.example.com',
+      port: 22,
+      username: 'backup-user',
+      remotePath: '/backups',
+      authMethod: 'password',
+      credential: 'secret',
+      hostKeyFingerprint: 'b'.repeat(64),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_HOST_KEY_MISMATCH', statusCode: 400 },
+    });
   });
 
   it('rejects remote paths with parent-directory segments before connecting', async () => {

@@ -21,6 +21,7 @@ export interface ConnectedAccountDocument {
   sftpPort?: number;
   sftpRemotePath?: string;
   sftpAuthMethod?: SftpAuthMethod;
+  sftpHostKeyFingerprint?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,6 +44,7 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
     sftpPort: { type: Number },
     sftpRemotePath: { type: String },
     sftpAuthMethod: { type: String, enum: ['key', 'password'] },
+    sftpHostKeyFingerprint: { type: String },
   },
   { timestamps: true }
 );

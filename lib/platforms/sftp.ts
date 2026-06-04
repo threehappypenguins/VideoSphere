@@ -1,5 +1,6 @@
 import { posix as pathPosix } from 'node:path';
 import { isIPv6 } from 'node:net';
+import { timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { Client, type ConnectConfig, type SFTPWrapper } from 'ssh2';
 import { messageFromThrown } from '@/lib/utils/error-message';
@@ -34,10 +35,41 @@ interface SftpCredentials {
   credential: string;
   passphrase?: string;
   remotePath: string;
+  /** SHA-256 host key fingerprint (lowercase hex) pinned after the first successful connect. */
+  hostKeyFingerprint?: string;
 }
 
 /** Far-future expiry for SFTP connected accounts (credentials do not expire). */
 export const SFTP_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z';
+
+/** Remote backup file mode: owner read/write only (private video content). */
+const SFTP_REMOTE_FILE_MODE = 0o600;
+
+/** Hash algorithm used when pinning and verifying SFTP server host keys. */
+const SFTP_HOST_KEY_HASH_ALGO = 'sha256';
+
+interface HostKeyPinningState {
+  expectedFingerprint?: string;
+  capturedFingerprint?: string;
+}
+
+/**
+ * Returns whether two SFTP host key fingerprints match using a timing-safe comparison.
+ * @param expected - Stored fingerprint from a prior successful connection.
+ * @param actual - Fingerprint reported by the server during the current handshake.
+ * @returns True when the fingerprints are identical.
+ */
+function hostKeyFingerprintsMatch(expected: string, actual: string): boolean {
+  const a = expected.toLowerCase();
+  const b = actual.toLowerCase();
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+}
+
+function isHostKeyVerificationError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes('host denied') || lower.includes('host key verification failed');
+}
 
 /**
  * Returns whether `remotePath` is a safe absolute POSIX directory for SFTP backups.
@@ -123,7 +155,10 @@ function buildSftpPlatformUrl(host: string, port: number, remotePath: string): s
   return `sftp://${authority}${encodeSftpUriPath(remotePath)}`;
 }
 
-function buildConnectConfig(credentials: SftpCredentials): ConnectConfig {
+function buildConnectConfig(
+  credentials: SftpCredentials,
+  hostKeyPinning?: HostKeyPinningState
+): ConnectConfig {
   const config: ConnectConfig = {
     host: credentials.host,
     port: credentials.port,
@@ -139,6 +174,20 @@ function buildConnectConfig(credentials: SftpCredentials): ConnectConfig {
   } else {
     config.password = credentials.credential;
   }
+
+  const expectedFingerprint = hostKeyPinning?.expectedFingerprint ?? credentials.hostKeyFingerprint;
+
+  config.hostHash = SFTP_HOST_KEY_HASH_ALGO;
+  config.hostVerifier = (hashedKeyHex: string) => {
+    const fingerprint = hashedKeyHex.toLowerCase();
+    if (expectedFingerprint) {
+      return hostKeyFingerprintsMatch(expectedFingerprint, fingerprint);
+    }
+    if (hostKeyPinning) {
+      hostKeyPinning.capturedFingerprint = fingerprint;
+    }
+    return true;
+  };
 
   return config;
 }
@@ -169,6 +218,9 @@ function credentialsFromConnectedAccount(account: ConnectedAccount): SftpCredent
       ? { passphrase: account.refreshToken }
       : {}),
     remotePath,
+    ...(account.sftpHostKeyFingerprint?.trim()
+      ? { hostKeyFingerprint: account.sftpHostKeyFingerprint.trim().toLowerCase() }
+      : {}),
   };
 }
 
@@ -297,7 +349,10 @@ function pipeStreamToSftp(
   signal?: AbortSignal
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const writeStream = sftp.createWriteStream(remotePath, { flags: 'w', mode: 0o644 });
+    const writeStream = sftp.createWriteStream(remotePath, {
+      flags: 'w',
+      mode: SFTP_REMOTE_FILE_MODE,
+    });
     let settled = false;
     let finished = false;
 
@@ -386,6 +441,15 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
     };
   }
 
+  if (isHostKeyVerificationError(message)) {
+    return {
+      code: 'SFTP_HOST_KEY_MISMATCH',
+      message: 'SFTP server host key does not match the pinned fingerprint.',
+      statusCode: 400,
+      details: message,
+    };
+  }
+
   return {
     code: 'SFTP_CONNECTION_FAILED',
     message: 'Failed to connect to the SFTP server.',
@@ -396,23 +460,40 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
 
 /**
  * Validates SFTP credentials by opening a connection and checking the remote directory exists.
+ * Pins the server host key on first connect; subsequent calls verify against the pinned fingerprint.
  * @param credentials - SFTP connection parameters (plaintext; not yet encrypted).
- * @returns Whether the test connection succeeded, or a classified platform error on failure.
+ * @returns Whether the test connection succeeded with the pinned host key fingerprint, or a classified platform error on failure.
  */
 export async function testSftpConnection(
   credentials: SftpCredentials
-): Promise<{ ok: true } | { ok: false; error: PlatformUploadError }> {
+): Promise<{ ok: true; hostKeyFingerprint: string } | { ok: false; error: PlatformUploadError }> {
   if (!isValidSftpRemotePath(credentials.remotePath)) {
     return { ok: false as const, error: invalidRemotePathError() };
   }
 
   const conn = new Client();
+  const hostKeyPinning: HostKeyPinningState = {
+    expectedFingerprint: credentials.hostKeyFingerprint,
+  };
 
   try {
-    await promisifyConnect(conn, buildConnectConfig(credentials));
+    await promisifyConnect(conn, buildConnectConfig(credentials, hostKeyPinning));
     const sftp = await promisifySftp(conn);
     await promisifySftpStat(sftp, credentials.remotePath);
-    return { ok: true as const };
+
+    const hostKeyFingerprint = hostKeyPinning.capturedFingerprint ?? credentials.hostKeyFingerprint;
+    if (!hostKeyFingerprint) {
+      return {
+        ok: false as const,
+        error: {
+          code: 'SFTP_CONNECTION_FAILED',
+          message: 'Failed to pin the SFTP server host key.',
+          statusCode: 500,
+        },
+      };
+    }
+
+    return { ok: true as const, hostKeyFingerprint };
   } catch (err) {
     const classified = classifyConnectionError(err);
     return { ok: false as const, error: classified };
@@ -430,6 +511,14 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
   const credentials = credentialsFromConnectedAccount(input.connectedAccount);
   if (!credentials) {
     return toError('SFTP_CONFIG_INVALID', 'SFTP connection settings are incomplete or invalid.');
+  }
+
+  if (!credentials.hostKeyFingerprint) {
+    return toError(
+      'SFTP_HOST_KEY_UNPINNED',
+      'SFTP host key is not pinned. Reconnect SFTP in profile settings before uploading.',
+      400
+    );
   }
 
   const conn = new Client();
@@ -477,6 +566,15 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
       lower.includes('all configured authentication methods failed')
     ) {
       return toError('SFTP_AUTH_FAILED', 'SFTP authentication failed.', 401, message);
+    }
+
+    if (isHostKeyVerificationError(message)) {
+      return toError(
+        'SFTP_HOST_KEY_MISMATCH',
+        'SFTP server host key does not match the pinned fingerprint.',
+        400,
+        message
+      );
     }
 
     if (lower.includes('connect') || lower.includes('handshake') || lower.includes('timeout')) {

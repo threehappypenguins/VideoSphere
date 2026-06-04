@@ -238,6 +238,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const existingPort =
+    existingAccount?.sftpPort != null && existingAccount.sftpPort > 0
+      ? existingAccount.sftpPort
+      : 22;
+  const sameSftpEndpoint = existingAccount?.sftpHost === host && existingPort === port;
+  const pinnedHostKeyFingerprint = sameSftpEndpoint
+    ? existingAccount?.sftpHostKeyFingerprint?.trim().toLowerCase()
+    : undefined;
+
   const sftpCredentials = {
     host,
     port,
@@ -246,6 +255,7 @@ export async function POST(req: NextRequest) {
     authMethod,
     credential: resolvedCredential,
     ...(resolvedPassphrase ? { passphrase: resolvedPassphrase } : {}),
+    ...(pinnedHostKeyFingerprint ? { hostKeyFingerprint: pinnedHostKeyFingerprint } : {}),
   };
 
   const testResult = await testSftpConnection(sftpCredentials);
@@ -278,6 +288,7 @@ export async function POST(req: NextRequest) {
     sftpPort: port,
     sftpRemotePath: remotePath,
     sftpAuthMethod: authMethod,
+    sftpHostKeyFingerprint: testResult.hostKeyFingerprint,
   };
 
   try {

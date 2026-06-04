@@ -40,6 +40,9 @@ function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount 
     ...(doc.sftpPort != null ? { sftpPort: Number(doc.sftpPort) } : {}),
     ...(doc.sftpRemotePath != null ? { sftpRemotePath: String(doc.sftpRemotePath) } : {}),
     ...(doc.sftpAuthMethod != null ? { sftpAuthMethod: doc.sftpAuthMethod as SftpAuthMethod } : {}),
+    ...(doc.sftpHostKeyFingerprint != null
+      ? { sftpHostKeyFingerprint: String(doc.sftpHostKeyFingerprint) }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -75,6 +78,9 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     ...(doc.sftpPort != null ? { sftpPort: Number(doc.sftpPort) } : {}),
     ...(doc.sftpRemotePath != null ? { sftpRemotePath: String(doc.sftpRemotePath) } : {}),
     ...(doc.sftpAuthMethod != null ? { sftpAuthMethod: doc.sftpAuthMethod as SftpAuthMethod } : {}),
+    ...(doc.sftpHostKeyFingerprint != null
+      ? { sftpHostKeyFingerprint: String(doc.sftpHostKeyFingerprint) }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -99,6 +105,7 @@ export interface CreateConnectedAccountData {
   sftpPort?: number;
   sftpRemotePath?: string;
   sftpAuthMethod?: SftpAuthMethod;
+  sftpHostKeyFingerprint?: string;
 }
 
 /**
@@ -123,6 +130,9 @@ export async function createConnectedAccount(
     ...(data.sftpPort != null ? { sftpPort: data.sftpPort } : {}),
     ...(data.sftpRemotePath != null ? { sftpRemotePath: data.sftpRemotePath } : {}),
     ...(data.sftpAuthMethod != null ? { sftpAuthMethod: data.sftpAuthMethod } : {}),
+    ...(data.sftpHostKeyFingerprint != null
+      ? { sftpHostKeyFingerprint: data.sftpHostKeyFingerprint }
+      : {}),
   });
   return rowToConnectedAccountPublic(created.toObject());
 }
@@ -268,6 +278,7 @@ export async function updateConnection(
     sftpPort: number;
     sftpRemotePath: string;
     sftpAuthMethod: SftpAuthMethod;
+    sftpHostKeyFingerprint: string;
   }
 ): Promise<ConnectedAccountPublic | null> {
   await connectToDatabase();
@@ -285,6 +296,7 @@ export async function updateConnection(
             sftpPort: sftpFields.sftpPort,
             sftpRemotePath: sftpFields.sftpRemotePath,
             sftpAuthMethod: sftpFields.sftpAuthMethod,
+            sftpHostKeyFingerprint: sftpFields.sftpHostKeyFingerprint,
           }
         : {}),
     },

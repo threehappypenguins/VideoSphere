@@ -50,11 +50,16 @@ const validBody = {
   label: 'My Home Server',
 };
 
+const TEST_HOST_KEY_FINGERPRINT = 'a'.repeat(64);
+
 describe('POST /api/platforms/connect/sftp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAuthenticatedUserId.mockResolvedValue('user-123');
-    mockTestSftpConnection.mockResolvedValue({ ok: true });
+    mockTestSftpConnection.mockResolvedValue({
+      ok: true,
+      hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
+    });
     mockGetConnectedAccountRowId.mockResolvedValue(null);
     mockCreateConnectedAccount.mockResolvedValue({ id: 'ca-1' });
   });
@@ -76,7 +81,10 @@ describe('POST /api/platforms/connect/sftp', () => {
     for (const remotePath of ['/backups/../etc', '/backups/./sub', '/backups\\sub']) {
       vi.clearAllMocks();
       mockGetAuthenticatedUserId.mockResolvedValue('user-123');
-      mockTestSftpConnection.mockResolvedValue({ ok: true });
+      mockTestSftpConnection.mockResolvedValue({
+        ok: true,
+        hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
+      });
       mockGetConnectedAccountRowId.mockResolvedValue(null);
       mockCreateConnectedAccount.mockResolvedValue({ id: 'ca-1' });
 
@@ -180,6 +188,7 @@ describe('POST /api/platforms/connect/sftp', () => {
       sftpPort: 22,
       sftpRemotePath: '/backups',
       sftpAuthMethod: 'password',
+      sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
     });
   });
 
@@ -220,6 +229,7 @@ describe('POST /api/platforms/connect/sftp', () => {
         sftpPort: 22,
         sftpRemotePath: '/backups',
         sftpAuthMethod: 'key',
+        sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
       }
     );
     expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
@@ -299,7 +309,69 @@ describe('POST /api/platforms/connect/sftp', () => {
       expect.objectContaining({
         sftpRemotePath: '/archive',
         sftpPort: 2222,
+        sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
       })
+    );
+  });
+
+  it('re-pins host key when host or port changes', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+      id: 'existing-1',
+      accessToken: 'stored-password',
+      refreshToken: '',
+      sftpAuthMethod: 'password',
+      sftpHost: 'sftp.example.com',
+      sftpPort: 22,
+      sftpHostKeyFingerprint: 'old-fingerprint',
+    });
+    mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
+
+    const { credential: _credential, ...bodyWithoutCredential } = validBody;
+    const res = await POST(
+      createRequest({
+        ...bodyWithoutCredential,
+        port: 2222,
+      })
+    );
+    expect(res.status).toBe(200);
+
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.not.objectContaining({ hostKeyFingerprint: expect.anything() })
+    );
+    expect(mockUpdateConnection).toHaveBeenCalledWith(
+      'existing-1',
+      'stored-password',
+      '',
+      '2099-01-01T00:00:00.000Z',
+      'backup-user',
+      'My Home Server',
+      expect.objectContaining({
+        sftpPort: 2222,
+        sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
+      })
+    );
+  });
+
+  it('verifies pinned host key when host and port are unchanged', async () => {
+    mockGetConnectedAccountRowId.mockResolvedValueOnce({ id: 'existing-1', platformUserId: 'old' });
+    mockGetConnectedAccountWithTokens.mockResolvedValueOnce({
+      id: 'existing-1',
+      accessToken: 'stored-password',
+      refreshToken: '',
+      sftpAuthMethod: 'password',
+      sftpHost: 'sftp.example.com',
+      sftpPort: 22,
+      sftpHostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT,
+    });
+    mockUpdateConnection.mockResolvedValueOnce({ id: 'existing-1' });
+
+    const { credential: _credential, ...bodyWithoutCredential } = validBody;
+    const res = await POST(createRequest(bodyWithoutCredential));
+    expect(res.status).toBe(200);
+
+    expect(mockTestSftpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ hostKeyFingerprint: TEST_HOST_KEY_FINGERPRINT })
     );
   });
 

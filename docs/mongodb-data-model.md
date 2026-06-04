@@ -25,7 +25,7 @@ VideoSphere stores application data in MongoDB via Mongoose models in [lib/model
 
 See [docs/draft-document-and-upload-testing.md](/draft-document-and-upload-testing) for full payload shape and manual upload flow.
 
-## Encryption at Rest for OAuth Tokens
+## Encryption at Rest for Connected Account Secrets
 
 Connected account tokens and SFTP credentials are encrypted before persistence.
 

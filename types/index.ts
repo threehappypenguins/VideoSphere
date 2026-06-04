@@ -326,6 +326,8 @@ export interface ConnectedAccountPublic {
   sftpRemotePath?: string;
   /** Whether the stored credential is an SSH key or password (SFTP accounts only). */
   sftpAuthMethod?: SftpAuthMethod;
+  /** SHA-256 host key fingerprint pinned after the first successful SFTP connect (SFTP accounts only). */
+  sftpHostKeyFingerprint?: string;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */
