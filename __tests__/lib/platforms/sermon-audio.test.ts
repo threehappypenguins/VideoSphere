@@ -99,6 +99,33 @@ describe('uploadToSermonAudio', () => {
     });
   });
 
+  it('includes seriesID in create sermon body when provided', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-789' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: { ...metadata, subtitle: 'Romans', seriesID: 55 },
+      tokens,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(createInit.body))).toMatchObject({
+      seriesID: 55,
+      subtitle: 'Romans',
+    });
+  });
+
   it('returns an error when the API key is missing', async () => {
     const result = await uploadToSermonAudio({
       videoStream: makeVideoStream(),

@@ -240,6 +240,8 @@ export interface SermonAudioDraftFields extends PerPlatformOverrides {
   eventType?: string;
   /** Series or sub-heading label (SA `subtitle`; distinct from `displayTitle`). */
   subtitle?: string;
+  /** SermonAudio series id when selected from SA series records. */
+  seriesID?: number;
   /** Scripture reference text (SA `bibleText`). */
   bibleText?: string;
   /** SA keywords/hashtags (space or comma-separated). */

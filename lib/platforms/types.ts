@@ -54,6 +54,8 @@ export interface SermonAudioSpecificUploadMetadata {
   displayTitle?: string;
   /** SA series/sub-heading label. */
   subtitle?: string;
+  /** SermonAudio series id when linked to an existing SA series record. */
+  seriesID?: number;
   speakerName?: string;
   /** SermonAudio speaker id when linked to an existing SA speaker record. */
   speakerID?: number;

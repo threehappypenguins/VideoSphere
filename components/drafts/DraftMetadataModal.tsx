@@ -22,6 +22,7 @@ import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-up
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import { cn } from '@/lib/utils';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
+import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
@@ -2406,10 +2407,13 @@ export function DraftMetadataModal({
                   >
                     Series ({platformLabel('sermon_audio')})
                   </label>
-                  <input
+                  <SermonAudioSeriesCombobox
                     id="draft-sermon-audio-series"
-                    value={sermonAudioFields?.subtitle ?? ''}
-                    onChange={(event) => updateSermonAudioFields({ subtitle: event.target.value })}
+                    seriesTitle={sermonAudioFields?.subtitle ?? ''}
+                    seriesID={sermonAudioFields?.seriesID}
+                    onSeriesChange={(next) => {
+                      updateSermonAudioFields(next);
+                    }}
                     className={fieldBorderClass('sermon_audio.subtitle')}
                   />
                 </div>

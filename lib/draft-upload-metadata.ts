@@ -316,6 +316,10 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
   const preachDate = trimStr(sa.preachDate);
   const eventType = trimStr(sa.eventType);
   const subtitle = trimStr(sa.subtitle);
+  const seriesID =
+    typeof sa.seriesID === 'number' && Number.isInteger(sa.seriesID) && sa.seriesID > 0
+      ? sa.seriesID
+      : undefined;
   const bibleText = trimStr(sa.bibleText);
   const keywords = trimStr(sa.keywords);
   const displayTitle = trimStr(sa.displayTitle);
@@ -330,6 +334,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
     ...(preachDate !== undefined ? { preachDate } : {}),
     ...(eventType !== undefined ? { eventType } : {}),
     ...(subtitle !== undefined ? { subtitle } : {}),
+    ...(seriesID !== undefined ? { seriesID } : {}),
     ...(bibleText !== undefined ? { bibleText } : {}),
     ...(keywords !== undefined ? { keywords } : {}),
     ...(displayTitle !== undefined ? { displayTitle } : {}),
@@ -745,6 +750,13 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
     if ('subtitle' in p) {
       const s = p.subtitle;
       sa.subtitle = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+      if (!sa.subtitle && !('seriesID' in p)) {
+        sa.seriesID = undefined;
+      }
+    }
+    if ('seriesID' in p) {
+      const id = p.seriesID;
+      sa.seriesID = typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : undefined;
     }
     if ('bibleText' in p) {
       const s = p.bibleText;
@@ -883,6 +895,7 @@ export function buildMetadataForPlatform(
       fullTitle: title,
       ...(sa?.displayTitle?.trim() ? { displayTitle: sa.displayTitle.trim() } : {}),
       ...(sa?.subtitle?.trim() ? { subtitle: sa.subtitle.trim() } : {}),
+      ...(sa?.seriesID !== undefined ? { seriesID: sa.seriesID } : {}),
       ...(sa?.speakerName?.trim() ? { speakerName: sa.speakerName.trim() } : {}),
       ...(sa?.speakerID !== undefined ? { speakerID: sa.speakerID } : {}),
       ...(sa?.preachDate?.trim() ? { preachDate: sa.preachDate.trim() } : {}),

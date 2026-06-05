@@ -122,6 +122,9 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
 
   if (metadata.displayTitle?.trim()) body.displayTitle = metadata.displayTitle.trim();
   if (metadata.subtitle?.trim()) body.subtitle = metadata.subtitle.trim();
+  if (metadata.seriesID != null && Number.isInteger(metadata.seriesID)) {
+    body.seriesID = metadata.seriesID;
+  }
   if (metadata.speakerID != null && Number.isInteger(metadata.speakerID)) {
     body.speakerID = metadata.speakerID;
   }

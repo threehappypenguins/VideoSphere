@@ -373,6 +373,7 @@ describe('draft-upload-metadata', () => {
           preachDate: '2026-01-15',
           eventType: 'Sunday Service',
           subtitle: ' Faith & Works ',
+          seriesID: 12,
           bibleText: 'John 3:16',
           keywords: ' grace, hope ',
           displayTitle: ' Short ',
@@ -390,6 +391,7 @@ describe('draft-upload-metadata', () => {
         preachDate: '2026-01-15',
         eventType: 'Sunday Service',
         subtitle: 'Faith & Works',
+        seriesID: 12,
         bibleText: 'John 3:16',
         keywords: 'grace, hope',
         displayTitle: 'Short',
@@ -461,6 +463,30 @@ describe('draft-upload-metadata', () => {
     expect(meta.speakerName).toBe('Rev. Smith');
     expect(meta.speakerID).toBe(77);
     expect(meta.preachDate).toBe('2026-06-01');
+  });
+
+  it('buildMetadataForPlatform sermon_audio includes series fields when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Shared Title',
+      description: 'Shared Description',
+      tags: ['faith'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          subtitle: 'Romans',
+          seriesID: 55,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(meta.subtitle).toBe('Romans');
+    expect(meta.seriesID).toBe(55);
   });
 
   it('buildMetadataForPlatform sermon_audio uses keywords when set', () => {
