@@ -47,6 +47,7 @@ const mockRefreshTokenIfNeeded = vi.fn();
 const mockUploadToVimeo = vi.fn();
 const mockUploadToGoogleDrive = vi.fn();
 const mockUploadToSftp = vi.fn();
+const mockUploadToSmb = vi.fn();
 const mockGetPlatformUploadsByJob = vi.fn();
 const mockUpdatePlatformUploadStatus = vi.fn();
 const mockGetUploadJobById = vi.fn();
@@ -114,6 +115,10 @@ vi.mock('@/lib/platforms/google-drive', () => ({
 
 vi.mock('@/lib/platforms/sftp', () => ({
   uploadToSftp: (...args: unknown[]) => mockUploadToSftp(...args),
+}));
+
+vi.mock('@/lib/platforms/smb', () => ({
+  uploadToSmb: (...args: unknown[]) => mockUploadToSmb(...args),
 }));
 
 import { POST } from '@/app/api/uploads/distribute/route';
@@ -317,6 +322,12 @@ describe('POST /api/uploads/distribute', () => {
       platformUrl: 'sftp://sftp.example.com/backups/file.mp4',
     });
 
+    mockUploadToSmb.mockResolvedValue({
+      ok: true,
+      platformVideoId: '\\VideoSphere\\file.mp4',
+      platformUrl: 'smb://192.168.1.10/Backups/VideoSphere/file.mp4',
+    });
+
     mockUpdatePlatformUploadStatus.mockImplementation(async (id: string, status: string) => ({
       id,
       uploadJobId: 'job-123',
@@ -326,7 +337,9 @@ describe('POST /api/uploads/distribute', () => {
           ? 'google_drive'
           : id.includes('sftp')
             ? 'sftp'
-            : 'youtube',
+            : id.includes('smb')
+              ? 'smb'
+              : 'youtube',
       status,
       platformVideoId: '',
       platformUrl: '',

@@ -148,6 +148,17 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
     };
   }
 
+  if (account.platform === 'smb') {
+    if (!account.accessToken.trim()) {
+      throw new Error('SMB password is missing. Reconnect your SMB account to continue.');
+    }
+    return {
+      accessToken: account.accessToken,
+      refreshToken: account.refreshToken,
+      tokenExpiry: account.tokenExpiry,
+    };
+  }
+
   const _exhaustive: never = account.platform;
   throw new Error(`Unsupported platform: ${String(_exhaustive)}`);
 }

@@ -4,7 +4,7 @@
  * Stored shape:
  * - **Shared:** `targets`, `title`, `description`, `visibility`, `tags` (one list for all targets)
  * - **Per platform:** `platforms.youtube` / `platforms.vimeo` (e.g. YouTube `categoryId`, Vimeo `categoryUri`);
- *   backup targets (`platforms.sftp`) are carried through as empty objects until fields exist.
+ *   backup targets (`platforms.sftp` / `platforms.smb`) are carried through as empty objects until fields exist.
  */
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
@@ -21,6 +21,7 @@ import {
   type YouTubeDraftFields,
   type VimeoDraftFields,
   type SftpDraftFields,
+  type SmbDraftFields,
 } from '@/types';
 
 /**
@@ -289,6 +290,11 @@ function normalizeSftpFields(_value: Record<string, unknown>): SftpDraftFields {
   return {};
 }
 
+/** Backup destinations with no publish-specific fields yet; preserve `{}` when sent by clients. */
+function normalizeSmbFields(_value: Record<string, unknown>): SmbDraftFields {
+  return {};
+}
+
 /**
  * Executes normalize draft platforms.
  * @param value - Input value for value.
@@ -310,6 +316,10 @@ export function normalizeDraftPlatforms(value: unknown): DraftPlatforms {
 
   if (isPlainObject(value.sftp)) {
     out.sftp = normalizeSftpFields(value.sftp);
+  }
+
+  if (isPlainObject(value.smb)) {
+    out.smb = normalizeSmbFields(value.smb);
   }
 
   return out;
@@ -499,6 +509,9 @@ export function mergeDraftPlatforms(base: DraftPlatforms, patch: DraftPlatforms)
   if (patch.sftp !== undefined) {
     next.sftp = { ...base.sftp, ...patch.sftp };
   }
+  if (patch.smb !== undefined) {
+    next.smb = { ...base.smb, ...patch.smb };
+  }
   return next;
 }
 
@@ -615,6 +628,10 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
 
   if (isPlainObject(patch.sftp)) {
     next.sftp = { ...base.sftp, ...normalizeSftpFields(patch.sftp) };
+  }
+
+  if (isPlainObject(patch.smb)) {
+    next.smb = { ...base.smb, ...normalizeSmbFields(patch.smb) };
   }
 
   return next;

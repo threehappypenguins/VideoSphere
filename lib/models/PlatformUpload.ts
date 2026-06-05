@@ -29,7 +29,11 @@ const PlatformUploadSchema = new Schema<PlatformUploadDocument>(
   {
     _id: { type: String },
     uploadJobId: { type: String, required: true, index: true, trim: true },
-    platform: { type: String, enum: ['youtube', 'vimeo', 'google_drive', 'sftp'], required: true },
+    platform: {
+      type: String,
+      enum: ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb'],
+      required: true,
+    },
     status: {
       type: String,
       enum: ['pending', 'uploading', 'completed', 'failed'],

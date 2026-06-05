@@ -27,6 +27,7 @@ export const PLATFORM_LIMITS: Record<
   // Drive is a backup/archive target; keep practical metadata limits aligned with UI defaults.
   google_drive: { titleMax: 255, descriptionMax: 5000 },
   sftp: { titleMax: 255, descriptionMax: 5000 },
+  smb: { titleMax: 255, descriptionMax: 5000 },
 };
 
 /** Derive the most restrictive limits across the requested platforms. */

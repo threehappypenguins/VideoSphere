@@ -1,8 +1,8 @@
 // =============================================================================
 // CONNECTED ACCOUNTS PAGE  (/profile/connections)
 // =============================================================================
-// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP) and provides
-// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive, and an in-page modal for SFTP.
+// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP, SMB) and provides
+// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive, and in-page modals for SFTP/SMB.
 //
 // Session is read server-side via the authenticated session cookie so the page can
 // fetch real connected-account data without an extra client round-trip.
@@ -28,6 +28,7 @@ import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/Co
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
 import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
+import { SmbConnectButton, type SmbExistingConnection } from './SmbConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
@@ -68,9 +69,14 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
     icon: '🖥️',
     connectHref: null,
   },
+  smb: {
+    label: 'SMB / Network Share',
+    icon: '🗄️',
+    connectHref: null,
+  },
 };
 
-const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp'] as const;
+const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb'] as const;
 
 /** True when an SFTP row has the fields required for backups (including a pinned host key). */
 function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
@@ -83,6 +89,40 @@ function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
     fingerprint != null &&
     normalizeConnectedAccountSftpHostKeyFingerprint(fingerprint) != null
   );
+}
+
+/** True when an SMB row has the fields required for backups. */
+function isSmbConnectionReady(account: ConnectedAccountPublic): boolean {
+  return (
+    account.platform === 'smb' &&
+    Boolean(account.smbHost?.trim()) &&
+    Boolean(account.smbShare?.trim()) &&
+    account.smbRemotePath != null &&
+    account.smbRemotePath.trim() !== ''
+  );
+}
+
+/** Build editable SMB settings from a connected account row (non-secret fields only). */
+function toSmbExistingConnection(
+  account: ConnectedAccountPublic
+): SmbExistingConnection | undefined {
+  if (
+    account.platform !== 'smb' ||
+    !account.smbHost?.trim() ||
+    !account.smbShare?.trim() ||
+    account.smbRemotePath == null
+  ) {
+    return undefined;
+  }
+
+  return {
+    host: account.smbHost,
+    share: account.smbShare,
+    domain: account.smbDomain ?? '',
+    username: account.platformUserId,
+    remotePath: account.smbRemotePath,
+    label: account.platformName,
+  };
 }
 
 /** Build editable SFTP settings from a connected account row (non-secret fields only). */
@@ -115,6 +155,9 @@ function getConnectionStatus(
   if (!account) return 'not-connected';
   if (account.platform === 'sftp') {
     return isSftpConnectionReady(account) ? 'connected' : 'expired';
+  }
+  if (account.platform === 'smb') {
+    return isSmbConnectionReady(account) ? 'connected' : 'expired';
   }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
@@ -320,6 +363,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
             const status = getConnectionStatus(account);
             const sftpExistingConnection =
               account?.platform === 'sftp' ? toSftpExistingConnection(account) : undefined;
+            const smbExistingConnection =
+              account?.platform === 'smb' ? toSmbExistingConnection(account) : undefined;
 
             return (
               <div
@@ -357,6 +402,18 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                         platformLabel={meta.label}
                       />
                     </div>
+                  ) : platform === 'smb' ? (
+                    <div className="flex items-center gap-2">
+                      <SmbConnectButton
+                        label="Edit"
+                        existingConnection={smbExistingConnection!}
+                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      />
+                      <DisconnectButton
+                        action={disconnectPlatform.bind(null, account.id)}
+                        platformLabel={meta.label}
+                      />
+                    </div>
                   ) : (
                     <DisconnectButton
                       action={disconnectPlatform.bind(null, account.id)}
@@ -368,10 +425,15 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   <div className="flex items-center gap-2">
                     {meta.connectHref ? (
                       <ConnectButton href={meta.connectHref} label="Reconnect" />
-                    ) : (
+                    ) : platform === 'sftp' ? (
                       <SftpConnectButton
                         label="Reconnect"
                         existingConnection={sftpExistingConnection}
+                      />
+                    ) : (
+                      <SmbConnectButton
+                        label="Reconnect"
+                        existingConnection={smbExistingConnection}
                       />
                     )}
                     <DisconnectButton
@@ -387,8 +449,10 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                       ? { 'data-tour': 'first-connect-button' }
                       : {})}
                   />
-                ) : (
+                ) : platform === 'sftp' ? (
                   <SftpConnectButton label="Connect" />
+                ) : (
+                  <SmbConnectButton label="Connect" />
                 )}
               </div>
             );
