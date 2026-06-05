@@ -183,6 +183,30 @@ describe('testSmbConnection', () => {
     });
   });
 
+  it('classifies STATUS_ACCESS_DENIED as share permission failure, not credential failure', async () => {
+    mocks.mockReadDirectory.mockRejectedValueOnce({
+      header: { status: 0xc0000022 },
+      typeName: 'Create',
+    });
+
+    const result = await testSmbConnection({
+      host: '192.168.1.10',
+      share: 'storage',
+      username: 'user',
+      password: 'pass',
+      remotePath: '/',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: 'SMB_AUTH_FAILED',
+        message: 'SMB access denied. The account may lack permission for this share.',
+        details: 'Create: STATUS_ACCESS_DENIED',
+      }),
+    });
+  });
+
   it('classifies missing share errors from Response rejections', async () => {
     mocks.mockConnectTree.mockRejectedValueOnce({
       header: { status: 0xc00000cc },

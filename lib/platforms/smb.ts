@@ -342,12 +342,21 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
     };
   }
 
+  if (nt === SMB_NT_STATUS.ACCESS_DENIED || lower.includes('status_access_denied')) {
+    return {
+      code: 'SMB_AUTH_FAILED',
+      message: 'SMB access denied. The account may lack permission for this share.',
+      statusCode: 401,
+      details: message,
+    };
+  }
+
   if (
     nt === SMB_NT_STATUS.LOGON_FAILURE ||
     nt === SMB_NT_STATUS.WRONG_PASSWORD ||
     lower.includes('status_logon_failure') ||
     lower.includes('logon failure') ||
-    lower.includes('access denied') ||
+    (nt !== SMB_NT_STATUS.ACCESS_DENIED && lower.includes('access denied')) ||
     lower.includes('authentication') ||
     lower.includes('invalid user') ||
     lower.includes('wrong password') ||
@@ -356,15 +365,6 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
     return {
       code: 'SMB_AUTH_FAILED',
       message: 'SMB authentication failed. Check the username, password, and domain.',
-      statusCode: 401,
-      details: message,
-    };
-  }
-
-  if (nt === SMB_NT_STATUS.ACCESS_DENIED) {
-    return {
-      code: 'SMB_AUTH_FAILED',
-      message: 'SMB access denied. The account may lack permission for this share.',
       statusCode: 401,
       details: message,
     };
