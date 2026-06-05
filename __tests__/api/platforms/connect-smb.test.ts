@@ -95,6 +95,33 @@ describe('POST /api/platforms/connect/smb', () => {
     expect(body.error.code).toBe('SMB_SHARE_REQUIRED');
   });
 
+  it('returns 400 when remotePath is missing or blank', async () => {
+    for (const body of [
+      { ...validBody, remotePath: '' },
+      {
+        host: validBody.host,
+        share: validBody.share,
+        username: validBody.username,
+        password: validBody.password,
+        label: validBody.label,
+      },
+    ]) {
+      const res = await POST(createRequest(body));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error.code).toBe('SMB_REMOTE_PATH_REQUIRED');
+      expect(mockTestSmbConnection).not.toHaveBeenCalled();
+    }
+  });
+
+  it('accepts / as an explicit share-root remotePath', async () => {
+    const res = await POST(createRequest({ ...validBody, remotePath: '/' }));
+    expect(res.status).toBe(200);
+    expect(mockCreateConnectedAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ smbRemotePath: '/' })
+    );
+  });
+
   it('returns 400 for unsafe remotePath segments', async () => {
     const res = await POST(createRequest({ ...validBody, remotePath: '/backups/../etc' }));
     expect(res.status).toBe(400);

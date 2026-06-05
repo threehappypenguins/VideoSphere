@@ -87,8 +87,7 @@ export async function POST(req: NextRequest) {
   const domain = typeof body.domain === 'string' ? body.domain.trim() : '';
   const username = typeof body.username === 'string' ? body.username.trim() : '';
   const password = typeof body.password === 'string' ? body.password : '';
-  const remotePathRaw = typeof body.remotePath === 'string' ? body.remotePath.trim() : '';
-  const remotePath = remotePathRaw === '' ? '/' : remotePathRaw;
+  const remotePath = typeof body.remotePath === 'string' ? body.remotePath.trim() : '';
   const label = typeof body.label === 'string' ? body.label.trim() : '';
 
   if (!host) {
@@ -109,6 +108,18 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  if (!remotePath) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'SMB_REMOTE_PATH_REQUIRED',
+          message: 'remotePath is required (use / for the share root).',
+        },
+      },
+      { status: 400 }
+    );
+  }
   if (!isValidSmbRemotePath(remotePath)) {
     return NextResponse.json(
       {
@@ -116,7 +127,7 @@ export async function POST(req: NextRequest) {
         error: {
           code: 'SMB_REMOTE_PATH_INVALID',
           message:
-            'remotePath must be empty (share root) or start with / or \\, without . or .. segments.',
+            'remotePath must start with / or \\, without . or .. segments (use / for the share root).',
         },
       },
       { status: 400 }
