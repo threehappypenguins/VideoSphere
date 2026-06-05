@@ -369,6 +369,7 @@ describe('draft-upload-metadata', () => {
       normalizeDraftPlatforms({
         sermon_audio: {
           speakerName: '  Rev. Smith  ',
+          speakerID: 42,
           preachDate: '2026-01-15',
           eventType: 'Sunday Service',
           subtitle: ' Faith & Works ',
@@ -385,6 +386,7 @@ describe('draft-upload-metadata', () => {
     ).toEqual({
       sermon_audio: {
         speakerName: 'Rev. Smith',
+        speakerID: 42,
         preachDate: '2026-01-15',
         eventType: 'Sunday Service',
         subtitle: 'Faith & Works',
@@ -442,6 +444,7 @@ describe('draft-upload-metadata', () => {
       platforms: {
         sermon_audio: {
           speakerName: 'Rev. Smith',
+          speakerID: 77,
           preachDate: '2026-06-01',
         },
       },
@@ -456,6 +459,7 @@ describe('draft-upload-metadata', () => {
     expect(meta.moreInfoText).toBe('Shared Description');
     expect(meta.tags).toEqual(['faith', 'hope']);
     expect(meta.speakerName).toBe('Rev. Smith');
+    expect(meta.speakerID).toBe(77);
     expect(meta.preachDate).toBe('2026-06-01');
   });
 

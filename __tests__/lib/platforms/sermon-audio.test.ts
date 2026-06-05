@@ -72,6 +72,33 @@ describe('uploadToSermonAudio', () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe('https://upload.sermonaudio.test/video');
   });
 
+  it('includes speakerID in create sermon body when provided', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: { ...metadata, speakerID: 99 },
+      tokens,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(createInit.body))).toMatchObject({
+      speakerID: 99,
+      speakerName: 'Rev. Smith',
+    });
+  });
+
   it('returns an error when the API key is missing', async () => {
     const result = await uploadToSermonAudio({
       videoStream: makeVideoStream(),

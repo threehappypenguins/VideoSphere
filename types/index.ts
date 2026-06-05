@@ -232,6 +232,8 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
 export interface SermonAudioDraftFields extends PerPlatformOverrides {
   /** SermonAudio speaker name. */
   speakerName?: string;
+  /** SermonAudio speaker id when selected from SA speaker records. */
+  speakerID?: number;
   /** Preach date (`YYYY-MM-DD`). */
   preachDate?: string;
   /** Event type from `GET /v2/node/filter_options/sermon_event_types`. */

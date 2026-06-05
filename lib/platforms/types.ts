@@ -55,6 +55,8 @@ export interface SermonAudioSpecificUploadMetadata {
   /** SA series/sub-heading label. */
   subtitle?: string;
   speakerName?: string;
+  /** SermonAudio speaker id when linked to an existing SA speaker record. */
+  speakerID?: number;
   /** Preach date (`YYYY-MM-DD`). */
   preachDate?: string;
   /** Event type from SA filter options. */

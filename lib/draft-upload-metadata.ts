@@ -309,6 +309,10 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
 
 function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDraftFields {
   const speakerName = trimStr(sa.speakerName);
+  const speakerID =
+    typeof sa.speakerID === 'number' && Number.isInteger(sa.speakerID) && sa.speakerID > 0
+      ? sa.speakerID
+      : undefined;
   const preachDate = trimStr(sa.preachDate);
   const eventType = trimStr(sa.eventType);
   const subtitle = trimStr(sa.subtitle);
@@ -322,6 +326,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
   return {
     ...normalizePerPlatformOverrideFields(sa),
     ...(speakerName !== undefined ? { speakerName } : {}),
+    ...(speakerID !== undefined ? { speakerID } : {}),
     ...(preachDate !== undefined ? { preachDate } : {}),
     ...(eventType !== undefined ? { eventType } : {}),
     ...(subtitle !== undefined ? { subtitle } : {}),
@@ -725,6 +730,10 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const s = p.speakerName;
       sa.speakerName = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
     }
+    if ('speakerID' in p) {
+      const id = p.speakerID;
+      sa.speakerID = typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : undefined;
+    }
     if ('preachDate' in p) {
       const s = p.preachDate;
       sa.preachDate = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
@@ -875,6 +884,7 @@ export function buildMetadataForPlatform(
       ...(sa?.displayTitle?.trim() ? { displayTitle: sa.displayTitle.trim() } : {}),
       ...(sa?.subtitle?.trim() ? { subtitle: sa.subtitle.trim() } : {}),
       ...(sa?.speakerName?.trim() ? { speakerName: sa.speakerName.trim() } : {}),
+      ...(sa?.speakerID !== undefined ? { speakerID: sa.speakerID } : {}),
       ...(sa?.preachDate?.trim() ? { preachDate: sa.preachDate.trim() } : {}),
       ...(sa?.eventType?.trim() ? { eventType: sa.eventType.trim() } : {}),
       ...(sa?.bibleText?.trim() ? { bibleText: sa.bibleText.trim() } : {}),

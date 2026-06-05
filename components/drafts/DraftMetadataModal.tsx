@@ -21,6 +21,7 @@ import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import { cn } from '@/lib/utils';
+import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
@@ -2311,14 +2312,15 @@ export function DraftMetadataModal({
                   >
                     Speaker ({platformLabel('sermon_audio')})
                   </label>
-                  <input
+                  <SermonAudioSpeakerCombobox
                     id="draft-sermon-audio-speaker"
-                    value={sermonAudioFields?.speakerName ?? ''}
-                    onChange={(event) => {
+                    speakerName={sermonAudioFields?.speakerName ?? ''}
+                    speakerID={sermonAudioFields?.speakerID}
+                    onSpeakerChange={(next) => {
                       clearUploadFieldError('sermon_audio.speakerName');
-                      updateSermonAudioFields({ speakerName: event.target.value });
+                      updateSermonAudioFields(next);
                     }}
-                    aria-invalid={uploadFieldErrors.has('sermon_audio.speakerName')}
+                    invalid={uploadFieldErrors.has('sermon_audio.speakerName')}
                     className={fieldBorderClass('sermon_audio.speakerName')}
                   />
                 </div>
