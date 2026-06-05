@@ -282,6 +282,20 @@ describe('uploadToSmb', () => {
     });
   });
 
+  it('rejects upload when smbRemotePath is missing on the account', async () => {
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount({ smbRemotePath: undefined }),
+      videoStream: makeVideoStream(),
+      metadata: { title: 'My Backup' },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({ code: 'SMB_CONFIG_INVALID' }),
+    });
+    expect(mocks.mockAuthenticate).not.toHaveBeenCalled();
+  });
+
   it('classifies write failures', async () => {
     mocks.mockCreateFileWriteStream.mockRejectedValueOnce(new Error('write failed hard'));
 

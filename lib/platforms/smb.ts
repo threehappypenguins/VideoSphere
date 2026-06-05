@@ -254,8 +254,13 @@ function credentialsFromConnectedAccount(account: ConnectedAccount): SmbCredenti
   const host = account.smbHost?.trim();
   const share = account.smbShare?.trim();
   const username = account.platformUserId?.trim();
-  const remotePath = account.smbRemotePath?.trim() ?? '';
   const password = account.accessToken;
+
+  if (account.smbRemotePath == null) {
+    return null;
+  }
+
+  const remotePath = account.smbRemotePath.trim();
 
   if (!host || !share || !username || password.trim() === '') {
     return null;
