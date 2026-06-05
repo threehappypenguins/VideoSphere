@@ -49,6 +49,7 @@ function createEditorValues(draft: Draft): DraftEditorValues {
     tags: draft.tags,
     visibility: draft.visibility,
     targets: [...draft.targets],
+    platforms: draft.platforms ?? {},
     ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
     ...(draft.thumbnailContentType ? { thumbnailContentType: draft.thumbnailContentType } : {}),
     ...(draft.thumbnailPreviewUrl ? { thumbnailPreviewUrl: draft.thumbnailPreviewUrl } : {}),
@@ -63,6 +64,7 @@ function createNewEditorValues(): DraftEditorValues {
     tags: [],
     visibility: 'public',
     targets: [],
+    platforms: {},
   };
 }
 
@@ -347,6 +349,7 @@ export default function DraftsPage() {
             tags: editingDraft.tags,
             visibility: editingDraft.visibility,
             targets: editingDraft.targets,
+            platforms: editingDraft.platforms,
           }),
         });
         if (!response.ok) {
@@ -397,6 +400,7 @@ export default function DraftsPage() {
             tags: creatingDraft.tags,
             visibility: creatingDraft.visibility,
             targets: creatingDraft.targets,
+            platforms: creatingDraft.platforms,
           }),
         });
         if (!response.ok) {

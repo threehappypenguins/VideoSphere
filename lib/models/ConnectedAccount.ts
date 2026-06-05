@@ -73,7 +73,7 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
     userId: { type: String, required: true, index: true, trim: true },
     platform: {
       type: String,
-      enum: ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb'],
+      enum: ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb', 'sermon_audio'],
       required: true,
     },
     accessToken: { type: String, required: true },

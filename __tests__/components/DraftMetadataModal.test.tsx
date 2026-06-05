@@ -36,6 +36,7 @@ const draftValue: DraftEditorValues = {
   tags: ['demo'],
   visibility: 'public',
   targets: ['youtube'],
+  platforms: {},
 };
 
 describe('DraftMetadataModal AI prompt behavior', () => {
@@ -187,6 +188,7 @@ describe('DraftMetadataModal announceInModal – AI metadata generation success'
     tags: [],
     visibility: 'public',
     targets: ['youtube'],
+    platforms: {},
   };
 
   const successMetadataJson = JSON.stringify({

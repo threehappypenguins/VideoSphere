@@ -7,6 +7,7 @@ import {
   MAX_DRAFT_DOCUMENT_CHARS,
   mergeDraftPlatforms,
   mergeDraftPlatformsPatch,
+  normalizeDraftPlatforms,
   parseDraftTargetsAllowEmpty,
   parseDraftTargetsFromRequestBody,
   parseDraftPlatformsPatchBody,
@@ -105,7 +106,8 @@ describe('draft-upload-metadata', () => {
     });
     expect(parseDraftTargetsFromRequestBody([])).toEqual({
       ok: false,
-      error: 'targets must include at least one of: youtube, vimeo, google_drive, sftp, smb',
+      error:
+        'targets must include at least one of: youtube, vimeo, google_drive, sftp, smb, sermon_audio',
     });
     expect(parseDraftTargetsFromRequestBody(['youtube', 'youtube'])).toEqual({
       ok: true,
@@ -360,5 +362,142 @@ describe('draft-upload-metadata', () => {
     };
     const meta = buildMetadataForPlatform(draft, 'vimeo');
     expect(meta.tags).toEqual([]);
+  });
+
+  it('normalizeDraftPlatforms normalizes sermon_audio fields', () => {
+    expect(
+      normalizeDraftPlatforms({
+        sermon_audio: {
+          speakerName: '  Rev. Smith  ',
+          preachDate: '2026-01-15',
+          eventType: 'Sunday Service',
+          subtitle: ' Faith & Works ',
+          bibleText: 'John 3:16',
+          keywords: ' grace, hope ',
+          displayTitle: ' Short ',
+          languageCode: 'en',
+          autoPublishOnProcessed: false,
+          titleOverride: '  SA Title  ',
+          descriptionOverride: ' SA Desc ',
+          tagsOverride: ['  holy ', 'day'],
+        },
+      })
+    ).toEqual({
+      sermon_audio: {
+        speakerName: 'Rev. Smith',
+        preachDate: '2026-01-15',
+        eventType: 'Sunday Service',
+        subtitle: 'Faith & Works',
+        bibleText: 'John 3:16',
+        keywords: 'grace, hope',
+        displayTitle: 'Short',
+        languageCode: 'en',
+        autoPublishOnProcessed: false,
+        titleOverride: 'SA Title',
+        descriptionOverride: 'SA Desc',
+        tagsOverride: ['holy', 'day'],
+      },
+    });
+  });
+
+  it('buildMetadataForPlatform sermon_audio prefers overrides over shared values', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Shared Title',
+      description: 'Shared Description',
+      tags: ['shared-tag'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          titleOverride: 'Override Title',
+          descriptionOverride: 'Override Description',
+          tagsOverride: ['override-tag'],
+          speakerName: 'Rev. Smith',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(meta.title).toBe('Override Title');
+    expect(meta.fullTitle).toBe('Override Title');
+    expect(meta.description).toBe('Override Description');
+    expect(meta.moreInfoText).toBe('Override Description');
+    expect(meta.tags).toEqual(['override-tag']);
+    expect(meta.speakerName).toBe('Rev. Smith');
+  });
+
+  it('buildMetadataForPlatform sermon_audio falls back to shared values when overrides are absent', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Shared Title',
+      description: 'Shared Description',
+      tags: ['faith', 'hope'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+          preachDate: '2026-06-01',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(meta.title).toBe('Shared Title');
+    expect(meta.fullTitle).toBe('Shared Title');
+    expect(meta.description).toBe('Shared Description');
+    expect(meta.moreInfoText).toBe('Shared Description');
+    expect(meta.tags).toEqual(['faith', 'hope']);
+    expect(meta.speakerName).toBe('Rev. Smith');
+    expect(meta.preachDate).toBe('2026-06-01');
+  });
+
+  it('buildMetadataForPlatform sermon_audio uses keywords when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'T',
+      description: 'D',
+      tags: ['faith', 'hope'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          keywords: '#grace #hope',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('#grace #hope');
+  });
+
+  it('buildMetadataForPlatform sermon_audio joins tags when keywords are unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'T',
+      description: 'D',
+      tags: ['faith', 'hope'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('faith, hope');
   });
 });

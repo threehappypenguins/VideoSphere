@@ -40,6 +40,14 @@ export function tokenNeedsRefresh(
  * @throws Clear Error when YouTube refresh fails (e.g. the user revoked access).
  */
 export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<PlatformTokens> {
+  if (account.platform === 'sermon_audio') {
+    return {
+      accessToken: account.accessToken,
+      refreshToken: account.refreshToken,
+      tokenExpiry: account.tokenExpiry,
+    };
+  }
+
   if (!tokenNeedsRefresh(account.tokenExpiry, Date.now(), account.accessToken)) {
     return {
       accessToken: account.accessToken,

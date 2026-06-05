@@ -30,6 +30,11 @@ import { uploadToVimeo } from '@/lib/platforms/vimeo';
 import { uploadToGoogleDrive } from '@/lib/platforms/google-drive';
 import { uploadToSftp } from '@/lib/platforms/sftp';
 import { uploadToSmb } from '@/lib/platforms/smb';
+import {
+  pollSermonAudioProcessing,
+  publishSermonAudio,
+  uploadToSermonAudio,
+} from '@/lib/platforms/sermon-audio';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
@@ -124,7 +129,8 @@ async function runSinglePlatformUpload(
   userId: string,
   r2ObjectKey: string,
   platformUpload: PlatformUpload,
-  metadata: PlatformUploadMetadata
+  metadata: PlatformUploadMetadata,
+  saApiKeyByPlatformUploadId: Map<string, string>
 ): Promise<void> {
   try {
     await requireUpdatePlatformUploadStatus(platformUpload.id, 'uploading');
@@ -155,6 +161,10 @@ async function runSinglePlatformUpload(
         message
       );
       return;
+    }
+
+    if (platformUpload.platform === 'sermon_audio') {
+      saApiKeyByPlatformUploadId.set(platformUpload.id, tokens.accessToken);
     }
 
     // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
@@ -215,6 +225,21 @@ async function runSinglePlatformUpload(
           contentLength,
           contentType,
           metadata: { title: metadata.title },
+          signal,
+        });
+      }
+
+      if (platformUpload.platform === 'sermon_audio') {
+        const broadcasterID = connectedAccount.platformUserId.trim();
+        return uploadToSermonAudio({
+          videoStream: stream,
+          contentLength,
+          contentType,
+          metadata: {
+            ...metadata,
+            ...(broadcasterID ? { broadcasterID } : {}),
+          },
+          tokens: { accessToken: tokens.accessToken },
           signal,
         });
       }
@@ -353,6 +378,7 @@ export async function runDistributionInBackground(
 ): Promise<void> {
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
   const subsetRetry = options?.subsetRetry === true;
+  const saApiKeyByPlatformUploadId = new Map<string, string>();
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -360,7 +386,13 @@ export async function runDistributionInBackground(
         if (!meta) {
           throw new Error(`Missing merged metadata for platform upload ${platformUpload.id}`);
         }
-        return runSinglePlatformUpload(userId, r2ObjectKey, platformUpload, meta);
+        return runSinglePlatformUpload(
+          userId,
+          r2ObjectKey,
+          platformUpload,
+          meta,
+          saApiKeyByPlatformUploadId
+        );
       })
     );
 
@@ -428,6 +460,44 @@ export async function runDistributionInBackground(
     });
 
     await updateUploadJobStatus(jobId, 'completed', null);
+
+    for (const upload of attemptResults) {
+      if (upload.platform !== 'sermon_audio') continue;
+      const sermonID = upload.platformVideoId.trim();
+      if (!sermonID) continue;
+
+      const meta = metadataByPlatformId.get(upload.id);
+      if (meta?.autoPublishOnProcessed === false) continue;
+
+      const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
+      if (!apiKey) {
+        console.warn(
+          `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
+        );
+        continue;
+      }
+
+      void (async () => {
+        try {
+          await pollSermonAudioProcessing({
+            sermonID,
+            tokens: { accessToken: apiKey },
+          });
+          await publishSermonAudio({
+            sermonID,
+            tokens: { accessToken: apiKey },
+          });
+          console.log(
+            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${upload.id})`
+          );
+        } catch (err) {
+          console.error(
+            `[distribute] SermonAudio auto-publish failed for platform_upload ${upload.id} (job ${jobId}, sermon ${sermonID}):`,
+            err
+          );
+        }
+      })();
+    }
 
     // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
     // Capture the thumbnail key from the metadata snapshot used for this distribution so that

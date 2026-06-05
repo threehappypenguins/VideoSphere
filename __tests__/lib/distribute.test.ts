@@ -54,6 +54,24 @@ vi.mock('@/lib/platforms/vimeo', () => ({
   uploadToVimeo: (...args: unknown[]) => mockUploadToVimeo(...args),
 }));
 
+vi.mock('@/lib/platforms/sermon-audio', () => ({
+  uploadToSermonAudio: vi.fn(),
+  pollSermonAudioProcessing: vi.fn(),
+  publishSermonAudio: vi.fn(),
+}));
+
+vi.mock('@/lib/platforms/google-drive', () => ({
+  uploadToGoogleDrive: vi.fn(),
+}));
+
+vi.mock('@/lib/platforms/sftp', () => ({
+  uploadToSftp: vi.fn(),
+}));
+
+vi.mock('@/lib/platforms/smb', () => ({
+  uploadToSmb: vi.fn(),
+}));
+
 import { runDistributionInBackground } from '@/lib/api/distribute';
 import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 

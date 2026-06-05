@@ -73,6 +73,10 @@
   --popover: #ffffff;
   --popover-foreground: #171717;
 
+  /* Scrollbar colors for always-visible scroll areas */
+  --scrollbar-track: #e5e5e5;
+  --scrollbar-thumb: #a3a3a3;
+
   /* Card noise overlay color — primary hue shifted toward background hue for harmony */
   --card-noise-color: #d7dee2;
 }
@@ -114,6 +118,9 @@
   --popover: #0a0a0a;
   --popover-foreground: #ededed;
 
+  --scrollbar-track: #2a2a2a;
+  --scrollbar-thumb: #737373;
+
   /* Card noise overlay color — primary hue shifted toward background hue for harmony */
   --card-noise-color: #250f05;
 }
@@ -144,4 +151,42 @@ input,
 textarea,
 small {
   font-weight: 400;
+}
+
+/* Always-visible scrollbars for overflow regions (e.g. select dropdowns).
+   Radix Select injects `[data-radix-select-viewport]::-webkit-scrollbar { display: none }`;
+   use the attribute + class selector so our styles win. */
+.scrollbar-visible {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.scrollbar-visible[data-radix-select-viewport] {
+  scrollbar-width: thin !important;
+  -ms-overflow-style: auto !important;
+}
+
+.scrollbar-visible::-webkit-scrollbar,
+.scrollbar-visible[data-radix-select-viewport]::-webkit-scrollbar {
+  display: block !important;
+  width: 10px;
+}
+
+.scrollbar-visible::-webkit-scrollbar-track,
+.scrollbar-visible[data-radix-select-viewport]::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 9999px;
+}
+
+.scrollbar-visible::-webkit-scrollbar-thumb,
+.scrollbar-visible[data-radix-select-viewport]::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 9999px;
+}
+
+.scrollbar-visible::-webkit-scrollbar-thumb:hover,
+.scrollbar-visible[data-radix-select-viewport]::-webkit-scrollbar-thumb:hover {
+  background-color: var(--foreground);
 }

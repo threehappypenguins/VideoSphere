@@ -3,7 +3,7 @@
  *
  * Stored shape:
  * - **Shared:** `targets`, `title`, `description`, `visibility`, `tags` (one list for all targets)
- * - **Per platform:** `platforms.youtube` / `platforms.vimeo` (e.g. YouTube `categoryId`, Vimeo `categoryUri`);
+ * - **Per platform:** `platforms.youtube` / `platforms.vimeo` / `platforms.sermon_audio` (e.g. YouTube `categoryId`, Vimeo `categoryUri`, SermonAudio sermon fields);
  *   backup targets (`platforms.sftp` / `platforms.smb`) are carried through as empty objects until fields exist.
  */
 
@@ -20,6 +20,7 @@ import {
   type VimeoVideoLicense,
   type YouTubeDraftFields,
   type VimeoDraftFields,
+  type SermonAudioDraftFields,
   type SftpDraftFields,
   type SmbDraftFields,
 } from '@/types';
@@ -132,6 +133,25 @@ function stringList(v: unknown): string[] | undefined {
   return out;
 }
 
+function normalizePerPlatformOverrideFields(
+  o: Record<string, unknown>
+): Pick<SermonAudioDraftFields, 'titleOverride' | 'descriptionOverride' | 'tagsOverride'> {
+  const titleOverride = trimStr(o.titleOverride);
+  const descriptionOverride = trimStr(o.descriptionOverride);
+  let tagsOverride: string[] | undefined;
+  if (Array.isArray(o.tagsOverride)) {
+    tagsOverride = normalizeTagList(o.tagsOverride)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  return {
+    ...(titleOverride !== undefined ? { titleOverride } : {}),
+    ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
+    ...(tagsOverride !== undefined ? { tagsOverride } : {}),
+  };
+}
+
 const YT_LICENSE = new Set(['youtube', 'creativeCommon']);
 
 const VIMEO_LICENSE = new Set<VimeoVideoLicense>([
@@ -242,6 +262,7 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
   }
 
   return {
+    ...normalizePerPlatformOverrideFields(y),
     ...(categoryId !== undefined ? { categoryId } : {}),
     ...(madeForKids !== undefined ? { madeForKids } : {}),
     ...(defaultLanguage !== undefined ? { defaultLanguage } : {}),
@@ -274,6 +295,7 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
   const embed = normalizeVimeoEmbed(v.embed);
 
   return {
+    ...normalizePerPlatformOverrideFields(v),
     ...(categoryUri !== undefined ? { categoryUri } : {}),
     ...(license !== undefined ? { license } : {}),
     ...(locale !== undefined ? { locale } : {}),
@@ -282,6 +304,32 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
     ...(reviewPage !== undefined ? { reviewPage } : {}),
     ...(privacy !== undefined ? { privacy } : {}),
     ...(embed !== undefined ? { embed } : {}),
+  };
+}
+
+function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDraftFields {
+  const speakerName = trimStr(sa.speakerName);
+  const preachDate = trimStr(sa.preachDate);
+  const eventType = trimStr(sa.eventType);
+  const subtitle = trimStr(sa.subtitle);
+  const bibleText = trimStr(sa.bibleText);
+  const keywords = trimStr(sa.keywords);
+  const displayTitle = trimStr(sa.displayTitle);
+  const languageCode = trimStr(sa.languageCode);
+  const autoPublishOnProcessed =
+    typeof sa.autoPublishOnProcessed === 'boolean' ? sa.autoPublishOnProcessed : undefined;
+
+  return {
+    ...normalizePerPlatformOverrideFields(sa),
+    ...(speakerName !== undefined ? { speakerName } : {}),
+    ...(preachDate !== undefined ? { preachDate } : {}),
+    ...(eventType !== undefined ? { eventType } : {}),
+    ...(subtitle !== undefined ? { subtitle } : {}),
+    ...(bibleText !== undefined ? { bibleText } : {}),
+    ...(keywords !== undefined ? { keywords } : {}),
+    ...(displayTitle !== undefined ? { displayTitle } : {}),
+    ...(languageCode !== undefined ? { languageCode } : {}),
+    ...(autoPublishOnProcessed !== undefined ? { autoPublishOnProcessed } : {}),
   };
 }
 
@@ -312,6 +360,11 @@ export function normalizeDraftPlatforms(value: unknown): DraftPlatforms {
   if (isPlainObject(value.vimeo)) {
     const vm = normalizeVimeoFields(value.vimeo);
     out.vimeo = Object.keys(vm).length > 0 ? vm : undefined;
+  }
+
+  if (isPlainObject(value.sermon_audio)) {
+    const sa = normalizeSermonAudioFields(value.sermon_audio);
+    out.sermon_audio = Object.keys(sa).length > 0 ? sa : undefined;
   }
 
   if (isPlainObject(value.sftp)) {
@@ -506,6 +559,9 @@ export function mergeDraftPlatforms(base: DraftPlatforms, patch: DraftPlatforms)
   if (patch.vimeo !== undefined) {
     next.vimeo = { ...base.vimeo, ...patch.vimeo };
   }
+  if (patch.sermon_audio !== undefined) {
+    next.sermon_audio = { ...base.sermon_audio, ...patch.sermon_audio };
+  }
   if (patch.sftp !== undefined) {
     next.sftp = { ...base.sftp, ...patch.sftp };
   }
@@ -580,6 +636,24 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
         yb.playlistTitles = undefined;
       }
     }
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      yb.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('descriptionOverride' in p) {
+      const s = p.descriptionOverride;
+      yb.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('tagsOverride' in p) {
+      if (Array.isArray(p.tagsOverride)) {
+        yb.tagsOverride = p.tagsOverride
+          .filter((x): x is string => typeof x === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        yb.tagsOverride = undefined;
+      }
+    }
     next.youtube = yb;
   }
 
@@ -623,7 +697,85 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
     if ('embed' in p) {
       vm.embed = normalizeVimeoEmbed(p.embed);
     }
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      vm.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('descriptionOverride' in p) {
+      const s = p.descriptionOverride;
+      vm.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('tagsOverride' in p) {
+      if (Array.isArray(p.tagsOverride)) {
+        vm.tagsOverride = p.tagsOverride
+          .filter((x): x is string => typeof x === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        vm.tagsOverride = undefined;
+      }
+    }
     next.vimeo = vm;
+  }
+
+  if (isPlainObject(patch.sermon_audio)) {
+    const p = patch.sermon_audio;
+    const sa = { ...base.sermon_audio };
+    if ('speakerName' in p) {
+      const s = p.speakerName;
+      sa.speakerName = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('preachDate' in p) {
+      const s = p.preachDate;
+      sa.preachDate = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('eventType' in p) {
+      const s = p.eventType;
+      sa.eventType = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('subtitle' in p) {
+      const s = p.subtitle;
+      sa.subtitle = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('bibleText' in p) {
+      const s = p.bibleText;
+      sa.bibleText = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('keywords' in p) {
+      const s = p.keywords;
+      sa.keywords = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('displayTitle' in p) {
+      const s = p.displayTitle;
+      sa.displayTitle = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('languageCode' in p) {
+      const s = p.languageCode;
+      sa.languageCode = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('autoPublishOnProcessed' in p) {
+      sa.autoPublishOnProcessed =
+        typeof p.autoPublishOnProcessed === 'boolean' ? p.autoPublishOnProcessed : undefined;
+    }
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      sa.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('descriptionOverride' in p) {
+      const s = p.descriptionOverride;
+      sa.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('tagsOverride' in p) {
+      if (Array.isArray(p.tagsOverride)) {
+        sa.tagsOverride = p.tagsOverride
+          .filter((x): x is string => typeof x === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        sa.tagsOverride = undefined;
+      }
+    }
+    next.sermon_audio = sa;
   }
 
   if (isPlainObject(patch.sftp)) {
@@ -637,6 +789,21 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
   return next;
 }
 
+function resolveDraftCopyForPlatform(
+  draft: Draft,
+  platformFields?: {
+    titleOverride?: string;
+    descriptionOverride?: string;
+    tagsOverride?: string[];
+  }
+): { title: string; description: string; tags: string[] } {
+  const title = platformFields?.titleOverride?.trim() || draft.title;
+  const description = platformFields?.descriptionOverride?.trim() || draft.description;
+  const tagSource = platformFields?.tagsOverride ?? draft.tags;
+  const tags = tagSource.map((t) => t.trim()).filter((t) => t.length > 0);
+  return { title, description, tags };
+}
+
 /**
  * Executes build metadata for platform.
  * @param draft - Input value for draft.
@@ -648,21 +815,23 @@ export function buildMetadataForPlatform(
   platform: ConnectedAccountPlatform
 ): PlatformUploadMetadata {
   const visibility = draft.visibility;
-  const tags = draft.tags.map((t) => t.trim()).filter((t) => t.length > 0);
+  const thumbnailR2Key = draft.thumbnailR2Key?.trim() || undefined;
+  const thumbnailContentType = draft.thumbnailContentType?.trim() || undefined;
 
   if (platform === 'youtube') {
     const yt = draft.platforms.youtube;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, yt);
     const playlistTitles =
       yt?.playlistTitles !== undefined && yt.playlistTitles.length > 0
         ? uniqueTrimmedPlaylistTitles(yt.playlistTitles)
         : undefined;
     return {
-      title: draft.title,
-      description: draft.description,
+      title,
+      description,
       tags,
       visibility,
-      thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
-      thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
+      thumbnailR2Key,
+      thumbnailContentType,
       categoryId: yt?.categoryId?.trim() || undefined,
       madeForKids: yt?.madeForKids,
       defaultLanguage: yt?.defaultLanguage,
@@ -678,24 +847,54 @@ export function buildMetadataForPlatform(
   }
   if (platform === 'vimeo') {
     const vm = draft.platforms.vimeo;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, vm);
     return {
-      title: draft.title,
-      description: draft.description,
+      title,
+      description,
       tags,
       visibility,
-      thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
-      thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
+      thumbnailR2Key,
+      thumbnailContentType,
       vimeoCategoryUri: vm?.categoryUri?.trim() || undefined,
       vimeo: vm,
     };
   }
+  if (platform === 'sermon_audio') {
+    const sa = draft.platforms.sermon_audio;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, sa);
+    const keywords = sa?.keywords?.trim() || tags.join(', ');
 
+    return {
+      title,
+      description,
+      tags,
+      visibility,
+      thumbnailR2Key,
+      thumbnailContentType,
+      fullTitle: title,
+      ...(sa?.displayTitle?.trim() ? { displayTitle: sa.displayTitle.trim() } : {}),
+      ...(sa?.subtitle?.trim() ? { subtitle: sa.subtitle.trim() } : {}),
+      ...(sa?.speakerName?.trim() ? { speakerName: sa.speakerName.trim() } : {}),
+      ...(sa?.preachDate?.trim() ? { preachDate: sa.preachDate.trim() } : {}),
+      ...(sa?.eventType?.trim() ? { eventType: sa.eventType.trim() } : {}),
+      ...(sa?.bibleText?.trim() ? { bibleText: sa.bibleText.trim() } : {}),
+      moreInfoText: description,
+      keywords,
+      ...(sa?.languageCode?.trim() ? { languageCode: sa.languageCode.trim() } : {}),
+      acceptCopyright: true,
+      ...(sa?.autoPublishOnProcessed !== undefined
+        ? { autoPublishOnProcessed: sa.autoPublishOnProcessed }
+        : {}),
+    };
+  }
+
+  const { title, description, tags } = resolveDraftCopyForPlatform(draft);
   return {
-    title: draft.title,
-    description: draft.description,
+    title,
+    description,
     tags,
     visibility,
-    thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
-    thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
+    thumbnailR2Key,
+    thumbnailContentType,
   };
 }

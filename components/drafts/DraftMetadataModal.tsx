@@ -18,6 +18,9 @@ import {
   Undo2,
 } from 'lucide-react';
 import { createSseParser } from '@/lib/ai/sse-utils';
+import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
+import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
+import { cn } from '@/lib/utils';
 import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
@@ -27,6 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,8 +53,13 @@ import type {
   ConnectedAccountPlatform,
   ConnectedAccountPublic,
   Draft,
+  DraftPlatforms,
+  PerPlatformOverrides,
   PlatformUploadStatus,
+  SermonAudioDraftFields,
   UploadJobStatus,
+  VimeoDraftFields,
+  YouTubeDraftFields,
 } from '@/types';
 import {
   DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
@@ -68,6 +83,7 @@ export interface DraftEditorValues {
   tags: string[];
   visibility: Draft['visibility'];
   targets: ConnectedAccountPlatform[];
+  platforms: DraftPlatforms;
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
   thumbnailPreviewUrl?: string;
@@ -100,6 +116,104 @@ function comparePlatformsByPreference(
   if (aKnown) return -1;
   if (bKnown) return 1;
   return a.localeCompare(b);
+}
+
+const OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
+
+type OverridePlatform = (typeof OVERRIDE_PLATFORMS)[number];
+
+const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = ['youtube', 'vimeo', 'sermon_audio'];
+
+/** SermonAudio short title (`displayTitle`) is offered when the effective title exceeds this length. */
+const SERMON_AUDIO_SHORT_TITLE_THRESHOLD = 30;
+
+function isOverridePlatform(platform: ConnectedAccountPlatform): platform is OverridePlatform {
+  return (OVERRIDE_PLATFORMS as readonly string[]).includes(platform);
+}
+
+function platformUsesSharedTitle(fields: PerPlatformOverrides | undefined): boolean {
+  return fields?.titleOverride === undefined;
+}
+
+function platformUsesSharedDescription(fields: PerPlatformOverrides | undefined): boolean {
+  return fields?.descriptionOverride === undefined;
+}
+
+function platformUsesSharedTags(fields: PerPlatformOverrides | undefined): boolean {
+  return fields?.tagsOverride === undefined;
+}
+
+function sortOverridePlatforms(platforms: OverridePlatform[]): OverridePlatform[] {
+  return [...platforms].sort(
+    (a, b) => OVERRIDE_PLATFORM_ORDER.indexOf(a) - OVERRIDE_PLATFORM_ORDER.indexOf(b)
+  );
+}
+
+function sermonAudioEffectiveTitle(value: DraftEditorValues, usePerPlatformTitle: boolean): string {
+  if (usePerPlatformTitle) {
+    return value.platforms.sermon_audio?.titleOverride ?? value.title;
+  }
+  return value.title;
+}
+
+function needsSermonAudioShortTitle(title: string): boolean {
+  return title.length > SERMON_AUDIO_SHORT_TITLE_THRESHOLD;
+}
+
+type SharedCopyField = 'title' | 'description' | 'tags';
+
+function SharedMetadataCheckbox({
+  checked,
+  onChange,
+  hint,
+}: {
+  checked: boolean;
+  onChange: (useShared: boolean) => void;
+  hint: string;
+}) {
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" title={hint}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      Use shared metadata
+    </label>
+  );
+}
+
+function SermonAudioShortTitleField({
+  value,
+  onChange,
+  className,
+  fieldBorderClassName,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  className?: string;
+  fieldBorderClassName: string;
+}) {
+  return (
+    <div className={className}>
+      <label
+        htmlFor="draft-sermon-audio-display-title"
+        className="text-sm font-medium text-foreground"
+      >
+        Short Title ({platformLabel('sermon_audio')}){' '}
+        <span className="font-normal text-muted-foreground">(optional)</span>
+      </label>
+      <input
+        id="draft-sermon-audio-display-title"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={fieldBorderClassName}
+      />
+      <p className="mt-1 text-xs text-muted-foreground">
+        Use when the main title is longer than {SERMON_AUDIO_SHORT_TITLE_THRESHOLD} characters.
+      </p>
+    </div>
+  );
 }
 
 interface DraftMetadataModalProps {
@@ -229,6 +343,12 @@ export function DraftMetadataModal({
   const [isLoadingUploadHistory, setIsLoadingUploadHistory] = useState(false);
   const [showUploadHistory, setShowUploadHistory] = useState(false);
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
+  const [platformOverrideTagInput, setPlatformOverrideTagInput] = useState<
+    Partial<Record<OverridePlatform, string>>
+  >({});
+  const [uploadFieldErrors, setUploadFieldErrors] = useState<Set<DraftUploadFieldKey>>(new Set());
+  const [sermonEventTypes, setSermonEventTypes] = useState<string[] | null>(null);
+  const [sermonEventTypesLoadFailed, setSermonEventTypesLoadFailed] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
@@ -361,6 +481,16 @@ export function DraftMetadataModal({
     ...editor,
     tags: [...editor.tags],
     targets: [...editor.targets],
+    platforms: {
+      youtube: editor.platforms.youtube !== undefined ? { ...editor.platforms.youtube } : undefined,
+      vimeo: editor.platforms.vimeo !== undefined ? { ...editor.platforms.vimeo } : undefined,
+      sftp: editor.platforms.sftp !== undefined ? { ...editor.platforms.sftp } : undefined,
+      smb: editor.platforms.smb !== undefined ? { ...editor.platforms.smb } : undefined,
+      sermon_audio:
+        editor.platforms.sermon_audio !== undefined
+          ? { ...editor.platforms.sermon_audio }
+          : undefined,
+    },
     ...(editor.thumbnailR2Key !== undefined ? { thumbnailR2Key: editor.thumbnailR2Key } : {}),
     ...(editor.thumbnailContentType !== undefined
       ? { thumbnailContentType: editor.thumbnailContentType }
@@ -665,7 +795,226 @@ export function DraftMetadataModal({
     setAiRedoStack([]);
   }, [draftId]);
 
-  const commitTagsFromInput = () => {
+  useEffect(() => {
+    if (!value?.targets.includes('sermon_audio')) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSermonEventTypes = async () => {
+      try {
+        const response = await fetch(
+          '/api/platforms/sermon-audio/filter-options/sermon-event-types',
+          {
+            cache: 'no-store',
+          }
+        );
+        if (!response.ok) {
+          throw new Error('Failed to load SermonAudio event types');
+        }
+        const payload = (await response.json()) as ApiResponse<string[]>;
+        const types = Array.isArray(payload.data)
+          ? payload.data.filter((item) => typeof item === 'string' && item.trim() !== '')
+          : [];
+        if (!cancelled) {
+          setSermonEventTypes(types);
+          setSermonEventTypesLoadFailed(types.length === 0);
+        }
+      } catch {
+        if (!cancelled) {
+          setSermonEventTypes(null);
+          setSermonEventTypesLoadFailed(true);
+        }
+      }
+    };
+
+    void loadSermonEventTypes();
+    return () => {
+      cancelled = true;
+    };
+  }, [value?.targets]);
+
+  useEffect(() => {
+    if (!value?.targets.includes('sermon_audio')) return;
+    const defaults = mergeSermonAudioDefaultFields(value.platforms.sermon_audio);
+    if (Object.keys(defaults).length === 0) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        sermon_audio: {
+          ...value.platforms.sermon_audio,
+          ...defaults,
+        },
+      },
+    });
+  }, [
+    onChange,
+    value,
+    value?.platforms.sermon_audio?.eventType,
+    value?.platforms.sermon_audio?.preachDate,
+    value?.targets,
+  ]);
+
+  const selectedOverridePlatforms = useMemo(() => {
+    if (!value) return [] as OverridePlatform[];
+    return sortOverridePlatforms(value.targets.filter(isOverridePlatform));
+  }, [value]);
+
+  const usesSharedTitleGlobally = useMemo(() => {
+    if (selectedOverridePlatforms.length < 2) return true;
+    return selectedOverridePlatforms.every((platform) =>
+      platformUsesSharedTitle(value?.platforms[platform])
+    );
+  }, [selectedOverridePlatforms, value?.platforms]);
+
+  const usesSharedDescriptionGlobally = useMemo(() => {
+    if (selectedOverridePlatforms.length < 2) return true;
+    return selectedOverridePlatforms.every((platform) =>
+      platformUsesSharedDescription(value?.platforms[platform])
+    );
+  }, [selectedOverridePlatforms, value?.platforms]);
+
+  const usesSharedTagsGlobally = useMemo(() => {
+    if (selectedOverridePlatforms.length < 2) return true;
+    return selectedOverridePlatforms.every((platform) =>
+      platformUsesSharedTags(value?.platforms[platform])
+    );
+  }, [selectedOverridePlatforms, value?.platforms]);
+
+  const showPerPlatformTitle = selectedOverridePlatforms.length >= 2 && !usesSharedTitleGlobally;
+  const showPerPlatformDescription =
+    selectedOverridePlatforms.length >= 2 && !usesSharedDescriptionGlobally;
+  const showPerPlatformTags = selectedOverridePlatforms.length >= 2 && !usesSharedTagsGlobally;
+
+  const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
+  const sermonAudioFields = value?.platforms.sermon_audio;
+  const sermonAudioEffectiveTitleText = value
+    ? sermonAudioEffectiveTitle(value, showPerPlatformTitle)
+    : '';
+  const showSermonAudioShortTitleUnderSharedTitle =
+    showSermonAudioFields &&
+    !showPerPlatformTitle &&
+    needsSermonAudioShortTitle(sermonAudioEffectiveTitleText);
+
+  const clearUploadFieldError = useCallback((field: DraftUploadFieldKey) => {
+    setUploadFieldErrors((prev) => {
+      if (!prev.has(field)) return prev;
+      const next = new Set(prev);
+      next.delete(field);
+      return next;
+    });
+  }, []);
+
+  const fieldBorderClass = useCallback(
+    (field: DraftUploadFieldKey) =>
+      cn(
+        'mt-1 block w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground',
+        uploadFieldErrors.has(field)
+          ? 'border-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 dark:border-red-500'
+          : 'border-border'
+      ),
+    [uploadFieldErrors]
+  );
+
+  const updateOverridePlatformFields = (
+    platform: OverridePlatform,
+    patch: Partial<YouTubeDraftFields | VimeoDraftFields | SermonAudioDraftFields>
+  ) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        [platform]: {
+          ...value.platforms[platform],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const setUseSharedCopyField = (field: SharedCopyField, useShared: boolean) => {
+    if (!value) return;
+
+    let nextPlatforms: DraftPlatforms = { ...value.platforms };
+    for (const platform of selectedOverridePlatforms) {
+      const current = nextPlatforms[platform] ?? {};
+      let next: DraftPlatforms[OverridePlatform];
+
+      if (useShared) {
+        if (field === 'title') {
+          const { titleOverride, ...rest } = current;
+          next =
+            Object.keys(rest).length > 0
+              ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
+              : undefined;
+        } else if (field === 'description') {
+          const { descriptionOverride, ...rest } = current;
+          next =
+            Object.keys(rest).length > 0
+              ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
+              : undefined;
+        } else {
+          const { tagsOverride, ...rest } = current;
+          next =
+            Object.keys(rest).length > 0
+              ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
+              : undefined;
+        }
+      } else if (field === 'title') {
+        next = { ...current, titleOverride: value.title };
+      } else if (field === 'description') {
+        next = { ...current, descriptionOverride: value.description };
+      } else {
+        next = { ...current, tagsOverride: [...value.tags] };
+      }
+
+      nextPlatforms = { ...nextPlatforms, [platform]: next };
+    }
+
+    onChange({ ...value, platforms: nextPlatforms });
+    if (field === 'tags' && useShared) {
+      setPlatformOverrideTagInput({});
+    }
+  };
+
+  const commitPlatformOverrideTags = (platform: OverridePlatform) => {
+    if (!value) return;
+    const raw = platformOverrideTagInput[platform]?.trim() ?? '';
+    if (raw === '') return;
+    const parsed = raw
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    if (parsed.length === 0) return;
+    const current = value.platforms[platform]?.tagsOverride ?? value.tags;
+    const merged = [...current];
+    for (const tag of parsed) {
+      if (!merged.includes(tag)) {
+        merged.push(tag);
+      }
+    }
+    updateOverridePlatformFields(platform, { tagsOverride: merged });
+    setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
+  };
+
+  const updateSermonAudioFields = (patch: Partial<SermonAudioDraftFields>) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        sermon_audio: {
+          ...value.platforms.sermon_audio,
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const commitTagsFromInput = useCallback(() => {
     if (!value) return;
     const parsed = tagInput
       .split(',')
@@ -680,14 +1029,33 @@ export function DraftMetadataModal({
     }
     onChange({ ...value, tags: merged });
     setTagInput('');
-  };
+  }, [onChange, tagInput, value]);
 
-  const commitTagsBeforeSave = () => {
+  const commitTagsBeforeSave = useCallback(() => {
     // Ensure tag commit is flushed before any save call reads value.tags.
     flushSync(() => {
       commitTagsFromInput();
     });
-  };
+  }, [commitTagsFromInput]);
+
+  const validateBeforeUpload = useCallback((): boolean => {
+    if (!value) return false;
+    commitTagsBeforeSave();
+    const issues = validateDraftForUpload({
+      title: value.title,
+      description: value.description,
+      tags: value.tags,
+      targets: value.targets,
+      platforms: value.platforms,
+    });
+    if (issues.length > 0) {
+      setUploadFieldErrors(new Set(issues.map((issue) => issue.field)));
+      toast.error(issues[0]?.message ?? 'Fill in required fields before uploading.');
+      return false;
+    }
+    setUploadFieldErrors(new Set());
+    return true;
+  }, [commitTagsBeforeSave, value]);
 
   const displayPlatforms = useMemo(() => {
     if (!value) return [] as ConnectedAccountPlatform[];
@@ -948,11 +1316,27 @@ export function DraftMetadataModal({
       return;
     }
     setPlatformWarning(null);
+
+    let nextPlatforms = value.platforms;
+    if (!isSelected && platform === 'sermon_audio') {
+      const defaults = mergeSermonAudioDefaultFields(value.platforms.sermon_audio);
+      if (Object.keys(defaults).length > 0) {
+        nextPlatforms = {
+          ...value.platforms,
+          sermon_audio: {
+            ...value.platforms.sermon_audio,
+            ...defaults,
+          },
+        };
+      }
+    }
+
     onChange({
       ...value,
       targets: isSelected
         ? value.targets.filter((p) => p !== platform)
         : [...value.targets, platform],
+      platforms: nextPlatforms,
     });
   };
 
@@ -1013,6 +1397,7 @@ export function DraftMetadataModal({
 
   const handleUploadVideo = async () => {
     if (!value || !videoFile) return;
+    if (!validateBeforeUpload()) return;
 
     commitTagsBeforeSave();
     const saveResult = await onSave({ closeAfterSave: false });
@@ -1609,28 +1994,131 @@ export function DraftMetadataModal({
               </div>
             ) : null}
             <div>
-              <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
-                Title
-              </label>
-              <input
-                id="edit-title"
-                data-tour="draft-title-input"
-                value={value.title}
-                onChange={(event) => onChange({ ...value, title: event.target.value })}
-                className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-              />
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
+                  Title
+                </label>
+                {selectedOverridePlatforms.length >= 2 ? (
+                  <SharedMetadataCheckbox
+                    checked={usesSharedTitleGlobally}
+                    onChange={(useShared) => setUseSharedCopyField('title', useShared)}
+                    hint="When checked, all selected platforms share one title. Uncheck to set a title per platform."
+                  />
+                ) : null}
+              </div>
+              {showPerPlatformTitle ? (
+                <div className="mt-2 space-y-3">
+                  {selectedOverridePlatforms.map((platform) => {
+                    const platformFields = value.platforms[platform];
+                    const fieldKey = `title:${platform}` as DraftUploadFieldKey;
+                    const platformTitle = platformFields?.titleOverride ?? value.title;
+                    const showShortTitleUnderPlatform =
+                      platform === 'sermon_audio' && needsSermonAudioShortTitle(platformTitle);
+                    return (
+                      <div key={platform}>
+                        <label
+                          htmlFor={`edit-title-${platform}`}
+                          className="text-xs font-medium text-muted-foreground"
+                        >
+                          {platformLabel(platform)}
+                        </label>
+                        <input
+                          id={`edit-title-${platform}`}
+                          value={platformTitle}
+                          onChange={(event) => {
+                            clearUploadFieldError(fieldKey);
+                            updateOverridePlatformFields(platform, {
+                              titleOverride: event.target.value,
+                            });
+                          }}
+                          aria-invalid={uploadFieldErrors.has(fieldKey)}
+                          className={fieldBorderClass(fieldKey)}
+                        />
+                        {showShortTitleUnderPlatform ? (
+                          <SermonAudioShortTitleField
+                            className="mt-3"
+                            value={sermonAudioFields?.displayTitle ?? ''}
+                            onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
+                            fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <>
+                  <input
+                    id="edit-title"
+                    data-tour="draft-title-input"
+                    value={value.title}
+                    onChange={(event) => {
+                      clearUploadFieldError('title');
+                      onChange({ ...value, title: event.target.value });
+                    }}
+                    aria-invalid={uploadFieldErrors.has('title')}
+                    className={fieldBorderClass('title')}
+                  />
+                  {showSermonAudioShortTitleUnderSharedTitle ? (
+                    <SermonAudioShortTitleField
+                      className="mt-3"
+                      value={sermonAudioFields?.displayTitle ?? ''}
+                      onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
+                      fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
+                    />
+                  ) : null}
+                </>
+              )}
             </div>
             <div>
-              <label htmlFor="edit-description" className="text-sm font-medium text-foreground">
-                Description
-              </label>
-              <textarea
-                id="edit-description"
-                value={value.description}
-                onChange={(event) => onChange({ ...value, description: event.target.value })}
-                rows={4}
-                className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-              />
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <label htmlFor="edit-description" className="text-sm font-medium text-foreground">
+                  Description
+                </label>
+                {selectedOverridePlatforms.length >= 2 ? (
+                  <SharedMetadataCheckbox
+                    checked={usesSharedDescriptionGlobally}
+                    onChange={(useShared) => setUseSharedCopyField('description', useShared)}
+                    hint="When checked, all selected platforms share one description. Uncheck to set a description per platform."
+                  />
+                ) : null}
+              </div>
+              {showPerPlatformDescription ? (
+                <div className="mt-2 space-y-3">
+                  {selectedOverridePlatforms.map((platform) => {
+                    const platformFields = value.platforms[platform];
+                    return (
+                      <div key={platform}>
+                        <label
+                          htmlFor={`edit-description-${platform}`}
+                          className="text-xs font-medium text-muted-foreground"
+                        >
+                          {platformLabel(platform)}
+                        </label>
+                        <textarea
+                          id={`edit-description-${platform}`}
+                          value={platformFields?.descriptionOverride ?? value.description}
+                          onChange={(event) =>
+                            updateOverridePlatformFields(platform, {
+                              descriptionOverride: event.target.value,
+                            })
+                          }
+                          rows={4}
+                          className={fieldBorderClass(`description:${platform}`)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <textarea
+                  id="edit-description"
+                  value={value.description}
+                  onChange={(event) => onChange({ ...value, description: event.target.value })}
+                  rows={4}
+                  className={fieldBorderClass('description')}
+                />
+              )}
             </div>
             <div>
               <label htmlFor="edit-visibility" className="text-sm font-medium text-foreground">
@@ -1655,61 +2143,316 @@ export function DraftMetadataModal({
               </select>
             </div>
             <div>
-              <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
-                Tags
-              </label>
-              <div className="mt-1 rounded-md border border-border bg-background px-2 py-2">
-                <div className="mb-2 flex flex-wrap gap-2">
-                  {value.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
-                    >
-                      {tag}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onChange({
-                            ...value,
-                            tags: value.tags.filter((existing) => existing !== tag),
-                          })
-                        }
-                        className="text-muted-foreground hover:text-foreground"
-                        aria-label={`Remove ${tag} tag`}
-                      >
-                        x
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <input
-                  id="edit-tags"
-                  value={tagInput}
-                  onChange={(event) => setTagInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ',') {
-                      event.preventDefault();
-                      commitTagsFromInput();
-                    } else if (
-                      event.key === 'Backspace' &&
-                      tagInput === '' &&
-                      value.tags.length > 0
-                    ) {
-                      event.preventDefault();
-                      const lastTag = value.tags[value.tags.length - 1];
-                      onChange({ ...value, tags: value.tags.slice(0, -1) });
-                      setTagInput(lastTag);
-                    }
-                  }}
-                  onBlur={commitTagsFromInput}
-                  placeholder="Type a tag and press Enter or comma"
-                  className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                />
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
+                  Tags
+                </label>
+                {selectedOverridePlatforms.length >= 2 ? (
+                  <SharedMetadataCheckbox
+                    checked={usesSharedTagsGlobally}
+                    onChange={(useShared) => setUseSharedCopyField('tags', useShared)}
+                    hint="When checked, all selected platforms share one tag list. Uncheck to set tags per platform."
+                  />
+                ) : null}
               </div>
+              {showPerPlatformTags ? (
+                <div className="mt-2 space-y-3">
+                  {selectedOverridePlatforms.map((platform) => {
+                    const platformFields = value.platforms[platform];
+                    const overrideTags = platformFields?.tagsOverride ?? value.tags;
+                    return (
+                      <div key={platform}>
+                        <label
+                          htmlFor={`edit-tags-${platform}`}
+                          className="text-xs font-medium text-muted-foreground"
+                        >
+                          {platformLabel(platform)}
+                        </label>
+                        <div
+                          className={cn(
+                            'mt-1 rounded-md border bg-background px-2 py-2',
+                            uploadFieldErrors.has(`tags:${platform}`)
+                              ? 'border-red-600 dark:border-red-500'
+                              : 'border-border'
+                          )}
+                        >
+                          <div className="mb-2 flex flex-wrap gap-2">
+                            {overrideTags.map((tag) => (
+                              <span
+                                key={`${platform}-${tag}`}
+                                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                              >
+                                {tag}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateOverridePlatformFields(platform, {
+                                      tagsOverride: overrideTags.filter(
+                                        (existing) => existing !== tag
+                                      ),
+                                    })
+                                  }
+                                  className="text-muted-foreground hover:text-foreground"
+                                  aria-label={`Remove ${tag} tag`}
+                                >
+                                  x
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                          <input
+                            id={`edit-tags-${platform}`}
+                            value={platformOverrideTagInput[platform] ?? ''}
+                            onChange={(event) =>
+                              setPlatformOverrideTagInput((prev) => ({
+                                ...prev,
+                                [platform]: event.target.value,
+                              }))
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ',') {
+                                event.preventDefault();
+                                commitPlatformOverrideTags(platform);
+                              } else if (
+                                event.key === 'Backspace' &&
+                                (platformOverrideTagInput[platform] ?? '') === '' &&
+                                overrideTags.length > 0
+                              ) {
+                                event.preventDefault();
+                                const lastTag = overrideTags[overrideTags.length - 1];
+                                updateOverridePlatformFields(platform, {
+                                  tagsOverride: overrideTags.slice(0, -1),
+                                });
+                                setPlatformOverrideTagInput((prev) => ({
+                                  ...prev,
+                                  [platform]: lastTag,
+                                }));
+                              }
+                            }}
+                            onBlur={() => commitPlatformOverrideTags(platform)}
+                            placeholder="Type a tag and press Enter or comma"
+                            className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    'mt-1 rounded-md border bg-background px-2 py-2',
+                    uploadFieldErrors.has('tags')
+                      ? 'border-red-600 dark:border-red-500'
+                      : 'border-border'
+                  )}
+                >
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {value.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onChange({
+                              ...value,
+                              tags: value.tags.filter((existing) => existing !== tag),
+                            })
+                          }
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={`Remove ${tag} tag`}
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    id="edit-tags"
+                    value={tagInput}
+                    onChange={(event) => setTagInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ',') {
+                        event.preventDefault();
+                        commitTagsFromInput();
+                      } else if (
+                        event.key === 'Backspace' &&
+                        tagInput === '' &&
+                        value.tags.length > 0
+                      ) {
+                        event.preventDefault();
+                        const lastTag = value.tags[value.tags.length - 1];
+                        onChange({ ...value, tags: value.tags.slice(0, -1) });
+                        setTagInput(lastTag);
+                      }
+                    }}
+                    onBlur={commitTagsFromInput}
+                    placeholder="Type a tag and press Enter or comma"
+                    className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  />
+                </div>
+              )}
               <p className="mt-1 text-xs text-muted-foreground">
                 Press Enter or comma to add tags.
               </p>
             </div>
+            {showSermonAudioFields ? (
+              <div className="space-y-4 border-t border-border pt-4">
+                <p className="text-sm font-medium text-foreground">
+                  {platformLabel('sermon_audio')} fields
+                </p>
+                <div>
+                  <label
+                    htmlFor="draft-sermon-audio-speaker"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Speaker ({platformLabel('sermon_audio')})
+                  </label>
+                  <input
+                    id="draft-sermon-audio-speaker"
+                    value={sermonAudioFields?.speakerName ?? ''}
+                    onChange={(event) => {
+                      clearUploadFieldError('sermon_audio.speakerName');
+                      updateSermonAudioFields({ speakerName: event.target.value });
+                    }}
+                    aria-invalid={uploadFieldErrors.has('sermon_audio.speakerName')}
+                    className={fieldBorderClass('sermon_audio.speakerName')}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="draft-sermon-audio-preach-date"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Date Recorded ({platformLabel('sermon_audio')})
+                  </label>
+                  <input
+                    id="draft-sermon-audio-preach-date"
+                    type="date"
+                    value={sermonAudioFields?.preachDate ?? ''}
+                    onChange={(event) => {
+                      clearUploadFieldError('sermon_audio.preachDate');
+                      updateSermonAudioFields({ preachDate: event.target.value });
+                    }}
+                    aria-invalid={uploadFieldErrors.has('sermon_audio.preachDate')}
+                    className={fieldBorderClass('sermon_audio.preachDate')}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="draft-sermon-audio-event-type"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Event Category ({platformLabel('sermon_audio')})
+                  </label>
+                  {sermonEventTypesLoadFailed || sermonEventTypes === null ? (
+                    <input
+                      id="draft-sermon-audio-event-type"
+                      value={sermonAudioFields?.eventType ?? ''}
+                      onChange={(event) => {
+                        clearUploadFieldError('sermon_audio.eventType');
+                        updateSermonAudioFields({ eventType: event.target.value });
+                      }}
+                      aria-invalid={uploadFieldErrors.has('sermon_audio.eventType')}
+                      className={fieldBorderClass('sermon_audio.eventType')}
+                    />
+                  ) : (
+                    <>
+                      <Select
+                        value={
+                          sermonAudioFields?.eventType && sermonAudioFields.eventType !== ''
+                            ? sermonAudioFields.eventType
+                            : undefined
+                        }
+                        onValueChange={(next) => {
+                          clearUploadFieldError('sermon_audio.eventType');
+                          updateSermonAudioFields({ eventType: next });
+                        }}
+                      >
+                        <SelectTrigger
+                          id="draft-sermon-audio-event-type"
+                          aria-invalid={uploadFieldErrors.has('sermon_audio.eventType')}
+                          className={cn(
+                            fieldBorderClass('sermon_audio.eventType'),
+                            'flex h-10 items-center justify-between text-left'
+                          )}
+                        >
+                          <SelectValue placeholder="Select an event category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sermonEventTypes.map((eventType) => (
+                            <SelectItem key={eventType} value={eventType}>
+                              {eventType}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {sermonEventTypes.length} event{' '}
+                        {sermonEventTypes.length === 1 ? 'category' : 'categories'} from SermonAudio
+                      </p>
+                    </>
+                  )}
+                </div>
+                <div>
+                  <label
+                    htmlFor="draft-sermon-audio-series"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Series ({platformLabel('sermon_audio')})
+                  </label>
+                  <input
+                    id="draft-sermon-audio-series"
+                    value={sermonAudioFields?.subtitle ?? ''}
+                    onChange={(event) => updateSermonAudioFields({ subtitle: event.target.value })}
+                    className={fieldBorderClass('sermon_audio.subtitle')}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="draft-sermon-audio-bible-text"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Bible References ({platformLabel('sermon_audio')})
+                  </label>
+                  <input
+                    id="draft-sermon-audio-bible-text"
+                    value={sermonAudioFields?.bibleText ?? ''}
+                    onChange={(event) => updateSermonAudioFields({ bibleText: event.target.value })}
+                    className={fieldBorderClass('sermon_audio.bibleText')}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="draft-sermon-audio-keywords"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Hashtags ({platformLabel('sermon_audio')})
+                  </label>
+                  <input
+                    id="draft-sermon-audio-keywords"
+                    value={sermonAudioFields?.keywords ?? ''}
+                    onChange={(event) => updateSermonAudioFields({ keywords: event.target.value })}
+                    className={fieldBorderClass('sermon_audio.keywords')}
+                  />
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={sermonAudioFields?.autoPublishOnProcessed !== false}
+                    onChange={(event) =>
+                      updateSermonAudioFields({
+                        autoPublishOnProcessed: event.target.checked,
+                      })
+                    }
+                  />
+                  Auto-publish when processed ({platformLabel('sermon_audio')})
+                </label>
+              </div>
+            ) : null}
             <div
               ref={thumbnailSectionRef}
               tabIndex={-1}
@@ -2029,6 +2772,7 @@ export function DraftMetadataModal({
                 void tryCloseModal();
                 return;
               }
+              if (!validateBeforeUpload()) return;
               setShowUploadConfirm(true);
             }}
             disabled={

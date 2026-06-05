@@ -1,8 +1,8 @@
 // =============================================================================
 // CONNECTED ACCOUNTS PAGE  (/profile/connections)
 // =============================================================================
-// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP, SMB) and provides
-// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive, and in-page modals for SFTP/SMB.
+// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP, SMB, SermonAudio) and provides
+// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive, and in-page modals for SFTP/SMB/SermonAudio.
 //
 // Session is read server-side via the authenticated session cookie so the page can
 // fetch real connected-account data without an extra client round-trip.
@@ -29,6 +29,10 @@ import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
 import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
 import { SmbConnectButton, type SmbExistingConnection } from './SmbConnectButton';
+import {
+  SermonAudioConnectButton,
+  type SermonAudioExistingConnection,
+} from './SermonAudioConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
@@ -74,9 +78,14 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
     icon: '🗄️',
     connectHref: null,
   },
+  sermon_audio: {
+    label: 'SermonAudio',
+    icon: '🎙️',
+    connectHref: null,
+  },
 };
 
-const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb'] as const;
+const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb', 'sermon_audio'] as const;
 
 /** True when an SFTP row has the fields required for backups (including a pinned host key). */
 function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
@@ -100,6 +109,11 @@ function isSmbConnectionReady(account: ConnectedAccountPublic): boolean {
     account.smbRemotePath != null &&
     account.smbRemotePath.trim() !== ''
   );
+}
+
+/** True when a SermonAudio row has the broadcaster id required for uploads. */
+function isSermonAudioConnectionReady(account: ConnectedAccountPublic): boolean {
+  return account.platform === 'sermon_audio' && Boolean(account.platformUserId.trim());
 }
 
 /** Build editable SMB settings from a connected account row (non-secret fields only). */
@@ -148,6 +162,20 @@ function toSftpExistingConnection(
   };
 }
 
+/** Build editable SermonAudio settings from a connected account row (non-secret fields only). */
+function toSermonAudioExistingConnection(
+  account: ConnectedAccountPublic
+): SermonAudioExistingConnection | undefined {
+  if (account.platform !== 'sermon_audio' || !account.platformUserId.trim()) {
+    return undefined;
+  }
+
+  return {
+    broadcasterID: account.platformUserId,
+    label: account.platformName,
+  };
+}
+
 /** Derive connection status from tokenExpiry and whether a refresh token exists. */
 function getConnectionStatus(
   account: ConnectedAccountPublic | undefined
@@ -158,6 +186,9 @@ function getConnectionStatus(
   }
   if (account.platform === 'smb') {
     return isSmbConnectionReady(account) ? 'connected' : 'expired';
+  }
+  if (account.platform === 'sermon_audio') {
+    return isSermonAudioConnectionReady(account) ? 'connected' : 'expired';
   }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
@@ -354,6 +385,15 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
             message="✗ Failed to connect Google Drive account. Please try again."
           />
         )}
+        {success === 'sermon_audio' && (
+          <FlashMessage type="success" message="✓ SermonAudio account connected successfully." />
+        )}
+        {error === 'sermon_audio' && (
+          <FlashMessage
+            type="error"
+            message="✗ Failed to connect SermonAudio account. Please try again."
+          />
+        )}
 
         {/* Platform list */}
         <section className="mt-8 space-y-4">
@@ -365,6 +405,10 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
               account?.platform === 'sftp' ? toSftpExistingConnection(account) : undefined;
             const smbExistingConnection =
               account?.platform === 'smb' ? toSmbExistingConnection(account) : undefined;
+            const sermonAudioExistingConnection =
+              account?.platform === 'sermon_audio'
+                ? toSermonAudioExistingConnection(account)
+                : undefined;
 
             return (
               <div
@@ -414,6 +458,18 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                         platformLabel={meta.label}
                       />
                     </div>
+                  ) : platform === 'sermon_audio' ? (
+                    <div className="flex items-center gap-2">
+                      <SermonAudioConnectButton
+                        label="Edit"
+                        existingConnection={sermonAudioExistingConnection!}
+                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      />
+                      <DisconnectButton
+                        action={disconnectPlatform.bind(null, account.id)}
+                        platformLabel={meta.label}
+                      />
+                    </div>
                   ) : (
                     <DisconnectButton
                       action={disconnectPlatform.bind(null, account.id)}
@@ -430,10 +486,15 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                         label="Reconnect"
                         existingConnection={sftpExistingConnection}
                       />
-                    ) : (
+                    ) : platform === 'smb' ? (
                       <SmbConnectButton
                         label="Reconnect"
                         existingConnection={smbExistingConnection}
+                      />
+                    ) : (
+                      <SermonAudioConnectButton
+                        label="Reconnect"
+                        existingConnection={sermonAudioExistingConnection}
                       />
                     )}
                     <DisconnectButton
@@ -451,8 +512,10 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   />
                 ) : platform === 'sftp' ? (
                   <SftpConnectButton label="Connect" />
-                ) : (
+                ) : platform === 'smb' ? (
                   <SmbConnectButton label="Connect" />
+                ) : (
+                  <SermonAudioConnectButton label="Connect" />
                 )}
               </div>
             );
