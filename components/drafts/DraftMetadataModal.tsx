@@ -2150,13 +2150,17 @@ export function DraftMetadataModal({
             <div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
-                  Tags
+                  {showSermonAudioFields ? 'Tags / Hashtags' : 'Tags'}
                 </label>
                 {selectedOverridePlatforms.length >= 2 ? (
                   <SharedMetadataCheckbox
                     checked={usesSharedTagsGlobally}
                     onChange={(useShared) => setUseSharedCopyField('tags', useShared)}
-                    hint="When checked, all selected platforms share one tag list. Uncheck to set tags per platform."
+                    hint={
+                      showSermonAudioFields
+                        ? 'When checked, all selected platforms share one tag list (SermonAudio hashtags included). Uncheck to set tags per platform.'
+                        : 'When checked, all selected platforms share one tag list. Uncheck to set tags per platform.'
+                    }
                   />
                 ) : null}
               </div>
@@ -2172,6 +2176,7 @@ export function DraftMetadataModal({
                           className="text-xs font-medium text-muted-foreground"
                         >
                           {platformLabel(platform)}
+                          {platform === 'sermon_audio' ? ' (hashtags)' : ''}
                         </label>
                         <div
                           className={cn(
@@ -2301,7 +2306,11 @@ export function DraftMetadataModal({
                 </div>
               )}
               <p className="mt-1 text-xs text-muted-foreground">
-                Press Enter or comma to add tags.
+                Press Enter or comma to add tags
+                {showSermonAudioFields
+                  ? ' (used as SermonAudio hashtags when that target is selected)'
+                  : ''}
+                .
               </p>
             </div>
             {showSermonAudioFields ? (
@@ -2439,20 +2448,6 @@ export function DraftMetadataModal({
                     onBibleTextChange={(next) => updateSermonAudioFields({ bibleText: next })}
                     invalid={uploadFieldErrors.has('sermon_audio.bibleText')}
                     className={fieldBorderClass('sermon_audio.bibleText')}
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="draft-sermon-audio-keywords"
-                    className="text-sm font-medium text-foreground"
-                  >
-                    Hashtags ({platformLabel('sermon_audio')})
-                  </label>
-                  <input
-                    id="draft-sermon-audio-keywords"
-                    value={sermonAudioFields?.keywords ?? ''}
-                    onChange={(event) => updateSermonAudioFields({ keywords: event.target.value })}
-                    className={fieldBorderClass('sermon_audio.keywords')}
                   />
                 </div>
                 <label className="inline-flex items-center gap-2 text-sm text-foreground">

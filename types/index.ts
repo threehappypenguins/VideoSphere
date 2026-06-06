@@ -244,8 +244,6 @@ export interface SermonAudioDraftFields extends PerPlatformOverrides {
   seriesID?: number;
   /** Scripture reference text (SA `bibleText`). */
   bibleText?: string;
-  /** SA keywords/hashtags (space or comma-separated). */
-  keywords?: string;
   /** Short title when the full title is long (SA `displayTitle`; not the series name). */
   displayTitle?: string;
   /** Language code (e.g. ISO 639-1). */

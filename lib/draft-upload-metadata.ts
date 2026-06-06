@@ -321,7 +321,6 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
       ? sa.seriesID
       : undefined;
   const bibleText = trimStr(sa.bibleText);
-  const keywords = trimStr(sa.keywords);
   const displayTitle = trimStr(sa.displayTitle);
   const languageCode = trimStr(sa.languageCode);
   const autoPublishOnProcessed =
@@ -336,7 +335,6 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
     ...(subtitle !== undefined ? { subtitle } : {}),
     ...(seriesID !== undefined ? { seriesID } : {}),
     ...(bibleText !== undefined ? { bibleText } : {}),
-    ...(keywords !== undefined ? { keywords } : {}),
     ...(displayTitle !== undefined ? { displayTitle } : {}),
     ...(languageCode !== undefined ? { languageCode } : {}),
     ...(autoPublishOnProcessed !== undefined ? { autoPublishOnProcessed } : {}),
@@ -762,10 +760,6 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const s = p.bibleText;
       sa.bibleText = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
     }
-    if ('keywords' in p) {
-      const s = p.keywords;
-      sa.keywords = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
-    }
     if ('displayTitle' in p) {
       const s = p.displayTitle;
       sa.displayTitle = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
@@ -883,7 +877,7 @@ export function buildMetadataForPlatform(
   if (platform === 'sermon_audio') {
     const sa = draft.platforms.sermon_audio;
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, sa);
-    const keywords = sa?.keywords?.trim() || tags.join(', ');
+    const keywords = tags.join(', ');
 
     return {
       title,

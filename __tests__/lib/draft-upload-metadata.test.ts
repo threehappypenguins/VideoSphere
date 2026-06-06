@@ -375,7 +375,6 @@ describe('draft-upload-metadata', () => {
           subtitle: ' Faith & Works ',
           seriesID: 12,
           bibleText: 'John 3:16',
-          keywords: ' grace, hope ',
           displayTitle: ' Short ',
           languageCode: 'en',
           autoPublishOnProcessed: false,
@@ -393,7 +392,6 @@ describe('draft-upload-metadata', () => {
         subtitle: 'Faith & Works',
         seriesID: 12,
         bibleText: 'John 3:16',
-        keywords: 'grace, hope',
         displayTitle: 'Short',
         languageCode: 'en',
         autoPublishOnProcessed: false,
@@ -489,28 +487,7 @@ describe('draft-upload-metadata', () => {
     expect(meta.seriesID).toBe(55);
   });
 
-  it('buildMetadataForPlatform sermon_audio uses keywords when set', () => {
-    const draft: Draft = {
-      id: 'd1',
-      userId: 'u1',
-      targets: ['sermon_audio'],
-      title: 'T',
-      description: 'D',
-      tags: ['faith', 'hope'],
-      visibility: 'public',
-      platforms: {
-        sermon_audio: {
-          keywords: '#grace #hope',
-        },
-      },
-      $createdAt: '2000-01-01T00:00:00.000Z',
-      $updatedAt: '2000-01-01T00:00:00.000Z',
-    };
-
-    expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('#grace #hope');
-  });
-
-  it('buildMetadataForPlatform sermon_audio joins tags when keywords are unset', () => {
+  it('buildMetadataForPlatform sermon_audio joins tags as keywords', () => {
     const draft: Draft = {
       id: 'd1',
       userId: 'u1',
