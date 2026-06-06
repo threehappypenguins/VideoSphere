@@ -57,6 +57,8 @@ export function SermonAudioSpeakerCombobox({
   className,
 }: SermonAudioSpeakerComboboxProps) {
   const listboxId = useId();
+  const optionIdPrefix = useId();
+  const customOptionId = `${optionIdPrefix}-custom`;
   const searchInputRef = useRef<HTMLInputElement>(null);
   const panelQueryRef = useRef('');
   const speakerNameRef = useRef(speakerName);
@@ -160,6 +162,23 @@ export function SermonAudioSpeakerCombobox({
       (speaker) => speaker.displayName.toLowerCase() === trimmedQuery.toLowerCase()
     );
 
+  const getSpeakerOptionId = (speaker: SermonAudioSpeakerOption) =>
+    `${optionIdPrefix}-speaker-${speaker.speakerID}`;
+
+  const highlightedOptionId = (() => {
+    if (!open || highlightedIndex < 0) {
+      return undefined;
+    }
+    if (highlightedIndex < visibleSpeakers.length) {
+      const speaker = visibleSpeakers[highlightedIndex];
+      return speaker ? getSpeakerOptionId(speaker) : undefined;
+    }
+    if (showCustomNameOption && highlightedIndex === visibleSpeakers.length) {
+      return customOptionId;
+    }
+    return undefined;
+  })();
+
   useEffect(() => {
     if (!open) {
       setHighlightedIndex(-1);
@@ -247,10 +266,10 @@ export function SermonAudioSpeakerCombobox({
           <button
             id={id}
             type="button"
-            role="combobox"
+            role={open ? 'button' : 'combobox'}
             aria-expanded={open}
             aria-haspopup="listbox"
-            aria-controls={open ? listboxId : undefined}
+            aria-controls={open ? undefined : listboxId}
             aria-invalid={invalid}
             className={cn(
               className,
@@ -285,6 +304,11 @@ export function SermonAudioSpeakerCombobox({
               placeholder="Search speakers"
               autoComplete="off"
               aria-label="Search speakers"
+              role="combobox"
+              aria-expanded={open}
+              aria-controls={listboxId}
+              aria-activedescendant={highlightedOptionId}
+              aria-autocomplete="list"
             />
           </div>
           <p className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
@@ -328,6 +352,7 @@ export function SermonAudioSpeakerCombobox({
               {visibleSpeakers.map((speaker, index) => (
                 <button
                   key={speaker.speakerID}
+                  id={getSpeakerOptionId(speaker)}
                   type="button"
                   role="option"
                   aria-selected={
@@ -346,6 +371,7 @@ export function SermonAudioSpeakerCombobox({
               ))}
               {showCustomNameOption ? (
                 <button
+                  id={customOptionId}
                   type="button"
                   role="option"
                   aria-selected={false}

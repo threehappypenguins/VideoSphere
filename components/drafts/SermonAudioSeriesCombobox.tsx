@@ -56,6 +56,9 @@ export function SermonAudioSeriesCombobox({
   className,
 }: SermonAudioSeriesComboboxProps) {
   const listboxId = useId();
+  const optionIdPrefix = useId();
+  const clearOptionId = `${optionIdPrefix}-clear`;
+  const customOptionId = `${optionIdPrefix}-custom`;
   const searchInputRef = useRef<HTMLInputElement>(null);
   const panelQueryRef = useRef('');
   const seriesTitleRef = useRef(seriesTitle);
@@ -159,6 +162,27 @@ export function SermonAudioSeriesCombobox({
   const clearOptionOffset = 1;
   const optionCount = clearOptionOffset + visibleSeries.length + (showCustomTitleOption ? 1 : 0);
 
+  const getSeriesOptionId = (series: SermonAudioSeriesOption) =>
+    `${optionIdPrefix}-series-${series.seriesID}`;
+
+  const highlightedOptionId = (() => {
+    if (!open || highlightedIndex < 0) {
+      return undefined;
+    }
+    if (highlightedIndex === 0) {
+      return clearOptionId;
+    }
+    const seriesIndex = highlightedIndex - clearOptionOffset;
+    if (seriesIndex >= 0 && seriesIndex < visibleSeries.length) {
+      const series = visibleSeries[seriesIndex];
+      return series ? getSeriesOptionId(series) : undefined;
+    }
+    if (showCustomTitleOption && highlightedIndex === optionCount - 1) {
+      return customOptionId;
+    }
+    return undefined;
+  })();
+
   useEffect(() => {
     if (!open) {
       setHighlightedIndex(-1);
@@ -260,10 +284,10 @@ export function SermonAudioSeriesCombobox({
           <button
             id={id}
             type="button"
-            role="combobox"
+            role={open ? 'button' : 'combobox'}
             aria-expanded={open}
             aria-haspopup="listbox"
-            aria-controls={open ? listboxId : undefined}
+            aria-controls={open ? undefined : listboxId}
             aria-invalid={invalid}
             className={cn(
               className,
@@ -298,6 +322,11 @@ export function SermonAudioSeriesCombobox({
               placeholder="Search series by title"
               autoComplete="off"
               aria-label="Search series by title"
+              role="combobox"
+              aria-expanded={open}
+              aria-controls={listboxId}
+              aria-activedescendant={highlightedOptionId}
+              aria-autocomplete="list"
             />
           </div>
           <p className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
@@ -341,6 +370,7 @@ export function SermonAudioSeriesCombobox({
             onWheel={handleListWheel}
           >
             <button
+              id={clearOptionId}
               type="button"
               role="option"
               aria-selected={!trimmedSeriesTitle}
@@ -359,6 +389,7 @@ export function SermonAudioSeriesCombobox({
               return (
                 <button
                   key={series.seriesID}
+                  id={getSeriesOptionId(series)}
                   type="button"
                   role="option"
                   aria-selected={seriesID === series.seriesID && seriesTitle === series.title}
@@ -376,6 +407,7 @@ export function SermonAudioSeriesCombobox({
             })}
             {showCustomTitleOption ? (
               <button
+                id={customOptionId}
                 type="button"
                 role="option"
                 aria-selected={false}
