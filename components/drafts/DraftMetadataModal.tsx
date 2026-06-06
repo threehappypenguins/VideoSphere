@@ -140,6 +140,24 @@ type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
 
 const PRIVACY_PLATFORM_ORDER: PrivacyPlatform[] = ['youtube', 'vimeo'];
 
+/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo today). */
+const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo'] as const;
+
+type DraftThumbnailPlatform = (typeof DRAFT_THUMBNAIL_PLATFORMS)[number];
+
+/**
+ * Whether the draft editor should show the thumbnail upload section for the current target list.
+ * @param targets - Selected distribute targets on the draft.
+ * @returns False when SermonAudio is the only selected target (no supported thumbnail consumer).
+ */
+function showDraftThumbnailUploadSection(targets: ConnectedAccountPlatform[]): boolean {
+  if (targets.length === 0) return true;
+  if (targets.length === 1 && targets[0] === 'sermon_audio') return false;
+  return targets.some((platform): platform is DraftThumbnailPlatform =>
+    (DRAFT_THUMBNAIL_PLATFORMS as readonly string[]).includes(platform)
+  );
+}
+
 /** SermonAudio short title (`displayTitle`) is offered when the effective title exceeds this length. */
 const SERMON_AUDIO_SHORT_TITLE_THRESHOLD = 30;
 
@@ -934,6 +952,7 @@ export function DraftMetadataModal({
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
 
   const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
+  const showDraftThumbnailUpload = value != null && showDraftThumbnailUploadSection(value.targets);
   const sermonAudioFields = value?.platforms.sermon_audio;
   const sermonAudioEffectiveTitleText = value
     ? sermonAudioEffectiveTitle(value, showPerPlatformTitle)
@@ -2597,107 +2616,110 @@ export function DraftMetadataModal({
                 </label>
               </div>
             ) : null}
-            <div
-              ref={thumbnailSectionRef}
-              tabIndex={-1}
-              className="rounded-lg border border-border bg-muted/30 p-3"
-            >
-              {/* Thumbnail-scoped live region — announced while focus is within this section */}
+            {/* TODO(sermon-audio-thumbnail): Ask SermonAudio how to set display video thumbnails via the public API (uploadType, API key permissions). Hidden when SermonAudio is the only distribute target until supported. */}
+            {showDraftThumbnailUpload ? (
               <div
-                ref={thumbnailAnnouncerRef}
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-                className="sr-only"
-              />
-              <p className="text-sm font-medium text-foreground">Thumbnail</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}. Shown on platforms that support
-                custom thumbnails when you distribute.
-              </p>
-              {!draftId ? (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Create draft first to add a thumbnail.
+                ref={thumbnailSectionRef}
+                tabIndex={-1}
+                className="rounded-lg border border-border bg-muted/30 p-3"
+              >
+                {/* Thumbnail-scoped live region — announced while focus is within this section */}
+                <div
+                  ref={thumbnailAnnouncerRef}
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                  className="sr-only"
+                />
+                <p className="text-sm font-medium text-foreground">Thumbnail</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}. Shown on platforms that support
+                  custom thumbnails when you distribute.
                 </p>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {value.thumbnailPreviewUrl ? (
-                    <div className="relative inline-block max-w-full">
-                      <Image
-                        src={value.thumbnailPreviewUrl}
-                        alt="Draft thumbnail preview"
-                        width={800}
-                        height={450}
-                        unoptimized
-                        className="max-h-40 max-w-full rounded-md border border-border object-contain"
+                {!draftId ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Create draft first to add a thumbnail.
+                  </p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {value.thumbnailPreviewUrl ? (
+                      <div className="relative inline-block max-w-full">
+                        <Image
+                          src={value.thumbnailPreviewUrl}
+                          alt="Draft thumbnail preview"
+                          width={800}
+                          height={450}
+                          unoptimized
+                          className="max-h-40 max-w-full rounded-md border border-border object-contain"
+                        />
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label htmlFor="draft-thumbnail-file" className="sr-only">
+                        Choose thumbnail image
+                      </label>
+                      <input
+                        id="draft-thumbnail-file"
+                        ref={thumbnailInputRef}
+                        type="file"
+                        accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) {
+                            // The browser restores focus from the native file
+                            // picker *after* onChange fires and after any state
+                            // updates.  The upload button is disabled by then, so
+                            // the browser falls back to the dialog root and the
+                            // screen reader re-reads the entire modal.  Instead
+                            // we focus the thumbnail section container (tabIndex
+                            // -1, never disabled) in a rAF so we run after the
+                            // browser's own focus-restoration tick.
+                            requestAnimationFrame(() => {
+                              thumbnailSectionRef.current?.focus();
+                            });
+                            void handleThumbnailFile(file);
+                          }
+                        }}
                       />
-                    </div>
-                  ) : null}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label htmlFor="draft-thumbnail-file" className="sr-only">
-                      Choose thumbnail image
-                    </label>
-                    <input
-                      id="draft-thumbnail-file"
-                      ref={thumbnailInputRef}
-                      type="file"
-                      accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
-                      className="hidden"
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        if (file) {
-                          // The browser restores focus from the native file
-                          // picker *after* onChange fires and after any state
-                          // updates.  The upload button is disabled by then, so
-                          // the browser falls back to the dialog root and the
-                          // screen reader re-reads the entire modal.  Instead
-                          // we focus the thumbnail section container (tabIndex
-                          // -1, never disabled) in a rAF so we run after the
-                          // browser's own focus-restoration tick.
-                          requestAnimationFrame(() => {
-                            thumbnailSectionRef.current?.focus();
-                          });
-                          void handleThumbnailFile(file);
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={thumbnailUploading}
-                      onClick={() => thumbnailInputRef.current?.click()}
-                      className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
-                    >
-                      {thumbnailUploading
-                        ? 'Uploading…'
-                        : value.thumbnailPreviewUrl
-                          ? 'Replace'
-                          : 'Upload'}
-                    </button>
-                    {value.thumbnailR2Key || value.thumbnailPreviewUrl ? (
                       <button
                         type="button"
                         disabled={thumbnailUploading}
-                        onClick={() => {
-                          void handleRemoveThumbnail();
-                        }}
-                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                        onClick={() => thumbnailInputRef.current?.click()}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                       >
-                        Remove
+                        {thumbnailUploading
+                          ? 'Uploading…'
+                          : value.thumbnailPreviewUrl
+                            ? 'Replace'
+                            : 'Upload'}
                       </button>
+                      {value.thumbnailR2Key || value.thumbnailPreviewUrl ? (
+                        <button
+                          type="button"
+                          disabled={thumbnailUploading}
+                          onClick={() => {
+                            void handleRemoveThumbnail();
+                          }}
+                          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    {thumbnailUploading ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Uploading thumbnail…</span>
+                          <span>{thumbnailUploadProgress}%</span>
+                        </div>
+                        <Progress value={thumbnailUploadProgress} className="h-2" />
+                      </div>
                     ) : null}
                   </div>
-                  {thumbnailUploading ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Uploading thumbnail…</span>
-                        <span>{thumbnailUploadProgress}%</span>
-                      </div>
-                      <Progress value={thumbnailUploadProgress} className="h-2" />
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            ) : null}
             <div
               data-tour="draft-upload-section"
               className="rounded-lg border border-border bg-muted/30 p-3"
