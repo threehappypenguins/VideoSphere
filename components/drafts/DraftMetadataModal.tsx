@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
-import { SermonAudioCrossPublishFields } from '@/components/drafts/SermonAudioCrossPublishFields';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
@@ -2628,12 +2627,7 @@ export function DraftMetadataModal({
                     <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-5" />
                   </label>
                 </div>
-                {sermonAudioFields?.autoPublishOnProcessed !== false ? (
-                  <SermonAudioCrossPublishFields
-                    crossPublish={sermonAudioFields?.crossPublish}
-                    onChange={(crossPublish) => updateSermonAudioFields({ crossPublish })}
-                  />
-                ) : null}
+                {/* TODO(sermon-audio-cross-publish): I will contact the SermonAudio developer about how to get Cross Publish working via the API. Cross Publish UI hidden until then. */}
               </div>
             ) : null}
             {/* TODO(sermon-audio-thumbnail): Ask SermonAudio how to set display video thumbnails via the public API (uploadType, API key permissions). Hidden when SermonAudio is the only distribute target until supported. */}

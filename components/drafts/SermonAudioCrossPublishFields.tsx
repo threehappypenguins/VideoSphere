@@ -1,6 +1,9 @@
 'use client';
 
-import { SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS } from '@/lib/platforms/sermon-audio-cross-publish';
+import {
+  SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS,
+  SERMON_AUDIO_CROSS_PUBLISH_YOUTUBE_PRIVACY_OPTIONS,
+} from '@/lib/platforms/sermon-audio-cross-publish';
 import type {
   SermonAudioCrossPublishPlatformSettings,
   SermonAudioCrossPublishSettings,
@@ -11,6 +14,10 @@ import { cn } from '@/lib/utils';
 interface SermonAudioCrossPublishFieldsProps {
   /** Current Cross Publish settings from `platforms.sermon_audio.crossPublish`. */
   crossPublish: SermonAudioCrossPublishSettings | undefined;
+  /** Draft title used to prefill Cross Publish text fields. */
+  defaultVideoTitle?: string;
+  /** Draft description used to prefill YouTube Cross Publish description. */
+  defaultVideoDescription?: string;
   /** Called when Cross Publish settings change. */
   onChange: (next: SermonAudioCrossPublishSettings | undefined) => void;
 }
@@ -77,6 +84,8 @@ function CrossPublishToggleRow({
  */
 export function SermonAudioCrossPublishFields({
   crossPublish,
+  defaultVideoTitle = '',
+  defaultVideoDescription = '',
   onChange,
 }: SermonAudioCrossPublishFieldsProps) {
   const crossPublishEnabled = crossPublish?.enabled === true;
@@ -111,14 +120,21 @@ export function SermonAudioCrossPublishFields({
       {crossPublishEnabled ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Optional posts to social platforms connected in your SermonAudio dashboard.
-            SermonAudio will error if a selected platform is not linked there.
+            Optional posts to social platforms connected in your SermonAudio dashboard. SermonAudio
+            will error if a selected platform is not linked there.
           </p>
           {SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS.map((destination) => {
             const platformSettings = crossPublish?.[destination.id];
             const postLink = platformSettings?.postLink === true;
+            const uploadFullVideo = platformSettings?.uploadFullVideo === true;
             const linkMessage = platformSettings?.linkMessage ?? '';
+            const videoTitle = platformSettings?.title ?? '';
+            const videoDescription = platformSettings?.description ?? '';
+            const privacy = platformSettings?.privacy ?? 'public';
             const descriptionId = `draft-sa-cross-publish-${destination.id}-message`;
+            const titleId = `draft-sa-cross-publish-${destination.id}-title`;
+            const videoDescriptionId = `draft-sa-cross-publish-${destination.id}-video-description`;
+            const privacyId = `draft-sa-cross-publish-${destination.id}-privacy`;
 
             return (
               <div
@@ -141,13 +157,115 @@ export function SermonAudioCrossPublishFields({
                           onChange(
                             patchCrossPublishPlatform(crossPublish, destination.id, {
                               [option.id]: nextChecked,
+                              ...(destination.supportsPrivacy &&
+                              option.id === 'uploadFullVideo' &&
+                              nextChecked &&
+                              !platformSettings?.privacy
+                                ? { privacy: 'public' as const }
+                                : {}),
+                              ...(destination.supportsVideoMetadata &&
+                              option.id === 'uploadFullVideo' &&
+                              nextChecked
+                                ? {
+                                    ...(platformSettings?.title === undefined && defaultVideoTitle
+                                      ? { title: defaultVideoTitle }
+                                      : {}),
+                                    ...(platformSettings?.description === undefined &&
+                                    defaultVideoDescription
+                                      ? { description: defaultVideoDescription }
+                                      : {}),
+                                  }
+                                : {}),
+                              ...(destination.supportsLinkMessage &&
+                              option.id === 'postLink' &&
+                              nextChecked &&
+                              platformSettings?.linkMessage === undefined &&
+                              defaultVideoTitle
+                                ? { linkMessage: defaultVideoTitle }
+                                : {}),
                             })
                           )
                         }
                       />
                     );
                   })}
-                  {postLink ? (
+                  {destination.supportsVideoMetadata && uploadFullVideo ? (
+                    <>
+                      <div>
+                        <label htmlFor={titleId} className="text-sm font-medium text-foreground">
+                          Title
+                        </label>
+                        <input
+                          id={titleId}
+                          type="text"
+                          value={videoTitle}
+                          onChange={(event) =>
+                            onChange(
+                              patchCrossPublishPlatform(crossPublish, destination.id, {
+                                title: event.target.value,
+                              })
+                            )
+                          }
+                          placeholder="YouTube video title"
+                          className={cn(
+                            'mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground'
+                          )}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor={videoDescriptionId}
+                          className="text-sm font-medium text-foreground"
+                        >
+                          Description
+                        </label>
+                        <textarea
+                          id={videoDescriptionId}
+                          rows={3}
+                          value={videoDescription}
+                          onChange={(event) =>
+                            onChange(
+                              patchCrossPublishPlatform(crossPublish, destination.id, {
+                                description: event.target.value,
+                              })
+                            )
+                          }
+                          placeholder="YouTube video description"
+                          className={cn(
+                            'mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground'
+                          )}
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                  {destination.supportsPrivacy && uploadFullVideo ? (
+                    <div>
+                      <label htmlFor={privacyId} className="text-sm font-medium text-foreground">
+                        Visibility
+                      </label>
+                      <select
+                        id={privacyId}
+                        value={privacy}
+                        onChange={(event) =>
+                          onChange(
+                            patchCrossPublishPlatform(crossPublish, destination.id, {
+                              privacy: event.target.value as typeof privacy,
+                            })
+                          )
+                        }
+                        className={cn(
+                          'mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground'
+                        )}
+                      >
+                        {SERMON_AUDIO_CROSS_PUBLISH_YOUTUBE_PRIVACY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {destination.supportsLinkMessage && postLink ? (
                     <div>
                       <label
                         htmlFor={descriptionId}

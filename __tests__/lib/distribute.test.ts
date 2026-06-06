@@ -57,7 +57,6 @@ vi.mock('@/lib/platforms/vimeo', () => ({
 vi.mock('@/lib/platforms/sermon-audio', () => ({
   uploadToSermonAudio: vi.fn(),
   pollSermonAudioProcessing: vi.fn(),
-  applySermonAudioCrossPublish: vi.fn(),
   publishSermonAudio: vi.fn(),
 }));
 

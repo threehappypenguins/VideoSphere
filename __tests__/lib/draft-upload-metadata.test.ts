@@ -525,7 +525,7 @@ describe('draft-upload-metadata', () => {
         sermon_audio: {
           crossPublish: {
             enabled: true,
-            youtube: { uploadFullVideo: true },
+            youtube: { uploadFullVideo: true, privacy: 'private' },
           },
         },
       },
@@ -535,7 +535,7 @@ describe('draft-upload-metadata', () => {
 
     expect(buildMetadataForPlatform(draft, 'sermon_audio').crossPublish).toEqual({
       enabled: true,
-      youtube: { uploadFullVideo: true },
+      youtube: { uploadFullVideo: true, privacy: 'private' },
     });
   });
 

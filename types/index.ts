@@ -254,7 +254,7 @@ export interface SermonAudioDraftFields extends PerPlatformOverrides {
   autoPublishOnProcessed?: boolean;
   /**
    * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
-   * Applied on the unpublished sermon immediately before auto-publish when enabled.
+   * Applied in the publish PATCH together with `publishDate` when enabled.
    */
   crossPublish?: SermonAudioCrossPublishSettings;
 }
@@ -264,23 +264,29 @@ export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x';
 
 /**
  * Cross Publish options for one social destination (SermonAudio dashboard feature).
- * @property postLink - Post a link to the sermon when published.
- * @property uploadFullVideo - Upload the full sermon video (YouTube/Facebook).
+ * @property postLink - Post a link to the sermon (Facebook and X only).
+ * @property uploadFullVideo - Upload the full sermon video (YouTube and Facebook).
  * @property uploadVideoPreview - Upload a video preview clip (X/Twitter; maps to SA `useVideoClip`).
- * @property linkMessage - Custom message when `postLink` is enabled.
+ * @property linkMessage - Custom message when `postLink` is enabled (Facebook and X).
+ * @property title - YouTube video title when `uploadFullVideo` is enabled (maps to SA `title` on `google`).
+ * @property description - YouTube video description when `uploadFullVideo` is enabled (maps to SA `message` on `google`).
+ * @property privacy - YouTube visibility when `uploadFullVideo` is enabled (maps to SA `privacy` on `google`).
  */
 export interface SermonAudioCrossPublishPlatformSettings {
   postLink?: boolean;
   uploadFullVideo?: boolean;
   uploadVideoPreview?: boolean;
   linkMessage?: string;
+  title?: string;
+  description?: string;
+  privacy?: SermonAudioCrossPublishYouTubePrivacy;
 }
 
+/** YouTube Cross Publish visibility (SermonAudio Connections → YouTube). */
+export type SermonAudioCrossPublishYouTubePrivacy = 'public' | 'unlisted' | 'private';
+
 /** Cross Publish per-platform toggle id stored on `SermonAudioCrossPublishPlatformSettings`. */
-export type SermonAudioCrossPublishOptionId =
-  | 'postLink'
-  | 'uploadFullVideo'
-  | 'uploadVideoPreview';
+export type SermonAudioCrossPublishOptionId = 'postLink' | 'uploadFullVideo' | 'uploadVideoPreview';
 
 /**
  * Cross Publish settings grouped by destination platform.

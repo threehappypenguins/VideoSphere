@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  applySermonAudioCrossPublish,
   pollSermonAudioProcessing,
   publishSermonAudio,
   uploadToSermonAudio,
@@ -119,8 +118,9 @@ describe('uploadToSermonAudio', () => {
         ...metadata,
         crossPublish: {
           enabled: true,
-          facebook: { postLink: true, uploadVideoPreview: true, linkMessage: 'Check this out' },
-          x: { postLink: true, uploadVideoPreview: true, linkMessage: 'New sermon' },
+          youtube: { uploadFullVideo: true, title: 'YT Title', description: 'YT Desc' },
+          facebook: { postLink: true, linkMessage: 'Check this out' },
+          x: { uploadVideoPreview: true },
         },
       },
       tokens,
@@ -129,10 +129,43 @@ describe('uploadToSermonAudio', () => {
     const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
     expect(createBody.socialSharing).toEqual([
-      { platform: 'facebook', message: 'Check this out', useVideoClip: true },
-      { platform: 'twitter', message: 'New sermon', useVideoClip: true },
+      { platform: 'google', title: 'YT Title', message: 'YT Desc', privacy: 'public' },
+      { platform: 'facebook', message: 'Check this out' },
+      { platform: 'twitter', message: 'Sunday Sermon', useVideoClip: true },
     ]);
     expect(createBody.social_sharing_video_clip).toEqual({ start: 0, end: 120 });
+  });
+
+  it('does not include socialSharing on sermon create when Cross Publish is disabled', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: {
+        ...metadata,
+        crossPublish: {
+          enabled: false,
+          facebook: { postLink: true, linkMessage: 'Check this out' },
+        },
+      },
+      tokens,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
+    expect(createBody).not.toHaveProperty('socialSharing');
+    expect(createBody).not.toHaveProperty('social_sharing_video_clip');
   });
 
   it('includes seriesID in create sermon body when provided', async () => {
@@ -189,11 +222,22 @@ describe('pollSermonAudioProcessing', () => {
     vi.useRealTimers();
   });
 
-  it('resolves when media.video contains h264', async () => {
+  it('resolves when h264 entry has adaptiveBitrate and thumbnailImageURL', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
-      new Response(JSON.stringify({ media: { video: [{ videoCodec: 'h264' }] } }), {
-        status: 200,
-      })
+      new Response(
+        JSON.stringify({
+          media: {
+            video: [
+              {
+                videoCodec: 'h264',
+                adaptiveBitrate: true,
+                thumbnailImageURL: 'https://cdn.sermonaudio.com/thumb.jpg',
+              },
+            ],
+          },
+        }),
+        { status: 200 }
+      )
     );
 
     await expect(
@@ -215,11 +259,16 @@ describe('pollSermonAudioProcessing', () => {
     );
   });
 
-  it('rejects when max attempts are exceeded without h264', async () => {
+  it('rejects when max attempts are exceeded without a ready h264 entry', async () => {
     vi.mocked(global.fetch).mockResolvedValue(
-      new Response(JSON.stringify({ media: { video: [{ videoCodec: 'vp9' }] } }), {
-        status: 200,
-      })
+      new Response(
+        JSON.stringify({
+          media: {
+            video: [{ videoCodec: 'h264', adaptiveBitrate: false, thumbnailImageURL: null }],
+          },
+        }),
+        { status: 200 }
+      )
     );
 
     const promise = pollSermonAudioProcessing({
@@ -259,54 +308,6 @@ describe('pollSermonAudioProcessing', () => {
   });
 });
 
-describe('applySermonAudioCrossPublish', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
-  it('PATCHes socialSharing before publish when Cross Publish is enabled', async () => {
-    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
-
-    await applySermonAudioCrossPublish({
-      sermonID: 'sermon-123',
-      tokens,
-      defaultLinkMessage: 'Sunday Sermon',
-      crossPublish: {
-        enabled: true,
-        facebook: { postLink: true, linkMessage: 'Check this out' },
-      },
-    });
-
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.sermonaudio.com/v2/node/sermons/sermon-123',
-      expect.objectContaining({
-        method: 'PATCH',
-        body: JSON.stringify({
-          socialSharing: [
-            { platform: 'facebook', message: 'Check this out', useVideoClip: true },
-          ],
-          social_sharing_video_clip: { start: 0, end: 120 },
-        }),
-      })
-    );
-  });
-
-  it('no-ops when Cross Publish is disabled', async () => {
-    await applySermonAudioCrossPublish({
-      sermonID: 'sermon-123',
-      tokens,
-      crossPublish: { enabled: false, facebook: { postLink: true } },
-    });
-
-    expect(global.fetch).not.toHaveBeenCalled();
-  });
-});
-
 describe('publishSermonAudio', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
@@ -320,7 +321,7 @@ describe('publishSermonAudio', () => {
     vi.useRealTimers();
   });
 
-  it('PATCHes publishDate to today on success', async () => {
+  it('PATCHes publishDate only on success (Cross Publish is configured on sermon create)', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
 
     await publishSermonAudio({

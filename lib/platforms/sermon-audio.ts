@@ -1,6 +1,5 @@
 import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
 import { messageFromThrown } from '@/lib/utils/error-message';
-import type { SermonAudioCrossPublishSettings } from '@/types';
 import type {
   PlatformUploadError,
   PlatformUploadMetadata,
@@ -41,15 +40,6 @@ interface PollSermonAudioProcessingInput {
   signal?: AbortSignal;
 }
 
-interface ApplySermonAudioCrossPublishInput {
-  sermonID: string;
-  tokens: PlatformUploadTokens;
-  crossPublish?: SermonAudioCrossPublishSettings;
-  /** Fallback link message when a platform description is empty (typically sermon title). */
-  defaultLinkMessage?: string;
-  signal?: AbortSignal;
-}
-
 interface PublishSermonAudioInput {
   sermonID: string;
   tokens: PlatformUploadTokens;
@@ -66,7 +56,11 @@ interface MediaCreateResponse {
 
 interface SermonMediaPayload {
   media?: {
-    video?: Array<{ videoCodec?: string | null }>;
+    video?: Array<{
+      videoCodec?: string | null;
+      thumbnailImageURL?: string | null;
+      adaptiveBitrate?: boolean | null;
+    }>;
   };
 }
 
@@ -149,7 +143,8 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   if (metadata.languageCode?.trim()) body.languageCode = metadata.languageCode.trim();
 
   const socialSharingFields = buildSermonAudioSocialSharingCreateFields(metadata.crossPublish, {
-    defaultLinkMessage: fullTitle,
+    defaultTitle: fullTitle,
+    defaultDescription: metadata.description?.trim() || metadata.moreInfoText?.trim(),
   });
   if (socialSharingFields) {
     Object.assign(body, socialSharingFields);
@@ -158,11 +153,16 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   return body;
 }
 
-function sermonVideoHasH264(payload: unknown): boolean {
+function sermonVideoIsReady(payload: unknown): boolean {
   if (payload === null || typeof payload !== 'object') return false;
   const media = (payload as SermonMediaPayload).media;
   if (!media || !Array.isArray(media.video)) return false;
-  return media.video.some((item) => item?.videoCodec === 'h264');
+  return media.video.some(
+    (item) =>
+      item?.adaptiveBitrate === true &&
+      typeof item?.thumbnailImageURL === 'string' &&
+      item.thumbnailImageURL.trim().length > 0
+  );
 }
 
 function delay(ms: number): Promise<void> {
@@ -305,7 +305,7 @@ export async function uploadToSermonAudio(
 }
 
 /**
- * Polls SermonAudio until sermon video processing completes (`media.video[].videoCodec` includes `h264`).
+ * Polls SermonAudio until sermon video processing completes (h264 entry has a thumbnailImageURL).
  * @param input - Sermon id, API key tokens, poll tuning, and optional abort signal.
  * @returns Resolves when processing is complete.
  * @throws When polling is aborted or `maxAttempts` is exceeded.
@@ -354,7 +354,7 @@ export async function pollSermonAudioProcessing(
     }
 
     const payload = await response.json().catch(() => ({}));
-    if (sermonVideoHasH264(payload)) {
+    if (sermonVideoIsReady(payload)) {
       return;
     }
 
@@ -370,53 +370,9 @@ export async function pollSermonAudioProcessing(
 }
 
 /**
- * Applies Cross Publish settings to an unpublished sermon (PATCH before `publishDate`).
- * SermonAudio dashboard only allows Cross Publish while a sermon is unpublished.
- * @param input - Sermon id, API key, Cross Publish settings, and optional abort signal.
- * @throws When the Cross Publish PATCH fails.
- */
-export async function applySermonAudioCrossPublish(
-  input: ApplySermonAudioCrossPublishInput
-): Promise<void> {
-  const apiKey = requireApiKey(input.tokens);
-  if (!apiKey) {
-    throw toPlatformUploadError('SERMONAUDIO_API_KEY_MISSING', 'SermonAudio API key is missing.');
-  }
-
-  const sermonID = input.sermonID.trim();
-  if (!sermonID) {
-    throw toPlatformUploadError(
-      'SERMONAUDIO_SERMON_ID_MISSING',
-      'SermonAudio sermonID is missing.'
-    );
-  }
-
-  const fields = buildSermonAudioSocialSharingCreateFields(input.crossPublish, {
-    defaultLinkMessage: input.defaultLinkMessage,
-  });
-  if (!fields) return;
-
-  const patchUrl = `${SERMONAUDIO_SERMONS_URL}/${encodeURIComponent(sermonID)}`;
-  const response = await fetch(patchUrl, {
-    method: 'PATCH',
-    headers: sermonAudioJsonHeaders(apiKey),
-    body: JSON.stringify(fields),
-    ...(input.signal ? { signal: input.signal } : {}),
-  });
-
-  if (!response.ok) {
-    throw toPlatformUploadError(
-      'SERMONAUDIO_CROSS_PUBLISH_FAILED',
-      'Failed to apply SermonAudio Cross Publish settings.',
-      response.status,
-      await readApiErrorDetails(response)
-    );
-  }
-}
-
-/**
- * Publishes a SermonAudio sermon by setting `publishDate` to today (`YYYY-MM-DD`).
- * Call {@link applySermonAudioCrossPublish} on the unpublished sermon immediately before this.
+ * Publishes a SermonAudio sermon by PATCHing `publishDate` to today (`YYYY-MM-DD`).
+ * Cross Publish options must already be on the sermon from the create POST (`socialSharing`);
+ * publishing triggers SA to run the configured cross-posts once video processing is complete.
  * @param input - Sermon id, API key tokens, and optional abort signal.
  * @throws When the publish request fails.
  */
@@ -438,7 +394,9 @@ export async function publishSermonAudio(input: PublishSermonAudioInput): Promis
   const response = await fetch(publishUrl, {
     method: 'PATCH',
     headers: sermonAudioJsonHeaders(apiKey),
-    body: JSON.stringify({ publishDate: todayIsoDate() }),
+    body: JSON.stringify({
+      publishDate: todayIsoDate(),
+    }),
     ...(input.signal ? { signal: input.signal } : {}),
   });
 
