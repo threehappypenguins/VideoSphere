@@ -56,7 +56,7 @@ export function SermonAudioSpeakerCombobox({
   invalid = false,
   className,
 }: SermonAudioSpeakerComboboxProps) {
-  const listboxId = useId();
+  const panelId = useId();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const panelQueryRef = useRef('');
   const speakerNameRef = useRef(speakerName);
@@ -247,10 +247,9 @@ export function SermonAudioSpeakerCombobox({
           <button
             id={id}
             type="button"
-            role="combobox"
             aria-expanded={open}
-            aria-controls={open ? listboxId : undefined}
-            aria-invalid={invalid}
+            aria-haspopup="dialog"
+            aria-controls={open ? panelId : undefined}
             className={cn(
               className,
               'flex h-10 w-full items-center justify-between text-left',
@@ -265,8 +264,7 @@ export function SermonAudioSpeakerCombobox({
           </button>
         </PopoverTrigger>
         <PopoverContent
-          id={listboxId}
-          role="listbox"
+          id={panelId}
           aria-label="SermonAudio speakers"
           align="start"
           side="bottom"
@@ -295,66 +293,72 @@ export function SermonAudioSpeakerCombobox({
             className="scrollbar-visible max-h-52 overflow-y-auto overscroll-y-contain"
             onWheel={handleListWheel}
           >
-            {searchLoading ? (
-              <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                Searching speakers…
-              </div>
-            ) : null}
-            {!searchLoading &&
-            isSearching &&
-            visibleSpeakers.length === 0 &&
-            !showCustomNameOption ? (
-              <p className="px-3 py-3 text-sm text-muted-foreground">No speakers found.</p>
-            ) : null}
-            {!searchLoading && !isSearching && recentLoaded && visibleSpeakers.length === 0 ? (
-              <p className="px-3 py-3 text-sm text-muted-foreground">
-                {recentFailed
-                  ? 'Recent speakers unavailable. Search or enter a new name below.'
-                  : 'No recent speakers yet. Search or enter a new name below.'}
-              </p>
-            ) : null}
-            {!searchLoading && !isSearching && trimmedQuery.length === 1 ? (
-              <p className="px-3 py-2 text-xs text-muted-foreground">
-                Type {SERMON_AUDIO_SPEAKER_SEARCH_MIN_LENGTH} or more characters to search all
-                SermonAudio speakers.
-              </p>
-            ) : null}
-            {visibleSpeakers.map((speaker, index) => (
-              <button
-                key={speaker.speakerID}
-                type="button"
-                role="option"
-                aria-selected={
-                  speakerID === speaker.speakerID && speakerName === speaker.displayName
-                }
-                className={cn(
-                  'flex w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
-                  index === highlightedIndex && 'bg-accent text-accent-foreground'
-                )}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectSpeaker(speaker)}
-                onMouseEnter={() => setHighlightedIndex(index)}
-              >
-                {speaker.displayName}
-              </button>
-            ))}
-            {showCustomNameOption ? (
-              <button
-                type="button"
-                role="option"
-                aria-selected={false}
-                className={cn(
-                  'flex w-full border-t border-border px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
-                  highlightedIndex === visibleSpeakers.length && 'bg-accent text-accent-foreground'
-                )}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectCustomName(trimmedQuery)}
-                onMouseEnter={() => setHighlightedIndex(visibleSpeakers.length)}
-              >
-                Use &ldquo;{trimmedQuery}&rdquo;
-              </button>
-            ) : null}
+            <div aria-live="polite" aria-atomic="true">
+              {searchLoading ? (
+                <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Searching speakers…
+                </div>
+              ) : null}
+              {!searchLoading &&
+              isSearching &&
+              visibleSpeakers.length === 0 &&
+              !showCustomNameOption ? (
+                <p className="px-3 py-3 text-sm text-muted-foreground">No speakers found.</p>
+              ) : null}
+              {!searchLoading && !isSearching && recentLoaded && visibleSpeakers.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-muted-foreground">
+                  {recentFailed
+                    ? 'Recent speakers unavailable. Search or enter a new name below.'
+                    : 'No recent speakers yet. Search or enter a new name below.'}
+                </p>
+              ) : null}
+              {!searchLoading && !isSearching && trimmedQuery.length === 1 ? (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  Type {SERMON_AUDIO_SPEAKER_SEARCH_MIN_LENGTH} or more characters to search all
+                  SermonAudio speakers.
+                </p>
+              ) : null}
+            </div>
+            <div>
+              {visibleSpeakers.map((speaker, index) => {
+                const isSelected =
+                  speakerID === speaker.speakerID && speakerName === speaker.displayName;
+                return (
+                  <button
+                    key={speaker.speakerID}
+                    type="button"
+                    aria-current={index === highlightedIndex ? 'true' : undefined}
+                    className={cn(
+                      'flex w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+                      index === highlightedIndex && 'bg-accent text-accent-foreground'
+                    )}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => selectSpeaker(speaker)}
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                  >
+                    {speaker.displayName}
+                    {isSelected ? <span className="sr-only"> (selected)</span> : null}
+                  </button>
+                );
+              })}
+              {showCustomNameOption ? (
+                <button
+                  type="button"
+                  aria-current={highlightedIndex === visibleSpeakers.length ? 'true' : undefined}
+                  className={cn(
+                    'flex w-full border-t border-border px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+                    highlightedIndex === visibleSpeakers.length &&
+                      'bg-accent text-accent-foreground'
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectCustomName(trimmedQuery)}
+                  onMouseEnter={() => setHighlightedIndex(visibleSpeakers.length)}
+                >
+                  Use &ldquo;{trimmedQuery}&rdquo;
+                </button>
+              ) : null}
+            </div>
           </div>
         </PopoverContent>
       </Popover>

@@ -10,5 +10,6 @@ export function sermonAudioJsonHeaders(apiKey: string): Record<string, string> {
   return {
     'X-Api-Key': apiKey,
     Accept: 'application/json',
+    'Content-Type': 'application/json',
   };
 }

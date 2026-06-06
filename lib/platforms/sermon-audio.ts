@@ -1,4 +1,5 @@
 import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
+import { sermonAudioJsonHeaders } from '@/lib/platforms/sermon-audio-http';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadError,
@@ -101,14 +102,6 @@ async function readApiErrorDetails(response: Response): Promise<string | undefin
 function requireApiKey(tokens: PlatformUploadTokens): string | null {
   const key = tokens.accessToken.trim();
   return key.length > 0 ? key : null;
-}
-
-function sermonAudioJsonHeaders(apiKey: string): Record<string, string> {
-  return {
-    'X-Api-Key': apiKey,
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  };
 }
 
 function todayIsoDate(): string {
