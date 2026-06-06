@@ -1,8 +1,9 @@
 import mongoose, { Schema } from 'mongoose';
-import type {
-  ConnectedAccountPlatform,
-  PlatformUploadStatus,
-  PlatformUploadVisibility,
+import {
+  CONNECTED_ACCOUNT_PLATFORMS,
+  type ConnectedAccountPlatform,
+  type PlatformUploadStatus,
+  type PlatformUploadVisibility,
 } from '@/types';
 
 /**
@@ -31,7 +32,7 @@ const PlatformUploadSchema = new Schema<PlatformUploadDocument>(
     uploadJobId: { type: String, required: true, index: true, trim: true },
     platform: {
       type: String,
-      enum: ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb'],
+      enum: [...CONNECTED_ACCOUNT_PLATFORMS],
       required: true,
     },
     status: {

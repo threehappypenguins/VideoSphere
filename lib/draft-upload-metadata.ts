@@ -28,7 +28,7 @@ import {
 /**
  * Defines the DEFAULT_DRAFT_VISIBILITY constant.
  */
-export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'private';
+export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'public';
 
 /** Matches YouTube Data API `videos.snippet.title` maximum length. */
 export const MAX_DRAFT_TITLE_LENGTH = 100;
@@ -77,7 +77,7 @@ export function isPlatformUploadVisibility(value: unknown): value is PlatformUpl
   return typeof value === 'string' && VISIBILITY_SET.has(value as PlatformUploadVisibility);
 }
 
-/** API / loose values → visibility (invalid → private). */
+/** API / loose values → visibility (invalid → public). */
 export function visibilityFromRow(value: unknown): PlatformUploadVisibility {
   return isPlatformUploadVisibility(value) ? value : DEFAULT_DRAFT_VISIBILITY;
 }
@@ -135,7 +135,10 @@ function stringList(v: unknown): string[] | undefined {
 
 function normalizePerPlatformOverrideFields(
   o: Record<string, unknown>
-): Pick<SermonAudioDraftFields, 'titleOverride' | 'descriptionOverride' | 'tagsOverride'> {
+): Pick<
+  SermonAudioDraftFields,
+  'titleOverride' | 'descriptionOverride' | 'tagsOverride' | 'visibilityOverride'
+> {
   const titleOverride = trimStr(o.titleOverride);
   const descriptionOverride = trimStr(o.descriptionOverride);
   let tagsOverride: string[] | undefined;
@@ -144,11 +147,15 @@ function normalizePerPlatformOverrideFields(
       .map((s) => s.trim())
       .filter(Boolean);
   }
+  const visibilityOverride = isPlatformUploadVisibility(o.visibilityOverride)
+    ? o.visibilityOverride
+    : undefined;
 
   return {
     ...(titleOverride !== undefined ? { titleOverride } : {}),
     ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
     ...(tagsOverride !== undefined ? { tagsOverride } : {}),
+    ...(visibilityOverride !== undefined ? { visibilityOverride } : {}),
   };
 }
 
@@ -662,6 +669,10 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
         yb.tagsOverride = undefined;
       }
     }
+    if ('visibilityOverride' in p) {
+      const v = p.visibilityOverride;
+      yb.visibilityOverride = isPlatformUploadVisibility(v) ? v : undefined;
+    }
     next.youtube = yb;
   }
 
@@ -722,6 +733,10 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       } else {
         vm.tagsOverride = undefined;
       }
+    }
+    if ('visibilityOverride' in p) {
+      const v = p.visibilityOverride;
+      vm.visibilityOverride = isPlatformUploadVisibility(v) ? v : undefined;
     }
     next.vimeo = vm;
   }
@@ -810,6 +825,7 @@ function resolveDraftCopyForPlatform(
     titleOverride?: string;
     descriptionOverride?: string;
     tagsOverride?: string[];
+    visibilityOverride?: PlatformUploadVisibility;
   }
 ): { title: string; description: string; tags: string[] } {
   const title = platformFields?.titleOverride?.trim() || draft.title;
@@ -817,6 +833,13 @@ function resolveDraftCopyForPlatform(
   const tagSource = platformFields?.tagsOverride ?? draft.tags;
   const tags = tagSource.map((t) => t.trim()).filter((t) => t.length > 0);
   return { title, description, tags };
+}
+
+function resolveVisibilityForPlatform(
+  draft: Draft,
+  platformFields?: { visibilityOverride?: PlatformUploadVisibility }
+): PlatformUploadVisibility {
+  return platformFields?.visibilityOverride ?? draft.visibility;
 }
 
 /**
@@ -829,13 +852,13 @@ export function buildMetadataForPlatform(
   draft: Draft,
   platform: ConnectedAccountPlatform
 ): PlatformUploadMetadata {
-  const visibility = draft.visibility;
   const thumbnailR2Key = draft.thumbnailR2Key?.trim() || undefined;
   const thumbnailContentType = draft.thumbnailContentType?.trim() || undefined;
 
   if (platform === 'youtube') {
     const yt = draft.platforms.youtube;
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, yt);
+    const visibility = resolveVisibilityForPlatform(draft, yt);
     const playlistTitles =
       yt?.playlistTitles !== undefined && yt.playlistTitles.length > 0
         ? uniqueTrimmedPlaylistTitles(yt.playlistTitles)
@@ -863,6 +886,7 @@ export function buildMetadataForPlatform(
   if (platform === 'vimeo') {
     const vm = draft.platforms.vimeo;
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, vm);
+    const visibility = resolveVisibilityForPlatform(draft, vm);
     return {
       title,
       description,
@@ -878,6 +902,7 @@ export function buildMetadataForPlatform(
     const sa = draft.platforms.sermon_audio;
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, sa);
     const keywords = tags.join(', ');
+    const visibility = draft.visibility;
 
     return {
       title,
@@ -906,6 +931,7 @@ export function buildMetadataForPlatform(
   }
 
   const { title, description, tags } = resolveDraftCopyForPlatform(draft);
+  const visibility = draft.visibility;
   return {
     title,
     description,

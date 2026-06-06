@@ -74,7 +74,7 @@ export interface SftpDraftFields {}
 export interface SmbDraftFields {}
 
 /**
- * Optional per-platform overrides for shared draft metadata (title, description, tags).
+ * Optional per-platform overrides for shared draft metadata (title, description, tags, visibility).
  * When set, distribution uses these values instead of the document-root fields for that platform.
  */
 export interface PerPlatformOverrides {
@@ -84,6 +84,8 @@ export interface PerPlatformOverrides {
   descriptionOverride?: string;
   /** Platform-specific tags; mapped per API (e.g. YouTube `snippet.tags`, Vimeo `tags`). */
   tagsOverride?: string[];
+  /** Platform-specific privacy (YouTube and Vimeo only). */
+  visibilityOverride?: PlatformUploadVisibility;
 }
 
 /** Platform upload status (PRD: pending, uploading, completed, failed). */

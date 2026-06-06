@@ -93,10 +93,9 @@ describe('uploadToSermonAudio', () => {
     });
 
     const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(JSON.parse(String(createInit.body))).toMatchObject({
-      speakerID: 99,
-      speakerName: 'Rev. Smith',
-    });
+    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
+    expect(createBody).toMatchObject({ speakerID: 99 });
+    expect(createBody).not.toHaveProperty('speakerName');
   });
 
   it('includes seriesID in create sermon body when provided', async () => {
@@ -120,10 +119,9 @@ describe('uploadToSermonAudio', () => {
     });
 
     const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(JSON.parse(String(createInit.body))).toMatchObject({
-      seriesID: 55,
-      subtitle: 'Romans',
-    });
+    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
+    expect(createBody).toMatchObject({ seriesID: 55 });
+    expect(createBody).not.toHaveProperty('subtitle');
   });
 
   it('returns an error when the API key is missing', async () => {

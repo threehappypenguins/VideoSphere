@@ -129,11 +129,27 @@ type OverridePlatform = (typeof OVERRIDE_PLATFORMS)[number];
 
 const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = ['youtube', 'vimeo', 'sermon_audio'];
 
+const PRIVACY_PLATFORMS = ['youtube', 'vimeo'] as const;
+
+type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
+
+const PRIVACY_PLATFORM_ORDER: PrivacyPlatform[] = ['youtube', 'vimeo'];
+
 /** SermonAudio short title (`displayTitle`) is offered when the effective title exceeds this length. */
 const SERMON_AUDIO_SHORT_TITLE_THRESHOLD = 30;
 
 function isOverridePlatform(platform: ConnectedAccountPlatform): platform is OverridePlatform {
   return (OVERRIDE_PLATFORMS as readonly string[]).includes(platform);
+}
+
+function isPrivacyPlatform(platform: ConnectedAccountPlatform): platform is PrivacyPlatform {
+  return (PRIVACY_PLATFORMS as readonly string[]).includes(platform);
+}
+
+function sortPrivacyPlatforms(platforms: PrivacyPlatform[]): PrivacyPlatform[] {
+  return [...platforms].sort(
+    (a, b) => PRIVACY_PLATFORM_ORDER.indexOf(a) - PRIVACY_PLATFORM_ORDER.indexOf(b)
+  );
 }
 
 function platformUsesSharedTitle(fields: PerPlatformOverrides | undefined): boolean {
@@ -146,6 +162,10 @@ function platformUsesSharedDescription(fields: PerPlatformOverrides | undefined)
 
 function platformUsesSharedTags(fields: PerPlatformOverrides | undefined): boolean {
   return fields?.tagsOverride === undefined;
+}
+
+function platformUsesSharedVisibility(fields: PerPlatformOverrides | undefined): boolean {
+  return fields?.visibilityOverride === undefined;
 }
 
 function sortOverridePlatforms(platforms: OverridePlatform[]): OverridePlatform[] {
@@ -867,6 +887,11 @@ export function DraftMetadataModal({
     return sortOverridePlatforms(value.targets.filter(isOverridePlatform));
   }, [value]);
 
+  const selectedPrivacyPlatforms = useMemo(() => {
+    if (!value) return [] as PrivacyPlatform[];
+    return sortPrivacyPlatforms(value.targets.filter(isPrivacyPlatform));
+  }, [value]);
+
   const usesSharedTitleGlobally = useMemo(() => {
     if (selectedOverridePlatforms.length < 2) return true;
     return selectedOverridePlatforms.every((platform) =>
@@ -888,10 +913,20 @@ export function DraftMetadataModal({
     );
   }, [selectedOverridePlatforms, value?.platforms]);
 
+  const usesSharedVisibilityGlobally = useMemo(() => {
+    if (selectedPrivacyPlatforms.length < 2) return true;
+    return selectedPrivacyPlatforms.every((platform) =>
+      platformUsesSharedVisibility(value?.platforms[platform])
+    );
+  }, [selectedPrivacyPlatforms, value?.platforms]);
+
   const showPerPlatformTitle = selectedOverridePlatforms.length >= 2 && !usesSharedTitleGlobally;
   const showPerPlatformDescription =
     selectedOverridePlatforms.length >= 2 && !usesSharedDescriptionGlobally;
   const showPerPlatformTags = selectedOverridePlatforms.length >= 2 && !usesSharedTagsGlobally;
+  const showPrivacyField = selectedPrivacyPlatforms.length > 0;
+  const showPerPlatformPrivacy =
+    selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
 
   const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
   const sermonAudioFields = value?.platforms.sermon_audio;
@@ -983,6 +1018,30 @@ export function DraftMetadataModal({
     if (field === 'tags' && useShared) {
       setPlatformOverrideTagInput({});
     }
+  };
+
+  const setUseSharedVisibility = (useShared: boolean) => {
+    if (!value) return;
+
+    let nextPlatforms: DraftPlatforms = { ...value.platforms };
+    for (const platform of selectedPrivacyPlatforms) {
+      const current = nextPlatforms[platform] ?? {};
+      let next: DraftPlatforms[PrivacyPlatform];
+
+      if (useShared) {
+        const { visibilityOverride, ...rest } = current;
+        next =
+          Object.keys(rest).length > 0
+            ? (rest as NonNullable<DraftPlatforms[PrivacyPlatform]>)
+            : undefined;
+      } else {
+        next = { ...current, visibilityOverride: value.visibility };
+      }
+
+      nextPlatforms = { ...nextPlatforms, [platform]: next };
+    }
+
+    onChange({ ...value, platforms: nextPlatforms });
   };
 
   const commitPlatformOverrideTags = (platform: OverridePlatform) => {
@@ -2125,28 +2184,93 @@ export function DraftMetadataModal({
                 />
               )}
             </div>
-            <div>
-              <label htmlFor="edit-visibility" className="text-sm font-medium text-foreground">
-                Privacy
-              </label>
-              <select
-                id="edit-visibility"
-                value={value.visibility}
-                onChange={(event) =>
-                  onChange({
-                    ...value,
-                    visibility: event.target.value as Draft['visibility'],
-                  })
-                }
-                className="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-              >
-                {VISIBILITY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {showPrivacyField ? (
+              <div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <label htmlFor="edit-visibility" className="text-sm font-medium text-foreground">
+                    Privacy
+                  </label>
+                  {selectedPrivacyPlatforms.length >= 2 ? (
+                    <SharedMetadataCheckbox
+                      checked={usesSharedVisibilityGlobally}
+                      onChange={setUseSharedVisibility}
+                      hint="When checked, YouTube and Vimeo share one privacy setting. Uncheck to set privacy per platform."
+                    />
+                  ) : null}
+                </div>
+                {showPerPlatformPrivacy ? (
+                  <div className="mt-2 space-y-3">
+                    {selectedPrivacyPlatforms.map((platform) => {
+                      const platformFields = value.platforms[platform];
+                      const platformVisibility =
+                        platformFields?.visibilityOverride ?? value.visibility;
+                      return (
+                        <div key={platform}>
+                          <label
+                            htmlFor={`edit-visibility-${platform}`}
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            {platformLabel(platform)}
+                          </label>
+                          <Select
+                            value={platformVisibility}
+                            onValueChange={(next) =>
+                              updateOverridePlatformFields(platform, {
+                                visibilityOverride: next as Draft['visibility'],
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              id={`edit-visibility-${platform}`}
+                              className={cn(
+                                fieldBorderClass(`visibility:${platform}`),
+                                'flex h-10 items-center justify-between text-left'
+                              )}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {VISIBILITY_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Select
+                    value={value.visibility}
+                    onValueChange={(next) =>
+                      onChange({
+                        ...value,
+                        visibility: next as Draft['visibility'],
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      id="edit-visibility"
+                      className={cn(
+                        fieldBorderClass('visibility'),
+                        'flex h-10 items-center justify-between text-left'
+                      )}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VISIBILITY_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            ) : null}
             <div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
@@ -2375,41 +2499,35 @@ export function DraftMetadataModal({
                       className={fieldBorderClass('sermon_audio.eventType')}
                     />
                   ) : (
-                    <>
-                      <Select
-                        value={
-                          sermonAudioFields?.eventType && sermonAudioFields.eventType !== ''
-                            ? sermonAudioFields.eventType
-                            : undefined
-                        }
-                        onValueChange={(next) => {
-                          clearUploadFieldError('sermon_audio.eventType');
-                          updateSermonAudioFields({ eventType: next });
-                        }}
+                    <Select
+                      value={
+                        sermonAudioFields?.eventType && sermonAudioFields.eventType !== ''
+                          ? sermonAudioFields.eventType
+                          : undefined
+                      }
+                      onValueChange={(next) => {
+                        clearUploadFieldError('sermon_audio.eventType');
+                        updateSermonAudioFields({ eventType: next });
+                      }}
+                    >
+                      <SelectTrigger
+                        id="draft-sermon-audio-event-type"
+                        aria-invalid={uploadFieldErrors.has('sermon_audio.eventType')}
+                        className={cn(
+                          fieldBorderClass('sermon_audio.eventType'),
+                          'flex h-10 items-center justify-between text-left'
+                        )}
                       >
-                        <SelectTrigger
-                          id="draft-sermon-audio-event-type"
-                          aria-invalid={uploadFieldErrors.has('sermon_audio.eventType')}
-                          className={cn(
-                            fieldBorderClass('sermon_audio.eventType'),
-                            'flex h-10 items-center justify-between text-left'
-                          )}
-                        >
-                          <SelectValue placeholder="Select an event category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sermonEventTypes.map((eventType) => (
-                            <SelectItem key={eventType} value={eventType}>
-                              {eventType}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {sermonEventTypes.length} event{' '}
-                        {sermonEventTypes.length === 1 ? 'category' : 'categories'} from SermonAudio
-                      </p>
-                    </>
+                        <SelectValue placeholder="Select an event category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sermonEventTypes.map((eventType) => (
+                          <SelectItem key={eventType} value={eventType}>
+                            {eventType}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   )}
                 </div>
                 <div>

@@ -84,6 +84,30 @@ describe('platform-uploads repository (mongo)', () => {
     expect(row.id).toBe('pu-1');
   });
 
+  it('creates a pending platform upload for sermon_audio', async () => {
+    mockCreate.mockResolvedValueOnce({
+      toObject: () => ({ ...baseDoc, _id: 'pu-sa', platform: 'sermon_audio' }),
+    });
+
+    const row = await createPlatformUpload({
+      uploadJobId: 'job-1',
+      platform: 'sermon_audio',
+      title: 'Sunday Sermon',
+      description: 'D',
+      tags: ['faith'],
+      visibility: 'public',
+    });
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadJobId: 'job-1',
+        platform: 'sermon_audio',
+        status: 'pending',
+      })
+    );
+    expect(row.platform).toBe('sermon_audio');
+  });
+
   it('returns the existing row when create hits duplicate-key race', async () => {
     const duplicateKeyError = Object.assign(new Error('E11000 duplicate key error'), {
       code: 11000,

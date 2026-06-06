@@ -67,7 +67,7 @@ describe('draft-upload-metadata', () => {
       targets: [],
       title: '',
       description: '',
-      visibility: 'private',
+      visibility: 'public',
       tags: [],
       platforms: {},
     });
@@ -75,7 +75,7 @@ describe('draft-upload-metadata', () => {
       targets: [],
       title: '',
       description: '',
-      visibility: 'private',
+      visibility: 'public',
       tags: [],
       platforms: {},
     });
@@ -92,10 +92,10 @@ describe('draft-upload-metadata', () => {
     expect(draftDocumentFromRow({ document: legacy }).tags).toEqual(['legacy']);
   });
 
-  it('visibilityFromRow defaults invalid values to private', () => {
-    expect(visibilityFromRow(undefined)).toBe('private');
-    expect(visibilityFromRow('')).toBe('private');
-    expect(visibilityFromRow('secret')).toBe('private');
+  it('visibilityFromRow defaults invalid values to public', () => {
+    expect(visibilityFromRow(undefined)).toBe('public');
+    expect(visibilityFromRow('')).toBe('public');
+    expect(visibilityFromRow('secret')).toBe('public');
     expect(visibilityFromRow('public')).toBe('public');
   });
 
@@ -238,6 +238,27 @@ describe('draft-upload-metadata', () => {
     expect(vm.tags).toEqual(['shared', 'b']);
     expect(vm.vimeoCategoryUri).toBe('/categories/1');
     expect(vm.vimeo).toEqual({ categoryUri: '/categories/1' });
+  });
+
+  it('buildMetadataForPlatform uses per-platform visibility overrides for YouTube and Vimeo', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'vimeo'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: { visibilityOverride: 'private' },
+        vimeo: { visibilityOverride: 'unlisted' },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').visibility).toBe('private');
+    expect(buildMetadataForPlatform(draft, 'vimeo').visibility).toBe('unlisted');
   });
 
   it('buildMetadataForPlatform passes playlistTitles and playlistIds for YouTube', () => {
