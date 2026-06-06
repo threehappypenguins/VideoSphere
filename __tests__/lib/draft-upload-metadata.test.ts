@@ -423,6 +423,34 @@ describe('draft-upload-metadata', () => {
     });
   });
 
+  it('normalizeDraftPlatforms normalizes sermon_audio crossPublish settings', () => {
+    expect(
+      normalizeDraftPlatforms({
+        sermon_audio: {
+          crossPublish: {
+            enabled: true,
+            facebook: {
+              postLink: true,
+              uploadFullVideo: true,
+              linkMessage: ' Check this out ',
+            },
+          },
+        },
+      })
+    ).toEqual({
+      sermon_audio: {
+        crossPublish: {
+          enabled: true,
+          facebook: {
+            postLink: true,
+            uploadFullVideo: true,
+            linkMessage: 'Check this out',
+          },
+        },
+      },
+    });
+  });
+
   it('buildMetadataForPlatform sermon_audio prefers overrides over shared values', () => {
     const draft: Draft = {
       id: 'd1',
@@ -482,6 +510,33 @@ describe('draft-upload-metadata', () => {
     expect(meta.speakerName).toBe('Rev. Smith');
     expect(meta.speakerID).toBe(77);
     expect(meta.preachDate).toBe('2026-06-01');
+  });
+
+  it('buildMetadataForPlatform sermon_audio includes crossPublish settings when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Title',
+      description: 'Description',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          crossPublish: {
+            enabled: true,
+            youtube: { uploadFullVideo: true },
+          },
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').crossPublish).toEqual({
+      enabled: true,
+      youtube: { uploadFullVideo: true },
+    });
   });
 
   it('buildMetadataForPlatform sermon_audio includes series fields when set', () => {

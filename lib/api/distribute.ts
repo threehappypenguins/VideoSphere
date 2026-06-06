@@ -31,10 +31,12 @@ import { uploadToGoogleDrive } from '@/lib/platforms/google-drive';
 import { uploadToSftp } from '@/lib/platforms/sftp';
 import { uploadToSmb } from '@/lib/platforms/smb';
 import {
+  applySermonAudioCrossPublish,
   pollSermonAudioProcessing,
   publishSermonAudio,
   uploadToSermonAudio,
 } from '@/lib/platforms/sermon-audio';
+import { sermonAudioCrossPublishHasActiveSelection } from '@/lib/platforms/sermon-audio-cross-publish';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
@@ -483,12 +485,24 @@ export async function runDistributionInBackground(
             sermonID,
             tokens: { accessToken: apiKey },
           });
+          if (sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish)) {
+            await applySermonAudioCrossPublish({
+              sermonID,
+              tokens: { accessToken: apiKey },
+              crossPublish: meta?.crossPublish,
+              defaultLinkMessage: meta?.fullTitle?.trim() || meta?.title?.trim(),
+            });
+          }
           await publishSermonAudio({
             sermonID,
             tokens: { accessToken: apiKey },
           });
+          const crossPublishActive = sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish);
           console.log(
-            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${upload.id})`
+            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${upload.id})` +
+              (crossPublishActive
+                ? '; Cross Publish applied on unpublished sermon before publish'
+                : '')
           );
         } catch (err) {
           console.error(

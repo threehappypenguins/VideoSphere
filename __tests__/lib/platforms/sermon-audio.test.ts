@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  applySermonAudioCrossPublish,
   pollSermonAudioProcessing,
   publishSermonAudio,
   uploadToSermonAudio,
@@ -96,6 +97,42 @@ describe('uploadToSermonAudio', () => {
     const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
     expect(createBody).toMatchObject({ speakerID: 99 });
     expect(createBody).not.toHaveProperty('speakerName');
+  });
+
+  it('includes socialSharing on sermon create when Cross Publish is enabled', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: {
+        ...metadata,
+        crossPublish: {
+          enabled: true,
+          facebook: { postLink: true, uploadVideoPreview: true, linkMessage: 'Check this out' },
+          x: { postLink: true, uploadVideoPreview: true, linkMessage: 'New sermon' },
+        },
+      },
+      tokens,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
+    expect(createBody.socialSharing).toEqual([
+      { platform: 'facebook', message: 'Check this out', useVideoClip: true },
+      { platform: 'twitter', message: 'New sermon', useVideoClip: true },
+    ]);
+    expect(createBody.social_sharing_video_clip).toEqual({ start: 0, end: 120 });
   });
 
   it('includes seriesID in create sermon body when provided', async () => {
@@ -219,6 +256,54 @@ describe('pollSermonAudioProcessing', () => {
     const expectation = expect(promise).rejects.toThrow('Polling aborted');
     await vi.advanceTimersByTimeAsync(5000);
     await expectation;
+  });
+});
+
+describe('applySermonAudioCrossPublish', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('PATCHes socialSharing before publish when Cross Publish is enabled', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await applySermonAudioCrossPublish({
+      sermonID: 'sermon-123',
+      tokens,
+      defaultLinkMessage: 'Sunday Sermon',
+      crossPublish: {
+        enabled: true,
+        facebook: { postLink: true, linkMessage: 'Check this out' },
+      },
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.sermonaudio.com/v2/node/sermons/sermon-123',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          socialSharing: [
+            { platform: 'facebook', message: 'Check this out', useVideoClip: true },
+          ],
+          social_sharing_video_clip: { start: 0, end: 120 },
+        }),
+      })
+    );
+  });
+
+  it('no-ops when Cross Publish is disabled', async () => {
+    await applySermonAudioCrossPublish({
+      sermonID: 'sermon-123',
+      tokens,
+      crossPublish: { enabled: false, facebook: { postLink: true } },
+    });
+
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
 

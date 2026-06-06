@@ -252,6 +252,48 @@ export interface SermonAudioDraftFields extends PerPlatformOverrides {
   languageCode?: string;
   /** When true, publish the sermon automatically after SA video processing completes (h264 ready). */
   autoPublishOnProcessed?: boolean;
+  /**
+   * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
+   * Applied on the unpublished sermon immediately before auto-publish when enabled.
+   */
+  crossPublish?: SermonAudioCrossPublishSettings;
+}
+
+/** Cross Publish destination id stored under `SermonAudioDraftFields.crossPublish`. */
+export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x';
+
+/**
+ * Cross Publish options for one social destination (SermonAudio dashboard feature).
+ * @property postLink - Post a link to the sermon when published.
+ * @property uploadFullVideo - Upload the full sermon video (YouTube/Facebook).
+ * @property uploadVideoPreview - Upload a video preview clip (X/Twitter; maps to SA `useVideoClip`).
+ * @property linkMessage - Custom message when `postLink` is enabled.
+ */
+export interface SermonAudioCrossPublishPlatformSettings {
+  postLink?: boolean;
+  uploadFullVideo?: boolean;
+  uploadVideoPreview?: boolean;
+  linkMessage?: string;
+}
+
+/** Cross Publish per-platform toggle id stored on `SermonAudioCrossPublishPlatformSettings`. */
+export type SermonAudioCrossPublishOptionId =
+  | 'postLink'
+  | 'uploadFullVideo'
+  | 'uploadVideoPreview';
+
+/**
+ * Cross Publish settings grouped by destination platform.
+ * @property enabled - Master Cross Publish toggle for the draft.
+ * @property youtube - YouTube Cross Publish options.
+ * @property facebook - Facebook Cross Publish options.
+ * @property x - X (Twitter) Cross Publish options.
+ */
+export interface SermonAudioCrossPublishSettings {
+  enabled?: boolean;
+  youtube?: SermonAudioCrossPublishPlatformSettings;
+  facebook?: SermonAudioCrossPublishPlatformSettings;
+  x?: SermonAudioCrossPublishPlatformSettings;
 }
 
 /**

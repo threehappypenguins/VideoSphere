@@ -1,4 +1,6 @@
+import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
 import { messageFromThrown } from '@/lib/utils/error-message';
+import type { SermonAudioCrossPublishSettings } from '@/types';
 import type {
   PlatformUploadError,
   PlatformUploadMetadata,
@@ -36,6 +38,15 @@ interface PollSermonAudioProcessingInput {
   intervalMs?: number;
   /** Maximum poll attempts before rejecting. Defaults to {@link SERMONAUDIO_PROCESSING_MAX_ATTEMPTS}. */
   maxAttempts?: number;
+  signal?: AbortSignal;
+}
+
+interface ApplySermonAudioCrossPublishInput {
+  sermonID: string;
+  tokens: PlatformUploadTokens;
+  crossPublish?: SermonAudioCrossPublishSettings;
+  /** Fallback link message when a platform description is empty (typically sermon title). */
+  defaultLinkMessage?: string;
   signal?: AbortSignal;
 }
 
@@ -136,6 +147,13 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   if (metadata.moreInfoText?.trim()) body.moreInfoText = metadata.moreInfoText.trim();
   if (metadata.keywords?.trim()) body.keywords = metadata.keywords.trim();
   if (metadata.languageCode?.trim()) body.languageCode = metadata.languageCode.trim();
+
+  const socialSharingFields = buildSermonAudioSocialSharingCreateFields(metadata.crossPublish, {
+    defaultLinkMessage: fullTitle,
+  });
+  if (socialSharingFields) {
+    Object.assign(body, socialSharingFields);
+  }
 
   return body;
 }
@@ -352,7 +370,53 @@ export async function pollSermonAudioProcessing(
 }
 
 /**
+ * Applies Cross Publish settings to an unpublished sermon (PATCH before `publishDate`).
+ * SermonAudio dashboard only allows Cross Publish while a sermon is unpublished.
+ * @param input - Sermon id, API key, Cross Publish settings, and optional abort signal.
+ * @throws When the Cross Publish PATCH fails.
+ */
+export async function applySermonAudioCrossPublish(
+  input: ApplySermonAudioCrossPublishInput
+): Promise<void> {
+  const apiKey = requireApiKey(input.tokens);
+  if (!apiKey) {
+    throw toPlatformUploadError('SERMONAUDIO_API_KEY_MISSING', 'SermonAudio API key is missing.');
+  }
+
+  const sermonID = input.sermonID.trim();
+  if (!sermonID) {
+    throw toPlatformUploadError(
+      'SERMONAUDIO_SERMON_ID_MISSING',
+      'SermonAudio sermonID is missing.'
+    );
+  }
+
+  const fields = buildSermonAudioSocialSharingCreateFields(input.crossPublish, {
+    defaultLinkMessage: input.defaultLinkMessage,
+  });
+  if (!fields) return;
+
+  const patchUrl = `${SERMONAUDIO_SERMONS_URL}/${encodeURIComponent(sermonID)}`;
+  const response = await fetch(patchUrl, {
+    method: 'PATCH',
+    headers: sermonAudioJsonHeaders(apiKey),
+    body: JSON.stringify(fields),
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+
+  if (!response.ok) {
+    throw toPlatformUploadError(
+      'SERMONAUDIO_CROSS_PUBLISH_FAILED',
+      'Failed to apply SermonAudio Cross Publish settings.',
+      response.status,
+      await readApiErrorDetails(response)
+    );
+  }
+}
+
+/**
  * Publishes a SermonAudio sermon by setting `publishDate` to today (`YYYY-MM-DD`).
+ * Call {@link applySermonAudioCrossPublish} on the unpublished sermon immediately before this.
  * @param input - Sermon id, API key tokens, and optional abort signal.
  * @throws When the publish request fails.
  */

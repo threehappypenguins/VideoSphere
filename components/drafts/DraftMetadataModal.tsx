@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
+import { SermonAudioCrossPublishFields } from '@/components/drafts/SermonAudioCrossPublishFields';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
@@ -2602,18 +2603,37 @@ export function DraftMetadataModal({
                     className={fieldBorderClass('sermon_audio.bibleText')}
                   />
                 </div>
-                <label className="inline-flex items-center gap-2 text-sm text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={sermonAudioFields?.autoPublishOnProcessed !== false}
-                    onChange={(event) =>
-                      updateSermonAudioFields({
-                        autoPublishOnProcessed: event.target.checked,
-                      })
-                    }
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-foreground">
+                    Auto-publish when processed ({platformLabel('sermon_audio')})
+                  </span>
+                  <label
+                    htmlFor="draft-sermon-audio-auto-publish"
+                    className="relative inline-flex cursor-pointer items-center"
+                  >
+                    <input
+                      id="draft-sermon-audio-auto-publish"
+                      type="checkbox"
+                      role="switch"
+                      aria-label={`Auto-publish when processed (${platformLabel('sermon_audio')})`}
+                      checked={sermonAudioFields?.autoPublishOnProcessed !== false}
+                      onChange={(event) =>
+                        updateSermonAudioFields({
+                          autoPublishOnProcessed: event.target.checked,
+                        })
+                      }
+                      className="peer sr-only"
+                    />
+                    <span className="h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-primary" />
+                    <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-5" />
+                  </label>
+                </div>
+                {sermonAudioFields?.autoPublishOnProcessed !== false ? (
+                  <SermonAudioCrossPublishFields
+                    crossPublish={sermonAudioFields?.crossPublish}
+                    onChange={(crossPublish) => updateSermonAudioFields({ crossPublish })}
                   />
-                  Auto-publish when processed ({platformLabel('sermon_audio')})
-                </label>
+                ) : null}
               </div>
             ) : null}
             {/* TODO(sermon-audio-thumbnail): Ask SermonAudio how to set display video thumbnails via the public API (uploadType, API key permissions). Hidden when SermonAudio is the only distribute target until supported. */}

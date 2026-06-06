@@ -9,6 +9,7 @@
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { formatSermonAudioKeywordsFromTags } from '@/lib/platforms/sermon-audio-tags';
+import { normalizeSermonAudioCrossPublishSettings } from '@/lib/platforms/sermon-audio-cross-publish';
 import { uniqueTrimmedPlaylistTitles } from '@/lib/platforms/youtube';
 import {
   CONNECTED_ACCOUNT_PLATFORMS,
@@ -333,6 +334,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
   const languageCode = trimStr(sa.languageCode);
   const autoPublishOnProcessed =
     typeof sa.autoPublishOnProcessed === 'boolean' ? sa.autoPublishOnProcessed : undefined;
+  const crossPublish = normalizeSermonAudioCrossPublishSettings(sa.crossPublish);
 
   return {
     ...normalizePerPlatformOverrideFields(sa),
@@ -346,6 +348,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
     ...(displayTitle !== undefined ? { displayTitle } : {}),
     ...(languageCode !== undefined ? { languageCode } : {}),
     ...(autoPublishOnProcessed !== undefined ? { autoPublishOnProcessed } : {}),
+    ...(crossPublish !== undefined ? { crossPublish } : {}),
   };
 }
 
@@ -788,6 +791,9 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       sa.autoPublishOnProcessed =
         typeof p.autoPublishOnProcessed === 'boolean' ? p.autoPublishOnProcessed : undefined;
     }
+    if ('crossPublish' in p) {
+      sa.crossPublish = normalizeSermonAudioCrossPublishSettings(p.crossPublish);
+    }
     if ('titleOverride' in p) {
       const s = p.titleOverride;
       sa.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
@@ -928,6 +934,7 @@ export function buildMetadataForPlatform(
       ...(sa?.autoPublishOnProcessed !== undefined
         ? { autoPublishOnProcessed: sa.autoPublishOnProcessed }
         : {}),
+      ...(sa?.crossPublish !== undefined ? { crossPublish: sa.crossPublish } : {}),
     };
   }
 

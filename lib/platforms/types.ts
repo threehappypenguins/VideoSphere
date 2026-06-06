@@ -3,7 +3,11 @@
  * Per-platform fields stay in separate optional interfaces and are composed into {@link PlatformUploadMetadata}.
  */
 
-import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
+import type {
+  PlatformUploadVisibility,
+  SermonAudioCrossPublishSettings,
+  VimeoDraftFields,
+} from '@/types';
 
 /** Copy and visibility applied to every target platform. */
 export interface SharedPlatformUploadMetadata {
@@ -75,6 +79,8 @@ export interface SermonAudioSpecificUploadMetadata {
   acceptCopyright?: boolean;
   /** When true, publish after SA video processing completes. */
   autoPublishOnProcessed?: boolean;
+  /** Cross Publish destination settings (PATCH before publish, also sent on sermon create). */
+  crossPublish?: SermonAudioCrossPublishSettings;
 }
 
 /**
