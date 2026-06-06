@@ -266,10 +266,10 @@ export function SermonAudioSpeakerCombobox({
           <button
             id={id}
             type="button"
-            role={open ? 'button' : 'combobox'}
+            role="combobox"
             aria-expanded={open}
             aria-haspopup="listbox"
-            aria-controls={open ? undefined : listboxId}
+            aria-controls={open ? listboxId : undefined}
             aria-invalid={invalid}
             className={cn(
               className,
@@ -304,9 +304,6 @@ export function SermonAudioSpeakerCombobox({
               placeholder="Search speakers"
               autoComplete="off"
               aria-label="Search speakers"
-              role="combobox"
-              aria-expanded={open}
-              aria-controls={listboxId}
               aria-activedescendant={highlightedOptionId}
               aria-autocomplete="list"
             />
