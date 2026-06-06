@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildSermonAudioSeriesTitleMap,
+  fetchRecentSermonAudioSeries,
   parseRecentSermonAudioSeriesFromSermonsList,
   parseSermonAudioSeries,
   parseSermonAudioSeriesFromListBody,
   parseSermonAudioSeriesFromSearchBody,
+  searchSermonAudioSeries,
 } from '@/lib/platforms/sermon-audio-series';
 
 describe('parseSermonAudioSeries', () => {
@@ -107,5 +109,41 @@ describe('buildSermonAudioSeriesTitleMap', () => {
       results: [{ seriesID: 5, title: 'Psalms' }],
     });
     expect(map.get(5)).toBe('Psalms');
+  });
+});
+
+describe('fetchRecentSermonAudioSeries', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('throws when SermonAudio returns a non-OK response', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    await expect(fetchRecentSermonAudioSeries('key', 'broadcaster-1')).rejects.toThrow(
+      /Failed to fetch recent SermonAudio series \(HTTP 401\)/
+    );
+  });
+});
+
+describe('searchSermonAudioSeries', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('throws when SermonAudio returns a non-OK response', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 503 }));
+
+    await expect(searchSermonAudioSeries('key', 'broadcaster-1', 'romans')).rejects.toThrow(
+      /Failed to search SermonAudio series \(HTTP 503\)/
+    );
   });
 });

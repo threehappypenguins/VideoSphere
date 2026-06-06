@@ -91,4 +91,15 @@ describe('GET /api/platforms/sermon-audio/series/recent', () => {
     expect(body.data).toEqual([{ seriesID: 10, title: 'Romans' }]);
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
+
+  it('returns 500 when SermonAudio responds with an error', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/platforms/sermon-audio/series/recent')
+    );
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.message).toBe('Failed to load SermonAudio series');
+  });
 });
