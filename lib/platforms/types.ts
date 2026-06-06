@@ -79,7 +79,7 @@ export interface SermonAudioSpecificUploadMetadata {
   acceptCopyright?: boolean;
   /** When true, publish after SA video processing completes. */
   autoPublishOnProcessed?: boolean;
-  /** Cross Publish destination settings (merged into publish PATCH with publishDate). */
+  /** Cross Publish destination settings (sent as `socialSharing` on sermon create POST). */
   crossPublish?: SermonAudioCrossPublishSettings;
 }
 

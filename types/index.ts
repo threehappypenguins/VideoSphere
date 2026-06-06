@@ -250,11 +250,11 @@ export interface SermonAudioDraftFields extends PerPlatformOverrides {
   displayTitle?: string;
   /** Language code (e.g. ISO 639-1). */
   languageCode?: string;
-  /** When true, publish the sermon automatically after SA video processing completes (h264 ready). */
+  /** When true, publish the sermon automatically after SA video processing completes (h264 + thumbnail ready). */
   autoPublishOnProcessed?: boolean;
   /**
    * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
-   * Applied in the publish PATCH together with `publishDate` when enabled.
+   * Mapped to `socialSharing` on sermon create; `publishSermonAudio` only PATCHes `publishDate`.
    */
   crossPublish?: SermonAudioCrossPublishSettings;
 }
