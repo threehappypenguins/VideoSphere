@@ -24,6 +24,11 @@ describe('resolveSermonAudioApiUrl', () => {
   it('rejects untrusted absolute URLs', () => {
     expect(resolveSermonAudioApiUrl('https://evil.example/ssrf')).toBeNull();
     expect(resolveSermonAudioApiUrl('http://127.0.0.1/admin')).toBeNull();
+    expect(
+      resolveSermonAudioApiUrl(
+        'https://api.sermonaudio.com:8443/v2/node/filter_options/sermon_event_types'
+      )
+    ).toBeNull();
   });
 
   it('returns null for empty or invalid input', () => {

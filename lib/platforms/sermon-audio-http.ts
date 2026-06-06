@@ -6,7 +6,8 @@ const SERMONAUDIO_API_HOSTNAME = new URL(SERMONAUDIO_API_BASE).hostname;
 /**
  * Resolves a SermonAudio API path or URL for server-side `fetch`.
  * Rejects absolute URLs whose hostname is not the configured SermonAudio API host.
- * Always normalizes the result to HTTPS.
+ * Rejects non-default HTTPS ports and normalizes explicit `:443` away.
+ * Always normalizes the result to HTTPS on the default port.
  * @param pathOrUrl - Relative API path or absolute SermonAudio API URL (e.g. pagination `next`).
  * @returns Resolved HTTPS URL, or `null` when the input is invalid or untrusted.
  */
@@ -34,6 +35,13 @@ export function resolveSermonAudioApiUrl(pathOrUrl: string): string | null {
   }
 
   resolved.protocol = 'https:';
+
+  const port = resolved.port;
+  if (port !== '' && port !== '443') {
+    return null;
+  }
+
+  resolved.port = '';
   return resolved.toString();
 }
 
