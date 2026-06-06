@@ -478,6 +478,12 @@ export async function runDistributionInBackground(
         continue;
       }
 
+      // Auto-publish is a separate phase after the upload job is marked completed: SermonAudio
+      // may need up to ~1 hour of processing polls before publish. Detached (not awaited) so
+      // runDistributionInBackground returns promptly. Self-hosted Docker: the poll continues in
+      // the long-lived Node process. Serverless: this work is outside `after()`'s awaited chain
+      // and may be cut short; a persisted pending job plus queue/worker/cron would be needed for
+      // guaranteed delivery across invocations.
       void (async () => {
         try {
           await pollSermonAudioProcessing({

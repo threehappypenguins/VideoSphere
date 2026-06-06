@@ -316,6 +316,12 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
   };
 }
 
+function resolveSermonAudioAutoPublishOnProcessed(
+  fields: Pick<SermonAudioDraftFields, 'autoPublishOnProcessed'> | undefined
+): boolean {
+  return fields?.autoPublishOnProcessed !== false;
+}
+
 function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDraftFields {
   const speakerName = trimStr(sa.speakerName);
   const speakerID =
@@ -931,9 +937,7 @@ export function buildMetadataForPlatform(
       keywords,
       ...(sa?.languageCode?.trim() ? { languageCode: sa.languageCode.trim() } : {}),
       acceptCopyright: true,
-      ...(sa?.autoPublishOnProcessed !== undefined
-        ? { autoPublishOnProcessed: sa.autoPublishOnProcessed }
-        : {}),
+      autoPublishOnProcessed: resolveSermonAudioAutoPublishOnProcessed(sa),
       ...(sa?.crossPublish !== undefined ? { crossPublish: sa.crossPublish } : {}),
     };
   }

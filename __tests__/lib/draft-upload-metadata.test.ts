@@ -512,6 +512,50 @@ describe('draft-upload-metadata', () => {
     expect(meta.preachDate).toBe('2026-06-01');
   });
 
+  it('buildMetadataForPlatform sermon_audio defaults autoPublishOnProcessed to true when unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Title',
+      description: 'Description',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+          preachDate: '2026-06-01',
+          eventType: 'Sunday Service',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').autoPublishOnProcessed).toBe(true);
+  });
+
+  it('buildMetadataForPlatform sermon_audio respects autoPublishOnProcessed false', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Title',
+      description: 'Description',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          autoPublishOnProcessed: false,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').autoPublishOnProcessed).toBe(false);
+  });
+
   it('buildMetadataForPlatform sermon_audio includes crossPublish settings when set', () => {
     const draft: Draft = {
       id: 'd1',
