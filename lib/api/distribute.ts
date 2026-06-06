@@ -231,15 +231,11 @@ async function runSinglePlatformUpload(
       }
 
       if (platformUpload.platform === 'sermon_audio') {
-        const broadcasterID = connectedAccount.platformUserId.trim();
         return uploadToSermonAudio({
           videoStream: stream,
           contentLength,
           contentType,
-          metadata: {
-            ...metadata,
-            ...(broadcasterID ? { broadcasterID } : {}),
-          },
+          metadata,
           tokens: { accessToken: tokens.accessToken },
           signal,
         });

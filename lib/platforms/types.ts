@@ -73,8 +73,6 @@ export interface SermonAudioSpecificUploadMetadata {
   /** SA keywords/hashtags derived from tags at upload time (comma-separated). */
   keywords?: string;
   languageCode?: string;
-  /** SA broadcaster id; set from the connected account at upload time when absent here. */
-  broadcasterID?: string;
   /** SA copyright acceptance flag on sermon create. */
   acceptCopyright?: boolean;
   /** When true, publish after SA video processing completes. */
