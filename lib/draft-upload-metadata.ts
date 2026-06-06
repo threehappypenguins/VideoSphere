@@ -22,6 +22,7 @@ import {
   type VimeoVideoLicense,
   type YouTubeDraftFields,
   type VimeoDraftFields,
+  type PerPlatformCopyOverrides,
   type SermonAudioDraftFields,
   type SftpDraftFields,
   type SmbDraftFields,
@@ -135,12 +136,9 @@ function stringList(v: unknown): string[] | undefined {
   return out;
 }
 
-function normalizePerPlatformOverrideFields(
+function normalizePerPlatformCopyOverrides(
   o: Record<string, unknown>
-): Pick<
-  SermonAudioDraftFields,
-  'titleOverride' | 'descriptionOverride' | 'tagsOverride' | 'visibilityOverride'
-> {
+): Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride' | 'tagsOverride'> {
   const titleOverride = trimStr(o.titleOverride);
   const descriptionOverride = trimStr(o.descriptionOverride);
   let tagsOverride: string[] | undefined;
@@ -149,14 +147,26 @@ function normalizePerPlatformOverrideFields(
       .map((s) => s.trim())
       .filter(Boolean);
   }
-  const visibilityOverride = isPlatformUploadVisibility(o.visibilityOverride)
-    ? o.visibilityOverride
-    : undefined;
 
   return {
     ...(titleOverride !== undefined ? { titleOverride } : {}),
     ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
     ...(tagsOverride !== undefined ? { tagsOverride } : {}),
+  };
+}
+
+function normalizePerPlatformOverrideFields(
+  o: Record<string, unknown>
+): Pick<
+  YouTubeDraftFields,
+  'titleOverride' | 'descriptionOverride' | 'tagsOverride' | 'visibilityOverride'
+> {
+  const visibilityOverride = isPlatformUploadVisibility(o.visibilityOverride)
+    ? o.visibilityOverride
+    : undefined;
+
+  return {
+    ...normalizePerPlatformCopyOverrides(o),
     ...(visibilityOverride !== undefined ? { visibilityOverride } : {}),
   };
 }
@@ -343,7 +353,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
   const crossPublish = normalizeSermonAudioCrossPublishSettings(sa.crossPublish);
 
   return {
-    ...normalizePerPlatformOverrideFields(sa),
+    ...normalizePerPlatformCopyOverrides(sa),
     ...(speakerName !== undefined ? { speakerName } : {}),
     ...(speakerID !== undefined ? { speakerID } : {}),
     ...(preachDate !== undefined ? { preachDate } : {}),

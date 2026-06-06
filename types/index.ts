@@ -74,16 +74,23 @@ export interface SftpDraftFields {}
 export interface SmbDraftFields {}
 
 /**
- * Optional per-platform overrides for shared draft metadata (title, description, tags, visibility).
+ * Optional per-platform overrides for shared draft copy (title, description, tags).
  * When set, distribution uses these values instead of the document-root fields for that platform.
  */
-export interface PerPlatformOverrides {
+export interface PerPlatformCopyOverrides {
   /** Platform-specific title; maps to each API's title field (e.g. SA `fullTitle`, YouTube `snippet.title`). */
   titleOverride?: string;
   /** Platform-specific description/body text. */
   descriptionOverride?: string;
   /** Platform-specific tags; mapped per API (e.g. YouTube `snippet.tags`, Vimeo `tags`). */
   tagsOverride?: string[];
+}
+
+/**
+ * Optional per-platform overrides for shared draft metadata (title, description, tags, visibility).
+ * When set, distribution uses these values instead of the document-root fields for that platform.
+ */
+export interface PerPlatformOverrides extends PerPlatformCopyOverrides {
   /** Platform-specific privacy (YouTube and Vimeo only). */
   visibilityOverride?: PlatformUploadVisibility;
 }
@@ -231,7 +238,7 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
  *
  * Field names align with SermonAudio `POST /v2/node/sermons` where applicable.
  */
-export interface SermonAudioDraftFields extends PerPlatformOverrides {
+export interface SermonAudioDraftFields extends PerPlatformCopyOverrides {
   /** SermonAudio speaker name. */
   speakerName?: string;
   /** SermonAudio speaker id when selected from SA speaker records. */

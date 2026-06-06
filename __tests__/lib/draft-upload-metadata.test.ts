@@ -423,6 +423,25 @@ describe('draft-upload-metadata', () => {
     });
   });
 
+  it('normalizeDraftPlatforms drops visibilityOverride from sermon_audio', () => {
+    expect(
+      normalizeDraftPlatforms({
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+          preachDate: '2026-01-15',
+          eventType: 'Sunday Service',
+          visibilityOverride: 'private',
+        },
+      })
+    ).toEqual({
+      sermon_audio: {
+        speakerName: 'Rev. Smith',
+        preachDate: '2026-01-15',
+        eventType: 'Sunday Service',
+      },
+    });
+  });
+
   it('normalizeDraftPlatforms normalizes sermon_audio crossPublish settings', () => {
     expect(
       normalizeDraftPlatforms({

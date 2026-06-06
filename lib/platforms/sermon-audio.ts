@@ -86,8 +86,17 @@ function toPlatformUploadError(
   message: string,
   statusCode?: number,
   details?: string
-): PlatformUploadError {
-  return { code, message, statusCode, details };
+): Error & PlatformUploadError {
+  const error = new Error(message) as Error & PlatformUploadError;
+  error.name = 'PlatformUploadError';
+  error.code = code;
+  if (statusCode !== undefined) {
+    error.statusCode = statusCode;
+  }
+  if (details !== undefined) {
+    error.details = details;
+  }
+  return error;
 }
 
 async function readApiErrorDetails(response: Response): Promise<string | undefined> {
