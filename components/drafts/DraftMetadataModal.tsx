@@ -22,6 +22,11 @@ import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-up
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
+import {
+  mergeUniqueTags,
+  parseSermonAudioHashtagInput,
+  parseSharedTagInput,
+} from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
@@ -1048,20 +1053,29 @@ export function DraftMetadataModal({
     if (!value) return;
     const raw = platformOverrideTagInput[platform]?.trim() ?? '';
     if (raw === '') return;
-    const parsed = raw
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    const parsed =
+      platform === 'sermon_audio' ? parseSermonAudioHashtagInput(raw) : parseSharedTagInput(raw);
     if (parsed.length === 0) return;
     const current = value.platforms[platform]?.tagsOverride ?? value.tags;
-    const merged = [...current];
-    for (const tag of parsed) {
-      if (!merged.includes(tag)) {
-        merged.push(tag);
-      }
-    }
-    updateOverridePlatformFields(platform, { tagsOverride: merged });
+    updateOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
+  };
+
+  const handlePlatformOverrideTagInputChange = (platform: OverridePlatform, next: string) => {
+    if (platform !== 'sermon_audio' || !/\s/.test(next)) {
+      setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: next }));
+      return;
+    }
+
+    const segments = next.split(/\s+/);
+    const remainder = segments.pop() ?? '';
+    const complete = segments.filter(Boolean);
+    if (complete.length > 0 && value) {
+      const current = value.platforms[platform]?.tagsOverride ?? value.tags;
+      const parsed = complete.flatMap((part) => parseSermonAudioHashtagInput(part));
+      updateOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
+    }
+    setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: remainder }));
   };
 
   const updateSermonAudioFields = (patch: Partial<SermonAudioDraftFields>) => {
@@ -1080,18 +1094,9 @@ export function DraftMetadataModal({
 
   const commitTagsFromInput = useCallback(() => {
     if (!value) return;
-    const parsed = tagInput
-      .split(',')
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    const parsed = parseSharedTagInput(tagInput);
     if (parsed.length === 0) return;
-    const merged = [...value.tags];
-    for (const tag of parsed) {
-      if (!merged.includes(tag)) {
-        merged.push(tag);
-      }
-    }
-    onChange({ ...value, tags: merged });
+    onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
     setTagInput('');
   }, [onChange, tagInput, value]);
 
@@ -2338,13 +2343,17 @@ export function DraftMetadataModal({
                             id={`edit-tags-${platform}`}
                             value={platformOverrideTagInput[platform] ?? ''}
                             onChange={(event) =>
-                              setPlatformOverrideTagInput((prev) => ({
-                                ...prev,
-                                [platform]: event.target.value,
-                              }))
+                              handlePlatformOverrideTagInputChange(platform, event.target.value)
                             }
                             onKeyDown={(event) => {
                               if (event.key === 'Enter' || event.key === ',') {
+                                event.preventDefault();
+                                commitPlatformOverrideTags(platform);
+                              } else if (
+                                event.key === ' ' &&
+                                platform === 'sermon_audio' &&
+                                (platformOverrideTagInput[platform] ?? '').trim() !== ''
+                              ) {
                                 event.preventDefault();
                                 commitPlatformOverrideTags(platform);
                               } else if (
@@ -2364,7 +2373,11 @@ export function DraftMetadataModal({
                               }
                             }}
                             onBlur={() => commitPlatformOverrideTags(platform)}
-                            placeholder="Type a tag and press Enter or comma"
+                            placeholder={
+                              platform === 'sermon_audio'
+                                ? 'Type one hashtag; press Enter, comma, or space'
+                                : 'Type a tag and press Enter or comma'
+                            }
                             className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
                           />
                         </div>
@@ -2430,11 +2443,13 @@ export function DraftMetadataModal({
                 </div>
               )}
               <p className="mt-1 text-xs text-muted-foreground">
-                Press Enter or comma to add tags
-                {showSermonAudioFields
-                  ? ' (used as SermonAudio hashtags when that target is selected)'
-                  : ''}
-                .
+                {showPerPlatformTags
+                  ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
+                  : `Press Enter or comma to add tags${
+                      showSermonAudioFields
+                        ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
+                        : ''
+                    }.`}
               </p>
             </div>
             {showSermonAudioFields ? (

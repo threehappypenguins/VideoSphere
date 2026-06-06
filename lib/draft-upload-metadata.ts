@@ -8,6 +8,7 @@
  */
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
+import { formatSermonAudioKeywordsFromTags } from '@/lib/platforms/sermon-audio-tags';
 import { uniqueTrimmedPlaylistTitles } from '@/lib/platforms/youtube';
 import {
   CONNECTED_ACCOUNT_PLATFORMS,
@@ -901,7 +902,7 @@ export function buildMetadataForPlatform(
   if (platform === 'sermon_audio') {
     const sa = draft.platforms.sermon_audio;
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, sa);
-    const keywords = tags.join(', ');
+    const keywords = formatSermonAudioKeywordsFromTags(tags);
     const visibility = draft.visibility;
 
     return {

@@ -528,4 +528,21 @@ describe('draft-upload-metadata', () => {
 
     expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('faith, hope');
   });
+
+  it('buildMetadataForPlatform sermon_audio strips spaces and hash prefixes from keywords', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'T',
+      description: 'D',
+      tags: ['this is', '#faith'],
+      visibility: 'public',
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('thisis, faith');
+  });
 });
