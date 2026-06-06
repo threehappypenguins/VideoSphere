@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { mergeSermonAudioEventTypes } from '@/lib/platforms/sermon-audio-event-types';
 import { requireSermonAudioConnection } from '@/lib/platforms/sermon-audio-api';
-import { SERMONAUDIO_API_BASE } from '@/lib/platforms/sermon-audio-http';
+import { SERMONAUDIO_API_BASE, resolveSermonAudioApiUrl } from '@/lib/platforms/sermon-audio-http';
 import type { ApiError, ApiResponse } from '@/types';
 
 const SERMONAUDIO_EVENT_TYPES_URL = `${SERMONAUDIO_API_BASE}/v2/node/filter_options/sermon_event_types`;
@@ -52,13 +52,6 @@ function parseEventTypeLabelsFromBody(body: unknown): string[] {
   return labels;
 }
 
-function resolveSermonAudioUrl(pathOrUrl: string): string {
-  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
-    return pathOrUrl;
-  }
-  return new URL(pathOrUrl, SERMONAUDIO_API_BASE).toString();
-}
-
 async function fetchAllSermonEventTypeLabels(apiKey: string): Promise<string[]> {
   const labels = new Set<string>();
   const headers = {
@@ -68,7 +61,7 @@ async function fetchAllSermonEventTypeLabels(apiKey: string): Promise<string[]> 
 
   // Global catalog — omit `broadcaster_id`, which would restrict results to categories
   // this broadcaster has already used (not the full list shown on sermonaudio.com).
-  let nextUrl: string | null = resolveSermonAudioUrl(SERMONAUDIO_EVENT_TYPES_URL);
+  let nextUrl: string | null = resolveSermonAudioApiUrl(SERMONAUDIO_EVENT_TYPES_URL);
 
   while (nextUrl) {
     const response = await fetch(nextUrl, { method: 'GET', headers, cache: 'no-store' });
@@ -85,7 +78,7 @@ async function fetchAllSermonEventTypeLabels(apiKey: string): Promise<string[]> 
       body && typeof body === 'object' && typeof (body as Record<string, unknown>).next === 'string'
         ? ((body as Record<string, unknown>).next as string).trim()
         : '';
-    nextUrl = next !== '' ? resolveSermonAudioUrl(next) : null;
+    nextUrl = next !== '' ? resolveSermonAudioApiUrl(next) : null;
   }
 
   return [...labels].sort((a, b) => a.localeCompare(b));
