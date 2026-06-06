@@ -64,6 +64,16 @@ function pushIfEmpty(
   }
 }
 
+function hasValidSermonAudioSpeaker(
+  sa: DraftUploadValidationInput['platforms']['sermon_audio'] | undefined
+): boolean {
+  const speakerID = sa?.speakerID;
+  if (typeof speakerID === 'number' && Number.isInteger(speakerID) && speakerID > 0) {
+    return true;
+  }
+  return (sa?.speakerName ?? '').trim() !== '';
+}
+
 /**
  * Validates that a draft has the metadata required to upload and distribute to its selected targets.
  * Draft save may omit these fields; upload must not proceed until they are present.
@@ -95,12 +105,12 @@ export function validateDraftForUpload(
 
   if (draft.targets.includes('sermon_audio')) {
     const sa = draft.platforms.sermon_audio;
-    pushIfEmpty(
-      issues,
-      'sermon_audio.speakerName',
-      sa?.speakerName,
-      'Speaker is required for SermonAudio before upload.'
-    );
+    if (!hasValidSermonAudioSpeaker(sa)) {
+      issues.push({
+        field: 'sermon_audio.speakerName',
+        message: 'Speaker is required for SermonAudio before upload.',
+      });
+    }
     pushIfEmpty(
       issues,
       'sermon_audio.preachDate',

@@ -98,6 +98,32 @@ describe('uploadToSermonAudio', () => {
     expect(createBody).not.toHaveProperty('speakerName');
   });
 
+  it('omits non-positive speakerID and falls back to speakerName when provided', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: { ...metadata, speakerID: 0, speakerName: 'Rev. Smith' },
+      tokens,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
+    expect(createBody).not.toHaveProperty('speakerID');
+    expect(createBody).toMatchObject({ speakerName: 'Rev. Smith' });
+  });
+
   it('includes socialSharing on sermon create when Cross Publish is enabled', async () => {
     const fetchMock = vi.mocked(global.fetch);
     fetchMock
@@ -192,6 +218,32 @@ describe('uploadToSermonAudio', () => {
     const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
     expect(createBody).toMatchObject({ seriesID: 55 });
     expect(createBody).not.toHaveProperty('subtitle');
+  });
+
+  it('omits non-positive seriesID and falls back to subtitle when provided', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-789' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: { ...metadata, subtitle: 'Romans', seriesID: 0 },
+      tokens,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
+    expect(createBody).not.toHaveProperty('seriesID');
+    expect(createBody).toMatchObject({ subtitle: 'Romans' });
   });
 
   it('returns an error when the API key is missing', async () => {

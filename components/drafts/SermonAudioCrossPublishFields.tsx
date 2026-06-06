@@ -27,8 +27,9 @@ function patchCrossPublishPlatform(
   platform: SermonAudioCrossPublishTarget,
   patch: Partial<SermonAudioCrossPublishPlatformSettings>
 ): SermonAudioCrossPublishSettings {
-  const nextPlatform = { ...current?.[platform], ...patch };
-  return { ...current, [platform]: nextPlatform };
+  const base = current ?? {};
+  const nextPlatform = { ...base[platform], ...patch };
+  return { ...base, [platform]: nextPlatform };
 }
 
 interface CrossPublishToggleRowProps {
@@ -107,7 +108,7 @@ export function SermonAudioCrossPublishFields({
             checked={crossPublishEnabled}
             onChange={(event) =>
               onChange({
-                ...crossPublish,
+                ...(crossPublish ?? {}),
                 enabled: event.target.checked,
               })
             }

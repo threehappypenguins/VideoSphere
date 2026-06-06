@@ -52,4 +52,21 @@ describe('validateDraftForUpload', () => {
       'sermon_audio.eventType',
     ]);
   });
+
+  it('accepts SermonAudio upload when only speakerID is set', () => {
+    const issues = validateDraftForUpload({
+      title: 'Sermon',
+      description: '',
+      tags: [],
+      targets: ['sermon_audio'],
+      platforms: {
+        sermon_audio: {
+          speakerID: 42,
+          preachDate: '2026-06-01',
+          eventType: 'Sunday Service',
+        },
+      },
+    });
+    expect(issues.map((issue) => issue.field)).toEqual([]);
+  });
 });

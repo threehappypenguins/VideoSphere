@@ -262,6 +262,7 @@ export function SermonAudioSeriesCombobox({
             type="button"
             role="combobox"
             aria-expanded={open}
+            aria-haspopup="listbox"
             aria-controls={open ? listboxId : undefined}
             aria-invalid={invalid}
             className={cn(
@@ -278,8 +279,6 @@ export function SermonAudioSeriesCombobox({
           </button>
         </PopoverTrigger>
         <PopoverContent
-          id={listboxId}
-          role="listbox"
           aria-label="SermonAudio series"
           align="start"
           side="bottom"
@@ -304,10 +303,7 @@ export function SermonAudioSeriesCombobox({
           <p className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
             {isSearching ? 'Search results' : 'Recent series'}
           </p>
-          <div
-            className="scrollbar-visible max-h-52 overflow-y-auto overscroll-y-contain"
-            onWheel={handleListWheel}
-          >
+          <div aria-live="polite" aria-atomic="true">
             {searchLoading ? (
               <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -333,6 +329,14 @@ export function SermonAudioSeriesCombobox({
                 SermonAudio series.
               </p>
             ) : null}
+          </div>
+          <div
+            id={listboxId}
+            role="listbox"
+            aria-label="Series options"
+            className="scrollbar-visible max-h-52 overflow-y-auto overscroll-y-contain"
+            onWheel={handleListWheel}
+          >
             <button
               type="button"
               role="option"

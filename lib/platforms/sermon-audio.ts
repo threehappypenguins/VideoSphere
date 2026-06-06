@@ -118,12 +118,16 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   };
 
   if (metadata.displayTitle?.trim()) body.displayTitle = metadata.displayTitle.trim();
-  if (metadata.seriesID != null && Number.isInteger(metadata.seriesID)) {
+  if (metadata.seriesID != null && Number.isInteger(metadata.seriesID) && metadata.seriesID > 0) {
     body.seriesID = metadata.seriesID;
   } else if (metadata.subtitle?.trim()) {
     body.subtitle = metadata.subtitle.trim();
   }
-  if (metadata.speakerID != null && Number.isInteger(metadata.speakerID)) {
+  if (
+    metadata.speakerID != null &&
+    Number.isInteger(metadata.speakerID) &&
+    metadata.speakerID > 0
+  ) {
     body.speakerID = metadata.speakerID;
   } else if (metadata.speakerName?.trim()) {
     body.speakerName = metadata.speakerName.trim();
