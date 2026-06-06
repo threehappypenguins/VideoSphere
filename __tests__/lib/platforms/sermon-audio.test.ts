@@ -222,6 +222,34 @@ describe('pollSermonAudioProcessing', () => {
     vi.useRealTimers();
   });
 
+  it('resolves when videoCodec contains h264 with adaptiveBitrate and thumbnailImageURL', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          media: {
+            video: [
+              {
+                videoCodec: 'H.264',
+                adaptiveBitrate: true,
+                thumbnailImageURL: 'https://cdn.sermonaudio.com/thumb.jpg',
+              },
+            ],
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      pollSermonAudioProcessing({
+        sermonID: 'sermon-123',
+        tokens,
+        intervalMs: 1000,
+        maxAttempts: 3,
+      })
+    ).resolves.toBeUndefined();
+  });
+
   it('resolves when h264 entry has adaptiveBitrate and thumbnailImageURL', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(

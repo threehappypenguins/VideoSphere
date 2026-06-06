@@ -30,7 +30,12 @@ describe('validateDraftForUpload', () => {
         vimeo: { titleOverride: '' },
       },
     });
-    expect(issues).toEqual([expect.objectContaining({ field: 'title:vimeo' })]);
+    expect(issues).toEqual([
+      expect.objectContaining({
+        field: 'title:vimeo',
+        message: 'Vimeo title is required before upload.',
+      }),
+    ]);
   });
 
   it('requires SermonAudio speaker, date, and event category on upload', () => {

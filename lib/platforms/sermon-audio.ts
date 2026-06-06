@@ -154,7 +154,9 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
 }
 
 function isH264VideoCodec(codec: unknown): boolean {
-  return typeof codec === 'string' && codec.trim().toLowerCase() === 'h264';
+  if (typeof codec !== 'string') return false;
+  const normalized = codec.trim().toLowerCase().replace(/\./g, '');
+  return normalized.includes('h264');
 }
 
 function sermonVideoIsReady(payload: unknown): boolean {
@@ -310,8 +312,8 @@ export async function uploadToSermonAudio(
 }
 
 /**
- * Polls SermonAudio until sermon video processing completes: an `h264` `media.video` entry with
- * `adaptiveBitrate: true` and a non-empty `thumbnailImageURL`.
+ * Polls SermonAudio until sermon video processing completes: a `media.video` entry whose
+ * `videoCodec` contains `h264`, with `adaptiveBitrate: true` and a non-empty `thumbnailImageURL`.
  * @param input - Sermon id, API key tokens, poll tuning, and optional abort signal.
  * @returns Resolves when processing is complete.
  * @throws When polling is aborted or `maxAttempts` is exceeded.

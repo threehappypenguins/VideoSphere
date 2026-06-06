@@ -1,4 +1,5 @@
 import type { ConnectedAccountPlatform, DraftPlatforms } from '@/types';
+import { platformLabel } from '@/lib/ui/platform-label';
 
 const METADATA_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
 
@@ -87,7 +88,7 @@ export function validateDraftForUpload(
         issues,
         `title:${platform}`,
         effectiveTitleForPlatform(draft, platform),
-        `${platform} title is required before upload.`
+        `${platformLabel(platform)} title is required before upload.`
       );
     }
   }
