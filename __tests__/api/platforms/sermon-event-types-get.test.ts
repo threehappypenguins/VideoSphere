@@ -97,6 +97,24 @@ describe('GET /api/platforms/sermon-audio/filter-options/sermon-event-types', ()
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('stops paginating when next repeats the same URL', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [{ description: 'Sunday Service' }],
+          next: '/v2/node/filter_options/sermon_event_types',
+        }),
+        { status: 200 }
+      )
+    );
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual(expect.arrayContaining(['Sunday Service', 'Youth']));
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('returns 404 when SermonAudio is not connected', async () => {
     mockGetConnectedAccountWithTokens.mockResolvedValueOnce(null);
     const res = await GET(makeRequest());

@@ -6,6 +6,9 @@ import type { ApiError, ApiResponse } from '@/types';
 
 const SERMONAUDIO_EVENT_TYPES_URL = `${SERMONAUDIO_API_BASE}/v2/node/filter_options/sermon_event_types`;
 
+/** Upper bound on event-type catalog pagination requests (guards runaway `next` chains). */
+const SERMONAUDIO_EVENT_TYPES_MAX_PAGES = 100;
+
 function eventTypeLabel(item: unknown): string | null {
   if (typeof item === 'string') {
     const trimmed = item.trim();
@@ -54,6 +57,7 @@ function parseEventTypeLabelsFromBody(body: unknown): string[] {
 
 async function fetchAllSermonEventTypeLabels(apiKey: string): Promise<string[]> {
   const labels = new Set<string>();
+  const visitedUrls = new Set<string>();
   const headers = {
     'X-Api-Key': apiKey,
     Accept: 'application/json',
@@ -64,6 +68,11 @@ async function fetchAllSermonEventTypeLabels(apiKey: string): Promise<string[]> 
   let nextUrl: string | null = resolveSermonAudioApiUrl(SERMONAUDIO_EVENT_TYPES_URL);
 
   while (nextUrl) {
+    if (visitedUrls.has(nextUrl) || visitedUrls.size >= SERMONAUDIO_EVENT_TYPES_MAX_PAGES) {
+      break;
+    }
+    visitedUrls.add(nextUrl);
+
     const response = await fetch(nextUrl, { method: 'GET', headers, cache: 'no-store' });
     if (!response.ok) {
       break;
