@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { mergeSermonAudioEventTypes } from '@/lib/platforms/sermon-audio-event-types';
+import { SERMONAUDIO_API_BASE } from '@/lib/platforms/sermon-audio-http';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import type { ApiError, ApiResponse } from '@/types';
 
-const SERMONAUDIO_API_BASE = 'https://api.sermonaudio.com';
 const SERMONAUDIO_EVENT_TYPES_URL = `${SERMONAUDIO_API_BASE}/v2/node/filter_options/sermon_event_types`;
 
 function eventTypeLabel(item: unknown): string | null {

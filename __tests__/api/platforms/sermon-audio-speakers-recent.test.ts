@@ -63,4 +63,15 @@ describe('GET /api/platforms/sermon-audio/speakers/recent', () => {
     expect(String(url)).toContain('broadcasterID=broadcaster-99');
     expect(String(url)).toContain('sortBy=newest');
   });
+
+  it('returns 500 when SermonAudio responds with an error', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/platforms/sermon-audio/speakers/recent')
+    );
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.message).toBe('Failed to load SermonAudio speakers');
+  });
 });

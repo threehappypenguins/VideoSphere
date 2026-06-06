@@ -57,4 +57,15 @@ describe('GET /api/platforms/sermon-audio/speakers/search', () => {
     const body = await res.json();
     expect(body.data).toEqual([{ speakerID: 99, displayName: 'Rev. Smith' }]);
   });
+
+  it('returns 500 when SermonAudio responds with an error', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 503 }));
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/platforms/sermon-audio/speakers/search?q=smith')
+    );
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.message).toBe('Failed to search SermonAudio speakers');
+  });
 });

@@ -56,7 +56,7 @@ export function SermonAudioSpeakerCombobox({
   invalid = false,
   className,
 }: SermonAudioSpeakerComboboxProps) {
-  const panelId = useId();
+  const listboxId = useId();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const panelQueryRef = useRef('');
   const speakerNameRef = useRef(speakerName);
@@ -247,9 +247,11 @@ export function SermonAudioSpeakerCombobox({
           <button
             id={id}
             type="button"
+            role="combobox"
             aria-expanded={open}
-            aria-haspopup="dialog"
-            aria-controls={open ? panelId : undefined}
+            aria-haspopup="listbox"
+            aria-controls={open ? listboxId : undefined}
+            aria-invalid={invalid}
             className={cn(
               className,
               'flex h-10 w-full items-center justify-between text-left',
@@ -264,7 +266,6 @@ export function SermonAudioSpeakerCombobox({
           </button>
         </PopoverTrigger>
         <PopoverContent
-          id={panelId}
           aria-label="SermonAudio speakers"
           align="start"
           side="bottom"
@@ -320,32 +321,31 @@ export function SermonAudioSpeakerCombobox({
                 </p>
               ) : null}
             </div>
-            <div>
-              {visibleSpeakers.map((speaker, index) => {
-                const isSelected =
-                  speakerID === speaker.speakerID && speakerName === speaker.displayName;
-                return (
-                  <button
-                    key={speaker.speakerID}
-                    type="button"
-                    aria-current={index === highlightedIndex ? 'true' : undefined}
-                    className={cn(
-                      'flex w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
-                      index === highlightedIndex && 'bg-accent text-accent-foreground'
-                    )}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectSpeaker(speaker)}
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                  >
-                    {speaker.displayName}
-                    {isSelected ? <span className="sr-only"> (selected)</span> : null}
-                  </button>
-                );
-              })}
+            <div id={listboxId} role="listbox" aria-label="Speaker options">
+              {visibleSpeakers.map((speaker, index) => (
+                <button
+                  key={speaker.speakerID}
+                  type="button"
+                  role="option"
+                  aria-selected={
+                    speakerID === speaker.speakerID && speakerName === speaker.displayName
+                  }
+                  className={cn(
+                    'flex w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
+                    index === highlightedIndex && 'bg-accent text-accent-foreground'
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectSpeaker(speaker)}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                >
+                  {speaker.displayName}
+                </button>
+              ))}
               {showCustomNameOption ? (
                 <button
                   type="button"
-                  aria-current={highlightedIndex === visibleSpeakers.length ? 'true' : undefined}
+                  role="option"
+                  aria-selected={false}
                   className={cn(
                     'flex w-full border-t border-border px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
                     highlightedIndex === visibleSpeakers.length &&

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { SERMONAUDIO_TOKEN_EXPIRY } from '@/lib/platforms/sermon-audio';
+import { SERMONAUDIO_API_BASE } from '@/lib/platforms/sermon-audio-http';
 import {
   createConnectedAccount,
   getConnectedAccount,
@@ -8,7 +9,7 @@ import {
 } from '@/lib/repositories/connected-accounts';
 import type { ConnectedAccountPublic } from '@/types';
 
-const SERMONAUDIO_BROADCASTERS_URL = 'https://api.sermonaudio.com/v2/node/broadcasters';
+const SERMONAUDIO_BROADCASTERS_URL = `${SERMONAUDIO_API_BASE}/v2/node/broadcasters`;
 
 interface ConnectSermonAudioBody {
   apiKey?: unknown;

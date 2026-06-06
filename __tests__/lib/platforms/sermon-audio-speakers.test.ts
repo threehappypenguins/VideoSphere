@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import {
+  fetchRecentSermonAudioSpeakers,
   parseRecentSermonAudioSpeakersFromFilterOptions,
   parseRecentSermonAudioSpeakersFromSermonsList,
   parseSermonAudioSpeaker,
   parseSermonAudioSpeakersFromBody,
   parseSermonAudioSpeakersFromSearchBody,
+  searchSermonAudioSpeakers,
 } from '@/lib/platforms/sermon-audio-speakers';
 
 describe('parseSermonAudioSpeaker', () => {
@@ -92,5 +94,41 @@ describe('parseSermonAudioSpeakersFromBody', () => {
       { speakerID: 1, displayName: 'Amy Lee' },
       { speakerID: 2, displayName: 'Zed Brown' },
     ]);
+  });
+});
+
+describe('fetchRecentSermonAudioSpeakers', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('throws when SermonAudio returns a non-OK response', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    await expect(fetchRecentSermonAudioSpeakers('key', 'broadcaster-1')).rejects.toThrow(
+      /Failed to fetch recent SermonAudio speakers \(HTTP 401\)/
+    );
+  });
+});
+
+describe('searchSermonAudioSpeakers', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('throws when SermonAudio returns a non-OK response', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 503 }));
+
+    await expect(searchSermonAudioSpeakers('key', 'smith')).rejects.toThrow(
+      /Failed to search SermonAudio speakers \(HTTP 503\)/
+    );
   });
 });

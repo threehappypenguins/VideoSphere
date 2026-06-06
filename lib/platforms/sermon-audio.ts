@@ -1,5 +1,5 @@
 import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
-import { sermonAudioJsonHeaders } from '@/lib/platforms/sermon-audio-http';
+import { SERMONAUDIO_API_BASE, sermonAudioJsonHeaders } from '@/lib/platforms/sermon-audio-http';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadError,
@@ -8,9 +8,8 @@ import type {
   PlatformUploadTokens,
 } from '@/lib/platforms/types';
 
-const SERMONAUDIO_API_BASE_URL = 'https://api.sermonaudio.com';
-const SERMONAUDIO_SERMONS_URL = `${SERMONAUDIO_API_BASE_URL}/v2/node/sermons`;
-const SERMONAUDIO_MEDIA_URL = `${SERMONAUDIO_API_BASE_URL}/v2/media`;
+const SERMONAUDIO_SERMONS_URL = `${SERMONAUDIO_API_BASE}/v2/node/sermons`;
+const SERMONAUDIO_MEDIA_URL = `${SERMONAUDIO_API_BASE}/v2/media`;
 
 /** Far-future expiry for SermonAudio API keys (they do not expire). */
 export const SERMONAUDIO_TOKEN_EXPIRY = '9999-12-31T00:00:00.000Z';
