@@ -1,11 +1,11 @@
 /** SermonAudio REST API origin. */
 export const SERMONAUDIO_API_BASE = 'https://api.sermonaudio.com';
 
-const SERMONAUDIO_API_HOST = new URL(SERMONAUDIO_API_BASE).host;
+const SERMONAUDIO_API_HOSTNAME = new URL(SERMONAUDIO_API_BASE).hostname;
 
 /**
  * Resolves a SermonAudio API path or URL for server-side `fetch`.
- * Rejects absolute URLs whose origin is not the configured SermonAudio API host.
+ * Rejects absolute URLs whose hostname is not the configured SermonAudio API host.
  * Always normalizes the result to HTTPS.
  * @param pathOrUrl - Relative API path or absolute SermonAudio API URL (e.g. pagination `next`).
  * @returns Resolved HTTPS URL, or `null` when the input is invalid or untrusted.
@@ -29,7 +29,7 @@ export function resolveSermonAudioApiUrl(pathOrUrl: string): string | null {
     return null;
   }
 
-  if (resolved.host !== SERMONAUDIO_API_HOST) {
+  if (resolved.hostname !== SERMONAUDIO_API_HOSTNAME) {
     return null;
   }
 

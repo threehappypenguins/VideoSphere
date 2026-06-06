@@ -14,6 +14,11 @@ describe('resolveSermonAudioApiUrl', () => {
         'http://api.sermonaudio.com/v2/node/filter_options/sermon_event_types?page=2'
       )
     ).toBe(`${SERMONAUDIO_API_BASE}/v2/node/filter_options/sermon_event_types?page=2`);
+    expect(
+      resolveSermonAudioApiUrl(
+        'https://api.sermonaudio.com:443/v2/node/filter_options/sermon_event_types?page=2'
+      )
+    ).toBe(`${SERMONAUDIO_API_BASE}/v2/node/filter_options/sermon_event_types?page=2`);
   });
 
   it('rejects untrusted absolute URLs', () => {
