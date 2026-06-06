@@ -20,9 +20,12 @@ import {
 import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
+import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
+import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
 import { cn } from '@/lib/utils';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
+import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
@@ -2418,16 +2421,23 @@ export function DraftMetadataModal({
                   />
                 </div>
                 <div>
-                  <label
-                    htmlFor="draft-sermon-audio-bible-text"
-                    className="text-sm font-medium text-foreground"
-                  >
-                    Bible References ({platformLabel('sermon_audio')})
-                  </label>
-                  <input
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <label
+                      htmlFor="draft-sermon-audio-bible-text"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Bible References ({platformLabel('sermon_audio')})
+                    </label>
+                    <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                      {parseBibleReferences(sermonAudioFields?.bibleText ?? '').length}/
+                      {SERMON_AUDIO_MAX_BIBLE_REFERENCES}
+                    </span>
+                  </div>
+                  <SermonAudioBibleReferencesField
                     id="draft-sermon-audio-bible-text"
-                    value={sermonAudioFields?.bibleText ?? ''}
-                    onChange={(event) => updateSermonAudioFields({ bibleText: event.target.value })}
+                    bibleText={sermonAudioFields?.bibleText ?? ''}
+                    onBibleTextChange={(next) => updateSermonAudioFields({ bibleText: next })}
+                    invalid={uploadFieldErrors.has('sermon_audio.bibleText')}
                     className={fieldBorderClass('sermon_audio.bibleText')}
                   />
                 </div>
