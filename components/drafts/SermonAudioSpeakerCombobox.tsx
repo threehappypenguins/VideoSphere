@@ -314,7 +314,10 @@ export function SermonAudioSpeakerCombobox({
                     : 'No recent speakers yet. Search or enter a new name below.'}
                 </p>
               ) : null}
-              {!searchLoading && !isSearching && trimmedQuery.length === 1 ? (
+              {!searchLoading &&
+              !isSearching &&
+              trimmedQuery.length > 0 &&
+              trimmedQuery.length < SERMON_AUDIO_SPEAKER_SEARCH_MIN_LENGTH ? (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
                   Type {SERMON_AUDIO_SPEAKER_SEARCH_MIN_LENGTH} or more characters to search all
                   SermonAudio speakers.

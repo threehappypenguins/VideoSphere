@@ -35,7 +35,8 @@ export function parseSermonAudioSeries(item: unknown): SermonAudioSeriesOption |
 /**
  * Parses the series from a sermon list item.
  * @param sermon - Raw sermon payload from `GET /v2/node/sermons`.
- * @returns Normalized series option, or null when missing/invalid.
+ * @returns Normalized series option, or null when missing/invalid. May return an empty
+ *   `title` when only `seriesID` is present so callers can resolve titles separately.
  */
 export function parseSermonAudioSeriesFromSermonItem(
   sermon: unknown
@@ -54,8 +55,11 @@ export function parseSermonAudioSeriesFromSermonItem(
   }
 
   const subtitle = typeof record.subtitle === 'string' ? record.subtitle.trim() : '';
-  if (subtitle === '') return null;
-  return { seriesID, title: subtitle };
+  if (subtitle !== '') {
+    return { seriesID, title: subtitle };
+  }
+
+  return { seriesID, title: '' };
 }
 
 /**
@@ -181,10 +185,7 @@ export async function fetchRecentSermonAudioSeries(
   }
 
   const recent = parseRecentSermonAudioSeriesFromSermonsList(await response.json());
-  const missingTitleIds = recent
-    .filter((series) => series.title === '')
-    .map((series) => series.seriesID);
-  if (missingTitleIds.length === 0) {
+  if (!recent.some((series) => series.title === '')) {
     return recent;
   }
 

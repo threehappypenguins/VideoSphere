@@ -63,4 +63,32 @@ describe('GET /api/platforms/sermon-audio/series/recent', () => {
     expect(String(url)).toContain('broadcasterID=broadcaster-99');
     expect(String(url)).toContain('sortBy=newest');
   });
+
+  it('fills missing series titles from the broadcaster series list', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [{ preachDate: '2026-06-01', series: { seriesID: 10 } }],
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [{ seriesID: 10, title: 'Romans' }],
+          }),
+          { status: 200 }
+        )
+      );
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/platforms/sermon-audio/series/recent')
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toEqual([{ seriesID: 10, title: 'Romans' }]);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
 });

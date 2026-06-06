@@ -59,6 +59,14 @@ describe('parseRecentSermonAudioSeriesFromSermonsList', () => {
       })
     ).toEqual([{ seriesID: 12, title: 'Hebrews' }]);
   });
+
+  it('returns seriesID with empty title when series is lite and subtitle is missing', () => {
+    expect(
+      parseRecentSermonAudioSeriesFromSermonsList({
+        results: [{ series: { seriesID: 12 } }],
+      })
+    ).toEqual([{ seriesID: 12, title: '' }]);
+  });
 });
 
 describe('parseSermonAudioSeriesFromListBody', () => {

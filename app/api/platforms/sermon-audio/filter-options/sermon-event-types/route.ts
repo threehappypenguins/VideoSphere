@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { mergeSermonAudioEventTypes } from '@/lib/platforms/sermon-audio-event-types';
+import { requireSermonAudioConnection } from '@/lib/platforms/sermon-audio-api';
 import { SERMONAUDIO_API_BASE } from '@/lib/platforms/sermon-audio-http';
-import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import type { ApiError, ApiResponse } from '@/types';
 
 const SERMONAUDIO_EVENT_TYPES_URL = `${SERMONAUDIO_API_BASE}/v2/node/filter_options/sermon_event_types`;
@@ -100,38 +99,13 @@ async function fetchAllSermonEventTypeLabels(apiKey: string): Promise<string[]> 
  * @returns JSON list of event type labels, or a structured error.
  */
 export async function GET(req: NextRequest) {
-  const userId = await getAuthenticatedUserId(req);
-  if (!userId) {
-    const errRes: ApiError = {
-      error: 'Unauthorized',
-      message: 'Not authenticated',
-      statusCode: 401,
-    };
-    return NextResponse.json(errRes, { status: 401 });
-  }
-
-  const account = await getConnectedAccountWithTokens(userId, 'sermon_audio');
-  if (!account) {
-    const errRes: ApiError = {
-      error: 'Not Found',
-      message: 'SermonAudio is not connected',
-      statusCode: 404,
-    };
-    return NextResponse.json(errRes, { status: 404 });
-  }
-
-  const broadcasterId = account.platformUserId.trim();
-  if (!broadcasterId) {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: 'SermonAudio broadcaster ID is missing on the connected account',
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
+  const connection = await requireSermonAudioConnection(req);
+  if (connection.ok === false) {
+    return connection.response;
   }
 
   try {
-    const fetched = await fetchAllSermonEventTypeLabels(account.accessToken);
+    const fetched = await fetchAllSermonEventTypeLabels(connection.apiKey);
     const labels = mergeSermonAudioEventTypes(fetched);
     const res: ApiResponse<string[]> = { data: labels };
     return NextResponse.json(res, { status: 200 });
