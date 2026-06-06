@@ -69,4 +69,22 @@ describe('validateDraftForUpload', () => {
     });
     expect(issues.map((issue) => issue.field)).toEqual([]);
   });
+
+  it('accepts per-platform titleOverride when only one metadata platform is selected', () => {
+    const issues = validateDraftForUpload({
+      title: '',
+      description: 'Desc',
+      tags: [],
+      targets: ['sermon_audio'],
+      platforms: {
+        sermon_audio: {
+          titleOverride: 'SA-only title',
+          speakerName: 'Rev. Smith',
+          preachDate: '2026-06-01',
+          eventType: 'Sunday Service',
+        },
+      },
+    });
+    expect(issues.map((issue) => issue.field)).toEqual([]);
+  });
 });

@@ -263,7 +263,7 @@ export function buildSermonAudioSocialSharingCreateFields(
       socialSharing.push({
         platform: 'google',
         title: platformSettings?.title?.trim() || defaultTitle,
-        message: platformSettings?.description?.trim() || defaultDescription,
+        message: platformSettings?.description?.trim() || defaultDescription || defaultTitle,
         privacy: platformSettings?.privacy ?? 'public',
       });
       continue;

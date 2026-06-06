@@ -41,7 +41,6 @@ function usesSharedTitleGlobally(
   draft: DraftUploadValidationInput,
   platforms: MetadataPlatform[]
 ): boolean {
-  if (platforms.length < 2) return true;
   return platforms.every((platform) => draft.platforms[platform]?.titleOverride === undefined);
 }
 

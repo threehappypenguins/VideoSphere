@@ -220,6 +220,27 @@ describe('buildSermonAudioSocialSharingCreateFields', () => {
     });
   });
 
+  it('falls back to sermon title for YouTube message when description defaults are empty', () => {
+    expect(
+      buildSermonAudioSocialSharingCreateFields(
+        {
+          enabled: true,
+          youtube: { uploadFullVideo: true },
+        },
+        { defaultTitle: 'Sunday Sermon', defaultDescription: '' }
+      )
+    ).toEqual({
+      socialSharing: [
+        {
+          platform: 'google',
+          title: 'Sunday Sermon',
+          message: 'Sunday Sermon',
+          privacy: 'public',
+        },
+      ],
+    });
+  });
+
   it('omits useVideoClip and clip range for link-only Facebook posts', () => {
     expect(
       buildSermonAudioSocialSharingCreateFields({
