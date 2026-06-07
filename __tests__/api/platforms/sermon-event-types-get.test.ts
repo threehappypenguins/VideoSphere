@@ -127,7 +127,7 @@ describe('GET /api/platforms/sermon-audio/filter-options/sermon-event-types', ()
     const res = await GET(makeRequest());
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.statusCode).toBe(401);
+    expect(body.statusCode).toBe(400);
     expect(body.message).toContain('invalid or revoked');
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
@@ -138,7 +138,7 @@ describe('GET /api/platforms/sermon-audio/filter-options/sermon-event-types', ()
     const res = await GET(makeRequest());
     expect(res.status).toBe(502);
     const body = await res.json();
-    expect(body.statusCode).toBe(500);
+    expect(body.statusCode).toBe(502);
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

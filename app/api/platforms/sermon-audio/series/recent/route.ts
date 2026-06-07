@@ -32,19 +32,18 @@ export async function GET(req: NextRequest) {
           error: 'Bad Request',
           message:
             'SermonAudio API key is invalid or revoked. Reconnect SermonAudio in account settings.',
-          statusCode: err.status,
+          statusCode: 400,
         };
         return NextResponse.json(errRes, { status: 400 });
       }
 
+      const status = sermonAudioUpstreamResponseStatus(err.status);
       const errRes: ApiError = {
         error: 'Bad Gateway',
         message: 'SermonAudio is temporarily unavailable. Try again in a few minutes.',
-        statusCode: err.status,
+        statusCode: status,
       };
-      return NextResponse.json(errRes, {
-        status: sermonAudioUpstreamResponseStatus(err.status),
-      });
+      return NextResponse.json(errRes, { status });
     }
 
     console.error('[GET /api/platforms/sermon-audio/series/recent] Unexpected error:', err);

@@ -72,7 +72,7 @@ describe('GET /api/platforms/sermon-audio/speakers/recent', () => {
     );
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.statusCode).toBe(401);
+    expect(body.statusCode).toBe(400);
     expect(body.message).toContain('invalid or revoked');
   });
 });
