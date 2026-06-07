@@ -263,14 +263,13 @@ export function SermonAudioSpeakerCombobox({
     <div>
       <Popover open={open} onOpenChange={handleOpenChange} modal={false}>
         <PopoverTrigger asChild>
+          {/* Invalid styling on the trigger; aria-invalid lives on the search combobox input below.
+              Do not add aria-invalid here — buttons do not support it (jsx-a11y/role-supports-aria-props). */}
           <button
             id={id}
             type="button"
-            role="combobox"
-            aria-expanded={open}
             aria-haspopup="listbox"
-            aria-controls={open ? listboxId : undefined}
-            aria-invalid={invalid}
+            aria-expanded={open}
             className={cn(
               className,
               'flex h-10 w-full items-center justify-between text-left',
@@ -303,8 +302,12 @@ export function SermonAudioSpeakerCombobox({
               placeholder="Search speakers"
               autoComplete="off"
               aria-label="Search speakers"
+              role="combobox"
+              aria-expanded={open}
+              aria-controls={listboxId}
               aria-activedescendant={highlightedOptionId}
               aria-autocomplete="list"
+              aria-invalid={invalid}
             />
           </div>
           <p className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
