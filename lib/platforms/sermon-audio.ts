@@ -1,5 +1,9 @@
 import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
-import { SERMONAUDIO_API_BASE, sermonAudioJsonHeaders } from '@/lib/platforms/sermon-audio-http';
+import {
+  SERMONAUDIO_API_BASE,
+  resolveSermonAudioUploadUrl,
+  sermonAudioJsonHeaders,
+} from '@/lib/platforms/sermon-audio-http';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadError,
@@ -278,6 +282,14 @@ export async function uploadToSermonAudio(
       );
     }
 
+    const validatedUploadURL = resolveSermonAudioUploadUrl(uploadURL);
+    if (!validatedUploadURL) {
+      return toError(
+        'SERMONAUDIO_UPLOAD_URL_INVALID',
+        'SermonAudio media create returned an invalid or untrusted uploadURL.'
+      );
+    }
+
     const uploadInit: RequestInit & { duplex: 'half' } = {
       method: 'POST',
       headers: {
@@ -286,10 +298,11 @@ export async function uploadToSermonAudio(
       },
       body: input.videoStream,
       duplex: 'half',
+      redirect: 'error',
       ...(signal ? { signal } : {}),
     };
 
-    const uploadResponse = await fetch(uploadURL, uploadInit);
+    const uploadResponse = await fetch(validatedUploadURL, uploadInit);
     if (!uploadResponse.ok) {
       return toError(
         'SERMONAUDIO_MEDIA_UPLOAD_FAILED',

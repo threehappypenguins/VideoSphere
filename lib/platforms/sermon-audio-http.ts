@@ -3,6 +3,10 @@ export const SERMONAUDIO_API_BASE = 'https://api.sermonaudio.com';
 
 const SERMONAUDIO_API_HOSTNAME = new URL(SERMONAUDIO_API_BASE).hostname;
 
+function isSermonAudioHostname(hostname: string): boolean {
+  return hostname === 'sermonaudio.com' || hostname.endsWith('.sermonaudio.com');
+}
+
 /**
  * Resolves a SermonAudio API path or URL for server-side `fetch`.
  * Rejects absolute URLs whose hostname is not the configured SermonAudio API host.
@@ -35,6 +39,46 @@ export function resolveSermonAudioApiUrl(pathOrUrl: string): string | null {
   }
 
   resolved.protocol = 'https:';
+
+  const port = resolved.port;
+  if (port !== '' && port !== '443') {
+    return null;
+  }
+
+  resolved.port = '';
+  return resolved.toString();
+}
+
+/**
+ * Validates an untrusted media upload URL from the SermonAudio API for server-side `fetch`.
+ * Accepts only absolute HTTPS URLs on the SermonAudio domain with the default port.
+ * @param rawUrl - Upload URL from a SermonAudio media create response.
+ * @returns Normalized HTTPS URL, or `null` when the input is invalid or untrusted.
+ */
+export function resolveSermonAudioUploadUrl(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (trimmed === '') {
+    return null;
+  }
+
+  let resolved: URL;
+  try {
+    resolved = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (resolved.protocol !== 'https:') {
+    return null;
+  }
+
+  if (!isSermonAudioHostname(resolved.hostname)) {
+    return null;
+  }
+
+  if (resolved.username !== '' || resolved.password !== '') {
+    return null;
+  }
 
   const port = resolved.port;
   if (port !== '' && port !== '443') {

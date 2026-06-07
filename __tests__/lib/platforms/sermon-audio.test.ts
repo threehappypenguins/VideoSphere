@@ -47,7 +47,7 @@ describe('uploadToSermonAudio', () => {
         new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
           status: 200,
         })
       )
@@ -69,7 +69,8 @@ describe('uploadToSermonAudio', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.sermonaudio.com/v2/node/sermons');
     expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.sermonaudio.com/v2/media');
-    expect(fetchMock.mock.calls[2]?.[0]).toBe('https://upload.sermonaudio.test/video');
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('https://upload.sermonaudio.com/video');
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ redirect: 'error' });
   });
 
   it('includes speakerID in create sermon body when provided', async () => {
@@ -79,7 +80,7 @@ describe('uploadToSermonAudio', () => {
         new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
           status: 200,
         })
       )
@@ -105,7 +106,7 @@ describe('uploadToSermonAudio', () => {
         new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
           status: 200,
         })
       )
@@ -131,7 +132,7 @@ describe('uploadToSermonAudio', () => {
         new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
           status: 200,
         })
       )
@@ -169,7 +170,7 @@ describe('uploadToSermonAudio', () => {
         new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
           status: 200,
         })
       )
@@ -201,7 +202,7 @@ describe('uploadToSermonAudio', () => {
         new Response(JSON.stringify({ sermonID: 'sermon-789' }), { status: 200 })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
           status: 200,
         })
       )
@@ -227,7 +228,7 @@ describe('uploadToSermonAudio', () => {
         new Response(JSON.stringify({ sermonID: 'sermon-789' }), { status: 200 })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.test/video' }), {
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
           status: 200,
         })
       )
@@ -244,6 +245,30 @@ describe('uploadToSermonAudio', () => {
     const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
     expect(createBody).not.toHaveProperty('seriesID');
     expect(createBody).toMatchObject({ subtitle: 'Romans' });
+  });
+
+  it('returns an error when uploadURL is not a trusted HTTPS URL', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'http://127.0.0.1/upload' }), { status: 200 })
+      );
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata,
+      tokens,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SERMONAUDIO_UPLOAD_URL_INVALID' },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('returns an error when the API key is missing', async () => {
