@@ -105,13 +105,45 @@ describe('POST /api/platforms/connect/sermon-audio', () => {
     expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when SA broadcaster lookup returns non-2xx', async () => {
+  it('returns 400 when SA broadcaster lookup returns 401', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
     const res = await POST(createRequest(validBody));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe('SERMONAUDIO_CREDENTIALS_INVALID');
     expect(body.error.statusCode).toBe(401);
+    expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when SA broadcaster lookup returns 404', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Not found', { status: 404 }));
+    const res = await POST(createRequest(validBody));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe('SERMONAUDIO_CREDENTIALS_INVALID');
+    expect(body.error.statusCode).toBe(404);
+    expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 when SA broadcaster lookup is rate limited', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response('Too Many Requests', { status: 429 })
+    );
+    const res = await POST(createRequest(validBody));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error.code).toBe('SERMONAUDIO_UPSTREAM_UNAVAILABLE');
+    expect(body.error.statusCode).toBe(429);
+    expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 when SA broadcaster lookup returns an upstream 5xx error', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 500 }));
+    const res = await POST(createRequest(validBody));
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error.code).toBe('SERMONAUDIO_UPSTREAM_UNAVAILABLE');
+    expect(body.error.statusCode).toBe(500);
     expect(mockCreateConnectedAccount).not.toHaveBeenCalled();
   });
 });

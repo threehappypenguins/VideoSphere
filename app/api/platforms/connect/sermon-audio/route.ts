@@ -17,28 +17,60 @@ interface ConnectSermonAudioBody {
   label?: unknown;
 }
 
+type SermonAudioVerificationFailure =
+  | { kind: 'credentials'; status: number; details?: string }
+  | { kind: 'upstream'; status: number; details?: string };
+
+function classifySermonAudioVerificationFailure(
+  status: number,
+  details?: string
+): SermonAudioVerificationFailure {
+  if (status === 401 || status === 403 || status === 404) {
+    return { kind: 'credentials', status, details };
+  }
+  return { kind: 'upstream', status, details };
+}
+
+function sermonAudioUpstreamResponseStatus(upstreamStatus: number): number {
+  if (upstreamStatus === 429 || upstreamStatus === 503) {
+    return 503;
+  }
+  return 502;
+}
+
 async function verifySermonAudioCredentials(
   apiKey: string,
   broadcasterID: string
-): Promise<{ ok: true } | { ok: false; status: number; details?: string }> {
+): Promise<{ ok: true } | { ok: false; failure: SermonAudioVerificationFailure }> {
   const url = `${SERMONAUDIO_BROADCASTERS_URL}/${encodeURIComponent(broadcasterID)}`;
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'X-Api-Key': apiKey,
-      Accept: 'application/json',
-    },
-  });
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'X-Api-Key': apiKey,
+        Accept: 'application/json',
+      },
+    });
 
-  if (!response.ok) {
+    if (response.ok) {
+      return { ok: true };
+    }
+
+    const details = await response.text().catch(() => undefined);
     return {
       ok: false,
-      status: response.status,
-      details: await response.text().catch(() => undefined),
+      failure: classifySermonAudioVerificationFailure(response.status, details),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'upstream',
+        status: 503,
+        details: err instanceof Error ? err.message : undefined,
+      },
     };
   }
-
-  return { ok: true };
 }
 
 /**
@@ -94,19 +126,37 @@ export async function POST(req: NextRequest) {
 
   const verification = await verifySermonAudioCredentials(apiKey, broadcasterID);
   if (verification.ok === false) {
+    const { failure } = verification;
+    if (failure.kind === 'credentials') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: 'SERMONAUDIO_CREDENTIALS_INVALID',
+            message: 'SermonAudio API key or broadcaster ID could not be verified.',
+            statusCode: failure.status,
+            ...(process.env.NODE_ENV === 'development' && failure.details
+              ? { details: failure.details }
+              : {}),
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
       {
         ok: false,
         error: {
-          code: 'SERMONAUDIO_CREDENTIALS_INVALID',
-          message: 'SermonAudio API key or broadcaster ID could not be verified.',
-          statusCode: verification.status,
-          ...(process.env.NODE_ENV === 'development' && verification.details
-            ? { details: verification.details }
+          code: 'SERMONAUDIO_UPSTREAM_UNAVAILABLE',
+          message: 'SermonAudio is temporarily unavailable. Try again in a few minutes.',
+          statusCode: failure.status,
+          ...(process.env.NODE_ENV === 'development' && failure.details
+            ? { details: failure.details }
             : {}),
         },
       },
-      { status: 400 }
+      { status: sermonAudioUpstreamResponseStatus(failure.status) }
     );
   }
 
