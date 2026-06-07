@@ -41,13 +41,14 @@ export function tokenNeedsRefresh(
  */
 export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<PlatformTokens> {
   if (account.platform === 'sermon_audio') {
-    if (!account.accessToken.trim()) {
+    const apiKey = account.accessToken.trim();
+    if (!apiKey) {
       throw new Error(
         'SermonAudio API key is missing. Reconnect your SermonAudio account to continue.'
       );
     }
     return {
-      accessToken: account.accessToken,
+      accessToken: apiKey,
       refreshToken: account.refreshToken,
       tokenExpiry: account.tokenExpiry,
     };

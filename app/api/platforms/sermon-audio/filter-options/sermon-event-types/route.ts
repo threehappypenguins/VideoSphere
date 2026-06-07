@@ -35,8 +35,10 @@ function eventTypeLabel(item: unknown): string | null {
 
 function parseEventTypeLabelsFromBody(body: unknown): string[] {
   const labels: string[] = [];
+  const seen = new Set<string>();
   const pushUnique = (label: string | null) => {
-    if (!label || labels.includes(label)) return;
+    if (!label || seen.has(label)) return;
+    seen.add(label);
     labels.push(label);
   };
 
