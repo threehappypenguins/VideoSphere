@@ -270,6 +270,7 @@ export function SermonAudioSpeakerCombobox({
             type="button"
             aria-haspopup="listbox"
             aria-expanded={open}
+            aria-controls={open ? listboxId : undefined}
             className={cn(
               className,
               'flex h-10 w-full items-center justify-between text-left',
