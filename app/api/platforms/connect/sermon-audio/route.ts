@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { SERMONAUDIO_TOKEN_EXPIRY } from '@/lib/platforms/sermon-audio';
-import { SERMONAUDIO_API_BASE } from '@/lib/platforms/sermon-audio-http';
+import {
+  SERMONAUDIO_API_BASE,
+  sermonAudioUpstreamResponseStatus,
+} from '@/lib/platforms/sermon-audio-http';
 import {
   createConnectedAccount,
   getConnectedAccount,
@@ -29,13 +32,6 @@ function classifySermonAudioVerificationFailure(
     return { kind: 'credentials', status, details };
   }
   return { kind: 'upstream', status, details };
-}
-
-function sermonAudioUpstreamResponseStatus(upstreamStatus: number): number {
-  if (upstreamStatus === 429 || upstreamStatus === 503) {
-    return 503;
-  }
-  return 502;
 }
 
 async function verifySermonAudioCredentials(

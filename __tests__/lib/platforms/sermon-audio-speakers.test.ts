@@ -127,8 +127,10 @@ describe('searchSermonAudioSpeakers', () => {
   it('throws when SermonAudio returns a non-OK response', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 503 }));
 
-    await expect(searchSermonAudioSpeakers('key', 'smith')).rejects.toThrow(
-      /Failed to search SermonAudio speakers \(HTTP 503\)/
-    );
+    await expect(searchSermonAudioSpeakers('key', 'smith')).rejects.toMatchObject({
+      name: 'SermonAudioUpstreamHttpError',
+      status: 503,
+      message: 'Failed to search SermonAudio speakers',
+    });
   });
 });

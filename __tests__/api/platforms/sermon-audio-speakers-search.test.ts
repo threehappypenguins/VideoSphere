@@ -58,14 +58,27 @@ describe('GET /api/platforms/sermon-audio/speakers/search', () => {
     expect(body.data).toEqual([{ speakerID: 99, displayName: 'Rev. Smith' }]);
   });
 
-  it('returns 500 when SermonAudio responds with an error', async () => {
+  it('returns 503 when SermonAudio is temporarily unavailable', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 503 }));
 
     const res = await GET(
       new NextRequest('http://localhost/api/platforms/sermon-audio/speakers/search?q=smith')
     );
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const body = await res.json();
-    expect(body.message).toBe('Failed to search SermonAudio speakers');
+    expect(body.statusCode).toBe(503);
+    expect(body.message).toContain('temporarily unavailable');
+  });
+
+  it('returns 400 when upstream rejects the stored API key', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/platforms/sermon-audio/speakers/search?q=smith')
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.statusCode).toBe(401);
+    expect(body.message).toContain('invalid or revoked');
   });
 });

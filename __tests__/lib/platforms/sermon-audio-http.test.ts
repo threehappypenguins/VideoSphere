@@ -36,6 +36,11 @@ describe('resolveSermonAudioApiUrl', () => {
         'https://api.sermonaudio.com:8443/v2/node/filter_options/sermon_event_types'
       )
     ).toBeNull();
+    expect(
+      resolveSermonAudioApiUrl(
+        'https://user:pass@api.sermonaudio.com/v2/node/filter_options/sermon_event_types'
+      )
+    ).toBeNull();
   });
 
   it('returns null for empty or invalid input', () => {

@@ -1,4 +1,8 @@
-import { SERMONAUDIO_API_BASE, sermonAudioJsonHeaders } from '@/lib/platforms/sermon-audio-http';
+import {
+  SERMONAUDIO_API_BASE,
+  assertSermonAudioHttpOk,
+  sermonAudioJsonHeaders,
+} from '@/lib/platforms/sermon-audio-http';
 
 /** Minimum query length for SermonAudio multisearch (`GET /v2/node/search`). */
 export const SERMON_AUDIO_SPEAKER_SEARCH_MIN_LENGTH = 2;
@@ -220,6 +224,6 @@ export async function searchSermonAudioSpeakers(
     headers: sermonAudioJsonHeaders(apiKey),
     cache: 'no-store',
   });
-  await assertSermonAudioResponseOk(response, 'Failed to search SermonAudio speakers');
+  await assertSermonAudioHttpOk(response, 'Failed to search SermonAudio speakers');
   return parseSermonAudioSpeakersFromSearchBody(await response.json());
 }
