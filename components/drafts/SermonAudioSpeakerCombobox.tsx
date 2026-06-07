@@ -293,7 +293,6 @@ export function SermonAudioSpeakerCombobox({
             event.preventDefault();
             searchInputRef.current?.focus();
           }}
-          onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <div className="border-b border-border p-2">
             <Input
