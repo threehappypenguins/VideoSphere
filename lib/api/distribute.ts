@@ -460,13 +460,16 @@ export async function runDistributionInBackground(
 
     for (const upload of attemptResults) {
       if (upload.platform !== 'sermon_audio') continue;
+
+      const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
+      saApiKeyByPlatformUploadId.delete(upload.id);
+
       const sermonID = upload.platformVideoId.trim();
       if (!sermonID) continue;
 
       const meta = metadataByPlatformId.get(upload.id);
       if (meta?.autoPublishOnProcessed === false) continue;
 
-      const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
       if (!apiKey) {
         console.warn(
           `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
@@ -596,5 +599,7 @@ export async function runDistributionInBackground(
     ).catch((updateError) => {
       console.error(`[distribute] Failed to mark job ${jobId} as failed:`, updateError);
     });
+  } finally {
+    saApiKeyByPlatformUploadId.clear();
   }
 }
