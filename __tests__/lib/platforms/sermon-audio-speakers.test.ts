@@ -109,9 +109,11 @@ describe('fetchRecentSermonAudioSpeakers', () => {
   it('throws when SermonAudio returns a non-OK response', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
 
-    await expect(fetchRecentSermonAudioSpeakers('key', 'broadcaster-1')).rejects.toThrow(
-      /Failed to fetch recent SermonAudio speakers \(HTTP 401\)/
-    );
+    await expect(fetchRecentSermonAudioSpeakers('key', 'broadcaster-1')).rejects.toMatchObject({
+      name: 'SermonAudioUpstreamHttpError',
+      status: 401,
+      message: 'Failed to fetch recent SermonAudio speakers',
+    });
   });
 });
 

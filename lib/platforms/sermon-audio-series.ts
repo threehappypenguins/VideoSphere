@@ -1,4 +1,8 @@
-import { SERMONAUDIO_API_BASE, sermonAudioJsonHeaders } from '@/lib/platforms/sermon-audio-http';
+import {
+  SERMONAUDIO_API_BASE,
+  assertSermonAudioHttpOk,
+  sermonAudioJsonHeaders,
+} from '@/lib/platforms/sermon-audio-http';
 
 /** Minimum query length for broadcaster series search (`searchKeyword`). */
 export const SERMON_AUDIO_SERIES_SEARCH_MIN_LENGTH = 2;
@@ -140,32 +144,6 @@ export function buildSermonAudioSeriesTitleMap(body: unknown): Map<number, strin
   return map;
 }
 
-async function readSermonAudioResponseErrorDetails(
-  response: Response
-): Promise<string | undefined> {
-  try {
-    return await response.text();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Ensures a SermonAudio HTTP response succeeded before parsing JSON.
- * @param response - Upstream SermonAudio fetch response.
- * @param message - Error prefix when the response is not OK.
- * @throws When `response.ok` is false.
- */
-async function assertSermonAudioResponseOk(response: Response, message: string): Promise<void> {
-  if (response.ok) return;
-  const details = await readSermonAudioResponseErrorDetails(response);
-  throw new Error(
-    details
-      ? `${message} (HTTP ${response.status}): ${details}`
-      : `${message} (HTTP ${response.status})`
-  );
-}
-
 async function fetchBroadcasterSeriesTitleMap(
   apiKey: string,
   broadcasterId: string
@@ -191,7 +169,7 @@ async function fetchBroadcasterSeriesTitleMap(
  * @param apiKey - SermonAudio API key.
  * @param broadcasterId - Connected broadcaster id.
  * @returns Series ordered by most recently used first.
- * @throws When the SermonAudio API request fails.
+ * @throws When the SermonAudio API request fails (`SermonAudioUpstreamHttpError`).
  */
 export async function fetchRecentSermonAudioSeries(
   apiKey: string,
@@ -207,7 +185,7 @@ export async function fetchRecentSermonAudioSeries(
     headers: sermonAudioJsonHeaders(apiKey),
     cache: 'no-store',
   });
-  await assertSermonAudioResponseOk(response, 'Failed to fetch recent SermonAudio series');
+  await assertSermonAudioHttpOk(response, 'Failed to fetch recent SermonAudio series');
 
   const recent = parseRecentSermonAudioSeriesFromSermonsList(await response.json());
   if (!recent.some((series) => series.title === '')) {
@@ -229,7 +207,7 @@ export async function fetchRecentSermonAudioSeries(
  * @param broadcasterId - Connected broadcaster id.
  * @param query - Search text (minimum two characters).
  * @returns Matching series for the broadcaster.
- * @throws When the SermonAudio API request fails.
+ * @throws When the SermonAudio API request fails (`SermonAudioUpstreamHttpError`).
  */
 export async function searchSermonAudioSeries(
   apiKey: string,
@@ -252,6 +230,6 @@ export async function searchSermonAudioSeries(
     headers: sermonAudioJsonHeaders(apiKey),
     cache: 'no-store',
   });
-  await assertSermonAudioResponseOk(response, 'Failed to search SermonAudio series');
+  await assertSermonAudioHttpOk(response, 'Failed to search SermonAudio series');
   return parseSermonAudioSeriesFromListBody(await response.json());
 }

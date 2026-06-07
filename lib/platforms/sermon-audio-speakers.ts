@@ -147,38 +147,12 @@ export function parseSermonAudioSpeakersFromBody(body: unknown): SermonAudioSpea
   return [...byId.values()].sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-async function readSermonAudioResponseErrorDetails(
-  response: Response
-): Promise<string | undefined> {
-  try {
-    return await response.text();
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Ensures a SermonAudio HTTP response succeeded before parsing JSON.
- * @param response - Upstream SermonAudio fetch response.
- * @param message - Error prefix when the response is not OK.
- * @throws When `response.ok` is false.
- */
-async function assertSermonAudioResponseOk(response: Response, message: string): Promise<void> {
-  if (response.ok) return;
-  const details = await readSermonAudioResponseErrorDetails(response);
-  throw new Error(
-    details
-      ? `${message} (HTTP ${response.status}): ${details}`
-      : `${message} (HTTP ${response.status})`
-  );
-}
-
 /**
  * Fetches recent speakers for a broadcaster from newest sermons (preach date descending).
  * @param apiKey - SermonAudio API key.
  * @param broadcasterId - Connected broadcaster id.
  * @returns Speakers ordered by most recently preached first.
- * @throws When the SermonAudio API request fails.
+ * @throws When the SermonAudio API request fails (`SermonAudioUpstreamHttpError`).
  */
 export async function fetchRecentSermonAudioSpeakers(
   apiKey: string,
@@ -194,7 +168,7 @@ export async function fetchRecentSermonAudioSpeakers(
     headers: sermonAudioJsonHeaders(apiKey),
     cache: 'no-store',
   });
-  await assertSermonAudioResponseOk(response, 'Failed to fetch recent SermonAudio speakers');
+  await assertSermonAudioHttpOk(response, 'Failed to fetch recent SermonAudio speakers');
   return parseRecentSermonAudioSpeakersFromSermonsList(await response.json());
 }
 
@@ -203,7 +177,7 @@ export async function fetchRecentSermonAudioSpeakers(
  * @param apiKey - SermonAudio API key.
  * @param query - Search text (minimum two characters).
  * @returns Matching speakers from `speakerResults`.
- * @throws When the SermonAudio API request fails.
+ * @throws When the SermonAudio API request fails (`SermonAudioUpstreamHttpError`).
  */
 export async function searchSermonAudioSpeakers(
   apiKey: string,

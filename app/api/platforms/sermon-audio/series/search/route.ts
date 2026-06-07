@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireSermonAudioConnection } from '@/lib/platforms/sermon-audio-api';
 import {
+  SermonAudioUpstreamHttpError,
+  isSermonAudioCredentialsFailure,
+  sermonAudioUpstreamResponseStatus,
+} from '@/lib/platforms/sermon-audio-http';
+import {
   searchSermonAudioSeries,
   SERMON_AUDIO_SERIES_SEARCH_MIN_LENGTH,
 } from '@/lib/platforms/sermon-audio-series';
@@ -38,6 +43,27 @@ export async function GET(req: NextRequest) {
     const res: ApiResponse<SermonAudioSeriesOption[]> = { data: series };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {
+    if (err instanceof SermonAudioUpstreamHttpError) {
+      if (isSermonAudioCredentialsFailure(err.status)) {
+        const errRes: ApiError = {
+          error: 'Bad Request',
+          message:
+            'SermonAudio API key is invalid or revoked. Reconnect SermonAudio in account settings.',
+          statusCode: err.status,
+        };
+        return NextResponse.json(errRes, { status: 400 });
+      }
+
+      const errRes: ApiError = {
+        error: 'Bad Gateway',
+        message: 'SermonAudio is temporarily unavailable. Try again in a few minutes.',
+        statusCode: err.status,
+      };
+      return NextResponse.json(errRes, {
+        status: sermonAudioUpstreamResponseStatus(err.status),
+      });
+    }
+
     console.error('[GET /api/platforms/sermon-audio/series/search] Unexpected error:', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',

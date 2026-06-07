@@ -124,9 +124,11 @@ describe('fetchRecentSermonAudioSeries', () => {
   it('throws when SermonAudio returns a non-OK response', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
 
-    await expect(fetchRecentSermonAudioSeries('key', 'broadcaster-1')).rejects.toThrow(
-      /Failed to fetch recent SermonAudio series \(HTTP 401\)/
-    );
+    await expect(fetchRecentSermonAudioSeries('key', 'broadcaster-1')).rejects.toMatchObject({
+      name: 'SermonAudioUpstreamHttpError',
+      status: 401,
+      message: 'Failed to fetch recent SermonAudio series',
+    });
   });
 });
 
@@ -142,8 +144,10 @@ describe('searchSermonAudioSeries', () => {
   it('throws when SermonAudio returns a non-OK response', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 503 }));
 
-    await expect(searchSermonAudioSeries('key', 'broadcaster-1', 'romans')).rejects.toThrow(
-      /Failed to search SermonAudio series \(HTTP 503\)/
-    );
+    await expect(searchSermonAudioSeries('key', 'broadcaster-1', 'romans')).rejects.toMatchObject({
+      name: 'SermonAudioUpstreamHttpError',
+      status: 503,
+      message: 'Failed to search SermonAudio series',
+    });
   });
 });
