@@ -116,6 +116,9 @@ function parseTypedReferenceLocation(book: SermonAudioBibleBook, rest: string): 
     ) {
       return null;
     }
+    if (chapterStart === chapterEnd) {
+      return formatChapterReference(book.displayName, chapterStart);
+    }
     return formatChapterRangeReference(book.displayName, chapterStart, chapterEnd);
   }
 
@@ -160,6 +163,9 @@ function parseTypedReferenceLocation(book: SermonAudioBibleBook, rest: string): 
     ) {
       return null;
     }
+    if (verseStart === verseEnd) {
+      return formatSingleVerseReference(book.displayName, chapter, verseStart);
+    }
     return formatVerseRangeReference(book.displayName, chapter, verseStart, chapter, verseEnd);
   }
 
@@ -177,6 +183,9 @@ function parseTypedReferenceLocation(book: SermonAudioBibleBook, rest: string): 
     }
     if (chapterEnd < chapterStart || (chapterEnd === chapterStart && verseEnd < verseStart)) {
       return null;
+    }
+    if (chapterStart === chapterEnd && verseStart === verseEnd) {
+      return formatSingleVerseReference(book.displayName, chapterStart, verseStart);
     }
     return formatVerseRangeReference(
       book.displayName,

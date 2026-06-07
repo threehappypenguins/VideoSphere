@@ -97,9 +97,17 @@ describe('validateAndNormalizeTypedBibleReference', () => {
       ok: true,
       reference: 'Genesis 1-3',
     });
+    expect(validateAndNormalizeTypedBibleReference('Genesis 1-1')).toEqual({
+      ok: true,
+      reference: 'Genesis 1',
+    });
     expect(validateAndNormalizeTypedBibleReference('Genesis1:1-5')).toEqual({
       ok: true,
       reference: 'Genesis 1:1-5',
+    });
+    expect(validateAndNormalizeTypedBibleReference('John 3:16-16')).toEqual({
+      ok: true,
+      reference: 'John 3:16',
     });
     expect(validateAndNormalizeTypedBibleReference('Genesis 1:1-2:3')).toEqual({
       ok: true,
