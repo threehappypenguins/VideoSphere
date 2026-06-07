@@ -240,6 +240,33 @@ describe('draft-upload-metadata', () => {
     expect(vm.vimeo).toEqual({ categoryUri: '/categories/1' });
   });
 
+  it('buildMetadataForPlatform trims shared title and description when no override is set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'sermon_audio'],
+      title: '  Shared Title  ',
+      description: '  Shared Description  ',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: { categoryId: '22' },
+        sermon_audio: { speakerName: 'Rev. Smith', preachDate: '2026-06-01' },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').title).toBe('Shared Title');
+    expect(buildMetadataForPlatform(draft, 'youtube').description).toBe('Shared Description');
+
+    const sa = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(sa.title).toBe('Shared Title');
+    expect(sa.fullTitle).toBe('Shared Title');
+    expect(sa.description).toBe('Shared Description');
+    expect(sa.moreInfoText).toBe('Shared Description');
+  });
+
   it('buildMetadataForPlatform uses per-platform visibility overrides for YouTube and Vimeo', () => {
     const draft: Draft = {
       id: 'd1',

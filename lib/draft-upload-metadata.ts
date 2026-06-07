@@ -851,8 +851,8 @@ function resolveDraftCopyForPlatform(
     visibilityOverride?: PlatformUploadVisibility;
   }
 ): { title: string; description: string; tags: string[] } {
-  const title = platformFields?.titleOverride?.trim() || draft.title;
-  const description = platformFields?.descriptionOverride?.trim() || draft.description;
+  const title = platformFields?.titleOverride?.trim() || draft.title.trim();
+  const description = platformFields?.descriptionOverride?.trim() || draft.description.trim();
   const tagSource = platformFields?.tagsOverride ?? draft.tags;
   const tags = tagSource.map((t) => t.trim()).filter((t) => t.length > 0);
   return { title, description, tags };

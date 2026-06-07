@@ -274,35 +274,7 @@ describe('pollSermonAudioProcessing', () => {
     vi.useRealTimers();
   });
 
-  it('resolves when videoCodec contains h264 with adaptiveBitrate and thumbnailImageURL', async () => {
-    vi.mocked(global.fetch).mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          media: {
-            video: [
-              {
-                videoCodec: 'H.264',
-                adaptiveBitrate: true,
-                thumbnailImageURL: 'https://cdn.sermonaudio.com/thumb.jpg',
-              },
-            ],
-          },
-        }),
-        { status: 200 }
-      )
-    );
-
-    await expect(
-      pollSermonAudioProcessing({
-        sermonID: 'sermon-123',
-        tokens,
-        intervalMs: 1000,
-        maxAttempts: 3,
-      })
-    ).resolves.toBeUndefined();
-  });
-
-  it('resolves when h264 entry has adaptiveBitrate and thumbnailImageURL', async () => {
+  it('resolves when any media.video entry has a thumbnailImageURL', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -310,8 +282,8 @@ describe('pollSermonAudioProcessing', () => {
             video: [
               {
                 videoCodec: 'h264',
-                adaptiveBitrate: true,
-                thumbnailImageURL: 'https://cdn.sermonaudio.com/thumb.jpg',
+                adaptiveBitrate: false,
+                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/662635113143.jpg',
               },
             ],
           },
@@ -339,18 +311,51 @@ describe('pollSermonAudioProcessing', () => {
     );
   });
 
-  it('does not resolve when adaptiveBitrate and thumbnail exist on a non-h264 entry', async () => {
-    vi.mocked(global.fetch).mockResolvedValue(
+  it('resolves when the ABR video entry has a thumbnail before progressive renditions expose codecs', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
+          videoMediaStatus: 'ready',
           media: {
             video: [
               {
-                videoCodec: 'vp9',
+                mediaType: 'mp4',
+                streamURL: 'https://cloud.sermonaudio.com/media/video/abr/662635113143.m3u8',
+                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/662635113143.jpg',
                 adaptiveBitrate: true,
-                thumbnailImageURL: 'https://cdn.sermonaudio.com/thumb.jpg',
+                videoCodec: null,
+              },
+              {
+                mediaType: 'mp4',
+                streamURL: 'https://cloud.sermonaudio.com/media/video/high/662635113143.m3u8',
+                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/662635113143.jpg',
+                adaptiveBitrate: false,
+                videoCodec: 'h264',
               },
             ],
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      pollSermonAudioProcessing({
+        sermonID: 'sermon-123',
+        tokens,
+        intervalMs: 1000,
+        maxAttempts: 3,
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it('keeps polling when video renditions exist but thumbnailImageURL is still null', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          videoMediaStatus: 'ready',
+          media: {
+            video: [{ videoCodec: 'h264', adaptiveBitrate: false, thumbnailImageURL: null }],
           },
         }),
         { status: 200 }
@@ -372,7 +377,7 @@ describe('pollSermonAudioProcessing', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects when max attempts are exceeded without a ready h264 entry', async () => {
+  it('rejects when max attempts are exceeded without a video thumbnail', async () => {
     vi.mocked(global.fetch).mockResolvedValue(
       new Response(
         JSON.stringify({

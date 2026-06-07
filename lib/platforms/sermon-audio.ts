@@ -57,9 +57,7 @@ interface MediaCreateResponse {
 interface SermonMediaPayload {
   media?: {
     video?: Array<{
-      videoCodec?: string | null;
       thumbnailImageURL?: string | null;
-      adaptiveBitrate?: boolean | null;
     }>;
   };
 }
@@ -158,23 +156,23 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   return body;
 }
 
-function isH264VideoCodec(codec: unknown): boolean {
-  if (typeof codec !== 'string') return false;
-  const normalized = codec.trim().toLowerCase().replace(/\./g, '');
-  return normalized.includes('h264');
+function hasSermonVideoThumbnail(item: unknown): boolean {
+  if (!item || typeof item !== 'object') return false;
+  const thumbnailImageURL = (item as { thumbnailImageURL?: unknown }).thumbnailImageURL;
+  return typeof thumbnailImageURL === 'string' && thumbnailImageURL.trim().length > 0;
 }
 
+/**
+ * True when SA has generated a video thumbnail on any `media.video` entry.
+ * Intentionally thumbnail-only: transcoding can finish before SA extracts the poster frame,
+ * so do not gate on `videoCodec`, `adaptiveBitrate`, or `videoMediaStatus` alone.
+ */
 function sermonVideoIsReady(payload: unknown): boolean {
   if (payload === null || typeof payload !== 'object') return false;
   const media = (payload as SermonMediaPayload).media;
   if (!media || !Array.isArray(media.video)) return false;
-  return media.video.some(
-    (item) =>
-      isH264VideoCodec(item?.videoCodec) &&
-      item?.adaptiveBitrate === true &&
-      typeof item?.thumbnailImageURL === 'string' &&
-      item.thumbnailImageURL.trim().length > 0
-  );
+  // Any video rendition with a thumbnail URL means post-processing (including poster extraction) is done.
+  return media.video.some((item) => hasSermonVideoThumbnail(item));
 }
 
 function delay(ms: number): Promise<void> {
@@ -317,8 +315,8 @@ export async function uploadToSermonAudio(
 }
 
 /**
- * Polls SermonAudio until sermon video processing completes: a `media.video` entry whose
- * `videoCodec` contains `h264`, with `adaptiveBitrate: true` and a non-empty `thumbnailImageURL`.
+ * Polls SermonAudio until sermon video processing completes: any `media.video` entry with a
+ * non-empty `thumbnailImageURL` (SA generates the thumbnail after the video is processed).
  * @param input - Sermon id, API key tokens, poll tuning, and optional abort signal.
  * @returns Resolves when processing is complete.
  * @throws When polling is aborted or `maxAttempts` is exceeded.
