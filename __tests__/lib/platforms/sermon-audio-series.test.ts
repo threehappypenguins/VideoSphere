@@ -130,6 +130,22 @@ describe('fetchRecentSermonAudioSeries', () => {
       message: 'Failed to fetch recent SermonAudio series',
     });
   });
+
+  it('throws when title enrichment fails for lite series entries', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ results: [{ series: { seriesID: 10 } }] }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    await expect(fetchRecentSermonAudioSeries('key', 'broadcaster-1')).rejects.toMatchObject({
+      name: 'SermonAudioUpstreamHttpError',
+      status: 401,
+      message: 'Failed to fetch SermonAudio series titles',
+    });
+  });
 });
 
 describe('searchSermonAudioSeries', () => {

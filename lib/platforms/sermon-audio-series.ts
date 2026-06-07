@@ -158,9 +158,7 @@ async function fetchBroadcasterSeriesTitleMap(
     headers: sermonAudioJsonHeaders(apiKey),
     cache: 'no-store',
   });
-  if (!response.ok) {
-    return new Map();
-  }
+  await assertSermonAudioHttpOk(response, 'Failed to fetch SermonAudio series titles');
   return buildSermonAudioSeriesTitleMap(await response.json());
 }
 

@@ -195,12 +195,17 @@ export function SermonAudioSpeakerCombobox({
     onSpeakerChange({ speakerName: nextName, speakerID: undefined });
   };
 
+  const clearPanelQuery = () => {
+    panelQueryRef.current = '';
+    setPanelQuery('');
+    setHasTypedSinceOpen(false);
+    setSearchResults([]);
+    setSearchLoading(false);
+  };
+
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
-      setPanelQuery('');
-      setHasTypedSinceOpen(false);
-      setSearchResults([]);
-      setSearchLoading(false);
+      clearPanelQuery();
     } else {
       commitPanelQuery();
     }
@@ -208,11 +213,15 @@ export function SermonAudioSpeakerCombobox({
   };
 
   const selectSpeaker = (speaker: SermonAudioSpeakerOption) => {
+    clearPanelQuery();
+    speakerNameRef.current = speaker.displayName;
     onSpeakerChange({ speakerName: speaker.displayName, speakerID: speaker.speakerID });
     setOpen(false);
   };
 
   const selectCustomName = (name: string) => {
+    clearPanelQuery();
+    speakerNameRef.current = name;
     onSpeakerChange({ speakerName: name, speakerID: undefined });
     setOpen(false);
   };

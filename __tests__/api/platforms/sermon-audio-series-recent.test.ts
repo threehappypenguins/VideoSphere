@@ -92,6 +92,28 @@ describe('GET /api/platforms/sermon-audio/series/recent', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('returns 400 when title enrichment fails for lite series entries', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            results: [{ preachDate: '2026-06-01', series: { seriesID: 10 } }],
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const res = await GET(
+      new NextRequest('http://localhost/api/platforms/sermon-audio/series/recent')
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.statusCode).toBe(400);
+    expect(body.message).toContain('invalid or revoked');
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('returns 400 when upstream rejects the stored API key', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
 
