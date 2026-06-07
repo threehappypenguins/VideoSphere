@@ -101,3 +101,61 @@ export function sermonAudioJsonHeaders(apiKey: string): Record<string, string> {
     'Content-Type': 'application/json',
   };
 }
+
+/**
+ * Thrown when a SermonAudio upstream HTTP response is not OK.
+ * @property status - Upstream HTTP status code.
+ * @property details - Optional upstream response body text.
+ */
+export class SermonAudioUpstreamHttpError extends Error {
+  readonly status: number;
+  readonly details?: string;
+
+  /**
+   * @param message - Human-readable failure summary.
+   * @param status - Upstream HTTP status code.
+   * @param details - Optional upstream response body text.
+   */
+  constructor(message: string, status: number, details?: string) {
+    super(message);
+    this.name = 'SermonAudioUpstreamHttpError';
+    this.status = status;
+    this.details = details;
+  }
+}
+
+/**
+ * Ensures a SermonAudio HTTP response succeeded before parsing JSON.
+ * @param response - Upstream SermonAudio fetch response.
+ * @param message - Error prefix when the response is not OK.
+ * @throws {@link SermonAudioUpstreamHttpError} When `response.ok` is false.
+ */
+export async function assertSermonAudioHttpOk(response: Response, message: string): Promise<void> {
+  if (response.ok) {
+    return;
+  }
+
+  const details = await response.text().catch(() => undefined);
+  throw new SermonAudioUpstreamHttpError(message, response.status, details);
+}
+
+/**
+ * Returns whether an upstream status indicates invalid or revoked SermonAudio credentials.
+ * @param status - Upstream HTTP status code.
+ * @returns `true` for auth-related upstream failures.
+ */
+export function isSermonAudioCredentialsFailure(status: number): boolean {
+  return status === 401 || status === 403 || status === 404;
+}
+
+/**
+ * Maps an upstream SermonAudio HTTP status to an appropriate proxy response status.
+ * @param upstreamStatus - Upstream HTTP status code.
+ * @returns HTTP status for the VideoSphere API response.
+ */
+export function sermonAudioUpstreamResponseStatus(upstreamStatus: number): number {
+  if (upstreamStatus === 429 || upstreamStatus === 503) {
+    return 503;
+  }
+  return 502;
+}

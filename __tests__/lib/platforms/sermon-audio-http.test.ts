@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   SERMONAUDIO_API_BASE,
+  assertSermonAudioHttpOk,
+  isSermonAudioCredentialsFailure,
   resolveSermonAudioApiUrl,
   resolveSermonAudioUploadUrl,
+  sermonAudioUpstreamResponseStatus,
 } from '@/lib/platforms/sermon-audio-http';
 
 describe('resolveSermonAudioApiUrl', () => {
@@ -66,5 +69,40 @@ describe('resolveSermonAudioUploadUrl', () => {
     expect(resolveSermonAudioUploadUrl('')).toBeNull();
     expect(resolveSermonAudioUploadUrl('   ')).toBeNull();
     expect(resolveSermonAudioUploadUrl('not a url')).toBeNull();
+  });
+});
+
+describe('assertSermonAudioHttpOk', () => {
+  it('resolves for OK responses', async () => {
+    await expect(
+      assertSermonAudioHttpOk(new Response('', { status: 200 }), 'failed')
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws SermonAudioUpstreamHttpError for non-OK responses', async () => {
+    await expect(
+      assertSermonAudioHttpOk(new Response('Unauthorized', { status: 401 }), 'failed')
+    ).rejects.toMatchObject({
+      name: 'SermonAudioUpstreamHttpError',
+      status: 401,
+      message: 'failed',
+    });
+  });
+});
+
+describe('isSermonAudioCredentialsFailure', () => {
+  it('treats 401, 403, and 404 as credential failures', () => {
+    expect(isSermonAudioCredentialsFailure(401)).toBe(true);
+    expect(isSermonAudioCredentialsFailure(403)).toBe(true);
+    expect(isSermonAudioCredentialsFailure(404)).toBe(true);
+    expect(isSermonAudioCredentialsFailure(500)).toBe(false);
+  });
+});
+
+describe('sermonAudioUpstreamResponseStatus', () => {
+  it('maps rate limits and upstream outages to 503 and other errors to 502', () => {
+    expect(sermonAudioUpstreamResponseStatus(429)).toBe(503);
+    expect(sermonAudioUpstreamResponseStatus(503)).toBe(503);
+    expect(sermonAudioUpstreamResponseStatus(500)).toBe(502);
   });
 });

@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { mergeSermonAudioEventTypes } from '@/lib/platforms/sermon-audio-event-types';
 import { requireSermonAudioConnection } from '@/lib/platforms/sermon-audio-api';
-import { SERMONAUDIO_API_BASE, resolveSermonAudioApiUrl } from '@/lib/platforms/sermon-audio-http';
+import {
+  SERMONAUDIO_API_BASE,
+  SermonAudioUpstreamHttpError,
+  assertSermonAudioHttpOk,
+  isSermonAudioCredentialsFailure,
+  resolveSermonAudioApiUrl,
+  sermonAudioUpstreamResponseStatus,
+} from '@/lib/platforms/sermon-audio-http';
 import type { ApiError, ApiResponse } from '@/types';
 
 const SERMONAUDIO_EVENT_TYPES_URL = `${SERMONAUDIO_API_BASE}/v2/node/filter_options/sermon_event_types`;
@@ -74,9 +81,7 @@ async function fetchAllSermonEventTypeLabels(apiKey: string): Promise<string[]> 
     visitedUrls.add(nextUrl);
 
     const response = await fetch(nextUrl, { method: 'GET', headers, cache: 'no-store' });
-    if (!response.ok) {
-      break;
-    }
+    await assertSermonAudioHttpOk(response, 'Failed to fetch SermonAudio event types');
 
     const body: unknown = await response.json();
     for (const label of parseEventTypeLabelsFromBody(body)) {
@@ -112,6 +117,27 @@ export async function GET(req: NextRequest) {
     const res: ApiResponse<string[]> = { data: labels };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {
+    if (err instanceof SermonAudioUpstreamHttpError) {
+      if (isSermonAudioCredentialsFailure(err.status)) {
+        const errRes: ApiError = {
+          error: 'Bad Request',
+          message:
+            'SermonAudio API key is invalid or revoked. Reconnect SermonAudio in account settings.',
+          statusCode: err.status,
+        };
+        return NextResponse.json(errRes, { status: 400 });
+      }
+
+      const errRes: ApiError = {
+        error: 'Bad Gateway',
+        message: 'SermonAudio is temporarily unavailable. Try again in a few minutes.',
+        statusCode: err.status,
+      };
+      return NextResponse.json(errRes, {
+        status: sermonAudioUpstreamResponseStatus(err.status),
+      });
+    }
+
     console.error(
       '[GET /api/platforms/sermon-audio/filter-options/sermon-event-types] Unexpected error:',
       err

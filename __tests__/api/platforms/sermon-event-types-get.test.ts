@@ -120,4 +120,25 @@ describe('GET /api/platforms/sermon-audio/filter-options/sermon-event-types', ()
     const res = await GET(makeRequest());
     expect(res.status).toBe(404);
   });
+
+  it('returns 400 when upstream rejects the stored API key', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.statusCode).toBe(401);
+    expect(body.message).toContain('invalid or revoked');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 502 when upstream returns a server error', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('Server error', { status: 500 }));
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.statusCode).toBe(500);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
 });
