@@ -5,6 +5,11 @@ import {
   type SermonAudioBibleBook,
 } from '@/lib/platforms/sermon-audio-bible-books';
 
+/** Bible books sorted longest display name first for greedy prefix matching. */
+const SERMON_AUDIO_BIBLE_BOOKS_BY_DISPLAY_NAME_LENGTH = [...SERMON_AUDIO_BIBLE_BOOKS].sort(
+  (a, b) => b.displayName.length - a.displayName.length
+);
+
 /**
  * Parses semicolon-separated scripture references from SA `bibleText`.
  * @param bibleText - Raw bibleText field value.
@@ -69,10 +74,7 @@ function matchBookFromTypedInput(
   const normalizedInput = input.trim();
   const inputLower = normalizedInput.toLowerCase();
 
-  const booksByLength = [...SERMON_AUDIO_BIBLE_BOOKS].sort(
-    (a, b) => b.displayName.length - a.displayName.length
-  );
-  for (const book of booksByLength) {
+  for (const book of SERMON_AUDIO_BIBLE_BOOKS_BY_DISPLAY_NAME_LENGTH) {
     if (inputLower.startsWith(book.displayName.toLowerCase())) {
       return { book, rest: normalizedInput.slice(book.displayName.length).trim() };
     }
