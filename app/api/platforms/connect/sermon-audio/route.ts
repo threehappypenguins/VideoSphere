@@ -46,6 +46,8 @@ async function verifySermonAudioCredentials(
         'X-Api-Key': apiKey,
         Accept: 'application/json',
       },
+      cache: 'no-store',
+      redirect: 'error',
     });
 
     if (response.ok) {

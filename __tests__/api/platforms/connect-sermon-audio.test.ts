@@ -83,6 +83,8 @@ describe('POST /api/platforms/connect/sermon-audio', () => {
           'X-Api-Key': 'sa-api-key',
           Accept: 'application/json',
         }),
+        cache: 'no-store',
+        redirect: 'error',
       })
     );
   });
