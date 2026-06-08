@@ -7,6 +7,7 @@ import {
   MAX_DRAFT_DOCUMENT_CHARS,
   mergeDraftPlatforms,
   mergeDraftPlatformsPatch,
+  normalizeDraftPlatforms,
   parseDraftTargetsAllowEmpty,
   parseDraftTargetsFromRequestBody,
   parseDraftPlatformsPatchBody,
@@ -66,7 +67,7 @@ describe('draft-upload-metadata', () => {
       targets: [],
       title: '',
       description: '',
-      visibility: 'private',
+      visibility: 'public',
       tags: [],
       platforms: {},
     });
@@ -74,7 +75,7 @@ describe('draft-upload-metadata', () => {
       targets: [],
       title: '',
       description: '',
-      visibility: 'private',
+      visibility: 'public',
       tags: [],
       platforms: {},
     });
@@ -91,10 +92,10 @@ describe('draft-upload-metadata', () => {
     expect(draftDocumentFromRow({ document: legacy }).tags).toEqual(['legacy']);
   });
 
-  it('visibilityFromRow defaults invalid values to private', () => {
-    expect(visibilityFromRow(undefined)).toBe('private');
-    expect(visibilityFromRow('')).toBe('private');
-    expect(visibilityFromRow('secret')).toBe('private');
+  it('visibilityFromRow defaults invalid values to public', () => {
+    expect(visibilityFromRow(undefined)).toBe('public');
+    expect(visibilityFromRow('')).toBe('public');
+    expect(visibilityFromRow('secret')).toBe('public');
     expect(visibilityFromRow('public')).toBe('public');
   });
 
@@ -105,7 +106,8 @@ describe('draft-upload-metadata', () => {
     });
     expect(parseDraftTargetsFromRequestBody([])).toEqual({
       ok: false,
-      error: 'targets must include at least one of: youtube, vimeo, google_drive, sftp, smb',
+      error:
+        'targets must include at least one of: youtube, vimeo, google_drive, sftp, smb, sermon_audio',
     });
     expect(parseDraftTargetsFromRequestBody(['youtube', 'youtube'])).toEqual({
       ok: true,
@@ -238,6 +240,54 @@ describe('draft-upload-metadata', () => {
     expect(vm.vimeo).toEqual({ categoryUri: '/categories/1' });
   });
 
+  it('buildMetadataForPlatform trims shared title and description when no override is set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'sermon_audio'],
+      title: '  Shared Title  ',
+      description: '  Shared Description  ',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: { categoryId: '22' },
+        sermon_audio: { speakerName: 'Rev. Smith', preachDate: '2026-06-01' },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').title).toBe('Shared Title');
+    expect(buildMetadataForPlatform(draft, 'youtube').description).toBe('Shared Description');
+
+    const sa = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(sa.title).toBe('Shared Title');
+    expect(sa.fullTitle).toBe('Shared Title');
+    expect(sa.description).toBe('Shared Description');
+    expect(sa.moreInfoText).toBe('Shared Description');
+  });
+
+  it('buildMetadataForPlatform uses per-platform visibility overrides for YouTube and Vimeo', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'vimeo'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: { visibilityOverride: 'private' },
+        vimeo: { visibilityOverride: 'unlisted' },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').visibility).toBe('private');
+    expect(buildMetadataForPlatform(draft, 'vimeo').visibility).toBe('unlisted');
+  });
+
   it('buildMetadataForPlatform passes playlistTitles and playlistIds for YouTube', () => {
     const draft: Draft = {
       id: 'd1',
@@ -360,5 +410,284 @@ describe('draft-upload-metadata', () => {
     };
     const meta = buildMetadataForPlatform(draft, 'vimeo');
     expect(meta.tags).toEqual([]);
+  });
+
+  it('normalizeDraftPlatforms normalizes sermon_audio fields', () => {
+    expect(
+      normalizeDraftPlatforms({
+        sermon_audio: {
+          speakerName: '  Rev. Smith  ',
+          speakerID: 42,
+          preachDate: '2026-01-15',
+          eventType: 'Sunday Service',
+          subtitle: ' Faith & Works ',
+          seriesID: 12,
+          bibleText: 'John 3:16',
+          displayTitle: ' Short ',
+          languageCode: 'en',
+          autoPublishOnProcessed: false,
+          titleOverride: '  SA Title  ',
+          descriptionOverride: ' SA Desc ',
+          tagsOverride: ['  holy ', 'day'],
+        },
+      })
+    ).toEqual({
+      sermon_audio: {
+        speakerName: 'Rev. Smith',
+        speakerID: 42,
+        preachDate: '2026-01-15',
+        eventType: 'Sunday Service',
+        subtitle: 'Faith & Works',
+        seriesID: 12,
+        bibleText: 'John 3:16',
+        displayTitle: 'Short',
+        languageCode: 'en',
+        autoPublishOnProcessed: false,
+        titleOverride: 'SA Title',
+        descriptionOverride: 'SA Desc',
+        tagsOverride: ['holy', 'day'],
+      },
+    });
+  });
+
+  it('normalizeDraftPlatforms drops visibilityOverride from sermon_audio', () => {
+    expect(
+      normalizeDraftPlatforms({
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+          preachDate: '2026-01-15',
+          eventType: 'Sunday Service',
+          visibilityOverride: 'private',
+        },
+      })
+    ).toEqual({
+      sermon_audio: {
+        speakerName: 'Rev. Smith',
+        preachDate: '2026-01-15',
+        eventType: 'Sunday Service',
+      },
+    });
+  });
+
+  it('normalizeDraftPlatforms normalizes sermon_audio crossPublish settings', () => {
+    expect(
+      normalizeDraftPlatforms({
+        sermon_audio: {
+          crossPublish: {
+            enabled: true,
+            facebook: {
+              postLink: true,
+              uploadFullVideo: true,
+              linkMessage: ' Check this out ',
+            },
+          },
+        },
+      })
+    ).toEqual({
+      sermon_audio: {
+        crossPublish: {
+          enabled: true,
+          facebook: {
+            postLink: true,
+            uploadFullVideo: true,
+            linkMessage: 'Check this out',
+          },
+        },
+      },
+    });
+  });
+
+  it('buildMetadataForPlatform sermon_audio prefers overrides over shared values', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Shared Title',
+      description: 'Shared Description',
+      tags: ['shared-tag'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          titleOverride: 'Override Title',
+          descriptionOverride: 'Override Description',
+          tagsOverride: ['override-tag'],
+          speakerName: 'Rev. Smith',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(meta.title).toBe('Override Title');
+    expect(meta.fullTitle).toBe('Override Title');
+    expect(meta.description).toBe('Override Description');
+    expect(meta.moreInfoText).toBe('Override Description');
+    expect(meta.tags).toEqual(['override-tag']);
+    expect(meta.speakerName).toBe('Rev. Smith');
+  });
+
+  it('buildMetadataForPlatform sermon_audio falls back to shared values when overrides are absent', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Shared Title',
+      description: 'Shared Description',
+      tags: ['faith', 'hope'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+          speakerID: 77,
+          preachDate: '2026-06-01',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(meta.title).toBe('Shared Title');
+    expect(meta.fullTitle).toBe('Shared Title');
+    expect(meta.description).toBe('Shared Description');
+    expect(meta.moreInfoText).toBe('Shared Description');
+    expect(meta.tags).toEqual(['faith', 'hope']);
+    expect(meta.speakerName).toBe('Rev. Smith');
+    expect(meta.speakerID).toBe(77);
+    expect(meta.preachDate).toBe('2026-06-01');
+  });
+
+  it('buildMetadataForPlatform sermon_audio defaults autoPublishOnProcessed to true when unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Title',
+      description: 'Description',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+          preachDate: '2026-06-01',
+          eventType: 'Sunday Service',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').autoPublishOnProcessed).toBe(true);
+  });
+
+  it('buildMetadataForPlatform sermon_audio respects autoPublishOnProcessed false', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Title',
+      description: 'Description',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          autoPublishOnProcessed: false,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').autoPublishOnProcessed).toBe(false);
+  });
+
+  it('buildMetadataForPlatform sermon_audio includes crossPublish settings when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Title',
+      description: 'Description',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          crossPublish: {
+            enabled: true,
+            youtube: { uploadFullVideo: true, privacy: 'private' },
+          },
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').crossPublish).toEqual({
+      enabled: true,
+      youtube: { uploadFullVideo: true, privacy: 'private' },
+    });
+  });
+
+  it('buildMetadataForPlatform sermon_audio includes series fields when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Shared Title',
+      description: 'Shared Description',
+      tags: ['faith'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          subtitle: 'Romans',
+          seriesID: 55,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(meta.subtitle).toBe('Romans');
+    expect(meta.seriesID).toBe(55);
+  });
+
+  it('buildMetadataForPlatform sermon_audio joins tags as keywords', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'T',
+      description: 'D',
+      tags: ['faith', 'hope'],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('faith, hope');
+  });
+
+  it('buildMetadataForPlatform sermon_audio strips spaces and hash prefixes from keywords', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'T',
+      description: 'D',
+      tags: ['this is', '#faith'],
+      visibility: 'public',
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('thisis, faith');
   });
 });

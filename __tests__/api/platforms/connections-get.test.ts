@@ -127,6 +127,29 @@ describe('GET /api/platforms/connections', () => {
       const body = await res.json();
       expect(body.data).toHaveLength(2);
     });
+
+    it('returns sermon_audio in the connections list', async () => {
+      const sermonAudioAccount = {
+        ...MOCK_ACCOUNT,
+        id: 'conn-sa',
+        platform: 'sermon_audio',
+        platformUserId: 'broadcaster-99',
+        platformName: 'My Church',
+        hasRefreshToken: false,
+      };
+      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([sermonAudioAccount as never]);
+      const res = await GET(makeRequest({ [SESSION_COOKIE]: 'valid-session' }));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.data).toEqual([
+        expect.objectContaining({
+          id: 'conn-sa',
+          platform: 'sermon_audio',
+          platformUserId: 'broadcaster-99',
+          platformName: 'My Church',
+        }),
+      ]);
+    });
   });
 
   describe('error handling', () => {

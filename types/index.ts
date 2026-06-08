@@ -46,7 +46,13 @@ export interface User {
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
-export type ConnectedAccountPlatform = 'youtube' | 'vimeo' | 'google_drive' | 'sftp' | 'smb';
+export type ConnectedAccountPlatform =
+  | 'youtube'
+  | 'vimeo'
+  | 'google_drive'
+  | 'sftp'
+  | 'smb'
+  | 'sermon_audio';
 
 /** Platforms we support for drafts, uploads, and connections (extend as you add backends). */
 export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = [
@@ -55,6 +61,7 @@ export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = 
   'google_drive',
   'sftp',
   'smb',
+  'sermon_audio',
 ];
 
 /** SFTP authentication method stored on a connected account. */
@@ -65,6 +72,28 @@ export interface SftpDraftFields {}
 
 /** SMB/CIFS draft fields placeholder (no publish-specific options yet). */
 export interface SmbDraftFields {}
+
+/**
+ * Optional per-platform overrides for shared draft copy (title, description, tags).
+ * When set, distribution uses these values instead of the document-root fields for that platform.
+ */
+export interface PerPlatformCopyOverrides {
+  /** Platform-specific title; maps to each API's title field (e.g. SA `fullTitle`, YouTube `snippet.title`). */
+  titleOverride?: string;
+  /** Platform-specific description/body text. */
+  descriptionOverride?: string;
+  /** Platform-specific tags; mapped per API (e.g. YouTube `snippet.tags`, Vimeo `tags`). */
+  tagsOverride?: string[];
+}
+
+/**
+ * Optional per-platform overrides for shared draft metadata (title, description, tags, visibility).
+ * When set, distribution uses these values instead of the document-root fields for that platform.
+ */
+export interface PerPlatformOverrides extends PerPlatformCopyOverrides {
+  /** Platform-specific privacy (YouTube and Vimeo only). */
+  visibilityOverride?: PlatformUploadVisibility;
+}
 
 /** Platform upload status (PRD: pending, uploading, completed, failed). */
 export type PlatformUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
@@ -78,7 +107,7 @@ export type PlatformUploadVisibility = 'public' | 'unlisted' | 'private';
  *
  * Field names align with YouTube Data API v3 `videos.insert` `snippet` / `status` where applicable.
  */
-export interface YouTubeDraftFields {
+export interface YouTubeDraftFields extends PerPlatformOverrides {
   /** YouTube Data API `snippet.categoryId` (numeric string, e.g. "22" = People & Blogs). */
   categoryId?: string;
   /** Maps to `status.selfDeclaredMadeForKids` on upload. */
@@ -178,7 +207,7 @@ export type VimeoVideoLicense =
  * Vimeo-only fields inside the draft `document.platforms` JSON.
  * Sent on `POST /me/videos` using **snake_case** keys where the Vimeo API expects them.
  */
-export interface VimeoDraftFields {
+export interface VimeoDraftFields extends PerPlatformOverrides {
   /**
    * Category hint for `PUT /videos/{id}/categories` batch body: `/categories/{slug}`, plain slug,
    * or vimeo.com category URL — not a made-up numeric id.
@@ -204,14 +233,92 @@ export interface VimeoDraftFields {
 }
 
 /**
+ * SermonAudio-only fields inside the draft `document.platforms` JSON.
+ * Shared copy (title, description, tags) lives at the document root unless overridden here.
+ *
+ * Field names align with SermonAudio `POST /v2/node/sermons` where applicable.
+ */
+export interface SermonAudioDraftFields extends PerPlatformCopyOverrides {
+  /** SermonAudio speaker name. */
+  speakerName?: string;
+  /** SermonAudio speaker id when selected from SA speaker records. */
+  speakerID?: number;
+  /** Preach date (`YYYY-MM-DD`). */
+  preachDate?: string;
+  /** Event type from `GET /v2/node/filter_options/sermon_event_types`. */
+  eventType?: string;
+  /** Series or sub-heading label (SA `subtitle`; distinct from `displayTitle`). */
+  subtitle?: string;
+  /** SermonAudio series id when selected from SA series records. */
+  seriesID?: number;
+  /** Scripture reference text (SA `bibleText`). */
+  bibleText?: string;
+  /** Short title when the full title is long (SA `displayTitle`; not the series name). */
+  displayTitle?: string;
+  /** Language code (e.g. ISO 639-1). */
+  languageCode?: string;
+  /** When not explicitly false, publish automatically after SA video processing completes (defaults to on). */
+  autoPublishOnProcessed?: boolean;
+  /**
+   * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
+   * Mapped to `socialSharing` on sermon create; `publishSermonAudio` only PATCHes `publishDate`.
+   */
+  crossPublish?: SermonAudioCrossPublishSettings;
+}
+
+/** Cross Publish destination id stored under `SermonAudioDraftFields.crossPublish`. */
+export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x';
+
+/**
+ * Cross Publish options for one social destination (SermonAudio dashboard feature).
+ * @property postLink - Post a link to the sermon (Facebook and X only).
+ * @property uploadFullVideo - Upload the full sermon video (YouTube and Facebook).
+ * @property uploadVideoPreview - Upload a video preview clip (X/Twitter; maps to SA `useVideoClip`).
+ * @property linkMessage - Custom message when `postLink` is enabled (Facebook and X).
+ * @property title - YouTube video title when `uploadFullVideo` is enabled (maps to SA `title` on `google`).
+ * @property description - YouTube video description when `uploadFullVideo` is enabled (maps to SA `message` on `google`).
+ * @property privacy - YouTube visibility when `uploadFullVideo` is enabled (maps to SA `privacy` on `google`).
+ */
+export interface SermonAudioCrossPublishPlatformSettings {
+  postLink?: boolean;
+  uploadFullVideo?: boolean;
+  uploadVideoPreview?: boolean;
+  linkMessage?: string;
+  title?: string;
+  description?: string;
+  privacy?: SermonAudioCrossPublishYouTubePrivacy;
+}
+
+/** YouTube Cross Publish visibility (SermonAudio Connections → YouTube). */
+export type SermonAudioCrossPublishYouTubePrivacy = 'public' | 'unlisted' | 'private';
+
+/** Cross Publish per-platform toggle id stored on `SermonAudioCrossPublishPlatformSettings`. */
+export type SermonAudioCrossPublishOptionId = 'postLink' | 'uploadFullVideo' | 'uploadVideoPreview';
+
+/**
+ * Cross Publish settings grouped by destination platform.
+ * @property enabled - Master Cross Publish toggle for the draft.
+ * @property youtube - YouTube Cross Publish options.
+ * @property facebook - Facebook Cross Publish options.
+ * @property x - X (Twitter) Cross Publish options.
+ */
+export interface SermonAudioCrossPublishSettings {
+  enabled?: boolean;
+  youtube?: SermonAudioCrossPublishPlatformSettings;
+  facebook?: SermonAudioCrossPublishPlatformSettings;
+  x?: SermonAudioCrossPublishPlatformSettings;
+}
+
+/**
  * Per-platform metadata on a draft (inside `document` JSON).
- * Publish targets use `platforms.youtube` / `platforms.vimeo`.
+ * Publish targets use `platforms.youtube` / `platforms.vimeo` / `platforms.sermon_audio`.
  * Google Drive is selected via `targets` only (no `platforms.google_drive` key).
  * SFTP / SMB may use `platforms.sftp` / `platforms.smb` as empty placeholders until backup-specific fields exist.
  */
 export interface DraftPlatforms {
   youtube?: YouTubeDraftFields;
   vimeo?: VimeoDraftFields;
+  sermon_audio?: SermonAudioDraftFields;
   sftp?: SftpDraftFields;
   smb?: SmbDraftFields;
 }

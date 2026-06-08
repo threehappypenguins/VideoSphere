@@ -3,11 +3,13 @@
  *
  * Stored shape:
  * - **Shared:** `targets`, `title`, `description`, `visibility`, `tags` (one list for all targets)
- * - **Per platform:** `platforms.youtube` / `platforms.vimeo` (e.g. YouTube `categoryId`, Vimeo `categoryUri`);
+ * - **Per platform:** `platforms.youtube` / `platforms.vimeo` / `platforms.sermon_audio` (e.g. YouTube `categoryId`, Vimeo `categoryUri`, SermonAudio sermon fields);
  *   backup targets (`platforms.sftp` / `platforms.smb`) are carried through as empty objects until fields exist.
  */
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
+import { formatSermonAudioKeywordsFromTags } from '@/lib/platforms/sermon-audio-tags';
+import { normalizeSermonAudioCrossPublishSettings } from '@/lib/platforms/sermon-audio-cross-publish';
 import { uniqueTrimmedPlaylistTitles } from '@/lib/platforms/youtube';
 import {
   CONNECTED_ACCOUNT_PLATFORMS,
@@ -20,6 +22,8 @@ import {
   type VimeoVideoLicense,
   type YouTubeDraftFields,
   type VimeoDraftFields,
+  type PerPlatformCopyOverrides,
+  type SermonAudioDraftFields,
   type SftpDraftFields,
   type SmbDraftFields,
 } from '@/types';
@@ -27,7 +31,7 @@ import {
 /**
  * Defines the DEFAULT_DRAFT_VISIBILITY constant.
  */
-export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'private';
+export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'public';
 
 /** Matches YouTube Data API `videos.snippet.title` maximum length. */
 export const MAX_DRAFT_TITLE_LENGTH = 100;
@@ -76,7 +80,7 @@ export function isPlatformUploadVisibility(value: unknown): value is PlatformUpl
   return typeof value === 'string' && VISIBILITY_SET.has(value as PlatformUploadVisibility);
 }
 
-/** API / loose values → visibility (invalid → private). */
+/** API / loose values → visibility (invalid → public). */
 export function visibilityFromRow(value: unknown): PlatformUploadVisibility {
   return isPlatformUploadVisibility(value) ? value : DEFAULT_DRAFT_VISIBILITY;
 }
@@ -130,6 +134,41 @@ function stringList(v: unknown): string[] | undefined {
     .map((s) => s.trim())
     .filter(Boolean);
   return out;
+}
+
+function normalizePerPlatformCopyOverrides(
+  o: Record<string, unknown>
+): Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride' | 'tagsOverride'> {
+  const titleOverride = trimStr(o.titleOverride);
+  const descriptionOverride = trimStr(o.descriptionOverride);
+  let tagsOverride: string[] | undefined;
+  if (Array.isArray(o.tagsOverride)) {
+    tagsOverride = normalizeTagList(o.tagsOverride)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  return {
+    ...(titleOverride !== undefined ? { titleOverride } : {}),
+    ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
+    ...(tagsOverride !== undefined ? { tagsOverride } : {}),
+  };
+}
+
+function normalizePerPlatformOverrideFields(
+  o: Record<string, unknown>
+): Pick<
+  YouTubeDraftFields,
+  'titleOverride' | 'descriptionOverride' | 'tagsOverride' | 'visibilityOverride'
+> {
+  const visibilityOverride = isPlatformUploadVisibility(o.visibilityOverride)
+    ? o.visibilityOverride
+    : undefined;
+
+  return {
+    ...normalizePerPlatformCopyOverrides(o),
+    ...(visibilityOverride !== undefined ? { visibilityOverride } : {}),
+  };
 }
 
 const YT_LICENSE = new Set(['youtube', 'creativeCommon']);
@@ -242,6 +281,7 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
   }
 
   return {
+    ...normalizePerPlatformOverrideFields(y),
     ...(categoryId !== undefined ? { categoryId } : {}),
     ...(madeForKids !== undefined ? { madeForKids } : {}),
     ...(defaultLanguage !== undefined ? { defaultLanguage } : {}),
@@ -274,6 +314,7 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
   const embed = normalizeVimeoEmbed(v.embed);
 
   return {
+    ...normalizePerPlatformOverrideFields(v),
     ...(categoryUri !== undefined ? { categoryUri } : {}),
     ...(license !== undefined ? { license } : {}),
     ...(locale !== undefined ? { locale } : {}),
@@ -282,6 +323,48 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
     ...(reviewPage !== undefined ? { reviewPage } : {}),
     ...(privacy !== undefined ? { privacy } : {}),
     ...(embed !== undefined ? { embed } : {}),
+  };
+}
+
+function resolveSermonAudioAutoPublishOnProcessed(
+  fields: Pick<SermonAudioDraftFields, 'autoPublishOnProcessed'> | undefined
+): boolean {
+  return fields?.autoPublishOnProcessed !== false;
+}
+
+function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDraftFields {
+  const speakerName = trimStr(sa.speakerName);
+  const speakerID =
+    typeof sa.speakerID === 'number' && Number.isInteger(sa.speakerID) && sa.speakerID > 0
+      ? sa.speakerID
+      : undefined;
+  const preachDate = trimStr(sa.preachDate);
+  const eventType = trimStr(sa.eventType);
+  const subtitle = trimStr(sa.subtitle);
+  const seriesID =
+    typeof sa.seriesID === 'number' && Number.isInteger(sa.seriesID) && sa.seriesID > 0
+      ? sa.seriesID
+      : undefined;
+  const bibleText = trimStr(sa.bibleText);
+  const displayTitle = trimStr(sa.displayTitle);
+  const languageCode = trimStr(sa.languageCode);
+  const autoPublishOnProcessed =
+    typeof sa.autoPublishOnProcessed === 'boolean' ? sa.autoPublishOnProcessed : undefined;
+  const crossPublish = normalizeSermonAudioCrossPublishSettings(sa.crossPublish);
+
+  return {
+    ...normalizePerPlatformCopyOverrides(sa),
+    ...(speakerName !== undefined ? { speakerName } : {}),
+    ...(speakerID !== undefined ? { speakerID } : {}),
+    ...(preachDate !== undefined ? { preachDate } : {}),
+    ...(eventType !== undefined ? { eventType } : {}),
+    ...(subtitle !== undefined ? { subtitle } : {}),
+    ...(seriesID !== undefined ? { seriesID } : {}),
+    ...(bibleText !== undefined ? { bibleText } : {}),
+    ...(displayTitle !== undefined ? { displayTitle } : {}),
+    ...(languageCode !== undefined ? { languageCode } : {}),
+    ...(autoPublishOnProcessed !== undefined ? { autoPublishOnProcessed } : {}),
+    ...(crossPublish !== undefined ? { crossPublish } : {}),
   };
 }
 
@@ -312,6 +395,11 @@ export function normalizeDraftPlatforms(value: unknown): DraftPlatforms {
   if (isPlainObject(value.vimeo)) {
     const vm = normalizeVimeoFields(value.vimeo);
     out.vimeo = Object.keys(vm).length > 0 ? vm : undefined;
+  }
+
+  if (isPlainObject(value.sermon_audio)) {
+    const sa = normalizeSermonAudioFields(value.sermon_audio);
+    out.sermon_audio = Object.keys(sa).length > 0 ? sa : undefined;
   }
 
   if (isPlainObject(value.sftp)) {
@@ -506,6 +594,9 @@ export function mergeDraftPlatforms(base: DraftPlatforms, patch: DraftPlatforms)
   if (patch.vimeo !== undefined) {
     next.vimeo = { ...base.vimeo, ...patch.vimeo };
   }
+  if (patch.sermon_audio !== undefined) {
+    next.sermon_audio = { ...base.sermon_audio, ...patch.sermon_audio };
+  }
   if (patch.sftp !== undefined) {
     next.sftp = { ...base.sftp, ...patch.sftp };
   }
@@ -580,6 +671,28 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
         yb.playlistTitles = undefined;
       }
     }
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      yb.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('descriptionOverride' in p) {
+      const s = p.descriptionOverride;
+      yb.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('tagsOverride' in p) {
+      if (Array.isArray(p.tagsOverride)) {
+        yb.tagsOverride = p.tagsOverride
+          .filter((x): x is string => typeof x === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        yb.tagsOverride = undefined;
+      }
+    }
+    if ('visibilityOverride' in p) {
+      const v = p.visibilityOverride;
+      yb.visibilityOverride = isPlatformUploadVisibility(v) ? v : undefined;
+    }
     next.youtube = yb;
   }
 
@@ -623,7 +736,99 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
     if ('embed' in p) {
       vm.embed = normalizeVimeoEmbed(p.embed);
     }
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      vm.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('descriptionOverride' in p) {
+      const s = p.descriptionOverride;
+      vm.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('tagsOverride' in p) {
+      if (Array.isArray(p.tagsOverride)) {
+        vm.tagsOverride = p.tagsOverride
+          .filter((x): x is string => typeof x === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        vm.tagsOverride = undefined;
+      }
+    }
+    if ('visibilityOverride' in p) {
+      const v = p.visibilityOverride;
+      vm.visibilityOverride = isPlatformUploadVisibility(v) ? v : undefined;
+    }
     next.vimeo = vm;
+  }
+
+  if (isPlainObject(patch.sermon_audio)) {
+    const p = patch.sermon_audio;
+    const sa = { ...base.sermon_audio };
+    if ('speakerName' in p) {
+      const s = p.speakerName;
+      sa.speakerName = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('speakerID' in p) {
+      const id = p.speakerID;
+      sa.speakerID = typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : undefined;
+    }
+    if ('preachDate' in p) {
+      const s = p.preachDate;
+      sa.preachDate = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('eventType' in p) {
+      const s = p.eventType;
+      sa.eventType = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('subtitle' in p) {
+      const s = p.subtitle;
+      sa.subtitle = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+      if (!sa.subtitle && !('seriesID' in p)) {
+        sa.seriesID = undefined;
+      }
+    }
+    if ('seriesID' in p) {
+      const id = p.seriesID;
+      sa.seriesID = typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : undefined;
+    }
+    if ('bibleText' in p) {
+      const s = p.bibleText;
+      sa.bibleText = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('displayTitle' in p) {
+      const s = p.displayTitle;
+      sa.displayTitle = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('languageCode' in p) {
+      const s = p.languageCode;
+      sa.languageCode = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('autoPublishOnProcessed' in p) {
+      sa.autoPublishOnProcessed =
+        typeof p.autoPublishOnProcessed === 'boolean' ? p.autoPublishOnProcessed : undefined;
+    }
+    if ('crossPublish' in p) {
+      sa.crossPublish = normalizeSermonAudioCrossPublishSettings(p.crossPublish);
+    }
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      sa.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('descriptionOverride' in p) {
+      const s = p.descriptionOverride;
+      sa.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('tagsOverride' in p) {
+      if (Array.isArray(p.tagsOverride)) {
+        sa.tagsOverride = p.tagsOverride
+          .filter((x): x is string => typeof x === 'string')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        sa.tagsOverride = undefined;
+      }
+    }
+    next.sermon_audio = sa;
   }
 
   if (isPlainObject(patch.sftp)) {
@@ -637,6 +842,29 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
   return next;
 }
 
+function resolveDraftCopyForPlatform(
+  draft: Draft,
+  platformFields?: {
+    titleOverride?: string;
+    descriptionOverride?: string;
+    tagsOverride?: string[];
+    visibilityOverride?: PlatformUploadVisibility;
+  }
+): { title: string; description: string; tags: string[] } {
+  const title = platformFields?.titleOverride?.trim() || draft.title.trim();
+  const description = platformFields?.descriptionOverride?.trim() || draft.description.trim();
+  const tagSource = platformFields?.tagsOverride ?? draft.tags;
+  const tags = tagSource.map((t) => t.trim()).filter((t) => t.length > 0);
+  return { title, description, tags };
+}
+
+function resolveVisibilityForPlatform(
+  draft: Draft,
+  platformFields?: { visibilityOverride?: PlatformUploadVisibility }
+): PlatformUploadVisibility {
+  return platformFields?.visibilityOverride ?? draft.visibility;
+}
+
 /**
  * Executes build metadata for platform.
  * @param draft - Input value for draft.
@@ -647,22 +875,24 @@ export function buildMetadataForPlatform(
   draft: Draft,
   platform: ConnectedAccountPlatform
 ): PlatformUploadMetadata {
-  const visibility = draft.visibility;
-  const tags = draft.tags.map((t) => t.trim()).filter((t) => t.length > 0);
+  const thumbnailR2Key = draft.thumbnailR2Key?.trim() || undefined;
+  const thumbnailContentType = draft.thumbnailContentType?.trim() || undefined;
 
   if (platform === 'youtube') {
     const yt = draft.platforms.youtube;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, yt);
+    const visibility = resolveVisibilityForPlatform(draft, yt);
     const playlistTitles =
       yt?.playlistTitles !== undefined && yt.playlistTitles.length > 0
         ? uniqueTrimmedPlaylistTitles(yt.playlistTitles)
         : undefined;
     return {
-      title: draft.title,
-      description: draft.description,
+      title,
+      description,
       tags,
       visibility,
-      thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
-      thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
+      thumbnailR2Key,
+      thumbnailContentType,
       categoryId: yt?.categoryId?.trim() || undefined,
       madeForKids: yt?.madeForKids,
       defaultLanguage: yt?.defaultLanguage,
@@ -678,24 +908,58 @@ export function buildMetadataForPlatform(
   }
   if (platform === 'vimeo') {
     const vm = draft.platforms.vimeo;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, vm);
+    const visibility = resolveVisibilityForPlatform(draft, vm);
     return {
-      title: draft.title,
-      description: draft.description,
+      title,
+      description,
       tags,
       visibility,
-      thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
-      thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
+      thumbnailR2Key,
+      thumbnailContentType,
       vimeoCategoryUri: vm?.categoryUri?.trim() || undefined,
       vimeo: vm,
     };
   }
+  if (platform === 'sermon_audio') {
+    const sa = draft.platforms.sermon_audio;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, sa);
+    const keywords = formatSermonAudioKeywordsFromTags(tags);
+    const visibility = draft.visibility;
 
+    return {
+      title,
+      description,
+      tags,
+      visibility,
+      thumbnailR2Key,
+      thumbnailContentType,
+      fullTitle: title,
+      ...(sa?.displayTitle?.trim() ? { displayTitle: sa.displayTitle.trim() } : {}),
+      ...(sa?.subtitle?.trim() ? { subtitle: sa.subtitle.trim() } : {}),
+      ...(sa?.seriesID !== undefined ? { seriesID: sa.seriesID } : {}),
+      ...(sa?.speakerName?.trim() ? { speakerName: sa.speakerName.trim() } : {}),
+      ...(sa?.speakerID !== undefined ? { speakerID: sa.speakerID } : {}),
+      ...(sa?.preachDate?.trim() ? { preachDate: sa.preachDate.trim() } : {}),
+      ...(sa?.eventType?.trim() ? { eventType: sa.eventType.trim() } : {}),
+      ...(sa?.bibleText?.trim() ? { bibleText: sa.bibleText.trim() } : {}),
+      moreInfoText: description,
+      keywords,
+      ...(sa?.languageCode?.trim() ? { languageCode: sa.languageCode.trim() } : {}),
+      acceptCopyright: true,
+      autoPublishOnProcessed: resolveSermonAudioAutoPublishOnProcessed(sa),
+      ...(sa?.crossPublish !== undefined ? { crossPublish: sa.crossPublish } : {}),
+    };
+  }
+
+  const { title, description, tags } = resolveDraftCopyForPlatform(draft);
+  const visibility = draft.visibility;
   return {
-    title: draft.title,
-    description: draft.description,
+    title,
+    description,
     tags,
     visibility,
-    thumbnailR2Key: draft.thumbnailR2Key?.trim() || undefined,
-    thumbnailContentType: draft.thumbnailContentType?.trim() || undefined,
+    thumbnailR2Key,
+    thumbnailContentType,
   };
 }

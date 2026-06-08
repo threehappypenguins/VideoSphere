@@ -3,7 +3,11 @@
  * Per-platform fields stay in separate optional interfaces and are composed into {@link PlatformUploadMetadata}.
  */
 
-import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
+import type {
+  PlatformUploadVisibility,
+  SermonAudioCrossPublishSettings,
+  VimeoDraftFields,
+} from '@/types';
 
 /** Copy and visibility applied to every target platform. */
 export interface SharedPlatformUploadMetadata {
@@ -46,12 +50,44 @@ export interface VimeoSpecificUploadMetadata {
   vimeo?: VimeoDraftFields;
 }
 
+/** SermonAudio API upload–specific fields (omit unused keys for other platforms). */
+export interface SermonAudioSpecificUploadMetadata {
+  /** SA `fullTitle` — resolved draft title for this platform. */
+  fullTitle?: string;
+  /** SA short title when the full title is long. */
+  displayTitle?: string;
+  /** SA series/sub-heading label. */
+  subtitle?: string;
+  /** SermonAudio series id when linked to an existing SA series record. */
+  seriesID?: number;
+  speakerName?: string;
+  /** SermonAudio speaker id when linked to an existing SA speaker record. */
+  speakerID?: number;
+  /** Preach date (`YYYY-MM-DD`). */
+  preachDate?: string;
+  /** Event type from SA filter options. */
+  eventType?: string;
+  bibleText?: string;
+  /** SA description body (`moreInfoText`). */
+  moreInfoText?: string;
+  /** SA keywords/hashtags derived from tags at upload time (comma-separated). */
+  keywords?: string;
+  languageCode?: string;
+  /** SA copyright acceptance flag on sermon create. */
+  acceptCopyright?: boolean;
+  /** When true, publish after SA video processing completes. */
+  autoPublishOnProcessed?: boolean;
+  /** Cross Publish destination settings (sent as `socialSharing` on sermon create POST). */
+  crossPublish?: SermonAudioCrossPublishSettings;
+}
+
 /**
  * Draft → adapter payload: shared copy plus optional per-platform blocks (flat merge for convenience).
  */
 export type PlatformUploadMetadata = SharedPlatformUploadMetadata &
   YoutubeSpecificUploadMetadata &
-  VimeoSpecificUploadMetadata;
+  VimeoSpecificUploadMetadata &
+  SermonAudioSpecificUploadMetadata;
 
 /**
  * Defines the shape of platform upload tokens.

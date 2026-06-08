@@ -206,4 +206,63 @@ describe('refreshTokenIfNeeded', () => {
     expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
     expect(mockUpdateTokens).not.toHaveBeenCalled();
   });
+
+  it('returns stored SermonAudio API key without remote refresh', async () => {
+    const acc: ConnectedAccount = {
+      id: 'acc-sa',
+      userId: 'user-1',
+      platform: 'sermon_audio',
+      accessToken: 'sa-api-key',
+      refreshToken: '',
+      tokenExpiry: '9999-12-31T00:00:00.000Z',
+      hasRefreshToken: false,
+      platformUserId: 'broadcaster-1',
+      platformName: 'Example Church',
+      $createdAt: '2020-01-01T00:00:00.000Z',
+      $updatedAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    const out = await refreshTokenIfNeeded(acc);
+    expect(out.accessToken).toBe('sa-api-key');
+    expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
+    expect(mockUpdateTokens).not.toHaveBeenCalled();
+  });
+
+  it('returns a trimmed SermonAudio API key when storage includes whitespace', async () => {
+    const acc: ConnectedAccount = {
+      id: 'acc-sa',
+      userId: 'user-1',
+      platform: 'sermon_audio',
+      accessToken: '  sa-api-key  ',
+      refreshToken: '',
+      tokenExpiry: '9999-12-31T00:00:00.000Z',
+      hasRefreshToken: false,
+      platformUserId: 'broadcaster-1',
+      platformName: 'Example Church',
+      $createdAt: '2020-01-01T00:00:00.000Z',
+      $updatedAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    const out = await refreshTokenIfNeeded(acc);
+    expect(out.accessToken).toBe('sa-api-key');
+  });
+
+  it('throws a clear error when SermonAudio API key is blank', async () => {
+    const acc: ConnectedAccount = {
+      id: 'acc-sa',
+      userId: 'user-1',
+      platform: 'sermon_audio',
+      accessToken: '   ',
+      refreshToken: '',
+      tokenExpiry: '9999-12-31T00:00:00.000Z',
+      hasRefreshToken: false,
+      platformUserId: 'broadcaster-1',
+      platformName: 'Example Church',
+      $createdAt: '2020-01-01T00:00:00.000Z',
+      $updatedAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    await expect(refreshTokenIfNeeded(acc)).rejects.toThrow(/Reconnect your SermonAudio account/i);
+    expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
+  });
 });

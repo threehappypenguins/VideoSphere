@@ -1,5 +1,9 @@
 import mongoose, { Schema } from 'mongoose';
-import type { ConnectedAccountPlatform, SftpAuthMethod } from '@/types';
+import {
+  CONNECTED_ACCOUNT_PLATFORMS,
+  type ConnectedAccountPlatform,
+  type SftpAuthMethod,
+} from '@/types';
 
 /** Minimum valid TCP port for SFTP connections. */
 const SFTP_PORT_MIN = 1;
@@ -73,7 +77,7 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
     userId: { type: String, required: true, index: true, trim: true },
     platform: {
       type: String,
-      enum: ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb'],
+      enum: [...CONNECTED_ACCOUNT_PLATFORMS],
       required: true,
     },
     accessToken: { type: String, required: true },

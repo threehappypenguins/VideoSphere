@@ -35,6 +35,7 @@ const draftValue: DraftEditorValues = {
   tags: ['demo'],
   visibility: 'public',
   targets: ['youtube'],
+  platforms: {},
 };
 
 describe('Draft metadata modal accessibility', () => {

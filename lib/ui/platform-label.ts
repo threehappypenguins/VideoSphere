@@ -9,6 +9,7 @@ export const PLATFORM_LABELS: Record<ConnectedAccountPlatform, string> = {
   google_drive: 'Google Drive',
   sftp: 'SFTP Server',
   smb: 'SMB / Network Share',
+  sermon_audio: 'SermonAudio',
 };
 
 /**

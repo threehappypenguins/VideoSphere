@@ -36,6 +36,7 @@ const draftValue: DraftEditorValues = {
   tags: ['demo'],
   visibility: 'public',
   targets: ['youtube'],
+  platforms: {},
 };
 
 describe('DraftMetadataModal AI prompt behavior', () => {
@@ -187,6 +188,7 @@ describe('DraftMetadataModal announceInModal – AI metadata generation success'
     tags: [],
     visibility: 'public',
     targets: ['youtube'],
+    platforms: {},
   };
 
   const successMetadataJson = JSON.stringify({
@@ -311,5 +313,63 @@ describe('DraftMetadataModal announceInModal – AI metadata generation success'
     await screen.findAllByText('Metadata generated successfully');
 
     expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+describe('DraftMetadataModal privacy field', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }) as Response)
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('hides privacy when only SermonAudio is selected', async () => {
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={{
+          ...draftValue,
+          targets: ['sermon_audio'],
+          platforms: { sermon_audio: {} },
+        }}
+        initialConnectedPlatforms={['sermon_audio']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.queryByLabelText(/^Privacy$/i)).not.toBeInTheDocument();
+  });
+
+  it('shows privacy for YouTube and shared metadata checkbox when YouTube and Vimeo are selected', async () => {
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={{
+          ...draftValue,
+          targets: ['youtube', 'vimeo'],
+        }}
+        initialConnectedPlatforms={['youtube', 'vimeo']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.getByLabelText(/^Privacy$/i)).toBeInTheDocument();
+    expect(screen.getByTitle(/YouTube and Vimeo share one privacy setting/i)).toBeInTheDocument();
   });
 });

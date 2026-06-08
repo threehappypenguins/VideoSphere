@@ -30,6 +30,12 @@ import { uploadToVimeo } from '@/lib/platforms/vimeo';
 import { uploadToGoogleDrive } from '@/lib/platforms/google-drive';
 import { uploadToSftp } from '@/lib/platforms/sftp';
 import { uploadToSmb } from '@/lib/platforms/smb';
+import {
+  pollSermonAudioProcessing,
+  publishSermonAudio,
+  uploadToSermonAudio,
+} from '@/lib/platforms/sermon-audio';
+import { sermonAudioCrossPublishHasActiveSelection } from '@/lib/platforms/sermon-audio-cross-publish';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
@@ -124,7 +130,8 @@ async function runSinglePlatformUpload(
   userId: string,
   r2ObjectKey: string,
   platformUpload: PlatformUpload,
-  metadata: PlatformUploadMetadata
+  metadata: PlatformUploadMetadata,
+  saApiKeyByPlatformUploadId: Map<string, string>
 ): Promise<void> {
   try {
     await requireUpdatePlatformUploadStatus(platformUpload.id, 'uploading');
@@ -155,6 +162,10 @@ async function runSinglePlatformUpload(
         message
       );
       return;
+    }
+
+    if (platformUpload.platform === 'sermon_audio') {
+      saApiKeyByPlatformUploadId.set(platformUpload.id, tokens.accessToken);
     }
 
     // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
@@ -215,6 +226,17 @@ async function runSinglePlatformUpload(
           contentLength,
           contentType,
           metadata: { title: metadata.title },
+          signal,
+        });
+      }
+
+      if (platformUpload.platform === 'sermon_audio') {
+        return uploadToSermonAudio({
+          videoStream: stream,
+          contentLength,
+          contentType,
+          metadata,
+          tokens: { accessToken: tokens.accessToken },
           signal,
         });
       }
@@ -353,6 +375,7 @@ export async function runDistributionInBackground(
 ): Promise<void> {
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
   const subsetRetry = options?.subsetRetry === true;
+  const saApiKeyByPlatformUploadId = new Map<string, string>();
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -360,7 +383,13 @@ export async function runDistributionInBackground(
         if (!meta) {
           throw new Error(`Missing merged metadata for platform upload ${platformUpload.id}`);
         }
-        return runSinglePlatformUpload(userId, r2ObjectKey, platformUpload, meta);
+        return runSinglePlatformUpload(
+          userId,
+          r2ObjectKey,
+          platformUpload,
+          meta,
+          saApiKeyByPlatformUploadId
+        );
       })
     );
 
@@ -428,6 +457,55 @@ export async function runDistributionInBackground(
     });
 
     await updateUploadJobStatus(jobId, 'completed', null);
+
+    for (const upload of attemptResults) {
+      if (upload.platform !== 'sermon_audio') continue;
+
+      const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
+      saApiKeyByPlatformUploadId.delete(upload.id);
+
+      const sermonID = upload.platformVideoId.trim();
+      if (!sermonID) continue;
+
+      const meta = metadataByPlatformId.get(upload.id);
+      if (meta?.autoPublishOnProcessed === false) continue;
+
+      if (!apiKey) {
+        console.warn(
+          `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
+        );
+        continue;
+      }
+
+      // Auto-publish is a separate phase after the upload job is marked completed: SermonAudio
+      // may need up to ~1 hour of processing polls before publish. Detached (not awaited) so
+      // runDistributionInBackground returns promptly. Self-hosted Docker: the poll continues in
+      // the long-lived Node process. Serverless: this work is outside `after()`'s awaited chain
+      // and may be cut short; a persisted pending job plus queue/worker/cron would be needed for
+      // guaranteed delivery across invocations.
+      void (async () => {
+        try {
+          await pollSermonAudioProcessing({
+            sermonID,
+            tokens: { accessToken: apiKey },
+          });
+          await publishSermonAudio({
+            sermonID,
+            tokens: { accessToken: apiKey },
+          });
+          const crossPublishActive = sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish);
+          console.log(
+            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${upload.id})` +
+              (crossPublishActive ? '; Cross Publish enabled' : '')
+          );
+        } catch (err) {
+          console.error(
+            `[distribute] SermonAudio auto-publish failed for platform_upload ${upload.id} (job ${jobId}, sermon ${sermonID}):`,
+            err
+          );
+        }
+      })();
+    }
 
     // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
     // Capture the thumbnail key from the metadata snapshot used for this distribution so that
@@ -521,5 +599,7 @@ export async function runDistributionInBackground(
     ).catch((updateError) => {
       console.error(`[distribute] Failed to mark job ${jobId} as failed:`, updateError);
     });
+  } finally {
+    saApiKeyByPlatformUploadId.clear();
   }
 }

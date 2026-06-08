@@ -40,6 +40,20 @@ export function tokenNeedsRefresh(
  * @throws Clear Error when YouTube refresh fails (e.g. the user revoked access).
  */
 export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<PlatformTokens> {
+  if (account.platform === 'sermon_audio') {
+    const apiKey = account.accessToken.trim();
+    if (!apiKey) {
+      throw new Error(
+        'SermonAudio API key is missing. Reconnect your SermonAudio account to continue.'
+      );
+    }
+    return {
+      accessToken: apiKey,
+      refreshToken: account.refreshToken,
+      tokenExpiry: account.tokenExpiry,
+    };
+  }
+
   if (!tokenNeedsRefresh(account.tokenExpiry, Date.now(), account.accessToken)) {
     return {
       accessToken: account.accessToken,
