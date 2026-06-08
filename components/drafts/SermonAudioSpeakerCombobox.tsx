@@ -364,6 +364,7 @@ export function SermonAudioSpeakerCombobox({
                   id={getSpeakerOptionId(speaker)}
                   type="button"
                   role="option"
+                  tabIndex={-1}
                   aria-selected={
                     speakerID === speaker.speakerID && speakerName === speaker.displayName
                   }
@@ -383,6 +384,7 @@ export function SermonAudioSpeakerCombobox({
                   id={customOptionId}
                   type="button"
                   role="option"
+                  tabIndex={-1}
                   aria-selected={false}
                   className={cn(
                     'flex w-full border-t border-border px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
