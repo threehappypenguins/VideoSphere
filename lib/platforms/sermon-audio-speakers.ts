@@ -167,6 +167,7 @@ export async function fetchRecentSermonAudioSpeakers(
     method: 'GET',
     headers: sermonAudioJsonHeaders(apiKey),
     cache: 'no-store',
+    redirect: 'error',
   });
   await assertSermonAudioHttpOk(response, 'Failed to fetch recent SermonAudio speakers');
   return parseRecentSermonAudioSpeakersFromSermonsList(await response.json());
@@ -197,6 +198,7 @@ export async function searchSermonAudioSpeakers(
     method: 'GET',
     headers: sermonAudioJsonHeaders(apiKey),
     cache: 'no-store',
+    redirect: 'error',
   });
   await assertSermonAudioHttpOk(response, 'Failed to search SermonAudio speakers');
   return parseSermonAudioSpeakersFromSearchBody(await response.json());
