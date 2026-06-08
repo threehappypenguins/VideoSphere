@@ -90,6 +90,19 @@ function matchBookFromTypedInput(
   return null;
 }
 
+/** Unicode dash/minus characters normalized to ASCII `-` in reference locations. */
+const REFERENCE_LOCATION_DASHES = /[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g;
+
+/**
+ * Normalizes the chapter/verse location segment for parsing.
+ * Strips whitespace and maps en/em dashes and other dash-like characters to `-`.
+ * @param rest - Raw location text after the book name.
+ * @returns Compact location using ASCII hyphens for ranges.
+ */
+function normalizeTypedReferenceLocation(rest: string): string {
+  return rest.replace(/\s+/g, '').replace(REFERENCE_LOCATION_DASHES, '-');
+}
+
 /**
  * Parses and formats the chapter/verse portion of a typed reference.
  * @param book - Matched bible book.
@@ -97,7 +110,7 @@ function matchBookFromTypedInput(
  * @returns Canonical SA reference string, or null when invalid.
  */
 function parseTypedReferenceLocation(book: SermonAudioBibleBook, rest: string): string | null {
-  const location = rest.replace(/\s+/g, '');
+  const location = normalizeTypedReferenceLocation(rest);
   if (location === '') return null;
 
   const chapterOnly = location.match(/^(\d+)$/);

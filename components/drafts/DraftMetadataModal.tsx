@@ -947,6 +947,10 @@ export function DraftMetadataModal({
   const showPerPlatformDescription =
     selectedOverridePlatforms.length >= 2 && !usesSharedDescriptionGlobally;
   const showPerPlatformTags = selectedOverridePlatforms.length >= 2 && !usesSharedTagsGlobally;
+  const sermonAudioOnlySharedTagInput =
+    !showPerPlatformTags &&
+    selectedOverridePlatforms.length === 1 &&
+    selectedOverridePlatforms[0] === 'sermon_audio';
   const showPrivacyField = selectedPrivacyPlatforms.length > 0;
   const showPerPlatformPrivacy =
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
@@ -1113,11 +1117,29 @@ export function DraftMetadataModal({
 
   const commitTagsFromInput = useCallback(() => {
     if (!value) return;
-    const parsed = parseSharedTagInput(tagInput);
+    const parsed = sermonAudioOnlySharedTagInput
+      ? parseSermonAudioHashtagInput(tagInput)
+      : parseSharedTagInput(tagInput);
     if (parsed.length === 0) return;
     onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
     setTagInput('');
-  }, [onChange, tagInput, value]);
+  }, [onChange, sermonAudioOnlySharedTagInput, tagInput, value]);
+
+  const handleSharedTagInputChange = (next: string) => {
+    if (!sermonAudioOnlySharedTagInput || !/\s/.test(next)) {
+      setTagInput(next);
+      return;
+    }
+
+    const segments = next.split(/\s+/);
+    const remainder = segments.pop() ?? '';
+    const complete = segments.filter(Boolean);
+    if (complete.length > 0 && value) {
+      const parsed = complete.flatMap((part) => parseSermonAudioHashtagInput(part));
+      onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
+    }
+    setTagInput(remainder);
+  };
 
   const commitTagsBeforeSave = useCallback(() => {
     // Ensure tag commit is flushed before any save call reads value.tags.
@@ -2439,9 +2461,16 @@ export function DraftMetadataModal({
                   <input
                     id="edit-tags"
                     value={tagInput}
-                    onChange={(event) => setTagInput(event.target.value)}
+                    onChange={(event) => handleSharedTagInputChange(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ',') {
+                        event.preventDefault();
+                        commitTagsFromInput();
+                      } else if (
+                        event.key === ' ' &&
+                        sermonAudioOnlySharedTagInput &&
+                        tagInput.trim() !== ''
+                      ) {
                         event.preventDefault();
                         commitTagsFromInput();
                       } else if (
@@ -2456,7 +2485,11 @@ export function DraftMetadataModal({
                       }
                     }}
                     onBlur={commitTagsFromInput}
-                    placeholder="Type a tag and press Enter or comma"
+                    placeholder={
+                      sermonAudioOnlySharedTagInput
+                        ? 'Type one hashtag; press Enter, comma, or space'
+                        : 'Type a tag and press Enter or comma'
+                    }
                     className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
                   />
                 </div>
@@ -2464,11 +2497,13 @@ export function DraftMetadataModal({
               <p className="mt-1 text-xs text-muted-foreground">
                 {showPerPlatformTags
                   ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
-                  : `Press Enter or comma to add tags${
-                      showSermonAudioFields
-                        ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
-                        : ''
-                    }.`}
+                  : sermonAudioOnlySharedTagInput
+                    ? 'SermonAudio hashtags are one word each; press Enter, comma, or space to add. Leading `#` is removed.'
+                    : `Press Enter or comma to add tags${
+                        showSermonAudioFields
+                          ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
+                          : ''
+                      }.`}
               </p>
             </div>
             {showSermonAudioFields ? (

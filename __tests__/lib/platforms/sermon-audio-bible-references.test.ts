@@ -119,6 +119,25 @@ describe('validateAndNormalizeTypedBibleReference', () => {
     });
   });
 
+  it('normalizes en dash and em dash range separators to ASCII hyphens', () => {
+    expect(validateAndNormalizeTypedBibleReference('Philippians 1:27 – 2:11')).toEqual({
+      ok: true,
+      reference: 'Philippians 1:27-2:11',
+    });
+    expect(validateAndNormalizeTypedBibleReference('Philippians 1:27 — 2:11')).toEqual({
+      ok: true,
+      reference: 'Philippians 1:27-2:11',
+    });
+    expect(validateAndNormalizeTypedBibleReference('Genesis 1 – 3')).toEqual({
+      ok: true,
+      reference: 'Genesis 1-3',
+    });
+    expect(validateAndNormalizeTypedBibleReference('John 3:16–17')).toEqual({
+      ok: true,
+      reference: 'John 3:16-17',
+    });
+  });
+
   it('normalizes OSIS and Paratext book abbreviations', () => {
     expect(validateAndNormalizeTypedBibleReference('deu 5')).toEqual({
       ok: true,
