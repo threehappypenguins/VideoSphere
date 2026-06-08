@@ -6,6 +6,7 @@ import {
   resolveSermonAudioApiUrl,
   resolveSermonAudioUploadUrl,
   sermonAudioUpstreamResponseStatus,
+  sermonAudioUpstreamApiErrorLabel,
 } from '@/lib/platforms/sermon-audio-http';
 
 describe('resolveSermonAudioApiUrl', () => {
@@ -109,5 +110,12 @@ describe('sermonAudioUpstreamResponseStatus', () => {
     expect(sermonAudioUpstreamResponseStatus(429)).toBe(503);
     expect(sermonAudioUpstreamResponseStatus(503)).toBe(503);
     expect(sermonAudioUpstreamResponseStatus(500)).toBe(502);
+  });
+});
+
+describe('sermonAudioUpstreamApiErrorLabel', () => {
+  it('matches the mapped proxy status label', () => {
+    expect(sermonAudioUpstreamApiErrorLabel(503)).toBe('Service Unavailable');
+    expect(sermonAudioUpstreamApiErrorLabel(502)).toBe('Bad Gateway');
   });
 });

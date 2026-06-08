@@ -42,6 +42,18 @@ export type SermonAudioEventType = (typeof SERMON_AUDIO_EVENT_TYPES)[number];
 export const SERMON_AUDIO_DEFAULT_EVENT_TYPE: SermonAudioEventType = 'Sunday Service';
 
 /**
+ * Formats a date as `YYYY-MM-DD` in the user's local timezone.
+ * @param date - Date to format. Defaults to now.
+ * @returns Local calendar date string suitable for SermonAudio `preachDate`.
+ */
+export function formatSermonAudioLocalDate(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Returns default SermonAudio field values for fields that are not yet set.
  * @param existing - Current SermonAudio draft fields, if any.
  * @returns Patch containing `preachDate` and/or `eventType` defaults.
@@ -52,7 +64,7 @@ export function mergeSermonAudioDefaultFields(existing?: {
 }): { preachDate?: string; eventType?: string } {
   const patch: { preachDate?: string; eventType?: string } = {};
   if (!existing?.preachDate?.trim()) {
-    patch.preachDate = new Date().toISOString().slice(0, 10);
+    patch.preachDate = formatSermonAudioLocalDate();
   }
   if (!existing?.eventType?.trim()) {
     patch.eventType = SERMON_AUDIO_DEFAULT_EVENT_TYPE;

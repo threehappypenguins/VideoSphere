@@ -4,6 +4,7 @@ import {
   SermonAudioUpstreamHttpError,
   isSermonAudioCredentialsFailure,
   sermonAudioUpstreamResponseStatus,
+  sermonAudioUpstreamApiErrorLabel,
 } from '@/lib/platforms/sermon-audio-http';
 import {
   searchSermonAudioSpeakers,
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
 
       const status = sermonAudioUpstreamResponseStatus(err.status);
       const errRes: ApiError = {
-        error: 'Bad Gateway',
+        error: sermonAudioUpstreamApiErrorLabel(status),
         message: 'SermonAudio is temporarily unavailable. Try again in a few minutes.',
         statusCode: status,
       };

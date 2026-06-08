@@ -139,6 +139,7 @@ describe('GET /api/platforms/sermon-audio/filter-options/sermon-event-types', ()
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.statusCode).toBe(502);
+    expect(body.error).toBe('Bad Gateway');
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

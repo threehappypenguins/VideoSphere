@@ -163,3 +163,15 @@ export function sermonAudioUpstreamResponseStatus(upstreamStatus: number): numbe
   }
   return 502;
 }
+
+/**
+ * Returns the standard `ApiError.error` label for a mapped SermonAudio upstream proxy status.
+ * @param status - Mapped VideoSphere HTTP status (`502` or `503`).
+ * @returns Error label matching the proxy response status.
+ */
+export function sermonAudioUpstreamApiErrorLabel(status: number): string {
+  if (status === 503) {
+    return 'Service Unavailable';
+  }
+  return 'Bad Gateway';
+}

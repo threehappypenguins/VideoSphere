@@ -67,6 +67,7 @@ describe('GET /api/platforms/sermon-audio/speakers/search', () => {
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.statusCode).toBe(503);
+    expect(body.error).toBe('Service Unavailable');
     expect(body.message).toContain('temporarily unavailable');
   });
 
