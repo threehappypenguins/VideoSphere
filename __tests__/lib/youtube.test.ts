@@ -36,16 +36,18 @@ const BASE_UPLOAD_METADATA: PlatformUploadMetadata = {
 
 async function runResumableInitUpload(
   metadata: PlatformUploadMetadata
-): Promise<Record<string, unknown>> {
+): Promise<{ body: Record<string, unknown>; initUrl: string }> {
   const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
   const sessionUrl = 'https://upload.youtube.test/session/resumable-init';
   let capturedInitBody: Record<string, unknown> | undefined;
+  let capturedInitUrl = '';
 
   fetchMock.mockImplementation((url: unknown, options?: { method?: string; body?: string }) => {
     const sUrl = String(url);
     const method = options?.method;
 
     if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+      capturedInitUrl = sUrl;
       capturedInitBody = JSON.parse(options?.body ?? '{}') as Record<string, unknown>;
       return Promise.resolve(
         new Response(null, { status: 200, headers: { location: sessionUrl } })
@@ -71,8 +73,19 @@ async function runResumableInitUpload(
 
   expect(result.ok).toBe(true);
   expect(capturedInitBody).toBeDefined();
-  return capturedInitBody!;
+  expect(capturedInitUrl).not.toBe('');
+  return { body: capturedInitBody!, initUrl: capturedInitUrl };
 }
+
+describe('buildYouTubeResumableInitUrl', () => {
+  it('omits notifySubscribers when notifications are enabled', () => {
+    expect(youtube.buildYouTubeResumableInitUrl(true)).not.toContain('notifySubscribers');
+  });
+
+  it('adds notifySubscribers=false when notifications are disabled', () => {
+    expect(youtube.buildYouTubeResumableInitUrl(false)).toContain('notifySubscribers=false');
+  });
+});
 
 describe('uploadToYouTube resumable init body', () => {
   beforeEach(() => {
@@ -85,7 +98,7 @@ describe('uploadToYouTube resumable init body', () => {
   });
 
   it('includes recordingDate under recordingDetails', async () => {
-    const body = await runResumableInitUpload({
+    const { body } = await runResumableInitUpload({
       ...BASE_UPLOAD_METADATA,
       recordingDate: '2025-06-08',
     });
@@ -94,7 +107,7 @@ describe('uploadToYouTube resumable init body', () => {
   });
 
   it('includes locationDescription under recordingDetails', async () => {
-    const body = await runResumableInitUpload({
+    const { body } = await runResumableInitUpload({
       ...BASE_UPLOAD_METADATA,
       recordingLocationDescription: 'San Francisco, CA',
     });
@@ -102,14 +115,28 @@ describe('uploadToYouTube resumable init body', () => {
     expect(body.recordingDetails).toEqual({ locationDescription: 'San Francisco, CA' });
   });
 
+  it('includes location coordinates under recordingDetails when provided', async () => {
+    const { body } = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      recordingLocationDescription: 'Halifax, NS, Canada',
+      recordingLocationLatitude: 44.6488,
+      recordingLocationLongitude: -63.5752,
+    });
+
+    expect(body.recordingDetails).toEqual({
+      locationDescription: 'Halifax, NS, Canada',
+      location: { latitude: 44.6488, longitude: -63.5752 },
+    });
+  });
+
   it('omits recordingDetails when recording fields are absent', async () => {
-    const body = await runResumableInitUpload(BASE_UPLOAD_METADATA);
+    const { body } = await runResumableInitUpload(BASE_UPLOAD_METADATA);
 
     expect(body).not.toHaveProperty('recordingDetails');
   });
 
   it('sets status.privacyStatus to private when publishAt is set', async () => {
-    const body = await runResumableInitUpload({
+    const { body } = await runResumableInitUpload({
       ...BASE_UPLOAD_METADATA,
       visibility: 'public',
       publishAt: '2026-06-08T12:00:00.000Z',
@@ -121,6 +148,19 @@ describe('uploadToYouTube resumable init body', () => {
         publishAt: '2026-06-08T12:00:00.000Z',
       })
     );
+  });
+
+  it('omits notifySubscribers on the init URL by default', async () => {
+    const { initUrl } = await runResumableInitUpload(BASE_UPLOAD_METADATA);
+    expect(initUrl).not.toContain('notifySubscribers');
+  });
+
+  it('adds notifySubscribers=false on the init URL when disabled on metadata', async () => {
+    const { initUrl } = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      notifySubscribers: false,
+    });
+    expect(initUrl).toContain('notifySubscribers=false');
   });
 });
 

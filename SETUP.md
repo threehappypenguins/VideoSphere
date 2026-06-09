@@ -42,6 +42,10 @@ If you use Google login and platform connections, also set:
 - `GOOGLE_DRIVE_CLIENT_ID`
 - `GOOGLE_DRIVE_CLIENT_SECRET`
 
+Optional for YouTube draft **video location** search (Google Places Autocomplete in the metadata modal):
+
+- `GOOGLE_PLACES_API_KEY` — server-only; enable **Places API (New)** on the key. When unset, the location field is hidden.
+
 SermonAudio uses API-key authentication and is entered by each user in the app UI (Connected Accounts), not in `.env.local`.
 
 SFTP and SMB backup destinations are configured per user in Connected Accounts (SFTP: host, port, credentials, and remote path; SMB: host, share, credentials, and remote path). No SFTP- or SMB-related environment variables are required on the server.

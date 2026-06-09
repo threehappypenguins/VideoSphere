@@ -124,6 +124,11 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
   license?: 'youtube' | 'creativeCommon';
   /** `status.publicStatsViewable`. */
   publicStatsViewable?: boolean;
+  /**
+   * `videos.insert` query parameter `notifySubscribers`. When `false`, subscribers are not
+   * notified and the video is omitted from the subscriptions feed. Omitted/`true` matches YouTube default (notify).
+   */
+  notifySubscribers?: boolean;
   /** `status.publishAt` (ISO 8601). Requires `privacyStatus` private until publish time. */
   publishAt?: string;
   /**
@@ -139,45 +144,29 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
   playlistTitles?: string[];
   /**
    * Recording date sent to `recordingDetails.recordingDate` (RFC 3339 full-date, e.g. "2025-06-08").
-   * Defaults to the draft's `$createdAt` date when not explicitly set.
+   * Omitted from upload unless explicitly set.
    */
   recordingDate?: string;
   /**
-   * Free-text location description sent to `recordingDetails.locationDescription`.
-   * Max ~100 chars; YouTube truncates silently.
+   * Location description from Google Places, sent to `recordingDetails.locationDescription`.
+   * Max ~100 chars; YouTube truncates silently. Omitted from upload unless explicitly set.
    */
   recordingLocationDescription?: string;
   /**
-   * Caption certification code. Not a writable Data API v3 field — stored for UX reference.
-   * Values: 'none' | 'noc' | 'pcoc' | 'coc' | 'cap' | 'swl' | 'swlnoc'
+   * Latitude from Google Places, sent to `recordingDetails.location.latitude`.
+   * Set together with `recordingLocationDescription` and `recordingLocationLongitude`.
    */
-  captionCertification?: string;
+  recordingLocationLatitude?: number;
   /**
-   * Title & description language (BCP-47). Separate from `defaultLanguage`.
-   * Not a writable Data API v3 field — stored for UX reference.
+   * Longitude from Google Places, sent to `recordingDetails.location.longitude`.
+   * Set together with `recordingLocationDescription` and `recordingLocationLatitude`.
    */
-  titleDescriptionLanguage?: string;
-  /**
-   * Comments visibility setting. Not a writable Data API v3 field — stored for UX reference.
-   * Values: 'allowAll' | 'holdForReview' | 'holdAllForReview' | 'disable'
-   */
-  commentsVisibility?: 'allowAll' | 'holdForReview' | 'holdAllForReview' | 'disable';
-  /**
-   * Comment sort order. Not a writable Data API v3 field — stored for UX reference.
-   * Values: 'topComments' | 'newestFirst'
-   */
-  commentSortOrder?: 'topComments' | 'newestFirst';
+  recordingLocationLongitude?: number;
   /**
    * Age restriction (18+). Cannot be set via Data API v3 — stored for UX reference.
    * User must apply in YouTube Studio after upload if true.
    */
   ageRestricted?: boolean;
-  /**
-   * When true, user intends this video to be a YouTube Premiere.
-   * `publishAt` must also be set. No dedicated API field exists — stored for UX reference.
-   * User must enable Premiere in YouTube Studio after upload.
-   */
-  isPremiere?: boolean;
 }
 
 /**
@@ -188,15 +177,12 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
 export interface YouTubeUserDefaults {
   madeForKids?: boolean;
   ageRestricted?: boolean;
-  defaultLanguage?: string;
-  titleDescriptionLanguage?: string;
+  /** BCP-47 video language (`snippet.defaultAudioLanguage`). */
+  defaultAudioLanguage?: string;
   license?: 'youtube' | 'creativeCommon';
   embeddable?: boolean;
   categoryId?: string;
-  commentsVisibility?: 'allowAll' | 'holdForReview' | 'holdAllForReview' | 'disable';
-  commentSortOrder?: 'topComments' | 'newestFirst';
   publicStatsViewable?: boolean;
-  captionCertification?: string;
 }
 
 /** Per-platform upload default settings stored on the user profile. */

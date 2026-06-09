@@ -104,13 +104,13 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
 
     expect(await res.json()).toEqual({
       data: {
-        defaultLanguage: 'en',
-        titleDescriptionLanguage: 'en',
+        defaultAudioLanguage: 'en',
         madeForKids: false,
         categoryId: '22',
         license: 'youtube',
         embeddable: true,
         publicStatsViewable: true,
+        locationSearchEnabled: false,
       },
     });
 
@@ -129,7 +129,7 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
     expect(String(videoCall?.[0])).toContain('id=video-123');
   });
 
-  it('uses latest upload language when the channel has no defaultLanguage', async () => {
+  it('uses latest upload audio language when the channel has no defaultLanguage', async () => {
     vi.mocked(global.fetch)
       .mockResolvedValueOnce({
         ok: true,
@@ -152,16 +152,16 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          items: [{ snippet: { defaultLanguage: 'fr', categoryId: '10' }, status: {} }],
+          items: [{ snippet: { defaultAudioLanguage: 'fr', categoryId: '10' }, status: {} }],
         }),
       } as Response);
 
     const res = await GET(makeRequest());
     expect(await res.json()).toEqual({
       data: {
-        defaultLanguage: 'fr',
-        titleDescriptionLanguage: 'fr',
+        defaultAudioLanguage: 'fr',
         categoryId: '10',
+        locationSearchEnabled: false,
       },
     });
   });

@@ -1,32 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
+import { isGooglePlacesConfigured } from '@/lib/platforms/google-places';
+import {
+  type YouTubeAccountDefaults,
+  buildYouTubeAccountDefaultsSeedPatch,
+} from '@/lib/platforms/youtube-account-defaults';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import type { ApiError } from '@/types';
+
+export type { YouTubeAccountDefaults };
+export { buildYouTubeAccountDefaultsSeedPatch };
 
 const YOUTUBE_VIDEO_CATEGORIES_URL = 'https://www.googleapis.com/youtube/v3/videoCategories';
 const YOUTUBE_I18N_LANGUAGES_URL = 'https://www.googleapis.com/youtube/v3/i18nLanguages';
 const YOUTUBE_CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels';
 const YOUTUBE_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 const YOUTUBE_PLAYLIST_ITEMS_URL = 'https://www.googleapis.com/youtube/v3/playlistItems';
-
-/** Upload metadata defaults read from the connected YouTube account. */
-export interface YouTubeAccountDefaults {
-  /** BCP-47 language from the channel or most recent upload. */
-  defaultLanguage?: string;
-  /** Same source as {@link defaultLanguage}; YouTube has no separate title/description channel field. */
-  titleDescriptionLanguage?: string;
-  /** From channel `status.selfDeclaredMadeForKids` or `status.madeForKids`. */
-  madeForKids?: boolean;
-  /** From the most recent upload's `snippet.categoryId`. */
-  categoryId?: string;
-  /** From the most recent upload's `status.license`. */
-  license?: 'youtube' | 'creativeCommon';
-  /** From the most recent upload's `status.embeddable`. */
-  embeddable?: boolean;
-  /** From the most recent upload's `status.publicStatsViewable`. */
-  publicStatsViewable?: boolean;
-}
 
 type YouTubeConnectionResult =
   | { ok: true; accessToken: string }
@@ -240,16 +230,14 @@ export async function fetchYouTubeAccountDefaults(
     channel?.snippet?.defaultLanguage?.trim() ||
     channel?.brandingSettings?.channel?.defaultLanguage?.trim() ||
     '';
-  if (channelLanguage !== '') {
-    defaults.defaultLanguage = channelLanguage;
-    defaults.titleDescriptionLanguage = channelLanguage;
-  }
 
   if (typeof channel?.status?.selfDeclaredMadeForKids === 'boolean') {
     defaults.madeForKids = channel.status.selfDeclaredMadeForKids;
   } else if (typeof channel?.status?.madeForKids === 'boolean') {
     defaults.madeForKids = channel.status.madeForKids;
   }
+
+  defaults.locationSearchEnabled = isGooglePlacesConfigured();
 
   const uploadsPlaylistId = channel?.contentDetails?.relatedPlaylists?.uploads?.trim();
   if (!uploadsPlaylistId) {
@@ -304,17 +292,20 @@ export async function fetchYouTubeAccountDefaults(
 
   const latestVideos = latestVideoBody.items ?? [];
   const latestVideo =
-    latestVideos.find((video) => video.snippet?.defaultLanguage?.trim()) ??
     latestVideos.find((video) => video.snippet?.defaultAudioLanguage?.trim()) ??
+    latestVideos.find((video) => video.snippet?.defaultLanguage?.trim()) ??
     latestVideos[0];
 
-  const uploadLanguage =
-    latestVideo?.snippet?.defaultLanguage?.trim() ||
-    latestVideo?.snippet?.defaultAudioLanguage?.trim() ||
-    '';
-  if (defaults.defaultLanguage === undefined && uploadLanguage !== '') {
-    defaults.defaultLanguage = uploadLanguage;
-    defaults.titleDescriptionLanguage = uploadLanguage;
+  const uploadAudioLanguage = latestVideo?.snippet?.defaultAudioLanguage?.trim() ?? '';
+  if (uploadAudioLanguage !== '') {
+    defaults.defaultAudioLanguage = uploadAudioLanguage;
+  } else if (channelLanguage !== '') {
+    defaults.defaultAudioLanguage = channelLanguage;
+  } else {
+    const uploadTitleLanguage = latestVideo?.snippet?.defaultLanguage?.trim() ?? '';
+    if (uploadTitleLanguage !== '') {
+      defaults.defaultAudioLanguage = uploadTitleLanguage;
+    }
   }
 
   const categoryId = latestVideo?.snippet?.categoryId?.trim() ?? '';

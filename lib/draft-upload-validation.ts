@@ -102,16 +102,6 @@ export function validateDraftForUpload(
     }
   }
 
-  if (draft.targets.includes('youtube')) {
-    const yt = draft.platforms.youtube;
-    if (yt?.isPremiere === true && (yt.publishAt ?? '').trim() === '') {
-      issues.push({
-        field: 'youtube.publishAt',
-        message: 'A schedule date and time are required to set a video as a Premiere.',
-      });
-    }
-  }
-
   if (draft.targets.includes('sermon_audio')) {
     const sa = draft.platforms.sermon_audio;
     if (!hasValidSermonAudioSpeaker(sa)) {

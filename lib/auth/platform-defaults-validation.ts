@@ -3,25 +3,14 @@ import type { PlatformDefaults, YouTubeUserDefaults } from '@/types';
 const YOUTUBE_USER_DEFAULT_KEYS = new Set<string>([
   'madeForKids',
   'ageRestricted',
-  'defaultLanguage',
-  'titleDescriptionLanguage',
+  'defaultAudioLanguage',
   'license',
   'embeddable',
   'categoryId',
-  'commentsVisibility',
-  'commentSortOrder',
   'publicStatsViewable',
-  'captionCertification',
 ]);
 
 const LICENSE_VALUES = new Set(['youtube', 'creativeCommon']);
-const COMMENTS_VISIBILITY_VALUES = new Set([
-  'allowAll',
-  'holdForReview',
-  'holdAllForReview',
-  'disable',
-]);
-const COMMENT_SORT_ORDER_VALUES = new Set(['topComments', 'newestFirst']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -120,21 +109,14 @@ export function parseYouTubeUserDefaults(
     out.publicStatsViewable = value.publicStatsViewable;
   }
 
-  if (value.defaultLanguage !== undefined) {
-    if (typeof value.defaultLanguage !== 'string') {
-      return { ok: false, error: 'platformDefaults.youtube.defaultLanguage must be a string.' };
-    }
-    out.defaultLanguage = value.defaultLanguage;
-  }
-
-  if (value.titleDescriptionLanguage !== undefined) {
-    if (typeof value.titleDescriptionLanguage !== 'string') {
+  if (value.defaultAudioLanguage !== undefined) {
+    if (typeof value.defaultAudioLanguage !== 'string') {
       return {
         ok: false,
-        error: 'platformDefaults.youtube.titleDescriptionLanguage must be a string.',
+        error: 'platformDefaults.youtube.defaultAudioLanguage must be a string.',
       };
     }
-    out.titleDescriptionLanguage = value.titleDescriptionLanguage;
+    out.defaultAudioLanguage = value.defaultAudioLanguage;
   }
 
   if (value.categoryId !== undefined) {
@@ -142,16 +124,6 @@ export function parseYouTubeUserDefaults(
       return { ok: false, error: 'platformDefaults.youtube.categoryId must be a string.' };
     }
     out.categoryId = value.categoryId;
-  }
-
-  if (value.captionCertification !== undefined) {
-    if (typeof value.captionCertification !== 'string') {
-      return {
-        ok: false,
-        error: 'platformDefaults.youtube.captionCertification must be a string.',
-      };
-    }
-    out.captionCertification = value.captionCertification;
   }
 
   if (value.license !== undefined) {
@@ -162,33 +134,6 @@ export function parseYouTubeUserDefaults(
       };
     }
     out.license = value.license as YouTubeUserDefaults['license'];
-  }
-
-  if (value.commentsVisibility !== undefined) {
-    if (
-      typeof value.commentsVisibility !== 'string' ||
-      !COMMENTS_VISIBILITY_VALUES.has(value.commentsVisibility)
-    ) {
-      return {
-        ok: false,
-        error:
-          'platformDefaults.youtube.commentsVisibility must be "allowAll", "holdForReview", "holdAllForReview", or "disable".',
-      };
-    }
-    out.commentsVisibility = value.commentsVisibility as YouTubeUserDefaults['commentsVisibility'];
-  }
-
-  if (value.commentSortOrder !== undefined) {
-    if (
-      typeof value.commentSortOrder !== 'string' ||
-      !COMMENT_SORT_ORDER_VALUES.has(value.commentSortOrder)
-    ) {
-      return {
-        ok: false,
-        error: 'platformDefaults.youtube.commentSortOrder must be "topComments" or "newestFirst".',
-      };
-    }
-    out.commentSortOrder = value.commentSortOrder as YouTubeUserDefaults['commentSortOrder'];
   }
 
   return { ok: true, value: out };

@@ -34,6 +34,18 @@ const YOUTUBE_RESUMABLE_URL =
   'https://www.googleapis.com/upload/youtube/v3/videos' +
   '?uploadType=resumable' +
   '&part=snippet,status,recordingDetails';
+
+/**
+ * Builds the resumable `videos.insert` init URL, optionally disabling subscriber notifications.
+ * @param notifySubscribers - When false, adds `notifySubscribers=false` (YouTube default is true).
+ * @returns Resumable upload initialization URL.
+ */
+export function buildYouTubeResumableInitUrl(notifySubscribers: boolean): string {
+  if (notifySubscribers) {
+    return YOUTUBE_RESUMABLE_URL;
+  }
+  return `${YOUTUBE_RESUMABLE_URL}&notifySubscribers=false`;
+}
 const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
 
@@ -768,8 +780,19 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     if (m.recordingLocationDescription?.trim()) {
       recordingDetails.locationDescription = m.recordingLocationDescription.trim();
     }
+    if (
+      typeof m.recordingLocationLatitude === 'number' &&
+      Number.isFinite(m.recordingLocationLatitude) &&
+      typeof m.recordingLocationLongitude === 'number' &&
+      Number.isFinite(m.recordingLocationLongitude)
+    ) {
+      recordingDetails.location = {
+        latitude: m.recordingLocationLatitude,
+        longitude: m.recordingLocationLongitude,
+      };
+    }
 
-    const initResponse = await fetch(YOUTUBE_RESUMABLE_URL, {
+    const initResponse = await fetch(buildYouTubeResumableInitUrl(m.notifySubscribers !== false), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${input.tokens.accessToken}`,

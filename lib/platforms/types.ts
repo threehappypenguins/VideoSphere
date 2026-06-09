@@ -31,6 +31,11 @@ export interface YoutubeSpecificUploadMetadata {
   embeddable?: boolean;
   license?: 'youtube' | 'creativeCommon';
   publicStatsViewable?: boolean;
+  /**
+   * When `false`, passed as `notifySubscribers=false` on `videos.insert` (upload only).
+   * When unset or `true`, YouTube notifies subscribers (default).
+   */
+  notifySubscribers?: boolean;
   publishAt?: string;
   playlistIds?: string[];
   /**
@@ -43,6 +48,10 @@ export interface YoutubeSpecificUploadMetadata {
   recordingDate?: string;
   /** Sent to `recordingDetails.locationDescription` (plain string, max ~100 chars). */
   recordingLocationDescription?: string;
+  /** Sent to `recordingDetails.location.latitude` when paired with longitude. */
+  recordingLocationLatitude?: number;
+  /** Sent to `recordingDetails.location.longitude` when paired with latitude. */
+  recordingLocationLongitude?: number;
 }
 
 /** Vimeo API upload–specific fields (omit unused keys for YouTube-only jobs). */

@@ -439,8 +439,7 @@ describe('DraftMetadataModal YouTube fields', () => {
             ok: true,
             json: async () => ({
               data: {
-                defaultLanguage: 'en',
-                titleDescriptionLanguage: 'en',
+                defaultAudioLanguage: 'en',
                 madeForKids: true,
                 categoryId: '22',
                 license: 'creativeCommon',
@@ -477,6 +476,46 @@ describe('DraftMetadataModal YouTube fields', () => {
     await screen.findByRole('dialog');
     expect(screen.getByLabelText(/Playlist \(YouTube\)/i)).toBeInTheDocument();
     expect(document.getElementById('draft-youtube-playlist')).toBeInTheDocument();
+  });
+
+  it('seeds unset YouTube fields from account defaults when the modal loads', async () => {
+    const onChange = vi.fn();
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={youtubeDraftValue}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
+        onChange={onChange}
+      />
+    );
+
+    await screen.findByRole('dialog');
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+    });
+
+    const seededCall = onChange.mock.calls.find((call) => {
+      const next = call[0] as DraftEditorValues;
+      return next.platforms.youtube?.license === 'creativeCommon';
+    });
+
+    expect(seededCall?.[0]).toMatchObject({
+      platforms: {
+        youtube: {
+          defaultAudioLanguage: 'en',
+          madeForKids: true,
+          categoryId: '22',
+          license: 'creativeCommon',
+          embeddable: false,
+          publicStatsViewable: false,
+        },
+      },
+    });
   });
 
   it('updates platforms.youtube.playlistIds when selecting an existing playlist', async () => {
@@ -638,9 +677,9 @@ describe('DraftMetadataModal YouTube fields', () => {
     await screen.findByRole('dialog');
     await expandShowMore();
 
-    const commentsHeading = screen.getByText('Comments and ratings');
+    const ratingsHeading = screen.getByText('Ratings');
     const scheduleToggle = screen.getByRole('button', { name: /^Schedule$/i });
-    expect(commentsHeading.compareDocumentPosition(scheduleToggle)).toBe(
+    expect(ratingsHeading.compareDocumentPosition(scheduleToggle)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
   });
@@ -801,100 +840,6 @@ describe('DraftMetadataModal YouTube fields', () => {
     });
   });
 
-  it('shows the inline YouTube Studio instruction when Set as Premiere is checked', async () => {
-    function PremiereHarness() {
-      const [value, setValue] = useState(youtubeDraftValue);
-      return (
-        <DraftMetadataModal
-          mode="edit"
-          value={value}
-          initialConnectedPlatforms={['youtube']}
-          initialConnectionsResolved
-          isSaving={false}
-          onClose={vi.fn()}
-          onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-          onChange={setValue}
-        />
-      );
-    }
-
-    render(<PremiereHarness />);
-
-    await screen.findByRole('dialog');
-    await expandShowMore();
-    await expandSchedule();
-
-    expect(
-      screen.queryByText(
-        /After upload, go to YouTube Studio → Content → select your video → Edit → enable Premiere\./i
-      )
-    ).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByLabelText(/Set as Premiere/i));
-
-    expect(
-      screen.getByText(
-        /After upload, go to YouTube Studio → Content → select your video → Edit → enable Premiere\./i
-      )
-    ).toBeInTheDocument();
-  });
-
-  it('shows a validation hint when Set as Premiere is checked without a schedule', async () => {
-    function PremiereHarness() {
-      const [value, setValue] = useState(youtubeDraftValue);
-      return (
-        <DraftMetadataModal
-          mode="edit"
-          value={value}
-          initialConnectedPlatforms={['youtube']}
-          initialConnectionsResolved
-          isSaving={false}
-          onClose={vi.fn()}
-          onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-          onChange={setValue}
-        />
-      );
-    }
-
-    render(<PremiereHarness />);
-
-    await screen.findByRole('dialog');
-    await expandShowMore();
-    await expandSchedule();
-    await userEvent.click(screen.getByLabelText(/Set as Premiere/i));
-    await userEvent.clear(screen.getByLabelText('Date'));
-
-    expect(screen.getByText(/Set a schedule date and time to use Premiere\./i)).toBeInTheDocument();
-  });
-
-  it('blocks upload when isPremiere is true and publishAt is missing', async () => {
-    render(
-      <DraftMetadataModal
-        mode="edit"
-        value={{
-          ...youtubeDraftValue,
-          platforms: { youtube: { isPremiere: true } },
-        }}
-        initialConnectedPlatforms={['youtube']}
-        initialConnectionsResolved
-        isSaving={false}
-        onClose={vi.fn()}
-        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-        onChange={vi.fn()}
-      />
-    );
-
-    await screen.findByRole('dialog');
-
-    const file = new File(['video-bytes'], 'sample.mp4', { type: 'video/mp4' });
-    await userEvent.upload(screen.getByLabelText(/Choose video file/i), file);
-    await userEvent.click(screen.getByRole('button', { name: /Upload & Save/i }));
-
-    expect(toast.error).toHaveBeenCalledWith(
-      'A schedule date and time are required to set a video as a Premiere.'
-    );
-  });
-
   it('initialises video language from the YouTube account default', async () => {
     render(
       <DraftMetadataModal
@@ -932,9 +877,61 @@ describe('DraftMetadataModal YouTube fields', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.queryByText('Language and captions certification')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Language$/)).not.toBeInTheDocument();
     await expandShowMore();
-    expect(screen.getByText('Language and captions certification')).toBeInTheDocument();
+    expect(screen.getByText(/^Language$/)).toBeInTheDocument();
+  });
+
+  it('collapses Show more when the modal closes and reopens for a new draft', async () => {
+    const { rerender } = render(
+      <DraftMetadataModal
+        mode="create"
+        value={youtubeDraftValue}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await expandShowMore();
+    expect(screen.getByText(/^Language$/)).toBeInTheDocument();
+
+    rerender(
+      <DraftMetadataModal
+        mode="create"
+        value={null}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    rerender(
+      <DraftMetadataModal
+        mode="create"
+        value={{
+          ...youtubeDraftValue,
+          id: 'draft-youtube-2',
+          title: 'Another draft',
+        }}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: 'draft-youtube-2' })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.queryByText(/^Language$/)).not.toBeInTheDocument();
   });
 
   it('initialises Show more fields from YouTube account defaults when draft values are unset', async () => {
@@ -957,15 +954,12 @@ describe('DraftMetadataModal YouTube fields', () => {
     await waitFor(() => {
       expect(document.getElementById('draft-youtube-video-language')).toHaveTextContent('English');
     });
-    expect(document.getElementById('draft-youtube-title-description-language')).toHaveTextContent(
-      'English'
-    );
     expect(document.getElementById('draft-youtube-category')).toHaveTextContent('People & Blogs');
     expect(screen.getByLabelText(/Allow embedding/i)).not.toBeChecked();
     expect(screen.getByLabelText(/Show how many viewers like this video/i)).not.toBeChecked();
   });
 
-  it('initialises recording date from draft $createdAt when recordingDate is unset', async () => {
+  it('leaves recording date empty when recordingDate is unset', async () => {
     render(
       <DraftMetadataModal
         mode="edit"
@@ -985,10 +979,10 @@ describe('DraftMetadataModal YouTube fields', () => {
     await screen.findByRole('dialog');
     await expandShowMore();
 
-    expect(screen.getByLabelText('Recording date')).toHaveValue('2025-06-08');
+    expect(screen.getByLabelText('Recording date')).toHaveValue('');
   });
 
-  it('renders YouTubeStudioNote for non-API Show more fields', async () => {
+  it('defaults the notify subscribers checkbox to checked', async () => {
     render(
       <DraftMetadataModal
         mode="edit"
@@ -1006,10 +1000,10 @@ describe('DraftMetadataModal YouTube fields', () => {
     await expandShowMore();
 
     expect(
-      screen.getAllByText(
-        /This setting can't be applied automatically\. You'll need to set it in YouTube Studio after upload\./i
-      ).length
-    ).toBeGreaterThanOrEqual(3);
+      screen.getByRole('checkbox', {
+        name: /Publish to subscriptions feed and notify subscribers/i,
+      })
+    ).toBeChecked();
   });
 
   it('populates language and category dropdowns from YouTube API responses', async () => {

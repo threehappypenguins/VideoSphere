@@ -311,6 +311,181 @@ describe('draft-upload-metadata', () => {
     expect(meta.playlistIds).toEqual(['PLabc123']);
   });
 
+  it('buildMetadataForPlatform passes recordingDate for YouTube when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {
+          recordingDate: '2025-06-08',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').recordingDate).toBe('2025-06-08');
+  });
+
+  it('buildMetadataForPlatform omits recordingDate for YouTube when unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {},
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').recordingDate).toBeUndefined();
+  });
+
+  it('normalizeDraftPlatforms preserves YouTube recordingDate', () => {
+    expect(
+      normalizeDraftPlatforms({
+        youtube: { recordingDate: '2025-06-08' },
+      }).youtube?.recordingDate
+    ).toBe('2025-06-08');
+  });
+
+  it('mergeDraftPlatformsPatch updates YouTube recordingDate', () => {
+    expect(
+      mergeDraftPlatformsPatch({ youtube: {} }, { youtube: { recordingDate: '2025-06-08' } })
+        .youtube?.recordingDate
+    ).toBe('2025-06-08');
+  });
+
+  it('mergeDraftPlatformsPatch clears YouTube recordingDate with empty string', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        { youtube: { recordingDate: '2025-06-08' } },
+        { youtube: { recordingDate: '' } }
+      ).youtube?.recordingDate
+    ).toBeUndefined();
+  });
+
+  it('buildMetadataForPlatform passes recording location fields for YouTube when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {
+          recordingLocationDescription: 'Halifax, NS',
+          recordingLocationLatitude: 44.6488,
+          recordingLocationLongitude: -63.5752,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const metadata = buildMetadataForPlatform(draft, 'youtube');
+    expect(metadata.recordingLocationDescription).toBe('Halifax, NS');
+    expect(metadata.recordingLocationLatitude).toBe(44.6488);
+    expect(metadata.recordingLocationLongitude).toBe(-63.5752);
+  });
+
+  it('buildMetadataForPlatform omits recordingLocationDescription for YouTube when unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {},
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').recordingLocationDescription).toBeUndefined();
+  });
+
+  it('normalizeDraftPlatforms preserves YouTube recordingLocationDescription', () => {
+    expect(
+      normalizeDraftPlatforms({
+        youtube: { recordingLocationDescription: 'Halifax, NS' },
+      }).youtube?.recordingLocationDescription
+    ).toBe('Halifax, NS');
+  });
+
+  it('mergeDraftPlatformsPatch updates YouTube recordingLocationDescription', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        { youtube: {} },
+        { youtube: { recordingLocationDescription: 'Halifax, NS' } }
+      ).youtube?.recordingLocationDescription
+    ).toBe('Halifax, NS');
+  });
+
+  it('mergeDraftPlatformsPatch clears YouTube recordingLocationDescription with empty string', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        { youtube: { recordingLocationDescription: 'Halifax, NS' } },
+        { youtube: { recordingLocationDescription: '' } }
+      ).youtube?.recordingLocationDescription
+    ).toBeUndefined();
+  });
+
+  it('buildMetadataForPlatform passes notifySubscribers for YouTube when set false', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {
+          notifySubscribers: false,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').notifySubscribers).toBe(false);
+  });
+
+  it('buildMetadataForPlatform omits notifySubscribers for YouTube when unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {},
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').notifySubscribers).toBeUndefined();
+  });
+
   it('buildMetadataForPlatform omits playlistTitles when none are set', () => {
     const draft: Draft = {
       id: 'd1',

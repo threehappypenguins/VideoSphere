@@ -32,6 +32,7 @@ import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeak
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
+import { YouTubeLocationCombobox } from '@/components/drafts/YouTubeLocationCombobox';
 import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
 import { YouTubeStudioNote } from '@/components/drafts/YouTubeStudioNote';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
@@ -84,7 +85,10 @@ import {
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { platformLabel } from '@/lib/ui/platform-label';
-import type { YouTubeAccountDefaults } from '@/lib/platforms/youtube-api';
+import {
+  buildYouTubeAccountDefaultsSeedPatch,
+  type YouTubeAccountDefaults,
+} from '@/lib/platforms/youtube-account-defaults';
 import {
   getDefaultScheduleDate,
   getDefaultScheduleTime,
@@ -121,31 +125,6 @@ const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> =
   { value: 'unlisted', label: 'Unlisted' },
   { value: 'private', label: 'Private' },
 ];
-
-const YOUTUBE_CAPTION_CERTIFICATION_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'noc', label: 'No Captions' },
-  { value: 'pcoc', label: 'Program Captions Offered in Caption' },
-  { value: 'coc', label: 'Captions Offered in Caption' },
-  { value: 'cap', label: 'Captions — English' },
-  { value: 'swl', label: 'Sign Language' },
-  { value: 'swlnoc', label: 'Sign Language, No Other Captions' },
-] as const;
-
-const YOUTUBE_COMMENTS_VISIBILITY_OPTIONS = [
-  { value: 'allowAll', label: 'Allow all' },
-  {
-    value: 'holdForReview',
-    label: 'Hold potentially inappropriate comments for review',
-  },
-  { value: 'holdAllForReview', label: 'Hold all for review' },
-  { value: 'disable', label: 'Disable' },
-] as const;
-
-const YOUTUBE_COMMENT_SORT_OPTIONS = [
-  { value: 'topComments', label: 'Top comments' },
-  { value: 'newestFirst', label: 'Newest first' },
-] as const;
 
 const YOUTUBE_LICENSE_OPTIONS = [
   { value: 'youtube', label: 'Standard YouTube License' },
@@ -456,6 +435,7 @@ export function DraftMetadataModal({
   const [youtubeAccountDefaults, setYoutubeAccountDefaults] = useState<
     YouTubeAccountDefaults | undefined
   >();
+  const youtubeDefaultsSeededRef = useRef<string | null>(null);
   const [uploadFieldErrors, setUploadFieldErrors] = useState<Set<DraftUploadFieldKey>>(new Set());
   const [sermonEventTypes, setSermonEventTypes] = useState<string[] | null>(null);
   const [sermonEventTypesLoadFailed, setSermonEventTypesLoadFailed] = useState(false);
@@ -879,6 +859,7 @@ export function DraftMetadataModal({
     setYoutubeLanguages([]);
     setYoutubeCategories([]);
     setYoutubeAccountDefaults(undefined);
+    youtubeDefaultsSeededRef.current = null;
   }, [draftId]);
 
   useEffect(() => {
@@ -1258,20 +1239,41 @@ export function DraftMetadataModal({
     [onChange, value]
   );
 
+  useEffect(() => {
+    if (!value?.targets.includes('youtube')) {
+      youtubeDefaultsSeededRef.current = null;
+    }
+  }, [value?.targets]);
+
+  useEffect(() => {
+    if (!value?.targets.includes('youtube') || !youtubeAccountDefaults) {
+      return;
+    }
+
+    const seedKey = `${draftId}:${JSON.stringify(youtubeAccountDefaults)}`;
+    if (youtubeDefaultsSeededRef.current === seedKey) {
+      return;
+    }
+
+    youtubeDefaultsSeededRef.current = seedKey;
+    const patch = buildYouTubeAccountDefaultsSeedPatch(
+      value.platforms.youtube,
+      youtubeAccountDefaults
+    );
+    if (Object.keys(patch).length > 0) {
+      updateYouTubeFields(patch);
+    }
+  }, [draftId, value, youtubeAccountDefaults, updateYouTubeFields]);
+
   const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
   const youtubeAgeRestrictedValue = youtubeFields?.ageRestricted;
-  const youtubeDefaultLanguageValue =
-    youtubeFields?.defaultLanguage ?? youtubeAccountDefaults?.defaultLanguage;
-  const youtubeCaptionCertificationValue = youtubeFields?.captionCertification;
-  const youtubeTitleDescriptionLanguageValue =
-    youtubeFields?.titleDescriptionLanguage ?? youtubeAccountDefaults?.titleDescriptionLanguage;
-  const youtubeRecordingDateValue =
-    youtubeFields?.recordingDate ?? value?.$createdAt?.slice(0, 10) ?? '';
+  const youtubeDefaultAudioLanguageValue =
+    youtubeFields?.defaultAudioLanguage ?? youtubeAccountDefaults?.defaultAudioLanguage;
+  const youtubeRecordingDateValue = youtubeFields?.recordingDate ?? '';
   const youtubeLicenseValue = youtubeFields?.license ?? youtubeAccountDefaults?.license;
   const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
+  const youtubeNotifySubscribersValue = youtubeFields?.notifySubscribers !== false;
   const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
-  const youtubeCommentsVisibilityValue = youtubeFields?.commentsVisibility;
-  const youtubeCommentSortOrderValue = youtubeFields?.commentSortOrder;
   const youtubePublicStatsViewableValue =
     youtubeFields?.publicStatsViewable ?? youtubeAccountDefaults?.publicStatsViewable;
   const youtubeLanguageOptions = useMemo(
@@ -1282,18 +1284,17 @@ export function DraftMetadataModal({
     () => youtubeCategories.map((category) => ({ value: category.id, label: category.title })),
     [youtubeCategories]
   );
-  const youtubeIsPremiereValue = youtubeFields?.isPremiere ?? false;
   const youtubePublishAtValue = youtubeFields?.publishAt;
   const youtubeSchedulePastWarning =
     youtubePublishAtValue !== undefined && isPublishAtInPast(youtubePublishAtValue);
-  const youtubePremiereScheduleHint =
-    youtubeIsPremiereValue && (youtubePublishAtValue ?? '').trim() === '';
   const youtubePlaylistId = youtubeFields?.playlistIds?.[0];
   const youtubePlaylistTitle =
     youtubePlaylistId === undefined ? youtubeFields?.playlistTitles?.[0] : undefined;
 
   useEffect(() => {
     scheduleInitializedRef.current = false;
+    setShowMoreExpanded(false);
+    setAgeRestrictionsExpanded(false);
     setScheduleExpanded(false);
     setScheduleDate('');
     setScheduleTime('');
@@ -2868,9 +2869,7 @@ export function DraftMetadataModal({
                   {showMoreExpanded ? (
                     <div className="space-y-6 rounded-lg border border-border bg-muted/20 p-3">
                       <div className="space-y-3">
-                        <p className="text-sm font-medium text-foreground">
-                          Language and captions certification
-                        </p>
+                        <p className="text-sm font-medium text-foreground">Language</p>
                         <div>
                           <label
                             htmlFor="draft-youtube-video-language"
@@ -2880,75 +2879,24 @@ export function DraftMetadataModal({
                           </label>
                           <YouTubeSearchableSelect
                             id="draft-youtube-video-language"
-                            value={youtubeDefaultLanguageValue}
+                            value={youtubeDefaultAudioLanguageValue}
                             placeholder="Select video language"
                             options={youtubeLanguageOptions}
                             onValueChange={(next) =>
                               updateYouTubeFields({
-                                defaultLanguage: next,
+                                defaultAudioLanguage: next,
                               })
                             }
-                            className={fieldBorderClass('youtube.defaultLanguage')}
+                            className={fieldBorderClass('youtube.defaultAudioLanguage')}
                           />
-                        </div>
-                        <div>
-                          <label
-                            htmlFor="draft-youtube-caption-certification"
-                            className="text-xs font-medium text-muted-foreground"
-                          >
-                            Caption certification
-                          </label>
-                          <Select
-                            value={youtubeCaptionCertificationValue}
-                            onValueChange={(next) =>
-                              updateYouTubeFields({ captionCertification: next })
-                            }
-                          >
-                            <SelectTrigger
-                              id="draft-youtube-caption-certification"
-                              className={cn(
-                                fieldBorderClass('youtube.captionCertification'),
-                                'mt-1 flex h-10 items-center justify-between text-left'
-                              )}
-                            >
-                              <SelectValue placeholder="Select caption certification" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {YOUTUBE_CAPTION_CERTIFICATION_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <YouTubeStudioNote />
-                        </div>
-                        <div>
-                          <label
-                            htmlFor="draft-youtube-title-description-language"
-                            className="text-xs font-medium text-muted-foreground"
-                          >
-                            Title and description language
-                          </label>
-                          <YouTubeSearchableSelect
-                            id="draft-youtube-title-description-language"
-                            value={youtubeTitleDescriptionLanguageValue}
-                            placeholder="Select title and description language"
-                            options={youtubeLanguageOptions}
-                            onValueChange={(next) =>
-                              updateYouTubeFields({
-                                titleDescriptionLanguage: next,
-                              })
-                            }
-                            className={fieldBorderClass('youtube.titleDescriptionLanguage')}
-                          />
-                          <YouTubeStudioNote />
                         </div>
                       </div>
 
                       <div className="space-y-3">
                         <p className="text-sm font-medium text-foreground">
-                          Recording date and location
+                          {youtubeAccountDefaults?.locationSearchEnabled
+                            ? 'Recording date and location'
+                            : 'Recording date'}
                         </p>
                         <div>
                           <label
@@ -2957,58 +2905,49 @@ export function DraftMetadataModal({
                           >
                             Recording date
                           </label>
-                          <input
-                            id="draft-youtube-recording-date"
-                            type="date"
-                            value={youtubeRecordingDateValue}
-                            onChange={(event) =>
-                              updateYouTubeFields({
-                                recordingDate: event.target.value || undefined,
-                              })
-                            }
-                            className={fieldBorderClass('youtube.recordingDate')}
-                          />
-                        </div>
-                        <div>
-                          <label
-                            htmlFor="draft-youtube-recording-location"
-                            className="text-xs font-medium text-muted-foreground"
-                          >
-                            Video location
-                          </label>
                           <div className="mt-1 flex gap-2">
                             <input
-                              id="draft-youtube-recording-location"
-                              type="text"
-                              maxLength={100}
-                              placeholder="Add location"
-                              value={youtubeFields?.recordingLocationDescription ?? ''}
+                              id="draft-youtube-recording-date"
+                              type="date"
+                              value={youtubeRecordingDateValue}
                               onChange={(event) =>
                                 updateYouTubeFields({
-                                  recordingLocationDescription:
-                                    event.target.value.trim() === ''
-                                      ? undefined
-                                      : event.target.value,
+                                  recordingDate: event.target.value || undefined,
                                 })
                               }
-                              className={cn(
-                                fieldBorderClass('youtube.recordingLocationDescription'),
-                                'flex-1'
-                              )}
+                              className={cn(fieldBorderClass('youtube.recordingDate'), 'flex-1')}
                             />
-                            {(youtubeFields?.recordingLocationDescription ?? '').length > 0 ? (
+                            {youtubeRecordingDateValue !== '' ? (
                               <button
                                 type="button"
                                 className="rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted"
-                                onClick={() =>
-                                  updateYouTubeFields({ recordingLocationDescription: undefined })
-                                }
+                                onClick={() => updateYouTubeFields({ recordingDate: undefined })}
                               >
                                 Clear
                               </button>
                             ) : null}
                           </div>
                         </div>
+                        {youtubeAccountDefaults?.locationSearchEnabled ? (
+                          <div>
+                            <label
+                              htmlFor="draft-youtube-recording-location"
+                              className="text-xs font-medium text-muted-foreground"
+                            >
+                              Video location
+                            </label>
+                            <div className="mt-1">
+                              <YouTubeLocationCombobox
+                                id="draft-youtube-recording-location"
+                                recordingLocationDescription={
+                                  youtubeFields?.recordingLocationDescription
+                                }
+                                onLocationChange={(value) => updateYouTubeFields(value)}
+                                className={fieldBorderClass('youtube.recordingLocationDescription')}
+                              />
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="space-y-3">
@@ -3048,6 +2987,16 @@ export function DraftMetadataModal({
                           />
                           <span>Allow embedding</span>
                         </label>
+                        <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={youtubeNotifySubscribersValue}
+                            onChange={(event) =>
+                              updateYouTubeFields({ notifySubscribers: event.target.checked })
+                            }
+                          />
+                          <span>Publish to subscriptions feed and notify subscribers</span>
+                        </label>
                       </div>
 
                       <div>
@@ -3070,75 +3019,7 @@ export function DraftMetadataModal({
                       </div>
 
                       <div className="space-y-3">
-                        <p className="text-sm font-medium text-foreground">Comments and ratings</p>
-                        <div>
-                          <label
-                            htmlFor="draft-youtube-comments-visibility"
-                            className="text-xs font-medium text-muted-foreground"
-                          >
-                            Comments
-                          </label>
-                          <Select
-                            value={youtubeCommentsVisibilityValue}
-                            onValueChange={(next) =>
-                              updateYouTubeFields({
-                                commentsVisibility:
-                                  next as YouTubeDraftFields['commentsVisibility'],
-                              })
-                            }
-                          >
-                            <SelectTrigger
-                              id="draft-youtube-comments-visibility"
-                              className={cn(
-                                fieldBorderClass('youtube.commentsVisibility'),
-                                'mt-1 flex h-10 items-center justify-between text-left'
-                              )}
-                            >
-                              <SelectValue placeholder="Select comments setting" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {YOUTUBE_COMMENTS_VISIBILITY_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <label
-                            htmlFor="draft-youtube-comment-sort"
-                            className="text-xs font-medium text-muted-foreground"
-                          >
-                            Sort by
-                          </label>
-                          <Select
-                            value={youtubeCommentSortOrderValue}
-                            onValueChange={(next) =>
-                              updateYouTubeFields({
-                                commentSortOrder: next as YouTubeDraftFields['commentSortOrder'],
-                              })
-                            }
-                          >
-                            <SelectTrigger
-                              id="draft-youtube-comment-sort"
-                              className={cn(
-                                fieldBorderClass('youtube.commentSortOrder'),
-                                'mt-1 flex h-10 items-center justify-between text-left'
-                              )}
-                            >
-                              <SelectValue placeholder="Select comment sort order" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {YOUTUBE_COMMENT_SORT_OPTIONS.map((option) => (
-                                <SelectItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <YouTubeStudioNote />
+                        <p className="text-sm font-medium text-foreground">Ratings</p>
                         <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
                           <input
                             type="checkbox"
@@ -3258,28 +3139,6 @@ export function DraftMetadataModal({
                                 </p>
                               ) : null}
                             </div>
-                            <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-                              <input
-                                type="checkbox"
-                                className="mt-1"
-                                checked={youtubeIsPremiereValue}
-                                onChange={(event) =>
-                                  updateYouTubeFields({ isPremiere: event.target.checked })
-                                }
-                              />
-                              <span>Set as Premiere</span>
-                            </label>
-                            {youtubeIsPremiereValue ? (
-                              <p className="text-sm text-muted-foreground">
-                                After upload, go to YouTube Studio → Content → select your video →
-                                Edit → enable Premiere.
-                              </p>
-                            ) : null}
-                            {youtubePremiereScheduleHint ? (
-                              <p className="text-sm text-destructive">
-                                Set a schedule date and time to use Premiere.
-                              </p>
-                            ) : null}
                           </div>
                         ) : null}
                       </div>

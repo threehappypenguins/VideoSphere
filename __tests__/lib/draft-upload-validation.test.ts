@@ -87,22 +87,4 @@ describe('validateDraftForUpload', () => {
     });
     expect(issues.map((issue) => issue.field)).toEqual([]);
   });
-
-  it('requires YouTube publishAt when isPremiere is true', () => {
-    const issues = validateDraftForUpload({
-      title: 'Video',
-      description: 'Desc',
-      tags: [],
-      targets: ['youtube'],
-      platforms: {
-        youtube: { isPremiere: true },
-      },
-    });
-    expect(issues).toEqual([
-      expect.objectContaining({
-        field: 'youtube.publishAt',
-        message: 'A schedule date and time are required to set a video as a Premiere.',
-      }),
-    ]);
-  });
 });
