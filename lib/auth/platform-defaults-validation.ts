@@ -2,7 +2,6 @@ import type { PlatformDefaults, YouTubeUserDefaults } from '@/types';
 
 const YOUTUBE_USER_DEFAULT_KEYS = new Set<string>([
   'madeForKids',
-  'ageRestricted',
   'defaultAudioLanguage',
   'license',
   'embeddable',
@@ -83,13 +82,6 @@ export function parseYouTubeUserDefaults(
       return { ok: false, error: 'platformDefaults.youtube.madeForKids must be a boolean.' };
     }
     out.madeForKids = value.madeForKids;
-  }
-
-  if (value.ageRestricted !== undefined) {
-    if (typeof value.ageRestricted !== 'boolean') {
-      return { ok: false, error: 'platformDefaults.youtube.ageRestricted must be a boolean.' };
-    }
-    out.ageRestricted = value.ageRestricted;
   }
 
   if (value.embeddable !== undefined) {

@@ -323,6 +323,60 @@ describe('DraftMetadataModal announceInModal – AI metadata generation success'
   });
 });
 
+describe('DraftMetadataModal shared metadata overrides', () => {
+  function ControlledModal({ initialValue }: { initialValue: DraftEditorValues }) {
+    const [value, setValue] = useState(initialValue);
+    return (
+      <DraftMetadataModal
+        mode="edit"
+        value={value}
+        initialConnectedPlatforms={initialValue.targets}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: initialValue.id })}
+        onChange={setValue}
+      />
+    );
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }) as Response)
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('expands per-platform title fields in the shared metadata card when use shared metadata is unchecked', async () => {
+    const user = userEvent.setup();
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          targets: ['youtube', 'sermon_audio'],
+          platforms: { sermon_audio: {} },
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.getByLabelText(/^Title$/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Title \(YouTube\)$/i)).not.toBeInTheDocument();
+
+    const titleSharedCheckbox = screen.getByTitle(/all selected platforms share one title/i);
+    await user.click(titleSharedCheckbox);
+
+    expect(screen.queryByLabelText(/^Title$/i)).not.toBeInTheDocument();
+    expect(document.getElementById('edit-title-youtube')).toBeInTheDocument();
+    expect(document.getElementById('edit-title-sermon_audio')).toBeInTheDocument();
+  });
+});
+
 describe('DraftMetadataModal privacy field', () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -474,7 +528,7 @@ describe('DraftMetadataModal YouTube fields', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.getByLabelText(/Playlist \(YouTube\)/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Playlist$/i)).toBeInTheDocument();
     expect(document.getElementById('draft-youtube-playlist')).toBeInTheDocument();
   });
 
@@ -534,7 +588,7 @@ describe('DraftMetadataModal YouTube fields', () => {
     );
 
     await screen.findByRole('dialog');
-    await userEvent.click(screen.getByLabelText(/Playlist \(YouTube\)/i));
+    await userEvent.click(screen.getByLabelText(/^Playlist$/i));
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'Sunday Sermons' })).toBeInTheDocument();
     });
@@ -568,7 +622,7 @@ describe('DraftMetadataModal YouTube fields', () => {
     );
 
     await screen.findByRole('dialog');
-    await userEvent.click(screen.getByLabelText(/Playlist \(YouTube\)/i));
+    await userEvent.click(screen.getByLabelText(/^Playlist$/i));
     await waitFor(() => {
       expect(screen.getByLabelText('Search playlists')).toBeInTheDocument();
     });
@@ -626,30 +680,6 @@ describe('DraftMetadataModal YouTube fields', () => {
     await userEvent.click(screen.getByRole('button', { name: /Age restrictions/i }));
 
     expect(screen.getByRole('radio', { name: /Yes, it's made for kids/i })).toBeChecked();
-  });
-
-  it('renders YouTubeStudioNote next to the 18\+ yes option', async () => {
-    render(
-      <DraftMetadataModal
-        mode="edit"
-        value={youtubeDraftValue}
-        initialConnectedPlatforms={['youtube']}
-        initialConnectionsResolved
-        isSaving={false}
-        onClose={vi.fn()}
-        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-        onChange={vi.fn()}
-      />
-    );
-
-    await screen.findByRole('dialog');
-    await userEvent.click(screen.getByRole('button', { name: /Age restrictions/i }));
-
-    expect(
-      screen.getByText(
-        /This setting can't be applied automatically\. You'll need to set it in YouTube Studio after upload\./i
-      )
-    ).toBeInTheDocument();
   });
 
   async function expandShowMore() {

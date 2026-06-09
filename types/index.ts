@@ -162,11 +162,6 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
    * Set together with `recordingLocationDescription` and `recordingLocationLatitude`.
    */
   recordingLocationLongitude?: number;
-  /**
-   * Age restriction (18+). Cannot be set via Data API v3 — stored for UX reference.
-   * User must apply in YouTube Studio after upload if true.
-   */
-  ageRestricted?: boolean;
 }
 
 /**
@@ -176,7 +171,6 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
  */
 export interface YouTubeUserDefaults {
   madeForKids?: boolean;
-  ageRestricted?: boolean;
   /** BCP-47 video language (`snippet.defaultAudioLanguage`). */
   defaultAudioLanguage?: string;
   license?: 'youtube' | 'creativeCommon';

@@ -1,3 +1,4 @@
+import { PlatformIcon, isPlatformBrandIcon } from '@/components/icons/PlatformIcon';
 import type { ConnectedAccountPlatform } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
 
@@ -27,7 +28,6 @@ export function DraftPlatformToggles({
 
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium text-foreground">Target platforms</p>
       <div className="space-y-2">
         {availablePlatforms.map((platform) => {
           const isConnected = !connectionsResolved || connectedSet.has(platform);
@@ -42,6 +42,7 @@ export function DraftPlatformToggles({
               }`}
             >
               <span className="inline-flex items-center gap-2 text-sm text-foreground">
+                {isPlatformBrandIcon(platform) ? <PlatformIcon platform={platform} /> : null}
                 {platformLabel(platform)}
                 {!isConnected ? (
                   <>
