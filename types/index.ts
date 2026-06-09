@@ -43,6 +43,8 @@ export interface User {
   $createdAt: string;
   /** Profile update timestamp in ISO 8601 string format, sourced from Mongo document update time. */
   $updatedAt: string;
+  /** Per-platform upload default settings (e.g. YouTube field presets for new drafts). */
+  platformDefaults?: PlatformDefaults;
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
@@ -124,8 +126,6 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
   publicStatsViewable?: boolean;
   /** `status.publishAt` (ISO 8601). Requires `privacyStatus` private until publish time. */
   publishAt?: string;
-  /** `status.containsSyntheticMedia` (disclosure for altered / synthetic media). */
-  containsSyntheticMedia?: boolean;
   /**
    * After upload, append the video via `playlistItems.insert` (one call per id).
    * Values are playlist **ids** from `playlist?list=…` in the URL.
@@ -137,6 +137,71 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
    * title match, then `playlistItems.insert`. Duplicate titles in this array are deduped case-insensitively (first wins).
    */
   playlistTitles?: string[];
+  /**
+   * Recording date sent to `recordingDetails.recordingDate` (RFC 3339 full-date, e.g. "2025-06-08").
+   * Defaults to the draft's `$createdAt` date when not explicitly set.
+   */
+  recordingDate?: string;
+  /**
+   * Free-text location description sent to `recordingDetails.locationDescription`.
+   * Max ~100 chars; YouTube truncates silently.
+   */
+  recordingLocationDescription?: string;
+  /**
+   * Caption certification code. Not a writable Data API v3 field — stored for UX reference.
+   * Values: 'none' | 'noc' | 'pcoc' | 'coc' | 'cap' | 'swl' | 'swlnoc'
+   */
+  captionCertification?: string;
+  /**
+   * Title & description language (BCP-47). Separate from `defaultLanguage`.
+   * Not a writable Data API v3 field — stored for UX reference.
+   */
+  titleDescriptionLanguage?: string;
+  /**
+   * Comments visibility setting. Not a writable Data API v3 field — stored for UX reference.
+   * Values: 'allowAll' | 'holdForReview' | 'holdAllForReview' | 'disable'
+   */
+  commentsVisibility?: 'allowAll' | 'holdForReview' | 'holdAllForReview' | 'disable';
+  /**
+   * Comment sort order. Not a writable Data API v3 field — stored for UX reference.
+   * Values: 'topComments' | 'newestFirst'
+   */
+  commentSortOrder?: 'topComments' | 'newestFirst';
+  /**
+   * Age restriction (18+). Cannot be set via Data API v3 — stored for UX reference.
+   * User must apply in YouTube Studio after upload if true.
+   */
+  ageRestricted?: boolean;
+  /**
+   * When true, user intends this video to be a YouTube Premiere.
+   * `publishAt` must also be set. No dedicated API field exists — stored for UX reference.
+   * User must enable Premiere in YouTube Studio after upload.
+   */
+  isPremiere?: boolean;
+}
+
+/**
+ * User-saved default values for YouTube upload fields.
+ * Loaded when initialising a new draft's `platforms.youtube` block.
+ * Stored on the user profile under `platformDefaults.youtube`.
+ */
+export interface YouTubeUserDefaults {
+  madeForKids?: boolean;
+  ageRestricted?: boolean;
+  defaultLanguage?: string;
+  titleDescriptionLanguage?: string;
+  license?: 'youtube' | 'creativeCommon';
+  embeddable?: boolean;
+  categoryId?: string;
+  commentsVisibility?: 'allowAll' | 'holdForReview' | 'holdAllForReview' | 'disable';
+  commentSortOrder?: 'topComments' | 'newestFirst';
+  publicStatsViewable?: boolean;
+  captionCertification?: string;
+}
+
+/** Per-platform upload default settings stored on the user profile. */
+export interface PlatformDefaults {
+  youtube?: YouTubeUserDefaults;
 }
 
 /** Vimeo `privacy` object (subset); merged after mapping draft `visibility` → `privacy.view`. */

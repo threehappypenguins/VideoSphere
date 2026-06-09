@@ -263,8 +263,6 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
   const publicStatsViewable =
     typeof y.publicStatsViewable === 'boolean' ? y.publicStatsViewable : undefined;
   const publishAt = trimStr(y.publishAt);
-  const containsSyntheticMedia =
-    typeof y.containsSyntheticMedia === 'boolean' ? y.containsSyntheticMedia : undefined;
   let playlistIds: string[] | undefined;
   if (Array.isArray(y.playlistIds)) {
     playlistIds = y.playlistIds
@@ -290,7 +288,6 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
     ...(license !== undefined ? { license } : {}),
     ...(publicStatsViewable !== undefined ? { publicStatsViewable } : {}),
     ...(publishAt !== undefined ? { publishAt } : {}),
-    ...(containsSyntheticMedia !== undefined ? { containsSyntheticMedia } : {}),
     ...(playlistIds !== undefined ? { playlistIds } : {}),
     ...(playlistTitles !== undefined ? { playlistTitles } : {}),
   };
@@ -647,10 +644,6 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const s = p.publishAt;
       yb.publishAt = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
     }
-    if ('containsSyntheticMedia' in p) {
-      yb.containsSyntheticMedia =
-        typeof p.containsSyntheticMedia === 'boolean' ? p.containsSyntheticMedia : undefined;
-    }
     if ('playlistIds' in p) {
       if (Array.isArray(p.playlistIds)) {
         yb.playlistIds = p.playlistIds
@@ -901,7 +894,6 @@ export function buildMetadataForPlatform(
       license: yt?.license,
       publicStatsViewable: yt?.publicStatsViewable,
       publishAt: yt?.publishAt,
-      containsSyntheticMedia: yt?.containsSyntheticMedia,
       playlistIds: yt?.playlistIds,
       ...(playlistTitles !== undefined && playlistTitles.length > 0 ? { playlistTitles } : {}),
     };

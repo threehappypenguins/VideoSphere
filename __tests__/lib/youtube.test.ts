@@ -7,6 +7,7 @@ vi.mock('@/lib/r2', () => ({
 }));
 
 import * as youtube from '@/lib/platforms/youtube';
+import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 
 function makeVideoStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -25,6 +26,103 @@ function makeThumbnailStream(): ReadableStream<Uint8Array> {
     },
   });
 }
+
+const BASE_UPLOAD_METADATA: PlatformUploadMetadata = {
+  title: 'Test video',
+  description: 'Test description',
+  tags: [],
+  visibility: 'public',
+};
+
+async function runResumableInitUpload(
+  metadata: PlatformUploadMetadata
+): Promise<Record<string, unknown>> {
+  const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+  const sessionUrl = 'https://upload.youtube.test/session/resumable-init';
+  let capturedInitBody: Record<string, unknown> | undefined;
+
+  fetchMock.mockImplementation((url: unknown, options?: { method?: string; body?: string }) => {
+    const sUrl = String(url);
+    const method = options?.method;
+
+    if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+      capturedInitBody = JSON.parse(options?.body ?? '{}') as Record<string, unknown>;
+      return Promise.resolve(
+        new Response(null, { status: 200, headers: { location: sessionUrl } })
+      );
+    }
+
+    if (method === 'PUT' && sUrl === sessionUrl) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ id: 'yt-video-init' }), { status: 200 })
+      );
+    }
+
+    return Promise.resolve(new Response('', { status: 200 }));
+  });
+
+  const result = await youtube.uploadToYouTube({
+    videoStream: makeVideoStream(),
+    contentLength: 3,
+    contentType: 'video/mp4',
+    metadata,
+    tokens: { accessToken: 'tok' },
+  });
+
+  expect(result.ok).toBe(true);
+  expect(capturedInitBody).toBeDefined();
+  return capturedInitBody!;
+}
+
+describe('uploadToYouTube resumable init body', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('includes recordingDate under recordingDetails', async () => {
+    const body = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      recordingDate: '2025-06-08',
+    });
+
+    expect(body.recordingDetails).toEqual({ recordingDate: '2025-06-08' });
+  });
+
+  it('includes locationDescription under recordingDetails', async () => {
+    const body = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      recordingLocationDescription: 'San Francisco, CA',
+    });
+
+    expect(body.recordingDetails).toEqual({ locationDescription: 'San Francisco, CA' });
+  });
+
+  it('omits recordingDetails when recording fields are absent', async () => {
+    const body = await runResumableInitUpload(BASE_UPLOAD_METADATA);
+
+    expect(body).not.toHaveProperty('recordingDetails');
+  });
+
+  it('sets status.privacyStatus to private when publishAt is set', async () => {
+    const body = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      visibility: 'public',
+      publishAt: '2026-06-08T12:00:00.000Z',
+    });
+
+    expect(body.status).toEqual(
+      expect.objectContaining({
+        privacyStatus: 'private',
+        publishAt: '2026-06-08T12:00:00.000Z',
+      })
+    );
+  });
+});
 
 describe('uploadToYouTube thumbnail path', () => {
   beforeEach(() => {

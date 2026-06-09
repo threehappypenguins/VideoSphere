@@ -111,6 +111,30 @@ describe('GET /api/auth/profile', () => {
     expect(body.role).toBe('user');
   });
 
+  it('returns platformDefaults including youtube sub-object when set', async () => {
+    getAuthenticatedSessionUserIdMock.mockResolvedValueOnce('user_123');
+    getUserByIdMock.mockResolvedValueOnce({
+      ...BASE_USER,
+      platformDefaults: {
+        youtube: {
+          categoryId: '22',
+          madeForKids: false,
+        },
+      },
+    });
+
+    const res = await GET(createRequest({ videosphere_session: 'session-secret' }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.platformDefaults).toEqual({
+      youtube: {
+        categoryId: '22',
+        madeForKids: false,
+      },
+    });
+  });
+
   it('returns second user profile payload correctly', async () => {
     getAuthenticatedSessionUserIdMock.mockResolvedValueOnce('user_456');
     getUserByIdMock.mockResolvedValueOnce({
@@ -176,12 +200,12 @@ describe('PATCH /api/auth/profile', () => {
     expect(getUserByIdMock).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when neither name nor email is provided', async () => {
+  it('returns 400 when neither name, email, nor platformDefaults is provided', async () => {
     const res = await PATCH(makePatchRequest({}));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: 'At least one of name or email must be provided.',
+      error: 'At least one of name, email, or platformDefaults must be provided.',
     });
     expect(getUserByIdMock).not.toHaveBeenCalled();
   });
@@ -278,5 +302,75 @@ describe('PATCH /api/auth/profile', () => {
 
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'Internal server error' });
+  });
+
+  it('saves and returns valid platformDefaults.youtube', async () => {
+    const updatedUser = {
+      ...BASE_USER,
+      platformDefaults: {
+        youtube: {
+          categoryId: '22',
+        },
+      },
+    };
+    updateUserMock.mockResolvedValueOnce(updatedUser);
+
+    const res = await PATCH(
+      makePatchRequest({
+        platformDefaults: {
+          youtube: {
+            categoryId: '22',
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updatedUser);
+    expect(getUserByIdMock).not.toHaveBeenCalled();
+    expect(updateUserMock).toHaveBeenCalledWith('user_123', {
+      platformDefaultsYoutube: {
+        categoryId: '22',
+      },
+    });
+  });
+
+  it('returns 400 for invalid platformDefaults.youtube field types', async () => {
+    const res = await PATCH(
+      makePatchRequest({
+        platformDefaults: {
+          youtube: {
+            categoryId: 123,
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'platformDefaults.youtube.categoryId must be a string.',
+    });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves platformDefaults unchanged when PATCH omits platformDefaults', async () => {
+    const updatedUser = {
+      ...BASE_USER,
+      name: 'Updated Name',
+      platformDefaults: {
+        youtube: {
+          categoryId: '10',
+          madeForKids: true,
+        },
+      },
+    };
+    updateUserMock.mockResolvedValueOnce(updatedUser);
+
+    const res = await PATCH(makePatchRequest({ name: 'Updated Name' }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updatedUser);
+    expect(updateUserMock).toHaveBeenCalledWith('user_123', { name: 'Updated Name' });
+    expect(updateUserMock.mock.calls[0]?.[1]).not.toHaveProperty('platformDefaultsYoutube');
   });
 });

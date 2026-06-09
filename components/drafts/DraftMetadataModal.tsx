@@ -31,6 +31,10 @@ import { cn } from '@/lib/utils';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
+import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
+import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
+import { YouTubeStudioNote } from '@/components/drafts/YouTubeStudioNote';
+import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
@@ -80,6 +84,17 @@ import {
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { platformLabel } from '@/lib/ui/platform-label';
+import type { YouTubeAccountDefaults } from '@/lib/platforms/youtube-api';
+import {
+  getDefaultScheduleDate,
+  getDefaultScheduleTime,
+  getLocalTimeZone,
+  getSupportedTimeZones,
+  isPublishAtInPast,
+  utcIsoToZonedScheduleParts,
+  YOUTUBE_SCHEDULE_TIME_OPTIONS,
+  zonedDateTimeToUtcIso,
+} from '@/lib/youtube-schedule';
 
 const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
@@ -97,6 +112,8 @@ export interface DraftEditorValues {
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
   thumbnailPreviewUrl?: string;
+  /** Draft creation timestamp (ISO 8601); used for YouTube recording date default in the editor. */
+  $createdAt?: string;
 }
 
 const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> = [
@@ -104,6 +121,36 @@ const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> =
   { value: 'unlisted', label: 'Unlisted' },
   { value: 'private', label: 'Private' },
 ];
+
+const YOUTUBE_CAPTION_CERTIFICATION_OPTIONS = [
+  { value: 'none', label: 'None' },
+  { value: 'noc', label: 'No Captions' },
+  { value: 'pcoc', label: 'Program Captions Offered in Caption' },
+  { value: 'coc', label: 'Captions Offered in Caption' },
+  { value: 'cap', label: 'Captions — English' },
+  { value: 'swl', label: 'Sign Language' },
+  { value: 'swlnoc', label: 'Sign Language, No Other Captions' },
+] as const;
+
+const YOUTUBE_COMMENTS_VISIBILITY_OPTIONS = [
+  { value: 'allowAll', label: 'Allow all' },
+  {
+    value: 'holdForReview',
+    label: 'Hold potentially inappropriate comments for review',
+  },
+  { value: 'holdAllForReview', label: 'Hold all for review' },
+  { value: 'disable', label: 'Disable' },
+] as const;
+
+const YOUTUBE_COMMENT_SORT_OPTIONS = [
+  { value: 'topComments', label: 'Top comments' },
+  { value: 'newestFirst', label: 'Newest first' },
+] as const;
+
+const YOUTUBE_LICENSE_OPTIONS = [
+  { value: 'youtube', label: 'Standard YouTube License' },
+  { value: 'creativeCommon', label: 'Creative Commons — Attribution' },
+] as const;
 
 const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = [
   'youtube',
@@ -394,6 +441,21 @@ export function DraftMetadataModal({
   const [platformOverrideTagInput, setPlatformOverrideTagInput] = useState<
     Partial<Record<OverridePlatform, string>>
   >({});
+  const [ageRestrictionsExpanded, setAgeRestrictionsExpanded] = useState(false);
+  const [showMoreExpanded, setShowMoreExpanded] = useState(false);
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [scheduleTimeZone, setScheduleTimeZone] = useState('');
+  const scheduleInitializedRef = useRef(false);
+  const supportedTimeZones = useMemo(() => getSupportedTimeZones(), []);
+  const [youtubeLanguages, setYoutubeLanguages] = useState<Array<{ id: string; name: string }>>([]);
+  const [youtubeCategories, setYoutubeCategories] = useState<Array<{ id: string; title: string }>>(
+    []
+  );
+  const [youtubeAccountDefaults, setYoutubeAccountDefaults] = useState<
+    YouTubeAccountDefaults | undefined
+  >();
   const [uploadFieldErrors, setUploadFieldErrors] = useState<Set<DraftUploadFieldKey>>(new Set());
   const [sermonEventTypes, setSermonEventTypes] = useState<string[] | null>(null);
   const [sermonEventTypesLoadFailed, setSermonEventTypesLoadFailed] = useState(false);
@@ -814,6 +876,63 @@ export function DraftMetadataModal({
   }, [draftId, initialConnectionsResolved]);
 
   useEffect(() => {
+    setYoutubeLanguages([]);
+    setYoutubeCategories([]);
+    setYoutubeAccountDefaults(undefined);
+  }, [draftId]);
+
+  useEffect(() => {
+    if (!value?.targets.includes('youtube')) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadYouTubeMetadataOptions = async () => {
+      try {
+        const [languagesResponse, categoriesResponse, accountDefaultsResponse] = await Promise.all([
+          fetch('/api/platforms/youtube/languages', { cache: 'no-store' }),
+          fetch('/api/platforms/youtube/categories', { cache: 'no-store' }),
+          fetch('/api/platforms/youtube/account-defaults', { cache: 'no-store' }),
+        ]);
+
+        if (languagesResponse.ok) {
+          const payload = (await languagesResponse.json()) as ApiResponse<
+            Array<{ id: string; name: string }>
+          >;
+          if (!cancelled && Array.isArray(payload.data)) {
+            setYoutubeLanguages(payload.data);
+          }
+        }
+
+        if (categoriesResponse.ok) {
+          const payload = (await categoriesResponse.json()) as ApiResponse<
+            Array<{ id: string; title: string }>
+          >;
+          if (!cancelled && Array.isArray(payload.data)) {
+            setYoutubeCategories(payload.data);
+          }
+        }
+
+        if (accountDefaultsResponse.ok) {
+          const payload =
+            (await accountDefaultsResponse.json()) as ApiResponse<YouTubeAccountDefaults>;
+          if (!cancelled && payload.data) {
+            setYoutubeAccountDefaults(payload.data);
+          }
+        }
+      } catch {
+        // Language/category/account-default lists are optional for editing.
+      }
+    };
+
+    void loadYouTubeMetadataOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [draftId, value?.targets]);
+
+  useEffect(() => {
     if (!value) {
       abortThumbnailUploadFlow();
       setThumbnailUploading(false);
@@ -956,8 +1075,10 @@ export function DraftMetadataModal({
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
 
   const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
+  const showYouTubeFields = value?.targets.includes('youtube') ?? false;
   const showDraftThumbnailUpload = value != null && showDraftThumbnailUploadSection(value.targets);
   const sermonAudioFields = value?.platforms.sermon_audio;
+  const youtubeFields = value?.platforms.youtube;
   const sermonAudioEffectiveTitleText = value
     ? sermonAudioEffectiveTitle(value, showPerPlatformTitle)
     : '';
@@ -1113,6 +1234,133 @@ export function DraftMetadataModal({
         },
       },
     });
+  };
+
+  const updateYouTubeFields = useCallback(
+    (patch: Partial<YouTubeDraftFields>) => {
+      if (!value) return;
+      const current: Record<string, unknown> = { ...(value.platforms.youtube ?? {}) };
+      for (const [key, fieldValue] of Object.entries(patch)) {
+        if (fieldValue === undefined) {
+          delete current[key];
+        } else {
+          current[key] = fieldValue;
+        }
+      }
+      onChange({
+        ...value,
+        platforms: {
+          ...value.platforms,
+          youtube: Object.keys(current).length > 0 ? (current as YouTubeDraftFields) : undefined,
+        },
+      });
+    },
+    [onChange, value]
+  );
+
+  const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
+  const youtubeAgeRestrictedValue = youtubeFields?.ageRestricted;
+  const youtubeDefaultLanguageValue =
+    youtubeFields?.defaultLanguage ?? youtubeAccountDefaults?.defaultLanguage;
+  const youtubeCaptionCertificationValue = youtubeFields?.captionCertification;
+  const youtubeTitleDescriptionLanguageValue =
+    youtubeFields?.titleDescriptionLanguage ?? youtubeAccountDefaults?.titleDescriptionLanguage;
+  const youtubeRecordingDateValue =
+    youtubeFields?.recordingDate ?? value?.$createdAt?.slice(0, 10) ?? '';
+  const youtubeLicenseValue = youtubeFields?.license ?? youtubeAccountDefaults?.license;
+  const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
+  const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
+  const youtubeCommentsVisibilityValue = youtubeFields?.commentsVisibility;
+  const youtubeCommentSortOrderValue = youtubeFields?.commentSortOrder;
+  const youtubePublicStatsViewableValue =
+    youtubeFields?.publicStatsViewable ?? youtubeAccountDefaults?.publicStatsViewable;
+  const youtubeLanguageOptions = useMemo(
+    () => youtubeLanguages.map((language) => ({ value: language.id, label: language.name })),
+    [youtubeLanguages]
+  );
+  const youtubeCategoryOptions = useMemo(
+    () => youtubeCategories.map((category) => ({ value: category.id, label: category.title })),
+    [youtubeCategories]
+  );
+  const youtubeIsPremiereValue = youtubeFields?.isPremiere ?? false;
+  const youtubePublishAtValue = youtubeFields?.publishAt;
+  const youtubeSchedulePastWarning =
+    youtubePublishAtValue !== undefined && isPublishAtInPast(youtubePublishAtValue);
+  const youtubePremiereScheduleHint =
+    youtubeIsPremiereValue && (youtubePublishAtValue ?? '').trim() === '';
+  const youtubePlaylistId = youtubeFields?.playlistIds?.[0];
+  const youtubePlaylistTitle =
+    youtubePlaylistId === undefined ? youtubeFields?.playlistTitles?.[0] : undefined;
+
+  useEffect(() => {
+    scheduleInitializedRef.current = false;
+    setScheduleExpanded(false);
+    setScheduleDate('');
+    setScheduleTime('');
+    setScheduleTimeZone('');
+  }, [draftId]);
+
+  useEffect(() => {
+    if (!value || !showMoreExpanded || !scheduleExpanded) return;
+    if (!scheduleDate || !scheduleTime || !scheduleTimeZone) return;
+
+    let iso: string;
+    try {
+      iso = zonedDateTimeToUtcIso(scheduleDate, scheduleTime, scheduleTimeZone);
+    } catch {
+      return;
+    }
+
+    if (value.platforms.youtube?.publishAt === iso) return;
+    updateYouTubeFields({ publishAt: iso });
+  }, [
+    scheduleDate,
+    scheduleExpanded,
+    scheduleTime,
+    scheduleTimeZone,
+    showMoreExpanded,
+    updateYouTubeFields,
+    value,
+  ]);
+
+  const handleScheduleExpandedChange = (nextExpanded: boolean) => {
+    if (nextExpanded) {
+      if (!scheduleInitializedRef.current) {
+        const tz = getLocalTimeZone();
+        const existingPublishAt = value?.platforms.youtube?.publishAt;
+        if (existingPublishAt) {
+          const parts = utcIsoToZonedScheduleParts(existingPublishAt, tz);
+          if (parts) {
+            setScheduleDate(parts.dateStr);
+            setScheduleTime(parts.timeStr);
+            setScheduleTimeZone(tz);
+          } else {
+            setScheduleDate(getDefaultScheduleDate(tz));
+            setScheduleTime(getDefaultScheduleTime());
+            setScheduleTimeZone(tz);
+          }
+        } else {
+          setScheduleDate(getDefaultScheduleDate(tz));
+          setScheduleTime(getDefaultScheduleTime());
+          setScheduleTimeZone(tz);
+        }
+        scheduleInitializedRef.current = true;
+      }
+      setScheduleExpanded(true);
+      return;
+    }
+
+    setScheduleExpanded(false);
+    updateYouTubeFields({ publishAt: undefined });
+  };
+
+  const clearSchedule = () => {
+    setScheduleExpanded(false);
+    scheduleInitializedRef.current = false;
+    setScheduleDate('');
+    setScheduleTime('');
+    setScheduleTimeZone('');
+    updateYouTubeFields({ publishAt: undefined });
   };
 
   const commitTagsFromInput = useCallback(() => {
@@ -2506,6 +2754,540 @@ export function DraftMetadataModal({
                       }.`}
               </p>
             </div>
+            {showYouTubeFields ? (
+              <div className="space-y-4 border-t border-border pt-4">
+                <p className="text-sm font-medium text-foreground">
+                  {platformLabel('youtube')} fields
+                </p>
+                <div>
+                  <label
+                    htmlFor="draft-youtube-playlist"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Playlist ({platformLabel('youtube')})
+                  </label>
+                  <YouTubePlaylistCombobox
+                    id="draft-youtube-playlist"
+                    playlistId={youtubePlaylistId}
+                    playlistTitle={youtubePlaylistTitle}
+                    onPlaylistChange={(next) => {
+                      updateYouTubeFields({
+                        playlistIds: next.playlistId ? [next.playlistId] : [],
+                        playlistTitles: next.playlistTitle ? [next.playlistTitle] : [],
+                      });
+                    }}
+                    className={fieldBorderClass('youtube.playlistIds')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setAgeRestrictionsExpanded((prev) => !prev)}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
+                    aria-expanded={ageRestrictionsExpanded}
+                  >
+                    {ageRestrictionsExpanded ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                    Age restrictions
+                  </button>
+                  {ageRestrictionsExpanded ? (
+                    <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-3">
+                      <fieldset className="space-y-2">
+                        <legend className="text-sm font-medium text-foreground">
+                          Made for kids
+                        </legend>
+                        <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                          <input
+                            type="radio"
+                            name="draft-youtube-made-for-kids"
+                            className="mt-1"
+                            checked={youtubeMadeForKidsValue === true}
+                            onChange={() => updateYouTubeFields({ madeForKids: true })}
+                          />
+                          <span>Yes, it&apos;s made for kids.</span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                          <input
+                            type="radio"
+                            name="draft-youtube-made-for-kids"
+                            className="mt-1"
+                            checked={youtubeMadeForKidsValue === false}
+                            onChange={() => updateYouTubeFields({ madeForKids: false })}
+                          />
+                          <span>No, it&apos;s not made for kids.</span>
+                        </label>
+                      </fieldset>
+                      <fieldset className="space-y-2">
+                        <legend className="text-sm font-medium text-foreground">
+                          Age restriction (18+)
+                        </legend>
+                        <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                          <input
+                            type="radio"
+                            name="draft-youtube-age-restricted"
+                            className="mt-1"
+                            checked={youtubeAgeRestrictedValue === true}
+                            onChange={() => updateYouTubeFields({ ageRestricted: true })}
+                          />
+                          <span className="min-w-0 flex-1">
+                            Yes, restrict my video to viewers over 18.
+                            <YouTubeStudioNote />
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                          <input
+                            type="radio"
+                            name="draft-youtube-age-restricted"
+                            className="mt-1"
+                            checked={youtubeAgeRestrictedValue === false}
+                            onChange={() => updateYouTubeFields({ ageRestricted: false })}
+                          />
+                          <span>No, don&apos;t restrict my video to viewers over 18 only.</span>
+                        </label>
+                      </fieldset>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowMoreExpanded((prev) => !prev)}
+                    className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
+                    aria-expanded={showMoreExpanded}
+                  >
+                    {showMoreExpanded ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                    Show more
+                  </button>
+                  {showMoreExpanded ? (
+                    <div className="space-y-6 rounded-lg border border-border bg-muted/20 p-3">
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-foreground">
+                          Language and captions certification
+                        </p>
+                        <div>
+                          <label
+                            htmlFor="draft-youtube-video-language"
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Video language
+                          </label>
+                          <YouTubeSearchableSelect
+                            id="draft-youtube-video-language"
+                            value={youtubeDefaultLanguageValue}
+                            placeholder="Select video language"
+                            options={youtubeLanguageOptions}
+                            onValueChange={(next) =>
+                              updateYouTubeFields({
+                                defaultLanguage: next,
+                              })
+                            }
+                            className={fieldBorderClass('youtube.defaultLanguage')}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="draft-youtube-caption-certification"
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Caption certification
+                          </label>
+                          <Select
+                            value={youtubeCaptionCertificationValue}
+                            onValueChange={(next) =>
+                              updateYouTubeFields({ captionCertification: next })
+                            }
+                          >
+                            <SelectTrigger
+                              id="draft-youtube-caption-certification"
+                              className={cn(
+                                fieldBorderClass('youtube.captionCertification'),
+                                'mt-1 flex h-10 items-center justify-between text-left'
+                              )}
+                            >
+                              <SelectValue placeholder="Select caption certification" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {YOUTUBE_CAPTION_CERTIFICATION_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <YouTubeStudioNote />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="draft-youtube-title-description-language"
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Title and description language
+                          </label>
+                          <YouTubeSearchableSelect
+                            id="draft-youtube-title-description-language"
+                            value={youtubeTitleDescriptionLanguageValue}
+                            placeholder="Select title and description language"
+                            options={youtubeLanguageOptions}
+                            onValueChange={(next) =>
+                              updateYouTubeFields({
+                                titleDescriptionLanguage: next,
+                              })
+                            }
+                            className={fieldBorderClass('youtube.titleDescriptionLanguage')}
+                          />
+                          <YouTubeStudioNote />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-foreground">
+                          Recording date and location
+                        </p>
+                        <div>
+                          <label
+                            htmlFor="draft-youtube-recording-date"
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Recording date
+                          </label>
+                          <input
+                            id="draft-youtube-recording-date"
+                            type="date"
+                            value={youtubeRecordingDateValue}
+                            onChange={(event) =>
+                              updateYouTubeFields({
+                                recordingDate: event.target.value || undefined,
+                              })
+                            }
+                            className={fieldBorderClass('youtube.recordingDate')}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="draft-youtube-recording-location"
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Video location
+                          </label>
+                          <div className="mt-1 flex gap-2">
+                            <input
+                              id="draft-youtube-recording-location"
+                              type="text"
+                              maxLength={100}
+                              placeholder="Add location"
+                              value={youtubeFields?.recordingLocationDescription ?? ''}
+                              onChange={(event) =>
+                                updateYouTubeFields({
+                                  recordingLocationDescription:
+                                    event.target.value.trim() === ''
+                                      ? undefined
+                                      : event.target.value,
+                                })
+                              }
+                              className={cn(
+                                fieldBorderClass('youtube.recordingLocationDescription'),
+                                'flex-1'
+                              )}
+                            />
+                            {(youtubeFields?.recordingLocationDescription ?? '').length > 0 ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted"
+                                onClick={() =>
+                                  updateYouTubeFields({ recordingLocationDescription: undefined })
+                                }
+                              >
+                                Clear
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-foreground">License</p>
+                        <Select
+                          value={youtubeLicenseValue}
+                          onValueChange={(next) =>
+                            updateYouTubeFields({
+                              license: next as YouTubeDraftFields['license'],
+                            })
+                          }
+                        >
+                          <SelectTrigger
+                            id="draft-youtube-license"
+                            className={cn(
+                              fieldBorderClass('youtube.license'),
+                              'flex h-10 items-center justify-between text-left'
+                            )}
+                          >
+                            <SelectValue placeholder="Select license" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {YOUTUBE_LICENSE_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={youtubeEmbeddableValue ?? false}
+                            onChange={(event) =>
+                              updateYouTubeFields({ embeddable: event.target.checked })
+                            }
+                          />
+                          <span>Allow embedding</span>
+                        </label>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="draft-youtube-category"
+                          className="text-sm font-medium text-foreground"
+                        >
+                          Category
+                        </label>
+                        <YouTubeSearchableSelect
+                          id="draft-youtube-category"
+                          value={youtubeCategoryIdValue}
+                          placeholder="Select category"
+                          options={youtubeCategoryOptions}
+                          onValueChange={(next) =>
+                            updateYouTubeFields({ categoryId: next ?? undefined })
+                          }
+                          className={fieldBorderClass('youtube.categoryId')}
+                        />
+                      </div>
+
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium text-foreground">Comments and ratings</p>
+                        <div>
+                          <label
+                            htmlFor="draft-youtube-comments-visibility"
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Comments
+                          </label>
+                          <Select
+                            value={youtubeCommentsVisibilityValue}
+                            onValueChange={(next) =>
+                              updateYouTubeFields({
+                                commentsVisibility:
+                                  next as YouTubeDraftFields['commentsVisibility'],
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              id="draft-youtube-comments-visibility"
+                              className={cn(
+                                fieldBorderClass('youtube.commentsVisibility'),
+                                'mt-1 flex h-10 items-center justify-between text-left'
+                              )}
+                            >
+                              <SelectValue placeholder="Select comments setting" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {YOUTUBE_COMMENTS_VISIBILITY_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label
+                            htmlFor="draft-youtube-comment-sort"
+                            className="text-xs font-medium text-muted-foreground"
+                          >
+                            Sort by
+                          </label>
+                          <Select
+                            value={youtubeCommentSortOrderValue}
+                            onValueChange={(next) =>
+                              updateYouTubeFields({
+                                commentSortOrder: next as YouTubeDraftFields['commentSortOrder'],
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              id="draft-youtube-comment-sort"
+                              className={cn(
+                                fieldBorderClass('youtube.commentSortOrder'),
+                                'mt-1 flex h-10 items-center justify-between text-left'
+                              )}
+                            >
+                              <SelectValue placeholder="Select comment sort order" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {YOUTUBE_COMMENT_SORT_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <YouTubeStudioNote />
+                        <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={youtubePublicStatsViewableValue ?? false}
+                            onChange={(event) =>
+                              updateYouTubeFields({ publicStatsViewable: event.target.checked })
+                            }
+                          />
+                          <span>Show how many viewers like this video</span>
+                        </label>
+                      </div>
+
+                      <div className="space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => handleScheduleExpandedChange(!scheduleExpanded)}
+                          className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
+                          aria-expanded={scheduleExpanded}
+                        >
+                          {scheduleExpanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          Schedule
+                        </button>
+                        {scheduleExpanded ? (
+                          <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Schedule</p>
+                              <p className="text-xs text-muted-foreground">Schedule as public</p>
+                            </div>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                              <div className="min-w-0 flex-1">
+                                <label
+                                  htmlFor="draft-youtube-schedule-date"
+                                  className="text-xs font-medium text-muted-foreground"
+                                >
+                                  Date
+                                </label>
+                                <input
+                                  id="draft-youtube-schedule-date"
+                                  type="date"
+                                  value={scheduleDate}
+                                  onChange={(event) => {
+                                    const nextDate = event.target.value;
+                                    setScheduleDate(nextDate);
+                                    if (!nextDate) {
+                                      updateYouTubeFields({ publishAt: undefined });
+                                    }
+                                  }}
+                                  className={cn(
+                                    fieldBorderClass('youtube.publishAt'),
+                                    'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
+                                  )}
+                                />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <label
+                                  htmlFor="draft-youtube-schedule-time"
+                                  className="text-xs font-medium text-muted-foreground"
+                                >
+                                  Time
+                                </label>
+                                <Select
+                                  value={scheduleTime}
+                                  onValueChange={(next) => setScheduleTime(next)}
+                                >
+                                  <SelectTrigger
+                                    id="draft-youtube-schedule-time"
+                                    className={cn(
+                                      fieldBorderClass('youtube.publishAt'),
+                                      'mt-1 flex h-10 items-center justify-between text-left'
+                                    )}
+                                  >
+                                    <SelectValue placeholder="Select time" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
+                                      <SelectItem key={timeOption} value={timeOption}>
+                                        {timeOption}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <label
+                                  htmlFor="draft-youtube-schedule-timezone"
+                                  className="text-xs font-medium text-muted-foreground"
+                                >
+                                  Timezone
+                                </label>
+                                <YouTubeTimezoneSelect
+                                  id="draft-youtube-schedule-timezone"
+                                  value={scheduleTimeZone}
+                                  options={supportedTimeZones}
+                                  onValueChange={(next) => setScheduleTimeZone(next)}
+                                  className={cn(
+                                    fieldBorderClass('youtube.publishAt'),
+                                    'mt-1 w-full rounded-md border bg-background px-3'
+                                  )}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={clearSchedule}
+                                className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                              >
+                                Clear schedule
+                              </button>
+                              {youtubeSchedulePastWarning ? (
+                                <p className="text-sm text-amber-600 dark:text-amber-400">
+                                  Scheduled time is in the past. The video may publish immediately.
+                                </p>
+                              ) : null}
+                            </div>
+                            <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                              <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={youtubeIsPremiereValue}
+                                onChange={(event) =>
+                                  updateYouTubeFields({ isPremiere: event.target.checked })
+                                }
+                              />
+                              <span>Set as Premiere</span>
+                            </label>
+                            {youtubeIsPremiereValue ? (
+                              <p className="text-sm text-muted-foreground">
+                                After upload, go to YouTube Studio → Content → select your video →
+                                Edit → enable Premiere.
+                              </p>
+                            ) : null}
+                            {youtubePremiereScheduleHint ? (
+                              <p className="text-sm text-destructive">
+                                Set a schedule date and time to use Premiere.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {showSermonAudioFields ? (
               <div className="space-y-4 border-t border-border pt-4">
                 <p className="text-sm font-medium text-foreground">

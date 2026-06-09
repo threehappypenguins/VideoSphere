@@ -31,7 +31,9 @@ interface GoogleRefreshTokenResponse {
 }
 
 const YOUTUBE_RESUMABLE_URL =
-  'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+  'https://www.googleapis.com/upload/youtube/v3/videos' +
+  '?uploadType=resumable' +
+  '&part=snippet,status,recordingDetails';
 const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
 
@@ -130,7 +132,14 @@ function uniqueTrimmedPlaylistIds(ids: string[]): string[] {
   return out;
 }
 
-async function youtubeFetchPlaylistsPage(
+/**
+ * Fetches one page of the authenticated user's YouTube playlists (`playlists.list`).
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param pageToken - Optional pagination token from a prior response.
+ * @param signal - Optional abort signal.
+ * @returns Playlist id/title rows for the page, or a structured failure.
+ */
+export async function youtubeFetchPlaylistsPage(
   accessToken: string,
   pageToken?: string,
   signal?: AbortSignal
@@ -172,6 +181,30 @@ async function youtubeFetchPlaylistsPage(
     }))
     .filter((it) => it.id.length > 0);
   return { ok: true, items, nextPageToken: body.nextPageToken };
+}
+
+/**
+ * Paginates through all of the authenticated user's YouTube playlists.
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param signal - Optional abort signal.
+ * @returns Full playlist id/title list, or a structured failure from any page.
+ */
+export async function fetchAllYouTubePlaylists(
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; items: Array<{ id: string; title: string }> } | PlatformUploadFailure> {
+  const items: Array<{ id: string; title: string }> = [];
+  let pageToken: string | undefined;
+
+  for (;;) {
+    const page = await youtubeFetchPlaylistsPage(accessToken, pageToken, signal);
+    if (page.ok === false) return page;
+    items.push(...page.items);
+    if (!page.nextPageToken) break;
+    pageToken = page.nextPageToken;
+  }
+
+  return { ok: true, items };
 }
 
 async function findYouTubePlaylistIdByTitle(
@@ -724,9 +757,16 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     if (m.embeddable !== undefined) status.embeddable = m.embeddable;
     if (m.license !== undefined) status.license = m.license;
     if (m.publicStatsViewable !== undefined) status.publicStatsViewable = m.publicStatsViewable;
-    if (m.publishAt?.trim()) status.publishAt = m.publishAt.trim();
-    if (m.containsSyntheticMedia !== undefined) {
-      status.containsSyntheticMedia = m.containsSyntheticMedia;
+    if (m.publishAt?.trim()) {
+      status.publishAt = m.publishAt.trim();
+      // YouTube Data API: publishAt may only be set when privacyStatus is private
+      // (scheduled publish from private; see video resource status.publishAt).
+      status.privacyStatus = 'private';
+    }
+    const recordingDetails: Record<string, unknown> = {};
+    if (m.recordingDate?.trim()) recordingDetails.recordingDate = m.recordingDate.trim();
+    if (m.recordingLocationDescription?.trim()) {
+      recordingDetails.locationDescription = m.recordingLocationDescription.trim();
     }
 
     const initResponse = await fetch(YOUTUBE_RESUMABLE_URL, {
@@ -739,7 +779,11 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
           ? { 'X-Upload-Content-Length': String(videoSource.contentLength) }
           : {}),
       },
-      body: JSON.stringify({ snippet, status }),
+      body: JSON.stringify({
+        snippet,
+        status,
+        ...(Object.keys(recordingDetails).length > 0 && { recordingDetails }),
+      }),
       ...(signal ? { signal } : {}),
     });
 

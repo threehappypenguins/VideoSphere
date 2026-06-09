@@ -32,7 +32,6 @@ export interface YoutubeSpecificUploadMetadata {
   license?: 'youtube' | 'creativeCommon';
   publicStatsViewable?: boolean;
   publishAt?: string;
-  containsSyntheticMedia?: boolean;
   playlistIds?: string[];
   /**
    * Resolved with `playlists.list` then `playlists.insert` if no title match, then `playlistItems.insert`
@@ -40,6 +39,10 @@ export interface YoutubeSpecificUploadMetadata {
    * New playlists use the video’s `privacyStatus`.
    */
   playlistTitles?: string[];
+  /** Sent to `recordingDetails.recordingDate` (RFC 3339 full-date). */
+  recordingDate?: string;
+  /** Sent to `recordingDetails.locationDescription` (plain string, max ~100 chars). */
+  recordingLocationDescription?: string;
 }
 
 /** Vimeo API upload–specific fields (omit unused keys for YouTube-only jobs). */

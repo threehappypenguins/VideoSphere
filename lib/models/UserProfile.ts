@@ -1,5 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
-import type { UserAuthProvider, UserRole } from '@/types';
+import type { PlatformDefaults, UserAuthProvider, UserRole } from '@/types';
 
 /**
  * Raw MongoDB document shape for the `user_profiles` collection.
@@ -20,6 +20,8 @@ export interface UserProfileDocument {
   totpSecret?: string;
   /** Whether TOTP second factor is required at login. */
   totpEnabled: boolean;
+  /** Per-platform upload default settings for new drafts. */
+  platformDefaults?: PlatformDefaults;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,6 +44,7 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
     googleRefreshToken: { type: String, required: false },
     totpSecret: { type: String, required: false },
     totpEnabled: { type: Boolean, default: false },
+    platformDefaults: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );
