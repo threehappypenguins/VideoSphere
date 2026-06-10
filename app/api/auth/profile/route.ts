@@ -96,7 +96,9 @@ export async function PATCH(req: NextRequest) {
     } = {};
 
     if (platformDefaultsResult.youtube !== undefined) {
-      updateData.platformDefaultsYoutube = platformDefaultsResult.youtube;
+      if (Object.keys(platformDefaultsResult.youtube).length > 0) {
+        updateData.platformDefaultsYoutube = platformDefaultsResult.youtube;
+      }
     }
 
     if (hasName) {
@@ -149,6 +151,19 @@ export async function PATCH(req: NextRequest) {
       }
 
       updateData.email = normalizedEmail;
+    }
+
+    const hasUpdatableFields =
+      updateData.name !== undefined ||
+      updateData.email !== undefined ||
+      (updateData.platformDefaultsYoutube !== undefined &&
+        Object.keys(updateData.platformDefaultsYoutube).length > 0);
+
+    if (!hasUpdatableFields) {
+      return NextResponse.json(
+        { error: 'No updatable profile fields were provided.' },
+        { status: 400 }
+      );
     }
 
     const updatedUser = await updateUser(userId, updateData);

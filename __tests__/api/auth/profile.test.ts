@@ -304,6 +304,26 @@ describe('PATCH /api/auth/profile', () => {
     expect(await res.json()).toEqual({ error: 'Internal server error' });
   });
 
+  it('returns 400 when platformDefaults is an empty object', async () => {
+    const res = await PATCH(makePatchRequest({ platformDefaults: {} }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'No updatable profile fields were provided.',
+    });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when platformDefaults.youtube is an empty object', async () => {
+    const res = await PATCH(makePatchRequest({ platformDefaults: { youtube: {} } }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'No updatable profile fields were provided.',
+    });
+    expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
   it('saves and returns valid platformDefaults.youtube', async () => {
     const updatedUser = {
       ...BASE_USER,

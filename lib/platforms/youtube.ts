@@ -784,13 +784,15 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       ...(Object.keys(recordingDetails).length > 0 && { recordingDetails }),
     };
 
-    console.log(
-      '[youtube] Resumable upload init request',
-      JSON.stringify({
-        initUrl,
-        body: initBody,
-      })
-    );
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        '[youtube] Resumable upload init request',
+        JSON.stringify({
+          initUrl,
+          body: initBody,
+        })
+      );
+    }
 
     const initResponse = await fetch(initUrl, {
       method: 'POST',

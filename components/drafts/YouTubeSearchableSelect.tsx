@@ -97,7 +97,7 @@ export function YouTubeSearchableSelect({
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
       setPanelQuery('');
-      setHighlightedIndex(1 + options.length > 0 ? 0 : -1);
+      setHighlightedIndex(0);
     } else {
       setHighlightedIndex(-1);
     }
@@ -187,13 +187,8 @@ export function YouTubeSearchableSelect({
             ref={searchInputRef}
             value={panelQuery}
             onChange={(event) => {
-              const nextQuery = event.target.value;
-              setPanelQuery(nextQuery);
-              const trimmed = nextQuery.trim().toLowerCase();
-              const filtered = trimmed
-                ? options.filter((option) => option.label.toLowerCase().includes(trimmed))
-                : options;
-              setHighlightedIndex(1 + filtered.length > 0 ? 0 : -1);
+              setPanelQuery(event.target.value);
+              setHighlightedIndex(0);
             }}
             onKeyDown={handleSearchKeyDown}
             placeholder="Search…"

@@ -71,7 +71,6 @@ export function YouTubePlaylistCombobox({
   const noneOptionId = `${optionIdPrefix}-none`;
   const createOptionId = `${optionIdPrefix}-create`;
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const panelQueryRef = useRef('');
   const [open, setOpen] = useState(false);
   const [panelQuery, setPanelQuery] = useState('');
   const [playlists, setPlaylists] = useState<YouTubePlaylistOption[]>([]);
@@ -79,8 +78,6 @@ export function YouTubePlaylistCombobox({
   const [loadFailed, setLoadFailed] = useState(false);
   const [scopeWarning, setScopeWarning] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-
-  panelQueryRef.current = panelQuery;
 
   const selectedTitle = useMemo(() => {
     const customTitle = playlistTitle?.trim();
