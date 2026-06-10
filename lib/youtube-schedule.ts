@@ -10,10 +10,24 @@ export const YOUTUBE_SCHEDULE_TIME_OPTIONS: readonly string[] = Array.from(
 
 /**
  * Returns the browser's resolved IANA timezone name.
- * @returns IANA timezone identifier (e.g. `America/Halifax`).
+ * @returns IANA timezone identifier (e.g. `America/Halifax`), or `UTC` when unavailable.
  */
 export function getLocalTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+    return timeZone ? timeZone : 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * Minimal timezone list when {@link Intl.supportedValuesOf} is unavailable.
+ * @returns Local timezone and `UTC`, deduped and sorted.
+ */
+function getSupportedTimeZonesFallback(): string[] {
+  const zones = new Set<string>([getLocalTimeZone(), 'UTC']);
+  return [...zones].sort((left, right) => left.localeCompare(right));
 }
 
 /**
@@ -171,8 +185,21 @@ export function isPublishAtInPast(publishAt: string, now: Date = new Date()): bo
 
 /**
  * Returns all IANA timezone names supported by the current runtime.
- * @returns Sorted timezone identifiers from `Intl.supportedValuesOf('timeZone')`.
+ * Falls back to the local timezone and `UTC` when `Intl.supportedValuesOf` is unavailable.
+ * @returns Sorted timezone identifiers.
  */
 export function getSupportedTimeZones(): string[] {
-  return [...Intl.supportedValuesOf('timeZone')].sort((left, right) => left.localeCompare(right));
+  const supportedValuesOf = (
+    Intl as typeof Intl & { supportedValuesOf?: (key: string) => Iterable<string> }
+  ).supportedValuesOf;
+
+  if (typeof supportedValuesOf !== 'function') {
+    return getSupportedTimeZonesFallback();
+  }
+
+  try {
+    return [...supportedValuesOf('timeZone')].sort((left, right) => left.localeCompare(right));
+  } catch {
+    return getSupportedTimeZonesFallback();
+  }
 }
