@@ -990,10 +990,7 @@ describe('DraftMetadataModal YouTube fields', () => {
     render(
       <DraftMetadataModal
         mode="edit"
-        value={{
-          ...youtubeDraftValue,
-          $createdAt: '2025-06-08T15:30:00.000Z',
-        }}
+        value={youtubeDraftValue}
         initialConnectedPlatforms={['youtube']}
         initialConnectionsResolved
         isSaving={false}

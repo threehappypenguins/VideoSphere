@@ -50,7 +50,6 @@ function createEditorValues(draft: Draft): DraftEditorValues {
     visibility: draft.visibility,
     targets: [...draft.targets],
     platforms: draft.platforms ?? {},
-    $createdAt: draft.$createdAt,
     ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
     ...(draft.thumbnailContentType ? { thumbnailContentType: draft.thumbnailContentType } : {}),
     ...(draft.thumbnailPreviewUrl ? { thumbnailPreviewUrl: draft.thumbnailPreviewUrl } : {}),
@@ -66,7 +65,6 @@ function createNewEditorValues(): DraftEditorValues {
     visibility: 'public',
     targets: [],
     platforms: {},
-    $createdAt: new Date().toISOString(),
   };
 }
 

@@ -121,8 +121,6 @@ export interface DraftEditorValues {
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
   thumbnailPreviewUrl?: string;
-  /** Draft creation timestamp (ISO 8601); used for YouTube recording date default in the editor. */
-  $createdAt?: string;
 }
 
 const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> = [

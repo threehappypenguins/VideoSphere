@@ -127,13 +127,6 @@ function trimStr(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
 }
 
-function parseCoordinate(v: unknown, min: number, max: number): number | undefined {
-  if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) {
-    return undefined;
-  }
-  return v;
-}
-
 function stringList(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out = v

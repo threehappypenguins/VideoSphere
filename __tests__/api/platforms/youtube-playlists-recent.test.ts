@@ -97,22 +97,14 @@ describe('GET /api/platforms/youtube/playlists/recent', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('paginates through all playlist pages and returns id/title rows', async () => {
+  it('returns only the first playlists.list page (does not paginate)', async () => {
     vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-
-      if (url.includes('pageToken=page-2')) {
-        return new Response(
-          JSON.stringify({
-            items: [{ id: 'PL3', snippet: { title: 'Third Playlist' } }],
-          }),
-          { status: 200 }
-        );
-      }
 
       if (url.includes('/youtube/v3/playlists')) {
         expect(url).toContain('mine=true');
         expect(url).toContain('maxResults=50');
+        expect(url).not.toContain('pageToken=');
         return new Response(
           JSON.stringify({
             items: [
@@ -135,10 +127,9 @@ describe('GET /api/platforms/youtube/playlists/recent', () => {
       data: [
         { id: 'PL1', title: 'First Playlist' },
         { id: 'PL2', title: 'Second Playlist' },
-        { id: 'PL3', title: 'Third Playlist' },
       ],
     });
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(vi.mocked(global.fetch).mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
         headers: { Authorization: 'Bearer yt-access-token' },

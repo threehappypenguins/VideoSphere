@@ -121,14 +121,63 @@ export function parseYouTubeUserDefaults(
 }
 
 /**
+ * Picks recognized YouTube default fields with valid types from a stored sub-document.
+ * Unknown keys and invalid values are dropped (legacy/tampered Mongo data).
+ * @param value - Raw `platformDefaults.youtube` value from MongoDB.
+ * @returns Sanitized defaults, or undefined when no valid fields remain.
+ */
+function normalizeStoredYouTubeUserDefaults(value: unknown): YouTubeUserDefaults | undefined {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const out: Partial<YouTubeUserDefaults> = {};
+
+  if (typeof value.madeForKids === 'boolean') {
+    out.madeForKids = value.madeForKids;
+  }
+
+  if (typeof value.embeddable === 'boolean') {
+    out.embeddable = value.embeddable;
+  }
+
+  if (typeof value.defaultAudioLanguage === 'string') {
+    const trimmed = value.defaultAudioLanguage.trim();
+    if (trimmed !== '') {
+      out.defaultAudioLanguage = trimmed;
+    }
+  }
+
+  if (typeof value.categoryId === 'string') {
+    const trimmed = value.categoryId.trim();
+    if (trimmed !== '') {
+      out.categoryId = trimmed;
+    }
+  }
+
+  if (typeof value.license === 'string' && LICENSE_VALUES.has(value.license)) {
+    out.license = value.license as YouTubeUserDefaults['license'];
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
  * Normalizes a stored `platformDefaults` document for API responses.
  * @param value - Raw Mongo sub-document.
- * @returns Typed platform defaults when present; otherwise undefined.
+ * @returns Typed platform defaults when at least one valid field is present; otherwise undefined.
  */
 export function normalizeStoredPlatformDefaults(value: unknown): PlatformDefaults | undefined {
   if (!isPlainObject(value)) {
     return undefined;
   }
 
-  return value as PlatformDefaults;
+  const youtube =
+    value.youtube !== undefined ? normalizeStoredYouTubeUserDefaults(value.youtube) : undefined;
+
+  if (youtube === undefined) {
+    return undefined;
+  }
+
+  return { youtube };
 }

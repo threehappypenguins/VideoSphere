@@ -3,11 +3,12 @@ import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
 } from '@/lib/platforms/youtube-api';
-import { fetchAllYouTubePlaylists } from '@/lib/platforms/youtube';
+import { youtubeFetchPlaylistsPage } from '@/lib/platforms/youtube';
 import type { ApiError, ApiResponse } from '@/types';
 
 /**
- * Returns all of the authenticated user's YouTube playlists (`playlists.list`, paginated).
+ * Returns the first page of the authenticated user's YouTube playlists (`playlists.list`, up to 50).
+ * Used by the draft playlist picker; upload-time title resolution paginates separately when needed.
  * @param req - Incoming GET request.
  * @returns JSON list of playlist id/title pairs, or a structured error.
  */
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await fetchAllYouTubePlaylists(connection.accessToken, req.signal);
+    const result = await youtubeFetchPlaylistsPage(connection.accessToken, undefined, req.signal);
     if (result.ok === false) {
       return youtubeUpstreamErrorResponse(
         result.error.details ?? result.error.message ?? 'Failed to list YouTube playlists.'
