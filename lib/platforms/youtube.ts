@@ -784,7 +784,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       ...(Object.keys(recordingDetails).length > 0 && { recordingDetails }),
     };
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'development' || process.env.YOUTUBE_DEBUG_UPLOAD === '1') {
       console.log(
         '[youtube] Resumable upload init request',
         JSON.stringify({
