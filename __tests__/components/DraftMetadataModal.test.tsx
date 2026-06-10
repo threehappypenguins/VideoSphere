@@ -448,13 +448,31 @@ describe('DraftMetadataModal YouTube fields', () => {
     platforms: {},
   };
 
+  const originalSupportedValuesOf = (
+    Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
+  ).supportedValuesOf;
+
+  function mockTimeZoneSupportedValuesOf(key: string): string[] {
+    if (key === 'timeZone') {
+      return ['America/Halifax', 'America/New_York', 'UTC'];
+    }
+    throw new Error(`Unsupported Intl.supportedValuesOf key: ${key}`);
+  }
+
+  function installSupportedValuesOfMock(): void {
+    const mock = mockTimeZoneSupportedValuesOf as typeof Intl.supportedValuesOf;
+    if (typeof originalSupportedValuesOf === 'function') {
+      vi.spyOn(Intl, 'supportedValuesOf').mockImplementation(mock);
+      return;
+    }
+
+    (
+      Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
+    ).supportedValuesOf = mock;
+  }
+
   beforeEach(() => {
-    vi.spyOn(Intl, 'supportedValuesOf').mockImplementation((key: string) => {
-      if (key === 'timeZone') {
-        return ['America/Halifax', 'America/New_York', 'UTC'];
-      }
-      throw new Error(`Unsupported Intl.supportedValuesOf key: ${key}`);
-    });
+    installSupportedValuesOfMock();
 
     vi.stubGlobal(
       'fetch',
@@ -512,6 +530,10 @@ describe('DraftMetadataModal YouTube fields', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    if (originalSupportedValuesOf === undefined) {
+      delete (Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf })
+        .supportedValuesOf;
+    }
   });
 
   it('renders the playlist combobox when YouTube is an active target', async () => {

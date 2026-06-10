@@ -173,6 +173,37 @@ describe('users repository (mongo)', () => {
     expect(user.email).toBe('new@example.com');
   });
 
+  it('merges platformDefaults.youtube fields via dot-notation without a prior read', async () => {
+    const updatedDoc = {
+      ...baseDoc,
+      platformDefaults: {
+        youtube: {
+          categoryId: '22',
+          madeForKids: false,
+        },
+      },
+    };
+    mockFindByIdAndUpdate.mockReturnValueOnce(leanResult(updatedDoc));
+
+    const user = await updateUser('auth-user-1', {
+      platformDefaultsYoutube: {
+        categoryId: '22',
+        madeForKids: false,
+      },
+    });
+
+    expect(mockFindById).not.toHaveBeenCalled();
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
+      'auth-user-1',
+      {
+        'platformDefaults.youtube.categoryId': '22',
+        'platformDefaults.youtube.madeForKids': false,
+      },
+      expect.objectContaining({ returnDocument: 'after' })
+    );
+    expect(user.platformDefaults?.youtube?.categoryId).toBe('22');
+  });
+
   it('revokes stored Google refresh token for Google auth users', async () => {
     const encrypted = encryptToken('stored-refresh-token');
     mockFindById.mockReturnValueOnce({

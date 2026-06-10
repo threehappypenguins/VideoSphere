@@ -332,7 +332,7 @@ export interface UpdateUserData {
   role?: UserRole;
   name?: string;
   email?: string;
-  /** Shallow-merged into stored `platformDefaults.youtube` when provided. */
+  /** Fields shallow-merged into stored `platformDefaults.youtube` via dot-notation update. */
   platformDefaultsYoutube?: Partial<YouTubeUserDefaults>;
 }
 
@@ -363,12 +363,7 @@ export async function updateUserPasswordHash(userId: string, passwordHash: strin
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   await connectToDatabase();
 
-  const payload: Partial<
-    Pick<
-      UserProfileDocument,
-      'hasCompletedOnboarding' | 'role' | 'name' | 'email' | 'platformDefaults'
-    >
-  > = {};
+  const payload: Record<string, unknown> = {};
 
   if (data.hasCompletedOnboarding !== undefined) {
     payload.hasCompletedOnboarding = data.hasCompletedOnboarding;
@@ -384,23 +379,11 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
   }
 
   if (data.platformDefaultsYoutube !== undefined) {
-    const existing = await UserProfileModel.findById(userId)
-      .select({ platformDefaults: 1 })
-      .lean<Pick<UserProfileDocument, 'platformDefaults'> | null>();
-
-    if (!existing) {
-      const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
-      throw notFound;
+    for (const [key, value] of Object.entries(data.platformDefaultsYoutube)) {
+      if (value !== undefined) {
+        payload[`platformDefaults.youtube.${key}`] = value;
+      }
     }
-
-    const currentDefaults = normalizeStoredPlatformDefaults(existing.platformDefaults) ?? {};
-    payload.platformDefaults = {
-      ...currentDefaults,
-      youtube: {
-        ...currentDefaults.youtube,
-        ...data.platformDefaultsYoutube,
-      },
-    };
   }
 
   const updated = await UserProfileModel.findByIdAndUpdate(userId, payload, {
