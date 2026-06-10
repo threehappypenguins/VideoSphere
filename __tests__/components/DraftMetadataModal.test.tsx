@@ -715,6 +715,11 @@ describe('DraftMetadataModal YouTube fields', () => {
   });
 
   it('defaults the schedule date to today and time to the next whole hour', async () => {
+    const frozenNow = new Date('2025-06-08T15:30:00.000Z');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(frozenNow);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTimeAsync });
+
     render(
       <DraftMetadataModal
         mode="edit"
@@ -728,16 +733,19 @@ describe('DraftMetadataModal YouTube fields', () => {
       />
     );
 
-    await screen.findByRole('dialog');
-    await expandShowMore();
-    await expandSchedule();
+    try {
+      await screen.findByRole('dialog');
+      await user.click(screen.getByRole('button', { name: /^Show more$/i }));
+      await user.click(screen.getByRole('button', { name: /^Schedule$/i }));
 
-    const now = new Date();
-    const tz = getLocalTimeZone();
-    expect(screen.getByLabelText('Date')).toHaveValue(getDefaultScheduleDate(tz, now));
-    expect(document.getElementById('draft-youtube-schedule-time')).toHaveTextContent(
-      getDefaultScheduleTime(now)
-    );
+      const tz = getLocalTimeZone();
+      expect(screen.getByLabelText('Date')).toHaveValue(getDefaultScheduleDate(tz, frozenNow));
+      expect(document.getElementById('draft-youtube-schedule-time')).toHaveTextContent(
+        getDefaultScheduleTime(frozenNow)
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('defaults the timezone button to the local timezone and updates on selection', async () => {

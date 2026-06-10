@@ -84,7 +84,7 @@ export function YouTubePlaylistCombobox({
     if (customTitle) return customTitle;
     if (playlistId) {
       const match = playlists.find((playlist) => playlist.id === playlistId);
-      return match?.title ?? '';
+      return match?.title ?? playlistId;
     }
     return '';
   }, [playlistId, playlistTitle, playlists]);

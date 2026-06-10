@@ -13,6 +13,22 @@ describe('YouTubePlaylistCombobox', () => {
     vi.restoreAllMocks();
   });
 
+  it('shows playlist id when the playlist list has not loaded yet', () => {
+    render(
+      <YouTubePlaylistCombobox
+        id="yt-playlist"
+        playlistId="PL99"
+        onPlaylistChange={vi.fn()}
+        className="border"
+      />
+    );
+
+    const combobox = screen.getByRole('combobox');
+    expect(combobox).toHaveTextContent('PL99');
+    expect(combobox).not.toHaveTextContent('None');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('selects None and clears playlist values', async () => {
     const onPlaylistChange = vi.fn();
     vi.mocked(global.fetch).mockResolvedValueOnce(
