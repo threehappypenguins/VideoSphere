@@ -100,7 +100,7 @@ describe('GET /api/platforms/youtube/categories', () => {
     const res = await GET(makeRequest());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('public, max-age=86400');
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=86400');
     expect(await res.json()).toEqual({
       data: [
         { id: '1', title: 'Film & Animation' },

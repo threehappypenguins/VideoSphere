@@ -99,7 +99,7 @@ describe('GET /api/platforms/youtube/languages', () => {
     const res = await GET(makeRequest());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('public, max-age=604800');
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=604800');
     expect(await res.json()).toEqual({
       data: [
         { id: 'en', name: 'English' },

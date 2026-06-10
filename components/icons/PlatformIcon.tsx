@@ -63,7 +63,7 @@ export function PlatformIcon({
   decorative = true,
 }: PlatformIconProps) {
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- brand SVGs are rasterized assets, not vector components.
+    // eslint-disable-next-line @next/next/no-img-element -- brand SVGs are static URL imports; next/image is unnecessary and they are not inlined as React components.
     <img
       src={PLATFORM_ICON_SRC[platform]}
       alt={decorative ? '' : platformLabel(platform)}

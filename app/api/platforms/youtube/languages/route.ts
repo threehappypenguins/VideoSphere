@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(res, {
       status: 200,
       headers: {
-        'Cache-Control': 'public, max-age=604800',
+        'Cache-Control': 'private, max-age=604800',
       },
     });
   } catch (err) {
