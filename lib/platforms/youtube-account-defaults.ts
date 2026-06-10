@@ -12,10 +12,6 @@ export interface YouTubeAccountDefaults {
   license?: 'youtube' | 'creativeCommon';
   /** From the most recent upload's `status.embeddable`. */
   embeddable?: boolean;
-  /** From the most recent upload's `status.publicStatsViewable`. */
-  publicStatsViewable?: boolean;
-  /** True when `GOOGLE_PLACES_API_KEY` is configured for validated location search. */
-  locationSearchEnabled?: boolean;
 }
 
 /**
@@ -45,9 +41,6 @@ export function buildYouTubeAccountDefaultsSeedPatch(
   }
   if (yt.categoryId === undefined && defaults.categoryId !== undefined) {
     patch.categoryId = defaults.categoryId;
-  }
-  if (yt.publicStatsViewable === undefined && defaults.publicStatsViewable !== undefined) {
-    patch.publicStatsViewable = defaults.publicStatsViewable;
   }
 
   return patch;

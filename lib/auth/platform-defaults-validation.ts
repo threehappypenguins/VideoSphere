@@ -6,7 +6,6 @@ const YOUTUBE_USER_DEFAULT_KEYS = new Set<string>([
   'license',
   'embeddable',
   'categoryId',
-  'publicStatsViewable',
 ]);
 
 const LICENSE_VALUES = new Set(['youtube', 'creativeCommon']);
@@ -89,16 +88,6 @@ export function parseYouTubeUserDefaults(
       return { ok: false, error: 'platformDefaults.youtube.embeddable must be a boolean.' };
     }
     out.embeddable = value.embeddable;
-  }
-
-  if (value.publicStatsViewable !== undefined) {
-    if (typeof value.publicStatsViewable !== 'boolean') {
-      return {
-        ok: false,
-        error: 'platformDefaults.youtube.publicStatsViewable must be a boolean.',
-      };
-    }
-    out.publicStatsViewable = value.publicStatsViewable;
   }
 
   if (value.defaultAudioLanguage !== undefined) {

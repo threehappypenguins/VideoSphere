@@ -92,7 +92,6 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
               status: {
                 license: 'youtube',
                 embeddable: true,
-                publicStatsViewable: true,
               },
             },
           ],
@@ -109,8 +108,6 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
         categoryId: '22',
         license: 'youtube',
         embeddable: true,
-        publicStatsViewable: true,
-        locationSearchEnabled: false,
       },
     });
 
@@ -161,7 +158,6 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
       data: {
         defaultAudioLanguage: 'fr',
         categoryId: '10',
-        locationSearchEnabled: false,
       },
     });
   });

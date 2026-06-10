@@ -768,7 +768,6 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     if (m.madeForKids !== undefined) status.selfDeclaredMadeForKids = m.madeForKids;
     if (m.embeddable !== undefined) status.embeddable = m.embeddable;
     if (m.license !== undefined) status.license = m.license;
-    if (m.publicStatsViewable !== undefined) status.publicStatsViewable = m.publicStatsViewable;
     if (m.publishAt?.trim()) {
       status.publishAt = m.publishAt.trim();
       // YouTube Data API: publishAt may only be set when privacyStatus is private
@@ -777,22 +776,23 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     }
     const recordingDetails: Record<string, unknown> = {};
     if (m.recordingDate?.trim()) recordingDetails.recordingDate = m.recordingDate.trim();
-    if (m.recordingLocationDescription?.trim()) {
-      recordingDetails.locationDescription = m.recordingLocationDescription.trim();
-    }
-    if (
-      typeof m.recordingLocationLatitude === 'number' &&
-      Number.isFinite(m.recordingLocationLatitude) &&
-      typeof m.recordingLocationLongitude === 'number' &&
-      Number.isFinite(m.recordingLocationLongitude)
-    ) {
-      recordingDetails.location = {
-        latitude: m.recordingLocationLatitude,
-        longitude: m.recordingLocationLongitude,
-      };
-    }
 
-    const initResponse = await fetch(buildYouTubeResumableInitUrl(m.notifySubscribers !== false), {
+    const initUrl = buildYouTubeResumableInitUrl(m.notifySubscribers !== false);
+    const initBody = {
+      snippet,
+      status,
+      ...(Object.keys(recordingDetails).length > 0 && { recordingDetails }),
+    };
+
+    console.log(
+      '[youtube] Resumable upload init request',
+      JSON.stringify({
+        initUrl,
+        body: initBody,
+      })
+    );
+
+    const initResponse = await fetch(initUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${input.tokens.accessToken}`,
@@ -802,11 +802,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
           ? { 'X-Upload-Content-Length': String(videoSource.contentLength) }
           : {}),
       },
-      body: JSON.stringify({
-        snippet,
-        status,
-        ...(Object.keys(recordingDetails).length > 0 && { recordingDetails }),
-      }),
+      body: JSON.stringify(initBody),
       ...(signal ? { signal } : {}),
     });
 

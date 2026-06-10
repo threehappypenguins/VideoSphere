@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
-import { isGooglePlacesConfigured } from '@/lib/platforms/google-places';
 import {
   type YouTubeAccountDefaults,
   buildYouTubeAccountDefaultsSeedPatch,
@@ -237,8 +236,6 @@ export async function fetchYouTubeAccountDefaults(
     defaults.madeForKids = channel.status.madeForKids;
   }
 
-  defaults.locationSearchEnabled = isGooglePlacesConfigured();
-
   const uploadsPlaylistId = channel?.contentDetails?.relatedPlaylists?.uploads?.trim();
   if (!uploadsPlaylistId) {
     return { ok: true, defaults };
@@ -285,7 +282,6 @@ export async function fetchYouTubeAccountDefaults(
       status?: {
         license?: string;
         embeddable?: boolean;
-        publicStatsViewable?: boolean;
       };
     }>;
   };
@@ -320,10 +316,6 @@ export async function fetchYouTubeAccountDefaults(
 
   if (typeof latestVideo?.status?.embeddable === 'boolean') {
     defaults.embeddable = latestVideo.status.embeddable;
-  }
-
-  if (typeof latestVideo?.status?.publicStatsViewable === 'boolean') {
-    defaults.publicStatsViewable = latestVideo.status.publicStatsViewable;
   }
 
   return { ok: true, defaults };

@@ -122,8 +122,6 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
   embeddable?: boolean;
   /** `status.license`: standard YouTube license vs Creative Commons. */
   license?: 'youtube' | 'creativeCommon';
-  /** `status.publicStatsViewable`. */
-  publicStatsViewable?: boolean;
   /**
    * `videos.insert` query parameter `notifySubscribers`. When `false`, subscribers are not
    * notified and the video is omitted from the subscriptions feed. Omitted/`true` matches YouTube default (notify).
@@ -147,21 +145,6 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
    * Omitted from upload unless explicitly set.
    */
   recordingDate?: string;
-  /**
-   * Location description from Google Places, sent to `recordingDetails.locationDescription`.
-   * Max ~100 chars; YouTube truncates silently. Omitted from upload unless explicitly set.
-   */
-  recordingLocationDescription?: string;
-  /**
-   * Latitude from Google Places, sent to `recordingDetails.location.latitude`.
-   * Set together with `recordingLocationDescription` and `recordingLocationLongitude`.
-   */
-  recordingLocationLatitude?: number;
-  /**
-   * Longitude from Google Places, sent to `recordingDetails.location.longitude`.
-   * Set together with `recordingLocationDescription` and `recordingLocationLatitude`.
-   */
-  recordingLocationLongitude?: number;
 }
 
 /**
@@ -176,7 +159,6 @@ export interface YouTubeUserDefaults {
   license?: 'youtube' | 'creativeCommon';
   embeddable?: boolean;
   categoryId?: string;
-  publicStatsViewable?: boolean;
 }
 
 /** Per-platform upload default settings stored on the user profile. */

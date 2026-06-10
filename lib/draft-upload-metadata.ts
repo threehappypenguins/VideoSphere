@@ -267,15 +267,10 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
   const embeddable = typeof y.embeddable === 'boolean' ? y.embeddable : undefined;
   const lic = trimStr(y.license);
   const license = lic && YT_LICENSE.has(lic) ? (lic as YouTubeDraftFields['license']) : undefined;
-  const publicStatsViewable =
-    typeof y.publicStatsViewable === 'boolean' ? y.publicStatsViewable : undefined;
   const notifySubscribers =
     typeof y.notifySubscribers === 'boolean' ? y.notifySubscribers : undefined;
   const publishAt = trimStr(y.publishAt);
   const recordingDate = trimStr(y.recordingDate);
-  const recordingLocationDescription = trimStr(y.recordingLocationDescription);
-  const recordingLocationLatitude = parseCoordinate(y.recordingLocationLatitude, -90, 90);
-  const recordingLocationLongitude = parseCoordinate(y.recordingLocationLongitude, -180, 180);
   let playlistIds: string[] | undefined;
   if (Array.isArray(y.playlistIds)) {
     playlistIds = y.playlistIds
@@ -299,13 +294,9 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
     ...(defaultAudioLanguage !== undefined ? { defaultAudioLanguage } : {}),
     ...(embeddable !== undefined ? { embeddable } : {}),
     ...(license !== undefined ? { license } : {}),
-    ...(publicStatsViewable !== undefined ? { publicStatsViewable } : {}),
     ...(notifySubscribers !== undefined ? { notifySubscribers } : {}),
     ...(publishAt !== undefined ? { publishAt } : {}),
     ...(recordingDate !== undefined ? { recordingDate } : {}),
-    ...(recordingLocationDescription !== undefined ? { recordingLocationDescription } : {}),
-    ...(recordingLocationLatitude !== undefined ? { recordingLocationLatitude } : {}),
-    ...(recordingLocationLongitude !== undefined ? { recordingLocationLongitude } : {}),
     ...(playlistIds !== undefined ? { playlistIds } : {}),
     ...(playlistTitles !== undefined ? { playlistTitles } : {}),
   };
@@ -654,10 +645,6 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const lic = p.license;
       yb.license = lic === 'youtube' || lic === 'creativeCommon' ? lic : undefined;
     }
-    if ('publicStatsViewable' in p) {
-      yb.publicStatsViewable =
-        typeof p.publicStatsViewable === 'boolean' ? p.publicStatsViewable : undefined;
-    }
     if ('notifySubscribers' in p) {
       yb.notifySubscribers =
         typeof p.notifySubscribers === 'boolean' ? p.notifySubscribers : undefined;
@@ -669,17 +656,6 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
     if ('recordingDate' in p) {
       const s = p.recordingDate;
       yb.recordingDate = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
-    }
-    if ('recordingLocationDescription' in p) {
-      const s = p.recordingLocationDescription;
-      yb.recordingLocationDescription =
-        typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
-    }
-    if ('recordingLocationLatitude' in p) {
-      yb.recordingLocationLatitude = parseCoordinate(p.recordingLocationLatitude, -90, 90);
-    }
-    if ('recordingLocationLongitude' in p) {
-      yb.recordingLocationLongitude = parseCoordinate(p.recordingLocationLongitude, -180, 180);
     }
     if ('playlistIds' in p) {
       if (Array.isArray(p.playlistIds)) {
@@ -929,13 +905,9 @@ export function buildMetadataForPlatform(
       defaultAudioLanguage: yt?.defaultAudioLanguage,
       embeddable: yt?.embeddable,
       license: yt?.license,
-      publicStatsViewable: yt?.publicStatsViewable,
       notifySubscribers: yt?.notifySubscribers,
       publishAt: yt?.publishAt,
       recordingDate: yt?.recordingDate,
-      recordingLocationDescription: yt?.recordingLocationDescription,
-      recordingLocationLatitude: yt?.recordingLocationLatitude,
-      recordingLocationLongitude: yt?.recordingLocationLongitude,
       playlistIds: yt?.playlistIds,
       ...(playlistTitles !== undefined && playlistTitles.length > 0 ? { playlistTitles } : {}),
     };

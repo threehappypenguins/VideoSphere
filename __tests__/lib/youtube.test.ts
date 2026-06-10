@@ -106,29 +106,6 @@ describe('uploadToYouTube resumable init body', () => {
     expect(body.recordingDetails).toEqual({ recordingDate: '2025-06-08' });
   });
 
-  it('includes locationDescription under recordingDetails', async () => {
-    const { body } = await runResumableInitUpload({
-      ...BASE_UPLOAD_METADATA,
-      recordingLocationDescription: 'San Francisco, CA',
-    });
-
-    expect(body.recordingDetails).toEqual({ locationDescription: 'San Francisco, CA' });
-  });
-
-  it('includes location coordinates under recordingDetails when provided', async () => {
-    const { body } = await runResumableInitUpload({
-      ...BASE_UPLOAD_METADATA,
-      recordingLocationDescription: 'Halifax, NS, Canada',
-      recordingLocationLatitude: 44.6488,
-      recordingLocationLongitude: -63.5752,
-    });
-
-    expect(body.recordingDetails).toEqual({
-      locationDescription: 'Halifax, NS, Canada',
-      location: { latitude: 44.6488, longitude: -63.5752 },
-    });
-  });
-
   it('omits recordingDetails when recording fields are absent', async () => {
     const { body } = await runResumableInitUpload(BASE_UPLOAD_METADATA);
 

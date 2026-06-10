@@ -32,7 +32,6 @@ import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeak
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
-import { YouTubeLocationCombobox } from '@/components/drafts/YouTubeLocationCombobox';
 import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
@@ -1283,8 +1282,6 @@ export function DraftMetadataModal({
   const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
   const youtubeNotifySubscribersValue = youtubeFields?.notifySubscribers !== false;
   const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
-  const youtubePublicStatsViewableValue =
-    youtubeFields?.publicStatsViewable ?? youtubeAccountDefaults?.publicStatsViewable;
   const youtubeLanguageOptions = useMemo(
     () => youtubeLanguages.map((language) => ({ value: language.id, label: language.name })),
     [youtubeLanguages]
@@ -2263,83 +2260,46 @@ export function DraftMetadataModal({
         {showMoreExpanded ? (
           <div className="space-y-6 rounded-lg border border-border bg-muted/20 p-3">
             <div className="space-y-3">
-              <p className="text-sm font-medium text-foreground">Language</p>
-              <div>
-                <label
-                  htmlFor="draft-youtube-video-language"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Video language
-                </label>
-                <YouTubeSearchableSelect
-                  id="draft-youtube-video-language"
-                  value={youtubeDefaultAudioLanguageValue}
-                  placeholder="Select video language"
-                  options={youtubeLanguageOptions}
-                  onValueChange={(next) =>
-                    updateYouTubeFields({
-                      defaultAudioLanguage: next,
-                    })
-                  }
-                  className={fieldBorderClass('youtube.defaultAudioLanguage')}
-                />
-              </div>
+              <p className="text-sm font-medium text-foreground">Video language</p>
+              <YouTubeSearchableSelect
+                id="draft-youtube-video-language"
+                value={youtubeDefaultAudioLanguageValue}
+                placeholder="Select video language"
+                options={youtubeLanguageOptions}
+                onValueChange={(next) =>
+                  updateYouTubeFields({
+                    defaultAudioLanguage: next,
+                  })
+                }
+                className={fieldBorderClass('youtube.defaultAudioLanguage')}
+              />
             </div>
 
             <div className="space-y-3">
-              <p className="text-sm font-medium text-foreground">
-                {youtubeAccountDefaults?.locationSearchEnabled
-                  ? 'Recording date and location'
-                  : 'Recording date'}
-              </p>
-              <div>
-                <label
-                  htmlFor="draft-youtube-recording-date"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Recording date
-                </label>
-                <div className="mt-1 flex gap-2">
-                  <input
-                    id="draft-youtube-recording-date"
-                    type="date"
-                    value={youtubeRecordingDateValue}
-                    onChange={(event) =>
-                      updateYouTubeFields({
-                        recordingDate: event.target.value || undefined,
-                      })
-                    }
-                    className={cn(fieldBorderClass('youtube.recordingDate'), 'flex-1')}
-                  />
-                  {youtubeRecordingDateValue !== '' ? (
-                    <button
-                      type="button"
-                      className="rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted"
-                      onClick={() => updateYouTubeFields({ recordingDate: undefined })}
-                    >
-                      Clear
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              {youtubeAccountDefaults?.locationSearchEnabled ? (
-                <div>
-                  <label
-                    htmlFor="draft-youtube-recording-location"
-                    className="text-xs font-medium text-muted-foreground"
+              <p className="text-sm font-medium text-foreground">Recording date</p>
+              <div className="flex gap-2">
+                <input
+                  id="draft-youtube-recording-date"
+                  type="date"
+                  aria-label="Recording date"
+                  value={youtubeRecordingDateValue}
+                  onChange={(event) =>
+                    updateYouTubeFields({
+                      recordingDate: event.target.value || undefined,
+                    })
+                  }
+                  className={cn(fieldBorderClass('youtube.recordingDate'), 'flex-1')}
+                />
+                {youtubeRecordingDateValue !== '' ? (
+                  <button
+                    type="button"
+                    className="rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted"
+                    onClick={() => updateYouTubeFields({ recordingDate: undefined })}
                   >
-                    Video location
-                  </label>
-                  <div className="mt-1">
-                    <YouTubeLocationCombobox
-                      id="draft-youtube-recording-location"
-                      recordingLocationDescription={youtubeFields?.recordingLocationDescription}
-                      onLocationChange={(value) => updateYouTubeFields(value)}
-                      className={fieldBorderClass('youtube.recordingLocationDescription')}
-                    />
-                  </div>
-                </div>
-              ) : null}
+                    Clear
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -2404,20 +2364,6 @@ export function DraftMetadataModal({
                 onValueChange={(next) => updateYouTubeFields({ categoryId: next ?? undefined })}
                 className={fieldBorderClass('youtube.categoryId')}
               />
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-sm font-medium text-foreground">Ratings</p>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={youtubePublicStatsViewableValue ?? false}
-                  onChange={(event) =>
-                    updateYouTubeFields({ publicStatsViewable: event.target.checked })
-                  }
-                />
-                <span>Show how many viewers like this video</span>
-              </label>
             </div>
 
             <div className="space-y-2">

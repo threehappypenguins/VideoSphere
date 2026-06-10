@@ -498,7 +498,6 @@ describe('DraftMetadataModal YouTube fields', () => {
                 categoryId: '22',
                 license: 'creativeCommon',
                 embeddable: false,
-                publicStatsViewable: false,
               },
             }),
           } as Response;
@@ -566,7 +565,6 @@ describe('DraftMetadataModal YouTube fields', () => {
           categoryId: '22',
           license: 'creativeCommon',
           embeddable: false,
-          publicStatsViewable: false,
         },
       },
     });
@@ -690,7 +688,7 @@ describe('DraftMetadataModal YouTube fields', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Schedule$/i }));
   }
 
-  it('renders the Schedule card as the last item inside Show more', async () => {
+  it('renders the Schedule card after Category inside Show more', async () => {
     render(
       <DraftMetadataModal
         mode="edit"
@@ -707,9 +705,9 @@ describe('DraftMetadataModal YouTube fields', () => {
     await screen.findByRole('dialog');
     await expandShowMore();
 
-    const ratingsHeading = screen.getByText('Ratings');
+    const categoryLabel = screen.getByText(/^Category$/i);
     const scheduleToggle = screen.getByRole('button', { name: /^Schedule$/i });
-    expect(ratingsHeading.compareDocumentPosition(scheduleToggle)).toBe(
+    expect(categoryLabel.compareDocumentPosition(scheduleToggle)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
   });
@@ -907,9 +905,9 @@ describe('DraftMetadataModal YouTube fields', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.queryByText(/^Language$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Video language$/)).not.toBeInTheDocument();
     await expandShowMore();
-    expect(screen.getByText(/^Language$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Video language$/)).toBeInTheDocument();
   });
 
   it('collapses Show more when the modal closes and reopens for a new draft', async () => {
@@ -928,7 +926,7 @@ describe('DraftMetadataModal YouTube fields', () => {
 
     await screen.findByRole('dialog');
     await expandShowMore();
-    expect(screen.getByText(/^Language$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Video language$/)).toBeInTheDocument();
 
     rerender(
       <DraftMetadataModal
@@ -961,7 +959,7 @@ describe('DraftMetadataModal YouTube fields', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.queryByText(/^Language$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Video language$/)).not.toBeInTheDocument();
   });
 
   it('initialises Show more fields from YouTube account defaults when draft values are unset', async () => {
@@ -986,7 +984,6 @@ describe('DraftMetadataModal YouTube fields', () => {
     });
     expect(document.getElementById('draft-youtube-category')).toHaveTextContent('People & Blogs');
     expect(screen.getByLabelText(/Allow embedding/i)).not.toBeChecked();
-    expect(screen.getByLabelText(/Show how many viewers like this video/i)).not.toBeChecked();
   });
 
   it('leaves recording date empty when recordingDate is unset', async () => {
@@ -1063,7 +1060,7 @@ describe('DraftMetadataModal YouTube fields', () => {
       );
     });
 
-    await userEvent.click(screen.getByLabelText('Video language'));
+    await userEvent.click(document.getElementById('draft-youtube-video-language')!);
     expect(await screen.findByRole('option', { name: 'English' })).toBeInTheDocument();
 
     await userEvent.keyboard('{Escape}');

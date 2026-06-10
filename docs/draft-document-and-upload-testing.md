@@ -86,7 +86,6 @@ Valid for `drafts.document` and for `POST /api/drafts` / `PATCH /api/drafts/[id]
       "defaultAudioLanguage": "en",
       "embeddable": true,
       "license": "youtube",
-      "publicStatsViewable": true,
       "playlistTitles": ["Example playlist title"],
       "playlistIds": []
     },
@@ -137,7 +136,6 @@ Mapped to YouTube Data API v3 **`videos.insert`** resumable init (`part=snippet,
 | `defaultAudioLanguage` | `snippet.defaultAudioLanguage` |
 | `embeddable` | `status.embeddable` |
 | `license` | `status.license`: `youtube` \| `creativeCommon` |
-| `publicStatsViewable` | `status.publicStatsViewable` |
 | `publishAt` | `status.publishAt` (ISO 8601). Usually used with `visibility` private until publish time. |
 | `playlistTitles` | Playlist **titles** (`snippet.title`). Same idea as [porjo/youtubeuploader](https://github.com/porjo/youtubeuploader) `-metaJSON` `playlistTitles`. Server: [`playlists.list`](https://developers.google.com/youtube/v3/docs/playlists/list) (`mine=true`, paginated) → case-insensitive title match → else [`playlists.insert`](https://developers.google.com/youtube/v3/docs/playlists/insert) (privacy follows draft `visibility`) → [`playlistItems.insert`](https://developers.google.com/youtube/v3/docs/playlistItems/insert). Duplicate strings in the array are deduped case-insensitively (first wins). |
 | `playlistIds` | Optional playlist **ids** from `playlist?list=…` in the URL; each gets `playlistItems.insert`. |

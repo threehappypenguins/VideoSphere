@@ -9,7 +9,6 @@ describe('buildYouTubeAccountDefaultsSeedPatch', () => {
     categoryId: '22',
     license: 'creativeCommon' as const,
     embeddable: false,
-    publicStatsViewable: false,
   };
 
   it('seeds unset YouTube fields from account defaults', () => {
@@ -26,7 +25,6 @@ describe('buildYouTubeAccountDefaultsSeedPatch', () => {
       defaultAudioLanguage: 'en',
       madeForKids: true,
       categoryId: '22',
-      publicStatsViewable: false,
     });
   });
 
@@ -37,7 +35,6 @@ describe('buildYouTubeAccountDefaultsSeedPatch', () => {
       categoryId: '10',
       license: 'youtube',
       embeddable: true,
-      publicStatsViewable: true,
     };
 
     expect(buildYouTubeAccountDefaultsSeedPatch(draft, defaults)).toEqual({});
