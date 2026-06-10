@@ -97,14 +97,25 @@ export function parseYouTubeUserDefaults(
         error: 'platformDefaults.youtube.defaultAudioLanguage must be a string.',
       };
     }
-    out.defaultAudioLanguage = value.defaultAudioLanguage;
+    const trimmed = value.defaultAudioLanguage.trim();
+    if (trimmed === '') {
+      return {
+        ok: false,
+        error: 'platformDefaults.youtube.defaultAudioLanguage cannot be empty.',
+      };
+    }
+    out.defaultAudioLanguage = trimmed;
   }
 
   if (value.categoryId !== undefined) {
     if (typeof value.categoryId !== 'string') {
       return { ok: false, error: 'platformDefaults.youtube.categoryId must be a string.' };
     }
-    out.categoryId = value.categoryId;
+    const trimmed = value.categoryId.trim();
+    if (trimmed === '') {
+      return { ok: false, error: 'platformDefaults.youtube.categoryId cannot be empty.' };
+    }
+    out.categoryId = trimmed;
   }
 
   if (value.license !== undefined) {

@@ -374,6 +374,8 @@ describe('DraftMetadataModal shared metadata overrides', () => {
     expect(screen.queryByLabelText(/^Title$/i)).not.toBeInTheDocument();
     expect(document.getElementById('edit-title-youtube')).toBeInTheDocument();
     expect(document.getElementById('edit-title-sermon_audio')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Title — YouTube/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Title — SermonAudio/i)).toBeInTheDocument();
   });
 });
 

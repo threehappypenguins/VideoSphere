@@ -2834,8 +2834,9 @@ export function DraftMetadataModal({
                         <div key={platform}>
                           <label
                             htmlFor={`edit-title-${platform}`}
-                            className="text-xs font-medium text-muted-foreground"
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
                           >
+                            <span className="sr-only">Title — </span>
                             {isPlatformBrandIcon(platform) ? (
                               <PlatformOverrideLabel platform={platform} />
                             ) : (
@@ -2911,8 +2912,9 @@ export function DraftMetadataModal({
                         <div key={platform}>
                           <label
                             htmlFor={`edit-description-${platform}`}
-                            className="text-xs font-medium text-muted-foreground"
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
                           >
+                            <span className="sr-only">Description — </span>
                             {isPlatformBrandIcon(platform) ? (
                               <PlatformOverrideLabel platform={platform} />
                             ) : (
@@ -3064,8 +3066,9 @@ export function DraftMetadataModal({
                         <div key={platform}>
                           <label
                             htmlFor={`edit-tags-${platform}`}
-                            className="text-xs font-medium text-muted-foreground"
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
                           >
+                            <span className="sr-only">Tags — </span>
                             {isPlatformBrandIcon(platform) ? (
                               <PlatformOverrideLabel
                                 platform={platform}

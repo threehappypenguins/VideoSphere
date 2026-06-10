@@ -1,6 +1,48 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeStoredPlatformDefaults } from '@/lib/auth/platform-defaults-validation';
+import {
+  normalizeStoredPlatformDefaults,
+  parseYouTubeUserDefaults,
+} from '@/lib/auth/platform-defaults-validation';
+
+describe('parseYouTubeUserDefaults', () => {
+  it('trims defaultAudioLanguage and categoryId', () => {
+    expect(
+      parseYouTubeUserDefaults({
+        defaultAudioLanguage: ' en ',
+        categoryId: ' 22 ',
+      })
+    ).toEqual({
+      ok: true,
+      value: {
+        defaultAudioLanguage: 'en',
+        categoryId: '22',
+      },
+    });
+  });
+
+  it('rejects empty or whitespace-only defaultAudioLanguage', () => {
+    expect(parseYouTubeUserDefaults({ defaultAudioLanguage: '' })).toEqual({
+      ok: false,
+      error: 'platformDefaults.youtube.defaultAudioLanguage cannot be empty.',
+    });
+    expect(parseYouTubeUserDefaults({ defaultAudioLanguage: '   ' })).toEqual({
+      ok: false,
+      error: 'platformDefaults.youtube.defaultAudioLanguage cannot be empty.',
+    });
+  });
+
+  it('rejects empty or whitespace-only categoryId', () => {
+    expect(parseYouTubeUserDefaults({ categoryId: '' })).toEqual({
+      ok: false,
+      error: 'platformDefaults.youtube.categoryId cannot be empty.',
+    });
+    expect(parseYouTubeUserDefaults({ categoryId: '   ' })).toEqual({
+      ok: false,
+      error: 'platformDefaults.youtube.categoryId cannot be empty.',
+    });
+  });
+});
 
 describe('normalizeStoredPlatformDefaults', () => {
   it('returns undefined for missing, null, or non-object values', () => {
