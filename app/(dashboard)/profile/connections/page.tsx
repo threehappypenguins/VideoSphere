@@ -542,7 +542,7 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                     <div className="flex items-center gap-2">
                       <FacebookConnectButton
                         label="Edit"
-                        existingConnection={facebookExistingConnection!}
+                        existingConnection={facebookExistingConnection}
                         className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                       />
                       <DisconnectButton

@@ -34,6 +34,22 @@ function validCookies() {
   return { [CSRF_COOKIE]: VALID_COOKIE_VALUE };
 }
 
+/**
+ * Reads Set-Cookie header values from a response.
+ * Uses `Headers.getSetCookie()` when available; otherwise falls back to `get('set-cookie')`.
+ * @param headers - Response headers to inspect.
+ * @returns Individual Set-Cookie header values.
+ */
+function getResponseSetCookies(headers: Headers): string[] {
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  if (typeof getSetCookie === 'function') {
+    return getSetCookie.call(headers);
+  }
+  const raw = headers.get('set-cookie');
+  if (!raw) return [];
+  return raw.split(/,(?=\s*[\w.-]+=)/).map((cookie) => cookie.trim());
+}
+
 function mockSuccessfulTokenFlow() {
   mockFetch
     .mockResolvedValueOnce({
@@ -94,7 +110,7 @@ describe('GET /api/platforms/callback/facebook', () => {
 
     expect(res.status).toBe(200);
     expect(html).toContain('/profile/connections/facebook-setup');
-    const setCookies = res.headers.getSetCookie();
+    const setCookies = getResponseSetCookies(res.headers);
     expect(setCookies.some((cookie) => cookie.startsWith('facebook_setup_session='))).toBe(true);
     expect(setCookies.some((cookie) => cookie.startsWith('facebook_oauth_state='))).toBe(true);
   });
