@@ -698,6 +698,8 @@ export function DraftMetadataModal({
   useEffect(() => {
     return () => {
       abortThumbnailUploadFlow();
+      setThumbnailUploading(false);
+      setThumbnailUploadProgress(0);
     };
   }, [abortThumbnailUploadFlow, draftId]);
 
@@ -1459,7 +1461,6 @@ export function DraftMetadataModal({
     !uploading &&
     !cancelServerFailed &&
     !isCancellingUpload &&
-    !thumbnailUploading &&
     value !== null &&
     value.targets.length > 0 &&
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
@@ -1969,29 +1970,49 @@ export function DraftMetadataModal({
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         thumbnailXhrRef.current = xhr;
+        let settled = false;
+        const finish = (callback: () => void) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
+          callback();
+        };
+        const timeoutId = window.setTimeout(() => {
+          xhr.abort();
+          finish(() => reject(new Error('Thumbnail upload timed out')));
+        }, 120_000);
         xhr.open('PUT', uploadUrl);
         xhr.setRequestHeader('Content-Type', file.type);
         xhr.upload.addEventListener('progress', (event) => {
-          if (!isStale() && event.lengthComputable && event.total > 0) {
-            setThumbnailUploadProgress(Math.round((event.loaded / event.total) * 100));
+          if (event.lengthComputable && event.total > 0) {
+            const pct = Math.round((event.loaded / event.total) * 100);
+            if (!isStale()) {
+              setThumbnailUploadProgress(pct);
+            }
+          } else if (event.loaded > 0 && !isStale()) {
+            setThumbnailUploadProgress((prev) => (prev === 0 ? 1 : prev));
           }
         });
         xhr.addEventListener('load', () => {
           thumbnailXhrRef.current = null;
           if (xhr.status >= 200 && xhr.status < 300) {
-            if (!isStale()) setThumbnailUploadProgress(100);
-            resolve();
+            finish(() => {
+              if (!isStale()) setThumbnailUploadProgress(100);
+              resolve();
+            });
           } else {
-            reject(new Error(`Failed to upload thumbnail to storage (${xhr.status})`));
+            finish(() =>
+              reject(new Error(`Failed to upload thumbnail to storage (${xhr.status})`))
+            );
           }
         });
         xhr.addEventListener('error', () => {
           thumbnailXhrRef.current = null;
-          reject(new Error('Failed to upload thumbnail to storage'));
+          finish(() => reject(new Error('Failed to upload thumbnail to storage')));
         });
         xhr.addEventListener('abort', () => {
           thumbnailXhrRef.current = null;
-          reject(new Error('THUMBNAIL_UPLOAD_ABORTED'));
+          finish(() => reject(new Error('THUMBNAIL_UPLOAD_ABORTED')));
         });
         xhr.send(file);
       });
@@ -2048,11 +2069,7 @@ export function DraftMetadataModal({
       // Intentionally does NOT check ac.signal.aborted: an externally-aborted request that is
       // still the latest for this mounted draft (e.g. onOpenChange abort that was blocked by
       // tryCloseModal) must still clear the uploading indicator to avoid a stuck "Uploading…" state.
-      if (
-        !supersededByNewUpload &&
-        isMountedRef.current &&
-        latestDraftIdRef.current === requestDraftId
-      ) {
+      if (!supersededByNewUpload && isMountedRef.current) {
         setThumbnailUploading(false);
         setThumbnailUploadProgress(0);
         if (thumbnailInputRef.current) {
@@ -2632,6 +2649,9 @@ export function DraftMetadataModal({
       modal={!disableInteractionLock}
       onOpenChange={(open) => {
         if (!open) {
+          if (thumbnailUploading || uploading) {
+            return;
+          }
           abortThumbnailUploadFlow();
           void tryCloseModal();
         }
@@ -2641,6 +2661,8 @@ export function DraftMetadataModal({
         showOverlay={!disableInteractionLock}
         className="flex max-h-[90vh] w-full max-w-2xl flex-col p-0 sm:max-w-2xl"
         onInteractOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
       >
         <div
           ref={modalAnnouncerRef}

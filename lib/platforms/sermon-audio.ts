@@ -1,3 +1,4 @@
+import { formatSermonAudioLocalDate } from '@/lib/platforms/sermon-audio-event-types';
 import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
 import {
   SERMONAUDIO_API_BASE,
@@ -114,13 +115,9 @@ function requireApiKey(tokens: PlatformUploadTokens): string | null {
   return key.length > 0 ? key : null;
 }
 
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string, unknown> {
   const fullTitle = metadata.fullTitle?.trim() || metadata.title.trim() || 'Untitled sermon';
-  const preachDate = metadata.preachDate?.trim() || todayIsoDate();
+  const preachDate = metadata.preachDate?.trim() || formatSermonAudioLocalDate();
 
   const body: Record<string, unknown> = {
     fullTitle,
@@ -394,7 +391,7 @@ export async function pollSermonAudioProcessing(
 }
 
 /**
- * Publishes a SermonAudio sermon by PATCHing `publishDate` to today (`YYYY-MM-DD`).
+ * Publishes a SermonAudio sermon by PATCHing `publishDate` to today's local calendar date (`YYYY-MM-DD`).
  * Cross Publish options must already be on the sermon from the create POST (`socialSharing`);
  * publishing triggers SA to run the configured cross-posts once video processing is complete.
  * @param input - Sermon id, API key tokens, and optional abort signal.
@@ -419,7 +416,7 @@ export async function publishSermonAudio(input: PublishSermonAudioInput): Promis
     method: 'PATCH',
     headers: sermonAudioJsonHeaders(apiKey),
     body: JSON.stringify({
-      publishDate: todayIsoDate(),
+      publishDate: formatSermonAudioLocalDate(),
     }),
     ...(input.signal ? { signal: input.signal } : {}),
   });
