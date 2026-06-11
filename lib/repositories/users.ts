@@ -7,8 +7,9 @@
 // Uses Mongoose for the user_profiles collection.
 // =============================================================================
 
-import type { User, UserAuthProvider, UserRole } from '@/types';
+import type { User, UserAuthProvider, UserRole, YouTubeUserDefaults } from '@/types';
 import { userSupportsPasswordReset } from '@/lib/auth/password';
+import { normalizeStoredPlatformDefaults } from '@/lib/auth/platform-defaults-validation';
 import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
@@ -58,6 +59,8 @@ export interface SessionUser extends User {
 
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
+  const platformDefaults = normalizeStoredPlatformDefaults(doc.platformDefaults);
+
   return {
     userId: String(doc.userId),
     email: String(doc.email),
@@ -67,6 +70,7 @@ function mongoDocToUser(doc: UserProfileDocument): User {
     authProvider: doc.authProvider,
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
+    ...(platformDefaults !== undefined ? { platformDefaults } : {}),
   };
 }
 
@@ -328,6 +332,8 @@ export interface UpdateUserData {
   role?: UserRole;
   name?: string;
   email?: string;
+  /** Fields shallow-merged into stored `platformDefaults.youtube` via dot-notation update. */
+  platformDefaultsYoutube?: Partial<YouTubeUserDefaults>;
 }
 
 /**
@@ -357,9 +363,7 @@ export async function updateUserPasswordHash(userId: string, passwordHash: strin
 export async function updateUser(userId: string, data: UpdateUserData): Promise<User> {
   await connectToDatabase();
 
-  const payload: Partial<
-    Pick<UserProfileDocument, 'hasCompletedOnboarding' | 'role' | 'name' | 'email'>
-  > = {};
+  const payload: Record<string, unknown> = {};
 
   if (data.hasCompletedOnboarding !== undefined) {
     payload.hasCompletedOnboarding = data.hasCompletedOnboarding;
@@ -372,6 +376,14 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
   }
   if (data.email !== undefined) {
     payload.email = data.email.trim().toLowerCase();
+  }
+
+  if (data.platformDefaultsYoutube !== undefined) {
+    for (const [key, value] of Object.entries(data.platformDefaultsYoutube)) {
+      if (value !== undefined) {
+        payload[`platformDefaults.youtube.${key}`] = value;
+      }
+    }
   }
 
   const updated = await UserProfileModel.findByIdAndUpdate(userId, payload, {

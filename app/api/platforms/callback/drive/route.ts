@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { GOOGLE_DRIVE_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/drive/route';
+import { GOOGLE_DRIVE_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
 import {

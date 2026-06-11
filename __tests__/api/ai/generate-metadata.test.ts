@@ -33,11 +33,11 @@ vi.mock('@/lib/ai/openrouter', async (importOriginal) => {
   };
 });
 
+import { POST } from '@/app/api/ai/generate-metadata/route';
 import {
-  POST,
   MAX_GENERATE_METADATA_FILE_NAME_CHARS,
   MAX_GENERATE_METADATA_USER_PROMPT_CHARS,
-} from '@/app/api/ai/generate-metadata/route';
+} from '@/lib/ai/generate-metadata-helpers';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { generateMetadata, OpenRouterTimeoutError, RateLimitError } from '@/lib/ai/openrouter';
 

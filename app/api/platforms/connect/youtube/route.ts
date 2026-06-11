@@ -14,11 +14,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-
-/**
- * Defines the YOUTUBE_OAUTH_STATE_COOKIE constant.
- */
-export const YOUTUBE_OAUTH_STATE_COOKIE = 'youtube_oauth_state';
+import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 // youtube.upload — resumable video upload (narrow; does not include playlists.insert)

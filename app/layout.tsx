@@ -5,20 +5,12 @@
 // It includes the global font, navbar, and footer.
 //
 // STUDENT: Update the metadata below with your actual app name and description.
-// To change fonts, replace Inter with any Google Font from:
-//   https://fonts.google.com/
-//
-// How to change fonts:
-//   1. Import a different font from 'next/font/google'
-//   2. Replace `Inter` with your chosen font
-//   3. Update the CSS variable name if needed
-//   4. Update globals.css to reference the new CSS variable
+// Fonts are self-hosted under app/fonts/ via next/font/local (no Google Fonts at build time).
 //
 // =============================================================================
 
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
@@ -27,11 +19,10 @@ import { OnboardingTourGate } from '@/components/onboarding/OnboardingTourGate';
 import { ThemedBackground } from '@/components/ui/ThemedBackground';
 
 // --- Font Configuration ---
-// next/font automatically optimizes fonts — no external requests at runtime.
-// The font is loaded at build time and served as a local asset.
-const inter = Inter({
+// next/font/local inlines font files at build time — no runtime CDN requests.
+const inter = localFont({
+  src: [{ path: './fonts/InterVariable.woff2', weight: '100 900', style: 'normal' }],
   variable: '--font-inter',
-  subsets: ['latin'],
   display: 'swap',
 });
 

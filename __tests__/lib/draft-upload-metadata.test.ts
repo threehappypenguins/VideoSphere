@@ -311,6 +311,110 @@ describe('draft-upload-metadata', () => {
     expect(meta.playlistIds).toEqual(['PLabc123']);
   });
 
+  it('buildMetadataForPlatform passes recordingDate for YouTube when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {
+          recordingDate: '2025-06-08',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').recordingDate).toBe('2025-06-08');
+  });
+
+  it('buildMetadataForPlatform omits recordingDate for YouTube when unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {},
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').recordingDate).toBeUndefined();
+  });
+
+  it('normalizeDraftPlatforms preserves YouTube recordingDate', () => {
+    expect(
+      normalizeDraftPlatforms({
+        youtube: { recordingDate: '2025-06-08' },
+      }).youtube?.recordingDate
+    ).toBe('2025-06-08');
+  });
+
+  it('mergeDraftPlatformsPatch updates YouTube recordingDate', () => {
+    expect(
+      mergeDraftPlatformsPatch({ youtube: {} }, { youtube: { recordingDate: '2025-06-08' } })
+        .youtube?.recordingDate
+    ).toBe('2025-06-08');
+  });
+
+  it('mergeDraftPlatformsPatch clears YouTube recordingDate with empty string', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        { youtube: { recordingDate: '2025-06-08' } },
+        { youtube: { recordingDate: '' } }
+      ).youtube?.recordingDate
+    ).toBeUndefined();
+  });
+
+  it('buildMetadataForPlatform passes notifySubscribers for YouTube when set false', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {
+          notifySubscribers: false,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').notifySubscribers).toBe(false);
+  });
+
+  it('buildMetadataForPlatform omits notifySubscribers for YouTube when unset', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {},
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').notifySubscribers).toBeUndefined();
+  });
+
   it('buildMetadataForPlatform omits playlistTitles when none are set', () => {
     const draft: Draft = {
       id: 'd1',

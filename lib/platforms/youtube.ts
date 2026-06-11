@@ -31,7 +31,75 @@ interface GoogleRefreshTokenResponse {
 }
 
 const YOUTUBE_RESUMABLE_URL =
-  'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status';
+  'https://www.googleapis.com/upload/youtube/v3/videos' +
+  '?uploadType=resumable' +
+  '&part=snippet,status,recordingDetails';
+
+/**
+ * Builds the resumable `videos.insert` init URL, optionally disabling subscriber notifications.
+ * @param notifySubscribers - When false, adds `notifySubscribers=false` (YouTube default is true).
+ * @returns Resumable upload initialization URL.
+ */
+export function buildYouTubeResumableInitUrl(notifySubscribers: boolean): string {
+  if (notifySubscribers) {
+    return YOUTUBE_RESUMABLE_URL;
+  }
+  return `${YOUTUBE_RESUMABLE_URL}&notifySubscribers=false`;
+}
+
+/** Redacted resumable-init payload safe for debug logs (no raw title/description/tags). */
+export interface YouTubeResumableInitLogSummary {
+  initUrl: string;
+  snippet: {
+    titleLength: number;
+    descriptionLength: number;
+    tagCount: number;
+    categoryId?: string;
+    defaultLanguage?: string;
+    defaultAudioLanguage?: string;
+  };
+  status: Record<string, unknown>;
+  recordingDetails?: Record<string, unknown>;
+}
+
+/**
+ * Builds a redacted summary of the resumable `videos.insert` init body for debug logging.
+ * @param initUrl - Resumable upload initialization URL.
+ * @param initBody - Request body sent to YouTube.
+ * @returns Length/count summary without user-provided title, description, or tag text.
+ */
+export function summarizeYouTubeResumableInitBodyForLog(
+  initUrl: string,
+  initBody: {
+    snippet: Record<string, unknown>;
+    status: Record<string, unknown>;
+    recordingDetails?: Record<string, unknown>;
+  }
+): YouTubeResumableInitLogSummary {
+  const snippet = initBody.snippet;
+  const title = typeof snippet.title === 'string' ? snippet.title : '';
+  const description = typeof snippet.description === 'string' ? snippet.description : '';
+  const tags = Array.isArray(snippet.tags) ? snippet.tags : [];
+
+  return {
+    initUrl,
+    snippet: {
+      titleLength: title.length,
+      descriptionLength: description.length,
+      tagCount: tags.length,
+      ...(typeof snippet.categoryId === 'string' ? { categoryId: snippet.categoryId } : {}),
+      ...(typeof snippet.defaultLanguage === 'string'
+        ? { defaultLanguage: snippet.defaultLanguage }
+        : {}),
+      ...(typeof snippet.defaultAudioLanguage === 'string'
+        ? { defaultAudioLanguage: snippet.defaultAudioLanguage }
+        : {}),
+    },
+    status: initBody.status,
+    ...(initBody.recordingDetails ? { recordingDetails: initBody.recordingDetails } : {}),
+  };
+}
+
 const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
 
@@ -130,7 +198,14 @@ function uniqueTrimmedPlaylistIds(ids: string[]): string[] {
   return out;
 }
 
-async function youtubeFetchPlaylistsPage(
+/**
+ * Fetches one page of the authenticated user's YouTube playlists (`playlists.list`).
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param pageToken - Optional pagination token from a prior response.
+ * @param signal - Optional abort signal.
+ * @returns Playlist id/title rows for the page, or a structured failure.
+ */
+export async function youtubeFetchPlaylistsPage(
   accessToken: string,
   pageToken?: string,
   signal?: AbortSignal
@@ -167,11 +242,35 @@ async function youtubeFetchPlaylistsPage(
   };
   const items = (body.items ?? [])
     .map((it) => ({
-      id: typeof it.id === 'string' ? it.id : '',
-      title: typeof it.snippet?.title === 'string' ? it.snippet.title : '',
+      id: typeof it.id === 'string' ? it.id.trim() : '',
+      title: typeof it.snippet?.title === 'string' ? it.snippet.title.trim() : '',
     }))
-    .filter((it) => it.id.length > 0);
+    .filter((it) => it.id.length > 0 && it.title.length > 0);
   return { ok: true, items, nextPageToken: body.nextPageToken };
+}
+
+/**
+ * Paginates through all of the authenticated user's YouTube playlists.
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param signal - Optional abort signal.
+ * @returns Full playlist id/title list, or a structured failure from any page.
+ */
+export async function fetchAllYouTubePlaylists(
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; items: Array<{ id: string; title: string }> } | PlatformUploadFailure> {
+  const items: Array<{ id: string; title: string }> = [];
+  let pageToken: string | undefined;
+
+  for (;;) {
+    const page = await youtubeFetchPlaylistsPage(accessToken, pageToken, signal);
+    if (page.ok === false) return page;
+    items.push(...page.items);
+    if (!page.nextPageToken) break;
+    pageToken = page.nextPageToken;
+  }
+
+  return { ok: true, items };
 }
 
 async function findYouTubePlaylistIdByTitle(
@@ -723,13 +822,30 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     if (m.madeForKids !== undefined) status.selfDeclaredMadeForKids = m.madeForKids;
     if (m.embeddable !== undefined) status.embeddable = m.embeddable;
     if (m.license !== undefined) status.license = m.license;
-    if (m.publicStatsViewable !== undefined) status.publicStatsViewable = m.publicStatsViewable;
-    if (m.publishAt?.trim()) status.publishAt = m.publishAt.trim();
-    if (m.containsSyntheticMedia !== undefined) {
-      status.containsSyntheticMedia = m.containsSyntheticMedia;
+    if (m.publishAt?.trim()) {
+      status.publishAt = m.publishAt.trim();
+      // YouTube Data API: publishAt may only be set when privacyStatus is private
+      // (scheduled publish from private; see video resource status.publishAt).
+      status.privacyStatus = 'private';
+    }
+    const recordingDetails: Record<string, unknown> = {};
+    if (m.recordingDate?.trim()) recordingDetails.recordingDate = m.recordingDate.trim();
+
+    const initUrl = buildYouTubeResumableInitUrl(m.notifySubscribers !== false);
+    const initBody = {
+      snippet,
+      status,
+      ...(Object.keys(recordingDetails).length > 0 && { recordingDetails }),
+    };
+
+    if (process.env.NODE_ENV === 'development' || process.env.YOUTUBE_DEBUG_UPLOAD === '1') {
+      console.log(
+        '[youtube] Resumable upload init request',
+        JSON.stringify(summarizeYouTubeResumableInitBodyForLog(initUrl, initBody))
+      );
     }
 
-    const initResponse = await fetch(YOUTUBE_RESUMABLE_URL, {
+    const initResponse = await fetch(initUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${input.tokens.accessToken}`,
@@ -739,7 +855,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
           ? { 'X-Upload-Content-Length': String(videoSource.contentLength) }
           : {}),
       },
-      body: JSON.stringify({ snippet, status }),
+      body: JSON.stringify(initBody),
       ...(signal ? { signal } : {}),
     });
 

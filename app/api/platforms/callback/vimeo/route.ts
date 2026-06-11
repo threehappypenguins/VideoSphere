@@ -18,7 +18,7 @@
 // =============================================================================
 
 import { NextRequest } from 'next/server';
-import { VIMEO_OAUTH_STATE_COOKIE } from '@/app/api/platforms/connect/vimeo/route';
+import { VIMEO_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import {
   createConnectedAccount,

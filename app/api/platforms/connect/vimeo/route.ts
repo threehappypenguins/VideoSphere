@@ -13,11 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-
-/**
- * Defines the VIMEO_OAUTH_STATE_COOKIE constant.
- */
-export const VIMEO_OAUTH_STATE_COOKIE = 'vimeo_oauth_state';
+import { VIMEO_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 
 const VIMEO_AUTH_URL = 'https://api.vimeo.com/oauth/authorize';
 const VIMEO_SCOPES = ['upload', 'edit', 'public', 'private'].join(' ');

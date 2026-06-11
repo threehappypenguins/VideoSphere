@@ -43,6 +43,8 @@ export interface User {
   $createdAt: string;
   /** Profile update timestamp in ISO 8601 string format, sourced from Mongo document update time. */
   $updatedAt: string;
+  /** Per-platform upload defaults stored on the profile (`platformDefaults`; profile GET/PATCH today). */
+  platformDefaults?: PlatformDefaults;
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */
@@ -120,12 +122,13 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
   embeddable?: boolean;
   /** `status.license`: standard YouTube license vs Creative Commons. */
   license?: 'youtube' | 'creativeCommon';
-  /** `status.publicStatsViewable`. */
-  publicStatsViewable?: boolean;
+  /**
+   * `videos.insert` query parameter `notifySubscribers`. When `false`, subscribers are not
+   * notified and the video is omitted from the subscriptions feed. Omitted/`true` matches YouTube default (notify).
+   */
+  notifySubscribers?: boolean;
   /** `status.publishAt` (ISO 8601). Requires `privacyStatus` private until publish time. */
   publishAt?: string;
-  /** `status.containsSyntheticMedia` (disclosure for altered / synthetic media). */
-  containsSyntheticMedia?: boolean;
   /**
    * After upload, append the video via `playlistItems.insert` (one call per id).
    * Values are playlist **ids** from `playlist?list=…` in the URL.
@@ -137,6 +140,31 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
    * title match, then `playlistItems.insert`. Duplicate titles in this array are deduped case-insensitively (first wins).
    */
   playlistTitles?: string[];
+  /**
+   * Recording date sent to `recordingDetails.recordingDate` (RFC 3339 full-date, e.g. "2025-06-08").
+   * Omitted from upload unless explicitly set.
+   */
+  recordingDate?: string;
+}
+
+/**
+ * User-saved default values for YouTube upload fields on the profile.
+ * Persisted under `platformDefaults.youtube` and updated via GET/PATCH `/api/auth/profile`.
+ * The draft editor seeds `platforms.youtube` from connected-channel account defaults
+ * (`/api/platforms/youtube/account-defaults`), not from this object.
+ */
+export interface YouTubeUserDefaults {
+  madeForKids?: boolean;
+  /** BCP-47 audio language (`snippet.defaultAudioLanguage`; distinct from `defaultLanguage`). */
+  defaultAudioLanguage?: string;
+  license?: 'youtube' | 'creativeCommon';
+  embeddable?: boolean;
+  categoryId?: string;
+}
+
+/** Per-platform upload default settings stored on the user profile. */
+export interface PlatformDefaults {
+  youtube?: YouTubeUserDefaults;
 }
 
 /** Vimeo `privacy` object (subset); merged after mapping draft `visibility` → `privacy.view`. */

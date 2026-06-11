@@ -86,8 +86,6 @@ Valid for `drafts.document` and for `POST /api/drafts` / `PATCH /api/drafts/[id]
       "defaultAudioLanguage": "en",
       "embeddable": true,
       "license": "youtube",
-      "publicStatsViewable": true,
-      "containsSyntheticMedia": false,
       "playlistTitles": ["Example playlist title"],
       "playlistIds": []
     },
@@ -128,7 +126,7 @@ Valid for `drafts.document` and for `POST /api/drafts` / `PATCH /api/drafts/[id]
 
 ## Field reference: `platforms.youtube`
 
-Mapped to YouTube Data API v3 **`videos.insert`** resumable init (`part=snippet,status`) plus post-upload playlist steps.
+Mapped to YouTube Data API v3 **`videos.insert`** resumable init (`part=snippet,status,recordingDetails`; optional query `notifySubscribers=false` when draft `notifySubscribers` is `false`) plus post-upload playlist and thumbnail steps.
 
 | Field | Role |
 |--------|------|
@@ -138,13 +136,13 @@ Mapped to YouTube Data API v3 **`videos.insert`** resumable init (`part=snippet,
 | `defaultAudioLanguage` | `snippet.defaultAudioLanguage` |
 | `embeddable` | `status.embeddable` |
 | `license` | `status.license`: `youtube` \| `creativeCommon` |
-| `publicStatsViewable` | `status.publicStatsViewable` |
-| `publishAt` | `status.publishAt` (ISO 8601). Usually used with `visibility` private until publish time. |
-| `containsSyntheticMedia` | `status.containsSyntheticMedia` |
+| `notifySubscribers` | `videos.insert` **query** parameter `notifySubscribers`. When `false`, init URL includes `notifySubscribers=false` (omit subscribers feed / notification). Omitted or `true` matches YouTube default (notify). |
+| `publishAt` | `status.publishAt` (ISO 8601). Upload sets `status.privacyStatus` to `private` until publish time. |
+| `recordingDate` | `recordingDetails.recordingDate` (RFC 3339 full-date, e.g. `"2025-06-08"`). Omitted from init body unless set on the draft. |
 | `playlistTitles` | Playlist **titles** (`snippet.title`). Same idea as [porjo/youtubeuploader](https://github.com/porjo/youtubeuploader) `-metaJSON` `playlistTitles`. Server: [`playlists.list`](https://developers.google.com/youtube/v3/docs/playlists/list) (`mine=true`, paginated) → case-insensitive title match → else [`playlists.insert`](https://developers.google.com/youtube/v3/docs/playlists/insert) (privacy follows draft `visibility`) → [`playlistItems.insert`](https://developers.google.com/youtube/v3/docs/playlistItems/insert). Duplicate strings in the array are deduped case-insensitively (first wins). |
 | `playlistIds` | Optional playlist **ids** from `playlist?list=…` in the URL; each gets `playlistItems.insert`. |
 
-**Not implemented** (would need more API parts or endpoints): `recordingDetails`, `localizations`, thumbnails, captions, monetization, `liveStreamingDetails`, and post-upload-only `videos.update` fields.
+**Not implemented** (would need more API parts or endpoints): `recordingDetails.location` / location search UI, `localizations`, captions, monetization, `liveStreamingDetails`, and post-upload-only `videos.update` fields. Custom thumbnails use [`thumbnails.set`](https://developers.google.com/youtube/v3/docs/thumbnails/set) after upload when `thumbnailR2Key` is set on the draft.
 
 ---
 

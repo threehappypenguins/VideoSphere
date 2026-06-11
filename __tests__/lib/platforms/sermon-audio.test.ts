@@ -99,6 +99,40 @@ describe('uploadToSermonAudio', () => {
     expect(createBody).not.toHaveProperty('speakerName');
   });
 
+  it('defaults preachDate to the local calendar date when unset (not UTC)', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('TZ', 'America/Halifax');
+    // 9:49 PM ADT on June 10 — UTC date is already June 11.
+    vi.setSystemTime(new Date('2026-06-11T00:49:00.000Z'));
+
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-789' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const { preachDate: _preachDate, ...metadataWithoutPreachDate } = metadata;
+    await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: metadataWithoutPreachDate,
+      tokens,
+    });
+
+    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
+    expect(createBody.preachDate).toBe('2026-06-10');
+
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
   it('omits non-positive speakerID and falls back to speakerName when provided', async () => {
     const fetchMock = vi.mocked(global.fetch);
     fetchMock

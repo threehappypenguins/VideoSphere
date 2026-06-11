@@ -260,11 +260,10 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
   const embeddable = typeof y.embeddable === 'boolean' ? y.embeddable : undefined;
   const lic = trimStr(y.license);
   const license = lic && YT_LICENSE.has(lic) ? (lic as YouTubeDraftFields['license']) : undefined;
-  const publicStatsViewable =
-    typeof y.publicStatsViewable === 'boolean' ? y.publicStatsViewable : undefined;
+  const notifySubscribers =
+    typeof y.notifySubscribers === 'boolean' ? y.notifySubscribers : undefined;
   const publishAt = trimStr(y.publishAt);
-  const containsSyntheticMedia =
-    typeof y.containsSyntheticMedia === 'boolean' ? y.containsSyntheticMedia : undefined;
+  const recordingDate = trimStr(y.recordingDate);
   let playlistIds: string[] | undefined;
   if (Array.isArray(y.playlistIds)) {
     playlistIds = y.playlistIds
@@ -288,9 +287,9 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
     ...(defaultAudioLanguage !== undefined ? { defaultAudioLanguage } : {}),
     ...(embeddable !== undefined ? { embeddable } : {}),
     ...(license !== undefined ? { license } : {}),
-    ...(publicStatsViewable !== undefined ? { publicStatsViewable } : {}),
+    ...(notifySubscribers !== undefined ? { notifySubscribers } : {}),
     ...(publishAt !== undefined ? { publishAt } : {}),
-    ...(containsSyntheticMedia !== undefined ? { containsSyntheticMedia } : {}),
+    ...(recordingDate !== undefined ? { recordingDate } : {}),
     ...(playlistIds !== undefined ? { playlistIds } : {}),
     ...(playlistTitles !== undefined ? { playlistTitles } : {}),
   };
@@ -639,17 +638,17 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const lic = p.license;
       yb.license = lic === 'youtube' || lic === 'creativeCommon' ? lic : undefined;
     }
-    if ('publicStatsViewable' in p) {
-      yb.publicStatsViewable =
-        typeof p.publicStatsViewable === 'boolean' ? p.publicStatsViewable : undefined;
+    if ('notifySubscribers' in p) {
+      yb.notifySubscribers =
+        typeof p.notifySubscribers === 'boolean' ? p.notifySubscribers : undefined;
     }
     if ('publishAt' in p) {
       const s = p.publishAt;
       yb.publishAt = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
     }
-    if ('containsSyntheticMedia' in p) {
-      yb.containsSyntheticMedia =
-        typeof p.containsSyntheticMedia === 'boolean' ? p.containsSyntheticMedia : undefined;
+    if ('recordingDate' in p) {
+      const s = p.recordingDate;
+      yb.recordingDate = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
     }
     if ('playlistIds' in p) {
       if (Array.isArray(p.playlistIds)) {
@@ -899,9 +898,9 @@ export function buildMetadataForPlatform(
       defaultAudioLanguage: yt?.defaultAudioLanguage,
       embeddable: yt?.embeddable,
       license: yt?.license,
-      publicStatsViewable: yt?.publicStatsViewable,
+      notifySubscribers: yt?.notifySubscribers,
       publishAt: yt?.publishAt,
-      containsSyntheticMedia: yt?.containsSyntheticMedia,
+      recordingDate: yt?.recordingDate,
       playlistIds: yt?.playlistIds,
       ...(playlistTitles !== undefined && playlistTitles.length > 0 ? { playlistTitles } : {}),
     };

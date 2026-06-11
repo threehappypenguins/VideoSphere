@@ -7,7 +7,7 @@
 // GET still uses getAuthenticatedSessionUserId plus one getUserById lookup.
 //
 // GET response: full User object
-// PATCH body: { name?: string, email?: string }
+// PATCH body: { name?: string, email?: string, platformDefaults?: PlatformDefaults }
 // PATCH response: updated User object
 // Errors:   400 (invalid body/validation), 401, 403 (Google email change),
 //           404, 409 (email in use), 500
@@ -15,8 +15,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
+import { parsePlatformDefaultsPatch } from '@/lib/auth/platform-defaults-validation';
 import { isValidEmail, normalizeEmail } from '@/lib/auth/email';
 import { getUserByEmail, getUserById, updateUser } from '@/lib/repositories/users';
+import type { YouTubeUserDefaults } from '@/types';
 
 /**
  * Handles GET requests for this route.
@@ -43,7 +45,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * Updates the authenticated user's display name and/or email address.
+ * Updates the authenticated user's display name, email address, and/or platform defaults.
  * @param req - The incoming request object.
  * @returns The updated user profile or a validation error.
  */
@@ -65,19 +67,39 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Body must be a JSON object.' }, { status: 400 });
     }
 
-    const { name: rawName, email: rawEmail } = body as Record<string, unknown>;
+    const {
+      name: rawName,
+      email: rawEmail,
+      platformDefaults: rawPlatformDefaults,
+    } = body as Record<string, unknown>;
 
     const hasName = rawName !== undefined;
     const hasEmail = rawEmail !== undefined;
+    const hasPlatformDefaults = rawPlatformDefaults !== undefined;
 
-    if (!hasName && !hasEmail) {
+    if (!hasName && !hasEmail && !hasPlatformDefaults) {
       return NextResponse.json(
-        { error: 'At least one of name or email must be provided.' },
+        { error: 'At least one of name, email, or platformDefaults must be provided.' },
         { status: 400 }
       );
     }
 
-    const updateData: { name?: string; email?: string } = {};
+    const platformDefaultsResult = parsePlatformDefaultsPatch(rawPlatformDefaults);
+    if (platformDefaultsResult.ok === false) {
+      return NextResponse.json({ error: platformDefaultsResult.error }, { status: 400 });
+    }
+
+    const updateData: {
+      name?: string;
+      email?: string;
+      platformDefaultsYoutube?: Partial<YouTubeUserDefaults>;
+    } = {};
+
+    if (platformDefaultsResult.youtube !== undefined) {
+      if (Object.keys(platformDefaultsResult.youtube).length > 0) {
+        updateData.platformDefaultsYoutube = platformDefaultsResult.youtube;
+      }
+    }
 
     if (hasName) {
       if (typeof rawName !== 'string') {
@@ -129,6 +151,19 @@ export async function PATCH(req: NextRequest) {
       }
 
       updateData.email = normalizedEmail;
+    }
+
+    const hasUpdatableFields =
+      updateData.name !== undefined ||
+      updateData.email !== undefined ||
+      (updateData.platformDefaultsYoutube !== undefined &&
+        Object.keys(updateData.platformDefaultsYoutube).length > 0);
+
+    if (!hasUpdatableFields) {
+      return NextResponse.json(
+        { error: 'No updatable profile fields were provided.' },
+        { status: 400 }
+      );
     }
 
     const updatedUser = await updateUser(userId, updateData);

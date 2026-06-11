@@ -7,6 +7,7 @@ vi.mock('@/lib/r2', () => ({
 }));
 
 import * as youtube from '@/lib/platforms/youtube';
+import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 
 function makeVideoStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -25,6 +26,154 @@ function makeThumbnailStream(): ReadableStream<Uint8Array> {
     },
   });
 }
+
+const BASE_UPLOAD_METADATA: PlatformUploadMetadata = {
+  title: 'Test video',
+  description: 'Test description',
+  tags: [],
+  visibility: 'public',
+};
+
+async function runResumableInitUpload(
+  metadata: PlatformUploadMetadata
+): Promise<{ body: Record<string, unknown>; initUrl: string }> {
+  const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+  const sessionUrl = 'https://upload.youtube.test/session/resumable-init';
+  let capturedInitBody: Record<string, unknown> | undefined;
+  let capturedInitUrl = '';
+
+  fetchMock.mockImplementation((url: unknown, options?: { method?: string; body?: string }) => {
+    const sUrl = String(url);
+    const method = options?.method;
+
+    if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+      capturedInitUrl = sUrl;
+      capturedInitBody = JSON.parse(options?.body ?? '{}') as Record<string, unknown>;
+      return Promise.resolve(
+        new Response(null, { status: 200, headers: { location: sessionUrl } })
+      );
+    }
+
+    if (method === 'PUT' && sUrl === sessionUrl) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ id: 'yt-video-init' }), { status: 200 })
+      );
+    }
+
+    return Promise.resolve(new Response('', { status: 200 }));
+  });
+
+  const result = await youtube.uploadToYouTube({
+    videoStream: makeVideoStream(),
+    contentLength: 3,
+    contentType: 'video/mp4',
+    metadata,
+    tokens: { accessToken: 'tok' },
+  });
+
+  expect(result.ok).toBe(true);
+  expect(capturedInitBody).toBeDefined();
+  expect(capturedInitUrl).not.toBe('');
+  return { body: capturedInitBody!, initUrl: capturedInitUrl };
+}
+
+describe('buildYouTubeResumableInitUrl', () => {
+  it('omits notifySubscribers when notifications are enabled', () => {
+    expect(youtube.buildYouTubeResumableInitUrl(true)).not.toContain('notifySubscribers');
+  });
+
+  it('adds notifySubscribers=false when notifications are disabled', () => {
+    expect(youtube.buildYouTubeResumableInitUrl(false)).toContain('notifySubscribers=false');
+  });
+});
+
+describe('summarizeYouTubeResumableInitBodyForLog', () => {
+  it('redacts user-provided snippet text to lengths and counts', () => {
+    const summary = youtube.summarizeYouTubeResumableInitBodyForLog(
+      'https://upload.youtube.test/resumable',
+      {
+        snippet: {
+          title: 'Private sermon title',
+          description: 'Full description body',
+          tags: ['faith', 'hope'],
+          categoryId: '22',
+          defaultAudioLanguage: 'en',
+        },
+        status: { privacyStatus: 'private', publishAt: '2026-06-08T12:00:00.000Z' },
+        recordingDetails: { recordingDate: '2026-06-07' },
+      }
+    );
+
+    expect(summary).toEqual({
+      initUrl: 'https://upload.youtube.test/resumable',
+      snippet: {
+        titleLength: 20,
+        descriptionLength: 21,
+        tagCount: 2,
+        categoryId: '22',
+        defaultAudioLanguage: 'en',
+      },
+      status: { privacyStatus: 'private', publishAt: '2026-06-08T12:00:00.000Z' },
+      recordingDetails: { recordingDate: '2026-06-07' },
+    });
+    expect(JSON.stringify(summary)).not.toContain('Private sermon title');
+    expect(JSON.stringify(summary)).not.toContain('faith');
+  });
+});
+
+describe('uploadToYouTube resumable init body', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('includes recordingDate under recordingDetails', async () => {
+    const { body } = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      recordingDate: '2025-06-08',
+    });
+
+    expect(body.recordingDetails).toEqual({ recordingDate: '2025-06-08' });
+  });
+
+  it('omits recordingDetails when recording fields are absent', async () => {
+    const { body } = await runResumableInitUpload(BASE_UPLOAD_METADATA);
+
+    expect(body).not.toHaveProperty('recordingDetails');
+  });
+
+  it('sets status.privacyStatus to private when publishAt is set', async () => {
+    const { body } = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      visibility: 'public',
+      publishAt: '2026-06-08T12:00:00.000Z',
+    });
+
+    expect(body.status).toEqual(
+      expect.objectContaining({
+        privacyStatus: 'private',
+        publishAt: '2026-06-08T12:00:00.000Z',
+      })
+    );
+  });
+
+  it('omits notifySubscribers on the init URL by default', async () => {
+    const { initUrl } = await runResumableInitUpload(BASE_UPLOAD_METADATA);
+    expect(initUrl).not.toContain('notifySubscribers');
+  });
+
+  it('adds notifySubscribers=false on the init URL when disabled on metadata', async () => {
+    const { initUrl } = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      notifySubscribers: false,
+    });
+    expect(initUrl).toContain('notifySubscribers=false');
+  });
+});
 
 describe('uploadToYouTube thumbnail path', () => {
   beforeEach(() => {
@@ -325,5 +474,37 @@ describe('uploadToYouTube thumbnail path', () => {
 
     expect(result.ok).toBe(true);
     expect(capturedContentType).toBe('image/png');
+  });
+});
+
+describe('youtubeFetchPlaylistsPage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('omits playlists with missing or blank titles', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          items: [
+            { id: 'pl-1', snippet: { title: 'Sermons' } },
+            { id: 'pl-2', snippet: { title: '   ' } },
+            { id: 'pl-3', snippet: {} },
+            { id: '  pl-4  ', snippet: { title: '  Youth  ' } },
+          ],
+        })
+      )
+    );
+
+    const result = await youtube.youtubeFetchPlaylistsPage('tok');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        { id: 'pl-1', title: 'Sermons' },
+        { id: 'pl-4', title: 'Youth' },
+      ],
+    });
   });
 });
