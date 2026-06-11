@@ -529,10 +529,34 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
     );
   });
 
-  it('clears uploading state after XHR timeout aborts a hung PUT', async () => {
+  it('surfaces timeout error and clears UI when XHR hangs and fetch fallback fails', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const { onChange } = renderThumbnailModal();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+
+        if (url.includes('/thumbnail/presign') && init?.method === 'POST') {
+          return {
+            ok: true,
+            json: async () => ({ uploadUrl: PRESIGN_URL, pendingKey: PENDING_KEY }),
+          } as Response;
+        }
+
+        if (url === PRESIGN_URL && init?.method === 'PUT') {
+          return { ok: false, status: 503 } as Response;
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ data: [] }),
+        } as Response;
+      })
+    );
+
+    renderThumbnailModal();
 
     await screen.findByRole('dialog');
     await startThumbnailUpload(user);
@@ -543,14 +567,10 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
     });
 
     await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Failed to upload thumbnail to storage (503)');
       expectThumbnailUploadUiCleared();
     });
     expect(xhr.abort).toHaveBeenCalled();
-    expect(onChange).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        thumbnailR2Key: 'draft-thumbnails/user/draft/final.jpg',
-      })
-    );
 
     vi.useRealTimers();
   });

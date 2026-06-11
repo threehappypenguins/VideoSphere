@@ -1993,8 +1993,10 @@ export function DraftMetadataModal({
               callback();
             };
             const timeoutId = window.setTimeout(() => {
-              xhr.abort();
+              // Settle with the timeout error before abort() so a synchronous abort
+              // event cannot win and surface THUMBNAIL_UPLOAD_ABORTED instead.
               finish(() => reject(new Error('Thumbnail upload timed out')));
+              xhr.abort();
             }, 60_000);
             xhr.open('PUT', uploadUrl);
             xhr.setRequestHeader('Content-Type', file.type);

@@ -43,7 +43,7 @@ export interface User {
   $createdAt: string;
   /** Profile update timestamp in ISO 8601 string format, sourced from Mongo document update time. */
   $updatedAt: string;
-  /** Per-platform upload default settings (e.g. YouTube field presets for new drafts). */
+  /** Per-platform upload defaults stored on the profile (`platformDefaults`; profile GET/PATCH today). */
   platformDefaults?: PlatformDefaults;
 }
 
@@ -148,9 +148,10 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
 }
 
 /**
- * User-saved default values for YouTube upload fields.
- * Loaded when initialising a new draft's `platforms.youtube` block.
- * Stored on the user profile under `platformDefaults.youtube`.
+ * User-saved default values for YouTube upload fields on the profile.
+ * Persisted under `platformDefaults.youtube` and updated via GET/PATCH `/api/auth/profile`.
+ * The draft editor seeds `platforms.youtube` from connected-channel account defaults
+ * (`/api/platforms/youtube/account-defaults`), not from this object.
  */
 export interface YouTubeUserDefaults {
   madeForKids?: boolean;
