@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 import { getConnectedAccount } from '@/lib/repositories/connected-accounts';
 import {
+  fetchFacebookSetupPages,
   readFacebookSetupSessionFromCookies,
   toFacebookSetupSessionPublic,
 } from '@/lib/platforms/facebook-setup-session';
@@ -42,7 +43,8 @@ export default async function FacebookSetupPage() {
         }
       : undefined;
 
-  const setupSessionPublic = toFacebookSetupSessionPublic(setupSession);
+  const pages = await fetchFacebookSetupPages(setupSession);
+  const setupSessionPublic = toFacebookSetupSessionPublic(setupSession, pages);
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">

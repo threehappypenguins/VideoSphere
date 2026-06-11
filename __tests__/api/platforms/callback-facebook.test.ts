@@ -47,12 +47,6 @@ function mockSuccessfulTokenFlow() {
     .mockResolvedValueOnce({
       ok: true,
       json: async () => ({ id: 'fb-user-1', name: 'Test User' }),
-    })
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        data: [{ id: 'page-1', name: 'Test Page', access_token: 'page-token' }],
-      }),
     });
 }
 
@@ -92,14 +86,17 @@ describe('GET /api/platforms/callback/facebook', () => {
     expect(await res.text()).toContain('error=facebook');
   });
 
-  it('redirects to facebook-setup on success and sets setup session cookie', async () => {
+  it('returns HTML that navigates to facebook-setup on success and sets setup session cookie', async () => {
     mockSuccessfulTokenFlow();
     const req = makeRequest(VALID_PARAMS, validCookies());
     const res = await GET(req);
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/profile/connections/facebook-setup');
-    const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('facebook_setup_session=');
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(html).toContain('/profile/connections/facebook-setup');
+    const setCookies = res.headers.getSetCookie();
+    expect(setCookies.some((cookie) => cookie.startsWith('facebook_setup_session='))).toBe(true);
+    expect(setCookies.some((cookie) => cookie.startsWith('facebook_oauth_state='))).toBe(true);
   });
 
   it('returns HTML that navigates to ?error=facebook when token exchange fails', async () => {

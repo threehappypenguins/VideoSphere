@@ -3,9 +3,8 @@
 // =============================================================================
 // Handles the OAuth callback from Facebook after the user grants consent.
 // Verifies the CSRF nonce, exchanges the code for short- then long-lived user
-// tokens, fetches managed Pages and user profile, stores the pending setup
-// session in an encrypted cookie (Page metadata only; tokens resolved on complete),
-//
+// tokens, fetches the user profile, stores a compact pending setup session cookie,
+// and uses an HTML landing page before navigating to the setup picker.
 // Required env vars: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET
 // Callback URL: http://localhost:3000/api/platforms/callback/facebook
 // =============================================================================
@@ -16,7 +15,6 @@ import { htmlRedirect } from '@/lib/api/html-redirect';
 import {
   exchangeFacebookCodeForToken,
   exchangeFacebookShortLivedToken,
-  fetchFacebookManagedPages,
   fetchFacebookMe,
   getFacebookAppId,
   getFacebookAppSecret,
@@ -24,7 +22,6 @@ import {
 } from '@/lib/platforms/facebook-oauth';
 import {
   setFacebookSetupSessionCookie,
-  buildFacebookSetupSessionPages,
   type FacebookSetupSession,
 } from '@/lib/platforms/facebook-setup-session';
 
@@ -101,10 +98,7 @@ export async function GET(req: NextRequest) {
       return htmlRedirect(failureUrl);
     }
 
-    const [profile, pages] = await Promise.all([
-      fetchFacebookMe(longLived.access_token),
-      fetchFacebookManagedPages(longLived.access_token),
-    ]);
+    const profile = await fetchFacebookMe(longLived.access_token);
 
     if (!profile) {
       console.error('[GET /api/platforms/callback/facebook] Failed to fetch Facebook profile');
@@ -117,19 +111,15 @@ export async function GET(req: NextRequest) {
       userTokenExpiresIn: longLived.expires_in,
       userProfileId: profile.id,
       userProfileName: profile.name,
-      pages: buildFacebookSetupSessionPages(pages),
     };
 
-    const response = NextResponse.redirect(setupUrl);
-    setFacebookSetupSessionCookie(response, setupSession);
-    response.cookies.set(FACEBOOK_OAUTH_STATE_COOKIE, '', {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 0,
-      path: '/',
+    const landing = htmlRedirect(setupUrl, FACEBOOK_OAUTH_STATE_COOKIE);
+    const response = new NextResponse(landing.body, {
+      status: landing.status,
+      statusText: landing.statusText,
+      headers: landing.headers,
     });
-
+    setFacebookSetupSessionCookie(response, setupSession);
     return response;
   } catch (err) {
     console.error('[GET /api/platforms/callback/facebook] Unexpected error:', err);

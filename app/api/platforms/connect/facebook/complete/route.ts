@@ -93,21 +93,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const page = setupSession.pages.find((entry) => entry.id === pageId);
-    if (!page) {
-      return facebookCompleteError(
-        400,
-        'FACEBOOK_PAGE_NOT_FOUND',
-        'Selected Page was not found in your managed Pages list.'
-      );
-    }
-
     const resolvedPage = await resolveFacebookPageAccessToken(setupSession.userAccessToken, pageId);
     if (!resolvedPage) {
       return facebookCompleteError(
         400,
-        'FACEBOOK_PAGE_TOKEN_UNAVAILABLE',
-        'Could not resolve an access token for the selected Page. Please connect again.'
+        'FACEBOOK_PAGE_NOT_FOUND',
+        'Selected Page was not found in your managed Pages list.'
       );
     }
 

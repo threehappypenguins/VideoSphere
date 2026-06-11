@@ -1,7 +1,10 @@
 import { cookies } from 'next/headers';
 import type { NextRequest, NextResponse } from 'next/server';
 import { encryptToken, decryptToken } from '@/lib/crypto/token-encryption';
-import type { FacebookManagedPage } from '@/lib/platforms/facebook-oauth';
+import {
+  fetchFacebookManagedPages,
+  type FacebookManagedPage,
+} from '@/lib/platforms/facebook-oauth';
 
 /** httpOnly cookie storing encrypted pending Facebook setup data after OAuth. */
 export const FACEBOOK_SETUP_SESSION_COOKIE = 'facebook_setup_session';
@@ -10,7 +13,7 @@ export const FACEBOOK_SETUP_SESSION_COOKIE = 'facebook_setup_session';
 export const FACEBOOK_SETUP_SESSION_MAX_AGE_SECONDS = 60 * 10;
 
 /**
- * Page metadata stored in the pending setup session (no access tokens).
+ * Page metadata for the setup picker UI (no access tokens).
  * @property id - Page ID.
  * @property name - Page display name.
  */
@@ -21,13 +24,12 @@ export interface FacebookSetupPagePublic {
 
 /**
  * Pending Facebook connection data stored between OAuth callback and target selection.
- * Page access tokens are not stored here; they are resolved on complete via `/me/accounts`.
+ * Managed Pages are refetched from `/me/accounts` when rendering the setup picker.
  * @property userId - VideoSphere user ID.
  * @property userAccessToken - Long-lived Facebook user access token.
  * @property userTokenExpiresIn - Long-lived user token lifetime in seconds from Meta.
  * @property userProfileId - Facebook user ID.
  * @property userProfileName - Facebook user display name.
- * @property pages - Managed Pages (id and name only).
  */
 export interface FacebookSetupSession {
   userId: string;
@@ -35,7 +37,6 @@ export interface FacebookSetupSession {
   userTokenExpiresIn?: number;
   userProfileId: string;
   userProfileName: string;
-  pages: FacebookSetupPagePublic[];
 }
 
 /**
@@ -51,14 +52,26 @@ export interface FacebookSetupSessionPublic {
 }
 
 /**
- * Strips Page access tokens from `/me/accounts` results for cookie-safe setup storage.
+ * Maps managed Pages to id/name pairs for the setup picker UI.
  * @param pages - Managed Pages returned by the Facebook Graph API.
  * @returns Page id/name pairs only.
  */
-export function buildFacebookSetupSessionPages(
+export function toFacebookSetupPagePublicList(
   pages: FacebookManagedPage[]
 ): FacebookSetupPagePublic[] {
   return pages.map(({ id, name }) => ({ id, name }));
+}
+
+/**
+ * Loads managed Pages for the setup picker using the pending session's user token.
+ * @param session - Pending setup session from the encrypted cookie.
+ * @returns Page id/name pairs for UI rendering.
+ */
+export async function fetchFacebookSetupPages(
+  session: FacebookSetupSession
+): Promise<FacebookSetupPagePublic[]> {
+  const pages = await fetchFacebookManagedPages(session.userAccessToken);
+  return toFacebookSetupPagePublicList(pages);
 }
 
 function getSetupCookieOptions() {
@@ -74,7 +87,7 @@ function getSetupCookieOptions() {
 /**
  * Persists a Facebook setup session in an encrypted httpOnly cookie on a response.
  * @param response - Next.js response to attach the cookie to.
- * @param session - Pending setup session including tokens.
+ * @param session - Pending setup session including the user access token.
  */
 export function setFacebookSetupSessionCookie(
   response: NextResponse,
@@ -128,8 +141,7 @@ function parseFacebookSetupSession(raw: string): FacebookSetupSession | null {
       !parsed.userId ||
       !parsed.userAccessToken ||
       !parsed.userProfileId ||
-      !parsed.userProfileName ||
-      !Array.isArray(parsed.pages)
+      !parsed.userProfileName
     ) {
       return null;
     }
@@ -140,16 +152,18 @@ function parseFacebookSetupSession(raw: string): FacebookSetupSession | null {
 }
 
 /**
- * Strips tokens from a setup session for safe client rendering.
+ * Builds public setup metadata for client rendering, including freshly loaded Pages.
  * @param session - Full setup session from the encrypted cookie.
+ * @param pages - Managed Pages loaded from `/me/accounts`.
  * @returns Public session metadata without access tokens.
  */
 export function toFacebookSetupSessionPublic(
-  session: FacebookSetupSession
+  session: FacebookSetupSession,
+  pages: FacebookSetupPagePublic[]
 ): FacebookSetupSessionPublic {
   return {
     userProfileId: session.userProfileId,
     userProfileName: session.userProfileName,
-    pages: session.pages,
+    pages,
   };
 }

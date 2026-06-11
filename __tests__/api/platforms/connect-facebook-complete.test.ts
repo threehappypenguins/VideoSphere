@@ -32,7 +32,6 @@ function buildSetupSessionCookie(userId = 'user-1'): string {
       userTokenExpiresIn: 5_184_000,
       userProfileId: 'fb-user-1',
       userProfileName: 'Test User',
-      pages: [{ id: 'page-1', name: 'Test Page' }],
     })
   );
 }
