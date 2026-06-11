@@ -188,10 +188,10 @@ export async function youtubeFetchPlaylistsPage(
   };
   const items = (body.items ?? [])
     .map((it) => ({
-      id: typeof it.id === 'string' ? it.id : '',
-      title: typeof it.snippet?.title === 'string' ? it.snippet.title : '',
+      id: typeof it.id === 'string' ? it.id.trim() : '',
+      title: typeof it.snippet?.title === 'string' ? it.snippet.title.trim() : '',
     }))
-    .filter((it) => it.id.length > 0);
+    .filter((it) => it.id.length > 0 && it.title.length > 0);
   return { ok: true, items, nextPageToken: body.nextPageToken };
 }
 

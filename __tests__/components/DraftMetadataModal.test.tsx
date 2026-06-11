@@ -763,7 +763,7 @@ describe('DraftMetadataModal YouTube fields', () => {
       const tz = getLocalTimeZone();
       expect(screen.getByLabelText('Date')).toHaveValue(getDefaultScheduleDate(tz, frozenNow));
       expect(document.getElementById('draft-youtube-schedule-time')).toHaveTextContent(
-        getDefaultScheduleTime(frozenNow)
+        getDefaultScheduleTime(tz, frozenNow)
       );
     } finally {
       vi.useRealTimers();
@@ -819,7 +819,7 @@ describe('DraftMetadataModal YouTube fields', () => {
 
     const tz = getLocalTimeZone();
     const dateStr = getDefaultScheduleDate(tz);
-    const timeStr = getDefaultScheduleTime();
+    const timeStr = getDefaultScheduleTime(tz);
     const expectedIso = zonedDateTimeToUtcIso(dateStr, timeStr, tz);
 
     await waitFor(() => {

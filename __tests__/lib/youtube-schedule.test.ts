@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  getDefaultScheduleParts,
   getLocalTimeZone,
   getSupportedTimeZones,
+  isPublishAtInPast,
   utcIsoToZonedScheduleParts,
   zonedDateTimeToUtcIso,
 } from '@/lib/youtube-schedule';
@@ -26,6 +28,32 @@ describe('zonedDateTimeToUtcIso', () => {
     expect(() => zonedDateTimeToUtcIso('', '23:30', 'UTC')).toThrow(
       /invalid youtube schedule date or time/i
     );
+  });
+});
+
+describe('getDefaultScheduleParts', () => {
+  it('returns the next whole hour on the same calendar day', () => {
+    expect(getDefaultScheduleParts('UTC', new Date('2025-06-08T15:30:00.000Z'))).toEqual({
+      dateStr: '2025-06-08',
+      timeStr: '16:00',
+    });
+  });
+
+  it('rolls the date forward when the next whole hour is midnight', () => {
+    expect(getDefaultScheduleParts('UTC', new Date('2025-06-08T23:45:00.000Z'))).toEqual({
+      dateStr: '2025-06-09',
+      timeStr: '00:00',
+    });
+  });
+
+  it('keeps date and time aligned in a non-UTC timezone near local midnight', () => {
+    const now = new Date('2026-06-11T02:45:00.000Z');
+    const parts = getDefaultScheduleParts('America/Halifax', now);
+
+    expect(parts).toEqual({ dateStr: '2026-06-11', timeStr: '00:00' });
+    expect(
+      isPublishAtInPast(zonedDateTimeToUtcIso(parts.dateStr, parts.timeStr, 'America/Halifax'), now)
+    ).toBe(false);
   });
 });
 

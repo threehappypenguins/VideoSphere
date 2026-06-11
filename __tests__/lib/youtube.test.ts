@@ -442,3 +442,35 @@ describe('uploadToYouTube thumbnail path', () => {
     expect(capturedContentType).toBe('image/png');
   });
 });
+
+describe('youtubeFetchPlaylistsPage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('omits playlists with missing or blank titles', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          items: [
+            { id: 'pl-1', snippet: { title: 'Sermons' } },
+            { id: 'pl-2', snippet: { title: '   ' } },
+            { id: 'pl-3', snippet: {} },
+            { id: '  pl-4  ', snippet: { title: '  Youth  ' } },
+          ],
+        })
+      )
+    );
+
+    const result = await youtube.youtubeFetchPlaylistsPage('tok');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        { id: 'pl-1', title: 'Sermons' },
+        { id: 'pl-4', title: 'Youth' },
+      ],
+    });
+  });
+});

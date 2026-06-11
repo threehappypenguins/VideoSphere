@@ -1346,12 +1346,12 @@ export function DraftMetadataModal({
             setScheduleTimeZone(tz);
           } else {
             setScheduleDate(getDefaultScheduleDate(tz));
-            setScheduleTime(getDefaultScheduleTime());
+            setScheduleTime(getDefaultScheduleTime(tz));
             setScheduleTimeZone(tz);
           }
         } else {
           setScheduleDate(getDefaultScheduleDate(tz));
-          setScheduleTime(getDefaultScheduleTime());
+          setScheduleTime(getDefaultScheduleTime(tz));
           setScheduleTimeZone(tz);
         }
         scheduleInitializedRef.current = true;

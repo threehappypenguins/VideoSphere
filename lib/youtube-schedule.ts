@@ -41,27 +41,65 @@ export function formatDateInTimeZone(date: Date, timeZone: string): string {
 }
 
 /**
- * Default schedule date: today in the given timezone.
+ * Default schedule date and time in `timeZone`: the next whole hour after `now`.
+ * When that hour is midnight, the calendar date advances to the next day.
+ * @param timeZone - IANA timezone name.
+ * @param now - Reference instant (defaults to current time).
+ * @returns Wall-clock date and time strings for the schedule picker.
+ */
+export function getDefaultScheduleParts(
+  timeZone: string,
+  now: Date = new Date()
+): { dateStr: string; timeStr: string } {
+  const wall = utcIsoToZonedScheduleParts(now.toISOString(), timeZone);
+  if (!wall) {
+    return { dateStr: formatDateInTimeZone(now, timeZone), timeStr: '00:00' };
+  }
+
+  const [year, month, day] = wall.dateStr.split('-').map(Number);
+  const [hour, minute] = wall.timeStr.split(':').map(Number);
+  const totalMinutes = hour * 60 + minute;
+  let nextHourMinutes = Math.ceil(totalMinutes / 60) * 60;
+
+  let scheduleYear = year;
+  let scheduleMonth = month;
+  let scheduleDay = day;
+
+  if (nextHourMinutes >= 24 * 60) {
+    nextHourMinutes = 0;
+    const nextCalendarDay = new Date(Date.UTC(year, month - 1, day));
+    nextCalendarDay.setUTCDate(nextCalendarDay.getUTCDate() + 1);
+    scheduleYear = nextCalendarDay.getUTCFullYear();
+    scheduleMonth = nextCalendarDay.getUTCMonth() + 1;
+    scheduleDay = nextCalendarDay.getUTCDate();
+  }
+
+  const slotHour = Math.floor(nextHourMinutes / 60);
+  const slotMinute = nextHourMinutes % 60;
+  const dateStr = `${String(scheduleYear).padStart(4, '0')}-${String(scheduleMonth).padStart(2, '0')}-${String(scheduleDay).padStart(2, '0')}`;
+  const timeStr = `${String(slotHour).padStart(2, '0')}:${String(slotMinute).padStart(2, '0')}`;
+
+  return { dateStr, timeStr };
+}
+
+/**
+ * Default schedule date paired with {@link getDefaultScheduleTime} for the same `timeZone`.
  * @param timeZone - IANA timezone name.
  * @param now - Reference instant (defaults to current time).
  * @returns `YYYY-MM-DD` date string.
  */
 export function getDefaultScheduleDate(timeZone: string, now: Date = new Date()): string {
-  return formatDateInTimeZone(now, timeZone);
+  return getDefaultScheduleParts(timeZone, now).dateStr;
 }
 
 /**
- * Default schedule time: the next whole hour in the local timezone, clamped to the same day (max 23:30).
+ * Default schedule time paired with {@link getDefaultScheduleDate} for the same `timeZone`.
+ * @param timeZone - IANA timezone name.
  * @param now - Reference instant (defaults to current time).
- * @returns `HH:MM` time string aligned to a 30-minute slot.
+ * @returns `HH:MM` time string for the next whole hour (may be `00:00` on the next calendar day).
  */
-export function getDefaultScheduleTime(now: Date = new Date()): string {
-  const totalMinutes = now.getHours() * 60 + now.getMinutes();
-  const nextHourMinutes = Math.ceil(totalMinutes / 60) * 60;
-  const clampedMinutes = Math.min(nextHourMinutes, 23 * 60 + 30);
-  const hours = Math.floor(clampedMinutes / 60);
-  const minutes = clampedMinutes % 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+export function getDefaultScheduleTime(timeZone: string, now: Date = new Date()): string {
+  return getDefaultScheduleParts(timeZone, now).timeStr;
 }
 
 /**
