@@ -85,8 +85,14 @@ describe('POST /api/platforms/connect/facebook/complete', () => {
     expect(res.status).toBe(200);
     expect(payload.ok).toBe(true);
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('graph.facebook.com/v25.0/me/accounts')
+      expect.stringContaining('graph.facebook.com/v25.0/me/accounts'),
+      expect.objectContaining({
+        cache: 'no-store',
+        headers: expect.any(Headers),
+      })
     );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer long-user-token');
     expect(createConnectedAccount).toHaveBeenCalledWith(
       expect.objectContaining({
         accessToken: 'resolved-page-token',

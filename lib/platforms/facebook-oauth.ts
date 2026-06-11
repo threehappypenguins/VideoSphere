@@ -107,6 +107,23 @@ interface FacebookMeResponse {
 }
 
 /**
+ * Builds fetch options for authenticated Graph API requests.
+ * Uses a Bearer token (not query params) and disables Next.js fetch caching.
+ * @param accessToken - OAuth access token for the request.
+ * @param init - Optional fetch init (method, etc.).
+ * @returns RequestInit with Authorization header and `cache: 'no-store'`.
+ */
+function facebookGraphApiFetchInit(accessToken: string, init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${accessToken}`);
+  return {
+    ...init,
+    cache: 'no-store',
+    headers,
+  };
+}
+
+/**
  * Exchanges an authorization code for a short-lived user access token.
  * @param code - Authorization code from the OAuth callback.
  * @param redirectUri - Registered redirect URI.
@@ -168,10 +185,14 @@ export async function fetchFacebookMe(
 ): Promise<{ id: string; name: string } | null> {
   const params = new URLSearchParams({
     fields: 'id,name',
-    access_token: accessToken,
   });
-  const res = await fetch(`${FACEBOOK_GRAPH_API_BASE}/me?${params.toString()}`);
+  const res = await fetch(
+    `${FACEBOOK_GRAPH_API_BASE}/me?${params.toString()}`,
+    facebookGraphApiFetchInit(accessToken)
+  );
   if (!res.ok) {
+    const body = await res.text();
+    console.error('[fetchFacebookMe] Graph API GET /me failed:', res.status, body);
     return null;
   }
   const data = (await res.json()) as FacebookMeResponse;
@@ -191,10 +212,18 @@ export async function fetchFacebookManagedPages(
 ): Promise<FacebookManagedPage[]> {
   const params = new URLSearchParams({
     fields: 'id,name,access_token',
-    access_token: accessToken,
   });
-  const res = await fetch(`${FACEBOOK_GRAPH_API_BASE}/me/accounts?${params.toString()}`);
+  const res = await fetch(
+    `${FACEBOOK_GRAPH_API_BASE}/me/accounts?${params.toString()}`,
+    facebookGraphApiFetchInit(accessToken)
+  );
   if (!res.ok) {
+    const body = await res.text();
+    console.error(
+      '[fetchFacebookManagedPages] Graph API GET /me/accounts failed:',
+      res.status,
+      body
+    );
     return [];
   }
   const data = (await res.json()) as FacebookAccountsResponse;
@@ -296,8 +325,8 @@ export async function refreshFacebookPageConnection(
  */
 export async function revokeFacebookAppAuthorization(accessToken: string): Promise<boolean> {
   const res = await fetch(
-    `${FACEBOOK_GRAPH_API_BASE}/me/permissions?access_token=${encodeURIComponent(accessToken)}`,
-    { method: 'DELETE' }
+    `${FACEBOOK_GRAPH_API_BASE}/me/permissions`,
+    facebookGraphApiFetchInit(accessToken, { method: 'DELETE' })
   );
   return res.ok;
 }

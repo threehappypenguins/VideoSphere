@@ -24,9 +24,15 @@ describe('revokeFacebookAppAuthorization', () => {
 
     expect(revoked).toBe(true);
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://graph.facebook.com/v25.0/me/permissions?access_token=user-token',
-      { method: 'DELETE' }
+      'https://graph.facebook.com/v25.0/me/permissions',
+      expect.objectContaining({
+        method: 'DELETE',
+        cache: 'no-store',
+        headers: expect.any(Headers),
+      })
     );
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer user-token');
   });
 
   it('returns false when Meta rejects the revocation request', async () => {
