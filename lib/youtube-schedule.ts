@@ -70,6 +70,7 @@ export function getDefaultScheduleTime(now: Date = new Date()): string {
  * @param timeStr - Clock time (`HH:MM`).
  * @param timeZone - IANA timezone name.
  * @returns UTC ISO 8601 timestamp.
+ * @throws When the wall-clock date/time does not exist in `timeZone` (for example a DST gap).
  */
 export function zonedDateTimeToUtcIso(dateStr: string, timeStr: string, timeZone: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -134,7 +135,7 @@ export function zonedDateTimeToUtcIso(dateStr: string, timeStr: string, timeZone
     utcMs += minuteDelta * 60 * 1000;
   }
 
-  return new Date(utcMs).toISOString();
+  throw new Error('Invalid YouTube schedule date or time for the selected timezone');
 }
 
 /**

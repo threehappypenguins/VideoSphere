@@ -563,6 +563,14 @@ export function DraftMetadataModal({
     });
   }, []);
 
+  const resetThumbnailUploadUi = useCallback(() => {
+    setThumbnailUploading(false);
+    setThumbnailUploadProgress(0);
+    if (thumbnailInputRef.current) {
+      thumbnailInputRef.current.value = '';
+    }
+  }, []);
+
   const abortThumbnailUploadFlow = useCallback(() => {
     thumbnailRequestAbortRef.current?.abort();
     thumbnailRequestAbortRef.current = null;
@@ -698,10 +706,9 @@ export function DraftMetadataModal({
   useEffect(() => {
     return () => {
       abortThumbnailUploadFlow();
-      setThumbnailUploading(false);
-      setThumbnailUploadProgress(0);
+      resetThumbnailUploadUi();
     };
-  }, [abortThumbnailUploadFlow, draftId]);
+  }, [abortThumbnailUploadFlow, draftId, resetThumbnailUploadUi]);
 
   useEffect(() => {
     if (initialConnectedPlatforms) {
@@ -923,11 +930,7 @@ export function DraftMetadataModal({
   useEffect(() => {
     if (!value) {
       abortThumbnailUploadFlow();
-      setThumbnailUploading(false);
-      setThumbnailUploadProgress(0);
-      if (thumbnailInputRef.current) {
-        thumbnailInputRef.current.value = '';
-      }
+      resetThumbnailUploadUi();
       setPlatformWarning(null);
       setTagInput('');
       setUploadComplete(false);
@@ -936,7 +939,7 @@ export function DraftMetadataModal({
     if (value.targets.length > 0) {
       setPlatformWarning(null);
     }
-  }, [abortThumbnailUploadFlow, value]);
+  }, [abortThumbnailUploadFlow, resetThumbnailUploadUi, value]);
 
   useEffect(() => {
     if (!draftId) {
@@ -1937,11 +1940,8 @@ export function DraftMetadataModal({
     // Starting a new thumbnail upload must cancel both prior fetches and any in-flight PUT XHR.
     abortThumbnailUploadFlow();
     thumbnailRequestAbortRef.current = ac;
-    const isStale = () =>
-      ac.signal.aborted ||
-      !isMountedRef.current ||
-      latestDraftIdRef.current !== requestDraftId ||
-      thumbnailRequestAbortRef.current !== ac;
+    const isCancelled = () => ac.signal.aborted || latestDraftIdRef.current !== requestDraftId;
+    const canUpdateThumbnailUi = () => isMountedRef.current && !isCancelled();
 
     if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
       toast.error(draftThumbnailMaxSizeExceededMessage());
@@ -1964,7 +1964,7 @@ export function DraftMetadataModal({
         body: JSON.stringify({ contentType: file.type, fileSize: file.size }),
         signal: ac.signal,
       });
-      if (isStale()) return;
+      if (isCancelled()) return;
       if (!presignRes.ok) {
         const err = (await presignRes.json().catch(() => null)) as { message?: string } | null;
         throw new Error(err?.message ?? 'Failed to start thumbnail upload');
@@ -1973,56 +1973,98 @@ export function DraftMetadataModal({
         uploadUrl: string;
         pendingKey: string;
       };
+      if (typeof uploadUrl !== 'string' || uploadUrl.trim() === '') {
+        throw new Error('Invalid presign response: missing upload URL');
+      }
+      if (typeof pendingKey !== 'string' || pendingKey.trim() === '') {
+        throw new Error('Invalid presign response: missing pending key');
+      }
 
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        thumbnailXhrRef.current = xhr;
-        let settled = false;
-        const finish = (callback: () => void) => {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(timeoutId);
-          callback();
-        };
-        const timeoutId = window.setTimeout(() => {
-          xhr.abort();
-          finish(() => reject(new Error('Thumbnail upload timed out')));
-        }, 120_000);
-        xhr.open('PUT', uploadUrl);
-        xhr.setRequestHeader('Content-Type', file.type);
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable && event.total > 0) {
-            const pct = Math.round((event.loaded / event.total) * 100);
-            if (!isStale()) {
-              setThumbnailUploadProgress(pct);
-            }
-          } else if (event.loaded > 0 && !isStale()) {
-            setThumbnailUploadProgress((prev) => (prev === 0 ? 1 : prev));
-          }
-        });
-        xhr.addEventListener('load', () => {
-          thumbnailXhrRef.current = null;
-          if (xhr.status >= 200 && xhr.status < 300) {
-            finish(() => {
-              if (!isStale()) setThumbnailUploadProgress(100);
-              resolve();
+      const putThumbnailToStorage = async () => {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            thumbnailXhrRef.current = xhr;
+            let settled = false;
+            const finish = (callback: () => void) => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timeoutId);
+              callback();
+            };
+            const timeoutId = window.setTimeout(() => {
+              xhr.abort();
+              finish(() => reject(new Error('Thumbnail upload timed out')));
+            }, 60_000);
+            xhr.open('PUT', uploadUrl);
+            xhr.setRequestHeader('Content-Type', file.type);
+            xhr.upload.addEventListener('loadstart', () => {
+              if (canUpdateThumbnailUi()) {
+                setThumbnailUploadProgress((prev) => (prev === 0 ? 1 : prev));
+              }
             });
-          } else {
-            finish(() =>
-              reject(new Error(`Failed to upload thumbnail to storage (${xhr.status})`))
-            );
+            xhr.upload.addEventListener('progress', (event) => {
+              if (event.lengthComputable && event.total > 0) {
+                const pct = Math.round((event.loaded / event.total) * 100);
+                if (canUpdateThumbnailUi()) {
+                  setThumbnailUploadProgress(pct);
+                }
+              } else if (event.loaded > 0 && canUpdateThumbnailUi()) {
+                setThumbnailUploadProgress((prev) => (prev === 0 ? 1 : prev));
+              }
+            });
+            xhr.addEventListener('load', () => {
+              thumbnailXhrRef.current = null;
+              if (xhr.status >= 200 && xhr.status < 300) {
+                finish(() => {
+                  if (canUpdateThumbnailUi()) setThumbnailUploadProgress(100);
+                  resolve();
+                });
+              } else {
+                finish(() =>
+                  reject(new Error(`Failed to upload thumbnail to storage (${xhr.status})`))
+                );
+              }
+            });
+            xhr.addEventListener('error', () => {
+              thumbnailXhrRef.current = null;
+              finish(() => reject(new Error('Failed to upload thumbnail to storage')));
+            });
+            xhr.addEventListener('abort', () => {
+              thumbnailXhrRef.current = null;
+              finish(() => reject(new Error('THUMBNAIL_UPLOAD_ABORTED')));
+            });
+            xhr.send(file);
+          });
+        } catch (putError) {
+          if (isCancelled()) throw putError;
+          if (
+            putError instanceof Error &&
+            (putError.message === 'THUMBNAIL_UPLOAD_ABORTED' || putError.name === 'AbortError')
+          ) {
+            throw putError;
           }
-        });
-        xhr.addEventListener('error', () => {
-          thumbnailXhrRef.current = null;
-          finish(() => reject(new Error('Failed to upload thumbnail to storage')));
-        });
-        xhr.addEventListener('abort', () => {
-          thumbnailXhrRef.current = null;
-          finish(() => reject(new Error('THUMBNAIL_UPLOAD_ABORTED')));
-        });
-        xhr.send(file);
-      });
+          // XHR can hang without progress in some browser/CORS edge cases; retry once with fetch.
+          if (putError instanceof Error && putError.message === 'Thumbnail upload timed out') {
+            const fallbackRes = await fetch(uploadUrl, {
+              method: 'PUT',
+              headers: { 'Content-Type': file.type },
+              body: file,
+              signal: ac.signal,
+            });
+            if (!fallbackRes.ok) {
+              throw new Error(`Failed to upload thumbnail to storage (${fallbackRes.status})`);
+            }
+            if (canUpdateThumbnailUi()) {
+              setThumbnailUploadProgress(100);
+            }
+            return;
+          }
+          throw putError;
+        }
+      };
+
+      await putThumbnailToStorage();
 
       const completeRes = await fetch(`/api/drafts/${draftId}/thumbnail/complete`, {
         method: 'POST',
@@ -2030,7 +2072,7 @@ export function DraftMetadataModal({
         body: JSON.stringify({ pendingKey }),
         signal: ac.signal,
       });
-      if (isStale()) return;
+      if (isCancelled()) return;
       if (!completeRes.ok) {
         const err = (await completeRes.json().catch(() => null)) as { message?: string } | null;
         throw new Error(err?.message ?? 'Failed to finalize thumbnail');
@@ -2042,7 +2084,7 @@ export function DraftMetadataModal({
       if (!d) {
         throw new Error('Invalid response');
       }
-      if (isStale()) return;
+      if (isCancelled()) return;
       const latest = latestValueRef.current ?? value;
       if (!latest) return;
       onChange({
@@ -2051,13 +2093,13 @@ export function DraftMetadataModal({
         thumbnailContentType: d.thumbnailContentType,
         thumbnailPreviewUrl: d.thumbnailPreviewUrl,
       });
-      if (isStale()) return;
+      if (isCancelled()) return;
       announceThumbnail('Thumbnail uploaded');
     } catch (e) {
       const isAbort =
         ac.signal.aborted ||
         ((e instanceof DOMException || e instanceof Error) && e.name === 'AbortError');
-      if (isAbort || isStale()) {
+      if (isAbort || isCancelled()) {
         return;
       }
       if (e instanceof Error && e.message === 'THUMBNAIL_UPLOAD_ABORTED') {
@@ -2076,12 +2118,8 @@ export function DraftMetadataModal({
       // Intentionally does NOT check ac.signal.aborted: an externally-aborted request that is
       // still the latest for this mounted draft (e.g. onOpenChange abort that was blocked by
       // tryCloseModal) must still clear the uploading indicator to avoid a stuck "Uploading…" state.
-      if (!supersededByNewUpload && isMountedRef.current) {
-        setThumbnailUploading(false);
-        setThumbnailUploadProgress(0);
-        if (thumbnailInputRef.current) {
-          thumbnailInputRef.current.value = '';
-        }
+      if (!supersededByNewUpload) {
+        resetThumbnailUploadUi();
       }
     }
   };
@@ -2107,7 +2145,7 @@ export function DraftMetadataModal({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to remove thumbnail');
     } finally {
-      setThumbnailUploading(false);
+      resetThumbnailUploadUi();
     }
   };
 

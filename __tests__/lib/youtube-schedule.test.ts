@@ -1,6 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getLocalTimeZone, getSupportedTimeZones } from '@/lib/youtube-schedule';
+import {
+  getLocalTimeZone,
+  getSupportedTimeZones,
+  utcIsoToZonedScheduleParts,
+  zonedDateTimeToUtcIso,
+} from '@/lib/youtube-schedule';
+
+describe('zonedDateTimeToUtcIso', () => {
+  it('converts a valid wall-clock selection to UTC and round-trips in the same timezone', () => {
+    const iso = zonedDateTimeToUtcIso('2026-06-10', '23:30', 'America/Halifax');
+    expect(iso).toBe('2026-06-11T02:30:00.000Z');
+
+    const parts = utcIsoToZonedScheduleParts(iso, 'America/Halifax');
+    expect(parts).toEqual({ dateStr: '2026-06-10', timeStr: '23:30' });
+  });
+
+  it('throws when the wall-clock time does not exist in the timezone (DST gap)', () => {
+    expect(() => zonedDateTimeToUtcIso('2026-03-08', '02:30', 'America/New_York')).toThrow(
+      /invalid youtube schedule date or time for the selected timezone/i
+    );
+  });
+
+  it('throws for malformed date or time input', () => {
+    expect(() => zonedDateTimeToUtcIso('', '23:30', 'UTC')).toThrow(
+      /invalid youtube schedule date or time/i
+    );
+  });
+});
 
 describe('getLocalTimeZone', () => {
   afterEach(() => {

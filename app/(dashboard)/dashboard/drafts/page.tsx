@@ -90,6 +90,8 @@ export default function DraftsPage() {
   const { setOnboardingDraftId } = useOnboardingContext();
   const handledEditDraftIdRef = useRef<string | null>(null);
   const handledCreateDraftIdRef = useRef<string | null>(null);
+  /** Prevents duplicate router.replace when opening create from URL query (e.g. React Strict Mode). */
+  const handledOpenCreateQueryRef = useRef(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedAccountPlatform[]>([]);
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false);
@@ -250,6 +252,11 @@ export default function DraftsPage() {
 
   const handleDeleteDraft = useCallback(
     async (draft: Draft) => {
+      if (creatingDraft?.id === draft.id || editingDraft?.id === draft.id) {
+        toast.error('Close the draft editor before deleting this draft.');
+        return;
+      }
+
       const confirmed = window.confirm(`Delete "${draft.title}"? This cannot be undone.`);
       if (!confirmed) return;
 
@@ -268,7 +275,7 @@ export default function DraftsPage() {
         setIsDeletingId(null);
       }
     },
-    [loadDrafts]
+    [creatingDraft?.id, editingDraft?.id, loadDrafts]
   );
 
   const handleDeleteDraftById = useCallback(
@@ -518,8 +525,13 @@ export default function DraftsPage() {
   useEffect(() => {
     const shouldOpenCreate =
       searchParams.get('openCreateDraft') === 'true' || searchParams.get('openWizard') === 'true';
-    if (!shouldOpenCreate || creatingDraft) return;
+    if (!shouldOpenCreate) {
+      handledOpenCreateQueryRef.current = false;
+      return;
+    }
+    if (creatingDraft || isOpeningCreate || handledOpenCreateQueryRef.current) return;
 
+    handledOpenCreateQueryRef.current = true;
     void handleOpenCreateModal();
 
     const nextParams = new URLSearchParams(searchParams.toString());
@@ -527,7 +539,7 @@ export default function DraftsPage() {
     nextParams.delete('openWizard');
     const q = nextParams.toString();
     router.replace(q ? `${pathname}?${q}` : pathname);
-  }, [searchParams, creatingDraft, handleOpenCreateModal, pathname, router]);
+  }, [searchParams, creatingDraft, handleOpenCreateModal, isOpeningCreate, pathname, router]);
 
   useEffect(() => {
     const createDraftId = searchParams.get('createDraftId');
