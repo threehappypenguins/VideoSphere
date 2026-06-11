@@ -1465,6 +1465,9 @@ export function DraftMetadataModal({
     value.targets.length > 0 &&
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
     value.title.trim() !== '';
+  /** Blocks video upload while thumbnail PUT/complete is in-flight so distribute reads thumbnailR2Key. */
+  const canUploadVideo =
+    canSave && !thumbnailUploading && !uploading && !cancelServerFailed && !isSaving;
   const trimmedAiPrompt = aiPrompt.trim();
   const hasAiPrompt = trimmedAiPrompt !== '';
   const hasGeneratedMetadata =
@@ -1761,6 +1764,10 @@ export function DraftMetadataModal({
 
   const handleUploadVideo = async () => {
     if (!value || !videoFile) return;
+    if (thumbnailUploading) {
+      toast.error('Wait for the thumbnail upload to finish before uploading video.');
+      return;
+    }
     if (!validateBeforeUpload()) return;
 
     commitTagsBeforeSave();
@@ -3606,11 +3613,7 @@ export function DraftMetadataModal({
               if (!validateBeforeUpload()) return;
               setShowUploadConfirm(true);
             }}
-            disabled={
-              uploadComplete
-                ? false
-                : !canSave || !videoFile || uploading || cancelServerFailed || isSaving
-            }
+            disabled={uploadComplete ? false : !canUploadVideo || !videoFile}
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             {uploadComplete
@@ -3665,7 +3668,7 @@ export function DraftMetadataModal({
                 setShowUploadConfirm(false);
                 void handleUploadVideo();
               }}
-              disabled={!canSave || !videoFile || uploading || cancelServerFailed || isSaving}
+              disabled={!canUploadVideo || !videoFile}
             >
               Yes, upload
             </AlertDialogAction>

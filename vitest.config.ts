@@ -12,6 +12,8 @@
 // See /docs/testing.md for guidance on writing tests.
 // =============================================================================
 
+/// <reference path="./types/static-assets.d.ts" />
+
 import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
