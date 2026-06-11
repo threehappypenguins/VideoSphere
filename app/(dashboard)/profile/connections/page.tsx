@@ -360,9 +360,18 @@ async function disconnectPlatform(accountId: string) {
       // revokes Page-scoped access and leaves the Business Integration entry visible.
       const userToken = accountWithTokens.refreshToken.trim();
       const pageToken = accountWithTokens.accessToken.trim();
-      const tokenToRevoke = userToken || pageToken;
-      if (tokenToRevoke) {
-        const revoked = await revokeFacebookAppAuthorization(tokenToRevoke);
+
+      if (userToken || pageToken) {
+        let revoked = false;
+
+        if (userToken) {
+          revoked = await revokeFacebookAppAuthorization(userToken);
+        }
+
+        if (!revoked && pageToken && pageToken !== userToken) {
+          revoked = await revokeFacebookAppAuthorization(pageToken);
+        }
+
         if (!revoked) {
           console.error(
             '[disconnectPlatform] Facebook token revocation returned non-OK (non-fatal)'

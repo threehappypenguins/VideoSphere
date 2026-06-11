@@ -123,6 +123,9 @@ function facebookGraphApiFetchInit(accessToken: string, init: RequestInit = {}):
   };
 }
 
+/** Disables Next.js fetch caching for OAuth token exchange responses. */
+const FACEBOOK_OAUTH_FETCH_INIT: RequestInit = { cache: 'no-store' };
+
 /**
  * Exchanges an authorization code for a short-lived user access token.
  * @param code - Authorization code from the OAuth callback.
@@ -146,7 +149,10 @@ export async function exchangeFacebookCodeForToken(
     code,
   });
 
-  const res = await fetch(`${FACEBOOK_GRAPH_API_BASE}/oauth/access_token?${params.toString()}`);
+  const res = await fetch(
+    `${FACEBOOK_GRAPH_API_BASE}/oauth/access_token?${params.toString()}`,
+    FACEBOOK_OAUTH_FETCH_INIT
+  );
   return (await res.json()) as FacebookTokenResponse;
 }
 
@@ -171,7 +177,10 @@ export async function exchangeFacebookShortLivedToken(
     fb_exchange_token: shortLivedToken,
   });
 
-  const res = await fetch(`${FACEBOOK_GRAPH_API_BASE}/oauth/access_token?${params.toString()}`);
+  const res = await fetch(
+    `${FACEBOOK_GRAPH_API_BASE}/oauth/access_token?${params.toString()}`,
+    FACEBOOK_OAUTH_FETCH_INIT
+  );
   return (await res.json()) as FacebookTokenResponse;
 }
 
