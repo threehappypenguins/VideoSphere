@@ -4,8 +4,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { useEffect, useState } from 'react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
@@ -73,6 +73,12 @@ class MockXMLHttpRequest {
   dispatch(type: string, ...args: unknown[]) {
     for (const cb of this.listeners.get(type) ?? []) {
       cb(...args);
+    }
+  }
+
+  simulateLoadStart() {
+    for (const cb of this.upload.listeners.get('loadstart') ?? []) {
+      cb();
     }
   }
 
@@ -188,6 +194,73 @@ async function startThumbnailUpload(user: ReturnType<typeof userEvent.setup>) {
   const input = document.getElementById('draft-thumbnail-file') as HTMLInputElement;
   expect(input).toBeTruthy();
   await user.upload(input, file);
+}
+
+async function waitForInFlightThumbnailPut() {
+  await waitFor(() => {
+    expect(MockXMLHttpRequest.instances.length).toBeGreaterThan(0);
+  });
+  return MockXMLHttpRequest.instances.at(-1)!;
+}
+
+/** Asserts the modal is not stuck in the pre-fix "Uploading… 0%" state. */
+function expectThumbnailUploadUiCleared() {
+  expect(screen.queryByText(/Uploading thumbnail/i)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /^Upload$/i })).toBeEnabled();
+  expect(screen.getByRole('button', { name: /Save draft/i })).toBeEnabled();
+}
+
+type ThumbnailUploadHarnessApi = {
+  closeModal: () => void;
+  switchDraft: () => void;
+};
+
+/** Parent harness with imperative controls (modal overlay blocks external button clicks). */
+function createThumbnailUploadHarness(options?: { onChange?: DraftChangeHandler }) {
+  const onChange = options?.onChange ?? vi.fn<DraftChangeHandler>();
+  const harnessApi: { current: ThumbnailUploadHarnessApi | null } = { current: null };
+
+  function Harness() {
+    const [value, setValue] = useState<DraftEditorValues | null>(draftValue);
+
+    useEffect(() => {
+      harnessApi.current = {
+        closeModal: () => setValue(null),
+        switchDraft: () =>
+          setValue({
+            ...draftValue,
+            id: 'draft-switched-id',
+            title: 'Switched draft',
+          }),
+      };
+      return () => {
+        harnessApi.current = null;
+      };
+    }, []);
+
+    return (
+      <DraftMetadataModal
+        mode="edit"
+        value={value}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={() => setValue(null)}
+        onSave={vi.fn<DraftSaveHandler>().mockResolvedValue({ saved: true })}
+        onChange={(next) => {
+          onChange(next);
+          setValue(next);
+        }}
+      />
+    );
+  }
+
+  return {
+    Harness,
+    closeModal: () => harnessApi.current?.closeModal(),
+    switchDraft: () => harnessApi.current?.switchDraft(),
+    onChange,
+  };
 }
 
 describe('DraftMetadataModal thumbnail upload regressions', () => {
@@ -359,17 +432,126 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
     await screen.findByRole('dialog');
     await startThumbnailUpload(user);
 
-    await waitFor(() => {
-      expect(MockXMLHttpRequest.instances.length).toBeGreaterThan(0);
-    });
-
-    MockXMLHttpRequest.instances.at(-1)!.abort();
+    const xhr = await waitForInFlightThumbnailPut();
+    xhr.abort();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^Upload$/i })).toBeEnabled();
-      expect(screen.getByRole('button', { name: /Save draft/i })).toBeEnabled();
+      expectThumbnailUploadUiCleared();
+    });
+  });
+
+  it('shows non-zero progress once the PUT starts (loadstart)', async () => {
+    const user = userEvent.setup();
+    renderThumbnailModal();
+
+    await screen.findByRole('dialog');
+    await startThumbnailUpload(user);
+
+    const xhr = await waitForInFlightThumbnailPut();
+    xhr.simulateLoadStart();
+
+    await waitFor(() => {
+      expect(screen.getByText('1%')).toBeInTheDocument();
+    });
+  });
+
+  it('clears uploading state when parent closes the modal (value null) during in-flight PUT', async () => {
+    const user = userEvent.setup();
+    const { Harness, closeModal } = createThumbnailUploadHarness();
+
+    render(<Harness />);
+    await screen.findByRole('dialog');
+    await startThumbnailUpload(user);
+    const xhr = await waitForInFlightThumbnailPut();
+
+    act(() => {
+      closeModal();
     });
 
-    expect(screen.queryByText(/Uploading thumbnail/i)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(xhr.abort).toHaveBeenCalled();
+  });
+
+  it('clears uploading state when draft id changes during in-flight PUT', async () => {
+    const user = userEvent.setup();
+    const { Harness, switchDraft } = createThumbnailUploadHarness();
+    render(<Harness />);
+
+    await screen.findByRole('dialog');
+    await startThumbnailUpload(user);
+    const xhr = await waitForInFlightThumbnailPut();
+
+    act(() => {
+      switchDraft();
+    });
+
+    await waitFor(() => {
+      expectThumbnailUploadUiCleared();
+    });
+    expect(xhr.abort).toHaveBeenCalled();
+  });
+
+  it('ignores stale PUT completion after draft id changes and does not call thumbnail complete', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.mocked(global.fetch);
+    const { Harness, switchDraft, onChange } = createThumbnailUploadHarness();
+
+    render(<Harness />);
+    await screen.findByRole('dialog');
+    await startThumbnailUpload(user);
+    const xhr = await waitForInFlightThumbnailPut();
+
+    const completeCallsBefore = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      return url.includes('/thumbnail/complete') && init?.method === 'POST';
+    }).length;
+
+    act(() => {
+      switchDraft();
+    });
+    xhr.simulateSuccess();
+
+    await waitFor(() => {
+      expectThumbnailUploadUiCleared();
+    });
+
+    const completeCallsAfter = fetchMock.mock.calls.filter(([input, init]) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      return url.includes('/thumbnail/complete') && init?.method === 'POST';
+    }).length;
+    expect(completeCallsAfter).toBe(completeCallsBefore);
+    expect(onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        thumbnailR2Key: 'draft-thumbnails/user/draft/final.jpg',
+      })
+    );
+  });
+
+  it('clears uploading state after XHR timeout aborts a hung PUT', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const { onChange } = renderThumbnailModal();
+
+    await screen.findByRole('dialog');
+    await startThumbnailUpload(user);
+    const xhr = await waitForInFlightThumbnailPut();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    await waitFor(() => {
+      expectThumbnailUploadUiCleared();
+    });
+    expect(xhr.abort).toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        thumbnailR2Key: 'draft-thumbnails/user/draft/final.jpg',
+      })
+    );
+
+    vi.useRealTimers();
   });
 });

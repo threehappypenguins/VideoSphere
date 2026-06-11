@@ -33,8 +33,6 @@ import { isConnectedAccountPlatform } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, GeneratedMetadata, ConnectedAccountPlatform } from '@/types';
 import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
 
-export { MAX_GENERATE_METADATA_FILE_NAME_CHARS, MAX_GENERATE_METADATA_USER_PROMPT_CHARS };
-
 // ---------------------------------------------------------------------------
 // POST /api/ai/generate-metadata
 // ---------------------------------------------------------------------------

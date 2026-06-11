@@ -1,11 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-
-/**
- * Defines the GOOGLE_DRIVE_OAUTH_STATE_COOKIE constant.
- */
-export const GOOGLE_DRIVE_OAUTH_STATE_COOKIE = 'google_drive_oauth_state';
+import { GOOGLE_DRIVE_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_DRIVE_SCOPES = [
