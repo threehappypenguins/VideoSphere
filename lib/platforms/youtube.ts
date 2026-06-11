@@ -46,6 +46,60 @@ export function buildYouTubeResumableInitUrl(notifySubscribers: boolean): string
   }
   return `${YOUTUBE_RESUMABLE_URL}&notifySubscribers=false`;
 }
+
+/** Redacted resumable-init payload safe for debug logs (no raw title/description/tags). */
+export interface YouTubeResumableInitLogSummary {
+  initUrl: string;
+  snippet: {
+    titleLength: number;
+    descriptionLength: number;
+    tagCount: number;
+    categoryId?: string;
+    defaultLanguage?: string;
+    defaultAudioLanguage?: string;
+  };
+  status: Record<string, unknown>;
+  recordingDetails?: Record<string, unknown>;
+}
+
+/**
+ * Builds a redacted summary of the resumable `videos.insert` init body for debug logging.
+ * @param initUrl - Resumable upload initialization URL.
+ * @param initBody - Request body sent to YouTube.
+ * @returns Length/count summary without user-provided title, description, or tag text.
+ */
+export function summarizeYouTubeResumableInitBodyForLog(
+  initUrl: string,
+  initBody: {
+    snippet: Record<string, unknown>;
+    status: Record<string, unknown>;
+    recordingDetails?: Record<string, unknown>;
+  }
+): YouTubeResumableInitLogSummary {
+  const snippet = initBody.snippet;
+  const title = typeof snippet.title === 'string' ? snippet.title : '';
+  const description = typeof snippet.description === 'string' ? snippet.description : '';
+  const tags = Array.isArray(snippet.tags) ? snippet.tags : [];
+
+  return {
+    initUrl,
+    snippet: {
+      titleLength: title.length,
+      descriptionLength: description.length,
+      tagCount: tags.length,
+      ...(typeof snippet.categoryId === 'string' ? { categoryId: snippet.categoryId } : {}),
+      ...(typeof snippet.defaultLanguage === 'string'
+        ? { defaultLanguage: snippet.defaultLanguage }
+        : {}),
+      ...(typeof snippet.defaultAudioLanguage === 'string'
+        ? { defaultAudioLanguage: snippet.defaultAudioLanguage }
+        : {}),
+    },
+    status: initBody.status,
+    ...(initBody.recordingDetails ? { recordingDetails: initBody.recordingDetails } : {}),
+  };
+}
+
 const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const YOUTUBE_PLAYLISTS_URL = 'https://www.googleapis.com/youtube/v3/playlists';
 
@@ -787,10 +841,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     if (process.env.NODE_ENV === 'development' || process.env.YOUTUBE_DEBUG_UPLOAD === '1') {
       console.log(
         '[youtube] Resumable upload init request',
-        JSON.stringify({
-          initUrl,
-          body: initBody,
-        })
+        JSON.stringify(summarizeYouTubeResumableInitBodyForLog(initUrl, initBody))
       );
     }
 

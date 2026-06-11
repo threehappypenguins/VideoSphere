@@ -87,6 +87,40 @@ describe('buildYouTubeResumableInitUrl', () => {
   });
 });
 
+describe('summarizeYouTubeResumableInitBodyForLog', () => {
+  it('redacts user-provided snippet text to lengths and counts', () => {
+    const summary = youtube.summarizeYouTubeResumableInitBodyForLog(
+      'https://upload.youtube.test/resumable',
+      {
+        snippet: {
+          title: 'Private sermon title',
+          description: 'Full description body',
+          tags: ['faith', 'hope'],
+          categoryId: '22',
+          defaultAudioLanguage: 'en',
+        },
+        status: { privacyStatus: 'private', publishAt: '2026-06-08T12:00:00.000Z' },
+        recordingDetails: { recordingDate: '2026-06-07' },
+      }
+    );
+
+    expect(summary).toEqual({
+      initUrl: 'https://upload.youtube.test/resumable',
+      snippet: {
+        titleLength: 20,
+        descriptionLength: 21,
+        tagCount: 2,
+        categoryId: '22',
+        defaultAudioLanguage: 'en',
+      },
+      status: { privacyStatus: 'private', publishAt: '2026-06-08T12:00:00.000Z' },
+      recordingDetails: { recordingDate: '2026-06-07' },
+    });
+    expect(JSON.stringify(summary)).not.toContain('Private sermon title');
+    expect(JSON.stringify(summary)).not.toContain('faith');
+  });
+});
+
 describe('uploadToYouTube resumable init body', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
