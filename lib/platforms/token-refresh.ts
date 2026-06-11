@@ -173,6 +173,19 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
     };
   }
 
+  if (account.platform === 'facebook') {
+    if (!account.accessToken.trim()) {
+      throw new Error(
+        'Facebook access token is missing. Reconnect your Facebook account to continue.'
+      );
+    }
+    return {
+      accessToken: account.accessToken,
+      refreshToken: account.refreshToken,
+      tokenExpiry: account.tokenExpiry,
+    };
+  }
+
   const _exhaustive: never = account.platform;
   throw new Error(`Unsupported platform: ${String(_exhaustive)}`);
 }

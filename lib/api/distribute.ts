@@ -241,6 +241,10 @@ async function runSinglePlatformUpload(
         });
       }
 
+      if (platformUpload.platform === 'facebook') {
+        throw new Error('Facebook upload is not yet supported.');
+      }
+
       // Exhaustive platform check — throw on unsupported platforms
       const exhaustiveCheck: never = platformUpload.platform;
       throw new Error(`Unsupported platform: ${exhaustiveCheck}`);

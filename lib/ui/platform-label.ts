@@ -10,6 +10,7 @@ export const PLATFORM_LABELS: Record<ConnectedAccountPlatform, string> = {
   sftp: 'SFTP Server',
   smb: 'SMB / Network Share',
   sermon_audio: 'SermonAudio',
+  facebook: 'Facebook',
 };
 
 /**

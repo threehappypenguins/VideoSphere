@@ -29,6 +29,7 @@ export const PLATFORM_LIMITS: Record<
   sftp: { titleMax: 255, descriptionMax: 5000 },
   smb: { titleMax: 255, descriptionMax: 5000 },
   sermon_audio: { titleMax: 255, descriptionMax: 5000 },
+  facebook: { titleMax: 255, descriptionMax: 5000 },
 };
 
 /** Derive the most restrictive limits across the requested platforms. */

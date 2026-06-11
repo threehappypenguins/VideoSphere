@@ -37,8 +37,8 @@ If you use Google login and platform connections, also set:
 - `YOUTUBE_CLIENT_SECRET`
 - `VIMEO_CLIENT_ID`
 - `VIMEO_CLIENT_SECRET`
-- `FACEBOOK_CLIENT_ID`
-- `FACEBOOK_CLIENT_SECRET`
+- `FACEBOOK_APP_ID`
+- `FACEBOOK_APP_SECRET`
 - `GOOGLE_DRIVE_CLIENT_ID`
 - `GOOGLE_DRIVE_CLIENT_SECRET`
 
@@ -51,11 +51,11 @@ For SMB, use the share name exactly as listed by `smbclient -L` (case-sensitive,
 For Facebook OAuth credentials:
 
 1. Create an app in Facebook Developer Console.
-2. Enable Facebook Login and configure OAuth redirect URI:
+2. Enable "Manage Everything on your Page" as a use case and configure OAuth redirect URI:
    - `http://localhost:3000/api/platforms/callback/facebook` (local)
 3. Copy the app credentials into:
-   - `FACEBOOK_CLIENT_ID`
-   - `FACEBOOK_CLIENT_SECRET`
+   - `FACEBOOK_APP_ID`
+   - `FACEBOOK_APP_SECRET`
 
 ## 3. Start MongoDB
 
