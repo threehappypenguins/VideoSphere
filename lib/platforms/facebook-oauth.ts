@@ -19,6 +19,12 @@ export const FACEBOOK_SCOPES = [
 export const FACEBOOK_PROFILE_TOKEN_EXPIRY_MS = 60 * 24 * 60 * 60 * 1000;
 
 /**
+ * Stored expiry for Page connections. Page access tokens do not expire; this sentinel
+ * keeps Page rows out of the OAuth refresh path while the user token remains in `refreshToken`.
+ */
+export const FACEBOOK_PAGE_TOKEN_EXPIRY_ISO = '2099-01-01T00:00:00.000Z';
+
+/**
  * Computes ISO expiry for a long-lived Facebook user token.
  * @param expiresInSeconds - Lifetime in seconds from Meta's token response.
  * @returns ISO 8601 expiry timestamp.
@@ -35,7 +41,7 @@ export function getFacebookUserTokenExpiry(expiresInSeconds?: number): string {
  * Refreshed Facebook Page connection tokens after extending the user token.
  * @property pageAccessToken - Page access token used for Graph API calls.
  * @property userAccessToken - Extended long-lived user access token stored for refresh.
- * @property tokenExpiry - ISO expiry of the extended user token.
+ * @property tokenExpiry - Far-future sentinel for the non-expiring Page access token.
  */
 export interface RefreshedFacebookPageTokens {
   pageAccessToken: string;
@@ -213,15 +219,19 @@ export async function resolveFacebookPageAccessToken(
 
 /**
  * Computes token expiry ISO string stored on the connection row.
- * Both Page and profile connections track long-lived user token expiry for refresh scheduling.
- * @param _targetType - Page or personal profile target (reserved for future divergent policy).
+ * Page connections use a far-future sentinel because Page access tokens do not expire.
+ * Profile connections track long-lived user token expiry for refresh scheduling.
+ * @param targetType - Page or personal profile target.
  * @param userTokenExpiresIn - Long-lived user token lifetime in seconds from Meta.
  * @returns ISO 8601 expiry timestamp.
  */
 export function getFacebookTokenExpiry(
-  _targetType: 'page' | 'profile',
+  targetType: 'page' | 'profile',
   userTokenExpiresIn?: number
 ): string {
+  if (targetType === 'page') {
+    return FACEBOOK_PAGE_TOKEN_EXPIRY_ISO;
+  }
   return getFacebookUserTokenExpiry(userTokenExpiresIn);
 }
 
@@ -274,7 +284,7 @@ export async function refreshFacebookPageConnection(
   return {
     pageAccessToken: page.access_token,
     userAccessToken: exchanged.access_token,
-    tokenExpiry: getFacebookUserTokenExpiry(exchanged.expires_in),
+    tokenExpiry: FACEBOOK_PAGE_TOKEN_EXPIRY_ISO,
   };
 }
 

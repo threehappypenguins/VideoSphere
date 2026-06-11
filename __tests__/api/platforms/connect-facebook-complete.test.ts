@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { encryptToken } from '@/lib/crypto/token-encryption';
 import { FACEBOOK_SETUP_SESSION_COOKIE } from '@/lib/platforms/facebook-setup-session';
+import { FACEBOOK_PAGE_TOKEN_EXPIRY_ISO } from '@/lib/platforms/facebook-oauth';
 
 const mockGetAuthenticatedUserId = vi.fn();
 const mockFetch = vi.fn();
@@ -90,6 +91,7 @@ describe('POST /api/platforms/connect/facebook/complete', () => {
       expect.objectContaining({
         accessToken: 'resolved-page-token',
         refreshToken: 'long-user-token',
+        tokenExpiry: FACEBOOK_PAGE_TOKEN_EXPIRY_ISO,
         platformUserId: 'page-1',
       })
     );

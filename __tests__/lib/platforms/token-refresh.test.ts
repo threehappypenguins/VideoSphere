@@ -313,11 +313,10 @@ describe('refreshTokenIfNeeded', () => {
 
     it('refreshes Facebook Page tokens when user token expiry is past', async () => {
       const past = new Date(Date.now() - 60_000).toISOString();
-      const newExpiry = new Date(Date.now() + 5_184_000_000).toISOString();
       mockRefreshFacebookPageConnection.mockResolvedValue({
         pageAccessToken: 'new-page-token',
         userAccessToken: 'new-user-token',
-        tokenExpiry: newExpiry,
+        tokenExpiry: '2099-01-01T00:00:00.000Z',
       });
       mockUpdateTokens.mockResolvedValue({});
 
@@ -328,21 +327,20 @@ describe('refreshTokenIfNeeded', () => {
         'acc-fb',
         'new-page-token',
         'new-user-token',
-        newExpiry
+        '2099-01-01T00:00:00.000Z'
       );
       expect(out).toEqual({
         accessToken: 'new-page-token',
         refreshToken: 'new-user-token',
-        tokenExpiry: newExpiry,
+        tokenExpiry: '2099-01-01T00:00:00.000Z',
       });
     });
 
     it('refreshes Facebook Page tokens when user token expiry is invalid', async () => {
-      const newExpiry = new Date(Date.now() + 5_184_000_000).toISOString();
       mockRefreshFacebookPageConnection.mockResolvedValue({
         pageAccessToken: 'new-page-token',
         userAccessToken: 'new-user-token',
-        tokenExpiry: newExpiry,
+        tokenExpiry: '2099-01-01T00:00:00.000Z',
       });
       mockUpdateTokens.mockResolvedValue({});
 
@@ -388,11 +386,10 @@ describe('refreshTokenIfNeeded', () => {
 
     it('throws when refreshed Facebook tokens cannot be persisted', async () => {
       const past = new Date(Date.now() - 60_000).toISOString();
-      const newExpiry = new Date(Date.now() + 5_184_000_000).toISOString();
       mockRefreshFacebookPageConnection.mockResolvedValue({
         pageAccessToken: 'new-page-token',
         userAccessToken: 'new-user-token',
-        tokenExpiry: newExpiry,
+        tokenExpiry: '2099-01-01T00:00:00.000Z',
       });
       mockUpdateTokens.mockResolvedValue(null);
 
