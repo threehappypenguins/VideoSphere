@@ -322,15 +322,10 @@ export async function updateConnection(
   await connectToDatabase();
   const facebookUpdate =
     facebookFields != null
-      ? facebookFields.facebookTargetType === 'page' && facebookFields.facebookPageId
-        ? {
-            facebookTargetType: facebookFields.facebookTargetType,
-            facebookPageId: facebookFields.facebookPageId,
-          }
-        : {
-            facebookTargetType: facebookFields.facebookTargetType,
-            $unset: { facebookPageId: '' },
-          }
+      ? {
+          facebookTargetType: facebookFields.facebookTargetType,
+          facebookPageId: facebookFields.facebookPageId ?? null,
+        }
       : {};
   const updated = await ConnectedAccountModel.findByIdAndUpdate(
     id,

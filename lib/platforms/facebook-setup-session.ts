@@ -10,29 +10,32 @@ export const FACEBOOK_SETUP_SESSION_COOKIE = 'facebook_setup_session';
 export const FACEBOOK_SETUP_SESSION_MAX_AGE_SECONDS = 60 * 10;
 
 /**
- * Pending Facebook connection data stored between OAuth callback and target selection.
- * @property userId - VideoSphere user ID.
- * @property userAccessToken - Long-lived Facebook user access token.
- * @property userProfileId - Facebook user ID.
- * @property userProfileName - Facebook user display name.
- * @property pages - Managed Pages with Page access tokens.
- */
-export interface FacebookSetupSession {
-  userId: string;
-  userAccessToken: string;
-  userProfileId: string;
-  userProfileName: string;
-  pages: FacebookManagedPage[];
-}
-
-/**
- * Public Page metadata safe to render in the setup UI (no access tokens).
+ * Page metadata stored in the pending setup session (no access tokens).
  * @property id - Page ID.
  * @property name - Page display name.
  */
 export interface FacebookSetupPagePublic {
   id: string;
   name: string;
+}
+
+/**
+ * Pending Facebook connection data stored between OAuth callback and target selection.
+ * Page access tokens are not stored here; they are resolved on complete via `/me/accounts`.
+ * @property userId - VideoSphere user ID.
+ * @property userAccessToken - Long-lived Facebook user access token.
+ * @property userTokenExpiresIn - Long-lived user token lifetime in seconds from Meta.
+ * @property userProfileId - Facebook user ID.
+ * @property userProfileName - Facebook user display name.
+ * @property pages - Managed Pages (id and name only).
+ */
+export interface FacebookSetupSession {
+  userId: string;
+  userAccessToken: string;
+  userTokenExpiresIn?: number;
+  userProfileId: string;
+  userProfileName: string;
+  pages: FacebookSetupPagePublic[];
 }
 
 /**
@@ -45,6 +48,17 @@ export interface FacebookSetupSessionPublic {
   userProfileId: string;
   userProfileName: string;
   pages: FacebookSetupPagePublic[];
+}
+
+/**
+ * Strips Page access tokens from `/me/accounts` results for cookie-safe setup storage.
+ * @param pages - Managed Pages returned by the Facebook Graph API.
+ * @returns Page id/name pairs only.
+ */
+export function buildFacebookSetupSessionPages(
+  pages: FacebookManagedPage[]
+): FacebookSetupPagePublic[] {
+  return pages.map(({ id, name }) => ({ id, name }));
 }
 
 function getSetupCookieOptions() {
@@ -136,6 +150,6 @@ export function toFacebookSetupSessionPublic(
   return {
     userProfileId: session.userProfileId,
     userProfileName: session.userProfileName,
-    pages: session.pages.map((page) => ({ id: page.id, name: page.name })),
+    pages: session.pages,
   };
 }

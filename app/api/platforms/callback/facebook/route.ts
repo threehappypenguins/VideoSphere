@@ -4,7 +4,7 @@
 // Handles the OAuth callback from Facebook after the user grants consent.
 // Verifies the CSRF nonce, exchanges the code for short- then long-lived user
 // tokens, fetches managed Pages and user profile, stores the pending setup
-// session in an encrypted cookie, and redirects to the target picker page.
+// session in an encrypted cookie (Page metadata only; tokens resolved on complete),
 //
 // Required env vars: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET
 // Callback URL: http://localhost:3000/api/platforms/callback/facebook
@@ -24,6 +24,7 @@ import {
 } from '@/lib/platforms/facebook-oauth';
 import {
   setFacebookSetupSessionCookie,
+  buildFacebookSetupSessionPages,
   type FacebookSetupSession,
 } from '@/lib/platforms/facebook-setup-session';
 
@@ -113,9 +114,10 @@ export async function GET(req: NextRequest) {
     const setupSession: FacebookSetupSession = {
       userId,
       userAccessToken: longLived.access_token,
+      userTokenExpiresIn: longLived.expires_in,
       userProfileId: profile.id,
       userProfileName: profile.name,
-      pages,
+      pages: buildFacebookSetupSessionPages(pages),
     };
 
     const response = NextResponse.redirect(setupUrl);

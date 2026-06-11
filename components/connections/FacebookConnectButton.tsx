@@ -123,8 +123,8 @@ export function FacebookConnectButton({
 
   const dialogTitle = isEditing ? 'Edit Facebook Connection' : 'Choose Facebook Page';
   const dialogDescription = isSetupFlow
-    ? 'Select the Facebook Page VideoSphere should publish videos to. Meta’s Video API only supports Page publishing — personal profile upload is not available to third-party apps.'
-    : 'Reconnect Facebook to change your publish target.';
+    ? 'Select the Facebook Page VideoSphere should publish videos to.'
+    : 'Reconnect Facebook to choose a different Page.';
   const submitLabel = submitting ? 'Saving…' : isEditing ? 'Save changes' : 'Connect';
 
   return (

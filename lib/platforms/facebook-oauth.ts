@@ -15,11 +15,33 @@ export const FACEBOOK_SCOPES = [
   'pages_manage_posts',
 ].join(',');
 
-/** Page access tokens from long-lived user tokens do not expire — store far-future expiry. */
-export const FACEBOOK_PAGE_TOKEN_EXPIRY_MS = 100 * 365 * 24 * 60 * 60 * 1000;
-
-/** Long-lived user tokens last ~60 days. */
+/** Long-lived user tokens last ~60 days when Meta omits `expires_in`. */
 export const FACEBOOK_PROFILE_TOKEN_EXPIRY_MS = 60 * 24 * 60 * 60 * 1000;
+
+/**
+ * Computes ISO expiry for a long-lived Facebook user token.
+ * @param expiresInSeconds - Lifetime in seconds from Meta's token response.
+ * @returns ISO 8601 expiry timestamp.
+ */
+export function getFacebookUserTokenExpiry(expiresInSeconds?: number): string {
+  const ms =
+    expiresInSeconds != null && expiresInSeconds > 0
+      ? expiresInSeconds * 1000
+      : FACEBOOK_PROFILE_TOKEN_EXPIRY_MS;
+  return new Date(Date.now() + ms).toISOString();
+}
+
+/**
+ * Refreshed Facebook Page connection tokens after extending the user token.
+ * @property pageAccessToken - Page access token used for Graph API calls.
+ * @property userAccessToken - Extended long-lived user access token stored for refresh.
+ * @property tokenExpiry - ISO expiry of the extended user token.
+ */
+export interface RefreshedFacebookPageTokens {
+  pageAccessToken: string;
+  userAccessToken: string;
+  tokenExpiry: string;
+}
 
 /**
  * Returns the Facebook App ID from environment variables.
@@ -176,12 +198,96 @@ export async function fetchFacebookManagedPages(
 }
 
 /**
- * Computes token expiry ISO string for a Facebook connection target.
- * @param targetType - Page or personal profile target.
+ * Resolves a Page access token for a managed Page using a long-lived user token.
+ * @param userAccessToken - Long-lived Facebook user access token.
+ * @param pageId - Facebook Page ID to resolve.
+ * @returns Page metadata with access token, or null when not found.
+ */
+export async function resolveFacebookPageAccessToken(
+  userAccessToken: string,
+  pageId: string
+): Promise<FacebookManagedPage | null> {
+  const pages = await fetchFacebookManagedPages(userAccessToken);
+  return pages.find((page) => page.id === pageId) ?? null;
+}
+
+/**
+ * Computes token expiry ISO string stored on the connection row.
+ * Both Page and profile connections track long-lived user token expiry for refresh scheduling.
+ * @param _targetType - Page or personal profile target (reserved for future divergent policy).
+ * @param userTokenExpiresIn - Long-lived user token lifetime in seconds from Meta.
  * @returns ISO 8601 expiry timestamp.
  */
-export function getFacebookTokenExpiry(targetType: 'page' | 'profile'): string {
-  const ms =
-    targetType === 'page' ? FACEBOOK_PAGE_TOKEN_EXPIRY_MS : FACEBOOK_PROFILE_TOKEN_EXPIRY_MS;
-  return new Date(Date.now() + ms).toISOString();
+export function getFacebookTokenExpiry(
+  _targetType: 'page' | 'profile',
+  userTokenExpiresIn?: number
+): string {
+  return getFacebookUserTokenExpiry(userTokenExpiresIn);
+}
+
+/**
+ * Extends a long-lived user token for a personal profile connection.
+ * @param longLivedUserToken - Stored long-lived user access token.
+ * @returns Extended user token bundle, or an error message.
+ */
+export async function refreshFacebookProfileConnection(
+  longLivedUserToken: string
+): Promise<{ userAccessToken: string; tokenExpiry: string } | { error: string }> {
+  const exchanged = await exchangeFacebookShortLivedToken(longLivedUserToken);
+  if (!exchanged.access_token) {
+    return {
+      error: exchanged.error?.message ?? 'Failed to extend Facebook user token.',
+    };
+  }
+
+  return {
+    userAccessToken: exchanged.access_token,
+    tokenExpiry: getFacebookUserTokenExpiry(exchanged.expires_in),
+  };
+}
+
+/**
+ * Extends a long-lived user token and re-fetches a Page access token for the given Page ID.
+ * @param longLivedUserToken - Stored long-lived user access token.
+ * @param pageId - Facebook Page ID to refresh.
+ * @returns Refreshed Page and user tokens, or an error message.
+ */
+export async function refreshFacebookPageConnection(
+  longLivedUserToken: string,
+  pageId: string
+): Promise<RefreshedFacebookPageTokens | { error: string }> {
+  const exchanged = await exchangeFacebookShortLivedToken(longLivedUserToken);
+  if (!exchanged.access_token) {
+    return {
+      error: exchanged.error?.message ?? 'Failed to extend Facebook user token.',
+    };
+  }
+
+  const pages = await fetchFacebookManagedPages(exchanged.access_token);
+  const page = pages.find((entry) => entry.id === pageId);
+  if (!page) {
+    return {
+      error: `Facebook Page ${pageId} is no longer accessible with the stored credentials.`,
+    };
+  }
+
+  return {
+    pageAccessToken: page.access_token,
+    userAccessToken: exchanged.access_token,
+    tokenExpiry: getFacebookUserTokenExpiry(exchanged.expires_in),
+  };
+}
+
+/**
+ * Revokes all permissions the token holder has granted to this Meta app (`DELETE /me/permissions`).
+ * Call with a long-lived **user** access token to remove VideoSphere from Business Integrations.
+ * @param accessToken - User or Page access token for the identity revoking access.
+ * @returns True when Meta accepts the revocation request.
+ */
+export async function revokeFacebookAppAuthorization(accessToken: string): Promise<boolean> {
+  const res = await fetch(
+    `${FACEBOOK_GRAPH_API_BASE}/me/permissions?access_token=${encodeURIComponent(accessToken)}`,
+    { method: 'DELETE' }
+  );
+  return res.ok;
 }

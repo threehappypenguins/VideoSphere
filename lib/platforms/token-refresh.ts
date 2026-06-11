@@ -2,11 +2,16 @@
  * Central OAuth token refresh for platform APIs (distribution and other callers).
  * YouTube: refreshes when the access token is expired or within the lead window.
  * Vimeo: returns stored tokens without a remote refresh (long-lived tokens).
+ * Facebook: extends the stored long-lived user token and re-fetches Page tokens when needed.
  */
 
 import type { ConnectedAccount } from '@/types';
 import type { PlatformUploadTokens } from '@/lib/platforms/types';
 import { updateTokens } from '@/lib/repositories/connected-accounts';
+import {
+  refreshFacebookPageConnection,
+  refreshFacebookProfileConnection,
+} from '@/lib/platforms/facebook-oauth';
 import { refreshGoogleDriveAccessToken } from '@/lib/platforms/google-drive';
 import { refreshYouTubeAccessToken } from '@/lib/platforms/youtube';
 
@@ -174,15 +179,66 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
   }
 
   if (account.platform === 'facebook') {
-    if (!account.accessToken.trim()) {
+    const userToken = account.refreshToken.trim();
+    if (!userToken) {
       throw new Error(
-        'Facebook access token is missing. Reconnect your Facebook account to continue.'
+        'Facebook access token is expired or near expiry and no user token is stored. Reconnect your Facebook account.'
       );
     }
+
+    const targetType = account.facebookTargetType ?? 'page';
+    const pageId = account.facebookPageId ?? account.platformUserId;
+
+    if (targetType === 'page') {
+      const refreshed = await refreshFacebookPageConnection(userToken, pageId);
+      if ('error' in refreshed) {
+        throw new Error(
+          `Facebook token refresh failed: ${refreshed.error} Reconnect your Facebook account to continue.`
+        );
+      }
+
+      const persisted = await updateTokens(
+        account.id,
+        refreshed.pageAccessToken,
+        refreshed.userAccessToken,
+        refreshed.tokenExpiry
+      );
+      if (persisted === null) {
+        throw new Error(
+          'Failed to persist refreshed Facebook tokens because the connected account no longer exists.'
+        );
+      }
+
+      return {
+        accessToken: refreshed.pageAccessToken,
+        refreshToken: refreshed.userAccessToken,
+        tokenExpiry: refreshed.tokenExpiry,
+      };
+    }
+
+    const refreshed = await refreshFacebookProfileConnection(userToken);
+    if ('error' in refreshed) {
+      throw new Error(
+        `Facebook token refresh failed: ${refreshed.error} Reconnect your Facebook account to continue.`
+      );
+    }
+
+    const persisted = await updateTokens(
+      account.id,
+      refreshed.userAccessToken,
+      refreshed.userAccessToken,
+      refreshed.tokenExpiry
+    );
+    if (persisted === null) {
+      throw new Error(
+        'Failed to persist refreshed Facebook tokens because the connected account no longer exists.'
+      );
+    }
+
     return {
-      accessToken: account.accessToken,
-      refreshToken: account.refreshToken,
-      tokenExpiry: account.tokenExpiry,
+      accessToken: refreshed.userAccessToken,
+      refreshToken: refreshed.userAccessToken,
+      tokenExpiry: refreshed.tokenExpiry,
     };
   }
 

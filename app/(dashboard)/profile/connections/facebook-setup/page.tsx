@@ -14,11 +14,11 @@ import { FacebookConnectButton } from '@/components/connections/FacebookConnectB
  */
 export const metadata: Metadata = {
   title: 'Facebook Setup',
-  description: 'Choose a Facebook Page or profile for VideoSphere uploads.',
+  description: 'Choose a Facebook Page for VideoSphere uploads.',
 };
 
 /**
- * Post-OAuth picker page where the user selects a Facebook Page or personal profile.
+ * Post-OAuth picker page where the user selects a Facebook Page to publish to.
  * @returns Setup UI or redirect when session is missing.
  */
 export default async function FacebookSetupPage() {
@@ -70,7 +70,7 @@ export default async function FacebookSetupPage() {
           </p>
           <div className="mt-4">
             <FacebookConnectButton
-              label="Choose publish target"
+              label="Choose Facebook Page"
               setupSession={setupSessionPublic}
               existingConnection={existingConnection}
               defaultOpen

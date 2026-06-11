@@ -25,6 +25,7 @@ import {
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
 import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
+import { revokeFacebookAppAuthorization } from '@/lib/platforms/facebook-oauth';
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
 import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
@@ -224,9 +225,12 @@ function getConnectionStatus(
   }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
-  // YouTube and Google Drive use short-lived access tokens; a stored refresh token means the link can be renewed.
+  // YouTube, Google Drive, and Facebook use short-lived or schedulable tokens; a stored refresh token
+  // means the link can be renewed automatically before the next API call.
   if (
-    (account.platform === 'youtube' || account.platform === 'google_drive') &&
+    (account.platform === 'youtube' ||
+      account.platform === 'google_drive' ||
+      account.platform === 'facebook') &&
     account.hasRefreshToken
   ) {
     return 'connected';
@@ -349,12 +353,22 @@ async function disconnectPlatform(accountId: string) {
     }
   }
 
-  if (canonicalPlatform === 'facebook' && accountWithTokens?.accessToken) {
+  if (canonicalPlatform === 'facebook' && accountWithTokens) {
     try {
-      await fetch(
-        `https://graph.facebook.com/v25.0/me/permissions?access_token=${encodeURIComponent(accountWithTokens.accessToken)}`,
-        { method: 'DELETE' }
-      );
+      // Prefer the stored long-lived user token: DELETE /me/permissions with a user token
+      // removes VideoSphere from Settings > Business Integrations. A Page token only
+      // revokes Page-scoped access and leaves the Business Integration entry visible.
+      const userToken = accountWithTokens.refreshToken.trim();
+      const pageToken = accountWithTokens.accessToken.trim();
+      const tokenToRevoke = userToken || pageToken;
+      if (tokenToRevoke) {
+        const revoked = await revokeFacebookAppAuthorization(tokenToRevoke);
+        if (!revoked) {
+          console.error(
+            '[disconnectPlatform] Facebook token revocation returned non-OK (non-fatal)'
+          );
+        }
+      }
     } catch (err) {
       console.error('[disconnectPlatform] Facebook token revocation failed (non-fatal):', err);
     }

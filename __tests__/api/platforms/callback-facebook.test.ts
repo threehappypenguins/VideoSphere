@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
 
 import { GET } from '@/app/api/platforms/callback/facebook/route';
 
@@ -60,6 +59,7 @@ function mockSuccessfulTokenFlow() {
 describe('GET /api/platforms/callback/facebook', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
     process.env.FACEBOOK_APP_ID = 'test-app-id';
     process.env.FACEBOOK_APP_SECRET = 'test-app-secret';
   });
@@ -67,6 +67,7 @@ describe('GET /api/platforms/callback/facebook', () => {
   afterEach(() => {
     delete process.env.FACEBOOK_APP_ID;
     delete process.env.FACEBOOK_APP_SECRET;
+    vi.unstubAllGlobals();
   });
 
   it('returns HTML that navigates to ?error=facebook when env vars are missing', async () => {

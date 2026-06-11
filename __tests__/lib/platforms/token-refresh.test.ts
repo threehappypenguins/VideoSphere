@@ -8,6 +8,15 @@ vi.mock('@/lib/platforms/youtube', () => ({
   refreshYouTubeAccessToken: (...args: unknown[]) => mockRefreshYouTubeAccessToken(...args),
 }));
 
+const mockRefreshFacebookPageConnection = vi.fn();
+const mockRefreshFacebookProfileConnection = vi.fn();
+
+vi.mock('@/lib/platforms/facebook-oauth', () => ({
+  refreshFacebookPageConnection: (...args: unknown[]) => mockRefreshFacebookPageConnection(...args),
+  refreshFacebookProfileConnection: (...args: unknown[]) =>
+    mockRefreshFacebookProfileConnection(...args),
+}));
+
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   updateTokens: (...args: unknown[]) => mockUpdateTokens(...args),
 }));
@@ -30,6 +39,25 @@ function youtubeAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAcc
     hasRefreshToken: true,
     platformUserId: 'p1',
     platformName: 'Ch',
+    $createdAt: '2020-01-01T00:00:00.000Z',
+    $updatedAt: '2020-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function facebookPageAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAccount {
+  return {
+    id: 'acc-fb',
+    userId: 'user-1',
+    platform: 'facebook',
+    accessToken: 'page-token',
+    refreshToken: 'user-token',
+    tokenExpiry: new Date(Date.now() + 3_600_000).toISOString(),
+    hasRefreshToken: true,
+    platformUserId: 'page-1',
+    platformName: 'My Page',
+    facebookTargetType: 'page',
+    facebookPageId: 'page-1',
     $createdAt: '2020-01-01T00:00:00.000Z',
     $updatedAt: '2020-01-01T00:00:00.000Z',
     ...overrides,
@@ -264,5 +292,113 @@ describe('refreshTokenIfNeeded', () => {
 
     await expect(refreshTokenIfNeeded(acc)).rejects.toThrow(/Reconnect your SermonAudio account/i);
     expect(mockRefreshYouTubeAccessToken).not.toHaveBeenCalled();
+  });
+
+  describe('Facebook', () => {
+    it('returns stored Facebook Page tokens when user token expiry is far in the future', async () => {
+      const acc = facebookPageAccount({
+        tokenExpiry: '2099-01-01T00:00:00.000Z',
+      });
+
+      const out = await refreshTokenIfNeeded(acc);
+
+      expect(out).toEqual({
+        accessToken: 'page-token',
+        refreshToken: 'user-token',
+        tokenExpiry: '2099-01-01T00:00:00.000Z',
+      });
+      expect(mockRefreshFacebookPageConnection).not.toHaveBeenCalled();
+      expect(mockUpdateTokens).not.toHaveBeenCalled();
+    });
+
+    it('refreshes Facebook Page tokens when user token expiry is past', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      const newExpiry = new Date(Date.now() + 5_184_000_000).toISOString();
+      mockRefreshFacebookPageConnection.mockResolvedValue({
+        pageAccessToken: 'new-page-token',
+        userAccessToken: 'new-user-token',
+        tokenExpiry: newExpiry,
+      });
+      mockUpdateTokens.mockResolvedValue({});
+
+      const out = await refreshTokenIfNeeded(facebookPageAccount({ tokenExpiry: past }));
+
+      expect(mockRefreshFacebookPageConnection).toHaveBeenCalledWith('user-token', 'page-1');
+      expect(mockUpdateTokens).toHaveBeenCalledWith(
+        'acc-fb',
+        'new-page-token',
+        'new-user-token',
+        newExpiry
+      );
+      expect(out).toEqual({
+        accessToken: 'new-page-token',
+        refreshToken: 'new-user-token',
+        tokenExpiry: newExpiry,
+      });
+    });
+
+    it('refreshes Facebook Page tokens when user token expiry is invalid', async () => {
+      const newExpiry = new Date(Date.now() + 5_184_000_000).toISOString();
+      mockRefreshFacebookPageConnection.mockResolvedValue({
+        pageAccessToken: 'new-page-token',
+        userAccessToken: 'new-user-token',
+        tokenExpiry: newExpiry,
+      });
+      mockUpdateTokens.mockResolvedValue({});
+
+      await refreshTokenIfNeeded(facebookPageAccount({ tokenExpiry: 'not-a-date' }));
+
+      expect(mockRefreshFacebookPageConnection).toHaveBeenCalledWith('user-token', 'page-1');
+    });
+
+    it('throws a clear reconnect error when Facebook user refresh token is missing', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+
+      await expect(
+        refreshTokenIfNeeded(
+          facebookPageAccount({ refreshToken: '', hasRefreshToken: false, tokenExpiry: past })
+        )
+      ).rejects.toThrow(/Reconnect your Facebook account/i);
+
+      expect(mockRefreshFacebookPageConnection).not.toHaveBeenCalled();
+    });
+
+    it('throws a clear reconnect error when Facebook Page access token is blank and refresh is needed', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+
+      await expect(
+        refreshTokenIfNeeded(
+          facebookPageAccount({ accessToken: '   ', refreshToken: '', tokenExpiry: past })
+        )
+      ).rejects.toThrow(/Reconnect your Facebook account/i);
+
+      expect(mockRefreshFacebookPageConnection).not.toHaveBeenCalled();
+    });
+
+    it('throws when Facebook Page refresh fails', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      mockRefreshFacebookPageConnection.mockResolvedValue({
+        error: 'Facebook Page page-1 is no longer accessible with the stored credentials.',
+      });
+
+      await expect(
+        refreshTokenIfNeeded(facebookPageAccount({ tokenExpiry: past }))
+      ).rejects.toThrow(/Facebook token refresh failed:.*Reconnect your Facebook account/i);
+    });
+
+    it('throws when refreshed Facebook tokens cannot be persisted', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      const newExpiry = new Date(Date.now() + 5_184_000_000).toISOString();
+      mockRefreshFacebookPageConnection.mockResolvedValue({
+        pageAccessToken: 'new-page-token',
+        userAccessToken: 'new-user-token',
+        tokenExpiry: newExpiry,
+      });
+      mockUpdateTokens.mockResolvedValue(null);
+
+      await expect(
+        refreshTokenIfNeeded(facebookPageAccount({ tokenExpiry: past }))
+      ).rejects.toThrow(/connected account no longer exists/i);
+    });
   });
 });

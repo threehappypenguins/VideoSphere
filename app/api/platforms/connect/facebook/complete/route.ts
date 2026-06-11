@@ -1,10 +1,10 @@
 // =============================================================================
 // POST /api/platforms/connect/facebook/complete
 // =============================================================================
-// Finalizes a Facebook connection after the user selects a Page or personal
-// profile on the setup picker. Reads the encrypted setup session cookie,
-// stores the appropriate access token (Page token or long-lived user token),
-// and upserts the connected_accounts row.
+// Finalizes a Facebook connection after the user selects a Page on the setup
+// picker. Reads the encrypted setup session cookie, stores the Page access
+// token plus the long-lived user token (for automatic refresh), and upserts
+// the connected_accounts row.
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,16 +16,30 @@ import {
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
-import { getFacebookTokenExpiry } from '@/lib/platforms/facebook-oauth';
+import {
+  getFacebookTokenExpiry,
+  resolveFacebookPageAccessToken,
+} from '@/lib/platforms/facebook-oauth';
 import {
   clearFacebookSetupSessionCookie,
   readFacebookSetupSessionFromRequest,
 } from '@/lib/platforms/facebook-setup-session';
-import type { ApiError, ConnectedAccountPublic } from '@/types';
+import type { ConnectedAccountPublic } from '@/types';
 
 interface CompleteFacebookConnectionBody {
   targetType?: unknown;
   pageId?: unknown;
+}
+
+/**
+ * Returns a connect-style JSON error response for the Facebook setup picker.
+ * @param status - HTTP status code.
+ * @param code - Stable machine-readable error code.
+ * @param message - User-facing error message.
+ * @returns JSON response body `{ ok: false, error: { code, message } }`.
+ */
+function facebookCompleteError(status: number, code: string, message: string): NextResponse {
+  return NextResponse.json({ ok: false, error: { code, message } }, { status });
 }
 
 /**
@@ -36,44 +50,32 @@ interface CompleteFacebookConnectionBody {
 export async function POST(req: NextRequest) {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
-    const errRes: ApiError = {
-      error: 'Unauthorized',
-      message: 'Not authenticated',
-      statusCode: 401,
-    };
-    return NextResponse.json(errRes, { status: 401 });
+    return facebookCompleteError(401, 'UNAUTHORIZED', 'Not authenticated.');
   }
 
   const setupSession = readFacebookSetupSessionFromRequest(req);
   if (!setupSession || setupSession.userId !== userId) {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: 'Facebook setup session expired. Please connect again.',
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
+    return facebookCompleteError(
+      400,
+      'FACEBOOK_SETUP_SESSION_EXPIRED',
+      'Facebook setup session expired. Please connect again.'
+    );
   }
 
   let body: CompleteFacebookConnectionBody;
   try {
     body = (await req.json()) as CompleteFacebookConnectionBody;
   } catch {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: 'Invalid JSON body.',
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
+    return facebookCompleteError(400, 'INVALID_JSON', 'Request body must be valid JSON.');
   }
 
   const targetType = body.targetType;
   if (targetType !== 'page' && targetType !== 'profile') {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: 'targetType must be "page" or "profile".',
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
+    return facebookCompleteError(
+      400,
+      'FACEBOOK_TARGET_TYPE_INVALID',
+      'targetType must be "page" or "profile".'
+    );
   }
 
   let accessToken: string;
@@ -84,35 +86,43 @@ export async function POST(req: NextRequest) {
   if (targetType === 'page') {
     const pageId = typeof body.pageId === 'string' ? body.pageId.trim() : '';
     if (!pageId) {
-      const errRes: ApiError = {
-        error: 'Bad Request',
-        message: 'pageId is required when targetType is "page".',
-        statusCode: 400,
-      };
-      return NextResponse.json(errRes, { status: 400 });
+      return facebookCompleteError(
+        400,
+        'FACEBOOK_PAGE_ID_REQUIRED',
+        'pageId is required when targetType is "page".'
+      );
     }
 
     const page = setupSession.pages.find((entry) => entry.id === pageId);
     if (!page) {
-      const errRes: ApiError = {
-        error: 'Bad Request',
-        message: 'Selected Page was not found in your managed Pages list.',
-        statusCode: 400,
-      };
-      return NextResponse.json(errRes, { status: 400 });
+      return facebookCompleteError(
+        400,
+        'FACEBOOK_PAGE_NOT_FOUND',
+        'Selected Page was not found in your managed Pages list.'
+      );
     }
 
-    accessToken = page.access_token;
-    platformUserId = page.id;
-    platformName = page.name;
-    facebookPageId = page.id;
+    const resolvedPage = await resolveFacebookPageAccessToken(setupSession.userAccessToken, pageId);
+    if (!resolvedPage) {
+      return facebookCompleteError(
+        400,
+        'FACEBOOK_PAGE_TOKEN_UNAVAILABLE',
+        'Could not resolve an access token for the selected Page. Please connect again.'
+      );
+    }
+
+    accessToken = resolvedPage.access_token;
+    platformUserId = resolvedPage.id;
+    platformName = resolvedPage.name;
+    facebookPageId = resolvedPage.id;
   } else {
     accessToken = setupSession.userAccessToken;
     platformUserId = setupSession.userProfileId;
     platformName = setupSession.userProfileName;
   }
 
-  const tokenExpiry = getFacebookTokenExpiry(targetType);
+  const tokenExpiry = getFacebookTokenExpiry(targetType, setupSession.userTokenExpiresIn);
+  const userRefreshToken = setupSession.userAccessToken;
   const facebookFields: {
     facebookTargetType: 'page' | 'profile';
     facebookPageId?: string;
@@ -142,7 +152,7 @@ export async function POST(req: NextRequest) {
       account = await updateConnection(
         existingId,
         accessToken,
-        '',
+        userRefreshToken,
         tokenExpiry,
         platformUserId,
         platformName,
@@ -155,7 +165,7 @@ export async function POST(req: NextRequest) {
         userId,
         platform: 'facebook',
         accessToken,
-        refreshToken: '',
+        refreshToken: userRefreshToken,
         tokenExpiry,
         platformUserId,
         platformName,
@@ -169,11 +179,10 @@ export async function POST(req: NextRequest) {
     return response;
   } catch (err) {
     console.error('[POST /api/platforms/connect/facebook/complete] Unexpected error:', err);
-    const errRes: ApiError = {
-      error: 'Internal Server Error',
-      message: 'Failed to save Facebook connection.',
-      statusCode: 500,
-    };
-    return NextResponse.json(errRes, { status: 500 });
+    return facebookCompleteError(
+      500,
+      'FACEBOOK_CONNECTION_SAVE_FAILED',
+      'Failed to save Facebook connection.'
+    );
   }
 }
