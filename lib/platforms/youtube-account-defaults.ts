@@ -2,7 +2,7 @@ import type { YouTubeDraftFields } from '@/types';
 
 /** Upload metadata defaults read from the connected YouTube account. */
 export interface YouTubeAccountDefaults {
-  /** BCP-47 video language from the channel or most recent upload (`snippet.defaultAudioLanguage`). */
+  /** BCP-47 audio language from the channel or most recent upload (`snippet.defaultAudioLanguage`). */
   defaultAudioLanguage?: string;
   /** From channel `status.selfDeclaredMadeForKids` or `status.madeForKids`. */
   madeForKids?: boolean;

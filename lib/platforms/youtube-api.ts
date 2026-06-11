@@ -230,6 +230,10 @@ export async function fetchYouTubeAccountDefaults(
     channel?.brandingSettings?.channel?.defaultLanguage?.trim() ||
     '';
 
+  if (channelLanguage !== '') {
+    defaults.defaultAudioLanguage = channelLanguage;
+  }
+
   if (typeof channel?.status?.selfDeclaredMadeForKids === 'boolean') {
     defaults.madeForKids = channel.status.selfDeclaredMadeForKids;
   } else if (typeof channel?.status?.madeForKids === 'boolean') {
@@ -295,8 +299,6 @@ export async function fetchYouTubeAccountDefaults(
   const uploadAudioLanguage = latestVideo?.snippet?.defaultAudioLanguage?.trim() ?? '';
   if (uploadAudioLanguage !== '') {
     defaults.defaultAudioLanguage = uploadAudioLanguage;
-  } else if (channelLanguage !== '') {
-    defaults.defaultAudioLanguage = channelLanguage;
   } else {
     const uploadTitleLanguage = latestVideo?.snippet?.defaultLanguage?.trim() ?? '';
     if (uploadTitleLanguage !== '') {

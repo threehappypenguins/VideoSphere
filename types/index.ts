@@ -155,7 +155,7 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
  */
 export interface YouTubeUserDefaults {
   madeForKids?: boolean;
-  /** BCP-47 video language (`snippet.defaultAudioLanguage`). */
+  /** BCP-47 audio language (`snippet.defaultAudioLanguage`; distinct from `defaultLanguage`). */
   defaultAudioLanguage?: string;
   license?: 'youtube' | 'creativeCommon';
   embeddable?: boolean;
