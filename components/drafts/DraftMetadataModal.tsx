@@ -1356,6 +1356,24 @@ export function DraftMetadataModal({
     [onChange, value]
   );
 
+  const initFacebookScheduleFromStored = useCallback(() => {
+    const tz = getLocalTimeZone();
+    const existing = value?.platforms.facebook?.scheduledPublishTime;
+    if (existing !== undefined) {
+      const iso = new Date(existing * 1000).toISOString();
+      const parts = utcIsoToZonedScheduleParts(iso, tz);
+      if (parts) {
+        setFbScheduleDate(parts.dateStr);
+        setFbScheduleTime(parts.timeStr);
+        setFbScheduleTimeZone(tz);
+        return;
+      }
+    }
+    setFbScheduleDate(getDefaultScheduleDate(tz));
+    setFbScheduleTime(getDefaultScheduleTime(tz));
+    setFbScheduleTimeZone(tz);
+  }, [value?.platforms.facebook?.scheduledPublishTime]);
+
   useEffect(() => {
     if (!value?.targets.includes('youtube')) {
       youtubeDefaultsSeededRef.current = null;
@@ -1458,7 +1476,19 @@ export function DraftMetadataModal({
     setScheduleDate('');
     setScheduleTime('');
     setScheduleTimeZone('');
+    setFbScheduleDate('');
+    setFbScheduleTime('');
+    setFbScheduleTimeZone('');
   }, [draftId]);
+
+  useEffect(() => {
+    if (!value?.targets.includes('facebook')) return;
+    if (facebookVideoState !== 'SCHEDULED') return;
+    if (fbScheduleInitializedRef.current) return;
+
+    initFacebookScheduleFromStored();
+    fbScheduleInitializedRef.current = true;
+  }, [draftId, facebookVideoState, initFacebookScheduleFromStored, value?.targets]);
 
   useEffect(() => {
     if (!value || !showMoreExpanded || !scheduleExpanded) return;
@@ -2690,24 +2720,6 @@ export function DraftMetadataModal({
       </div>
     </>
   );
-
-  const initFacebookScheduleFromStored = () => {
-    const tz = getLocalTimeZone();
-    const existing = value?.platforms.facebook?.scheduledPublishTime;
-    if (existing !== undefined) {
-      const iso = new Date(existing * 1000).toISOString();
-      const parts = utcIsoToZonedScheduleParts(iso, tz);
-      if (parts) {
-        setFbScheduleDate(parts.dateStr);
-        setFbScheduleTime(parts.timeStr);
-        setFbScheduleTimeZone(tz);
-        return;
-      }
-    }
-    setFbScheduleDate(getDefaultScheduleDate(tz));
-    setFbScheduleTime(getDefaultScheduleTime(tz));
-    setFbScheduleTimeZone(tz);
-  };
 
   const facebookPlatformFieldsSection = (
     <>

@@ -8,6 +8,7 @@ import {
   getDefaultScheduleDate,
   getDefaultScheduleTime,
   getLocalTimeZone,
+  utcIsoToZonedScheduleParts,
   zonedDateTimeToUtcIso,
 } from '@/lib/youtube-schedule';
 
@@ -1249,7 +1250,7 @@ describe('DraftMetadataModal Facebook fields', () => {
     });
   });
 
-  it('preserves stored scheduledPublishTime before schedule inputs are initialized', async () => {
+  it('initializes schedule inputs from stored scheduledPublishTime without mutating draft value', async () => {
     const storedTimestamp = 1_800_000_000;
     const onChange = vi.fn();
     render(
@@ -1274,8 +1275,15 @@ describe('DraftMetadataModal Facebook fields', () => {
     );
 
     await screen.findByRole('dialog');
+
+    const tz = getLocalTimeZone();
+    const parts = utcIsoToZonedScheduleParts(new Date(storedTimestamp * 1000).toISOString(), tz);
+
     await waitFor(() => {
-      expect(onChange).not.toHaveBeenCalled();
+      expect(document.getElementById('draft-facebook-schedule-date')).toHaveValue(parts?.dateStr);
+      expect(document.getElementById('draft-facebook-schedule-timezone')).toHaveTextContent(tz);
     });
+
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
