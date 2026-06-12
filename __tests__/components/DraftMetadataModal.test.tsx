@@ -377,6 +377,44 @@ describe('DraftMetadataModal shared metadata overrides', () => {
     expect(screen.getByLabelText(/Title — YouTube/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Title — SermonAudio/i)).toBeInTheDocument();
   });
+
+  it('hides tags when only Facebook is selected', async () => {
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          targets: ['facebook'],
+          platforms: { facebook: {} },
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.queryByLabelText(/^Tags$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Tags — Facebook/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show a Facebook tags field when per-platform tags are enabled', async () => {
+    const user = userEvent.setup();
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          targets: ['youtube', 'vimeo', 'facebook'],
+          platforms: { facebook: {} },
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    const tagsSharedCheckbox = screen.getByTitle(/all selected platforms share one tag list/i);
+    await user.click(tagsSharedCheckbox);
+
+    expect(document.getElementById('edit-tags-youtube')).toBeInTheDocument();
+    expect(document.getElementById('edit-tags-vimeo')).toBeInTheDocument();
+    expect(document.querySelector('#edit-tags-facebook')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Tags — Facebook/i)).not.toBeInTheDocument();
+  });
 });
 
 describe('DraftMetadataModal privacy field', () => {

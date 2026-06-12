@@ -178,10 +178,6 @@ export async function uploadToFacebook(
         String(Math.floor(input.metadata.facebookScheduledPublishTime))
       );
     }
-    const placeId = input.metadata.facebookPlaceId?.trim();
-    if (placeId) {
-      finishParams.set('place', placeId);
-    }
 
     const finishRes = await fetch(
       `${FACEBOOK_GRAPH_API_BASE}/${pageId}/video_reels?${finishParams}`,

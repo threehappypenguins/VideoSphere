@@ -801,8 +801,6 @@ describe('draft-upload-metadata', () => {
         facebook: {
           videoState: 'SCHEDULED',
           scheduledPublishTime: 1_700_000_000.9,
-          placeId: ' page-1 ',
-          placeName: ' HQ ',
           titleOverride: ' FB title ',
         },
       })
@@ -810,8 +808,6 @@ describe('draft-upload-metadata', () => {
       facebook: {
         videoState: 'SCHEDULED',
         scheduledPublishTime: 1_700_000_000,
-        placeId: 'page-1',
-        placeName: 'HQ',
         titleOverride: 'FB title',
       },
     });
@@ -821,8 +817,7 @@ describe('draft-upload-metadata', () => {
     const base: Draft['platforms'] = {
       facebook: {
         videoState: 'PUBLISHED',
-        placeId: 'old',
-        placeName: 'Old Place',
+        titleOverride: 'Old title',
       },
     };
     expect(
@@ -830,16 +825,13 @@ describe('draft-upload-metadata', () => {
         facebook: {
           videoState: 'SCHEDULED',
           scheduledPublishTime: 1_800_000_000,
-          placeId: '',
-          placeName: '',
         },
       })
     ).toEqual({
       facebook: {
         videoState: 'SCHEDULED',
         scheduledPublishTime: 1_800_000_000,
-        placeId: undefined,
-        placeName: undefined,
+        titleOverride: 'Old title',
       },
     });
   });
@@ -857,7 +849,6 @@ describe('draft-upload-metadata', () => {
         facebook: {
           videoState: 'SCHEDULED',
           scheduledPublishTime: 1_800_000_000,
-          placeId: 'place-99',
           titleOverride: 'FB title',
         },
       },
@@ -870,11 +861,10 @@ describe('draft-upload-metadata', () => {
     const meta = buildMetadataForPlatform(draft, 'facebook');
     expect(meta.title).toBe('FB title');
     expect(meta.description).toBe('Desc');
-    expect(meta.tags).toEqual(['a']);
+    expect(meta.tags).toEqual([]);
     expect(meta.visibility).toBe('public');
     expect(meta.thumbnailR2Key).toBe('thumb/key.jpg');
     expect(meta.facebookVideoState).toBe('SCHEDULED');
     expect(meta.facebookScheduledPublishTime).toBe(1_800_000_000);
-    expect(meta.facebookPlaceId).toBe('place-99');
   });
 });

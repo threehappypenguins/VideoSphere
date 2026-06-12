@@ -86,7 +86,6 @@ export interface SermonAudioSpecificUploadMetadata {
 export interface FacebookSpecificUploadMetadata {
   facebookVideoState?: 'PUBLISHED' | 'SCHEDULED';
   facebookScheduledPublishTime?: number;
-  facebookPlaceId?: string;
 }
 
 /**

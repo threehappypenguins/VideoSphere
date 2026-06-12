@@ -33,7 +33,6 @@ import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeak
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
-import { FacebookPlaceCombobox } from '@/components/drafts/FacebookPlaceCombobox';
 import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
@@ -164,6 +163,11 @@ const OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio', 'facebook'] as c
 
 type OverridePlatform = (typeof OVERRIDE_PLATFORMS)[number];
 
+/** Platforms whose APIs accept tags or hashtags on upload (Facebook Reels does not). */
+const TAG_OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
+
+type TagOverridePlatform = (typeof TAG_OVERRIDE_PLATFORMS)[number];
+
 const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = [
   'youtube',
   'vimeo',
@@ -200,6 +204,12 @@ const SERMON_AUDIO_SHORT_TITLE_THRESHOLD = 30;
 
 function isOverridePlatform(platform: ConnectedAccountPlatform): platform is OverridePlatform {
   return (OVERRIDE_PLATFORMS as readonly string[]).includes(platform);
+}
+
+function isTagOverridePlatform(
+  platform: ConnectedAccountPlatform
+): platform is TagOverridePlatform {
+  return (TAG_OVERRIDE_PLATFORMS as readonly string[]).includes(platform);
 }
 
 function isPrivacyPlatform(platform: ConnectedAccountPlatform): platform is PrivacyPlatform {
@@ -1032,6 +1042,11 @@ export function DraftMetadataModal({
     return sortOverridePlatforms(value.targets.filter(isOverridePlatform));
   }, [value]);
 
+  const selectedTagPlatforms = useMemo(() => {
+    if (!value) return [] as TagOverridePlatform[];
+    return value.targets.filter(isTagOverridePlatform);
+  }, [value]);
+
   const selectedPrivacyPlatforms = useMemo(() => {
     if (!value) return [] as PrivacyPlatform[];
     return sortPrivacyPlatforms(value.targets.filter(isPrivacyPlatform));
@@ -1052,11 +1067,11 @@ export function DraftMetadataModal({
   }, [selectedOverridePlatforms, value?.platforms]);
 
   const usesSharedTagsGlobally = useMemo(() => {
-    if (selectedOverridePlatforms.length < 2) return true;
-    return selectedOverridePlatforms.every((platform) =>
+    if (selectedTagPlatforms.length < 2) return true;
+    return selectedTagPlatforms.every((platform) =>
       platformUsesSharedTags(value?.platforms[platform])
     );
-  }, [selectedOverridePlatforms, value?.platforms]);
+  }, [selectedTagPlatforms, value?.platforms]);
 
   const usesSharedVisibilityGlobally = useMemo(() => {
     if (selectedPrivacyPlatforms.length < 2) return true;
@@ -1068,11 +1083,11 @@ export function DraftMetadataModal({
   const showPerPlatformTitle = selectedOverridePlatforms.length >= 2 && !usesSharedTitleGlobally;
   const showPerPlatformDescription =
     selectedOverridePlatforms.length >= 2 && !usesSharedDescriptionGlobally;
-  const showPerPlatformTags = selectedOverridePlatforms.length >= 2 && !usesSharedTagsGlobally;
+  const showPerPlatformTags = selectedTagPlatforms.length >= 2 && !usesSharedTagsGlobally;
   const sermonAudioOnlySharedTagInput =
     !showPerPlatformTags &&
-    selectedOverridePlatforms.length === 1 &&
-    selectedOverridePlatforms[0] === 'sermon_audio';
+    selectedTagPlatforms.length === 1 &&
+    selectedTagPlatforms[0] === 'sermon_audio';
   const showPrivacyField = selectedPrivacyPlatforms.length > 0;
   const showPerPlatformPrivacy =
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
@@ -1136,6 +1151,32 @@ export function DraftMetadataModal({
   const setUseSharedCopyField = (field: SharedCopyField, useShared: boolean) => {
     if (!value) return;
 
+    if (field === 'tags') {
+      let nextPlatforms: DraftPlatforms = { ...value.platforms };
+      for (const platform of selectedTagPlatforms) {
+        const current = nextPlatforms[platform] ?? {};
+        let next: DraftPlatforms[TagOverridePlatform];
+
+        if (useShared) {
+          const { tagsOverride, ...rest } = current;
+          next =
+            Object.keys(rest).length > 0
+              ? (rest as NonNullable<DraftPlatforms[TagOverridePlatform]>)
+              : undefined;
+        } else {
+          next = { ...current, tagsOverride: [...value.tags] };
+        }
+
+        nextPlatforms = { ...nextPlatforms, [platform]: next };
+      }
+
+      onChange({ ...value, platforms: nextPlatforms });
+      if (useShared) {
+        setPlatformOverrideTagInput({});
+      }
+      return;
+    }
+
     let nextPlatforms: DraftPlatforms = { ...value.platforms };
     for (const platform of selectedOverridePlatforms) {
       const current = nextPlatforms[platform] ?? {};
@@ -1148,14 +1189,8 @@ export function DraftMetadataModal({
             Object.keys(rest).length > 0
               ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
               : undefined;
-        } else if (field === 'description') {
-          const { descriptionOverride, ...rest } = current;
-          next =
-            Object.keys(rest).length > 0
-              ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
-              : undefined;
         } else {
-          const { tagsOverride, ...rest } = current;
+          const { descriptionOverride, ...rest } = current;
           next =
             Object.keys(rest).length > 0
               ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
@@ -1163,19 +1198,14 @@ export function DraftMetadataModal({
         }
       } else if (field === 'title') {
         next = { ...current, titleOverride: value.title };
-      } else if (field === 'description') {
-        next = { ...current, descriptionOverride: value.description };
       } else {
-        next = { ...current, tagsOverride: [...value.tags] };
+        next = { ...current, descriptionOverride: value.description };
       }
 
       nextPlatforms = { ...nextPlatforms, [platform]: next };
     }
 
     onChange({ ...value, platforms: nextPlatforms });
-    if (field === 'tags' && useShared) {
-      setPlatformOverrideTagInput({});
-    }
   };
 
   const setUseSharedVisibility = (useShared: boolean) => {
@@ -1202,7 +1232,7 @@ export function DraftMetadataModal({
     onChange({ ...value, platforms: nextPlatforms });
   };
 
-  const commitPlatformOverrideTags = (platform: OverridePlatform) => {
+  const commitPlatformOverrideTags = (platform: TagOverridePlatform) => {
     if (!value) return;
     const raw = platformOverrideTagInput[platform]?.trim() ?? '';
     if (raw === '') return;
@@ -1214,7 +1244,7 @@ export function DraftMetadataModal({
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
   };
 
-  const handlePlatformOverrideTagInputChange = (platform: OverridePlatform, next: string) => {
+  const handlePlatformOverrideTagInputChange = (platform: TagOverridePlatform, next: string) => {
     if (platform !== 'sermon_audio' || !/\s/.test(next)) {
       setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: next }));
       return;
@@ -2746,25 +2776,6 @@ export function DraftMetadataModal({
           )}
         </div>
       ) : null}
-
-      <div>
-        <label htmlFor="draft-facebook-place" className="text-sm font-medium text-foreground">
-          Tag a location
-        </label>
-        <FacebookPlaceCombobox
-          id="draft-facebook-place"
-          placeId={facebookFields?.placeId}
-          placeName={facebookFields?.placeName}
-          onPlaceChange={(next) => {
-            if (!next) {
-              updateFacebookFields({ placeId: undefined, placeName: undefined });
-              return;
-            }
-            updateFacebookFields({ placeId: next.placeId, placeName: next.placeName });
-          }}
-          className={fieldBorderClass('facebook.placeId')}
-        />
-      </div>
     </>
   );
 
@@ -3336,205 +3347,207 @@ export function DraftMetadataModal({
                   )}
                 </div>
               ) : null}
-              <div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
-                    {showSermonAudioFields ? 'Tags / Hashtags' : 'Tags'}
-                  </label>
-                  {selectedOverridePlatforms.length >= 2 ? (
-                    <SharedMetadataCheckbox
-                      checked={usesSharedTagsGlobally}
-                      onChange={(useShared) => setUseSharedCopyField('tags', useShared)}
-                      hint={
-                        showSermonAudioFields
-                          ? 'When checked, all selected platforms share one tag list (SermonAudio hashtags included). Uncheck to set tags per platform.'
-                          : 'When checked, all selected platforms share one tag list. Uncheck to set tags per platform.'
-                      }
-                    />
-                  ) : null}
-                </div>
-                {showPerPlatformTags ? (
-                  <div className="mt-2 space-y-3">
-                    {selectedOverridePlatforms.map((platform) => {
-                      const platformFields = value.platforms[platform];
-                      const overrideTags = platformFields?.tagsOverride ?? value.tags;
-                      return (
-                        <div key={platform}>
-                          <label
-                            htmlFor={`edit-tags-${platform}`}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
-                          >
-                            <span className="sr-only">Tags — </span>
-                            {isPlatformBrandIcon(platform) ? (
-                              <PlatformOverrideLabel
-                                platform={platform}
-                                suffix={platform === 'sermon_audio' ? ' (hashtags)' : undefined}
-                              />
-                            ) : (
-                              <>
-                                {platformLabel(platform)}
-                                {platform === 'sermon_audio' ? ' (hashtags)' : ''}
-                              </>
-                            )}
-                          </label>
-                          <div
-                            className={cn(
-                              'mt-1 rounded-md border bg-background px-2 py-2',
-                              uploadFieldErrors.has(`tags:${platform}`)
-                                ? 'border-red-600 dark:border-red-500'
-                                : 'border-border'
-                            )}
-                          >
-                            <div className="mb-2 flex flex-wrap gap-2">
-                              {overrideTags.map((tag) => (
-                                <span
-                                  key={`${platform}-${tag}`}
-                                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
-                                >
-                                  {tag}
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateOverridePlatformFields(platform, {
-                                        tagsOverride: overrideTags.filter(
-                                          (existing) => existing !== tag
-                                        ),
-                                      })
-                                    }
-                                    className="text-muted-foreground hover:text-foreground"
-                                    aria-label={`Remove ${tag} tag`}
-                                  >
-                                    x
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                            <input
-                              id={`edit-tags-${platform}`}
-                              value={platformOverrideTagInput[platform] ?? ''}
-                              onChange={(event) =>
-                                handlePlatformOverrideTagInputChange(platform, event.target.value)
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ',') {
-                                  event.preventDefault();
-                                  commitPlatformOverrideTags(platform);
-                                } else if (
-                                  event.key === ' ' &&
-                                  platform === 'sermon_audio' &&
-                                  (platformOverrideTagInput[platform] ?? '').trim() !== ''
-                                ) {
-                                  event.preventDefault();
-                                  commitPlatformOverrideTags(platform);
-                                } else if (
-                                  event.key === 'Backspace' &&
-                                  (platformOverrideTagInput[platform] ?? '') === '' &&
-                                  overrideTags.length > 0
-                                ) {
-                                  event.preventDefault();
-                                  const lastTag = overrideTags[overrideTags.length - 1];
-                                  updateOverridePlatformFields(platform, {
-                                    tagsOverride: overrideTags.slice(0, -1),
-                                  });
-                                  setPlatformOverrideTagInput((prev) => ({
-                                    ...prev,
-                                    [platform]: lastTag,
-                                  }));
-                                }
-                              }}
-                              onBlur={() => commitPlatformOverrideTags(platform)}
-                              placeholder={
-                                platform === 'sermon_audio'
-                                  ? 'Type one hashtag; press Enter, comma, or space'
-                                  : 'Type a tag and press Enter or comma'
-                              }
-                              className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div
-                    className={cn(
-                      'mt-1 rounded-md border bg-background px-2 py-2',
-                      uploadFieldErrors.has('tags')
-                        ? 'border-red-600 dark:border-red-500'
-                        : 'border-border'
-                    )}
-                  >
-                    <div className="mb-2 flex flex-wrap gap-2">
-                      {value.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
-                        >
-                          {tag}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onChange({
-                                ...value,
-                                tags: value.tags.filter((existing) => existing !== tag),
-                              })
-                            }
-                            className="text-muted-foreground hover:text-foreground"
-                            aria-label={`Remove ${tag} tag`}
-                          >
-                            x
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                    <input
-                      id="edit-tags"
-                      value={tagInput}
-                      onChange={(event) => handleSharedTagInputChange(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ',') {
-                          event.preventDefault();
-                          commitTagsFromInput();
-                        } else if (
-                          event.key === ' ' &&
-                          sermonAudioOnlySharedTagInput &&
-                          tagInput.trim() !== ''
-                        ) {
-                          event.preventDefault();
-                          commitTagsFromInput();
-                        } else if (
-                          event.key === 'Backspace' &&
-                          tagInput === '' &&
-                          value.tags.length > 0
-                        ) {
-                          event.preventDefault();
-                          const lastTag = value.tags[value.tags.length - 1];
-                          onChange({ ...value, tags: value.tags.slice(0, -1) });
-                          setTagInput(lastTag);
-                        }
-                      }}
-                      onBlur={commitTagsFromInput}
-                      placeholder={
-                        sermonAudioOnlySharedTagInput
-                          ? 'Type one hashtag; press Enter, comma, or space'
-                          : 'Type a tag and press Enter or comma'
-                      }
-                      className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                    />
-                  </div>
-                )}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {showPerPlatformTags
-                    ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
-                    : sermonAudioOnlySharedTagInput
-                      ? 'SermonAudio hashtags are one word each; press Enter, comma, or space to add. Leading `#` is removed.'
-                      : `Press Enter or comma to add tags${
+              {selectedTagPlatforms.length > 0 ? (
+                <div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
+                      {showSermonAudioFields ? 'Tags / Hashtags' : 'Tags'}
+                    </label>
+                    {selectedTagPlatforms.length >= 2 ? (
+                      <SharedMetadataCheckbox
+                        checked={usesSharedTagsGlobally}
+                        onChange={(useShared) => setUseSharedCopyField('tags', useShared)}
+                        hint={
                           showSermonAudioFields
-                            ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
-                            : ''
-                        }.`}
-                </p>
-              </div>
+                            ? 'When checked, all selected platforms share one tag list (SermonAudio hashtags included). Uncheck to set tags per platform.'
+                            : 'When checked, all selected platforms share one tag list. Uncheck to set tags per platform.'
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  {showPerPlatformTags ? (
+                    <div className="mt-2 space-y-3">
+                      {selectedTagPlatforms.map((platform) => {
+                        const platformFields = value.platforms[platform];
+                        const overrideTags = platformFields?.tagsOverride ?? value.tags;
+                        return (
+                          <div key={platform}>
+                            <label
+                              htmlFor={`edit-tags-${platform}`}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                            >
+                              <span className="sr-only">Tags — </span>
+                              {isPlatformBrandIcon(platform) ? (
+                                <PlatformOverrideLabel
+                                  platform={platform}
+                                  suffix={platform === 'sermon_audio' ? ' (hashtags)' : undefined}
+                                />
+                              ) : (
+                                <>
+                                  {platformLabel(platform)}
+                                  {platform === 'sermon_audio' ? ' (hashtags)' : ''}
+                                </>
+                              )}
+                            </label>
+                            <div
+                              className={cn(
+                                'mt-1 rounded-md border bg-background px-2 py-2',
+                                uploadFieldErrors.has(`tags:${platform}`)
+                                  ? 'border-red-600 dark:border-red-500'
+                                  : 'border-border'
+                              )}
+                            >
+                              <div className="mb-2 flex flex-wrap gap-2">
+                                {overrideTags.map((tag) => (
+                                  <span
+                                    key={`${platform}-${tag}`}
+                                    className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                                  >
+                                    {tag}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateOverridePlatformFields(platform, {
+                                          tagsOverride: overrideTags.filter(
+                                            (existing) => existing !== tag
+                                          ),
+                                        })
+                                      }
+                                      className="text-muted-foreground hover:text-foreground"
+                                      aria-label={`Remove ${tag} tag`}
+                                    >
+                                      x
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                              <input
+                                id={`edit-tags-${platform}`}
+                                value={platformOverrideTagInput[platform] ?? ''}
+                                onChange={(event) =>
+                                  handlePlatformOverrideTagInputChange(platform, event.target.value)
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ',') {
+                                    event.preventDefault();
+                                    commitPlatformOverrideTags(platform);
+                                  } else if (
+                                    event.key === ' ' &&
+                                    platform === 'sermon_audio' &&
+                                    (platformOverrideTagInput[platform] ?? '').trim() !== ''
+                                  ) {
+                                    event.preventDefault();
+                                    commitPlatformOverrideTags(platform);
+                                  } else if (
+                                    event.key === 'Backspace' &&
+                                    (platformOverrideTagInput[platform] ?? '') === '' &&
+                                    overrideTags.length > 0
+                                  ) {
+                                    event.preventDefault();
+                                    const lastTag = overrideTags[overrideTags.length - 1];
+                                    updateOverridePlatformFields(platform, {
+                                      tagsOverride: overrideTags.slice(0, -1),
+                                    });
+                                    setPlatformOverrideTagInput((prev) => ({
+                                      ...prev,
+                                      [platform]: lastTag,
+                                    }));
+                                  }
+                                }}
+                                onBlur={() => commitPlatformOverrideTags(platform)}
+                                placeholder={
+                                  platform === 'sermon_audio'
+                                    ? 'Type one hashtag; press Enter, comma, or space'
+                                    : 'Type a tag and press Enter or comma'
+                                }
+                                className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div
+                      className={cn(
+                        'mt-1 rounded-md border bg-background px-2 py-2',
+                        uploadFieldErrors.has('tags')
+                          ? 'border-red-600 dark:border-red-500'
+                          : 'border-border'
+                      )}
+                    >
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {value.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                          >
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onChange({
+                                  ...value,
+                                  tags: value.tags.filter((existing) => existing !== tag),
+                                })
+                              }
+                              className="text-muted-foreground hover:text-foreground"
+                              aria-label={`Remove ${tag} tag`}
+                            >
+                              x
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <input
+                        id="edit-tags"
+                        value={tagInput}
+                        onChange={(event) => handleSharedTagInputChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ',') {
+                            event.preventDefault();
+                            commitTagsFromInput();
+                          } else if (
+                            event.key === ' ' &&
+                            sermonAudioOnlySharedTagInput &&
+                            tagInput.trim() !== ''
+                          ) {
+                            event.preventDefault();
+                            commitTagsFromInput();
+                          } else if (
+                            event.key === 'Backspace' &&
+                            tagInput === '' &&
+                            value.tags.length > 0
+                          ) {
+                            event.preventDefault();
+                            const lastTag = value.tags[value.tags.length - 1];
+                            onChange({ ...value, tags: value.tags.slice(0, -1) });
+                            setTagInput(lastTag);
+                          }
+                        }}
+                        onBlur={commitTagsFromInput}
+                        placeholder={
+                          sermonAudioOnlySharedTagInput
+                            ? 'Type one hashtag; press Enter, comma, or space'
+                            : 'Type a tag and press Enter or comma'
+                        }
+                        className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                      />
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {showPerPlatformTags
+                      ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
+                      : sermonAudioOnlySharedTagInput
+                        ? 'SermonAudio hashtags are one word each; press Enter, comma, or space to add. Leading `#` is removed.'
+                        : `Press Enter or comma to add tags${
+                            showSermonAudioFields
+                              ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
+                              : ''
+                          }.`}
+                  </p>
+                </div>
+              ) : null}
               {mergePlatformFieldsIntoMetadataCard && showYouTubeFields
                 ? youtubePlatformFieldsSection
                 : null}

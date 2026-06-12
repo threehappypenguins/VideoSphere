@@ -266,7 +266,10 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
  * Facebook Reels API–specific draft fields.
  * Stored under `platforms.facebook` in the draft `document` JSON.
  */
-export interface FacebookDraftFields extends PerPlatformCopyOverrides {
+export interface FacebookDraftFields extends Pick<
+  PerPlatformCopyOverrides,
+  'titleOverride' | 'descriptionOverride'
+> {
   /**
    * Desired publish state sent as `video_state` on the finish call.
    * - `PUBLISHED` — publish immediately (default)
@@ -280,15 +283,6 @@ export interface FacebookDraftFields extends PerPlatformCopyOverrides {
    * Must be between 10 minutes and 6 months from now.
    */
   scheduledPublishTime?: number;
-
-  /**
-   * Facebook Page ID of a tagged location.
-   * Resolved via the Pages Search API; stored as the numeric page ID string.
-   */
-  placeId?: string;
-
-  /** Display name of the tagged place (for UI rendering only; not sent to the API). */
-  placeName?: string;
 }
 
 /**

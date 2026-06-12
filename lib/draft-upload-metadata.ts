@@ -137,6 +137,18 @@ function stringList(v: unknown): string[] | undefined {
   return out;
 }
 
+function normalizePerPlatformTitleDescriptionOverrides(
+  o: Record<string, unknown>
+): Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride'> {
+  const titleOverride = trimStr(o.titleOverride);
+  const descriptionOverride = trimStr(o.descriptionOverride);
+
+  return {
+    ...(titleOverride !== undefined ? { titleOverride } : {}),
+    ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
+  };
+}
+
 function normalizePerPlatformCopyOverrides(
   o: Record<string, unknown>
 ): Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride' | 'tagsOverride'> {
@@ -333,15 +345,11 @@ function normalizeFacebookFields(f: Record<string, unknown>): FacebookDraftField
     typeof f.scheduledPublishTime === 'number' && Number.isFinite(f.scheduledPublishTime)
       ? Math.floor(f.scheduledPublishTime)
       : undefined;
-  const placeId = trimStr(f.placeId);
-  const placeName = trimStr(f.placeName);
 
   return {
-    ...normalizePerPlatformCopyOverrides(f),
+    ...normalizePerPlatformTitleDescriptionOverrides(f),
     ...(videoState !== undefined ? { videoState } : {}),
     ...(scheduledPublishTime !== undefined ? { scheduledPublishTime } : {}),
-    ...(placeId !== undefined ? { placeId } : {}),
-    ...(placeName !== undefined ? { placeName } : {}),
   };
 }
 
@@ -867,14 +875,6 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       fb.scheduledPublishTime =
         typeof ts === 'number' && Number.isFinite(ts) ? Math.floor(ts) : undefined;
     }
-    if ('placeId' in p) {
-      const s = p.placeId;
-      fb.placeId = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
-    }
-    if ('placeName' in p) {
-      const s = p.placeName;
-      fb.placeName = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
-    }
     if ('titleOverride' in p) {
       const s = p.titleOverride;
       fb.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
@@ -882,16 +882,6 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
     if ('descriptionOverride' in p) {
       const s = p.descriptionOverride;
       fb.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
-    }
-    if ('tagsOverride' in p) {
-      if (Array.isArray(p.tagsOverride)) {
-        fb.tagsOverride = p.tagsOverride
-          .filter((x): x is string => typeof x === 'string')
-          .map((s) => s.trim())
-          .filter(Boolean);
-      } else {
-        fb.tagsOverride = undefined;
-      }
     }
     next.facebook = fb;
   }
@@ -1018,17 +1008,16 @@ export function buildMetadataForPlatform(
   }
   if (platform === 'facebook') {
     const fb = draft.platforms.facebook;
-    const { title, description, tags } = resolveDraftCopyForPlatform(draft, fb);
+    const { title, description } = resolveDraftCopyForPlatform(draft, fb);
     return {
       title,
       description,
-      tags,
+      tags: [],
       visibility: draft.visibility,
       thumbnailR2Key,
       thumbnailContentType,
       facebookVideoState: fb?.videoState,
       facebookScheduledPublishTime: fb?.scheduledPublishTime,
-      facebookPlaceId: fb?.placeId,
     };
   }
 
