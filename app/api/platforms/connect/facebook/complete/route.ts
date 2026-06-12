@@ -165,6 +165,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (!account) {
+      return facebookCompleteError(
+        404,
+        'FACEBOOK_CONNECTION_NOT_FOUND',
+        'Facebook connection could not be saved because the account no longer exists. Please connect again.'
+      );
+    }
+
     const response = NextResponse.json({ ok: true, data: account });
     clearFacebookSetupSessionCookie(response);
     return response;

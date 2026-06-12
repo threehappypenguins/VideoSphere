@@ -23,7 +23,11 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
 }));
 
 import { POST } from '@/app/api/platforms/connect/facebook/complete/route';
-import { createConnectedAccount } from '@/lib/repositories/connected-accounts';
+import {
+  createConnectedAccount,
+  getConnectedAccountWithTokens,
+  updateConnection,
+} from '@/lib/repositories/connected-accounts';
 
 function buildSetupSessionCookie(userId = 'user-1'): string {
   return encryptToken(
@@ -115,5 +119,35 @@ describe('POST /api/platforms/connect/facebook/complete', () => {
     expect(payload.ok).toBe(false);
     expect(payload.error?.code).toBe('FACEBOOK_SETUP_SESSION_EXPIRED');
     expect(payload.error?.message).toContain('setup session expired');
+  });
+
+  it('returns connect-style error JSON when updating a connection that no longer exists', async () => {
+    vi.mocked(getConnectedAccountWithTokens).mockResolvedValue({
+      id: 'acc-fb',
+      userId: 'user-1',
+      platform: 'facebook',
+      accessToken: 'old-page-token',
+      refreshToken: 'old-user-token',
+      tokenExpiry: '2099-01-01T00:00:00.000Z',
+      platformUserId: 'page-1',
+      platformName: 'Old Page',
+      facebookTargetType: 'page',
+      facebookPageId: 'page-1',
+      $createdAt: '2020-01-01T00:00:00.000Z',
+      $updatedAt: '2020-01-01T00:00:00.000Z',
+    });
+    vi.mocked(updateConnection).mockResolvedValue(null);
+
+    const req = makeRequest({ targetType: 'page', pageId: 'page-1' }, buildSetupSessionCookie());
+    const res = await POST(req);
+    const payload = (await res.json()) as {
+      ok?: boolean;
+      error?: { code?: string; message?: string };
+    };
+
+    expect(res.status).toBe(404);
+    expect(payload.ok).toBe(false);
+    expect(payload.error?.code).toBe('FACEBOOK_CONNECTION_NOT_FOUND');
+    expect(createConnectedAccount).not.toHaveBeenCalled();
   });
 });

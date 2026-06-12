@@ -97,7 +97,7 @@ export interface FacebookManagedPage {
 
 interface FacebookAccountsResponse {
   data?: FacebookManagedPage[];
-  error?: { message?: string };
+  error?: { message?: string; type?: string; code?: number };
 }
 
 interface FacebookMeResponse {
@@ -236,6 +236,13 @@ export async function fetchFacebookManagedPages(
     return [];
   }
   const data = (await res.json()) as FacebookAccountsResponse;
+  if (data.error) {
+    console.error(
+      '[fetchFacebookManagedPages] Graph API GET /me/accounts returned error:',
+      data.error
+    );
+    return [];
+  }
   return (data.data ?? []).filter((page): page is FacebookManagedPage =>
     Boolean(page.id && page.name && page.access_token)
   );

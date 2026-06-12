@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FACEBOOK_PAGE_TOKEN_EXPIRY_ISO,
+  fetchFacebookManagedPages,
   getFacebookTokenExpiry,
   revokeFacebookAppAuthorization,
 } from '@/lib/platforms/facebook-oauth';
@@ -55,5 +56,35 @@ describe('getFacebookTokenExpiry', () => {
     const expiryMs = Date.parse(expiry);
     expect(expiryMs).toBeGreaterThanOrEqual(before + 3600 * 1000);
     expect(expiryMs).toBeLessThanOrEqual(after + 3600 * 1000);
+  });
+});
+
+describe('fetchFacebookManagedPages', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('logs Graph API error payloads returned with HTTP 200 and returns an empty list', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        error: { message: 'Invalid OAuth access token.', type: 'OAuthException', code: 190 },
+      }),
+    });
+
+    await expect(fetchFacebookManagedPages('bad-token')).resolves.toEqual([]);
+
+    expect(consoleError).toHaveBeenCalledWith(
+      '[fetchFacebookManagedPages] Graph API GET /me/accounts returned error:',
+      { message: 'Invalid OAuth access token.', type: 'OAuthException', code: 190 }
+    );
+
+    consoleError.mockRestore();
   });
 });
