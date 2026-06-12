@@ -355,12 +355,6 @@ export async function refreshFacebookProfileConnection(
 }
 
 /**
- * Extends a long-lived user token and re-fetches a Page access token for the given Page ID.
- * @param longLivedUserToken - Stored long-lived user access token.
- * @param pageId - Facebook Page ID to refresh.
- * @returns Refreshed Page and user tokens, or an error message.
- */
-/**
  * Resolves the Facebook Page ID for Page-target connections.
  * Profile connections and Page rows missing `facebookPageId` cannot use Page APIs.
  * @param account - Connected Facebook account fields used for Page resolution.
@@ -377,6 +371,12 @@ export function resolveFacebookPageId(account: {
   return pageId ? pageId : null;
 }
 
+/**
+ * Extends a long-lived user token and re-fetches a Page access token for the given Page ID.
+ * @param longLivedUserToken - Stored long-lived user access token.
+ * @param pageId - Facebook Page ID to refresh.
+ * @returns Refreshed Page and user tokens, or an error message.
+ */
 export async function refreshFacebookPageConnection(
   longLivedUserToken: string,
   pageId: string
