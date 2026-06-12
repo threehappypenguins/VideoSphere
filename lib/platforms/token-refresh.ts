@@ -18,6 +18,11 @@ import { refreshYouTubeAccessToken } from '@/lib/platforms/youtube';
 /** Refresh if access token expires within this window (ms). */
 export const TOKEN_REFRESH_LEAD_MS = 5 * 60 * 1000;
 
+function facebookRefreshFailureMessage(providerError: string): string {
+  const detail = providerError.trim().replace(/\.+$/, '');
+  return `Facebook token refresh failed: ${detail}. Please reconnect your Facebook account to continue.`;
+}
+
 /**
  * Defines the PlatformTokens type.
  */
@@ -182,7 +187,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
     const userToken = account.refreshToken.trim();
     if (!userToken) {
       throw new Error(
-        'Facebook access token is expired or near expiry and no user token is stored. Reconnect your Facebook account.'
+        'Facebook access token is expired or near expiry and no user token is stored. Please reconnect your Facebook account to continue.'
       );
     }
 
@@ -192,9 +197,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
     if (targetType === 'page') {
       const refreshed = await refreshFacebookPageConnection(userToken, pageId);
       if ('error' in refreshed) {
-        throw new Error(
-          `Facebook token refresh failed: ${refreshed.error} Reconnect your Facebook account to continue.`
-        );
+        throw new Error(facebookRefreshFailureMessage(refreshed.error));
       }
 
       const persisted = await updateTokens(
@@ -218,9 +221,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
 
     const refreshed = await refreshFacebookProfileConnection(userToken);
     if ('error' in refreshed) {
-      throw new Error(
-        `Facebook token refresh failed: ${refreshed.error} Reconnect your Facebook account to continue.`
-      );
+      throw new Error(facebookRefreshFailureMessage(refreshed.error));
     }
 
     const persisted = await updateTokens(

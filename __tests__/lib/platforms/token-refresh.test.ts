@@ -64,6 +64,17 @@ function facebookPageAccount(overrides: Partial<ConnectedAccount> = {}): Connect
   };
 }
 
+function facebookProfileAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAccount {
+  return facebookPageAccount({
+    accessToken: 'user-token',
+    platformUserId: 'fb-user-1',
+    platformName: 'Test User',
+    facebookTargetType: 'profile',
+    facebookPageId: undefined,
+    ...overrides,
+  });
+}
+
 describe('tokenNeedsRefresh', () => {
   it('returns true when access token is missing', () => {
     const t = new Date(Date.now() + TOKEN_REFRESH_LEAD_MS + 60_000).toISOString();
@@ -381,7 +392,24 @@ describe('refreshTokenIfNeeded', () => {
 
       await expect(
         refreshTokenIfNeeded(facebookPageAccount({ tokenExpiry: past }))
-      ).rejects.toThrow(/Facebook token refresh failed:.*Reconnect your Facebook account/i);
+      ).rejects.toThrow(
+        'Facebook token refresh failed: Facebook Page page-1 is no longer accessible with the stored credentials. Please reconnect your Facebook account to continue.'
+      );
+    });
+
+    it('throws a punctuated reconnect error when Facebook profile refresh fails', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      mockRefreshFacebookProfileConnection.mockResolvedValue({
+        error: 'Failed to extend Facebook user token.',
+      });
+
+      await expect(
+        refreshTokenIfNeeded(facebookProfileAccount({ tokenExpiry: past }))
+      ).rejects.toThrow(
+        'Facebook token refresh failed: Failed to extend Facebook user token. Please reconnect your Facebook account to continue.'
+      );
+
+      expect(mockRefreshFacebookProfileConnection).toHaveBeenCalledWith('user-token');
     });
 
     it('throws when refreshed Facebook tokens cannot be persisted', async () => {

@@ -87,4 +87,33 @@ describe('fetchFacebookManagedPages', () => {
 
     consoleError.mockRestore();
   });
+
+  it('follows cursor pagination and returns Pages from all result pages', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'page-1', name: 'First Page', access_token: 'token-1' }],
+          paging: {
+            cursors: { after: 'cursor-page-2' },
+            next: 'https://graph.facebook.com/v25.0/me/accounts?after=cursor-page-2',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'page-2', name: 'Second Page', access_token: 'token-2' }],
+        }),
+      });
+
+    await expect(fetchFacebookManagedPages('user-token')).resolves.toEqual([
+      { id: 'page-1', name: 'First Page', access_token: 'token-1' },
+      { id: 'page-2', name: 'Second Page', access_token: 'token-2' },
+    ]);
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toContain('limit=100');
+    expect(mockFetch.mock.calls[1][0]).toContain('after=cursor-page-2');
+  });
 });

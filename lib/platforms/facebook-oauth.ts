@@ -95,9 +95,18 @@ export interface FacebookManagedPage {
   access_token: string;
 }
 
+/**
+ * Maximum Pages returned per Graph API request for `/me/accounts`.
+ */
+export const FACEBOOK_MANAGED_PAGES_PAGE_SIZE = 100;
+
 interface FacebookAccountsResponse {
   data?: FacebookManagedPage[];
   error?: { message?: string; type?: string; code?: number };
+  paging?: {
+    cursors?: { after?: string; before?: string };
+    next?: string;
+  };
 }
 
 interface FacebookMeResponse {
@@ -213,39 +222,67 @@ export async function fetchFacebookMe(
 
 /**
  * Fetches Pages the user manages (`GET /me/accounts`).
+ * Follows Graph API cursor pagination so users with many Pages see the full list.
  * @param accessToken - Long-lived user access token.
  * @returns Managed Pages including per-Page access tokens.
  */
 export async function fetchFacebookManagedPages(
   accessToken: string
 ): Promise<FacebookManagedPage[]> {
-  const params = new URLSearchParams({
-    fields: 'id,name,access_token',
-  });
-  const res = await fetch(
-    `${FACEBOOK_GRAPH_API_BASE}/me/accounts?${params.toString()}`,
-    facebookGraphApiFetchInit(accessToken)
-  );
-  if (!res.ok) {
-    const body = await res.text();
-    console.error(
-      '[fetchFacebookManagedPages] Graph API GET /me/accounts failed:',
-      res.status,
-      body
+  const pages: FacebookManagedPage[] = [];
+  let after: string | undefined;
+  let pageIndex = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      fields: 'id,name,access_token',
+      limit: String(FACEBOOK_MANAGED_PAGES_PAGE_SIZE),
+    });
+    if (after) {
+      params.set('after', after);
+    }
+
+    const res = await fetch(
+      `${FACEBOOK_GRAPH_API_BASE}/me/accounts?${params.toString()}`,
+      facebookGraphApiFetchInit(accessToken)
     );
-    return [];
-  }
-  const data = (await res.json()) as FacebookAccountsResponse;
-  if (data.error) {
-    console.error(
-      '[fetchFacebookManagedPages] Graph API GET /me/accounts returned error:',
-      data.error
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(
+        '[fetchFacebookManagedPages] Graph API GET /me/accounts failed:',
+        res.status,
+        body
+      );
+      return pageIndex === 0 ? [] : pages;
+    }
+
+    const data = (await res.json()) as FacebookAccountsResponse;
+    if (data.error) {
+      console.error(
+        '[fetchFacebookManagedPages] Graph API GET /me/accounts returned error:',
+        data.error
+      );
+      return pageIndex === 0 ? [] : pages;
+    }
+
+    pages.push(
+      ...(data.data ?? []).filter((page): page is FacebookManagedPage =>
+        Boolean(page.id && page.name && page.access_token)
+      )
     );
-    return [];
+    pageIndex += 1;
+
+    if (!data.paging?.next) {
+      break;
+    }
+
+    after = data.paging.cursors?.after;
+    if (!after) {
+      break;
+    }
   }
-  return (data.data ?? []).filter((page): page is FacebookManagedPage =>
-    Boolean(page.id && page.name && page.access_token)
-  );
+
+  return pages;
 }
 
 /**
