@@ -67,6 +67,8 @@ export interface ConnectedAccountDocument {
   smbShare?: string;
   smbDomain?: string;
   smbRemotePath?: string;
+  facebookTargetType?: 'page' | 'profile';
+  facebookPageId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -110,6 +112,8 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
     smbShare: { type: String, trim: true },
     smbDomain: { type: String, trim: true },
     smbRemotePath: { type: String, trim: true },
+    facebookTargetType: { type: String, enum: ['page', 'profile'] },
+    facebookPageId: { type: String, trim: true },
   },
   { timestamps: true }
 );

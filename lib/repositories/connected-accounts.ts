@@ -47,6 +47,10 @@ function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount 
     ...(doc.smbShare != null ? { smbShare: String(doc.smbShare) } : {}),
     ...(doc.smbDomain != null ? { smbDomain: String(doc.smbDomain) } : {}),
     ...(doc.smbRemotePath != null ? { smbRemotePath: String(doc.smbRemotePath) } : {}),
+    ...(doc.facebookTargetType != null
+      ? { facebookTargetType: doc.facebookTargetType as 'page' | 'profile' }
+      : {}),
+    ...(doc.facebookPageId != null ? { facebookPageId: String(doc.facebookPageId) } : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -89,6 +93,10 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     ...(doc.smbShare != null ? { smbShare: String(doc.smbShare) } : {}),
     ...(doc.smbDomain != null ? { smbDomain: String(doc.smbDomain) } : {}),
     ...(doc.smbRemotePath != null ? { smbRemotePath: String(doc.smbRemotePath) } : {}),
+    ...(doc.facebookTargetType != null
+      ? { facebookTargetType: doc.facebookTargetType as 'page' | 'profile' }
+      : {}),
+    ...(doc.facebookPageId != null ? { facebookPageId: String(doc.facebookPageId) } : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -118,6 +126,8 @@ export interface CreateConnectedAccountData {
   smbShare?: string;
   smbDomain?: string;
   smbRemotePath?: string;
+  facebookTargetType?: 'page' | 'profile';
+  facebookPageId?: string;
 }
 
 /**
@@ -149,6 +159,8 @@ export async function createConnectedAccount(
     ...(data.smbShare != null ? { smbShare: data.smbShare } : {}),
     ...(data.smbDomain != null ? { smbDomain: data.smbDomain } : {}),
     ...(data.smbRemotePath != null ? { smbRemotePath: data.smbRemotePath } : {}),
+    ...(data.facebookTargetType != null ? { facebookTargetType: data.facebookTargetType } : {}),
+    ...(data.facebookPageId != null ? { facebookPageId: data.facebookPageId } : {}),
   });
   return rowToConnectedAccountPublic(created.toObject());
 }
@@ -301,9 +313,20 @@ export async function updateConnection(
     smbShare: string;
     smbDomain?: string;
     smbRemotePath: string;
+  },
+  facebookFields?: {
+    facebookTargetType: 'page' | 'profile';
+    facebookPageId?: string;
   }
 ): Promise<ConnectedAccountPublic | null> {
   await connectToDatabase();
+  const facebookUpdate =
+    facebookFields != null
+      ? {
+          facebookTargetType: facebookFields.facebookTargetType,
+          facebookPageId: facebookFields.facebookPageId ?? null,
+        }
+      : {};
   const updated = await ConnectedAccountModel.findByIdAndUpdate(
     id,
     {
@@ -331,6 +354,7 @@ export async function updateConnection(
             smbRemotePath: smbFields.smbRemotePath,
           }
         : {}),
+      ...facebookUpdate,
     },
     { returnDocument: 'after', runValidators: true }
   ).lean<ConnectedAccountDocument | null>();

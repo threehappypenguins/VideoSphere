@@ -107,7 +107,7 @@ describe('draft-upload-metadata', () => {
     expect(parseDraftTargetsFromRequestBody([])).toEqual({
       ok: false,
       error:
-        'targets must include at least one of: youtube, vimeo, google_drive, sftp, smb, sermon_audio',
+        'targets must include at least one of: youtube, vimeo, google_drive, sftp, smb, sermon_audio, facebook',
     });
     expect(parseDraftTargetsFromRequestBody(['youtube', 'youtube'])).toEqual({
       ok: true,

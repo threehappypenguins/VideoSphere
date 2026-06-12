@@ -54,7 +54,8 @@ export type ConnectedAccountPlatform =
   | 'google_drive'
   | 'sftp'
   | 'smb'
-  | 'sermon_audio';
+  | 'sermon_audio'
+  | 'facebook';
 
 /** Platforms we support for drafts, uploads, and connections (extend as you add backends). */
 export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = [
@@ -64,6 +65,7 @@ export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = 
   'sftp',
   'smb',
   'sermon_audio',
+  'facebook',
 ];
 
 /** SFTP authentication method stored on a connected account. */
@@ -478,6 +480,10 @@ export interface ConnectedAccountPublic {
   smbDomain?: string;
   /** Path within the share for backups, e.g. `/VideoSphere` (SMB accounts only). */
   smbRemotePath?: string;
+  /** Facebook publish target: Page or personal profile (Facebook accounts only). */
+  facebookTargetType?: 'page' | 'profile';
+  /** Facebook Page ID when `facebookTargetType` is `page` (Facebook accounts only). */
+  facebookPageId?: string;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

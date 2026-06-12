@@ -1,8 +1,8 @@
 // =============================================================================
 // CONNECTED ACCOUNTS PAGE  (/profile/connections)
 // =============================================================================
-// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP, SMB, SermonAudio) and provides
-// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive, and in-page modals for SFTP/SMB/SermonAudio.
+// Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP, SMB, SermonAudio, Facebook) and provides
+// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive/Facebook, and in-page modals for SFTP/SMB/SermonAudio.
 //
 // Session is read server-side via the authenticated session cookie so the page can
 // fetch real connected-account data without an extra client round-trip.
@@ -25,6 +25,7 @@ import {
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
 import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
+import { revokeFacebookAppAuthorization } from '@/lib/platforms/facebook-oauth';
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
 import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
@@ -33,6 +34,10 @@ import {
   SermonAudioConnectButton,
   type SermonAudioExistingConnection,
 } from './SermonAudioConnectButton';
+import {
+  FacebookConnectButton,
+  type FacebookExistingConnection,
+} from '@/components/connections/FacebookConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 
@@ -83,9 +88,22 @@ const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: 
     icon: '🎙️',
     connectHref: null,
   },
+  facebook: {
+    label: 'Facebook',
+    icon: '📘',
+    connectHref: '/api/platforms/connect/facebook',
+  },
 };
 
-const ALL_PLATFORMS = ['youtube', 'vimeo', 'google_drive', 'sftp', 'smb', 'sermon_audio'] as const;
+const ALL_PLATFORMS = [
+  'youtube',
+  'vimeo',
+  'google_drive',
+  'sftp',
+  'smb',
+  'sermon_audio',
+  'facebook',
+] as const;
 
 /** True when an SFTP row has the fields required for backups (including a pinned host key). */
 function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
@@ -176,6 +194,21 @@ function toSermonAudioExistingConnection(
   };
 }
 
+/** Build editable Facebook target settings from a connected account row. */
+function toFacebookExistingConnection(
+  account: ConnectedAccountPublic
+): FacebookExistingConnection | undefined {
+  if (account.platform !== 'facebook' || account.facebookTargetType == null) {
+    return undefined;
+  }
+
+  return {
+    targetType: account.facebookTargetType,
+    ...(account.facebookPageId ? { pageId: account.facebookPageId } : {}),
+    label: account.platformName,
+  };
+}
+
 /** Derive connection status from tokenExpiry and whether a refresh token exists. */
 function getConnectionStatus(
   account: ConnectedAccountPublic | undefined
@@ -192,9 +225,12 @@ function getConnectionStatus(
   }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
-  // YouTube and Google Drive use short-lived access tokens; a stored refresh token means the link can be renewed.
+  // YouTube, Google Drive, and Facebook use short-lived or schedulable tokens; a stored refresh token
+  // means the link can be renewed automatically before the next API call.
   if (
-    (account.platform === 'youtube' || account.platform === 'google_drive') &&
+    (account.platform === 'youtube' ||
+      account.platform === 'google_drive' ||
+      account.platform === 'facebook') &&
     account.hasRefreshToken
   ) {
     return 'connected';
@@ -317,6 +353,36 @@ async function disconnectPlatform(accountId: string) {
     }
   }
 
+  if (canonicalPlatform === 'facebook' && accountWithTokens) {
+    try {
+      // Prefer the stored long-lived user token: DELETE /me/permissions with a user token
+      // removes VideoSphere from Settings > Business Integrations. A Page token only
+      // revokes Page-scoped access and leaves the Business Integration entry visible.
+      const userToken = accountWithTokens.refreshToken.trim();
+      const pageToken = accountWithTokens.accessToken.trim();
+
+      if (userToken || pageToken) {
+        let revoked = false;
+
+        if (userToken) {
+          revoked = await revokeFacebookAppAuthorization(userToken);
+        }
+
+        if (!revoked && pageToken && pageToken !== userToken) {
+          revoked = await revokeFacebookAppAuthorization(pageToken);
+        }
+
+        if (!revoked) {
+          console.error(
+            '[disconnectPlatform] Facebook token revocation returned non-OK (non-fatal)'
+          );
+        }
+      }
+    } catch (err) {
+      console.error('[disconnectPlatform] Facebook token revocation failed (non-fatal):', err);
+    }
+  }
+
   await deleteConnectedAccount(accountId);
   revalidatePath('/profile/connections');
 }
@@ -394,6 +460,15 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
             message="✗ Failed to connect SermonAudio account. Please try again."
           />
         )}
+        {success === 'facebook' && (
+          <FlashMessage type="success" message="✓ Facebook account connected successfully." />
+        )}
+        {error === 'facebook' && (
+          <FlashMessage
+            type="error"
+            message="✗ Failed to connect Facebook account. Please try again."
+          />
+        )}
 
         {/* Platform list */}
         <section className="mt-8 space-y-4">
@@ -409,6 +484,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
               account?.platform === 'sermon_audio'
                 ? toSermonAudioExistingConnection(account)
                 : undefined;
+            const facebookExistingConnection =
+              account?.platform === 'facebook' ? toFacebookExistingConnection(account) : undefined;
 
             return (
               <div
@@ -463,6 +540,18 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                       <SermonAudioConnectButton
                         label="Edit"
                         existingConnection={sermonAudioExistingConnection!}
+                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                      />
+                      <DisconnectButton
+                        action={disconnectPlatform.bind(null, account.id)}
+                        platformLabel={meta.label}
+                      />
+                    </div>
+                  ) : platform === 'facebook' ? (
+                    <div className="flex items-center gap-2">
+                      <FacebookConnectButton
+                        label="Edit"
+                        existingConnection={facebookExistingConnection}
                         className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                       />
                       <DisconnectButton

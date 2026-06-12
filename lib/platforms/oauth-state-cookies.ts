@@ -11,3 +11,6 @@ export const YOUTUBE_OAUTH_STATE_COOKIE = 'youtube_oauth_state';
 
 /** Cookie storing Google Drive OAuth `state` nonce during connect. */
 export const GOOGLE_DRIVE_OAUTH_STATE_COOKIE = 'google_drive_oauth_state';
+
+/** Cookie storing Facebook OAuth `state` nonce during connect. */
+export const FACEBOOK_OAUTH_STATE_COOKIE = 'facebook_oauth_state';
