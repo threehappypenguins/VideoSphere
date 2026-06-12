@@ -23,6 +23,7 @@ export interface UploadJobStatusResponse {
     platform: ConnectedAccountPlatform;
     status: PlatformUploadStatus;
     updatedAt: string;
+    sermonAudioAutoPublishOnProcessed?: boolean;
   }>;
 }
 
@@ -62,6 +63,12 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
         platform: platformUpload.platform,
         status: platformUpload.status,
         updatedAt: platformUpload.$updatedAt,
+        ...(platformUpload.platform === 'sermon_audio'
+          ? {
+              sermonAudioAutoPublishOnProcessed:
+                platformUpload.sermonAudioAutoPublishOnProcessed === true,
+            }
+          : {}),
       }))
     );
 

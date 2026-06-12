@@ -35,6 +35,9 @@ export function rowToPlatformUpload(doc: PlatformUploadDocument): PlatformUpload
     scheduledAt: doc.scheduledAt != null && doc.scheduledAt !== '' ? String(doc.scheduledAt) : null,
     errorMessage:
       doc.errorMessage != null && doc.errorMessage !== '' ? String(doc.errorMessage) : null,
+    ...(String(doc.platform) === 'sermon_audio'
+      ? { sermonAudioAutoPublishOnProcessed: parsed.sermonAudioAutoPublishOnProcessed === true }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };

@@ -101,6 +101,9 @@ export function distributeCreatePlatformUploadInput(
           ...(draft.platforms.vimeo !== undefined ? { draftVimeo: draft.platforms.vimeo } : {}),
         }
       : {}),
+    ...(platform === 'sermon_audio'
+      ? { sermonAudioAutoPublishOnProcessed: meta.autoPublishOnProcessed === true }
+      : {}),
   };
 }
 
@@ -489,7 +492,7 @@ export async function runDistributionInBackground(
       if (!sermonID) continue;
 
       const meta = metadataByPlatformId.get(upload.id);
-      if (meta?.autoPublishOnProcessed === false) continue;
+      if (meta?.autoPublishOnProcessed !== true) continue;
 
       if (!apiKey) {
         console.warn(

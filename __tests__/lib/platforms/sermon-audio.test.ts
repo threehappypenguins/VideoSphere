@@ -392,6 +392,7 @@ describe('uploadToSermonAudio', () => {
 
   it('still succeeds when custom thumbnail upload fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const cancelSpy = vi.fn().mockResolvedValue(undefined);
     const fetchMock = vi.mocked(global.fetch);
     fetchMock
       .mockResolvedValueOnce(
@@ -406,7 +407,7 @@ describe('uploadToSermonAudio', () => {
       .mockResolvedValueOnce(new Response('encoding failed', { status: 500 }));
 
     vi.mocked(getObjectWebStream).mockResolvedValueOnce({
-      stream: makeThumbnailStream(),
+      stream: { cancel: cancelSpy } as unknown as ReadableStream<Uint8Array>,
       contentLength: 3,
       contentType: 'image/png',
     });
@@ -429,6 +430,7 @@ describe('uploadToSermonAudio', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('SERMONAUDIO_THUMBNAIL_ENCODING_OPTIONS_FAILED')
     );
+    expect(cancelSpy).toHaveBeenCalledOnce();
     warnSpy.mockRestore();
   });
 });
@@ -599,7 +601,7 @@ describe('pollSermonAudioProcessing', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('resolves when any media.video entry has a terminal videoMediaStatus (custom thumbnail uploaded)', async () => {
+  it('resolves when any media.video entry has a successful videoMediaStatus (custom thumbnail uploaded)', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -620,6 +622,34 @@ describe('pollSermonAudioProcessing', () => {
         maxAttempts: 3,
       })
     ).resolves.toBeUndefined();
+  });
+
+  it('rejects when any media.video entry reports a failed videoMediaStatus', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          media: {
+            video: [{ videoCodec: null, videoMediaStatus: 'failed', thumbnailImageURL: null }],
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      pollSermonAudioProcessing({
+        sermonID: 'sermon-123',
+        tokens,
+        customThumbnailUploaded: true,
+        intervalMs: 1000,
+        maxAttempts: 3,
+      })
+    ).rejects.toMatchObject({
+      code: 'SERMONAUDIO_PROCESSING_FAILED',
+      details: 'videoMediaStatus: failed',
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('resolves when the ABR video entry exposes a codec on a progressive rendition (custom thumbnail uploaded)', async () => {

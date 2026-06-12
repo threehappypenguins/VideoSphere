@@ -100,8 +100,11 @@ interface UploadSermonAudioThumbnailInput {
   signal?: AbortSignal;
 }
 
-/** Terminal `videoMediaStatus` values indicating transcoding finished (success or failure). */
-const TERMINAL_VIDEO_MEDIA_STATUSES = new Set(['ready', 'error', 'failed']);
+/** Successful terminal `videoMediaStatus` when transcoding finished. */
+const SUCCESSFUL_VIDEO_MEDIA_STATUSES = new Set(['ready']);
+
+/** Failed terminal `videoMediaStatus` values from SermonAudio transcoding. */
+const FAILED_VIDEO_MEDIA_STATUSES = new Set(['error', 'failed']);
 
 function toError(
   code: string,
@@ -193,10 +196,41 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   return body;
 }
 
-function isTerminalVideoMediaStatus(status: unknown): boolean {
+function isSuccessfulVideoMediaStatus(status: unknown): boolean {
   return (
-    typeof status === 'string' && TERMINAL_VIDEO_MEDIA_STATUSES.has(status.trim().toLowerCase())
+    typeof status === 'string' && SUCCESSFUL_VIDEO_MEDIA_STATUSES.has(status.trim().toLowerCase())
   );
+}
+
+function getVideoMediaFailureStatus(status: unknown): string | null {
+  if (typeof status !== 'string') return null;
+  const normalized = status.trim().toLowerCase();
+  return FAILED_VIDEO_MEDIA_STATUSES.has(normalized) ? normalized : null;
+}
+
+function sermonVideoProcessingFailure(payload: unknown): string | null {
+  if (payload === null || typeof payload !== 'object') return null;
+
+  const root = payload as {
+    videoMediaStatus?: unknown;
+    media?: SermonMediaPayload['media'];
+  };
+
+  const rootFailure = getVideoMediaFailureStatus(root.videoMediaStatus);
+  if (rootFailure) return rootFailure;
+
+  const video = root.media?.video;
+  if (!Array.isArray(video)) return null;
+
+  for (const item of video) {
+    if (!item || typeof item !== 'object') continue;
+    const failure = getVideoMediaFailureStatus(
+      (item as { videoMediaStatus?: unknown }).videoMediaStatus
+    );
+    if (failure) return failure;
+  }
+
+  return null;
 }
 
 function hasSermonVideoCodec(item: unknown): boolean {
@@ -209,7 +243,7 @@ function sermonVideoEntryIsReady(item: unknown): boolean {
   if (!item || typeof item !== 'object') return false;
   const entry = item as { videoCodec?: unknown; videoMediaStatus?: unknown };
   if (hasSermonVideoCodec(entry)) return true;
-  return isTerminalVideoMediaStatus(entry.videoMediaStatus);
+  return isSuccessfulVideoMediaStatus(entry.videoMediaStatus);
 }
 
 function hasSermonVideoThumbnail(item: unknown): boolean {
@@ -220,7 +254,7 @@ function hasSermonVideoThumbnail(item: unknown): boolean {
 
 /**
  * True when SermonAudio has finished transcoding any `media.video` rendition.
- * Gates on non-null `videoCodec` or terminal `videoMediaStatus` — not `thumbnailImageURL`,
+ * Gates on non-null `videoCodec` or successful `videoMediaStatus` (`ready`) — not `thumbnailImageURL`,
  * since a custom thumbnail may populate that field before transcoding completes.
  */
 function sermonVideoTranscodingIsReady(payload: unknown): boolean {
@@ -457,6 +491,7 @@ async function tryUploadSermonAudioThumbnailFromR2(input: {
     });
 
     if (result.ok === false) {
+      await opened.stream.cancel().catch(() => undefined);
       const statusSuffix = result.statusCode != null ? ` (HTTP ${result.statusCode})` : '';
       const detailsSuffix = result.details ? ` Details: ${result.details}` : '';
       console.warn(
@@ -607,11 +642,11 @@ export async function uploadToSermonAudio(
 /**
  * Polls SermonAudio until sermon video processing completes.
  * Without a custom thumbnail, waits for SA-generated `thumbnailImageURL` on any `media.video` entry.
- * With a custom thumbnail, waits for transcoding (`videoCodec` or terminal `videoMediaStatus`) instead,
+ * With a custom thumbnail, waits for transcoding (`videoCodec` or `videoMediaStatus: ready`) instead,
  * since the uploaded poster may appear before encoding finishes.
  * @param input - Sermon id, API key tokens, poll tuning, and optional abort signal.
  * @returns Resolves when processing is complete.
- * @throws When polling is aborted or `maxAttempts` is exceeded.
+ * @throws When transcoding fails, polling is aborted, or `maxAttempts` is exceeded.
  */
 export async function pollSermonAudioProcessing(
   input: PollSermonAudioProcessingInput
@@ -658,6 +693,15 @@ export async function pollSermonAudioProcessing(
     }
 
     const payload = await response.json().catch(() => ({}));
+    const processingFailure = sermonVideoProcessingFailure(payload);
+    if (processingFailure) {
+      throw toPlatformUploadError(
+        'SERMONAUDIO_PROCESSING_FAILED',
+        'SermonAudio video transcoding failed.',
+        undefined,
+        `videoMediaStatus: ${processingFailure}`
+      );
+    }
     if (sermonVideoIsReady(payload, customThumbnailUploaded)) {
       return;
     }

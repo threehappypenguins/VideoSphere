@@ -23,6 +23,7 @@ interface UploadHistoryPlatformItem {
   errorMessage: string | null;
   retryable: boolean;
   retryReason: string;
+  sermonAudioAutoPublishOnProcessed?: boolean;
 }
 
 interface UploadHistoryJobItem {
@@ -125,6 +126,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           errorMessage: platformUpload.errorMessage,
           retryable: platformUpload.status === 'failed' ? retryability.retryable : false,
           retryReason: platformUpload.status === 'failed' ? retryability.reason : '',
+          ...(platformUpload.platform === 'sermon_audio'
+            ? {
+                sermonAudioAutoPublishOnProcessed:
+                  platformUpload.sermonAudioAutoPublishOnProcessed === true,
+              }
+            : {}),
         };
       });
       const needsR2Head = platformItems.some((p) => p.status === 'failed' && p.retryable);

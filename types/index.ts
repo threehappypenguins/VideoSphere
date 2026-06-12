@@ -468,6 +468,8 @@ export interface PlatformUpload {
   visibility: PlatformUploadVisibility;
   scheduledAt: string | null;
   errorMessage: string | null;
+  /** SermonAudio: auto-publish intent snapshot from distribute time. */
+  sermonAudioAutoPublishOnProcessed?: boolean;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

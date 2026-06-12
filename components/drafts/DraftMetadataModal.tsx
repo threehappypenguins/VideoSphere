@@ -93,7 +93,7 @@ import {
   isPlatformBrandIcon,
 } from '@/components/icons/PlatformIcon';
 import { platformLabel } from '@/lib/ui/platform-label';
-import { isPlatformUploadStatusInProgress } from '@/lib/uploads/status';
+import { isPlatformUploadRowActive } from '@/lib/uploads/status';
 import {
   buildYouTubeAccountDefaultsSeedPatch,
   type YouTubeAccountDefaults,
@@ -345,6 +345,7 @@ interface DraftUploadHistoryItem {
     platform: ConnectedAccountPlatform;
     status: PlatformUploadStatus;
     updatedAt: string;
+    sermonAudioAutoPublishOnProcessed?: boolean;
   }>;
 }
 
@@ -681,7 +682,13 @@ export function DraftMetadataModal({
             item.status === 'pending' ||
             item.status === 'uploading' ||
             item.status === 'distributing' ||
-            item.platforms.some((platform) => isPlatformUploadStatusInProgress(platform.status))
+            item.platforms.some((platform) =>
+              isPlatformUploadRowActive({
+                platform: platform.platform,
+                status: platform.status,
+                sermonAudioAutoPublishOnProcessed: platform.sermonAudioAutoPublishOnProcessed,
+              })
+            )
         )
         .map((item) => item.uploadJobId),
     [uploadHistory]
