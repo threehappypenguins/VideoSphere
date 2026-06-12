@@ -5,6 +5,7 @@ import {
 } from '@/lib/draft-thumbnail';
 import {
   FACEBOOK_GRAPH_API_BASE,
+  FACEBOOK_RUPLOAD_PATH_PREFIX,
   facebookGraphApiFetchInit,
   resolveFacebookPageId,
 } from '@/lib/platforms/facebook-oauth';
@@ -24,7 +25,6 @@ export {
 } from '@/lib/platforms/facebook-schedule';
 
 const FACEBOOK_RUPLOAD_HOSTNAME = 'rupload.facebook.com';
-const FACEBOOK_RUPLOAD_PATH_PREFIX = '/video-upload/v25.0';
 const FACEBOOK_RUPLOAD_BASE = `https://${FACEBOOK_RUPLOAD_HOSTNAME}${FACEBOOK_RUPLOAD_PATH_PREFIX}`;
 
 /**
@@ -117,14 +117,20 @@ interface FacebookReelsFinishResponse {
   error?: { message?: string; code?: number };
 }
 
+/** Characters allowed in Meta Reels `video_id` when embedded in upload and reel URLs. */
+const FACEBOOK_REELS_VIDEO_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 /**
  * Parses and validates `video_id` from a Reels START response.
  * @param raw - Raw `video_id` value from the Graph API.
- * @returns Trimmed video ID, or null when missing or whitespace-only.
+ * @returns Trimmed video ID when non-empty and path-segment-safe, otherwise null.
  */
 function parseFacebookReelsVideoId(raw: string | undefined): string | null {
   const trimmed = raw?.trim() ?? '';
-  return trimmed !== '' ? trimmed : null;
+  if (trimmed === '' || !FACEBOOK_REELS_VIDEO_ID_PATTERN.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
 }
 
 function toError(

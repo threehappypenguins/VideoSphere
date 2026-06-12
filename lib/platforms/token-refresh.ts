@@ -192,7 +192,12 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
       );
     }
 
-    const targetType = account.facebookTargetType ?? 'page';
+    const targetType = account.facebookTargetType;
+    if (targetType !== 'page' && targetType !== 'profile') {
+      throw new Error(
+        'Facebook connection is missing publish target metadata. Reconnect your Facebook account in Settings → Connections.'
+      );
+    }
 
     if (targetType === 'page') {
       const pageId = resolveFacebookPageId(account);

@@ -381,6 +381,23 @@ describe('refreshTokenIfNeeded', () => {
       expect(mockRefreshFacebookPageConnection).not.toHaveBeenCalled();
     });
 
+    it('throws when Facebook connection is missing facebookTargetType', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+
+      await expect(
+        refreshTokenIfNeeded(
+          facebookPageAccount({
+            facebookTargetType: undefined,
+            facebookPageId: 'page-1',
+            tokenExpiry: past,
+          })
+        )
+      ).rejects.toThrow(/missing publish target metadata/i);
+
+      expect(mockRefreshFacebookPageConnection).not.toHaveBeenCalled();
+      expect(mockRefreshFacebookProfileConnection).not.toHaveBeenCalled();
+    });
+
     it('throws a clear reconnect error when Facebook user refresh token is missing', async () => {
       const past = new Date(Date.now() - 60_000).toISOString();
 

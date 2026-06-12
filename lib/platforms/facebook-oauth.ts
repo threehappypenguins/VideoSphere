@@ -10,6 +10,24 @@ export const FACEBOOK_OAUTH_DIALOG_URL = 'https://www.facebook.com/v25.0/dialog/
 /** Facebook Graph API base URL. */
 export const FACEBOOK_GRAPH_API_BASE = 'https://graph.facebook.com/v25.0';
 
+/**
+ * Returns the Graph API version path segment from {@link FACEBOOK_GRAPH_API_BASE} (e.g. `/v25.0`).
+ * @returns Normalized version path including leading slash.
+ */
+function facebookGraphApiVersionPath(): string {
+  const path = new URL(FACEBOOK_GRAPH_API_BASE).pathname.replace(/\/+$/, '');
+  if (!path || path === '/') {
+    throw new Error('FACEBOOK_GRAPH_API_BASE must include an API version path segment.');
+  }
+  return path;
+}
+
+/**
+ * Path prefix for Reels binary uploads on `rupload.facebook.com`, derived from
+ * {@link FACEBOOK_GRAPH_API_BASE} so the upload API version cannot drift.
+ */
+export const FACEBOOK_RUPLOAD_PATH_PREFIX = `/video-upload${facebookGraphApiVersionPath()}`;
+
 /** Scopes required for Page video publishing via the Video API. */
 export const FACEBOOK_SCOPES = [
   'pages_show_list',

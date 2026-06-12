@@ -206,6 +206,31 @@ describe('uploadToFacebook', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('fails fast when START returns a video_id with path-breaking characters', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ video_id: 'vid/123' }), { status: 200 })
+    );
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'FACEBOOK_REELS_START_FAILED' },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('falls back to the default rupload URL when upload_url is untrusted', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock

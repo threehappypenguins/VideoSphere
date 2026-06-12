@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  FACEBOOK_GRAPH_API_BASE,
   FACEBOOK_PAGE_TOKEN_EXPIRY_ISO,
+  FACEBOOK_RUPLOAD_PATH_PREFIX,
   fetchFacebookManagedPages,
   getFacebookTokenExpiry,
   revokeFacebookAppAuthorization,
@@ -115,5 +117,12 @@ describe('fetchFacebookManagedPages', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockFetch.mock.calls[0][0]).toContain('limit=100');
     expect(mockFetch.mock.calls[1][0]).toContain('after=cursor-page-2');
+  });
+});
+
+describe('FACEBOOK_RUPLOAD_PATH_PREFIX', () => {
+  it('includes the Graph API version from FACEBOOK_GRAPH_API_BASE', () => {
+    const versionPath = new URL(FACEBOOK_GRAPH_API_BASE).pathname.replace(/\/+$/, '');
+    expect(FACEBOOK_RUPLOAD_PATH_PREFIX).toBe(`/video-upload${versionPath}`);
   });
 });
