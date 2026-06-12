@@ -82,13 +82,20 @@ export interface SermonAudioSpecificUploadMetadata {
   crossPublish?: SermonAudioCrossPublishSettings;
 }
 
+/** Facebook Reels API upload–specific fields (omit unused keys for other platforms). */
+export interface FacebookSpecificUploadMetadata {
+  facebookVideoState?: 'PUBLISHED' | 'SCHEDULED';
+  facebookScheduledPublishTime?: number;
+}
+
 /**
  * Draft → adapter payload: shared copy plus optional per-platform blocks (flat merge for convenience).
  */
 export type PlatformUploadMetadata = SharedPlatformUploadMetadata &
   YoutubeSpecificUploadMetadata &
   VimeoSpecificUploadMetadata &
-  SermonAudioSpecificUploadMetadata;
+  SermonAudioSpecificUploadMetadata &
+  FacebookSpecificUploadMetadata;
 
 /**
  * Defines the shape of platform upload tokens.

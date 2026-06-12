@@ -26,6 +26,7 @@ import {
   type SermonAudioDraftFields,
   type SftpDraftFields,
   type SmbDraftFields,
+  type FacebookDraftFields,
 } from '@/types';
 
 /**
@@ -134,6 +135,18 @@ function stringList(v: unknown): string[] | undefined {
     .map((s) => s.trim())
     .filter(Boolean);
   return out;
+}
+
+function normalizePerPlatformTitleDescriptionOverrides(
+  o: Record<string, unknown>
+): Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride'> {
+  const titleOverride = trimStr(o.titleOverride);
+  const descriptionOverride = trimStr(o.descriptionOverride);
+
+  return {
+    ...(titleOverride !== undefined ? { titleOverride } : {}),
+    ...(descriptionOverride !== undefined ? { descriptionOverride } : {}),
+  };
 }
 
 function normalizePerPlatformCopyOverrides(
@@ -325,6 +338,21 @@ function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
   };
 }
 
+function normalizeFacebookFields(f: Record<string, unknown>): FacebookDraftFields {
+  const videoState =
+    f.videoState === 'PUBLISHED' || f.videoState === 'SCHEDULED' ? f.videoState : undefined;
+  const scheduledPublishTime =
+    typeof f.scheduledPublishTime === 'number' && Number.isFinite(f.scheduledPublishTime)
+      ? Math.floor(f.scheduledPublishTime)
+      : undefined;
+
+  return {
+    ...normalizePerPlatformTitleDescriptionOverrides(f),
+    ...(videoState !== undefined ? { videoState } : {}),
+    ...(scheduledPublishTime !== undefined ? { scheduledPublishTime } : {}),
+  };
+}
+
 function resolveSermonAudioAutoPublishOnProcessed(
   fields: Pick<SermonAudioDraftFields, 'autoPublishOnProcessed'> | undefined
 ): boolean {
@@ -399,6 +427,11 @@ export function normalizeDraftPlatforms(value: unknown): DraftPlatforms {
   if (isPlainObject(value.sermon_audio)) {
     const sa = normalizeSermonAudioFields(value.sermon_audio);
     out.sermon_audio = Object.keys(sa).length > 0 ? sa : undefined;
+  }
+
+  if (isPlainObject(value.facebook)) {
+    const fb = normalizeFacebookFields(value.facebook);
+    out.facebook = Object.keys(fb).length > 0 ? fb : undefined;
   }
 
   if (isPlainObject(value.sftp)) {
@@ -830,6 +863,29 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
     next.sermon_audio = sa;
   }
 
+  if (isPlainObject(patch.facebook)) {
+    const p = patch.facebook;
+    const fb = { ...base.facebook };
+    if ('videoState' in p) {
+      const vs = p.videoState;
+      fb.videoState = vs === 'PUBLISHED' || vs === 'SCHEDULED' ? vs : undefined;
+    }
+    if ('scheduledPublishTime' in p) {
+      const ts = p.scheduledPublishTime;
+      fb.scheduledPublishTime =
+        typeof ts === 'number' && Number.isFinite(ts) ? Math.floor(ts) : undefined;
+    }
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      fb.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    if ('descriptionOverride' in p) {
+      const s = p.descriptionOverride;
+      fb.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    next.facebook = fb;
+  }
+
   if (isPlainObject(patch.sftp)) {
     next.sftp = { ...base.sftp, ...normalizeSftpFields(patch.sftp) };
   }
@@ -948,6 +1004,20 @@ export function buildMetadataForPlatform(
       acceptCopyright: true,
       autoPublishOnProcessed: resolveSermonAudioAutoPublishOnProcessed(sa),
       ...(sa?.crossPublish !== undefined ? { crossPublish: sa.crossPublish } : {}),
+    };
+  }
+  if (platform === 'facebook') {
+    const fb = draft.platforms.facebook;
+    const { title, description } = resolveDraftCopyForPlatform(draft, fb);
+    return {
+      title,
+      description,
+      tags: [],
+      visibility: draft.visibility,
+      thumbnailR2Key,
+      thumbnailContentType,
+      facebookVideoState: fb?.videoState,
+      facebookScheduledPublishTime: fb?.scheduledPublishTime,
     };
   }
 

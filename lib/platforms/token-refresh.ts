@@ -11,6 +11,7 @@ import { updateTokens } from '@/lib/repositories/connected-accounts';
 import {
   refreshFacebookPageConnection,
   refreshFacebookProfileConnection,
+  resolveFacebookPageId,
 } from '@/lib/platforms/facebook-oauth';
 import { refreshGoogleDriveAccessToken } from '@/lib/platforms/google-drive';
 import { refreshYouTubeAccessToken } from '@/lib/platforms/youtube';
@@ -191,10 +192,21 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
       );
     }
 
-    const targetType = account.facebookTargetType ?? 'page';
-    const pageId = account.facebookPageId ?? account.platformUserId;
+    const targetType = account.facebookTargetType;
+    if (targetType !== 'page' && targetType !== 'profile') {
+      throw new Error(
+        'Facebook connection is missing publish target metadata. Reconnect your Facebook account in Settings → Connections.'
+      );
+    }
 
     if (targetType === 'page') {
+      const pageId = resolveFacebookPageId(account);
+      if (!pageId) {
+        throw new Error(
+          'Facebook Page connection is missing a Page ID. Reconnect and select a Page in Settings → Connections.'
+        );
+      }
+
       const refreshed = await refreshFacebookPageConnection(userToken, pageId);
       if ('error' in refreshed) {
         throw new Error(facebookRefreshFailureMessage(refreshed.error));

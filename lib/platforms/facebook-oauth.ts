@@ -2,11 +2,31 @@
  * Facebook Graph API v25.0 OAuth helpers for platform connection flows.
  */
 
+import { createHmac } from 'node:crypto';
+
 /** Facebook Login OAuth dialog base URL. */
 export const FACEBOOK_OAUTH_DIALOG_URL = 'https://www.facebook.com/v25.0/dialog/oauth';
 
 /** Facebook Graph API base URL. */
 export const FACEBOOK_GRAPH_API_BASE = 'https://graph.facebook.com/v25.0';
+
+/**
+ * Returns the Graph API version path segment from {@link FACEBOOK_GRAPH_API_BASE} (e.g. `/v25.0`).
+ * @returns Normalized version path including leading slash.
+ */
+function facebookGraphApiVersionPath(): string {
+  const path = new URL(FACEBOOK_GRAPH_API_BASE).pathname.replace(/\/+$/, '');
+  if (!path || path === '/') {
+    throw new Error('FACEBOOK_GRAPH_API_BASE must include an API version path segment.');
+  }
+  return path;
+}
+
+/**
+ * Path prefix for Reels binary uploads on `rupload.facebook.com`, derived from
+ * {@link FACEBOOK_GRAPH_API_BASE} so the upload API version cannot drift.
+ */
+export const FACEBOOK_RUPLOAD_PATH_PREFIX = `/video-upload${facebookGraphApiVersionPath()}`;
 
 /** Scopes required for Page video publishing via the Video API. */
 export const FACEBOOK_SCOPES = [
@@ -68,6 +88,17 @@ export function getFacebookAppSecret(): string | null {
 }
 
 /**
+ * Builds the `appsecret_proof` parameter for server-side Graph API calls.
+ * @param accessToken - User or Page access token used on the request.
+ * @returns HMAC-SHA256 proof, or undefined when the app secret is not configured.
+ */
+export function buildFacebookAppSecretProof(accessToken: string): string | undefined {
+  const secret = getFacebookAppSecret();
+  if (!secret) return undefined;
+  return createHmac('sha256', secret).update(accessToken).digest('hex');
+}
+
+/**
  * Builds the OAuth redirect URI for the Facebook platform callback.
  * @param origin - Request origin (e.g. `https://app.example.com`).
  * @returns Fully-qualified callback URL.
@@ -122,7 +153,10 @@ interface FacebookMeResponse {
  * @param init - Optional fetch init (method, etc.).
  * @returns RequestInit with Authorization header and `cache: 'no-store'`.
  */
-function facebookGraphApiFetchInit(accessToken: string, init: RequestInit = {}): RequestInit {
+export function facebookGraphApiFetchInit(
+  accessToken: string,
+  init: RequestInit = {}
+): RequestInit {
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${accessToken}`);
   return {
@@ -336,6 +370,23 @@ export async function refreshFacebookProfileConnection(
     userAccessToken: exchanged.access_token,
     tokenExpiry: getFacebookUserTokenExpiry(exchanged.expires_in),
   };
+}
+
+/**
+ * Resolves the Facebook Page ID for Page-target connections.
+ * Profile connections and Page rows missing `facebookPageId` cannot use Page APIs.
+ * @param account - Connected Facebook account fields used for Page resolution.
+ * @returns Trimmed Page ID when the connection targets a Page with `facebookPageId` set.
+ */
+export function resolveFacebookPageId(account: {
+  facebookTargetType?: 'page' | 'profile';
+  facebookPageId?: string;
+}): string | null {
+  if (account.facebookTargetType === 'profile') {
+    return null;
+  }
+  const pageId = account.facebookPageId?.trim();
+  return pageId ? pageId : null;
 }
 
 /**

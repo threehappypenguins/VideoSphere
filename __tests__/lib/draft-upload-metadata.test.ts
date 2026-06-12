@@ -794,4 +794,77 @@ describe('draft-upload-metadata', () => {
 
     expect(buildMetadataForPlatform(draft, 'sermon_audio').keywords).toBe('thisis, faith');
   });
+
+  it('normalizeDraftPlatforms normalizes facebook fields', () => {
+    expect(
+      normalizeDraftPlatforms({
+        facebook: {
+          videoState: 'SCHEDULED',
+          scheduledPublishTime: 1_700_000_000.9,
+          titleOverride: ' FB title ',
+        },
+      })
+    ).toEqual({
+      facebook: {
+        videoState: 'SCHEDULED',
+        scheduledPublishTime: 1_700_000_000,
+        titleOverride: 'FB title',
+      },
+    });
+  });
+
+  it('mergeDraftPlatformsPatch handles facebook patch keys', () => {
+    const base: Draft['platforms'] = {
+      facebook: {
+        videoState: 'PUBLISHED',
+        titleOverride: 'Old title',
+      },
+    };
+    expect(
+      mergeDraftPlatformsPatch(base, {
+        facebook: {
+          videoState: 'SCHEDULED',
+          scheduledPublishTime: 1_800_000_000,
+        },
+      })
+    ).toEqual({
+      facebook: {
+        videoState: 'SCHEDULED',
+        scheduledPublishTime: 1_800_000_000,
+        titleOverride: 'Old title',
+      },
+    });
+  });
+
+  it('buildMetadataForPlatform returns facebook-specific metadata', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['facebook'],
+      title: 'Shared',
+      description: 'Desc',
+      tags: ['a'],
+      visibility: 'public',
+      platforms: {
+        facebook: {
+          videoState: 'SCHEDULED',
+          scheduledPublishTime: 1_800_000_000,
+          titleOverride: 'FB title',
+        },
+      },
+      thumbnailR2Key: 'thumb/key.jpg',
+      thumbnailContentType: 'image/jpeg',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'facebook');
+    expect(meta.title).toBe('FB title');
+    expect(meta.description).toBe('Desc');
+    expect(meta.tags).toEqual([]);
+    expect(meta.visibility).toBe('public');
+    expect(meta.thumbnailR2Key).toBe('thumb/key.jpg');
+    expect(meta.facebookVideoState).toBe('SCHEDULED');
+    expect(meta.facebookScheduledPublishTime).toBe(1_800_000_000);
+  });
 });

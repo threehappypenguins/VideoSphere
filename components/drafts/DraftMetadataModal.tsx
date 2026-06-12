@@ -20,6 +20,7 @@ import {
 import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
+import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
 import {
@@ -68,12 +69,14 @@ import type {
   ConnectedAccountPublic,
   Draft,
   DraftPlatforms,
+  PerPlatformCopyOverrides,
   PerPlatformOverrides,
   PlatformUploadStatus,
   SermonAudioDraftFields,
   UploadJobStatus,
   VimeoDraftFields,
   YouTubeDraftFields,
+  FacebookDraftFields,
 } from '@/types';
 import {
   DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
@@ -157,11 +160,25 @@ function comparePlatformsByPreference(
   return a.localeCompare(b);
 }
 
-const OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
+const OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio', 'facebook'] as const;
 
 type OverridePlatform = (typeof OVERRIDE_PLATFORMS)[number];
 
-const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = ['youtube', 'vimeo', 'sermon_audio'];
+/** Platforms whose APIs accept tags or hashtags on upload (Facebook Reels does not). */
+const TAG_OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
+
+type TagOverridePlatform = (typeof TAG_OVERRIDE_PLATFORMS)[number];
+
+type CopyOverridePatch = Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride'>;
+type TagOverridePatch = Pick<PerPlatformCopyOverrides, 'tagsOverride'>;
+type PrivacyOverridePatch = Pick<PerPlatformOverrides, 'visibilityOverride'>;
+
+const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = [
+  'youtube',
+  'vimeo',
+  'sermon_audio',
+  'facebook',
+];
 
 const PRIVACY_PLATFORMS = ['youtube', 'vimeo'] as const;
 
@@ -169,8 +186,8 @@ type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
 
 const PRIVACY_PLATFORM_ORDER: PrivacyPlatform[] = ['youtube', 'vimeo'];
 
-/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo today). */
-const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo'] as const;
+/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo/Facebook today). */
+const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo', 'facebook'] as const;
 
 type DraftThumbnailPlatform = (typeof DRAFT_THUMBNAIL_PLATFORMS)[number];
 
@@ -192,6 +209,12 @@ const SERMON_AUDIO_SHORT_TITLE_THRESHOLD = 30;
 
 function isOverridePlatform(platform: ConnectedAccountPlatform): platform is OverridePlatform {
   return (OVERRIDE_PLATFORMS as readonly string[]).includes(platform);
+}
+
+function isTagOverridePlatform(
+  platform: ConnectedAccountPlatform
+): platform is TagOverridePlatform {
+  return (TAG_OVERRIDE_PLATFORMS as readonly string[]).includes(platform);
 }
 
 function isPrivacyPlatform(platform: ConnectedAccountPlatform): platform is PrivacyPlatform {
@@ -432,6 +455,10 @@ export function DraftMetadataModal({
   const [scheduleTime, setScheduleTime] = useState('');
   const [scheduleTimeZone, setScheduleTimeZone] = useState('');
   const scheduleInitializedRef = useRef(false);
+  const [fbScheduleDate, setFbScheduleDate] = useState('');
+  const [fbScheduleTime, setFbScheduleTime] = useState('');
+  const [fbScheduleTimeZone, setFbScheduleTimeZone] = useState('');
+  const fbScheduleInitializedRef = useRef(false);
   const supportedTimeZones = useMemo(() => getSupportedTimeZones(), []);
   const [youtubeLanguages, setYoutubeLanguages] = useState<Array<{ id: string; name: string }>>([]);
   const [youtubeCategories, setYoutubeCategories] = useState<Array<{ id: string; title: string }>>(
@@ -1020,6 +1047,11 @@ export function DraftMetadataModal({
     return sortOverridePlatforms(value.targets.filter(isOverridePlatform));
   }, [value]);
 
+  const selectedTagPlatforms = useMemo(() => {
+    if (!value) return [] as TagOverridePlatform[];
+    return value.targets.filter(isTagOverridePlatform);
+  }, [value]);
+
   const selectedPrivacyPlatforms = useMemo(() => {
     if (!value) return [] as PrivacyPlatform[];
     return sortPrivacyPlatforms(value.targets.filter(isPrivacyPlatform));
@@ -1040,11 +1072,11 @@ export function DraftMetadataModal({
   }, [selectedOverridePlatforms, value?.platforms]);
 
   const usesSharedTagsGlobally = useMemo(() => {
-    if (selectedOverridePlatforms.length < 2) return true;
-    return selectedOverridePlatforms.every((platform) =>
+    if (selectedTagPlatforms.length < 2) return true;
+    return selectedTagPlatforms.every((platform) =>
       platformUsesSharedTags(value?.platforms[platform])
     );
-  }, [selectedOverridePlatforms, value?.platforms]);
+  }, [selectedTagPlatforms, value?.platforms]);
 
   const usesSharedVisibilityGlobally = useMemo(() => {
     if (selectedPrivacyPlatforms.length < 2) return true;
@@ -1056,22 +1088,24 @@ export function DraftMetadataModal({
   const showPerPlatformTitle = selectedOverridePlatforms.length >= 2 && !usesSharedTitleGlobally;
   const showPerPlatformDescription =
     selectedOverridePlatforms.length >= 2 && !usesSharedDescriptionGlobally;
-  const showPerPlatformTags = selectedOverridePlatforms.length >= 2 && !usesSharedTagsGlobally;
+  const showPerPlatformTags = selectedTagPlatforms.length >= 2 && !usesSharedTagsGlobally;
   const sermonAudioOnlySharedTagInput =
     !showPerPlatformTags &&
-    selectedOverridePlatforms.length === 1 &&
-    selectedOverridePlatforms[0] === 'sermon_audio';
+    selectedTagPlatforms.length === 1 &&
+    selectedTagPlatforms[0] === 'sermon_audio';
   const showPrivacyField = selectedPrivacyPlatforms.length > 0;
   const showPerPlatformPrivacy =
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
 
   const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
   const showYouTubeFields = value?.targets.includes('youtube') ?? false;
+  const showFacebookFields = value?.targets.includes('facebook') ?? false;
   const showPlatformSectionHeaders =
-    [showYouTubeFields, showSermonAudioFields].filter(Boolean).length >= 2;
+    [showYouTubeFields, showSermonAudioFields, showFacebookFields].filter(Boolean).length >= 2;
   const showDraftThumbnailUpload = value != null && showDraftThumbnailUploadSection(value.targets);
   const sermonAudioFields = value?.platforms.sermon_audio;
   const youtubeFields = value?.platforms.youtube;
+  const facebookFields = value?.platforms.facebook;
   const sermonAudioEffectiveTitleText = value
     ? sermonAudioEffectiveTitle(value, showPerPlatformTitle)
     : '';
@@ -1100,9 +1134,43 @@ export function DraftMetadataModal({
     [uploadFieldErrors]
   );
 
-  const updateOverridePlatformFields = (
+  const updateCopyOverridePlatformFields = (
     platform: OverridePlatform,
-    patch: Partial<YouTubeDraftFields | VimeoDraftFields | SermonAudioDraftFields>
+    patch: Partial<CopyOverridePatch>
+  ) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        [platform]: {
+          ...value.platforms[platform],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const updateTagOverridePlatformFields = (
+    platform: TagOverridePlatform,
+    patch: Partial<TagOverridePatch>
+  ) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        [platform]: {
+          ...value.platforms[platform],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const updatePrivacyOverridePlatformFields = (
+    platform: PrivacyPlatform,
+    patch: Partial<PrivacyOverridePatch>
   ) => {
     if (!value) return;
     onChange({
@@ -1120,6 +1188,32 @@ export function DraftMetadataModal({
   const setUseSharedCopyField = (field: SharedCopyField, useShared: boolean) => {
     if (!value) return;
 
+    if (field === 'tags') {
+      let nextPlatforms: DraftPlatforms = { ...value.platforms };
+      for (const platform of selectedTagPlatforms) {
+        const current = nextPlatforms[platform] ?? {};
+        let next: DraftPlatforms[TagOverridePlatform];
+
+        if (useShared) {
+          const { tagsOverride, ...rest } = current;
+          next =
+            Object.keys(rest).length > 0
+              ? (rest as NonNullable<DraftPlatforms[TagOverridePlatform]>)
+              : undefined;
+        } else {
+          next = { ...current, tagsOverride: [...value.tags] };
+        }
+
+        nextPlatforms = { ...nextPlatforms, [platform]: next };
+      }
+
+      onChange({ ...value, platforms: nextPlatforms });
+      if (useShared) {
+        setPlatformOverrideTagInput({});
+      }
+      return;
+    }
+
     let nextPlatforms: DraftPlatforms = { ...value.platforms };
     for (const platform of selectedOverridePlatforms) {
       const current = nextPlatforms[platform] ?? {};
@@ -1132,14 +1226,8 @@ export function DraftMetadataModal({
             Object.keys(rest).length > 0
               ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
               : undefined;
-        } else if (field === 'description') {
-          const { descriptionOverride, ...rest } = current;
-          next =
-            Object.keys(rest).length > 0
-              ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
-              : undefined;
         } else {
-          const { tagsOverride, ...rest } = current;
+          const { descriptionOverride, ...rest } = current;
           next =
             Object.keys(rest).length > 0
               ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
@@ -1147,19 +1235,14 @@ export function DraftMetadataModal({
         }
       } else if (field === 'title') {
         next = { ...current, titleOverride: value.title };
-      } else if (field === 'description') {
-        next = { ...current, descriptionOverride: value.description };
       } else {
-        next = { ...current, tagsOverride: [...value.tags] };
+        next = { ...current, descriptionOverride: value.description };
       }
 
       nextPlatforms = { ...nextPlatforms, [platform]: next };
     }
 
     onChange({ ...value, platforms: nextPlatforms });
-    if (field === 'tags' && useShared) {
-      setPlatformOverrideTagInput({});
-    }
   };
 
   const setUseSharedVisibility = (useShared: boolean) => {
@@ -1186,7 +1269,7 @@ export function DraftMetadataModal({
     onChange({ ...value, platforms: nextPlatforms });
   };
 
-  const commitPlatformOverrideTags = (platform: OverridePlatform) => {
+  const commitPlatformOverrideTags = (platform: TagOverridePlatform) => {
     if (!value) return;
     const raw = platformOverrideTagInput[platform]?.trim() ?? '';
     if (raw === '') return;
@@ -1194,11 +1277,11 @@ export function DraftMetadataModal({
       platform === 'sermon_audio' ? parseSermonAudioHashtagInput(raw) : parseSharedTagInput(raw);
     if (parsed.length === 0) return;
     const current = value.platforms[platform]?.tagsOverride ?? value.tags;
-    updateOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
+    updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
   };
 
-  const handlePlatformOverrideTagInputChange = (platform: OverridePlatform, next: string) => {
+  const handlePlatformOverrideTagInputChange = (platform: TagOverridePlatform, next: string) => {
     if (platform !== 'sermon_audio' || !/\s/.test(next)) {
       setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: next }));
       return;
@@ -1210,7 +1293,7 @@ export function DraftMetadataModal({
     if (complete.length > 0 && value) {
       const current = value.platforms[platform]?.tagsOverride ?? value.tags;
       const parsed = complete.flatMap((part) => parseSermonAudioHashtagInput(part));
-      updateOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
+      updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
     }
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: remainder }));
   };
@@ -1250,6 +1333,46 @@ export function DraftMetadataModal({
     },
     [onChange, value]
   );
+
+  const updateFacebookFields = useCallback(
+    (patch: Partial<FacebookDraftFields>) => {
+      if (!value) return;
+      const current: Record<string, unknown> = { ...(value.platforms.facebook ?? {}) };
+      for (const [key, fieldValue] of Object.entries(patch)) {
+        if (fieldValue === undefined) {
+          delete current[key];
+        } else {
+          current[key] = fieldValue;
+        }
+      }
+      onChange({
+        ...value,
+        platforms: {
+          ...value.platforms,
+          facebook: Object.keys(current).length > 0 ? (current as FacebookDraftFields) : undefined,
+        },
+      });
+    },
+    [onChange, value]
+  );
+
+  const initFacebookScheduleFromStored = useCallback(() => {
+    const tz = getLocalTimeZone();
+    const existing = value?.platforms.facebook?.scheduledPublishTime;
+    if (existing !== undefined) {
+      const iso = new Date(existing * 1000).toISOString();
+      const parts = utcIsoToZonedScheduleParts(iso, tz);
+      if (parts) {
+        setFbScheduleDate(parts.dateStr);
+        setFbScheduleTime(parts.timeStr);
+        setFbScheduleTimeZone(tz);
+        return;
+      }
+    }
+    setFbScheduleDate(getDefaultScheduleDate(tz));
+    setFbScheduleTime(getDefaultScheduleTime(tz));
+    setFbScheduleTimeZone(tz);
+  }, [value?.platforms.facebook?.scheduledPublishTime]);
 
   useEffect(() => {
     if (!value?.targets.includes('youtube')) {
@@ -1300,15 +1423,72 @@ export function DraftMetadataModal({
   const youtubePlaylistTitle =
     youtubePlaylistId === undefined ? youtubeFields?.playlistTitles?.[0] : undefined;
 
+  const facebookVideoState = facebookFields?.videoState ?? 'PUBLISHED';
+  const facebookScheduleValidationMessage =
+    facebookVideoState === 'SCHEDULED' && facebookFields?.scheduledPublishTime !== undefined
+      ? validateFacebookScheduledPublishTime(facebookFields.scheduledPublishTime)
+      : undefined;
+
+  useEffect(() => {
+    if (!value || facebookVideoState !== 'SCHEDULED') return;
+
+    const hasCompleteScheduleInputs =
+      Boolean(fbScheduleDate) && Boolean(fbScheduleTime) && Boolean(fbScheduleTimeZone);
+
+    if (!hasCompleteScheduleInputs) {
+      if (
+        fbScheduleInitializedRef.current &&
+        value.platforms.facebook?.scheduledPublishTime !== undefined
+      ) {
+        updateFacebookFields({ scheduledPublishTime: undefined });
+      }
+      return;
+    }
+
+    let iso: string;
+    try {
+      iso = zonedDateTimeToUtcIso(fbScheduleDate, fbScheduleTime, fbScheduleTimeZone);
+    } catch {
+      if (value.platforms.facebook?.scheduledPublishTime !== undefined) {
+        updateFacebookFields({ scheduledPublishTime: undefined });
+      }
+      return;
+    }
+
+    const unixSec = Math.floor(new Date(iso).getTime() / 1000);
+    if (value.platforms.facebook?.scheduledPublishTime === unixSec) return;
+    updateFacebookFields({ scheduledPublishTime: unixSec });
+  }, [
+    fbScheduleDate,
+    fbScheduleTime,
+    fbScheduleTimeZone,
+    facebookVideoState,
+    updateFacebookFields,
+    value,
+  ]);
+
   useEffect(() => {
     scheduleInitializedRef.current = false;
+    fbScheduleInitializedRef.current = false;
     setShowMoreExpanded(false);
     setAgeRestrictionsExpanded(false);
     setScheduleExpanded(false);
     setScheduleDate('');
     setScheduleTime('');
     setScheduleTimeZone('');
+    setFbScheduleDate('');
+    setFbScheduleTime('');
+    setFbScheduleTimeZone('');
   }, [draftId]);
+
+  useEffect(() => {
+    if (!value?.targets.includes('facebook')) return;
+    if (facebookVideoState !== 'SCHEDULED') return;
+    if (fbScheduleInitializedRef.current) return;
+
+    initFacebookScheduleFromStored();
+    fbScheduleInitializedRef.current = true;
+  }, [draftId, facebookVideoState, initFacebookScheduleFromStored, value?.targets]);
 
   useEffect(() => {
     if (!value || !showMoreExpanded || !scheduleExpanded) return;
@@ -2541,6 +2721,128 @@ export function DraftMetadataModal({
     </>
   );
 
+  const facebookPlatformFieldsSection = (
+    <>
+      <div>
+        <label htmlFor="draft-facebook-video-state" className="text-sm font-medium text-foreground">
+          Publish state
+        </label>
+        <Select
+          value={facebookVideoState}
+          onValueChange={(next) => {
+            const state = next as FacebookDraftFields['videoState'];
+            if (state === 'SCHEDULED') {
+              if (!fbScheduleInitializedRef.current) {
+                initFacebookScheduleFromStored();
+                fbScheduleInitializedRef.current = true;
+              }
+              updateFacebookFields({ videoState: 'SCHEDULED' });
+            } else {
+              fbScheduleInitializedRef.current = false;
+              updateFacebookFields({
+                videoState: 'PUBLISHED',
+                scheduledPublishTime: undefined,
+              });
+              setFbScheduleDate('');
+              setFbScheduleTime('');
+              setFbScheduleTimeZone('');
+            }
+          }}
+        >
+          <SelectTrigger
+            id="draft-facebook-video-state"
+            className={cn(fieldBorderClass('facebook.videoState'), 'mt-1 flex h-10 items-center')}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PUBLISHED">Publish immediately</SelectItem>
+            <SelectItem value="SCHEDULED">Schedule</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {facebookVideoState === 'SCHEDULED' ? (
+        <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+          <p className="text-sm font-medium text-foreground">Scheduled publish time</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <label
+                htmlFor="draft-facebook-schedule-date"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Date
+              </label>
+              <input
+                id="draft-facebook-schedule-date"
+                type="date"
+                value={fbScheduleDate}
+                onChange={(event) => setFbScheduleDate(event.target.value)}
+                className={cn(
+                  fieldBorderClass('facebook.scheduledPublishTime'),
+                  'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
+                )}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <label
+                htmlFor="draft-facebook-schedule-time"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Time
+              </label>
+              <Select value={fbScheduleTime} onValueChange={(next) => setFbScheduleTime(next)}>
+                <SelectTrigger
+                  id="draft-facebook-schedule-time"
+                  className={cn(
+                    fieldBorderClass('facebook.scheduledPublishTime'),
+                    'mt-1 flex h-10 items-center justify-between text-left'
+                  )}
+                >
+                  <SelectValue placeholder="Select time" />
+                </SelectTrigger>
+                <SelectContent>
+                  {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
+                    <SelectItem key={timeOption} value={timeOption}>
+                      {timeOption}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0 flex-1">
+              <label
+                htmlFor="draft-facebook-schedule-timezone"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Timezone
+              </label>
+              <YouTubeTimezoneSelect
+                id="draft-facebook-schedule-timezone"
+                value={fbScheduleTimeZone}
+                options={supportedTimeZones}
+                onValueChange={(next) => setFbScheduleTimeZone(next)}
+                className={cn(
+                  fieldBorderClass('facebook.scheduledPublishTime'),
+                  'mt-1 w-full rounded-md border bg-background px-3'
+                )}
+              />
+            </div>
+          </div>
+          {facebookScheduleValidationMessage ? (
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {facebookScheduleValidationMessage}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Must be at least 10 minutes and at most 6 months from now.
+            </p>
+          )}
+        </div>
+      ) : null}
+    </>
+  );
+
   const sermonAudioPlatformFieldsSection = (
     <>
       <div>
@@ -2917,7 +3219,7 @@ export function DraftMetadataModal({
                             value={platformTitle}
                             onChange={(event) => {
                               clearUploadFieldError(fieldKey);
-                              updateOverridePlatformFields(platform, {
+                              updateCopyOverridePlatformFields(platform, {
                                 titleOverride: event.target.value,
                               });
                             }}
@@ -2994,7 +3296,7 @@ export function DraftMetadataModal({
                             id={`edit-description-${platform}`}
                             value={platformFields?.descriptionOverride ?? value.description}
                             onChange={(event) =>
-                              updateOverridePlatformFields(platform, {
+                              updateCopyOverridePlatformFields(platform, {
                                 descriptionOverride: event.target.value,
                               })
                             }
@@ -3053,7 +3355,7 @@ export function DraftMetadataModal({
                             <Select
                               value={platformVisibility}
                               onValueChange={(next) =>
-                                updateOverridePlatformFields(platform, {
+                                updatePrivacyOverridePlatformFields(platform, {
                                   visibilityOverride: next as Draft['visibility'],
                                 })
                               }
@@ -3109,210 +3411,215 @@ export function DraftMetadataModal({
                   )}
                 </div>
               ) : null}
-              <div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
-                    {showSermonAudioFields ? 'Tags / Hashtags' : 'Tags'}
-                  </label>
-                  {selectedOverridePlatforms.length >= 2 ? (
-                    <SharedMetadataCheckbox
-                      checked={usesSharedTagsGlobally}
-                      onChange={(useShared) => setUseSharedCopyField('tags', useShared)}
-                      hint={
-                        showSermonAudioFields
-                          ? 'When checked, all selected platforms share one tag list (SermonAudio hashtags included). Uncheck to set tags per platform.'
-                          : 'When checked, all selected platforms share one tag list. Uncheck to set tags per platform.'
-                      }
-                    />
-                  ) : null}
-                </div>
-                {showPerPlatformTags ? (
-                  <div className="mt-2 space-y-3">
-                    {selectedOverridePlatforms.map((platform) => {
-                      const platformFields = value.platforms[platform];
-                      const overrideTags = platformFields?.tagsOverride ?? value.tags;
-                      return (
-                        <div key={platform}>
-                          <label
-                            htmlFor={`edit-tags-${platform}`}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
-                          >
-                            <span className="sr-only">Tags — </span>
-                            {isPlatformBrandIcon(platform) ? (
-                              <PlatformOverrideLabel
-                                platform={platform}
-                                suffix={platform === 'sermon_audio' ? ' (hashtags)' : undefined}
-                              />
-                            ) : (
-                              <>
-                                {platformLabel(platform)}
-                                {platform === 'sermon_audio' ? ' (hashtags)' : ''}
-                              </>
-                            )}
-                          </label>
-                          <div
-                            className={cn(
-                              'mt-1 rounded-md border bg-background px-2 py-2',
-                              uploadFieldErrors.has(`tags:${platform}`)
-                                ? 'border-red-600 dark:border-red-500'
-                                : 'border-border'
-                            )}
-                          >
-                            <div className="mb-2 flex flex-wrap gap-2">
-                              {overrideTags.map((tag) => (
-                                <span
-                                  key={`${platform}-${tag}`}
-                                  className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
-                                >
-                                  {tag}
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateOverridePlatformFields(platform, {
-                                        tagsOverride: overrideTags.filter(
-                                          (existing) => existing !== tag
-                                        ),
-                                      })
-                                    }
-                                    className="text-muted-foreground hover:text-foreground"
-                                    aria-label={`Remove ${tag} tag`}
-                                  >
-                                    x
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                            <input
-                              id={`edit-tags-${platform}`}
-                              value={platformOverrideTagInput[platform] ?? ''}
-                              onChange={(event) =>
-                                handlePlatformOverrideTagInputChange(platform, event.target.value)
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ',') {
-                                  event.preventDefault();
-                                  commitPlatformOverrideTags(platform);
-                                } else if (
-                                  event.key === ' ' &&
-                                  platform === 'sermon_audio' &&
-                                  (platformOverrideTagInput[platform] ?? '').trim() !== ''
-                                ) {
-                                  event.preventDefault();
-                                  commitPlatformOverrideTags(platform);
-                                } else if (
-                                  event.key === 'Backspace' &&
-                                  (platformOverrideTagInput[platform] ?? '') === '' &&
-                                  overrideTags.length > 0
-                                ) {
-                                  event.preventDefault();
-                                  const lastTag = overrideTags[overrideTags.length - 1];
-                                  updateOverridePlatformFields(platform, {
-                                    tagsOverride: overrideTags.slice(0, -1),
-                                  });
-                                  setPlatformOverrideTagInput((prev) => ({
-                                    ...prev,
-                                    [platform]: lastTag,
-                                  }));
-                                }
-                              }}
-                              onBlur={() => commitPlatformOverrideTags(platform)}
-                              placeholder={
-                                platform === 'sermon_audio'
-                                  ? 'Type one hashtag; press Enter, comma, or space'
-                                  : 'Type a tag and press Enter or comma'
-                              }
-                              className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div
-                    className={cn(
-                      'mt-1 rounded-md border bg-background px-2 py-2',
-                      uploadFieldErrors.has('tags')
-                        ? 'border-red-600 dark:border-red-500'
-                        : 'border-border'
-                    )}
-                  >
-                    <div className="mb-2 flex flex-wrap gap-2">
-                      {value.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
-                        >
-                          {tag}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onChange({
-                                ...value,
-                                tags: value.tags.filter((existing) => existing !== tag),
-                              })
-                            }
-                            className="text-muted-foreground hover:text-foreground"
-                            aria-label={`Remove ${tag} tag`}
-                          >
-                            x
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                    <input
-                      id="edit-tags"
-                      value={tagInput}
-                      onChange={(event) => handleSharedTagInputChange(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ',') {
-                          event.preventDefault();
-                          commitTagsFromInput();
-                        } else if (
-                          event.key === ' ' &&
-                          sermonAudioOnlySharedTagInput &&
-                          tagInput.trim() !== ''
-                        ) {
-                          event.preventDefault();
-                          commitTagsFromInput();
-                        } else if (
-                          event.key === 'Backspace' &&
-                          tagInput === '' &&
-                          value.tags.length > 0
-                        ) {
-                          event.preventDefault();
-                          const lastTag = value.tags[value.tags.length - 1];
-                          onChange({ ...value, tags: value.tags.slice(0, -1) });
-                          setTagInput(lastTag);
-                        }
-                      }}
-                      onBlur={commitTagsFromInput}
-                      placeholder={
-                        sermonAudioOnlySharedTagInput
-                          ? 'Type one hashtag; press Enter, comma, or space'
-                          : 'Type a tag and press Enter or comma'
-                      }
-                      className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                    />
-                  </div>
-                )}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {showPerPlatformTags
-                    ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
-                    : sermonAudioOnlySharedTagInput
-                      ? 'SermonAudio hashtags are one word each; press Enter, comma, or space to add. Leading `#` is removed.'
-                      : `Press Enter or comma to add tags${
+              {selectedTagPlatforms.length > 0 ? (
+                <div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <label htmlFor="edit-tags" className="text-sm font-medium text-foreground">
+                      {showSermonAudioFields ? 'Tags / Hashtags' : 'Tags'}
+                    </label>
+                    {selectedTagPlatforms.length >= 2 ? (
+                      <SharedMetadataCheckbox
+                        checked={usesSharedTagsGlobally}
+                        onChange={(useShared) => setUseSharedCopyField('tags', useShared)}
+                        hint={
                           showSermonAudioFields
-                            ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
-                            : ''
-                        }.`}
-                </p>
-              </div>
+                            ? 'When checked, all selected platforms share one tag list (SermonAudio hashtags included). Uncheck to set tags per platform.'
+                            : 'When checked, all selected platforms share one tag list. Uncheck to set tags per platform.'
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  {showPerPlatformTags ? (
+                    <div className="mt-2 space-y-3">
+                      {selectedTagPlatforms.map((platform) => {
+                        const platformFields = value.platforms[platform];
+                        const overrideTags = platformFields?.tagsOverride ?? value.tags;
+                        return (
+                          <div key={platform}>
+                            <label
+                              htmlFor={`edit-tags-${platform}`}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                            >
+                              <span className="sr-only">Tags — </span>
+                              {isPlatformBrandIcon(platform) ? (
+                                <PlatformOverrideLabel
+                                  platform={platform}
+                                  suffix={platform === 'sermon_audio' ? ' (hashtags)' : undefined}
+                                />
+                              ) : (
+                                <>
+                                  {platformLabel(platform)}
+                                  {platform === 'sermon_audio' ? ' (hashtags)' : ''}
+                                </>
+                              )}
+                            </label>
+                            <div
+                              className={cn(
+                                'mt-1 rounded-md border bg-background px-2 py-2',
+                                uploadFieldErrors.has(`tags:${platform}`)
+                                  ? 'border-red-600 dark:border-red-500'
+                                  : 'border-border'
+                              )}
+                            >
+                              <div className="mb-2 flex flex-wrap gap-2">
+                                {overrideTags.map((tag) => (
+                                  <span
+                                    key={`${platform}-${tag}`}
+                                    className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                                  >
+                                    {tag}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateTagOverridePlatformFields(platform, {
+                                          tagsOverride: overrideTags.filter(
+                                            (existing) => existing !== tag
+                                          ),
+                                        })
+                                      }
+                                      className="text-muted-foreground hover:text-foreground"
+                                      aria-label={`Remove ${tag} tag`}
+                                    >
+                                      x
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                              <input
+                                id={`edit-tags-${platform}`}
+                                value={platformOverrideTagInput[platform] ?? ''}
+                                onChange={(event) =>
+                                  handlePlatformOverrideTagInputChange(platform, event.target.value)
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ',') {
+                                    event.preventDefault();
+                                    commitPlatformOverrideTags(platform);
+                                  } else if (
+                                    event.key === ' ' &&
+                                    platform === 'sermon_audio' &&
+                                    (platformOverrideTagInput[platform] ?? '').trim() !== ''
+                                  ) {
+                                    event.preventDefault();
+                                    commitPlatformOverrideTags(platform);
+                                  } else if (
+                                    event.key === 'Backspace' &&
+                                    (platformOverrideTagInput[platform] ?? '') === '' &&
+                                    overrideTags.length > 0
+                                  ) {
+                                    event.preventDefault();
+                                    const lastTag = overrideTags[overrideTags.length - 1];
+                                    updateTagOverridePlatformFields(platform, {
+                                      tagsOverride: overrideTags.slice(0, -1),
+                                    });
+                                    setPlatformOverrideTagInput((prev) => ({
+                                      ...prev,
+                                      [platform]: lastTag,
+                                    }));
+                                  }
+                                }}
+                                onBlur={() => commitPlatformOverrideTags(platform)}
+                                placeholder={
+                                  platform === 'sermon_audio'
+                                    ? 'Type one hashtag; press Enter, comma, or space'
+                                    : 'Type a tag and press Enter or comma'
+                                }
+                                className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div
+                      className={cn(
+                        'mt-1 rounded-md border bg-background px-2 py-2',
+                        uploadFieldErrors.has('tags')
+                          ? 'border-red-600 dark:border-red-500'
+                          : 'border-border'
+                      )}
+                    >
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {value.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
+                          >
+                            {tag}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onChange({
+                                  ...value,
+                                  tags: value.tags.filter((existing) => existing !== tag),
+                                })
+                              }
+                              className="text-muted-foreground hover:text-foreground"
+                              aria-label={`Remove ${tag} tag`}
+                            >
+                              x
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <input
+                        id="edit-tags"
+                        value={tagInput}
+                        onChange={(event) => handleSharedTagInputChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ',') {
+                            event.preventDefault();
+                            commitTagsFromInput();
+                          } else if (
+                            event.key === ' ' &&
+                            sermonAudioOnlySharedTagInput &&
+                            tagInput.trim() !== ''
+                          ) {
+                            event.preventDefault();
+                            commitTagsFromInput();
+                          } else if (
+                            event.key === 'Backspace' &&
+                            tagInput === '' &&
+                            value.tags.length > 0
+                          ) {
+                            event.preventDefault();
+                            const lastTag = value.tags[value.tags.length - 1];
+                            onChange({ ...value, tags: value.tags.slice(0, -1) });
+                            setTagInput(lastTag);
+                          }
+                        }}
+                        onBlur={commitTagsFromInput}
+                        placeholder={
+                          sermonAudioOnlySharedTagInput
+                            ? 'Type one hashtag; press Enter, comma, or space'
+                            : 'Type a tag and press Enter or comma'
+                        }
+                        className="block w-full border-0 bg-transparent px-1 py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                      />
+                    </div>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {showPerPlatformTags
+                      ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
+                      : sermonAudioOnlySharedTagInput
+                        ? 'SermonAudio hashtags are one word each; press Enter, comma, or space to add. Leading `#` is removed.'
+                        : `Press Enter or comma to add tags${
+                            showSermonAudioFields
+                              ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
+                              : ''
+                          }.`}
+                  </p>
+                </div>
+              ) : null}
               {mergePlatformFieldsIntoMetadataCard && showYouTubeFields
                 ? youtubePlatformFieldsSection
                 : null}
               {mergePlatformFieldsIntoMetadataCard && showSermonAudioFields
                 ? sermonAudioPlatformFieldsSection
+                : null}
+              {mergePlatformFieldsIntoMetadataCard && showFacebookFields
+                ? facebookPlatformFieldsSection
                 : null}
             </DraftModalCard>
             {!mergePlatformFieldsIntoMetadataCard && showYouTubeFields ? (
@@ -3335,6 +3642,17 @@ export function DraftMetadataModal({
                 }
               >
                 {sermonAudioPlatformFieldsSection}
+              </DraftModalCard>
+            ) : null}
+            {!mergePlatformFieldsIntoMetadataCard && showFacebookFields ? (
+              <DraftModalCard
+                header={
+                  showPlatformSectionHeaders ? (
+                    <PlatformSectionHeader platform="facebook" />
+                  ) : undefined
+                }
+              >
+                {facebookPlatformFieldsSection}
               </DraftModalCard>
             ) : null}
             {/* TODO(sermon-audio-thumbnail): Ask SermonAudio how to set display video thumbnails via the public API (uploadType, API key permissions). Hidden when SermonAudio is the only distribute target until supported. */}

@@ -30,6 +30,7 @@ import { uploadToVimeo } from '@/lib/platforms/vimeo';
 import { uploadToGoogleDrive } from '@/lib/platforms/google-drive';
 import { uploadToSftp } from '@/lib/platforms/sftp';
 import { uploadToSmb } from '@/lib/platforms/smb';
+import { uploadToFacebook } from '@/lib/platforms/facebook';
 import {
   pollSermonAudioProcessing,
   publishSermonAudio,
@@ -242,7 +243,15 @@ async function runSinglePlatformUpload(
       }
 
       if (platformUpload.platform === 'facebook') {
-        throw new Error('Facebook upload is not yet supported.');
+        return uploadToFacebook({
+          connectedAccount,
+          videoStream: stream,
+          contentLength,
+          contentType,
+          metadata,
+          tokens,
+          signal,
+        });
       }
 
       // Exhaustive platform check — throw on unsupported platforms
