@@ -3,7 +3,11 @@ import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
-import { FACEBOOK_GRAPH_API_BASE, facebookGraphApiFetchInit } from '@/lib/platforms/facebook-oauth';
+import {
+  FACEBOOK_GRAPH_API_BASE,
+  facebookGraphApiFetchInit,
+  resolveFacebookPageId,
+} from '@/lib/platforms/facebook-oauth';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
@@ -151,20 +155,6 @@ async function readSmallStreamToArrayBuffer(
 }
 
 /**
- * Resolves the Facebook Page ID required for Reels upload.
- * Profile connections and Page rows missing `facebookPageId` cannot publish Reels.
- * @param account - Connected Facebook account.
- * @returns Page ID when the connection can publish Reels, otherwise null.
- */
-function resolveFacebookReelsPageId(account: ConnectedAccount): string | null {
-  if (account.facebookTargetType === 'profile') {
-    return null;
-  }
-  const pageId = account.facebookPageId?.trim();
-  return pageId ? pageId : null;
-}
-
-/**
  * POSTs form-urlencoded parameters to a Graph API path using Bearer auth.
  * @param path - Graph API path relative to the API base (e.g. `{pageId}/video_reels`).
  * @param accessToken - Page access token.
@@ -201,7 +191,7 @@ export async function uploadToFacebook(
     return toError('FACEBOOK_TOKEN_MISSING', 'Facebook Page access token is missing.');
   }
 
-  const pageId = resolveFacebookReelsPageId(input.connectedAccount);
+  const pageId = resolveFacebookPageId(input.connectedAccount);
   if (!pageId) {
     return toError(
       'FACEBOOK_PAGE_CONNECTION_REQUIRED',

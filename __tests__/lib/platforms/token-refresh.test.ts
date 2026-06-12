@@ -11,11 +11,16 @@ vi.mock('@/lib/platforms/youtube', () => ({
 const mockRefreshFacebookPageConnection = vi.fn();
 const mockRefreshFacebookProfileConnection = vi.fn();
 
-vi.mock('@/lib/platforms/facebook-oauth', () => ({
-  refreshFacebookPageConnection: (...args: unknown[]) => mockRefreshFacebookPageConnection(...args),
-  refreshFacebookProfileConnection: (...args: unknown[]) =>
-    mockRefreshFacebookProfileConnection(...args),
-}));
+vi.mock('@/lib/platforms/facebook-oauth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/platforms/facebook-oauth')>();
+  return {
+    ...actual,
+    refreshFacebookPageConnection: (...args: unknown[]) =>
+      mockRefreshFacebookPageConnection(...args),
+    refreshFacebookProfileConnection: (...args: unknown[]) =>
+      mockRefreshFacebookProfileConnection(...args),
+  };
+});
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   updateTokens: (...args: unknown[]) => mockUpdateTokens(...args),
@@ -358,6 +363,22 @@ describe('refreshTokenIfNeeded', () => {
       await refreshTokenIfNeeded(facebookPageAccount({ tokenExpiry: 'not-a-date' }));
 
       expect(mockRefreshFacebookPageConnection).toHaveBeenCalledWith('user-token', 'page-1');
+    });
+
+    it('throws when Facebook Page connection is missing facebookPageId', async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+
+      await expect(
+        refreshTokenIfNeeded(
+          facebookPageAccount({
+            facebookPageId: undefined,
+            platformUserId: 'page-1',
+            tokenExpiry: past,
+          })
+        )
+      ).rejects.toThrow(/missing a Page ID/i);
+
+      expect(mockRefreshFacebookPageConnection).not.toHaveBeenCalled();
     });
 
     it('throws a clear reconnect error when Facebook user refresh token is missing', async () => {

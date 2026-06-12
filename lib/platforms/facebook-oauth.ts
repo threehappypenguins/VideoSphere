@@ -360,6 +360,23 @@ export async function refreshFacebookProfileConnection(
  * @param pageId - Facebook Page ID to refresh.
  * @returns Refreshed Page and user tokens, or an error message.
  */
+/**
+ * Resolves the Facebook Page ID for Page-target connections.
+ * Profile connections and Page rows missing `facebookPageId` cannot use Page APIs.
+ * @param account - Connected Facebook account fields used for Page resolution.
+ * @returns Trimmed Page ID when the connection targets a Page with `facebookPageId` set.
+ */
+export function resolveFacebookPageId(account: {
+  facebookTargetType?: 'page' | 'profile';
+  facebookPageId?: string;
+}): string | null {
+  if (account.facebookTargetType === 'profile') {
+    return null;
+  }
+  const pageId = account.facebookPageId?.trim();
+  return pageId ? pageId : null;
+}
+
 export async function refreshFacebookPageConnection(
   longLivedUserToken: string,
   pageId: string
