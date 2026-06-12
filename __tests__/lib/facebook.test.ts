@@ -271,6 +271,62 @@ describe('uploadToFacebook', () => {
     });
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('returns a clear error when the connection targets a personal profile', async () => {
+    const result = await uploadToFacebook({
+      connectedAccount: {
+        ...connectedAccount,
+        facebookTargetType: 'profile',
+        facebookPageId: undefined,
+        platformUserId: 'user-profile-1',
+        platformName: 'Personal Profile',
+      },
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'user-token' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'FACEBOOK_PAGE_CONNECTION_REQUIRED',
+        message: expect.stringMatching(/Facebook Page/i),
+      },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to platformUserId when facebookPageId is missing', async () => {
+    const result = await uploadToFacebook({
+      connectedAccount: {
+        ...connectedAccount,
+        facebookTargetType: 'page',
+        facebookPageId: undefined,
+        platformUserId: 'page-1',
+      },
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'FACEBOOK_PAGE_CONNECTION_REQUIRED' },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('uploadToFacebook thumbnail path', () => {
@@ -361,6 +417,41 @@ describe('uploadToFacebook thumbnail path', () => {
     expect(thumbInit.method).toBe('POST');
     expect(new Headers(thumbInit.headers).get('Authorization')).toBe('Bearer page-token');
     expect(thumbInit.body).toBeInstanceOf(FormData);
+  });
+
+  it('uses R2 content-type as fallback when thumbnailContentType is absent', async () => {
+    const fetchMock = vi.mocked(fetch);
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: makeThumbnailStream(),
+      contentLength: 4,
+      contentType: 'image/png',
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ video_id: 'vid-123' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+        thumbnailR2Key: 'draft-thumbnails/user/thumb.png',
+        thumbnailContentType: undefined,
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result.ok).toBe(true);
+    const form = (fetchMock.mock.calls[3]?.[1] as RequestInit).body as FormData;
+    const source = form.get('source') as Blob;
+    expect(source.type).toBe('image/png');
   });
 
   it('still returns ok when thumbnail upload fails with non-2xx', async () => {

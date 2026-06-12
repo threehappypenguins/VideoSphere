@@ -68,6 +68,28 @@ function resolveFacebookReelsUploadUrl(videoId: string, uploadUrl?: string): str
   return `${FACEBOOK_RUPLOAD_BASE}/${trimmedVideoId}`;
 }
 
+/**
+ * Resolves MIME type for Facebook thumbnail upload.
+ * Prefers draft metadata when valid, then R2 `contentType`, then `image/jpeg`.
+ * @param metadataCt - Draft `thumbnailContentType` from distribute metadata.
+ * @param r2ContentType - Content-Type reported by R2 for the thumbnail object.
+ * @returns Allowed image/jpeg or image/png for the thumbnail Blob.
+ */
+function facebookThumbnailContentType(
+  metadataCt: string | undefined,
+  r2ContentType: string
+): string {
+  const meta = metadataCt?.trim().toLowerCase();
+  if (meta && isAllowedDraftThumbnailContentType(meta)) {
+    return meta;
+  }
+  const fromR2 = r2ContentType.trim().toLowerCase();
+  if (isAllowedDraftThumbnailContentType(fromR2)) {
+    return fromR2;
+  }
+  return 'image/jpeg';
+}
+
 interface UploadToFacebookInput {
   connectedAccount: ConnectedAccount;
   videoStream: ReadableStream<Uint8Array>;
@@ -119,6 +141,20 @@ async function readSmallStreamToArrayBuffer(
 }
 
 /**
+ * Resolves the Facebook Page ID required for Reels upload.
+ * Profile connections and Page rows missing `facebookPageId` cannot publish Reels.
+ * @param account - Connected Facebook account.
+ * @returns Page ID when the connection can publish Reels, otherwise null.
+ */
+function resolveFacebookReelsPageId(account: ConnectedAccount): string | null {
+  if (account.facebookTargetType === 'profile') {
+    return null;
+  }
+  const pageId = account.facebookPageId?.trim();
+  return pageId ? pageId : null;
+}
+
+/**
  * POSTs form-urlencoded parameters to a Graph API path using Bearer auth.
  * @param path - Graph API path relative to the API base (e.g. `{pageId}/video_reels`).
  * @param accessToken - Page access token.
@@ -155,10 +191,12 @@ export async function uploadToFacebook(
     return toError('FACEBOOK_TOKEN_MISSING', 'Facebook Page access token is missing.');
   }
 
-  const pageId =
-    input.connectedAccount.facebookPageId?.trim() || input.connectedAccount.platformUserId.trim();
+  const pageId = resolveFacebookReelsPageId(input.connectedAccount);
   if (!pageId) {
-    return toError('FACEBOOK_PAGE_ID_MISSING', 'Facebook Page ID is missing on the connection.');
+    return toError(
+      'FACEBOOK_PAGE_CONNECTION_REQUIRED',
+      'Facebook Reels require a connected Facebook Page. Reconnect and select a Page in Settings → Connections.'
+    );
   }
 
   if (!input.contentLength || input.contentLength <= 0) {
@@ -272,9 +310,10 @@ export async function uploadToFacebook(
           console.warn('[uploadToFacebook] Thumbnail exceeds max size; skipping thumbnail upload.');
         } else {
           const thumbBytes = await readSmallStreamToArrayBuffer(opened.stream, signal);
-          const thumbCt = input.metadata.thumbnailContentType?.trim().toLowerCase();
-          const contentType =
-            thumbCt && isAllowedDraftThumbnailContentType(thumbCt) ? thumbCt : 'image/jpeg';
+          const contentType = facebookThumbnailContentType(
+            input.metadata.thumbnailContentType,
+            opened.contentType
+          );
           const form = new FormData();
           form.append('is_preferred', 'true');
           form.append(
