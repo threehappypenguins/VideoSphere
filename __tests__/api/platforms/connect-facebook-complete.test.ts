@@ -129,6 +129,7 @@ describe('POST /api/platforms/connect/facebook/complete', () => {
       accessToken: 'old-page-token',
       refreshToken: 'old-user-token',
       tokenExpiry: '2099-01-01T00:00:00.000Z',
+      hasRefreshToken: true,
       platformUserId: 'page-1',
       platformName: 'Old Page',
       facebookTargetType: 'page',
