@@ -3,7 +3,7 @@ import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
-import { FACEBOOK_GRAPH_API_BASE } from '@/lib/platforms/facebook-oauth';
+import { FACEBOOK_GRAPH_API_BASE, facebookGraphApiFetchInit } from '@/lib/platforms/facebook-oauth';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
@@ -20,6 +20,36 @@ export {
 } from '@/lib/platforms/facebook-schedule';
 
 const FACEBOOK_RUPLOAD_BASE = 'https://rupload.facebook.com/video-upload/v25.0';
+const FACEBOOK_RUPLOAD_HOSTNAME = 'rupload.facebook.com';
+
+/**
+ * Resolves the Reels binary upload URL from the START response.
+ * Prefers Meta's `upload_url` when it points at the official rupload host.
+ * @param videoId - Video ID from the START response.
+ * @param uploadUrl - Optional upload URL returned by Meta on START.
+ * @returns HTTPS upload destination for the rupload POST.
+ */
+function resolveFacebookReelsUploadUrl(videoId: string, uploadUrl?: string): string {
+  const trimmed = uploadUrl?.trim() ?? '';
+  if (trimmed !== '') {
+    try {
+      const resolved = new URL(trimmed);
+      if (
+        resolved.protocol === 'https:' &&
+        resolved.hostname === FACEBOOK_RUPLOAD_HOSTNAME &&
+        resolved.username === '' &&
+        resolved.password === '' &&
+        (resolved.port === '' || resolved.port === '443')
+      ) {
+        resolved.port = '';
+        return resolved.toString();
+      }
+    } catch {
+      // fall through to constructed default
+    }
+  }
+  return `${FACEBOOK_RUPLOAD_BASE}/${videoId}`;
+}
 
 interface UploadToFacebookInput {
   connectedAccount: ConnectedAccount;
@@ -61,7 +91,7 @@ function toError(
   };
 }
 
-async function readStreamToArrayBuffer(
+async function readSmallStreamToArrayBuffer(
   stream: ReadableStream<Uint8Array>,
   signal?: AbortSignal
 ): Promise<ArrayBuffer> {
@@ -69,6 +99,31 @@ async function readStreamToArrayBuffer(
     throw signal.reason instanceof Error ? signal.reason : new Error('Aborted');
   }
   return new Response(stream).arrayBuffer();
+}
+
+/**
+ * POSTs form-urlencoded parameters to a Graph API path using Bearer auth.
+ * @param path - Graph API path relative to the API base (e.g. `{pageId}/video_reels`).
+ * @param accessToken - Page access token.
+ * @param params - Form body parameters (must not include `access_token`).
+ * @param signal - Optional abort signal.
+ * @returns Graph API fetch response.
+ */
+function postFacebookGraphForm(
+  path: string,
+  accessToken: string,
+  params: URLSearchParams,
+  signal?: AbortSignal
+): Promise<Response> {
+  return fetch(
+    `${FACEBOOK_GRAPH_API_BASE}/${path}`,
+    facebookGraphApiFetchInit(accessToken, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+      ...(signal ? { signal } : {}),
+    })
+  );
 }
 
 /**
@@ -120,16 +175,11 @@ export async function uploadToFacebook(
   let videoId: string | undefined;
 
   try {
-    const startParams = new URLSearchParams({
-      upload_phase: 'START',
-      access_token: pageAccessToken,
-    });
-    const startRes = await fetch(
-      `${FACEBOOK_GRAPH_API_BASE}/${pageId}/video_reels?${startParams}`,
-      {
-        method: 'POST',
-        ...(signal ? { signal } : {}),
-      }
+    const startRes = await postFacebookGraphForm(
+      `${pageId}/video_reels`,
+      pageAccessToken,
+      new URLSearchParams({ upload_phase: 'START' }),
+      signal
     );
     const startBody = (await startRes.json().catch(() => ({}))) as FacebookReelsStartResponse;
     if (!startRes.ok || !startBody.video_id) {
@@ -141,9 +191,9 @@ export async function uploadToFacebook(
       );
     }
     videoId = startBody.video_id;
+    const ruploadUrl = resolveFacebookReelsUploadUrl(videoId, startBody.upload_url);
 
-    const videoBytes = await readStreamToArrayBuffer(input.videoStream, signal);
-    const ruploadRes = await fetch(`${FACEBOOK_RUPLOAD_BASE}/${videoId}`, {
+    const ruploadInit: RequestInit & { duplex: 'half' } = {
       method: 'POST',
       headers: {
         Authorization: `OAuth ${pageAccessToken}`,
@@ -151,9 +201,11 @@ export async function uploadToFacebook(
         file_size: String(input.contentLength),
         'Content-Type': 'application/octet-stream',
       },
-      body: videoBytes,
+      body: input.videoStream,
+      duplex: 'half',
       ...(signal ? { signal } : {}),
-    });
+    };
+    const ruploadRes = await fetch(ruploadUrl, ruploadInit);
     if (!ruploadRes.ok) {
       const ruploadText = await ruploadRes.text().catch(() => undefined);
       return toError(
@@ -170,7 +222,6 @@ export async function uploadToFacebook(
       video_state: videoState,
       title: safeTitle,
       description: safeDescription,
-      access_token: pageAccessToken,
     });
     if (videoState === 'SCHEDULED' && input.metadata.facebookScheduledPublishTime !== undefined) {
       finishParams.set(
@@ -179,12 +230,11 @@ export async function uploadToFacebook(
       );
     }
 
-    const finishRes = await fetch(
-      `${FACEBOOK_GRAPH_API_BASE}/${pageId}/video_reels?${finishParams}`,
-      {
-        method: 'POST',
-        ...(signal ? { signal } : {}),
-      }
+    const finishRes = await postFacebookGraphForm(
+      `${pageId}/video_reels`,
+      pageAccessToken,
+      finishParams,
+      signal
     );
     const finishBody = (await finishRes.json().catch(() => ({}))) as FacebookReelsFinishResponse;
     if (!finishRes.ok || finishBody.success !== true) {
@@ -204,23 +254,25 @@ export async function uploadToFacebook(
           await opened.stream.cancel().catch(() => undefined);
           console.warn('[uploadToFacebook] Thumbnail exceeds max size; skipping thumbnail upload.');
         } else {
-          const thumbBytes = await readStreamToArrayBuffer(opened.stream, signal);
+          const thumbBytes = await readSmallStreamToArrayBuffer(opened.stream, signal);
           const thumbCt = input.metadata.thumbnailContentType?.trim().toLowerCase();
           const contentType =
             thumbCt && isAllowedDraftThumbnailContentType(thumbCt) ? thumbCt : 'image/jpeg';
           const form = new FormData();
           form.append('is_preferred', 'true');
-          form.append('access_token', pageAccessToken);
           form.append(
             'source',
             new Blob([thumbBytes], { type: contentType }),
             `thumbnail.${contentType === 'image/png' ? 'png' : 'jpg'}`
           );
-          const thumbRes = await fetch(`${FACEBOOK_GRAPH_API_BASE}/${videoId}/thumbnails`, {
-            method: 'POST',
-            body: form,
-            ...(signal ? { signal } : {}),
-          });
+          const thumbRes = await fetch(
+            `${FACEBOOK_GRAPH_API_BASE}/${videoId}/thumbnails`,
+            facebookGraphApiFetchInit(pageAccessToken, {
+              method: 'POST',
+              body: form,
+              ...(signal ? { signal } : {}),
+            })
+          );
           if (!thumbRes.ok) {
             const thumbText = await thumbRes.text().catch(() => undefined);
             console.warn(

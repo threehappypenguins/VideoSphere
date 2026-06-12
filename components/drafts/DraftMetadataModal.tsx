@@ -69,6 +69,7 @@ import type {
   ConnectedAccountPublic,
   Draft,
   DraftPlatforms,
+  PerPlatformCopyOverrides,
   PerPlatformOverrides,
   PlatformUploadStatus,
   SermonAudioDraftFields,
@@ -167,6 +168,10 @@ type OverridePlatform = (typeof OVERRIDE_PLATFORMS)[number];
 const TAG_OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
 
 type TagOverridePlatform = (typeof TAG_OVERRIDE_PLATFORMS)[number];
+
+type CopyOverridePatch = Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride'>;
+type TagOverridePatch = Pick<PerPlatformCopyOverrides, 'tagsOverride'>;
+type PrivacyOverridePatch = Pick<PerPlatformOverrides, 'visibilityOverride'>;
 
 const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = [
   'youtube',
@@ -1129,11 +1134,43 @@ export function DraftMetadataModal({
     [uploadFieldErrors]
   );
 
-  const updateOverridePlatformFields = (
+  const updateCopyOverridePlatformFields = (
     platform: OverridePlatform,
-    patch: Partial<
-      YouTubeDraftFields | VimeoDraftFields | SermonAudioDraftFields | FacebookDraftFields
-    >
+    patch: Partial<CopyOverridePatch>
+  ) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        [platform]: {
+          ...value.platforms[platform],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const updateTagOverridePlatformFields = (
+    platform: TagOverridePlatform,
+    patch: Partial<TagOverridePatch>
+  ) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        [platform]: {
+          ...value.platforms[platform],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const updatePrivacyOverridePlatformFields = (
+    platform: PrivacyPlatform,
+    patch: Partial<PrivacyOverridePatch>
   ) => {
     if (!value) return;
     onChange({
@@ -1240,7 +1277,7 @@ export function DraftMetadataModal({
       platform === 'sermon_audio' ? parseSermonAudioHashtagInput(raw) : parseSharedTagInput(raw);
     if (parsed.length === 0) return;
     const current = value.platforms[platform]?.tagsOverride ?? value.tags;
-    updateOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
+    updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
   };
 
@@ -1256,7 +1293,7 @@ export function DraftMetadataModal({
     if (complete.length > 0 && value) {
       const current = value.platforms[platform]?.tagsOverride ?? value.tags;
       const parsed = complete.flatMap((part) => parseSermonAudioHashtagInput(part));
-      updateOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
+      updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
     }
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: remainder }));
   };
@@ -3155,7 +3192,7 @@ export function DraftMetadataModal({
                             value={platformTitle}
                             onChange={(event) => {
                               clearUploadFieldError(fieldKey);
-                              updateOverridePlatformFields(platform, {
+                              updateCopyOverridePlatformFields(platform, {
                                 titleOverride: event.target.value,
                               });
                             }}
@@ -3232,7 +3269,7 @@ export function DraftMetadataModal({
                             id={`edit-description-${platform}`}
                             value={platformFields?.descriptionOverride ?? value.description}
                             onChange={(event) =>
-                              updateOverridePlatformFields(platform, {
+                              updateCopyOverridePlatformFields(platform, {
                                 descriptionOverride: event.target.value,
                               })
                             }
@@ -3291,7 +3328,7 @@ export function DraftMetadataModal({
                             <Select
                               value={platformVisibility}
                               onValueChange={(next) =>
-                                updateOverridePlatformFields(platform, {
+                                updatePrivacyOverridePlatformFields(platform, {
                                   visibilityOverride: next as Draft['visibility'],
                                 })
                               }
@@ -3407,7 +3444,7 @@ export function DraftMetadataModal({
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        updateOverridePlatformFields(platform, {
+                                        updateTagOverridePlatformFields(platform, {
                                           tagsOverride: overrideTags.filter(
                                             (existing) => existing !== tag
                                           ),
@@ -3445,7 +3482,7 @@ export function DraftMetadataModal({
                                   ) {
                                     event.preventDefault();
                                     const lastTag = overrideTags[overrideTags.length - 1];
-                                    updateOverridePlatformFields(platform, {
+                                    updateTagOverridePlatformFields(platform, {
                                       tagsOverride: overrideTags.slice(0, -1),
                                     });
                                     setPlatformOverrideTagInput((prev) => ({

@@ -91,21 +91,92 @@ describe('uploadToFacebook', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const startUrl = String(fetchMock.mock.calls[0]?.[0]);
-    expect(startUrl).toContain('/page-1/video_reels');
-    expect(startUrl).toContain('upload_phase=START');
+    expect(startUrl).toBe('https://graph.facebook.com/v25.0/page-1/video_reels');
+    const startInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(String(startInit.body)).toContain('upload_phase=START');
+    expect(String(startInit.body)).not.toContain('access_token');
+    expect(new Headers(startInit.headers).get('Authorization')).toBe('Bearer page-token');
 
-    const ruploadInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    const ruploadInit = fetchMock.mock.calls[1]?.[1] as RequestInit & { duplex?: string };
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain('rupload.facebook.com');
     expect(ruploadInit.headers).toMatchObject({
       Authorization: 'OAuth page-token',
       offset: '0',
       file_size: '3',
     });
+    expect(ruploadInit.body).toBeInstanceOf(ReadableStream);
+    expect(ruploadInit.duplex).toBe('half');
 
     const finishUrl = String(fetchMock.mock.calls[2]?.[0]);
-    expect(finishUrl).toContain('upload_phase=FINISH');
-    expect(finishUrl).toContain('video_state=PUBLISHED');
-    expect(finishUrl).toContain('title=My+Reel');
+    expect(finishUrl).toBe('https://graph.facebook.com/v25.0/page-1/video_reels');
+    const finishInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(String(finishInit.body)).toContain('upload_phase=FINISH');
+    expect(String(finishInit.body)).toContain('video_state=PUBLISHED');
+    expect(String(finishInit.body)).toContain('title=My+Reel');
+    expect(String(finishInit.body)).not.toContain('access_token');
+    expect(new Headers(finishInit.headers).get('Authorization')).toBe('Bearer page-token');
+  });
+
+  it('uses upload_url from the START response when Meta provides one', async () => {
+    const customUploadUrl = 'https://rupload.facebook.com/video-upload/v25.0/vid-123?sig=abc';
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ video_id: 'vid-123', upload_url: customUploadUrl }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(customUploadUrl);
+  });
+
+  it('falls back to the default rupload URL when upload_url is untrusted', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            video_id: 'vid-123',
+            upload_url: 'https://evil.example/upload',
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      'https://rupload.facebook.com/video-upload/v25.0/vid-123'
+    );
   });
 
   it('sends scheduled_publish_time when video state is SCHEDULED', async () => {
@@ -135,9 +206,9 @@ describe('uploadToFacebook', () => {
     });
 
     expect(result.ok).toBe(true);
-    const finishUrl = String(vi.mocked(fetch).mock.calls[2]?.[0]);
-    expect(finishUrl).toContain('video_state=SCHEDULED');
-    expect(finishUrl).toContain(`scheduled_publish_time=${scheduled}`);
+    const finishInit = vi.mocked(fetch).mock.calls[2]?.[1] as RequestInit;
+    expect(String(finishInit.body)).toContain('video_state=SCHEDULED');
+    expect(String(finishInit.body)).toContain(`scheduled_publish_time=${scheduled}`);
   });
 
   it('returns a clear error when scheduled time is too soon', async () => {
