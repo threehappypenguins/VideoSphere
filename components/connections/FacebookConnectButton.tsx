@@ -53,16 +53,18 @@ export function FacebookConnectButton({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const setupPages = useMemo(() => setupSession?.pages ?? [], [setupSession?.pages]);
+  const hasPages = setupPages.length > 0;
+
   const initialSelection = useMemo<TargetSelection | null>(() => {
     if (existingConnection?.targetType === 'page' && existingConnection.pageId) {
       return `page:${existingConnection.pageId}`;
     }
-    const firstPage = setupSession?.pages[0];
+    const firstPage = setupPages[0];
     return firstPage ? (`page:${firstPage.id}` as TargetSelection) : null;
-  }, [existingConnection, setupSession]);
+  }, [existingConnection, setupPages]);
 
   const [selection, setSelection] = useState<TargetSelection | null>(initialSelection);
-  const hasPages = (setupSession?.pages.length ?? 0) > 0;
 
   const handleOpen = () => {
     if (isSetupFlow) {
@@ -160,8 +162,8 @@ export function FacebookConnectButton({
               <fieldset className="space-y-3">
                 <legend className="text-sm font-medium text-foreground">Facebook Page</legend>
 
-                {setupSession.pages.length > 0 ? (
-                  setupSession.pages.map((page) => {
+                {hasPages ? (
+                  setupPages.map((page) => {
                     const value = `page:${page.id}` as TargetSelection;
                     return (
                       <label
