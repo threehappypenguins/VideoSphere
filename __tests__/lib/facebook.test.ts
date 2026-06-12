@@ -104,6 +104,8 @@ describe('uploadToFacebook', () => {
       Authorization: 'OAuth page-token',
       offset: '0',
       file_size: '3',
+      'Content-Length': '3',
+      'X-Entity-Length': '3',
     });
     expect(ruploadInit.body).toBeInstanceOf(ReadableStream);
     expect(ruploadInit.duplex).toBe('half');

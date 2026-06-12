@@ -255,12 +255,15 @@ export async function uploadToFacebook(
     videoId = parsedVideoId;
     const ruploadUrl = resolveFacebookReelsUploadUrl(videoId, startBody.upload_url);
 
+    const contentLength = String(input.contentLength);
     const ruploadInit: RequestInit & { duplex: 'half' } = {
       method: 'POST',
       headers: {
         Authorization: `OAuth ${pageAccessToken}`,
         offset: '0',
-        file_size: String(input.contentLength),
+        file_size: contentLength,
+        'Content-Length': contentLength,
+        'X-Entity-Length': contentLength,
         'Content-Type': 'application/octet-stream',
       },
       body: input.videoStream,
