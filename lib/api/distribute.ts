@@ -127,6 +127,41 @@ async function requireUpdatePlatformUploadStatus(
   }
 }
 
+function sermonAudioAutoPublishErrorMessage(err: unknown): string {
+  const detail = messageFromThrown(err);
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string' && err.code.trim()) {
+    return `${err.code}: ${detail}`;
+  }
+  return detail;
+}
+
+async function persistSermonAudioAutoPublishFailure(
+  platformUploadId: string,
+  sermonID: string,
+  platformUrl: string,
+  errorMessage: string
+): Promise<void> {
+  try {
+    const updated = await updatePlatformUploadStatus(
+      platformUploadId,
+      'failed',
+      sermonID,
+      platformUrl || undefined,
+      errorMessage
+    );
+    if (updated === null) {
+      console.error(
+        `[distribute] Could not persist SermonAudio auto-publish failure for platform_upload ${platformUploadId}: row missing`
+      );
+    }
+  } catch (updateErr) {
+    console.error(
+      `[distribute] Could not persist SermonAudio auto-publish failure for platform_upload ${platformUploadId}:`,
+      updateErr
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Single-platform upload
 // ---------------------------------------------------------------------------
@@ -498,6 +533,12 @@ export async function runDistributionInBackground(
         console.warn(
           `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
         );
+        await persistSermonAudioAutoPublishFailure(
+          upload.id,
+          sermonID,
+          upload.platformUrl,
+          'SermonAudio API key was not captured during upload; auto-publish could not run.'
+        );
         continue;
       }
 
@@ -536,6 +577,12 @@ export async function runDistributionInBackground(
           console.error(
             `[distribute] SermonAudio auto-publish failed for platform_upload ${platformUploadId} (job ${jobId}, sermon ${sermonID}):`,
             err
+          );
+          await persistSermonAudioAutoPublishFailure(
+            platformUploadId,
+            sermonID,
+            platformUrl,
+            sermonAudioAutoPublishErrorMessage(err)
           );
         }
       })();
