@@ -21,26 +21,43 @@ export {
 
 const FACEBOOK_RUPLOAD_BASE = 'https://rupload.facebook.com/video-upload/v25.0';
 const FACEBOOK_RUPLOAD_HOSTNAME = 'rupload.facebook.com';
+const FACEBOOK_RUPLOAD_PATH_PREFIX = '/video-upload/v25.0';
+
+/**
+ * Returns true when a URL is a trusted Reels binary upload destination for the given video.
+ * @param resolved - Parsed upload URL from the START response.
+ * @param videoId - Video ID from the START response.
+ * @returns True when the URL targets the expected rupload path for this video.
+ */
+function isTrustedFacebookReelsUploadUrl(resolved: URL, videoId: string): boolean {
+  if (
+    resolved.protocol !== 'https:' ||
+    resolved.hostname !== FACEBOOK_RUPLOAD_HOSTNAME ||
+    resolved.username !== '' ||
+    resolved.password !== '' ||
+    (resolved.port !== '' && resolved.port !== '443')
+  ) {
+    return false;
+  }
+
+  const normalizedPath = resolved.pathname.replace(/\/+$/, '') || '/';
+  return normalizedPath === `${FACEBOOK_RUPLOAD_PATH_PREFIX}/${videoId}`;
+}
 
 /**
  * Resolves the Reels binary upload URL from the START response.
- * Prefers Meta's `upload_url` when it points at the official rupload host.
+ * Prefers Meta's `upload_url` when it points at the official rupload host and path.
  * @param videoId - Video ID from the START response.
  * @param uploadUrl - Optional upload URL returned by Meta on START.
  * @returns HTTPS upload destination for the rupload POST.
  */
 function resolveFacebookReelsUploadUrl(videoId: string, uploadUrl?: string): string {
+  const trimmedVideoId = videoId.trim();
   const trimmed = uploadUrl?.trim() ?? '';
-  if (trimmed !== '') {
+  if (trimmed !== '' && trimmedVideoId !== '') {
     try {
       const resolved = new URL(trimmed);
-      if (
-        resolved.protocol === 'https:' &&
-        resolved.hostname === FACEBOOK_RUPLOAD_HOSTNAME &&
-        resolved.username === '' &&
-        resolved.password === '' &&
-        (resolved.port === '' || resolved.port === '443')
-      ) {
+      if (isTrustedFacebookReelsUploadUrl(resolved, trimmedVideoId)) {
         resolved.port = '';
         return resolved.toString();
       }
@@ -48,7 +65,7 @@ function resolveFacebookReelsUploadUrl(videoId: string, uploadUrl?: string): str
       // fall through to constructed default
     }
   }
-  return `${FACEBOOK_RUPLOAD_BASE}/${videoId}`;
+  return `${FACEBOOK_RUPLOAD_BASE}/${trimmedVideoId}`;
 }
 
 interface UploadToFacebookInput {

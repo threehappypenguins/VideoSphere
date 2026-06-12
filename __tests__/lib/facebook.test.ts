@@ -11,6 +11,7 @@ import {
   validateFacebookScheduledPublishTime,
   FACEBOOK_MIN_SCHEDULE_LEAD_SECONDS,
 } from '@/lib/platforms/facebook';
+import { MAX_DRAFT_THUMBNAIL_BYTES } from '@/lib/draft-thumbnail';
 import type { ConnectedAccount } from '@/types';
 
 describe('validateFacebookScheduledPublishTime', () => {
@@ -179,6 +180,39 @@ describe('uploadToFacebook', () => {
     );
   });
 
+  it('falls back when upload_url is on rupload host but has an unexpected path', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            video_id: 'vid-123',
+            upload_url: 'https://rupload.facebook.com/other-endpoint/vid-123',
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      'https://rupload.facebook.com/video-upload/v25.0/vid-123'
+    );
+  });
+
   it('sends scheduled_publish_time when video state is SCHEDULED', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const scheduled = nowSec + FACEBOOK_MIN_SCHEDULE_LEAD_SECONDS + 3600;
@@ -236,5 +270,170 @@ describe('uploadToFacebook', () => {
       },
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('uploadToFacebook thumbnail path', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    mockGetObjectWebStream.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const connectedAccount: ConnectedAccount = {
+    id: 'conn-1',
+    userId: 'user-1',
+    platform: 'facebook',
+    tokenExpiry: '2099-01-01T00:00:00.000Z',
+    hasRefreshToken: true,
+    platformUserId: 'page-1',
+    platformName: 'Test Page',
+    facebookPageId: 'page-1',
+    accessToken: 'page-token',
+    refreshToken: 'user-token',
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-01T00:00:00.000Z',
+  };
+
+  function makeVideoStream(): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.close();
+      },
+    });
+  }
+
+  function makeThumbnailStream(): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([4, 5, 6, 7]));
+        controller.close();
+      },
+    });
+  }
+
+  it('uploads a custom thumbnail from R2 after successful Reels publish', async () => {
+    const fetchMock = vi.mocked(fetch);
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: makeThumbnailStream(),
+      contentLength: 4,
+      contentType: 'image/jpeg',
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ video_id: 'vid-123' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+        thumbnailR2Key: 'draft-thumbnails/user/thumb.jpg',
+        thumbnailContentType: 'image/jpeg',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: 'vid-123',
+      platformUrl: 'https://www.facebook.com/reel/vid-123',
+    });
+    expect(mockGetObjectWebStream).toHaveBeenCalledWith('draft-thumbnails/user/thumb.jpg', {
+      signal: undefined,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[3]?.[0])).toBe(
+      'https://graph.facebook.com/v25.0/vid-123/thumbnails'
+    );
+    const thumbInit = fetchMock.mock.calls[3]?.[1] as RequestInit;
+    expect(thumbInit.method).toBe('POST');
+    expect(new Headers(thumbInit.headers).get('Authorization')).toBe('Bearer page-token');
+    expect(thumbInit.body).toBeInstanceOf(FormData);
+  });
+
+  it('still returns ok when thumbnail upload fails with non-2xx', async () => {
+    const fetchMock = vi.mocked(fetch);
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: makeThumbnailStream(),
+      contentLength: 4,
+      contentType: 'image/png',
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ video_id: 'vid-123' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('thumbnail rejected', { status: 400 }));
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+        thumbnailR2Key: 'draft-thumbnails/user/thumb.png',
+        thumbnailContentType: 'image/png',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: 'vid-123',
+      platformUrl: 'https://www.facebook.com/reel/vid-123',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('skips thumbnail upload when the R2 object exceeds the max size', async () => {
+    const fetchMock = vi.mocked(fetch);
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: { cancel } as unknown as ReadableStream<Uint8Array>,
+      contentLength: MAX_DRAFT_THUMBNAIL_BYTES + 1,
+      contentType: 'image/jpeg',
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ video_id: 'vid-123' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+        thumbnailR2Key: 'draft-thumbnails/user/huge.jpg',
+        thumbnailContentType: 'image/jpeg',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(cancel).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('/thumbnails'))).toBe(
+      false
+    );
   });
 });
