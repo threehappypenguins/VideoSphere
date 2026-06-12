@@ -2,9 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   pollSermonAudioProcessing,
   publishSermonAudio,
+  uploadSermonAudioThumbnail,
   uploadToSermonAudio,
 } from '@/lib/platforms/sermon-audio';
 import type { PlatformUploadMetadata, PlatformUploadTokens } from '@/lib/platforms/types';
+
+vi.mock('@/lib/r2', () => ({
+  getObjectWebStream: vi.fn(),
+}));
+
+import { getObjectWebStream } from '@/lib/r2';
+
+function makeThumbnailStream(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([0xff, 0xd8, 0xff]));
+      controller.close();
+    },
+  });
+}
 
 function makeVideoStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -319,6 +335,190 @@ describe('uploadToSermonAudio', () => {
     });
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it('uploads a custom thumbnail from R2 after successful video upload', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/thumb' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    vi.mocked(getObjectWebStream).mockResolvedValueOnce({
+      stream: makeThumbnailStream(),
+      contentLength: 3,
+      contentType: 'image/jpeg',
+    });
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        ...metadata,
+        thumbnailR2Key: 'draft-thumbnails/user/thumb.jpg',
+        thumbnailContentType: 'image/jpeg',
+      },
+      tokens,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      'https://api.sermonaudio.com/v2/node/sermons/sermon-123/encoding_options'
+    );
+    expect(fetchMock.mock.calls[3]?.[1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ videoThumbCustom: true }),
+    });
+    expect(fetchMock.mock.calls[4]?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ uploadType: 'original-thumbnail', sermonID: 'sermon-123' }),
+    });
+    expect(fetchMock.mock.calls[5]?.[0]).toBe('https://upload.sermonaudio.com/thumb');
+  });
+
+  it('still succeeds when custom thumbnail upload fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('encoding failed', { status: 500 }));
+
+    vi.mocked(getObjectWebStream).mockResolvedValueOnce({
+      stream: makeThumbnailStream(),
+      contentLength: 3,
+      contentType: 'image/png',
+    });
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      metadata: {
+        ...metadata,
+        thumbnailR2Key: 'draft-thumbnails/user/thumb.png',
+      },
+      tokens,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: 'sermon-123',
+      platformUrl: 'https://www.sermonaudio.com/sermons/sermon-123',
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('SERMONAUDIO_THUMBNAIL_ENCODING_OPTIONS_FAILED')
+    );
+    warnSpy.mockRestore();
+  });
+});
+
+describe('uploadSermonAudioThumbnail', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('PATCHes encoding options, creates thumbnail media, and uploads binary on success', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/thumb' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const result = await uploadSermonAudioThumbnail({
+      sermonID: 'sermon-123',
+      apiKey: 'sa-api-key',
+      thumbnailStream: makeThumbnailStream(),
+      contentLength: 3,
+      contentType: 'image/jpeg',
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      'https://api.sermonaudio.com/v2/node/sermons/sermon-123/encoding_options'
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.sermonaudio.com/v2/media');
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('https://upload.sermonaudio.com/thumb');
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Content-Type': 'image/jpeg',
+        'Content-Length': '3',
+      }),
+      redirect: 'error',
+    });
+  });
+
+  it('returns a structured error when encoding options PATCH fails', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('bad request', { status: 400 }));
+
+    const result = await uploadSermonAudioThumbnail({
+      sermonID: 'sermon-123',
+      apiKey: 'sa-api-key',
+      thumbnailStream: makeThumbnailStream(),
+      contentLength: 3,
+      contentType: 'image/jpeg',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'SERMONAUDIO_THUMBNAIL_ENCODING_OPTIONS_FAILED',
+      statusCode: 400,
+    });
+  });
+
+  it('returns a structured error when thumbnail uploadURL is untrusted', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'http://127.0.0.1/upload' }), { status: 200 })
+      );
+
+    const result = await uploadSermonAudioThumbnail({
+      sermonID: 'sermon-123',
+      apiKey: 'sa-api-key',
+      thumbnailStream: makeThumbnailStream(),
+      contentLength: 3,
+      contentType: 'image/jpeg',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'SERMONAUDIO_THUMBNAIL_UPLOAD_FAILED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('pollSermonAudioProcessing', () => {
@@ -333,7 +533,45 @@ describe('pollSermonAudioProcessing', () => {
     vi.useRealTimers();
   });
 
-  it('resolves when any media.video entry has a thumbnailImageURL', async () => {
+  it('resolves when any media.video entry has a videoCodec (custom thumbnail uploaded)', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          media: {
+            video: [
+              {
+                videoCodec: 'h264',
+                adaptiveBitrate: false,
+                thumbnailImageURL: null,
+              },
+            ],
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      pollSermonAudioProcessing({
+        sermonID: 'sermon-123',
+        tokens,
+        customThumbnailUploaded: true,
+        intervalMs: 1000,
+        maxAttempts: 3,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.sermonaudio.com/v2/node/sermons/sermon-123?allowUnpublished=true',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ 'X-Api-Key': 'sa-api-key' }),
+      })
+    );
+  });
+
+  it('resolves when any media.video entry has a thumbnailImageURL (no custom thumbnail)', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -359,18 +597,32 @@ describe('pollSermonAudioProcessing', () => {
         maxAttempts: 3,
       })
     ).resolves.toBeUndefined();
-
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.sermonaudio.com/v2/node/sermons/sermon-123?allowUnpublished=true',
-      expect.objectContaining({
-        method: 'GET',
-        headers: expect.objectContaining({ 'X-Api-Key': 'sa-api-key' }),
-      })
-    );
   });
 
-  it('resolves when the ABR video entry has a thumbnail before progressive renditions expose codecs', async () => {
+  it('resolves when any media.video entry has a terminal videoMediaStatus (custom thumbnail uploaded)', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          media: {
+            video: [{ videoCodec: null, videoMediaStatus: 'ready', thumbnailImageURL: null }],
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      pollSermonAudioProcessing({
+        sermonID: 'sermon-123',
+        tokens,
+        customThumbnailUploaded: true,
+        intervalMs: 1000,
+        maxAttempts: 3,
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it('resolves when the ABR video entry exposes a codec on a progressive rendition (custom thumbnail uploaded)', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -402,13 +654,14 @@ describe('pollSermonAudioProcessing', () => {
       pollSermonAudioProcessing({
         sermonID: 'sermon-123',
         tokens,
+        customThumbnailUploaded: true,
         intervalMs: 1000,
         maxAttempts: 3,
       })
     ).resolves.toBeUndefined();
   });
 
-  it('keeps polling when video renditions exist but thumbnailImageURL is still null', async () => {
+  it('keeps polling when codec is ready but thumbnailImageURL is still null (no custom thumbnail)', async () => {
     vi.mocked(global.fetch).mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -436,7 +689,42 @@ describe('pollSermonAudioProcessing', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects when max attempts are exceeded without a video thumbnail', async () => {
+  it('keeps polling when a custom thumbnail is present but transcoding is not done yet', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          media: {
+            video: [
+              {
+                videoCodec: null,
+                videoMediaStatus: 'processing',
+                adaptiveBitrate: false,
+                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/custom.jpg',
+              },
+            ],
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    const promise = pollSermonAudioProcessing({
+      sermonID: 'sermon-123',
+      tokens,
+      customThumbnailUploaded: true,
+      intervalMs: 100,
+      maxAttempts: 2,
+    });
+
+    const expectation = expect(promise).rejects.toMatchObject({
+      code: 'SERMONAUDIO_PROCESSING_TIMEOUT',
+    });
+    await vi.runAllTimersAsync();
+    await expectation;
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects when max attempts are exceeded without a generated thumbnail (no custom thumbnail)', async () => {
     vi.mocked(global.fetch).mockResolvedValue(
       new Response(
         JSON.stringify({

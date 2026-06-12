@@ -230,8 +230,9 @@ export async function getPlatformUploadsByJob(uploadJobId: string): Promise<Plat
 
 /**
  * Update a platform upload's status and optional result fields.
- * Use platformVideoId and platformUrl when status is 'completed';
- * use errorMessage when status is 'failed'. Returns the updated record or null if not found.
+ * Use platformVideoId and platformUrl when status is terminal success
+ * (`completed`, `unpublished`, or `published`); use errorMessage when status is `failed`.
+ * Returns the updated record or null if not found.
  */
 export async function updatePlatformUploadStatus(
   id: string,

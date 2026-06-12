@@ -88,13 +88,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         status: job.status,
         createdAt: job.$createdAt,
         updatedAt: job.$updatedAt,
-        platforms:
-          job.status === 'completed'
-            ? latestPlatforms.map((platform) => ({
-                ...platform,
-                status: 'completed' as PlatformUploadStatus,
-              }))
-            : latestPlatforms,
+        platforms: latestPlatforms,
       };
     });
 

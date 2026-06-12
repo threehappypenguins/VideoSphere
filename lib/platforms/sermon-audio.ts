@@ -1,3 +1,7 @@
+import {
+  isAllowedDraftThumbnailContentType,
+  MAX_DRAFT_THUMBNAIL_BYTES,
+} from '@/lib/draft-thumbnail';
 import { formatSermonAudioLocalDate } from '@/lib/platforms/sermon-audio-event-types';
 import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
 import {
@@ -5,6 +9,7 @@ import {
   resolveSermonAudioUploadUrl,
   sermonAudioJsonHeaders,
 } from '@/lib/platforms/sermon-audio-http';
+import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
   PlatformUploadError,
@@ -38,6 +43,12 @@ interface UploadToSermonAudioInput {
 interface PollSermonAudioProcessingInput {
   sermonID: string;
   tokens: PlatformUploadTokens;
+  /**
+   * When true, poll until transcoding completes (codec/status) because a custom thumbnail was
+   * uploaded and `thumbnailImageURL` may appear before processing finishes. When false or omitted,
+   * poll until SermonAudio generates a poster frame on any `media.video` entry.
+   */
+  customThumbnailUploaded?: boolean;
   /** Delay between poll attempts in milliseconds. Defaults to {@link SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS}. */
   intervalMs?: number;
   /** Maximum poll attempts before rejecting. Defaults to {@link SERMONAUDIO_PROCESSING_MAX_ATTEMPTS}. */
@@ -63,9 +74,34 @@ interface SermonMediaPayload {
   media?: {
     video?: Array<{
       thumbnailImageURL?: string | null;
+      videoCodec?: string | null;
+      videoMediaStatus?: string | null;
     }>;
   };
 }
+
+/** Result of a non-fatal SermonAudio custom thumbnail upload attempt. */
+export type SermonAudioThumbnailUploadResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      statusCode?: number;
+      details?: string;
+    };
+
+interface UploadSermonAudioThumbnailInput {
+  sermonID: string;
+  apiKey: string;
+  thumbnailStream: ReadableStream<Uint8Array>;
+  contentLength: number;
+  contentType: string;
+  signal?: AbortSignal;
+}
+
+/** Terminal `videoMediaStatus` values indicating transcoding finished (success or failure). */
+const TERMINAL_VIDEO_MEDIA_STATUSES = new Set(['ready', 'error', 'failed']);
 
 function toError(
   code: string,
@@ -157,6 +193,25 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   return body;
 }
 
+function isTerminalVideoMediaStatus(status: unknown): boolean {
+  return (
+    typeof status === 'string' && TERMINAL_VIDEO_MEDIA_STATUSES.has(status.trim().toLowerCase())
+  );
+}
+
+function hasSermonVideoCodec(item: unknown): boolean {
+  if (!item || typeof item !== 'object') return false;
+  const videoCodec = (item as { videoCodec?: unknown }).videoCodec;
+  return typeof videoCodec === 'string' && videoCodec.trim().length > 0;
+}
+
+function sermonVideoEntryIsReady(item: unknown): boolean {
+  if (!item || typeof item !== 'object') return false;
+  const entry = item as { videoCodec?: unknown; videoMediaStatus?: unknown };
+  if (hasSermonVideoCodec(entry)) return true;
+  return isTerminalVideoMediaStatus(entry.videoMediaStatus);
+}
+
 function hasSermonVideoThumbnail(item: unknown): boolean {
   if (!item || typeof item !== 'object') return false;
   const thumbnailImageURL = (item as { thumbnailImageURL?: unknown }).thumbnailImageURL;
@@ -164,16 +219,60 @@ function hasSermonVideoThumbnail(item: unknown): boolean {
 }
 
 /**
- * True when SA has generated a video thumbnail on any `media.video` entry.
- * Intentionally thumbnail-only: transcoding can finish before SA extracts the poster frame,
- * so do not gate on `videoCodec`, `adaptiveBitrate`, or `videoMediaStatus` alone.
+ * True when SermonAudio has finished transcoding any `media.video` rendition.
+ * Gates on non-null `videoCodec` or terminal `videoMediaStatus` — not `thumbnailImageURL`,
+ * since a custom thumbnail may populate that field before transcoding completes.
  */
-function sermonVideoIsReady(payload: unknown): boolean {
+function sermonVideoTranscodingIsReady(payload: unknown): boolean {
+  if (payload === null || typeof payload !== 'object') return false;
+  const media = (payload as SermonMediaPayload).media;
+  if (!media || !Array.isArray(media.video) || media.video.length === 0) return false;
+  return media.video.some((item) => sermonVideoEntryIsReady(item));
+}
+
+/**
+ * True when SermonAudio has generated a video thumbnail on any `media.video` entry.
+ * Transcoding can finish before SA extracts the poster frame, so do not gate on codec/status alone.
+ */
+function sermonVideoPosterIsReady(payload: unknown): boolean {
   if (payload === null || typeof payload !== 'object') return false;
   const media = (payload as SermonMediaPayload).media;
   if (!media || !Array.isArray(media.video)) return false;
-  // Any video rendition with a thumbnail URL means post-processing (including poster extraction) is done.
   return media.video.some((item) => hasSermonVideoThumbnail(item));
+}
+
+function sermonVideoIsReady(payload: unknown, customThumbnailUploaded: boolean): boolean {
+  return customThumbnailUploaded
+    ? sermonVideoTranscodingIsReady(payload)
+    : sermonVideoPosterIsReady(payload);
+}
+
+/**
+ * Resolves JPEG vs PNG for SermonAudio thumbnail binary upload.
+ * Prefers draft metadata, then R2 content-type, then key extension.
+ * @param metadataCt - Draft `thumbnailContentType` when present.
+ * @param r2ContentType - Content-Type from R2 `GetObject`.
+ * @param r2Key - R2 object key (extension fallback).
+ * @returns Allowed image/jpeg or image/png.
+ */
+function sermonAudioThumbnailContentType(
+  metadataCt: string | undefined,
+  r2ContentType: string,
+  r2Key: string
+): string {
+  const meta = metadataCt?.trim().toLowerCase();
+  if (meta && isAllowedDraftThumbnailContentType(meta)) {
+    return meta;
+  }
+  const fromR2 = r2ContentType.trim().toLowerCase();
+  if (isAllowedDraftThumbnailContentType(fromR2)) {
+    return fromR2;
+  }
+  const ext = r2Key.includes('.') ? (r2Key.split('.').pop()?.toLowerCase() ?? '') : '';
+  if (ext === 'png') {
+    return 'image/png';
+  }
+  return 'image/jpeg';
 }
 
 function delay(ms: number): Promise<void> {
@@ -200,6 +299,176 @@ function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+/**
+ * Uploads a custom sermon thumbnail to SermonAudio (encoding options → media slot → binary POST).
+ * Failures return `{ ok: false }` so callers can log without aborting the main upload job.
+ * @param input - Sermon id, API key, thumbnail stream, content type, and optional abort signal.
+ * @returns Success or a structured error with warning codes for logging.
+ */
+export async function uploadSermonAudioThumbnail(
+  input: UploadSermonAudioThumbnailInput
+): Promise<SermonAudioThumbnailUploadResult> {
+  const sermonID = input.sermonID.trim();
+  if (!sermonID) {
+    return {
+      ok: false,
+      code: 'SERMONAUDIO_SERMON_ID_MISSING',
+      message: 'SermonAudio sermonID is missing.',
+    };
+  }
+
+  const apiKey = input.apiKey.trim();
+  if (!apiKey) {
+    return {
+      ok: false,
+      code: 'SERMONAUDIO_API_KEY_MISSING',
+      message: 'SermonAudio API key is missing.',
+    };
+  }
+
+  const { signal } = input;
+
+  try {
+    const encodingUrl = `${SERMONAUDIO_SERMONS_URL}/${encodeURIComponent(sermonID)}/encoding_options`;
+    const encodingResponse = await fetch(encodingUrl, {
+      method: 'PATCH',
+      headers: sermonAudioJsonHeaders(apiKey),
+      body: JSON.stringify({ videoThumbCustom: true }),
+      ...(signal ? { signal } : {}),
+    });
+
+    if (!encodingResponse.ok) {
+      return {
+        ok: false,
+        code: 'SERMONAUDIO_THUMBNAIL_ENCODING_OPTIONS_FAILED',
+        message: 'Failed to enable custom thumbnail on SermonAudio sermon.',
+        statusCode: encodingResponse.status,
+        details: await readApiErrorDetails(encodingResponse),
+      };
+    }
+
+    const mediaResponse = await fetch(SERMONAUDIO_MEDIA_URL, {
+      method: 'POST',
+      headers: sermonAudioJsonHeaders(apiKey),
+      body: JSON.stringify({
+        uploadType: 'original-thumbnail',
+        sermonID,
+      }),
+      ...(signal ? { signal } : {}),
+    });
+
+    if (!mediaResponse.ok) {
+      return {
+        ok: false,
+        code: 'SERMONAUDIO_THUMBNAIL_UPLOAD_FAILED',
+        message: 'Failed to create SermonAudio thumbnail media upload.',
+        statusCode: mediaResponse.status,
+        details: await readApiErrorDetails(mediaResponse),
+      };
+    }
+
+    const mediaPayload = (await mediaResponse.json().catch(() => ({}))) as MediaCreateResponse;
+    const uploadURL = mediaPayload.uploadURL?.trim();
+    if (!uploadURL) {
+      return {
+        ok: false,
+        code: 'SERMONAUDIO_THUMBNAIL_UPLOAD_FAILED',
+        message: 'SermonAudio thumbnail media create succeeded but no uploadURL was returned.',
+      };
+    }
+
+    const validatedUploadURL = resolveSermonAudioUploadUrl(uploadURL);
+    if (!validatedUploadURL) {
+      return {
+        ok: false,
+        code: 'SERMONAUDIO_THUMBNAIL_UPLOAD_FAILED',
+        message: 'SermonAudio thumbnail media create returned an invalid or untrusted uploadURL.',
+      };
+    }
+
+    const uploadInit: RequestInit & { duplex: 'half' } = {
+      method: 'POST',
+      headers: {
+        'Content-Type': input.contentType,
+        'Content-Length': String(input.contentLength),
+      },
+      body: input.thumbnailStream,
+      duplex: 'half',
+      redirect: 'error',
+      ...(signal ? { signal } : {}),
+    };
+
+    const uploadResponse = await fetch(validatedUploadURL, uploadInit);
+    if (!uploadResponse.ok) {
+      return {
+        ok: false,
+        code: 'SERMONAUDIO_THUMBNAIL_UPLOAD_FAILED',
+        message: 'SermonAudio thumbnail binary upload failed.',
+        statusCode: uploadResponse.status,
+        details: await readApiErrorDetails(uploadResponse),
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'SERMONAUDIO_THUMBNAIL_UPLOAD_FAILED',
+      message: 'Unexpected error during SermonAudio thumbnail upload.',
+      details: messageFromThrown(error),
+    };
+  }
+}
+
+async function tryUploadSermonAudioThumbnailFromR2(input: {
+  sermonID: string;
+  apiKey: string;
+  thumbnailR2Key: string;
+  thumbnailContentType?: string;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const { sermonID, apiKey, thumbnailR2Key, thumbnailContentType, signal } = input;
+
+  try {
+    const opened = await getObjectWebStream(thumbnailR2Key, { signal });
+    if (opened.contentLength > MAX_DRAFT_THUMBNAIL_BYTES) {
+      await opened.stream.cancel().catch(() => undefined);
+      console.warn(
+        `[sermon-audio] Skipping custom thumbnail for sermon ${sermonID}: exceeds max size (${opened.contentLength} bytes).`
+      );
+      return;
+    }
+
+    const contentType = sermonAudioThumbnailContentType(
+      thumbnailContentType,
+      opened.contentType,
+      thumbnailR2Key
+    );
+
+    const result = await uploadSermonAudioThumbnail({
+      sermonID,
+      apiKey,
+      thumbnailStream: opened.stream,
+      contentLength: opened.contentLength,
+      contentType,
+      signal,
+    });
+
+    if (result.ok === false) {
+      const statusSuffix = result.statusCode != null ? ` (HTTP ${result.statusCode})` : '';
+      const detailsSuffix = result.details ? ` Details: ${result.details}` : '';
+      console.warn(
+        `[sermon-audio] Custom thumbnail upload failed for sermon ${sermonID} (${result.code}): ${result.message}${statusSuffix}${detailsSuffix}`
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `[sermon-audio] Could not read thumbnail from R2 for sermon ${sermonID}; skipping custom thumbnail upload:`,
+      messageFromThrown(error)
+    );
+  }
 }
 
 /**
@@ -309,6 +578,17 @@ export async function uploadToSermonAudio(
       );
     }
 
+    const thumbKey = input.metadata.thumbnailR2Key?.trim();
+    if (thumbKey) {
+      await tryUploadSermonAudioThumbnailFromR2({
+        sermonID,
+        apiKey,
+        thumbnailR2Key: thumbKey,
+        thumbnailContentType: input.metadata.thumbnailContentType,
+        signal,
+      });
+    }
+
     return {
       ok: true,
       platformVideoId: sermonID,
@@ -325,8 +605,10 @@ export async function uploadToSermonAudio(
 }
 
 /**
- * Polls SermonAudio until sermon video processing completes: any `media.video` entry with a
- * non-empty `thumbnailImageURL` (SA generates the thumbnail after the video is processed).
+ * Polls SermonAudio until sermon video processing completes.
+ * Without a custom thumbnail, waits for SA-generated `thumbnailImageURL` on any `media.video` entry.
+ * With a custom thumbnail, waits for transcoding (`videoCodec` or terminal `videoMediaStatus`) instead,
+ * since the uploaded poster may appear before encoding finishes.
  * @param input - Sermon id, API key tokens, poll tuning, and optional abort signal.
  * @returns Resolves when processing is complete.
  * @throws When polling is aborted or `maxAttempts` is exceeded.
@@ -349,6 +631,7 @@ export async function pollSermonAudioProcessing(
 
   const intervalMs = input.intervalMs ?? SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS;
   const maxAttempts = input.maxAttempts ?? SERMONAUDIO_PROCESSING_MAX_ATTEMPTS;
+  const customThumbnailUploaded = input.customThumbnailUploaded === true;
   const pollUrl = `${SERMONAUDIO_SERMONS_URL}/${encodeURIComponent(sermonID)}?allowUnpublished=true`;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -375,7 +658,7 @@ export async function pollSermonAudioProcessing(
     }
 
     const payload = await response.json().catch(() => ({}));
-    if (sermonVideoIsReady(payload)) {
+    if (sermonVideoIsReady(payload, customThumbnailUploaded)) {
       return;
     }
 

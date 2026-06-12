@@ -117,16 +117,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const perJob = pagedJobs.map((job) => {
       const latestPlatforms = latestPlatformUploadsPerPlatform(job.platformUploads);
       const platformItems: UploadHistoryPlatformItem[] = latestPlatforms.map((platformUpload) => {
-        if (job.status === 'completed') {
-          return {
-            platform: platformUpload.platform,
-            status: 'completed',
-            updatedAt: platformUpload.$updatedAt,
-            errorMessage: null,
-            retryable: false,
-            retryReason: '',
-          };
-        }
         const retryability = assessPlatformUploadRetryability(platformUpload.errorMessage);
         return {
           platform: platformUpload.platform,

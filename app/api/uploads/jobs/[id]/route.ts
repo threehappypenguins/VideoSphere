@@ -64,13 +64,6 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
         updatedAt: platformUpload.$updatedAt,
       }))
     );
-    const normalizedPlatforms =
-      job.status === 'completed'
-        ? platforms.map((platform) => ({
-            ...platform,
-            status: 'completed' as PlatformUploadStatus,
-          }))
-        : platforms;
 
     const response: ApiResponse<UploadJobStatusResponse> = {
       data: {
@@ -78,7 +71,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
         status: job.status,
         createdAt: job.$createdAt,
         updatedAt: job.$updatedAt,
-        platforms: normalizedPlatforms,
+        platforms,
       },
     };
 

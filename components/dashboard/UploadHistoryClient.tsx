@@ -10,6 +10,7 @@ import type {
   UploadJobStatus,
 } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
+import { isPlatformUploadStatusInProgress } from '@/lib/uploads/status';
 
 interface UploadHistoryPlatformItem {
   platform: ConnectedAccountPlatform;
@@ -47,7 +48,7 @@ function isJobActive(job: UploadHistoryJobItem): boolean {
     job.status === 'pending' ||
     job.status === 'uploading' ||
     job.status === 'distributing' ||
-    job.platforms.some((p) => p.status === 'pending' || p.status === 'uploading')
+    job.platforms.some((p) => isPlatformUploadStatusInProgress(p.status))
   );
 }
 

@@ -38,6 +38,7 @@ import {
 } from '@/lib/platforms/sermon-audio';
 import { sermonAudioCrossPublishHasActiveSelection } from '@/lib/platforms/sermon-audio-cross-publish';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
+import { isPlatformUploadDistributionComplete } from '@/lib/uploads/status';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
 export { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
@@ -332,9 +333,12 @@ async function runSinglePlatformUpload(
       return;
     }
 
+    const terminalStatus: PlatformUploadStatus =
+      platformUpload.platform === 'sermon_audio' ? 'unpublished' : 'completed';
+
     await requireUpdatePlatformUploadStatus(
       platformUpload.id,
-      'completed',
+      terminalStatus,
       uploadResult.platformVideoId,
       uploadResult.platformUrl,
       null
@@ -435,7 +439,9 @@ export async function runDistributionInBackground(
       return;
     }
 
-    const nonCompleted = attemptResults.filter((u) => u.status !== 'completed');
+    const nonCompleted = attemptResults.filter(
+      (u) => !isPlatformUploadDistributionComplete(u.status)
+    );
     if (nonCompleted.length > 0) {
       await updateUploadJobStatus(
         jobId,
@@ -447,7 +453,9 @@ export async function runDistributionInBackground(
 
     if (subsetRetry) {
       const allLatest = latestPlatformUploadsPerPlatform(finalPlatformUploads);
-      const stillIncomplete = allLatest.filter((u) => u.status !== 'completed');
+      const stillIncomplete = allLatest.filter(
+        (u) => !isPlatformUploadDistributionComplete(u.status)
+      );
       if (stillIncomplete.length > 0) {
         const errorDetails = stillIncomplete
           .map((u) => `${u.platform}: ${u.status}${u.errorMessage ? ` — ${u.errorMessage}` : ''}`)
@@ -497,23 +505,33 @@ export async function runDistributionInBackground(
       // and may be cut short; a persisted pending job plus queue/worker/cron would be needed for
       // guaranteed delivery across invocations.
       void (async () => {
+        const platformUploadId = upload.id;
+        const platformUrl = upload.platformUrl;
         try {
           await pollSermonAudioProcessing({
             sermonID,
             tokens: { accessToken: apiKey },
+            customThumbnailUploaded: Boolean(meta?.thumbnailR2Key?.trim()),
           });
           await publishSermonAudio({
             sermonID,
             tokens: { accessToken: apiKey },
           });
+          await updatePlatformUploadStatus(
+            platformUploadId,
+            'published',
+            sermonID,
+            platformUrl || undefined,
+            null
+          );
           const crossPublishActive = sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish);
           console.log(
-            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${upload.id})` +
+            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${platformUploadId})` +
               (crossPublishActive ? '; Cross Publish enabled' : '')
           );
         } catch (err) {
           console.error(
-            `[distribute] SermonAudio auto-publish failed for platform_upload ${upload.id} (job ${jobId}, sermon ${sermonID}):`,
+            `[distribute] SermonAudio auto-publish failed for platform_upload ${platformUploadId} (job ${jobId}, sermon ${sermonID}):`,
             err
           );
         }
