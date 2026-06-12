@@ -1135,3 +1135,147 @@ describe('DraftMetadataModal YouTube fields', () => {
     expect(await screen.findByRole('option', { name: 'People & Blogs' })).toBeInTheDocument();
   });
 });
+
+describe('DraftMetadataModal Facebook fields', () => {
+  const facebookDraftValue: DraftEditorValues = {
+    id: 'draft-facebook-1',
+    title: 'Reel title',
+    description: 'Reel description',
+    tags: [],
+    visibility: 'public',
+    targets: ['facebook'],
+    platforms: {},
+  };
+
+  function TrackingFacebookModal({
+    initialValue = facebookDraftValue,
+    onValueChange,
+  }: {
+    initialValue?: DraftEditorValues;
+    onValueChange?: (value: DraftEditorValues) => void;
+  }) {
+    const [value, setValue] = useState(initialValue);
+    const handleChange = (next: DraftEditorValues) => {
+      setValue(next);
+      onValueChange?.(next);
+    };
+    return (
+      <DraftMetadataModal
+        mode="edit"
+        value={value}
+        initialConnectedPlatforms={['facebook']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: initialValue.id })}
+        onChange={handleChange}
+      />
+    );
+  }
+
+  const originalSupportedValuesOf = (
+    Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
+  ).supportedValuesOf;
+
+  beforeEach(() => {
+    if (!HTMLElement.prototype.hasPointerCapture) {
+      HTMLElement.prototype.hasPointerCapture = () => false;
+      HTMLElement.prototype.setPointerCapture = () => undefined;
+      HTMLElement.prototype.releasePointerCapture = () => undefined;
+    }
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = () => undefined;
+    }
+
+    const mockTimeZoneSupportedValuesOf = (key: string): string[] => {
+      if (key === 'timeZone') {
+        return ['America/Halifax', 'America/New_York', 'UTC'];
+      }
+      throw new Error(`Unsupported Intl.supportedValuesOf key: ${key}`);
+    };
+
+    if (typeof originalSupportedValuesOf === 'function') {
+      vi.spyOn(Intl, 'supportedValuesOf').mockImplementation(
+        mockTimeZoneSupportedValuesOf as typeof Intl.supportedValuesOf
+      );
+    } else {
+      (
+        Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
+      ).supportedValuesOf = mockTimeZoneSupportedValuesOf as typeof Intl.supportedValuesOf;
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }) as Response)
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    if (originalSupportedValuesOf === undefined) {
+      delete (Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf })
+        .supportedValuesOf;
+    }
+  });
+
+  async function selectFacebookSchedulePublishState() {
+    await userEvent.click(document.getElementById('draft-facebook-video-state')!);
+    await userEvent.click(await screen.findByRole('option', { name: /^Schedule$/i }));
+  }
+
+  it('clears scheduledPublishTime when schedule date, time, or timezone inputs are incomplete', async () => {
+    let latestValue = facebookDraftValue;
+    render(
+      <TrackingFacebookModal
+        onValueChange={(next) => {
+          latestValue = next;
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await selectFacebookSchedulePublishState();
+
+    await waitFor(() => {
+      expect(latestValue.platforms.facebook?.scheduledPublishTime).toEqual(expect.any(Number));
+    });
+
+    const dateInput = document.getElementById('draft-facebook-schedule-date') as HTMLInputElement;
+    await userEvent.clear(dateInput);
+
+    await waitFor(() => {
+      expect(latestValue.platforms.facebook?.scheduledPublishTime).toBeUndefined();
+    });
+  });
+
+  it('preserves stored scheduledPublishTime before schedule inputs are initialized', async () => {
+    const storedTimestamp = 1_800_000_000;
+    const onChange = vi.fn();
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={{
+          ...facebookDraftValue,
+          platforms: {
+            facebook: {
+              videoState: 'SCHEDULED',
+              scheduledPublishTime: storedTimestamp,
+            },
+          },
+        }}
+        initialConnectedPlatforms={['facebook']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: facebookDraftValue.id })}
+        onChange={onChange}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await waitFor(() => {
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  });
+});

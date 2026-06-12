@@ -147,6 +147,65 @@ describe('uploadToFacebook', () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe(customUploadUrl);
   });
 
+  it('trims whitespace from video_id in the START response', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ video_id: '  vid-123  ' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }));
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: 'vid-123',
+      platformUrl: 'https://www.facebook.com/reel/vid-123',
+    });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      'https://rupload.facebook.com/video-upload/v25.0/vid-123'
+    );
+    const finishInit = fetchMock.mock.calls[2]?.[1] as RequestInit;
+    expect(String(finishInit.body)).toContain('video_id=vid-123');
+  });
+
+  it('fails fast when START returns a whitespace-only video_id', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ video_id: '   ' }), { status: 200 })
+    );
+
+    const result = await uploadToFacebook({
+      connectedAccount,
+      videoStream: makeStream(),
+      contentLength: 3,
+      metadata: {
+        title: 'My Reel',
+        description: '',
+        tags: [],
+        visibility: 'public',
+      },
+      tokens: { accessToken: 'page-token' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'FACEBOOK_REELS_START_FAILED' },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('falls back to the default rupload URL when upload_url is untrusted', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock

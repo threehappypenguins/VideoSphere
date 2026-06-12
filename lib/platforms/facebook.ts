@@ -19,9 +19,9 @@ export {
   validateFacebookScheduledPublishTime,
 } from '@/lib/platforms/facebook-schedule';
 
-const FACEBOOK_RUPLOAD_BASE = 'https://rupload.facebook.com/video-upload/v25.0';
 const FACEBOOK_RUPLOAD_HOSTNAME = 'rupload.facebook.com';
 const FACEBOOK_RUPLOAD_PATH_PREFIX = '/video-upload/v25.0';
+const FACEBOOK_RUPLOAD_BASE = `https://${FACEBOOK_RUPLOAD_HOSTNAME}${FACEBOOK_RUPLOAD_PATH_PREFIX}`;
 
 /**
  * Returns true when a URL is a trusted Reels binary upload destination for the given video.
@@ -111,6 +111,16 @@ interface FacebookReelsFinishResponse {
   success?: boolean;
   post_id?: string;
   error?: { message?: string; code?: number };
+}
+
+/**
+ * Parses and validates `video_id` from a Reels START response.
+ * @param raw - Raw `video_id` value from the Graph API.
+ * @returns Trimmed video ID, or null when missing or whitespace-only.
+ */
+function parseFacebookReelsVideoId(raw: string | undefined): string | null {
+  const trimmed = raw?.trim() ?? '';
+  return trimmed !== '' ? trimmed : null;
 }
 
 function toError(
@@ -237,7 +247,8 @@ export async function uploadToFacebook(
       signal
     );
     const startBody = (await startRes.json().catch(() => ({}))) as FacebookReelsStartResponse;
-    if (!startRes.ok || !startBody.video_id) {
+    const parsedVideoId = parseFacebookReelsVideoId(startBody.video_id);
+    if (!startRes.ok || !parsedVideoId) {
       return toError(
         'FACEBOOK_REELS_START_FAILED',
         startBody.error?.message ?? 'Failed to initialize Facebook Reels upload session.',
@@ -245,7 +256,7 @@ export async function uploadToFacebook(
         JSON.stringify(startBody)
       );
     }
-    videoId = startBody.video_id;
+    videoId = parsedVideoId;
     const ruploadUrl = resolveFacebookReelsUploadUrl(videoId, startBody.upload_url);
 
     const ruploadInit: RequestInit & { duplex: 'half' } = {

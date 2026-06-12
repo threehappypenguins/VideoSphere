@@ -1413,12 +1413,27 @@ export function DraftMetadataModal({
 
   useEffect(() => {
     if (!value || facebookVideoState !== 'SCHEDULED') return;
-    if (!fbScheduleDate || !fbScheduleTime || !fbScheduleTimeZone) return;
+
+    const hasCompleteScheduleInputs =
+      Boolean(fbScheduleDate) && Boolean(fbScheduleTime) && Boolean(fbScheduleTimeZone);
+
+    if (!hasCompleteScheduleInputs) {
+      if (
+        fbScheduleInitializedRef.current &&
+        value.platforms.facebook?.scheduledPublishTime !== undefined
+      ) {
+        updateFacebookFields({ scheduledPublishTime: undefined });
+      }
+      return;
+    }
 
     let iso: string;
     try {
       iso = zonedDateTimeToUtcIso(fbScheduleDate, fbScheduleTime, fbScheduleTimeZone);
     } catch {
+      if (value.platforms.facebook?.scheduledPublishTime !== undefined) {
+        updateFacebookFields({ scheduledPublishTime: undefined });
+      }
       return;
     }
 
