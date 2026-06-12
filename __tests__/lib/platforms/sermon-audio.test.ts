@@ -1,17 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlatformUploadMetadata, PlatformUploadTokens } from '@/lib/platforms/types';
+
+const mockGetObjectWebStream = vi.fn();
+
+vi.mock('@/lib/r2', () => ({
+  getObjectWebStream: (...args: unknown[]) => mockGetObjectWebStream(...args),
+}));
+
 import {
   pollSermonAudioProcessing,
   publishSermonAudio,
   uploadSermonAudioThumbnail,
   uploadToSermonAudio,
 } from '@/lib/platforms/sermon-audio';
-import type { PlatformUploadMetadata, PlatformUploadTokens } from '@/lib/platforms/types';
-
-vi.mock('@/lib/r2', () => ({
-  getObjectWebStream: vi.fn(),
-}));
-
-import { getObjectWebStream } from '@/lib/r2';
 
 function makeThumbnailStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -356,7 +357,7 @@ describe('uploadToSermonAudio', () => {
       )
       .mockResolvedValueOnce(new Response('', { status: 200 }));
 
-    vi.mocked(getObjectWebStream).mockResolvedValueOnce({
+    mockGetObjectWebStream.mockResolvedValueOnce({
       stream: makeThumbnailStream(),
       contentLength: 3,
       contentType: 'image/jpeg',
@@ -406,7 +407,7 @@ describe('uploadToSermonAudio', () => {
       .mockResolvedValueOnce(new Response('', { status: 200 }))
       .mockResolvedValueOnce(new Response('encoding failed', { status: 500 }));
 
-    vi.mocked(getObjectWebStream).mockResolvedValueOnce({
+    mockGetObjectWebStream.mockResolvedValueOnce({
       stream: { cancel: cancelSpy } as unknown as ReadableStream<Uint8Array>,
       contentLength: 3,
       contentType: 'image/png',

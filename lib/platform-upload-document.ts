@@ -181,7 +181,8 @@ function shrinkDescriptionToFit(doc: PlatformUploadDocumentStored, truncatedFlag
 /**
  * Serialize `platform_uploads.document` so it never exceeds {@link MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS}.
  * Order: drop optional audit snapshots (`draftYoutube` / `draftVimeo`), then shrink description, tags,
- * and title. Actual upload metadata still comes from the draft in the distribute route — this row is
+ * and title. `sermonAudioAutoPublishOnProcessed` is always retained when set (needed for UI polling).
+ * Actual upload metadata still comes from the draft in the distribute route — this row is
  * primarily an audit snapshot.
  */
 export function serializePlatformUploadDocumentForStorage(d: PlatformUploadDocumentStored): string {
@@ -199,7 +200,6 @@ export function serializePlatformUploadDocumentForStorage(d: PlatformUploadDocum
     ...doc,
     draftYoutube: undefined,
     draftVimeo: undefined,
-    sermonAudioAutoPublishOnProcessed: undefined,
   };
   truncated = true;
 
