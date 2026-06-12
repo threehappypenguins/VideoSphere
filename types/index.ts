@@ -263,6 +263,35 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
 }
 
 /**
+ * Facebook Reels API–specific draft fields.
+ * Stored under `platforms.facebook` in the draft `document` JSON.
+ */
+export interface FacebookDraftFields extends PerPlatformCopyOverrides {
+  /**
+   * Desired publish state sent as `video_state` on the finish call.
+   * - `PUBLISHED` — publish immediately (default)
+   * - `SCHEDULED` — schedule for `scheduledPublishTime`
+   */
+  videoState?: 'PUBLISHED' | 'SCHEDULED';
+
+  /**
+   * Unix timestamp (seconds) for scheduled publish.
+   * Required when `videoState` is `SCHEDULED`.
+   * Must be between 10 minutes and 6 months from now.
+   */
+  scheduledPublishTime?: number;
+
+  /**
+   * Facebook Page ID of a tagged location.
+   * Resolved via the Pages Search API; stored as the numeric page ID string.
+   */
+  placeId?: string;
+
+  /** Display name of the tagged place (for UI rendering only; not sent to the API). */
+  placeName?: string;
+}
+
+/**
  * SermonAudio-only fields inside the draft `document.platforms` JSON.
  * Shared copy (title, description, tags) lives at the document root unless overridden here.
  *
@@ -351,6 +380,7 @@ export interface DraftPlatforms {
   sermon_audio?: SermonAudioDraftFields;
   sftp?: SftpDraftFields;
   smb?: SmbDraftFields;
+  facebook?: FacebookDraftFields;
 }
 
 /**

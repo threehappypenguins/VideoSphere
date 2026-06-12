@@ -56,6 +56,11 @@ For Facebook OAuth credentials:
 3. Copy the app credentials into:
    - `FACEBOOK_APP_ID`
    - `FACEBOOK_APP_SECRET`
+4. **Reel place search (optional):** Tagging a location on a Reel uses the Graph API
+   [`GET /pages/search`](https://developers.facebook.com/docs/pages-api/search-pages/). Without
+   [Page Public Metadata Access](https://developers.facebook.com/docs/features-reference/page-public-metadata-access/)
+   (Meta App Review + business verification), place search is limited to Facebook Pages you manage.
+   Request that feature in App Review when you need to search all public places.
 
 ## 3. Start MongoDB
 

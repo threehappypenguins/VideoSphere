@@ -5,12 +5,13 @@ import { cn } from '@/lib/utils';
 import youtubeIcon from '@/components/icons/platforms/youtube.svg';
 import vimeoIcon from '@/components/icons/platforms/vimeo.svg';
 import sermonAudioIcon from '@/components/icons/platforms/sermon-audio.svg';
+import facebookIcon from '@/components/icons/platforms/facebook.svg';
 
 /** Platform identifier backed by a brand icon SVG. */
 export type PlatformBrandIcon = (typeof PLATFORM_BRAND_ICONS)[number];
 
 /** Platforms that have a dedicated brand icon asset in this app. */
-export const PLATFORM_BRAND_ICONS = ['youtube', 'vimeo', 'sermon_audio'] as const;
+export const PLATFORM_BRAND_ICONS = ['youtube', 'vimeo', 'sermon_audio', 'facebook'] as const;
 
 type SvgModule = string | { src: string };
 
@@ -27,6 +28,7 @@ const PLATFORM_ICON_SRC: Record<PlatformBrandIcon, string> = {
   youtube: svgAssetUrl(youtubeIcon),
   vimeo: svgAssetUrl(vimeoIcon),
   sermon_audio: svgAssetUrl(sermonAudioIcon),
+  facebook: svgAssetUrl(facebookIcon),
 };
 
 /**

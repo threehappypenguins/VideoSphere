@@ -2,6 +2,8 @@
  * Facebook Graph API v25.0 OAuth helpers for platform connection flows.
  */
 
+import { createHmac } from 'node:crypto';
+
 /** Facebook Login OAuth dialog base URL. */
 export const FACEBOOK_OAUTH_DIALOG_URL = 'https://www.facebook.com/v25.0/dialog/oauth';
 
@@ -68,6 +70,17 @@ export function getFacebookAppSecret(): string | null {
 }
 
 /**
+ * Builds the `appsecret_proof` parameter for server-side Graph API calls.
+ * @param accessToken - User or Page access token used on the request.
+ * @returns HMAC-SHA256 proof, or undefined when the app secret is not configured.
+ */
+export function buildFacebookAppSecretProof(accessToken: string): string | undefined {
+  const secret = getFacebookAppSecret();
+  if (!secret) return undefined;
+  return createHmac('sha256', secret).update(accessToken).digest('hex');
+}
+
+/**
  * Builds the OAuth redirect URI for the Facebook platform callback.
  * @param origin - Request origin (e.g. `https://app.example.com`).
  * @returns Fully-qualified callback URL.
@@ -122,7 +135,10 @@ interface FacebookMeResponse {
  * @param init - Optional fetch init (method, etc.).
  * @returns RequestInit with Authorization header and `cache: 'no-store'`.
  */
-function facebookGraphApiFetchInit(accessToken: string, init: RequestInit = {}): RequestInit {
+export function facebookGraphApiFetchInit(
+  accessToken: string,
+  init: RequestInit = {}
+): RequestInit {
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${accessToken}`);
   return {

@@ -20,6 +20,7 @@ import {
 import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
+import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
 import {
@@ -32,6 +33,7 @@ import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeak
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
+import { FacebookPlaceCombobox } from '@/components/drafts/FacebookPlaceCombobox';
 import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
@@ -74,6 +76,7 @@ import type {
   UploadJobStatus,
   VimeoDraftFields,
   YouTubeDraftFields,
+  FacebookDraftFields,
 } from '@/types';
 import {
   DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
@@ -157,11 +160,16 @@ function comparePlatformsByPreference(
   return a.localeCompare(b);
 }
 
-const OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
+const OVERRIDE_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio', 'facebook'] as const;
 
 type OverridePlatform = (typeof OVERRIDE_PLATFORMS)[number];
 
-const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = ['youtube', 'vimeo', 'sermon_audio'];
+const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = [
+  'youtube',
+  'vimeo',
+  'sermon_audio',
+  'facebook',
+];
 
 const PRIVACY_PLATFORMS = ['youtube', 'vimeo'] as const;
 
@@ -169,8 +177,8 @@ type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
 
 const PRIVACY_PLATFORM_ORDER: PrivacyPlatform[] = ['youtube', 'vimeo'];
 
-/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo today). */
-const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo'] as const;
+/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo/Facebook today). */
+const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo', 'facebook'] as const;
 
 type DraftThumbnailPlatform = (typeof DRAFT_THUMBNAIL_PLATFORMS)[number];
 
@@ -432,6 +440,10 @@ export function DraftMetadataModal({
   const [scheduleTime, setScheduleTime] = useState('');
   const [scheduleTimeZone, setScheduleTimeZone] = useState('');
   const scheduleInitializedRef = useRef(false);
+  const [fbScheduleDate, setFbScheduleDate] = useState('');
+  const [fbScheduleTime, setFbScheduleTime] = useState('');
+  const [fbScheduleTimeZone, setFbScheduleTimeZone] = useState('');
+  const fbScheduleInitializedRef = useRef(false);
   const supportedTimeZones = useMemo(() => getSupportedTimeZones(), []);
   const [youtubeLanguages, setYoutubeLanguages] = useState<Array<{ id: string; name: string }>>([]);
   const [youtubeCategories, setYoutubeCategories] = useState<Array<{ id: string; title: string }>>(
@@ -1067,11 +1079,13 @@ export function DraftMetadataModal({
 
   const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
   const showYouTubeFields = value?.targets.includes('youtube') ?? false;
+  const showFacebookFields = value?.targets.includes('facebook') ?? false;
   const showPlatformSectionHeaders =
-    [showYouTubeFields, showSermonAudioFields].filter(Boolean).length >= 2;
+    [showYouTubeFields, showSermonAudioFields, showFacebookFields].filter(Boolean).length >= 2;
   const showDraftThumbnailUpload = value != null && showDraftThumbnailUploadSection(value.targets);
   const sermonAudioFields = value?.platforms.sermon_audio;
   const youtubeFields = value?.platforms.youtube;
+  const facebookFields = value?.platforms.facebook;
   const sermonAudioEffectiveTitleText = value
     ? sermonAudioEffectiveTitle(value, showPerPlatformTitle)
     : '';
@@ -1102,7 +1116,9 @@ export function DraftMetadataModal({
 
   const updateOverridePlatformFields = (
     platform: OverridePlatform,
-    patch: Partial<YouTubeDraftFields | VimeoDraftFields | SermonAudioDraftFields>
+    patch: Partial<
+      YouTubeDraftFields | VimeoDraftFields | SermonAudioDraftFields | FacebookDraftFields
+    >
   ) => {
     if (!value) return;
     onChange({
@@ -1251,6 +1267,28 @@ export function DraftMetadataModal({
     [onChange, value]
   );
 
+  const updateFacebookFields = useCallback(
+    (patch: Partial<FacebookDraftFields>) => {
+      if (!value) return;
+      const current: Record<string, unknown> = { ...(value.platforms.facebook ?? {}) };
+      for (const [key, fieldValue] of Object.entries(patch)) {
+        if (fieldValue === undefined) {
+          delete current[key];
+        } else {
+          current[key] = fieldValue;
+        }
+      }
+      onChange({
+        ...value,
+        platforms: {
+          ...value.platforms,
+          facebook: Object.keys(current).length > 0 ? (current as FacebookDraftFields) : undefined,
+        },
+      });
+    },
+    [onChange, value]
+  );
+
   useEffect(() => {
     if (!value?.targets.includes('youtube')) {
       youtubeDefaultsSeededRef.current = null;
@@ -1300,8 +1338,38 @@ export function DraftMetadataModal({
   const youtubePlaylistTitle =
     youtubePlaylistId === undefined ? youtubeFields?.playlistTitles?.[0] : undefined;
 
+  const facebookVideoState = facebookFields?.videoState ?? 'PUBLISHED';
+  const facebookScheduleValidationMessage =
+    facebookVideoState === 'SCHEDULED' && facebookFields?.scheduledPublishTime !== undefined
+      ? validateFacebookScheduledPublishTime(facebookFields.scheduledPublishTime)
+      : undefined;
+
+  useEffect(() => {
+    if (!value || facebookVideoState !== 'SCHEDULED') return;
+    if (!fbScheduleDate || !fbScheduleTime || !fbScheduleTimeZone) return;
+
+    let iso: string;
+    try {
+      iso = zonedDateTimeToUtcIso(fbScheduleDate, fbScheduleTime, fbScheduleTimeZone);
+    } catch {
+      return;
+    }
+
+    const unixSec = Math.floor(new Date(iso).getTime() / 1000);
+    if (value.platforms.facebook?.scheduledPublishTime === unixSec) return;
+    updateFacebookFields({ scheduledPublishTime: unixSec });
+  }, [
+    fbScheduleDate,
+    fbScheduleTime,
+    fbScheduleTimeZone,
+    facebookVideoState,
+    updateFacebookFields,
+    value,
+  ]);
+
   useEffect(() => {
     scheduleInitializedRef.current = false;
+    fbScheduleInitializedRef.current = false;
     setShowMoreExpanded(false);
     setAgeRestrictionsExpanded(false);
     setScheduleExpanded(false);
@@ -2541,6 +2609,165 @@ export function DraftMetadataModal({
     </>
   );
 
+  const initFacebookScheduleFromStored = () => {
+    const tz = getLocalTimeZone();
+    const existing = value?.platforms.facebook?.scheduledPublishTime;
+    if (existing !== undefined) {
+      const iso = new Date(existing * 1000).toISOString();
+      const parts = utcIsoToZonedScheduleParts(iso, tz);
+      if (parts) {
+        setFbScheduleDate(parts.dateStr);
+        setFbScheduleTime(parts.timeStr);
+        setFbScheduleTimeZone(tz);
+        return;
+      }
+    }
+    setFbScheduleDate(getDefaultScheduleDate(tz));
+    setFbScheduleTime(getDefaultScheduleTime(tz));
+    setFbScheduleTimeZone(tz);
+  };
+
+  const facebookPlatformFieldsSection = (
+    <>
+      <div>
+        <label htmlFor="draft-facebook-video-state" className="text-sm font-medium text-foreground">
+          Publish state
+        </label>
+        <Select
+          value={facebookVideoState}
+          onValueChange={(next) => {
+            const state = next as FacebookDraftFields['videoState'];
+            if (state === 'SCHEDULED') {
+              if (!fbScheduleInitializedRef.current) {
+                initFacebookScheduleFromStored();
+                fbScheduleInitializedRef.current = true;
+              }
+              updateFacebookFields({ videoState: 'SCHEDULED' });
+            } else {
+              fbScheduleInitializedRef.current = false;
+              updateFacebookFields({
+                videoState: 'PUBLISHED',
+                scheduledPublishTime: undefined,
+              });
+              setFbScheduleDate('');
+              setFbScheduleTime('');
+              setFbScheduleTimeZone('');
+            }
+          }}
+        >
+          <SelectTrigger
+            id="draft-facebook-video-state"
+            className={cn(fieldBorderClass('facebook.videoState'), 'mt-1 flex h-10 items-center')}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PUBLISHED">Publish immediately</SelectItem>
+            <SelectItem value="SCHEDULED">Schedule</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {facebookVideoState === 'SCHEDULED' ? (
+        <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+          <p className="text-sm font-medium text-foreground">Scheduled publish time</p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <label
+                htmlFor="draft-facebook-schedule-date"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Date
+              </label>
+              <input
+                id="draft-facebook-schedule-date"
+                type="date"
+                value={fbScheduleDate}
+                onChange={(event) => setFbScheduleDate(event.target.value)}
+                className={cn(
+                  fieldBorderClass('facebook.scheduledPublishTime'),
+                  'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
+                )}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <label
+                htmlFor="draft-facebook-schedule-time"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Time
+              </label>
+              <Select value={fbScheduleTime} onValueChange={(next) => setFbScheduleTime(next)}>
+                <SelectTrigger
+                  id="draft-facebook-schedule-time"
+                  className={cn(
+                    fieldBorderClass('facebook.scheduledPublishTime'),
+                    'mt-1 flex h-10 items-center justify-between text-left'
+                  )}
+                >
+                  <SelectValue placeholder="Select time" />
+                </SelectTrigger>
+                <SelectContent>
+                  {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
+                    <SelectItem key={timeOption} value={timeOption}>
+                      {timeOption}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-0 flex-1">
+              <label
+                htmlFor="draft-facebook-schedule-timezone"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Timezone
+              </label>
+              <YouTubeTimezoneSelect
+                id="draft-facebook-schedule-timezone"
+                value={fbScheduleTimeZone}
+                options={supportedTimeZones}
+                onValueChange={(next) => setFbScheduleTimeZone(next)}
+                className={cn(
+                  fieldBorderClass('facebook.scheduledPublishTime'),
+                  'mt-1 w-full rounded-md border bg-background px-3'
+                )}
+              />
+            </div>
+          </div>
+          {facebookScheduleValidationMessage ? (
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {facebookScheduleValidationMessage}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Must be at least 10 minutes and at most 6 months from now.
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      <div>
+        <label htmlFor="draft-facebook-place" className="text-sm font-medium text-foreground">
+          Tag a location
+        </label>
+        <FacebookPlaceCombobox
+          id="draft-facebook-place"
+          placeId={facebookFields?.placeId}
+          placeName={facebookFields?.placeName}
+          onPlaceChange={(next) => {
+            if (!next) {
+              updateFacebookFields({ placeId: undefined, placeName: undefined });
+              return;
+            }
+            updateFacebookFields({ placeId: next.placeId, placeName: next.placeName });
+          }}
+          className={fieldBorderClass('facebook.placeId')}
+        />
+      </div>
+    </>
+  );
+
   const sermonAudioPlatformFieldsSection = (
     <>
       <div>
@@ -3314,6 +3541,9 @@ export function DraftMetadataModal({
               {mergePlatformFieldsIntoMetadataCard && showSermonAudioFields
                 ? sermonAudioPlatformFieldsSection
                 : null}
+              {mergePlatformFieldsIntoMetadataCard && showFacebookFields
+                ? facebookPlatformFieldsSection
+                : null}
             </DraftModalCard>
             {!mergePlatformFieldsIntoMetadataCard && showYouTubeFields ? (
               <DraftModalCard
@@ -3335,6 +3565,17 @@ export function DraftMetadataModal({
                 }
               >
                 {sermonAudioPlatformFieldsSection}
+              </DraftModalCard>
+            ) : null}
+            {!mergePlatformFieldsIntoMetadataCard && showFacebookFields ? (
+              <DraftModalCard
+                header={
+                  showPlatformSectionHeaders ? (
+                    <PlatformSectionHeader platform="facebook" />
+                  ) : undefined
+                }
+              >
+                {facebookPlatformFieldsSection}
               </DraftModalCard>
             ) : null}
             {/* TODO(sermon-audio-thumbnail): Ask SermonAudio how to set display video thumbnails via the public API (uploadType, API key permissions). Hidden when SermonAudio is the only distribute target until supported. */}
