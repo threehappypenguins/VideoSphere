@@ -441,6 +441,15 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
     await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
 
     await vi.waitFor(() => {
+      expect(mockPollSermonAudioProcessing).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sermonID: 'sermon-123',
+          customThumbnailUploaded: false,
+        })
+      );
+    });
+
+    await vi.waitFor(() => {
       expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
         'pu-sa',
         'failed',
@@ -458,6 +467,39 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
         sermonAudioAutoPublishOnProcessed: true,
       })
     ).toBe(false);
+  });
+
+  it('passes customThumbnailUploaded true to poll when thumbnail upload succeeded', async () => {
+    mockUploadToSermonAudio.mockResolvedValue({
+      platformVideoId: 'sermon-123',
+      platformUrl: sermonUrl,
+      sermonAudioCustomThumbnailUploaded: true,
+    });
+    mockPollSermonAudioProcessing.mockResolvedValue(undefined);
+    mockPublishSermonAudio.mockResolvedValue(undefined);
+
+    const pu = basePlatformUpload({ id: 'pu-sa', platform: 'sermon_audio' });
+    const meta = new Map<string, PlatformUploadMetadata>([
+      [
+        'pu-sa',
+        {
+          ...baseMetadata,
+          autoPublishOnProcessed: true,
+          thumbnailR2Key: 'draft-thumbnails/u1/thumb.jpg',
+        },
+      ],
+    ]);
+
+    await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
+
+    await vi.waitFor(() => {
+      expect(mockPollSermonAudioProcessing).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sermonID: 'sermon-123',
+          customThumbnailUploaded: true,
+        })
+      );
+    });
   });
 
   it('persists failed status when auto-publish cannot run without a captured API key', async () => {

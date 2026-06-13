@@ -171,7 +171,8 @@ async function runSinglePlatformUpload(
   r2ObjectKey: string,
   platformUpload: PlatformUpload,
   metadata: PlatformUploadMetadata,
-  saApiKeyByPlatformUploadId: Map<string, string>
+  saApiKeyByPlatformUploadId: Map<string, string>,
+  saCustomThumbnailUploadedByPlatformUploadId: Map<string, boolean>
 ): Promise<void> {
   try {
     await requireUpdatePlatformUploadStatus(platformUpload.id, 'uploading');
@@ -381,6 +382,13 @@ async function runSinglePlatformUpload(
       uploadResult.platformUrl,
       null
     );
+
+    if (
+      platformUpload.platform === 'sermon_audio' &&
+      uploadResult.sermonAudioCustomThumbnailUploaded === true
+    ) {
+      saCustomThumbnailUploadedByPlatformUploadId.set(platformUpload.id, true);
+    }
   } catch (error) {
     const detail = messageFromThrown(error);
     const marked = await updatePlatformUploadStatus(
@@ -431,6 +439,7 @@ export async function runDistributionInBackground(
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
   const subsetRetry = options?.subsetRetry === true;
   const saApiKeyByPlatformUploadId = new Map<string, string>();
+  const saCustomThumbnailUploadedByPlatformUploadId = new Map<string, boolean>();
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -443,7 +452,8 @@ export async function runDistributionInBackground(
           r2ObjectKey,
           platformUpload,
           meta,
-          saApiKeyByPlatformUploadId
+          saApiKeyByPlatformUploadId,
+          saCustomThumbnailUploadedByPlatformUploadId
         );
       })
     );
@@ -523,6 +533,10 @@ export async function runDistributionInBackground(
       const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
       saApiKeyByPlatformUploadId.delete(upload.id);
 
+      const customThumbnailUploaded =
+        saCustomThumbnailUploadedByPlatformUploadId.get(upload.id) === true;
+      saCustomThumbnailUploadedByPlatformUploadId.delete(upload.id);
+
       const sermonID = upload.platformVideoId.trim();
       if (!sermonID) continue;
 
@@ -555,7 +569,7 @@ export async function runDistributionInBackground(
           await pollSermonAudioProcessing({
             sermonID,
             tokens: { accessToken: apiKey },
-            customThumbnailUploaded: Boolean(meta?.thumbnailR2Key?.trim()),
+            customThumbnailUploaded,
           });
           await publishSermonAudio({
             sermonID,

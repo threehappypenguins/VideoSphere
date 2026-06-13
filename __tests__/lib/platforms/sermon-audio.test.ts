@@ -376,6 +376,9 @@ describe('uploadToSermonAudio', () => {
     });
 
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.sermonAudioCustomThumbnailUploaded).toBe(true);
+    }
     expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(fetchMock.mock.calls[3]?.[0]).toBe(
       'https://api.sermonaudio.com/v2/node/sermons/sermon-123/encoding_options'

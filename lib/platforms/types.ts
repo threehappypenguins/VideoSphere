@@ -120,5 +120,14 @@ export interface PlatformUploadError {
  * Defines the PlatformUploadResult type.
  */
 export type PlatformUploadResult =
-  | { ok: true; platformVideoId: string; platformUrl: string }
+  | {
+      ok: true;
+      platformVideoId: string;
+      platformUrl: string;
+      /**
+       * SermonAudio only: set when a custom thumbnail binary was successfully uploaded during
+       * distribute. Omitted when no thumbnail was provided or upload failed.
+       */
+      sermonAudioCustomThumbnailUploaded?: boolean;
+    }
   | { ok: false; error: PlatformUploadError };

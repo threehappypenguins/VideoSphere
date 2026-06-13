@@ -45,8 +45,10 @@ interface PollSermonAudioProcessingInput {
   tokens: PlatformUploadTokens;
   /**
    * When true, poll until transcoding completes (codec/status) because a custom thumbnail was
-   * uploaded and `thumbnailImageURL` may appear before processing finishes. When false or omitted,
-   * poll until SermonAudio generates a poster frame on any `media.video` entry.
+   * successfully uploaded during distribute; the poster may appear before encoding finishes.
+   * When false or omitted, poll until SermonAudio generates a poster frame on any `media.video`
+   * entry. Set from {@link PlatformUploadResult.sermonAudioCustomThumbnailUploaded}, not from
+   * draft metadata alone.
    */
   customThumbnailUploaded?: boolean;
   /** Delay between poll attempts in milliseconds. Defaults to {@link SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS}. */
@@ -276,6 +278,7 @@ function sermonVideoPosterIsReady(payload: unknown): boolean {
 }
 
 function sermonVideoIsReady(payload: unknown, customThumbnailUploaded: boolean): boolean {
+  // Custom thumbnail success: wait for transcoding, not SA-generated poster URL.
   return customThumbnailUploaded
     ? sermonVideoTranscodingIsReady(payload)
     : sermonVideoPosterIsReady(payload);
@@ -462,7 +465,7 @@ async function tryUploadSermonAudioThumbnailFromR2(input: {
   thumbnailR2Key: string;
   thumbnailContentType?: string;
   signal?: AbortSignal;
-}): Promise<void> {
+}): Promise<boolean> {
   const { sermonID, apiKey, thumbnailR2Key, thumbnailContentType, signal } = input;
 
   try {
@@ -472,7 +475,7 @@ async function tryUploadSermonAudioThumbnailFromR2(input: {
       console.warn(
         `[sermon-audio] Skipping custom thumbnail for sermon ${sermonID}: exceeds max size (${opened.contentLength} bytes).`
       );
-      return;
+      return false;
     }
 
     const contentType = sermonAudioThumbnailContentType(
@@ -497,12 +500,16 @@ async function tryUploadSermonAudioThumbnailFromR2(input: {
       console.warn(
         `[sermon-audio] Custom thumbnail upload failed for sermon ${sermonID} (${result.code}): ${result.message}${statusSuffix}${detailsSuffix}`
       );
+      return false;
     }
+
+    return true;
   } catch (error) {
     console.warn(
       `[sermon-audio] Could not read thumbnail from R2 for sermon ${sermonID}; skipping custom thumbnail upload:`,
       messageFromThrown(error)
     );
+    return false;
   }
 }
 
@@ -614,8 +621,9 @@ export async function uploadToSermonAudio(
     }
 
     const thumbKey = input.metadata.thumbnailR2Key?.trim();
+    let sermonAudioCustomThumbnailUploaded = false;
     if (thumbKey) {
-      await tryUploadSermonAudioThumbnailFromR2({
+      sermonAudioCustomThumbnailUploaded = await tryUploadSermonAudioThumbnailFromR2({
         sermonID,
         apiKey,
         thumbnailR2Key: thumbKey,
@@ -628,6 +636,7 @@ export async function uploadToSermonAudio(
       ok: true,
       platformVideoId: sermonID,
       platformUrl: `https://www.sermonaudio.com/sermons/${sermonID}`,
+      ...(sermonAudioCustomThumbnailUploaded ? { sermonAudioCustomThumbnailUploaded: true } : {}),
     };
   } catch (error) {
     return toError(
@@ -641,9 +650,9 @@ export async function uploadToSermonAudio(
 
 /**
  * Polls SermonAudio until sermon video processing completes.
- * Without a custom thumbnail, waits for SA-generated `thumbnailImageURL` on any `media.video` entry.
- * With a custom thumbnail, waits for transcoding (`videoCodec` or `videoMediaStatus: ready`) instead,
- * since the uploaded poster may appear before encoding finishes.
+ * Without a successfully uploaded custom thumbnail, waits for SA-generated `thumbnailImageURL`
+ * on any `media.video` entry. With one, waits for transcoding (`videoCodec` or
+ * `videoMediaStatus: ready`) instead, since the uploaded poster may appear before encoding finishes.
  * @param input - Sermon id, API key tokens, poll tuning, and optional abort signal.
  * @returns Resolves when processing is complete.
  * @throws When transcoding fails, polling is aborted, or `maxAttempts` is exceeded.
