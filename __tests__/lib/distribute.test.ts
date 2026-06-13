@@ -5,7 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { PlatformUpload } from '@/types';
 import type { PlatformUploadMetadata, PlatformUploadResult } from '@/lib/platforms/types';
-import type { uploadToSermonAudio } from '@/lib/platforms/sermon-audio';
+
+type UploadToSermonAudioFn = typeof import('@/lib/platforms/sermon-audio').uploadToSermonAudio;
 
 const mockGetObjectWebStream = vi.fn();
 const mockDeleteObject = vi.fn();
@@ -18,7 +19,7 @@ const mockUpdatePlatformUploadStatus = vi.fn();
 const mockUpdateUploadJobStatus = vi.fn();
 const mockGetUploadJobById = vi.fn();
 const mockUpdateTokens = vi.fn();
-const mockUploadToSermonAudio = vi.fn<typeof uploadToSermonAudio>();
+const mockUploadToSermonAudio = vi.fn<UploadToSermonAudioFn>();
 const mockPollSermonAudioProcessing = vi.fn();
 const mockPublishSermonAudio = vi.fn();
 
@@ -61,7 +62,7 @@ vi.mock('@/lib/platforms/vimeo', () => ({
 }));
 
 vi.mock('@/lib/platforms/sermon-audio', () => ({
-  uploadToSermonAudio: (...args: Parameters<typeof uploadToSermonAudio>) =>
+  uploadToSermonAudio: (...args: Parameters<UploadToSermonAudioFn>) =>
     mockUploadToSermonAudio(...args),
   pollSermonAudioProcessing: (...args: unknown[]) => mockPollSermonAudioProcessing(...args),
   publishSermonAudio: (...args: unknown[]) => mockPublishSermonAudio(...args),
