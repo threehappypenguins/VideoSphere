@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchVimeoAccountDefaults,
   fetchVimeoCategories,
+  fetchVimeoCategorySubcategories,
   fetchVimeoContentRatings,
   fetchVimeoCreativeCommonsLicenses,
+  fetchVimeoDraftMetadataOptions,
 } from '@/lib/platforms/vimeo-api';
 
 const SAMPLE_CONTENT_RATINGS = {
@@ -66,6 +68,7 @@ describe('fetchVimeoCategories', () => {
         const url = String(input);
         expect(url).toContain('/categories');
         expect(url).toContain('per_page=100');
+        expect(url).not.toContain('fields=');
 
         return Response.json({
           data: [
@@ -90,6 +93,47 @@ describe('fetchVimeoCategories', () => {
           uri: '/categories/animation',
           name: 'Animation',
           subcategories: [{ uri: '/categories/animation/subcategories/2d', name: '2D' }],
+          mayHaveSubcategories: true,
+        },
+      ],
+    });
+  });
+});
+
+describe('fetchVimeoCategorySubcategories', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches subcategories from the category detail endpoint', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        expect(url).toContain('/categories/brandedcontent');
+        expect(url).not.toContain('fields=');
+
+        return Response.json({
+          uri: '/categories/brandedcontent',
+          name: 'Branded Content',
+          subcategories: [
+            {
+              uri: '/categories/brandedcontent/brandeddoc',
+              name: 'Documentary',
+            },
+          ],
+        });
+      })
+    );
+
+    const result = await fetchVimeoCategorySubcategories('brandedcontent', 'token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/brandedcontent/brandeddoc',
+          name: 'Documentary',
         },
       ],
     });
@@ -221,6 +265,112 @@ describe('fetchVimeoAccountDefaults', () => {
       ok: true,
       defaults: {
         license: 'by-sa',
+      },
+    });
+  });
+
+  it('reuses pre-fetched content ratings without calling /contentratings again', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        expect(url).toContain('/me');
+        expect(url).not.toContain('/contentratings');
+
+        return Response.json({
+          preferences: {
+            videos: {
+              rating: ['safe'],
+              license: 'by-sa',
+            },
+          },
+        });
+      })
+    );
+
+    const result = await fetchVimeoAccountDefaults('token', undefined, [
+      { code: 'safe', name: 'All audiences' },
+    ]);
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      ok: true,
+      defaults: {
+        contentRating: ['safe'],
+        license: 'by-sa',
+      },
+    });
+  });
+});
+
+describe('fetchVimeoDraftMetadataOptions', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches each upstream resource once and resolves account defaults', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/contentratings')) {
+          return mockContentRatingsResponse();
+        }
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/music',
+                name: 'Music',
+                top_level: true,
+                subcategories: [
+                  { uri: '/categories/music/subcategories/videos', name: 'Music Videos' },
+                ],
+              },
+            ],
+          });
+        }
+        if (url.includes('/creativecommons')) {
+          return Response.json({
+            data: [
+              { code: 'by-nc', name: 'Attribution Non-Commercial', uri: '/creativecommons/by-nc' },
+            ],
+          });
+        }
+        expect(url).toContain('/me');
+        return Response.json({
+          preferences: {
+            videos: {
+              rating: ['safe'],
+              license: null,
+            },
+          },
+        });
+      })
+    );
+
+    const result = await fetchVimeoDraftMetadataOptions('token');
+
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    expect(result).toEqual({
+      ok: true,
+      options: {
+        contentRatings: SAMPLE_CONTENT_RATINGS.data,
+        categories: [
+          {
+            uri: '/categories/music',
+            name: 'Music',
+            mayHaveSubcategories: true,
+            subcategories: [
+              { uri: '/categories/music/subcategories/videos', name: 'Music Videos' },
+            ],
+          },
+        ],
+        licenses: [{ code: 'by-nc', name: 'Attribution Non-Commercial' }],
+        accountDefaults: {
+          contentRating: ['safe'],
+          license: null,
+        },
       },
     });
   });

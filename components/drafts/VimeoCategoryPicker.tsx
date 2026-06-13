@@ -1,10 +1,16 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { useMemo, useState, type WheelEvent } from 'react';
+import { ChevronDown, ChevronRight, Loader2, Plus } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
-  vimeoCategoryLabelForUri,
+  addVimeoCategoryUri,
+  countVimeoCategoryBatchEntries,
+  isVimeoCategoryBatchAtLimit,
+  removeVimeoCategoryUri,
+  VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES,
+  vimeoCategoryChipLabelForUri,
+  wouldAddingVimeoCategoryExceedLimit,
   type VimeoCategoryOption,
 } from '@/lib/platforms/vimeo-categories';
 import { cn } from '@/lib/utils';
@@ -15,6 +21,7 @@ import { cn } from '@/lib/utils';
  * @property value - Selected category/subcategory URIs.
  * @property categories - Category tree fetched from Vimeo.
  * @property onChange - Called when the selected URI list changes.
+ * @property onLoadSubcategories - Optional fallback when subcategories were not bundled on first load.
  * @property className - Optional border styling class for the field container.
  */
 export interface VimeoCategoryPickerProps {
@@ -22,7 +29,28 @@ export interface VimeoCategoryPickerProps {
   value: string[];
   categories: VimeoCategoryOption[];
   onChange: (next: string[]) => void;
+  onLoadSubcategories?: (categoryUri: string) => Promise<void>;
   className?: string;
+}
+
+/**
+ * Routes wheel events to a scroll container inside a modal dialog.
+ * Dialog scroll lock can swallow trackpad scrolling on portaled popovers.
+ * @param event - Wheel event on the category list container.
+ */
+function handleListWheel(event: WheelEvent<HTMLDivElement>) {
+  event.stopPropagation();
+  event.preventDefault();
+  event.currentTarget.scrollTop += event.deltaY;
+}
+
+/**
+ * Returns whether a category row should expose an expand control for subcategories.
+ * @param category - Category row from the Vimeo API.
+ * @returns True when subcategories are present or Vimeo indicates children exist.
+ */
+function categoryShowsSubcategoryToggle(category: VimeoCategoryOption): boolean {
+  return category.subcategories.length > 0 || category.mayHaveSubcategories === true;
 }
 
 /**
@@ -35,36 +63,66 @@ export function VimeoCategoryPicker({
   value,
   categories,
   onChange,
+  onLoadSubcategories,
   className,
 }: VimeoCategoryPickerProps) {
   const [open, setOpen] = useState(false);
   const [expandedUris, setExpandedUris] = useState<Set<string>>(() => new Set());
+  const [loadingSubcategoryUris, setLoadingSubcategoryUris] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const selectedSet = useMemo(() => new Set(value), [value]);
+  const batchEntryCount = useMemo(() => countVimeoCategoryBatchEntries(value), [value]);
+  const atLimit = isVimeoCategoryBatchAtLimit(value);
 
-  const toggleExpanded = (uri: string) => {
-    setExpandedUris((prev) => {
-      const next = new Set(prev);
-      if (next.has(uri)) {
-        next.delete(uri);
-      } else {
-        next.add(uri);
+  const toggleExpanded = async (category: VimeoCategoryOption) => {
+    if (expandedUris.has(category.uri)) {
+      setExpandedUris((prev) => {
+        const next = new Set(prev);
+        next.delete(category.uri);
+        return next;
+      });
+      return;
+    }
+
+    if (
+      category.subcategories.length === 0 &&
+      category.mayHaveSubcategories === true &&
+      onLoadSubcategories
+    ) {
+      setLoadingSubcategoryUris((prev) => new Set(prev).add(category.uri));
+      try {
+        await onLoadSubcategories(category.uri);
+      } finally {
+        setLoadingSubcategoryUris((prev) => {
+          const next = new Set(prev);
+          next.delete(category.uri);
+          return next;
+        });
       }
-      return next;
-    });
+    }
+
+    setExpandedUris((prev) => new Set(prev).add(category.uri));
   };
 
   const toggleSelected = (uri: string) => {
     if (selectedSet.has(uri)) {
-      onChange(value.filter((existing) => existing !== uri));
+      onChange(removeVimeoCategoryUri(value, uri, categories));
       return;
     }
-    onChange([...value, uri]);
+    if (wouldAddingVimeoCategoryExceedLimit(value, uri, categories)) {
+      return;
+    }
+    onChange(addVimeoCategoryUri(value, uri, categories));
   };
 
   const removeSelected = (uri: string) => {
-    onChange(value.filter((existing) => existing !== uri));
+    onChange(removeVimeoCategoryUri(value, uri, categories));
   };
+
+  const isOptionDisabled = (uri: string, selected: boolean) =>
+    !selected && wouldAddingVimeoCategoryExceedLimit(value, uri, categories);
 
   return (
     <div
@@ -77,25 +135,29 @@ export function VimeoCategoryPicker({
             key={uri}
             className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
           >
-            {vimeoCategoryLabelForUri(uri, categories)}
+            {vimeoCategoryChipLabelForUri(uri, categories)}
             <button
               type="button"
               onClick={() => removeSelected(uri)}
               className="text-muted-foreground hover:text-foreground"
-              aria-label={`Remove ${vimeoCategoryLabelForUri(uri, categories)} category`}
+              aria-label={`Remove ${vimeoCategoryChipLabelForUri(uri, categories)} category`}
             >
               x
             </button>
           </span>
         ))}
 
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={setOpen} modal={false}>
           <PopoverTrigger asChild>
             <button
               type="button"
               id={id}
               aria-label="Add Vimeo category"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground hover:text-foreground"
+              aria-disabled={atLimit}
+              className={cn(
+                'inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground hover:text-foreground',
+                atLimit && 'cursor-not-allowed opacity-50 hover:text-muted-foreground'
+              )}
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -105,32 +167,42 @@ export function VimeoCategoryPicker({
             className="w-80 p-0"
             onOpenAutoFocus={(event) => event.preventDefault()}
           >
+            <p className="border-b border-border px-3 py-2 text-xs text-muted-foreground">
+              {batchEntryCount} / {VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES} category slots used.
+              Subcategories count as both the parent category and the subcategory.
+            </p>
             <div
               role="listbox"
               aria-multiselectable="true"
               aria-labelledby={id}
-              className="max-h-64 overflow-y-auto py-1"
+              className="scrollbar-visible max-h-64 overflow-y-auto overscroll-y-contain py-1"
+              onWheel={handleListWheel}
             >
               {categories.length === 0 ? (
                 <p className="px-3 py-2 text-sm text-muted-foreground">No categories available.</p>
               ) : (
                 categories.map((category) => {
                   const hasSubcategories = category.subcategories.length > 0;
+                  const showSubcategoryToggle = categoryShowsSubcategoryToggle(category);
                   const expanded = expandedUris.has(category.uri);
+                  const loadingSubcategories = loadingSubcategoryUris.has(category.uri);
                   const categorySelected = selectedSet.has(category.uri);
+                  const categoryDisabled = isOptionDisabled(category.uri, categorySelected);
 
                   return (
                     <div key={category.uri}>
                       <div className="flex items-center gap-1 px-1">
-                        {hasSubcategories ? (
+                        {showSubcategoryToggle ? (
                           <button
                             type="button"
-                            onClick={() => toggleExpanded(category.uri)}
+                            onClick={() => void toggleExpanded(category)}
                             className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
                             aria-expanded={expanded}
                             aria-label={`${expanded ? 'Collapse' : 'Expand'} ${category.name} subcategories`}
                           >
-                            {expanded ? (
+                            {loadingSubcategories ? (
+                              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            ) : expanded ? (
                               <ChevronDown className="h-4 w-4" />
                             ) : (
                               <ChevronRight className="h-4 w-4" />
@@ -139,37 +211,56 @@ export function VimeoCategoryPicker({
                         ) : (
                           <span className="inline-block h-7 w-7 shrink-0" aria-hidden="true" />
                         )}
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={categorySelected}
-                          onClick={() => toggleSelected(category.uri)}
+                        <label
                           className={cn(
-                            'flex min-h-7 flex-1 items-center rounded-md px-2 text-left text-sm hover:bg-muted',
-                            categorySelected && 'bg-muted font-medium text-foreground'
+                            'flex min-h-7 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted',
+                            categorySelected && 'bg-muted font-medium text-foreground',
+                            categoryDisabled && 'cursor-not-allowed opacity-50 hover:bg-transparent'
                           )}
                         >
-                          {category.name}
-                        </button>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0"
+                            checked={categorySelected}
+                            disabled={categoryDisabled}
+                            onChange={() => toggleSelected(category.uri)}
+                          />
+                          <span>{category.name}</span>
+                        </label>
                       </div>
 
-                      {hasSubcategories && expanded
+                      {expanded && loadingSubcategories ? (
+                        <p className="px-3 py-2 pl-10 text-sm text-muted-foreground">
+                          Loading subcategories…
+                        </p>
+                      ) : null}
+
+                      {expanded && !loadingSubcategories && hasSubcategories
                         ? category.subcategories.map((subcategory) => {
                             const subcategorySelected = selectedSet.has(subcategory.uri);
+                            const subcategoryDisabled = isOptionDisabled(
+                              subcategory.uri,
+                              subcategorySelected
+                            );
                             return (
-                              <button
+                              <label
                                 key={subcategory.uri}
-                                type="button"
-                                role="option"
-                                aria-selected={subcategorySelected}
-                                onClick={() => toggleSelected(subcategory.uri)}
                                 className={cn(
-                                  'flex min-h-7 w-full items-center rounded-md py-1 pl-10 pr-2 text-left text-sm hover:bg-muted',
-                                  subcategorySelected && 'bg-muted font-medium text-foreground'
+                                  'flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-md py-1 pl-10 pr-2 text-sm hover:bg-muted',
+                                  subcategorySelected && 'bg-muted font-medium text-foreground',
+                                  subcategoryDisabled &&
+                                    'cursor-not-allowed opacity-50 hover:bg-transparent'
                                 )}
                               >
-                                {subcategory.name}
-                              </button>
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 shrink-0"
+                                  checked={subcategorySelected}
+                                  disabled={subcategoryDisabled}
+                                  onChange={() => toggleSelected(subcategory.uri)}
+                                />
+                                <span>{subcategory.name}</span>
+                              </label>
                             );
                           })
                         : null}

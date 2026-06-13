@@ -17,6 +17,7 @@ vi.mock('@/lib/platforms/token-refresh', () => ({
   refreshTokenIfNeeded: (...args: unknown[]) => mockRefreshTokenIfNeeded(...args),
 }));
 
+import { GET as getMetadataOptions } from '@/app/api/platforms/vimeo/metadata-options/route';
 import { GET as getCategories } from '@/app/api/platforms/vimeo/categories/route';
 import { GET as getContentRatings } from '@/app/api/platforms/vimeo/content-ratings/route';
 import { GET as getLicenses } from '@/app/api/platforms/vimeo/licenses/route';
@@ -98,7 +99,16 @@ describe('Vimeo platform metadata routes', () => {
 
   it('returns top-level categories with cache header', async () => {
     vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
-      expect(String(input)).toContain('/categories');
+      const url = String(input);
+      if (url.includes('/categories/music') && !url.includes('/categories?')) {
+        return new Response(
+          JSON.stringify({ uri: '/categories/music', name: 'Music', subcategories: [] }),
+          {
+            status: 200,
+          }
+        );
+      }
+      expect(url).toContain('/categories');
       return new Response(
         JSON.stringify({
           data: [{ uri: '/categories/music', name: 'Music', top_level: true }],
@@ -112,7 +122,9 @@ describe('Vimeo platform metadata routes', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('private, max-age=86400');
     expect(await res.json()).toEqual({
-      data: [{ uri: '/categories/music', name: 'Music', subcategories: [] }],
+      data: [
+        { uri: '/categories/music', name: 'Music', subcategories: [], mayHaveSubcategories: false },
+      ],
     });
   });
 
@@ -180,6 +192,90 @@ describe('Vimeo platform metadata routes', () => {
       data: {
         contentRating: ['safe'],
         license: null,
+      },
+    });
+  });
+
+  it('returns bundled draft metadata options with one upstream fetch per resource', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/contentratings')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { code: 'safe', name: 'All audiences' },
+              { code: 'violence', name: 'Violence' },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes('/categories?')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                uri: '/categories/music',
+                name: 'Music',
+                top_level: true,
+                subcategories: [
+                  { uri: '/categories/music/subcategories/videos', name: 'Music Videos' },
+                ],
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (url.includes('/creativecommons')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { code: 'by-nc', name: 'Attribution Non-Commercial', uri: '/creativecommons/by-nc' },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      expect(url).toContain('/me');
+      return new Response(
+        JSON.stringify({
+          preferences: {
+            videos: {
+              rating: ['safe'],
+              license: 'by-sa',
+            },
+          },
+        }),
+        { status: 200 }
+      );
+    });
+
+    const res = await getMetadataOptions(makeRequest('/api/platforms/vimeo/metadata-options'));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(4);
+    expect(await res.json()).toEqual({
+      data: {
+        contentRatings: [
+          { code: 'safe', name: 'All audiences' },
+          { code: 'violence', name: 'Violence' },
+        ],
+        categories: [
+          {
+            uri: '/categories/music',
+            name: 'Music',
+            mayHaveSubcategories: true,
+            subcategories: [
+              { uri: '/categories/music/subcategories/videos', name: 'Music Videos' },
+            ],
+          },
+        ],
+        licenses: [{ code: 'by-nc', name: 'Attribution Non-Commercial' }],
+        accountDefaults: {
+          contentRating: ['safe'],
+          license: 'by-sa',
+        },
       },
     });
   });

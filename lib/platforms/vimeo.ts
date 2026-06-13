@@ -1,5 +1,10 @@
 import { vimeoContentRatingForUpload } from '@/lib/platforms/vimeo-content-rating';
 import {
+  buildVimeoCategoryBatchSlugsFromUris,
+  parseVimeoCategorySlugs,
+  VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES,
+} from '@/lib/platforms/vimeo-categories';
+import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
@@ -161,32 +166,7 @@ const vimeoCategorySuggestHeaders = (accessToken: string) => ({
  *
  * @see https://developer.vimeo.com/api/common-formats#working-with-batch-requests
  */
-function parseVimeoCategorySlugs(categoryUriOrSlug: string): string[] | null {
-  const s = categoryUriOrSlug.trim();
-  if (!s) return null;
-
-  const sub = s.match(/\/categories\/([^/]+)\/subcategories\/([^/?#]+)/i);
-  if (sub) return [sub[1], sub[2]];
-
-  const top = s.match(/\/categories\/([^/?#]+)/i);
-  if (top) return [top[1]];
-
-  try {
-    const path = new URL(s).pathname;
-    const subU = path.match(/\/categories\/([^/]+)\/subcategories\/([^/?#]+)/i);
-    if (subU) return [subU[1], subU[2]];
-    const topU = path.match(/\/categories\/([^/?#]+)/i);
-    if (topU) return [topU[1]];
-  } catch {
-    /* not an absolute URL */
-  }
-
-  if (!s.includes('/') && !s.toLowerCase().startsWith('http')) {
-    return [s];
-  }
-
-  return null;
-}
+export { parseVimeoCategorySlugs };
 
 /**
  * Builds the Vimeo category suggest batch body from one or more stored category URIs.
@@ -196,15 +176,11 @@ function parseVimeoCategorySlugs(categoryUriOrSlug: string): string[] | null {
 export function buildVimeoCategorySuggestBatchBodyFromUris(
   categoryUris: readonly string[]
 ): { category: string }[] | null {
-  const batch: { category: string }[] = [];
-  for (const categoryUri of categoryUris) {
-    const slugs = parseVimeoCategorySlugs(categoryUri);
-    if (!slugs?.length) continue;
-    for (const slug of slugs) {
-      batch.push({ category: slug });
-    }
+  const slugs = buildVimeoCategoryBatchSlugsFromUris(categoryUris);
+  if (slugs.length === 0) {
+    return null;
   }
-  return batch.length > 0 ? batch : null;
+  return slugs.map((category) => ({ category }));
 }
 
 /** Batch body for a single category URI; exported for unit tests. */
@@ -755,6 +731,12 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
         return toError(
           'VIMEO_CATEGORY_INVALID',
           'Invalid platforms.vimeo.categoryUris: use slugs (e.g. "animation"), paths like "/categories/animation", subcategory paths like "/categories/animation/subcategories/2d", or full vimeo.com category URLs.'
+        );
+      }
+      if (batchBody.length > VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES) {
+        return toError(
+          'VIMEO_CATEGORY_LIMIT',
+          `Too many Vimeo categories selected (${batchBody.length}). Vimeo accepts up to ${VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES} categories and subcategories combined. Subcategories count as both the parent category and the subcategory.`
         );
       }
       const catRes = await fetch(`https://api.vimeo.com/${videoBasePath}/categories`, {

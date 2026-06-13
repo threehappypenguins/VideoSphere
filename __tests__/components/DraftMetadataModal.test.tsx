@@ -30,6 +30,47 @@ vi.mock('next/image', () => ({
   ),
 }));
 
+function mockVimeoMetadataOptionsResponse() {
+  return {
+    ok: true,
+    json: async () => ({
+      data: {
+        contentRatings: [
+          { code: 'safe', name: 'All audiences' },
+          { code: 'violence', name: 'Violence' },
+          { code: 'language', name: 'Language' },
+          { code: 'unrated', name: 'Not Yet Rated' },
+        ],
+        categories: [{ uri: '/categories/documentary', name: 'Documentary', subcategories: [] }],
+        licenses: [
+          { code: 'by-nc', name: 'Attribution Non-Commercial' },
+          { code: 'by-sa', name: 'Attribution Share Alike' },
+        ],
+        accountDefaults: {
+          contentRating: ['safe'],
+          license: null,
+        },
+      },
+    }),
+  } as Response;
+}
+
+function mockFetchWithVimeoMetadataOptions(
+  handler?: (url: string) => Response | Promise<Response> | undefined
+) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/api/platforms/vimeo/metadata-options')) {
+      return mockVimeoMetadataOptionsResponse();
+    }
+    const custom = handler?.(url);
+    if (custom) {
+      return custom;
+    }
+    return { ok: true, json: async () => ({ data: [] }) } as Response;
+  });
+}
+
 vi.mock('sonner', () => ({
   toast: {
     success: vi.fn(),
@@ -342,10 +383,7 @@ describe('DraftMetadataModal shared metadata overrides', () => {
   }
 
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }) as Response)
-    );
+    vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
   });
 
   afterEach(() => {
@@ -420,10 +458,7 @@ describe('DraftMetadataModal shared metadata overrides', () => {
 
 describe('DraftMetadataModal privacy field', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }) as Response)
-    );
+    vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
   });
 
   afterEach(() => {
@@ -561,45 +596,28 @@ describe('DraftMetadataModal YouTube fields', () => {
             }),
           } as Response;
         }
-        if (url.includes('/api/platforms/vimeo/content-ratings')) {
-          return {
-            ok: true,
-            json: async () => ({
-              data: [
-                { code: 'safe', name: 'All audiences' },
-                { code: 'violence', name: 'Violence' },
-                { code: 'language', name: 'Language' },
-                { code: 'unrated', name: 'Not Yet Rated' },
-              ],
-            }),
-          } as Response;
-        }
-        if (url.includes('/api/platforms/vimeo/categories')) {
-          return {
-            ok: true,
-            json: async () => ({
-              data: [{ uri: '/categories/documentary', name: 'Documentary', subcategories: [] }],
-            }),
-          } as Response;
-        }
-        if (url.includes('/api/platforms/vimeo/licenses')) {
-          return {
-            ok: true,
-            json: async () => ({
-              data: [
-                { code: 'by-nc', name: 'Attribution Non-Commercial' },
-                { code: 'by-sa', name: 'Attribution Share Alike' },
-              ],
-            }),
-          } as Response;
-        }
-        if (url.includes('/api/platforms/vimeo/me')) {
+        if (url.includes('/api/platforms/vimeo/metadata-options')) {
           return {
             ok: true,
             json: async () => ({
               data: {
-                contentRating: ['safe'],
-                license: null,
+                contentRatings: [
+                  { code: 'safe', name: 'All audiences' },
+                  { code: 'violence', name: 'Violence' },
+                  { code: 'language', name: 'Language' },
+                  { code: 'unrated', name: 'Not Yet Rated' },
+                ],
+                categories: [
+                  { uri: '/categories/documentary', name: 'Documentary', subcategories: [] },
+                ],
+                licenses: [
+                  { code: 'by-nc', name: 'Attribution Non-Commercial' },
+                  { code: 'by-sa', name: 'Attribution Share Alike' },
+                ],
+                accountDefaults: {
+                  contentRating: ['safe'],
+                  license: null,
+                },
               },
             }),
           } as Response;
@@ -1196,45 +1214,28 @@ describe('DraftMetadataModal Vimeo fields', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        if (url.includes('/api/platforms/vimeo/content-ratings')) {
-          return {
-            ok: true,
-            json: async () => ({
-              data: [
-                { code: 'safe', name: 'All audiences' },
-                { code: 'violence', name: 'Violence' },
-                { code: 'language', name: 'Language' },
-                { code: 'unrated', name: 'Not Yet Rated' },
-              ],
-            }),
-          } as Response;
-        }
-        if (url.includes('/api/platforms/vimeo/categories')) {
-          return {
-            ok: true,
-            json: async () => ({
-              data: [{ uri: '/categories/documentary', name: 'Documentary', subcategories: [] }],
-            }),
-          } as Response;
-        }
-        if (url.includes('/api/platforms/vimeo/licenses')) {
-          return {
-            ok: true,
-            json: async () => ({
-              data: [
-                { code: 'by-nc', name: 'Attribution Non-Commercial' },
-                { code: 'by-sa', name: 'Attribution Share Alike' },
-              ],
-            }),
-          } as Response;
-        }
-        if (url.includes('/api/platforms/vimeo/me')) {
+        if (url.includes('/api/platforms/vimeo/metadata-options')) {
           return {
             ok: true,
             json: async () => ({
               data: {
-                contentRating: ['safe'],
-                license: 'by-nc',
+                contentRatings: [
+                  { code: 'safe', name: 'All audiences' },
+                  { code: 'violence', name: 'Violence' },
+                  { code: 'language', name: 'Language' },
+                  { code: 'unrated', name: 'Not Yet Rated' },
+                ],
+                categories: [
+                  { uri: '/categories/documentary', name: 'Documentary', subcategories: [] },
+                ],
+                licenses: [
+                  { code: 'by-nc', name: 'Attribution Non-Commercial' },
+                  { code: 'by-sa', name: 'Attribution Share Alike' },
+                ],
+                accountDefaults: {
+                  contentRating: ['safe'],
+                  license: 'by-nc',
+                },
               },
             }),
           } as Response;

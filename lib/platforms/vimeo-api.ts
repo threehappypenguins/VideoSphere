@@ -13,6 +13,10 @@ import {
 } from '@/lib/platforms/vimeo-content-rating';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import type { VimeoCategoryOption } from '@/lib/platforms/vimeo-categories';
+import {
+  isVimeoSubcategoryUri,
+  vimeoParentCategoryUriForSubcategoryUri,
+} from '@/lib/platforms/vimeo-categories';
 import { isVimeoVideoLicenseCode, type VimeoLicenseOption } from '@/lib/platforms/vimeo-licenses';
 import type { ApiError } from '@/types';
 
@@ -131,6 +135,368 @@ function unwrapVimeoDataArray<T>(body: unknown): T[] {
   return [];
 }
 
+type VimeoCategoryApiRow = {
+  uri?: string;
+  name?: string;
+  top_level?: boolean;
+  parent?: { uri?: string; name?: string };
+  subcategories?: Array<{ uri?: string; name?: string; top_level?: boolean }>;
+};
+
+function normalizeVimeoSubcategoryRow(row: {
+  uri?: string;
+  name?: string;
+  top_level?: boolean;
+}): { uri: string; name: string } | null {
+  const uri = typeof row.uri === 'string' ? row.uri.trim() : '';
+  const name = typeof row.name === 'string' ? row.name.trim() : '';
+  if (!uri || !name || row.top_level === true) {
+    return null;
+  }
+  if (row.top_level === false || isVimeoSubcategoryUri(uri)) {
+    return { uri, name };
+  }
+  return null;
+}
+
+function vimeoCategorySlugFromUri(uri: string): string | null {
+  const match = uri.trim().match(/^\/categories\/([^/?#]+)/i);
+  return match?.[1] ?? null;
+}
+
+function collectParentUrisWithChildren(rows: VimeoCategoryApiRow[]): Set<string> {
+  const parents = new Set<string>();
+
+  for (const row of rows) {
+    const uri = typeof row.uri === 'string' ? row.uri.trim() : '';
+    if (!uri) {
+      continue;
+    }
+
+    if (Array.isArray(row.subcategories) && row.subcategories.length > 0) {
+      parents.add(uri);
+    }
+
+    const parentUri = typeof row.parent?.uri === 'string' ? row.parent.uri.trim() : '';
+    if (parentUri && row.top_level === false) {
+      parents.add(parentUri);
+    }
+
+    if (row.top_level === false && isVimeoSubcategoryUri(uri)) {
+      const inferredParent = vimeoParentCategoryUriForSubcategoryUri(uri);
+      if (inferredParent) {
+        parents.add(inferredParent);
+      }
+    }
+  }
+
+  return parents;
+}
+
+function extractSubcategoriesForParentFromRows(
+  rows: VimeoCategoryApiRow[],
+  parentUri: string,
+  parentSlug: string
+): Array<{ uri: string; name: string }> {
+  const subsByUri = new Map<string, { uri: string; name: string }>();
+  const parentPrefix = `/categories/${parentSlug}/`;
+
+  const addSub = (sub: { uri: string; name: string } | null) => {
+    if (sub) {
+      subsByUri.set(sub.uri, sub);
+    }
+  };
+
+  for (const row of rows) {
+    const uri = typeof row.uri === 'string' ? row.uri.trim() : '';
+    const name = typeof row.name === 'string' ? row.name.trim() : '';
+
+    if (uri === parentUri && Array.isArray(row.subcategories)) {
+      for (const subcategoryRow of row.subcategories) {
+        addSub(
+          normalizeVimeoSubcategoryRow({
+            uri: subcategoryRow.uri,
+            name: subcategoryRow.name,
+            top_level: false,
+          })
+        );
+      }
+    }
+
+    if (!uri || !name || row.top_level === true || uri === parentUri) {
+      continue;
+    }
+
+    const rowParentUri = typeof row.parent?.uri === 'string' ? row.parent.uri.trim() : '';
+    if (rowParentUri === parentUri || (uri.startsWith(parentPrefix) && uri !== parentUri)) {
+      addSub(normalizeVimeoSubcategoryRow({ uri, name, top_level: false }));
+    }
+  }
+
+  return [...subsByUri.values()].sort((a, b) => a.name.localeCompare(b.name, 'en'));
+}
+
+function parseSubcategoriesFromCategoryBody(
+  body: VimeoCategoryApiRow
+): Array<{ uri: string; name: string }> {
+  if (!Array.isArray(body.subcategories)) {
+    return [];
+  }
+
+  return body.subcategories
+    .map((subcategory) =>
+      normalizeVimeoSubcategoryRow({
+        uri: subcategory.uri,
+        name: subcategory.name,
+        top_level: false,
+      })
+    )
+    .filter((subcategory): subcategory is { uri: string; name: string } => subcategory !== null)
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
+}
+
+function addSubcategoryToCategoryMap(
+  categoriesByUri: Map<string, VimeoCategoryOption>,
+  parentUri: string,
+  parentName: string | undefined,
+  subcategory: { uri: string; name: string }
+) {
+  let category = categoriesByUri.get(parentUri);
+  if (!category) {
+    category = {
+      uri: parentUri,
+      name: parentName?.trim() || vimeoCategorySlugFromUri(parentUri) || parentUri,
+      subcategories: [],
+    };
+    categoriesByUri.set(parentUri, category);
+  } else if (parentName?.trim()) {
+    category.name = parentName.trim();
+  }
+
+  if (category.subcategories.some((existing) => existing.uri === subcategory.uri)) {
+    return;
+  }
+
+  category.subcategories.push(subcategory);
+}
+
+function buildVimeoCategoryTreeFromRows(rows: VimeoCategoryApiRow[]): VimeoCategoryOption[] {
+  const categoriesByUri = new Map<string, VimeoCategoryOption>();
+  const parentUrisWithChildren = collectParentUrisWithChildren(rows);
+
+  for (const row of rows) {
+    const uri = typeof row.uri === 'string' ? row.uri.trim() : '';
+    const name = typeof row.name === 'string' ? row.name.trim() : '';
+    if (!uri || !name || row.top_level !== true || isVimeoSubcategoryUri(uri)) {
+      continue;
+    }
+
+    const existing = categoriesByUri.get(uri);
+    categoriesByUri.set(uri, {
+      uri,
+      name,
+      subcategories: existing?.subcategories ?? [],
+      mayHaveSubcategories: parentUrisWithChildren.has(uri),
+    });
+
+    if (Array.isArray(row.subcategories)) {
+      for (const subcategoryRow of row.subcategories) {
+        const subcategory = normalizeVimeoSubcategoryRow({
+          uri: subcategoryRow.uri,
+          name: subcategoryRow.name,
+          top_level: false,
+        });
+        if (subcategory) {
+          addSubcategoryToCategoryMap(categoriesByUri, uri, name, subcategory);
+        }
+      }
+    }
+  }
+
+  for (const row of rows) {
+    const uri = typeof row.uri === 'string' ? row.uri.trim() : '';
+    const name = typeof row.name === 'string' ? row.name.trim() : '';
+    if (!uri || !name || row.top_level === true) {
+      continue;
+    }
+
+    const parentUri =
+      typeof row.parent?.uri === 'string'
+        ? row.parent.uri.trim()
+        : (vimeoParentCategoryUriForSubcategoryUri(uri) ?? undefined);
+    const parentName = typeof row.parent?.name === 'string' ? row.parent.name.trim() : undefined;
+
+    const subcategory = normalizeVimeoSubcategoryRow({ uri, name, top_level: false });
+    if (!subcategory || !parentUri) {
+      continue;
+    }
+
+    addSubcategoryToCategoryMap(categoriesByUri, parentUri, parentName, subcategory);
+  }
+
+  return [...categoriesByUri.values()]
+    .map((category) => ({
+      ...category,
+      subcategories: [...category.subcategories].sort((a, b) => a.name.localeCompare(b.name, 'en')),
+      mayHaveSubcategories:
+        category.subcategories.length > 0 || parentUrisWithChildren.has(category.uri),
+    }))
+    .filter((category) => category.uri.length > 0 && category.name.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
+}
+
+async function mapWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) {
+    return;
+  }
+
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      await mapper(items[index]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+}
+
+/**
+ * Loads subcategories from `GET /categories/{slug}` for top-level categories still missing children.
+ * Vimeo's category list often omits nested subcategories until the category detail is fetched.
+ * @param categories - Top-level categories built from the paginated list response.
+ * @param accessToken - OAuth access token with Vimeo read scope.
+ * @param signal - Optional abort signal.
+ * @returns Categories with subcategories and `mayHaveSubcategories` filled in.
+ */
+async function fillMissingSubcategoriesFromDetail(
+  categories: VimeoCategoryOption[],
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<VimeoCategoryOption[]> {
+  const needingDetail = categories.filter((category) => category.subcategories.length === 0);
+  if (needingDetail.length === 0) {
+    return categories;
+  }
+
+  const byUri = new Map(categories.map((category) => [category.uri, { ...category }]));
+
+  await mapWithConcurrency(needingDetail, 4, async (category) => {
+    const slug = vimeoCategorySlugFromUri(category.uri);
+    if (!slug) {
+      return;
+    }
+
+    const detailRes = await fetch(`${VIMEO_API_BASE}/categories/${encodeURIComponent(slug)}`, {
+      headers: vimeoAuthHeaders(accessToken),
+      ...(signal ? { signal } : {}),
+    });
+    if (!detailRes.ok) {
+      return;
+    }
+
+    const subs = parseSubcategoriesFromCategoryBody(
+      (await detailRes.json().catch(() => ({}))) as VimeoCategoryApiRow
+    );
+    const current = byUri.get(category.uri);
+    if (!current) {
+      return;
+    }
+
+    byUri.set(category.uri, {
+      ...current,
+      subcategories: subs,
+      mayHaveSubcategories: subs.length > 0,
+    });
+  });
+
+  return [...byUri.values()]
+    .map((category) => ({
+      ...category,
+      mayHaveSubcategories:
+        category.mayHaveSubcategories === true || category.subcategories.length > 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
+}
+
+/**
+ * Fetches subcategories for one top-level Vimeo category (`GET /categories/{category}`).
+ * @param categorySlug - Top-level category slug (e.g. `brandedcontent`).
+ * @param accessToken - OAuth access token with Vimeo read scope.
+ * @param signal - Optional abort signal.
+ * @returns Subcategory URI/name rows, or upstream error details.
+ */
+export async function fetchVimeoCategorySubcategories(
+  categorySlug: string,
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<
+  { ok: true; items: Array<{ uri: string; name: string }> } | { ok: false; details: string }
+> {
+  const slug = categorySlug.trim();
+  if (!slug) {
+    return { ok: false, details: 'Category slug is required.' };
+  }
+
+  const parentUri = `/categories/${slug}`;
+  const detailRes = await fetch(`${VIMEO_API_BASE}/categories/${encodeURIComponent(slug)}`, {
+    headers: vimeoAuthHeaders(accessToken),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!detailRes.ok) {
+    return { ok: false, details: await readVimeoApiErrorDetails(detailRes) };
+  }
+
+  const detailBody = (await detailRes.json().catch(() => ({}))) as VimeoCategoryApiRow;
+  let items = parseSubcategoriesFromCategoryBody(detailBody);
+
+  if (items.length === 0) {
+    const rows = await fetchAllVimeoCategoryRows(accessToken, signal);
+    items = extractSubcategoriesForParentFromRows(rows, parentUri, slug);
+  }
+
+  return { ok: true, items };
+}
+
+async function fetchAllVimeoCategoryRows(
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<VimeoCategoryApiRow[]> {
+  const authHeaders = vimeoAuthHeaders(accessToken);
+  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
+  const rows: VimeoCategoryApiRow[] = [];
+
+  let nextUrl: string | null = `${VIMEO_API_BASE}/categories?${new URLSearchParams({
+    per_page: '100',
+    sort: 'name',
+    direction: 'asc',
+  }).toString()}`;
+
+  while (nextUrl) {
+    const res = await fetch(nextUrl, fetchInit);
+    if (!res.ok) {
+      throw new Error(await readVimeoApiErrorDetails(res));
+    }
+
+    const body = await res.json().catch(() => ({}));
+    rows.push(...unwrapVimeoDataArray<VimeoCategoryApiRow>(body));
+
+    const pagingNext =
+      isPlainObject(body) && isPlainObject(body.paging) && typeof body.paging.next === 'string'
+        ? body.paging.next
+        : null;
+    nextUrl = pagingNext?.trim() ? pagingNext : null;
+  }
+
+  return rows;
+}
+
 /**
  * Fetches all Vimeo content ratings (`GET /contentratings`).
  * @param accessToken - OAuth access token with Vimeo read scope.
@@ -171,47 +537,18 @@ export async function fetchVimeoCategories(
   accessToken: string,
   signal?: AbortSignal
 ): Promise<{ ok: true; items: VimeoCategoryOption[] } | { ok: false; details: string }> {
-  const url = new URL(`${VIMEO_API_BASE}/categories`);
-  url.searchParams.set('per_page', '100');
-  url.searchParams.set('sort', 'name');
-  url.searchParams.set('direction', 'asc');
-
-  const res = await fetch(url.toString(), {
-    headers: vimeoAuthHeaders(accessToken),
-    ...(signal ? { signal } : {}),
-  });
-
-  if (!res.ok) {
-    return { ok: false, details: await readVimeoApiErrorDetails(res) };
+  try {
+    const rows = await fetchAllVimeoCategoryRows(accessToken, signal);
+    const tree = buildVimeoCategoryTreeFromRows(rows);
+    const items = await fillMissingSubcategoriesFromDetail(tree, accessToken, signal);
+    return { ok: true, items };
+  } catch (err) {
+    const details =
+      err instanceof Error && err.message.trim() !== ''
+        ? err.message.trim()
+        : 'Failed to load Vimeo categories.';
+    return { ok: false, details };
   }
-
-  const body = await res.json().catch(() => ({}));
-  const items = unwrapVimeoDataArray<{
-    uri?: string;
-    name?: string;
-    top_level?: boolean;
-    subcategories?: Array<{ uri?: string; name?: string }>;
-  }>(body)
-    .filter((item) => item.top_level === true)
-    .map((item) => {
-      const uri = typeof item.uri === 'string' ? item.uri.trim() : '';
-      const name = typeof item.name === 'string' ? item.name.trim() : '';
-      const subcategories = Array.isArray(item.subcategories)
-        ? item.subcategories
-            .map((subcategory) => ({
-              uri: typeof subcategory.uri === 'string' ? subcategory.uri.trim() : '',
-              name: typeof subcategory.name === 'string' ? subcategory.name.trim() : '',
-            }))
-            .filter((subcategory) => subcategory.uri.length > 0 && subcategory.name.length > 0)
-            .sort((a, b) => a.name.localeCompare(b.name, 'en'))
-        : [];
-
-      return { uri, name, subcategories };
-    })
-    .filter((item) => item.uri.length > 0 && item.name.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
-
-  return { ok: true, items };
 }
 
 /**
@@ -249,24 +586,114 @@ export async function fetchVimeoCreativeCommonsLicenses(
   return { ok: true, items };
 }
 
+/** Draft metadata option bundle for the Vimeo card in the draft metadata modal. */
+export interface VimeoDraftMetadataOptions {
+  /** Content rating rows from `GET /contentratings`. */
+  contentRatings: VimeoContentRatingOption[];
+  /** Category tree from `GET /categories`. */
+  categories: VimeoCategoryOption[];
+  /** Creative Commons license rows from `GET /creativecommons`. */
+  licenses: VimeoLicenseOption[];
+  /** Upload defaults resolved from `GET /me` plus content ratings. */
+  accountDefaults: VimeoAccountDefaults;
+}
+
+function buildVimeoAccountDefaultsFromMeBody(
+  body: Record<string, unknown>,
+  contentRatings: VimeoContentRatingOption[]
+): VimeoAccountDefaults {
+  const defaults: VimeoAccountDefaults = {};
+
+  const userDefaultCodes = readMeDefaultContentRatingCodes(body);
+  const resolvedContentRating = resolveVimeoAccountContentRatingDefault(
+    userDefaultCodes,
+    contentRatings
+  );
+  if (resolvedContentRating !== undefined) {
+    defaults.contentRating = resolvedContentRating;
+  }
+
+  const license = readMeDefaultLicense(body);
+  if (license !== undefined) {
+    defaults.license = license;
+  }
+
+  return defaults;
+}
+
+/**
+ * Fetches all Vimeo draft metadata options in one pass so each upstream resource is requested once.
+ * @param accessToken - OAuth access token with Vimeo read scope.
+ * @param signal - Optional abort signal.
+ * @returns Draft metadata bundle for the Vimeo card, or upstream error details.
+ */
+export async function fetchVimeoDraftMetadataOptions(
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; options: VimeoDraftMetadataOptions } | { ok: false; details: string }> {
+  const authHeaders = vimeoAuthHeaders(accessToken);
+  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
+  const meUrl = new URL(`${VIMEO_API_BASE}/me`);
+  meUrl.searchParams.set('fields', VIMEO_ME_UPLOAD_DEFAULT_FIELDS);
+
+  const [ratingsResult, categoriesResult, licensesResult, meRes] = await Promise.all([
+    fetchVimeoContentRatings(accessToken, signal),
+    fetchVimeoCategories(accessToken, signal),
+    fetchVimeoCreativeCommonsLicenses(accessToken, signal),
+    fetch(meUrl.toString(), fetchInit),
+  ]);
+
+  if (ratingsResult.ok === false) {
+    return { ok: false, details: ratingsResult.details };
+  }
+  if (categoriesResult.ok === false) {
+    return { ok: false, details: categoriesResult.details };
+  }
+  if (licensesResult.ok === false) {
+    return { ok: false, details: licensesResult.details };
+  }
+  if (!meRes.ok) {
+    return { ok: false, details: await readVimeoApiErrorDetails(meRes) };
+  }
+
+  const body = (await meRes.json().catch(() => ({}))) as Record<string, unknown>;
+
+  return {
+    ok: true,
+    options: {
+      contentRatings: ratingsResult.items,
+      categories: categoriesResult.items,
+      licenses: licensesResult.items,
+      accountDefaults: buildVimeoAccountDefaultsFromMeBody(body, ratingsResult.items),
+    },
+  };
+}
+
 /**
  * Reads upload defaults from the authenticated Vimeo user (`GET /me`).
  * @param accessToken - OAuth access token with Vimeo read scope.
  * @param signal - Optional abort signal.
+ * @param contentRatings - Optional pre-fetched content rating rows to avoid duplicate `/contentratings` calls.
  * @returns Account defaults sourced from the Vimeo `/me` response.
  */
 export async function fetchVimeoAccountDefaults(
   accessToken: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  contentRatings?: VimeoContentRatingOption[]
 ): Promise<{ ok: true; defaults: VimeoAccountDefaults } | { ok: false; details: string }> {
   const authHeaders = vimeoAuthHeaders(accessToken);
   const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
   const meUrl = new URL(`${VIMEO_API_BASE}/me`);
   meUrl.searchParams.set('fields', VIMEO_ME_UPLOAD_DEFAULT_FIELDS);
 
+  const ratingsPromise =
+    contentRatings !== undefined
+      ? Promise.resolve({ ok: true as const, items: contentRatings })
+      : fetchVimeoContentRatings(accessToken, signal);
+
   const [meRes, ratingsResult] = await Promise.all([
     fetch(meUrl.toString(), fetchInit),
-    fetchVimeoContentRatings(accessToken, signal),
+    ratingsPromise,
   ]);
 
   if (!meRes.ok) {
@@ -277,21 +704,9 @@ export async function fetchVimeoAccountDefaults(
   }
 
   const body = (await meRes.json().catch(() => ({}))) as Record<string, unknown>;
-  const defaults: VimeoAccountDefaults = {};
 
-  const userDefaultCodes = readMeDefaultContentRatingCodes(body);
-  const contentRating = resolveVimeoAccountContentRatingDefault(
-    userDefaultCodes,
-    ratingsResult.items
-  );
-  if (contentRating !== undefined) {
-    defaults.contentRating = contentRating;
-  }
-
-  const license = readMeDefaultLicense(body);
-  if (license !== undefined) {
-    defaults.license = license;
-  }
-
-  return { ok: true, defaults };
+  return {
+    ok: true,
+    defaults: buildVimeoAccountDefaultsFromMeBody(body, ratingsResult.items),
+  };
 }

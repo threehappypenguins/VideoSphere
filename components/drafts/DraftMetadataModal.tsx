@@ -22,6 +22,7 @@ import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-up
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
 import type { VimeoCategoryOption } from '@/lib/platforms/vimeo-categories';
+import { vimeoCategorySlugFromUri } from '@/lib/platforms/vimeo-categories';
 import type { VimeoLicenseOption } from '@/lib/platforms/vimeo-licenses';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
@@ -1031,88 +1032,46 @@ export function DraftMetadataModal({
 
     const loadVimeoMetadataOptions = async () => {
       try {
-        const [
-          contentRatingsResponse,
-          categoriesResponse,
-          licensesResponse,
-          accountDefaultsResponse,
-        ] = await Promise.all([
-          fetch('/api/platforms/vimeo/content-ratings', { cache: 'no-store' }),
-          fetch('/api/platforms/vimeo/categories', { cache: 'no-store' }),
-          fetch('/api/platforms/vimeo/licenses', { cache: 'no-store' }),
-          fetch('/api/platforms/vimeo/me', { cache: 'no-store' }),
-        ]);
+        const response = await fetch('/api/platforms/vimeo/metadata-options', {
+          cache: 'no-store',
+        });
 
         if (requestId !== vimeoMetadataRequestIdRef.current) {
           return;
         }
 
-        const errors: string[] = [];
+        if (response.ok) {
+          const payload = (await response.json()) as ApiResponse<{
+            contentRatings: Array<{ code: string; name: string }>;
+            categories: VimeoCategoryOption[];
+            licenses: VimeoLicenseOption[];
+            accountDefaults: VimeoAccountDefaults;
+          }>;
 
-        if (contentRatingsResponse.ok) {
-          const payload = (await contentRatingsResponse.json()) as ApiResponse<
-            Array<{ code: string; name: string }>
-          >;
-          if (Array.isArray(payload.data)) {
-            setVimeoContentRatings(payload.data);
+          const bundle = payload.data;
+          if (
+            bundle &&
+            typeof bundle === 'object' &&
+            !Array.isArray(bundle) &&
+            Array.isArray(bundle.contentRatings) &&
+            Array.isArray(bundle.categories) &&
+            Array.isArray(bundle.licenses) &&
+            bundle.accountDefaults &&
+            typeof bundle.accountDefaults === 'object'
+          ) {
+            setVimeoContentRatings(bundle.contentRatings);
+            setVimeoCategories(bundle.categories);
+            setVimeoLicenses(bundle.licenses);
+            setVimeoAccountDefaults(bundle.accountDefaults);
+            vimeoMetadataLoadedRef.current = true;
+            setVimeoMetadataLoadError(null);
+            return;
           }
-        } else {
-          const payload = (await contentRatingsResponse.json().catch(() => null)) as {
-            message?: string;
-          } | null;
-          errors.push(payload?.message ?? 'Failed to load Vimeo content ratings.');
         }
 
-        if (categoriesResponse.ok) {
-          const payload = (await categoriesResponse.json()) as ApiResponse<VimeoCategoryOption[]>;
-          if (Array.isArray(payload.data)) {
-            setVimeoCategories(payload.data);
-          }
-        } else {
-          const payload = (await categoriesResponse.json().catch(() => null)) as {
-            message?: string;
-          } | null;
-          errors.push(payload?.message ?? 'Failed to load Vimeo categories.');
-        }
-
-        if (licensesResponse.ok) {
-          const payload = (await licensesResponse.json()) as ApiResponse<VimeoLicenseOption[]>;
-          if (Array.isArray(payload.data)) {
-            setVimeoLicenses(payload.data);
-          }
-        } else {
-          const payload = (await licensesResponse.json().catch(() => null)) as {
-            message?: string;
-          } | null;
-          errors.push(payload?.message ?? 'Failed to load Vimeo licenses.');
-        }
-
-        if (accountDefaultsResponse.ok) {
-          const payload =
-            (await accountDefaultsResponse.json()) as ApiResponse<VimeoAccountDefaults>;
-          if (payload.data) {
-            setVimeoAccountDefaults(payload.data);
-          }
-        } else {
-          const payload = (await accountDefaultsResponse.json().catch(() => null)) as {
-            message?: string;
-          } | null;
-          errors.push(payload?.message ?? 'Failed to load Vimeo account defaults.');
-        }
-
-        if (
-          contentRatingsResponse.ok ||
-          categoriesResponse.ok ||
-          licensesResponse.ok ||
-          accountDefaultsResponse.ok
-        ) {
-          vimeoMetadataLoadedRef.current = true;
-          setVimeoMetadataLoadError(errors.length > 0 ? errors[0] : null);
-          return;
-        }
-
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         setVimeoMetadataLoadError(
-          errors[0] ??
+          payload?.message ??
             'Failed to load Vimeo metadata. Reconnect Vimeo in Settings if this persists.'
         );
       } catch {
@@ -1127,12 +1086,6 @@ export function DraftMetadataModal({
 
     void loadVimeoMetadataOptions();
   }, [draftId, vimeoTargetActive]);
-
-  useEffect(() => {
-    if (!vimeoTargetActive) {
-      vimeoMetadataLoadedRef.current = false;
-    }
-  }, [vimeoTargetActive]);
 
   useEffect(() => {
     if (!youtubeTargetActive) {
@@ -1666,15 +1619,46 @@ export function DraftMetadataModal({
         ? VIMEO_CONTENT_RATING_TIER_MATURE
         : VIMEO_CONTENT_RATING_NONE;
   const vimeoPrimaryTierOptions = useMemo(
-    () => buildVimeoPrimaryTierOptions(vimeoContentRatings),
+    () => buildVimeoPrimaryTierOptions(vimeoContentRatings ?? []),
     [vimeoContentRatings]
   );
   const vimeoMatureDetailOptions = useMemo(
-    () => filterVimeoMatureDetailOptions(vimeoContentRatings),
+    () => filterVimeoMatureDetailOptions(vimeoContentRatings ?? []),
     [vimeoContentRatings]
   );
   const vimeoMatureDetailSelection = vimeoContentRatingParsed.matureDetails;
   const vimeoCategoryUrisValue = vimeoFields?.categoryUris ?? [];
+  const loadVimeoCategorySubcategories = useCallback(async (categoryUri: string) => {
+    const slug = vimeoCategorySlugFromUri(categoryUri);
+    if (!slug) {
+      return;
+    }
+
+    const response = await fetch(
+      `/api/platforms/vimeo/categories/${encodeURIComponent(slug)}/subcategories`,
+      { cache: 'no-store' }
+    );
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = (await response.json()) as ApiResponse<Array<{ uri: string; name: string }>>;
+    if (!Array.isArray(payload.data)) {
+      return;
+    }
+
+    setVimeoCategories((current) =>
+      current.map((category) =>
+        category.uri === categoryUri
+          ? {
+              ...category,
+              subcategories: payload.data ?? [],
+              mayHaveSubcategories: (payload.data?.length ?? 0) > 0,
+            }
+          : category
+      )
+    );
+  }, []);
   const vimeoLicenseValue =
     vimeoFields?.license !== undefined ? vimeoFields.license : vimeoAccountDefaults?.license;
   const vimeoLicenseSelectValue =
@@ -3098,10 +3082,12 @@ export function DraftMetadataModal({
           onChange={(next) =>
             updateVimeoFields({ categoryUris: next.length > 0 ? next : undefined })
           }
+          onLoadSubcategories={loadVimeoCategorySubcategories}
           className={fieldBorderClass('vimeo.categoryUris')}
         />
         <p className="mt-1 text-xs text-muted-foreground">
-          Vimeo accepts up to two categories and one subcategory suggestion per video.
+          Vimeo accepts up to six categories and subcategories combined. Choosing a subcategory also
+          counts its parent category toward that limit.
         </p>
         {vimeoMetadataLoadError && vimeoCategories.length === 0 ? (
           <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">

@@ -21,6 +21,15 @@ describe('buildVimeoCategorySuggestBatchBodyFromUris', () => {
   it('returns null when no URIs parse', () => {
     expect(vimeo.buildVimeoCategorySuggestBatchBodyFromUris(['', '/foo/bar'])).toBeNull();
   });
+
+  it('deduplicates shared parent slugs across subcategories', () => {
+    expect(
+      vimeo.buildVimeoCategorySuggestBatchBodyFromUris([
+        '/categories/animation/subcategories/2d',
+        '/categories/animation/subcategories/3d',
+      ])
+    ).toEqual([{ category: 'animation' }, { category: '2d' }, { category: '3d' }]);
+  });
 });
 
 describe('buildVimeoCategorySuggestBatchBody', () => {
