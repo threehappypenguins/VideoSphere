@@ -43,7 +43,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ categor
     return NextResponse.json(res, {
       status: 200,
       headers: {
-        'Cache-Control': 'private, max-age=86400',
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (err) {

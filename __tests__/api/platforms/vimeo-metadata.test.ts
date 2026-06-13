@@ -42,6 +42,32 @@ function makeRequest(path: string): NextRequest {
   });
 }
 
+function mockMissingSupplementalCategoryDetail(url: string): Response | null {
+  const match = String(url).match(/^https:\/\/api\.vimeo\.com\/categories\/([a-z0-9]+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const slug = match[1].toLowerCase();
+  const supplementalSlugs = new Set([
+    'wedding',
+    'events',
+    'fashion',
+    'technology',
+    'food',
+    'art',
+    'personal',
+    'howto',
+    'product',
+    'talks',
+  ]);
+  if (!supplementalSlugs.has(slug)) {
+    return null;
+  }
+
+  return new Response(null, { status: 404 });
+}
+
 describe('Vimeo platform metadata routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -100,6 +126,11 @@ describe('Vimeo platform metadata routes', () => {
   it('returns top-level categories with cache header', async () => {
     vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+      if (missingSupplemental) {
+        return missingSupplemental;
+      }
+
       if (url.includes('/categories/music') && !url.includes('/categories?')) {
         return new Response(
           JSON.stringify({ uri: '/categories/music', name: 'Music', subcategories: [] }),
@@ -120,7 +151,7 @@ describe('Vimeo platform metadata routes', () => {
     const res = await getCategories(makeRequest('/api/platforms/vimeo/categories'));
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('private, max-age=86400');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect(await res.json()).toEqual({
       data: [
         { uri: '/categories/music', name: 'Music', subcategories: [], mayHaveSubcategories: false },
@@ -199,6 +230,11 @@ describe('Vimeo platform metadata routes', () => {
   it('returns bundled draft metadata options with one upstream fetch per resource', async () => {
     vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+      if (missingSupplemental) {
+        return missingSupplemental;
+      }
+
       if (url.includes('/contentratings')) {
         return new Response(
           JSON.stringify({
@@ -254,7 +290,7 @@ describe('Vimeo platform metadata routes', () => {
     const res = await getMetadataOptions(makeRequest('/api/platforms/vimeo/metadata-options'));
 
     expect(res.status).toBe(200);
-    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(4);
+    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(14);
     expect(await res.json()).toEqual({
       data: {
         contentRatings: [

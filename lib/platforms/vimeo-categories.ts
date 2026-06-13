@@ -9,7 +9,7 @@
  * @property uri - Category resource URI (e.g. `/categories/animation`).
  * @property name - Display name for the category.
  * @property subcategories - Child subcategories when returned by the API.
- * @property mayHaveSubcategories - When true, the Vimeo API indicates this category has child rows to expand.
+ * @property mayHaveSubcategories - True when the category has one or more subcategories to expand.
  */
 export interface VimeoCategoryOption {
   uri: string;
@@ -112,9 +112,30 @@ export function wouldAddingVimeoCategoryExceedLimit(
 }
 
 /**
+ * Returns whether a URI uses Vimeo's API subcategory path segment.
+ * Use this when classifying rows from `GET /categories`, not for stored draft URIs.
+ * @param uri - Category or subcategory URI from the Vimeo API.
+ * @returns True when the URI includes `/subcategories/` after the parent slug.
+ */
+export function isVimeoApiSubcategoryPathUri(uri: string): boolean {
+  return /\/categories\/[^/]+\/subcategories\//i.test(uri.trim());
+}
+
+/**
+ * Resolves the parent category URI from an API subcategory path URI.
+ * @param uri - Subcategory URI containing `/subcategories/` from the Vimeo API.
+ * @returns Parent category URI, or null when the URI is not an API subcategory path.
+ */
+export function vimeoParentCategoryUriFromApiSubcategoryPath(uri: string): string | null {
+  const match = uri.trim().match(/^\/categories\/([^/]+)\/subcategories\//i);
+  return match ? `/categories/${match[1]}` : null;
+}
+
+/**
  * Returns whether a stored URI points at a Vimeo subcategory resource.
+ * Includes short-form upload URIs (`/categories/parent/child`) used outside tree building.
  * @param uri - Stored category or subcategory URI.
- * @returns True when the URI includes `/subcategories/`.
+ * @returns True when the URI represents a subcategory selection.
  */
 export function isVimeoSubcategoryUri(uri: string): boolean {
   const trimmed = uri.trim();

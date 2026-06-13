@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   addVimeoCategoryUri,
   countVimeoCategoryBatchEntries,
+  isVimeoApiSubcategoryPathUri,
   isVimeoCategoryBatchAtLimit,
   isVimeoSubcategoryUri,
   parseVimeoCategorySlugs,
@@ -103,6 +104,8 @@ describe('parseVimeoCategorySlugs', () => {
       'brandeddoc',
     ]);
     expect(isVimeoSubcategoryUri('/categories/brandedcontent/brandeddoc')).toBe(true);
+    expect(isVimeoApiSubcategoryPathUri('/categories/brandedcontent/brandeddoc')).toBe(false);
+    expect(isVimeoApiSubcategoryPathUri('/categories/animation/subcategories/2d')).toBe(true);
   });
 });
 

@@ -24,6 +24,32 @@ function mockContentRatingsResponse() {
   return Response.json(SAMPLE_CONTENT_RATINGS);
 }
 
+function mockMissingSupplementalCategoryDetail(url: string): Response | null {
+  const match = String(url).match(/^https:\/\/api\.vimeo\.com\/categories\/([a-z0-9]+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const slug = match[1].toLowerCase();
+  const supplementalSlugs = new Set([
+    'wedding',
+    'events',
+    'fashion',
+    'technology',
+    'food',
+    'art',
+    'personal',
+    'howto',
+    'product',
+    'talks',
+  ]);
+  if (!supplementalSlugs.has(slug)) {
+    return null;
+  }
+
+  return new Response(null, { status: 404 });
+}
+
 describe('fetchVimeoContentRatings', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -66,6 +92,11 @@ describe('fetchVimeoCategories', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
         expect(url).toContain('/categories');
         expect(url).toContain('per_page=100');
         expect(url).not.toContain('fields=');
@@ -122,12 +153,11 @@ describe('fetchVimeoCategories', () => {
           });
         }
 
-        if (url.includes('/categories/brandedcontent')) {
+        if (url.includes('/categories/brandedcontent') && !url.includes('/categories?')) {
           return Response.json({
             uri: '/categories/brandedcontent',
             name: 'Branded Content',
             top_level: true,
-            subcategories: [],
           });
         }
 
@@ -141,6 +171,11 @@ describe('fetchVimeoCategories', () => {
               },
             ],
           });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
         }
 
         throw new Error(`Unexpected fetch: ${url}`);
@@ -164,6 +199,352 @@ describe('fetchVimeoCategories', () => {
       ],
     });
   });
+
+  it('does not attach unrelated flat-list rows as subcategories', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/categories/comedy') && !url.includes('/categories?')) {
+          return Response.json({
+            uri: '/categories/comedy',
+            name: 'Comedy',
+            top_level: true,
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories/travel') && !url.includes('/categories?')) {
+          return Response.json({
+            uri: '/categories/travel',
+            name: 'Travel',
+            top_level: true,
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories/africa') && !url.includes('/categories?')) {
+          return Response.json({
+            uri: '/categories/africa',
+            name: 'Africa',
+            top_level: true,
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories/comedy/subcategories')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/comedy/videos',
+                name: 'Videos',
+                top_level: false,
+              },
+              {
+                uri: '/categories/comedy/sketch',
+                name: 'Sketch',
+                top_level: true,
+              },
+            ],
+          });
+        }
+
+        if (url.includes('/categories/travel/subcategories')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/travel/africa',
+                name: 'Africa',
+                top_level: false,
+              },
+            ],
+          });
+        }
+
+        if (url.includes('/categories/africa/subcategories')) {
+          return Response.json({ data: [] });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [
+              { uri: '/categories/comedy', name: 'Comedy', top_level: true },
+              { uri: '/categories/travel', name: 'Travel', top_level: true },
+              { uri: '/categories/africa', name: 'Africa', top_level: true },
+              {
+                uri: '/categories/comedy/sketch',
+                name: 'Sketch',
+                top_level: false,
+              },
+              {
+                uri: '/categories/travel/africa',
+                name: 'Africa',
+                top_level: false,
+              },
+            ],
+          });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategories('token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/africa',
+          name: 'Africa',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+        {
+          uri: '/categories/comedy',
+          name: 'Comedy',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+        {
+          uri: '/categories/travel',
+          name: 'Travel',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+      ],
+    });
+  });
+
+  it('includes single-segment list rows as top-level even when parent metadata is present', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/categories/wedding') && !url.includes('/categories?')) {
+          return Response.json({
+            uri: '/categories/wedding',
+            name: 'Wedding',
+            top_level: true,
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories/wedding/subcategories')) {
+          return Response.json({ data: [] });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/wedding',
+                name: 'Wedding',
+                top_level: false,
+                parent: { uri: '/categories/events', name: 'Events' },
+              },
+            ],
+          });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategories('token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/wedding',
+          name: 'Wedding',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+      ],
+    });
+  });
+
+  it('includes supplemental upload categories omitted from the paginated list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/categories/wedding') && !url.includes('/categories?')) {
+          return Response.json({
+            uri: '/categories/wedding',
+            name: 'Wedding',
+            top_level: true,
+          });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/comedy',
+                name: 'Comedy',
+                top_level: true,
+              },
+            ],
+          });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategories('token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/comedy',
+          name: 'Comedy',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+        {
+          uri: '/categories/wedding',
+          name: 'Wedding',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+      ],
+    });
+  });
+
+  it('does not load dedicated subcategories for comedy when list and detail omit them', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/categories/comedy/subcategories')) {
+          throw new Error('Comedy should not use the dedicated subcategories endpoint');
+        }
+
+        if (url.includes('/categories/comedy') && !url.includes('/categories?')) {
+          return Response.json({
+            uri: '/categories/comedy',
+            name: 'Comedy',
+            top_level: true,
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [{ uri: '/categories/comedy', name: 'Comedy', top_level: true }],
+          });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategories('token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/comedy',
+          name: 'Comedy',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+      ],
+    });
+  });
+
+  it('loads branded subs from the dedicated endpoint when detail returns an empty subcategories array', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/categories/brandedcontent/subcategories')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/brandedcontent/brandeddoc',
+                name: 'Documentary',
+                top_level: false,
+              },
+            ],
+          });
+        }
+
+        if (url.includes('/categories/brandedcontent') && !url.includes('/categories?')) {
+          return Response.json({
+            uri: '/categories/brandedcontent',
+            name: 'Branded Content',
+            top_level: true,
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/brandedcontent',
+                name: 'Branded Content',
+                top_level: true,
+              },
+            ],
+          });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategories('token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/brandedcontent',
+          name: 'Branded Content',
+          subcategories: [{ uri: '/categories/brandedcontent/brandeddoc', name: 'Documentary' }],
+          mayHaveSubcategories: true,
+        },
+      ],
+    });
+  });
 });
 
 describe('fetchVimeoCategorySubcategories', () => {
@@ -176,19 +557,33 @@ describe('fetchVimeoCategorySubcategories', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
-        expect(url).toContain('/categories/brandedcontent');
-        expect(url).not.toContain('fields=');
 
-        return Response.json({
-          uri: '/categories/brandedcontent',
-          name: 'Branded Content',
-          subcategories: [
-            {
-              uri: '/categories/brandedcontent/brandeddoc',
-              name: 'Documentary',
-            },
-          ],
-        });
+        if (url.includes('/categories/brandedcontent') && !url.includes('/categories?')) {
+          expect(url).not.toContain('fields=');
+          return Response.json({
+            uri: '/categories/brandedcontent',
+            name: 'Branded Content',
+            subcategories: [
+              {
+                uri: '/categories/brandedcontent/brandeddoc',
+                name: 'Documentary',
+              },
+            ],
+          });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [{ uri: '/categories/brandedcontent', name: 'Branded Content', top_level: true }],
+          });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
       })
     );
 
@@ -223,11 +618,10 @@ describe('fetchVimeoCategorySubcategories', () => {
           });
         }
 
-        if (url.includes('/categories/brandedcontent')) {
+        if (url.includes('/categories/brandedcontent') && !url.includes('/categories?')) {
           return Response.json({
             uri: '/categories/brandedcontent',
             name: 'Branded Content',
-            subcategories: [],
           });
         }
 
@@ -235,6 +629,11 @@ describe('fetchVimeoCategorySubcategories', () => {
           return Response.json({
             data: [{ uri: '/categories/brandedcontent', name: 'Branded Content', top_level: true }],
           });
+        }
+
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
         }
 
         throw new Error(`Unexpected fetch: ${url}`);
@@ -423,6 +822,11 @@ describe('fetchVimeoDraftMetadataOptions', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
         if (url.includes('/contentratings')) {
           return mockContentRatingsResponse();
         }
@@ -461,7 +865,7 @@ describe('fetchVimeoDraftMetadataOptions', () => {
 
     const result = await fetchVimeoDraftMetadataOptions('token');
 
-    expect(global.fetch).toHaveBeenCalledTimes(4);
+    expect(global.fetch).toHaveBeenCalledTimes(14);
     expect(result).toEqual({
       ok: true,
       options: {
