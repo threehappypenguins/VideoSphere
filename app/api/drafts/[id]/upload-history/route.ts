@@ -23,6 +23,7 @@ export interface DraftUploadHistoryItem {
     platform: ConnectedAccountPlatform;
     status: PlatformUploadStatus;
     updatedAt: string;
+    sermonAudioAutoPublishOnProcessed?: boolean;
   }>;
 }
 
@@ -80,6 +81,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           platform: platformUpload.platform,
           status: platformUpload.status,
           updatedAt: platformUpload.$updatedAt,
+          ...(platformUpload.platform === 'sermon_audio'
+            ? {
+                sermonAudioAutoPublishOnProcessed:
+                  platformUpload.sermonAudioAutoPublishOnProcessed === true,
+              }
+            : {}),
         }))
       );
 
@@ -88,13 +95,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         status: job.status,
         createdAt: job.$createdAt,
         updatedAt: job.$updatedAt,
-        platforms:
-          job.status === 'completed'
-            ? latestPlatforms.map((platform) => ({
-                ...platform,
-                status: 'completed' as PlatformUploadStatus,
-              }))
-            : latestPlatforms,
+        platforms: latestPlatforms,
       };
     });
 

@@ -10,6 +10,7 @@ import type {
   UploadJobStatus,
 } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
+import { isPlatformUploadRowActive } from '@/lib/uploads/status';
 
 interface UploadHistoryPlatformItem {
   platform: ConnectedAccountPlatform;
@@ -18,6 +19,7 @@ interface UploadHistoryPlatformItem {
   errorMessage: string | null;
   retryable: boolean;
   retryReason: string;
+  sermonAudioAutoPublishOnProcessed?: boolean;
 }
 
 interface UploadHistoryJobItem {
@@ -47,7 +49,13 @@ function isJobActive(job: UploadHistoryJobItem): boolean {
     job.status === 'pending' ||
     job.status === 'uploading' ||
     job.status === 'distributing' ||
-    job.platforms.some((p) => p.status === 'pending' || p.status === 'uploading')
+    job.platforms.some((p) =>
+      isPlatformUploadRowActive({
+        platform: p.platform,
+        status: p.status,
+        sermonAudioAutoPublishOnProcessed: p.sermonAudioAutoPublishOnProcessed,
+      })
+    )
   );
 }
 

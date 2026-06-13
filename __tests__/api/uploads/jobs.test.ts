@@ -406,7 +406,7 @@ describe('GET /api/uploads/jobs', () => {
     expect(body.data[0].platforms[0].retryable).toBe(false);
   });
 
-  it('normalizes platform fields when job status is completed (stale rows)', async () => {
+  it('returns stored platform statuses when job status is completed', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
     vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
@@ -414,8 +414,9 @@ describe('GET /api/uploads/jobs', () => {
         status: 'completed',
         platformUploads: [
           makePlatformUpload({
-            status: 'failed',
-            errorMessage: 'old',
+            platform: 'sermon_audio',
+            status: 'published',
+            errorMessage: null,
             $updatedAt: '2026-01-01T00:00:00.000Z',
           }),
         ],
@@ -437,7 +438,7 @@ describe('GET /api/uploads/jobs', () => {
       }>;
     };
     const p = body.data[0].platforms[0];
-    expect(p.status).toBe('completed');
+    expect(p.status).toBe('published');
     expect(p.errorMessage).toBeNull();
     expect(p.retryable).toBe(false);
     expect(p.retryReason).toBe('');

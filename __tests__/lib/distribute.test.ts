@@ -4,7 +4,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { PlatformUpload } from '@/types';
-import type { PlatformUploadMetadata } from '@/lib/platforms/types';
+import type { PlatformUploadMetadata, PlatformUploadResult } from '@/lib/platforms/types';
+
+type UploadToSermonAudioFn = typeof import('@/lib/platforms/sermon-audio').uploadToSermonAudio;
 
 const mockGetObjectWebStream = vi.fn();
 const mockDeleteObject = vi.fn();
@@ -15,7 +17,11 @@ const mockUploadToVimeo = vi.fn();
 const mockGetPlatformUploadsByJob = vi.fn();
 const mockUpdatePlatformUploadStatus = vi.fn();
 const mockUpdateUploadJobStatus = vi.fn();
+const mockGetUploadJobById = vi.fn();
 const mockUpdateTokens = vi.fn();
+const mockUploadToSermonAudio = vi.fn<UploadToSermonAudioFn>();
+const mockPollSermonAudioProcessing = vi.fn();
+const mockPublishSermonAudio = vi.fn();
 
 vi.mock('@/lib/r2', () => ({
   getObjectWebStream: (...args: unknown[]) => mockGetObjectWebStream(...args),
@@ -33,6 +39,7 @@ vi.mock('@/lib/repositories/platform-uploads', () => ({
 }));
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
+  getUploadJobById: (...args: unknown[]) => mockGetUploadJobById(...args),
   updateUploadJobStatus: (...args: unknown[]) => mockUpdateUploadJobStatus(...args),
 }));
 
@@ -55,9 +62,10 @@ vi.mock('@/lib/platforms/vimeo', () => ({
 }));
 
 vi.mock('@/lib/platforms/sermon-audio', () => ({
-  uploadToSermonAudio: vi.fn(),
-  pollSermonAudioProcessing: vi.fn(),
-  publishSermonAudio: vi.fn(),
+  uploadToSermonAudio: (...args: Parameters<UploadToSermonAudioFn>) =>
+    mockUploadToSermonAudio(...args),
+  pollSermonAudioProcessing: (...args: unknown[]) => mockPollSermonAudioProcessing(...args),
+  publishSermonAudio: (...args: unknown[]) => mockPublishSermonAudio(...args),
 }));
 
 vi.mock('@/lib/platforms/google-drive', () => ({
@@ -74,6 +82,7 @@ vi.mock('@/lib/platforms/smb', () => ({
 
 import { runDistributionInBackground } from '@/lib/api/distribute';
 import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
+import { isPlatformUploadRowActive } from '@/lib/uploads/status';
 
 const TWENTY_MIN_MS = 20 * 60 * 1000;
 const TIMEOUT_MSG_SECONDS = Math.floor(TWENTY_MIN_MS / 1000);
@@ -104,6 +113,19 @@ const baseMetadata: PlatformUploadMetadata = {
   tags: [],
   visibility: 'private',
 };
+
+type PlatformUploadSuccess = Extract<PlatformUploadResult, { ok: true }>;
+
+function platformUploadSuccess(
+  overrides: Partial<PlatformUploadSuccess> = {}
+): PlatformUploadSuccess {
+  return {
+    ok: true,
+    platformVideoId: 'platform-vid',
+    platformUrl: 'https://example.com/platform-vid',
+    ...overrides,
+  };
+}
 
 describe('assessPlatformUploadRetryability', () => {
   it('treats null and blank messages as non-retryable', () => {
@@ -313,5 +335,225 @@ describe('runDistributionInBackground — platform upload timeout', () => {
     );
 
     expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+});
+
+function makeVideoStream(): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2, 3]));
+      controller.close();
+    },
+  });
+}
+
+describe('runDistributionInBackground — SermonAudio auto-publish failure', () => {
+  const sermonUrl = 'https://www.sermonaudio.com/sermons/sermon-123';
+
+  function sermonAudioUploadSuccess(
+    overrides: Partial<PlatformUploadSuccess> = {}
+  ): PlatformUploadSuccess {
+    return platformUploadSuccess({
+      platformVideoId: 'sermon-123',
+      platformUrl: sermonUrl,
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    mockGetConnectedAccountWithTokens.mockResolvedValue({
+      id: 'acct-sa',
+      userId: 'u1',
+      platform: 'sermon_audio',
+      accessToken: 'sa-api-key',
+      refreshToken: '',
+      tokenExpiry: '',
+      hasRefreshToken: false,
+      platformUserId: 'broadcaster-1',
+      platformName: 'Broadcaster',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockRefreshTokenIfNeeded.mockImplementation(
+      async (account: { accessToken: string; refreshToken: string; tokenExpiry: string }) => ({
+        accessToken: account.accessToken,
+        refreshToken: account.refreshToken,
+        tokenExpiry: account.tokenExpiry || new Date(Date.now() + 3600_000).toISOString(),
+      })
+    );
+
+    mockGetObjectWebStream.mockResolvedValue({
+      stream: makeVideoStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+    });
+
+    mockUploadToSermonAudio.mockResolvedValue(sermonAudioUploadSuccess());
+
+    mockUpdatePlatformUploadStatus.mockImplementation(
+      async (
+        id: string,
+        status: PlatformUpload['status'],
+        platformVideoId?: string,
+        platformUrl?: string,
+        err?: string | null
+      ) => ({
+        id,
+        uploadJobId: 'job-1',
+        platform: 'sermon_audio',
+        status,
+        platformVideoId: platformVideoId ?? '',
+        platformUrl: platformUrl ?? '',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private' as const,
+        scheduledAt: null,
+        errorMessage: err ?? null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      })
+    );
+
+    mockGetPlatformUploadsByJob.mockResolvedValue([
+      basePlatformUpload({
+        id: 'pu-sa',
+        platform: 'sermon_audio',
+        status: 'unpublished',
+        platformVideoId: 'sermon-123',
+        platformUrl: sermonUrl,
+      }),
+    ]);
+
+    mockUpdateUploadJobStatus.mockResolvedValue({
+      id: 'job-1',
+      userId: 'u1',
+      draftId: 'd1',
+      r2Key: 'temp/uploads/u1/v.mp4',
+      status: 'completed',
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockGetUploadJobById.mockResolvedValue(null);
+    mockDeleteObject.mockResolvedValue(undefined);
+  });
+
+  it('persists failed status and errorMessage when auto-publish poll/publish fails', async () => {
+    const processingError = new Error('SermonAudio transcoding failed') as Error & {
+      code: string;
+    };
+    processingError.code = 'SERMONAUDIO_PROCESSING_FAILED';
+    mockPollSermonAudioProcessing.mockRejectedValue(processingError);
+
+    const pu = basePlatformUpload({ id: 'pu-sa', platform: 'sermon_audio' });
+    const meta = new Map<string, PlatformUploadMetadata>([
+      [
+        'pu-sa',
+        {
+          ...baseMetadata,
+          autoPublishOnProcessed: true,
+        },
+      ],
+    ]);
+
+    await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
+
+    await vi.waitFor(() => {
+      expect(mockPollSermonAudioProcessing).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sermonID: 'sermon-123',
+          customThumbnailUploaded: false,
+        })
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+        'pu-sa',
+        'failed',
+        'sermon-123',
+        sermonUrl,
+        'SERMONAUDIO_PROCESSING_FAILED: SermonAudio transcoding failed'
+      );
+    });
+
+    expect(mockPublishSermonAudio).not.toHaveBeenCalled();
+    expect(
+      isPlatformUploadRowActive({
+        platform: 'sermon_audio',
+        status: 'failed',
+        sermonAudioAutoPublishOnProcessed: true,
+      })
+    ).toBe(false);
+  });
+
+  it('passes customThumbnailUploaded true to poll when thumbnail upload succeeded', async () => {
+    mockUploadToSermonAudio.mockResolvedValue(
+      sermonAudioUploadSuccess({ sermonAudioCustomThumbnailUploaded: true })
+    );
+    mockPollSermonAudioProcessing.mockResolvedValue(undefined);
+    mockPublishSermonAudio.mockResolvedValue(undefined);
+
+    const pu = basePlatformUpload({ id: 'pu-sa', platform: 'sermon_audio' });
+    const meta = new Map<string, PlatformUploadMetadata>([
+      [
+        'pu-sa',
+        {
+          ...baseMetadata,
+          autoPublishOnProcessed: true,
+          thumbnailR2Key: 'draft-thumbnails/u1/thumb.jpg',
+        },
+      ],
+    ]);
+
+    await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
+
+    await vi.waitFor(() => {
+      expect(mockPollSermonAudioProcessing).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sermonID: 'sermon-123',
+          customThumbnailUploaded: true,
+        })
+      );
+    });
+  });
+
+  it('persists failed status when auto-publish cannot run without a captured API key', async () => {
+    mockRefreshTokenIfNeeded.mockResolvedValue({
+      accessToken: '',
+      refreshToken: '',
+      tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
+    });
+
+    const pu = basePlatformUpload({ id: 'pu-sa', platform: 'sermon_audio' });
+    const meta = new Map<string, PlatformUploadMetadata>([
+      [
+        'pu-sa',
+        {
+          ...baseMetadata,
+          autoPublishOnProcessed: true,
+        },
+      ],
+    ]);
+
+    await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
+
+    await vi.waitFor(() => {
+      expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+        'pu-sa',
+        'failed',
+        'sermon-123',
+        sermonUrl,
+        'SermonAudio API key was not captured during upload; auto-publish could not run.'
+      );
+    });
+
+    expect(mockPollSermonAudioProcessing).not.toHaveBeenCalled();
+    expect(mockPublishSermonAudio).not.toHaveBeenCalled();
   });
 });

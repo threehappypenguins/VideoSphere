@@ -38,6 +38,7 @@ import {
 } from '@/lib/platforms/sermon-audio';
 import { sermonAudioCrossPublishHasActiveSelection } from '@/lib/platforms/sermon-audio-cross-publish';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
+import { isPlatformUploadDistributionComplete } from '@/lib/uploads/status';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
 export { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
@@ -100,6 +101,9 @@ export function distributeCreatePlatformUploadInput(
           ...(draft.platforms.vimeo !== undefined ? { draftVimeo: draft.platforms.vimeo } : {}),
         }
       : {}),
+    ...(platform === 'sermon_audio'
+      ? { sermonAudioAutoPublishOnProcessed: meta.autoPublishOnProcessed === true }
+      : {}),
   };
 }
 
@@ -123,6 +127,41 @@ async function requireUpdatePlatformUploadStatus(
   }
 }
 
+function sermonAudioAutoPublishErrorMessage(err: unknown): string {
+  const detail = messageFromThrown(err);
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string' && err.code.trim()) {
+    return `${err.code}: ${detail}`;
+  }
+  return detail;
+}
+
+async function persistSermonAudioAutoPublishFailure(
+  platformUploadId: string,
+  sermonID: string,
+  platformUrl: string,
+  errorMessage: string
+): Promise<void> {
+  try {
+    const updated = await updatePlatformUploadStatus(
+      platformUploadId,
+      'failed',
+      sermonID,
+      platformUrl || undefined,
+      errorMessage
+    );
+    if (updated === null) {
+      console.error(
+        `[distribute] Could not persist SermonAudio auto-publish failure for platform_upload ${platformUploadId}: row missing`
+      );
+    }
+  } catch (updateErr) {
+    console.error(
+      `[distribute] Could not persist SermonAudio auto-publish failure for platform_upload ${platformUploadId}:`,
+      updateErr
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Single-platform upload
 // ---------------------------------------------------------------------------
@@ -132,7 +171,8 @@ async function runSinglePlatformUpload(
   r2ObjectKey: string,
   platformUpload: PlatformUpload,
   metadata: PlatformUploadMetadata,
-  saApiKeyByPlatformUploadId: Map<string, string>
+  saApiKeyByPlatformUploadId: Map<string, string>,
+  saCustomThumbnailUploadedByPlatformUploadId: Map<string, boolean>
 ): Promise<void> {
   try {
     await requireUpdatePlatformUploadStatus(platformUpload.id, 'uploading');
@@ -332,13 +372,23 @@ async function runSinglePlatformUpload(
       return;
     }
 
+    const terminalStatus: PlatformUploadStatus =
+      platformUpload.platform === 'sermon_audio' ? 'unpublished' : 'completed';
+
     await requireUpdatePlatformUploadStatus(
       platformUpload.id,
-      'completed',
+      terminalStatus,
       uploadResult.platformVideoId,
       uploadResult.platformUrl,
       null
     );
+
+    if (
+      platformUpload.platform === 'sermon_audio' &&
+      uploadResult.sermonAudioCustomThumbnailUploaded === true
+    ) {
+      saCustomThumbnailUploadedByPlatformUploadId.set(platformUpload.id, true);
+    }
   } catch (error) {
     const detail = messageFromThrown(error);
     const marked = await updatePlatformUploadStatus(
@@ -389,6 +439,7 @@ export async function runDistributionInBackground(
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
   const subsetRetry = options?.subsetRetry === true;
   const saApiKeyByPlatformUploadId = new Map<string, string>();
+  const saCustomThumbnailUploadedByPlatformUploadId = new Map<string, boolean>();
   try {
     await Promise.all(
       platformUploads.map((platformUpload) => {
@@ -401,7 +452,8 @@ export async function runDistributionInBackground(
           r2ObjectKey,
           platformUpload,
           meta,
-          saApiKeyByPlatformUploadId
+          saApiKeyByPlatformUploadId,
+          saCustomThumbnailUploadedByPlatformUploadId
         );
       })
     );
@@ -435,19 +487,23 @@ export async function runDistributionInBackground(
       return;
     }
 
-    const nonCompleted = attemptResults.filter((u) => u.status !== 'completed');
+    const nonCompleted = attemptResults.filter(
+      (u) => !isPlatformUploadDistributionComplete(u.status)
+    );
     if (nonCompleted.length > 0) {
       await updateUploadJobStatus(
         jobId,
         'failed',
-        `Platform upload(s) not in completed state: ${nonCompleted.map((u) => `${u.platform}=${u.status}`).join('; ')}`
+        `Platform upload(s) not in a terminal distribution state: ${nonCompleted.map((u) => `${u.platform}=${u.status}`).join('; ')}`
       );
       return;
     }
 
     if (subsetRetry) {
       const allLatest = latestPlatformUploadsPerPlatform(finalPlatformUploads);
-      const stillIncomplete = allLatest.filter((u) => u.status !== 'completed');
+      const stillIncomplete = allLatest.filter(
+        (u) => !isPlatformUploadDistributionComplete(u.status)
+      );
       if (stillIncomplete.length > 0) {
         const errorDetails = stillIncomplete
           .map((u) => `${u.platform}: ${u.status}${u.errorMessage ? ` — ${u.errorMessage}` : ''}`)
@@ -455,7 +511,7 @@ export async function runDistributionInBackground(
         await updateUploadJobStatus(
           jobId,
           'failed',
-          `After retry, ${stillIncomplete.length} platform upload(s) still not completed: ${errorDetails}`
+          `After retry, ${stillIncomplete.length} platform upload(s) still not in a terminal distribution state: ${errorDetails}`
         );
         return;
       }
@@ -477,15 +533,25 @@ export async function runDistributionInBackground(
       const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
       saApiKeyByPlatformUploadId.delete(upload.id);
 
+      const customThumbnailUploaded =
+        saCustomThumbnailUploadedByPlatformUploadId.get(upload.id) === true;
+      saCustomThumbnailUploadedByPlatformUploadId.delete(upload.id);
+
       const sermonID = upload.platformVideoId.trim();
       if (!sermonID) continue;
 
       const meta = metadataByPlatformId.get(upload.id);
-      if (meta?.autoPublishOnProcessed === false) continue;
+      if (meta?.autoPublishOnProcessed !== true) continue;
 
       if (!apiKey) {
         console.warn(
           `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
+        );
+        await persistSermonAudioAutoPublishFailure(
+          upload.id,
+          sermonID,
+          upload.platformUrl,
+          'SermonAudio API key was not captured during upload; auto-publish could not run.'
         );
         continue;
       }
@@ -497,24 +563,40 @@ export async function runDistributionInBackground(
       // and may be cut short; a persisted pending job plus queue/worker/cron would be needed for
       // guaranteed delivery across invocations.
       void (async () => {
+        const platformUploadId = upload.id;
+        const platformUrl = upload.platformUrl;
         try {
           await pollSermonAudioProcessing({
             sermonID,
             tokens: { accessToken: apiKey },
+            customThumbnailUploaded,
           });
           await publishSermonAudio({
             sermonID,
             tokens: { accessToken: apiKey },
           });
+          await updatePlatformUploadStatus(
+            platformUploadId,
+            'published',
+            sermonID,
+            platformUrl || undefined,
+            null
+          );
           const crossPublishActive = sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish);
           console.log(
-            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${upload.id})` +
+            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${platformUploadId})` +
               (crossPublishActive ? '; Cross Publish enabled' : '')
           );
         } catch (err) {
           console.error(
-            `[distribute] SermonAudio auto-publish failed for platform_upload ${upload.id} (job ${jobId}, sermon ${sermonID}):`,
+            `[distribute] SermonAudio auto-publish failed for platform_upload ${platformUploadId} (job ${jobId}, sermon ${sermonID}):`,
             err
+          );
+          await persistSermonAudioAutoPublishFailure(
+            platformUploadId,
+            sermonID,
+            platformUrl,
+            sermonAudioAutoPublishErrorMessage(err)
           );
         }
       })();

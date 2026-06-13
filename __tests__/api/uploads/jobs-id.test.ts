@@ -182,13 +182,13 @@ describe('GET /api/uploads/jobs/[id]', () => {
     expect(getPlatformUploadsByJob).toHaveBeenCalledWith('job-abc');
   });
 
-  it('normalizes all platform statuses to completed when the upload job is completed', async () => {
+  it('returns stored platform statuses when the upload job is completed', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(getUploadJobById).mockResolvedValueOnce({ ...baseJob, status: 'completed' });
     vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
       makePlatformUpload({
-        platform: 'youtube',
-        status: 'pending',
+        platform: 'sermon_audio',
+        status: 'unpublished',
         $updatedAt: '2026-01-05T00:00:00.000Z',
       }),
     ]);
@@ -204,6 +204,6 @@ describe('GET /api/uploads/jobs/[id]', () => {
     };
 
     expect(body.data.platforms).toHaveLength(1);
-    expect(body.data.platforms[0].status).toBe('completed');
+    expect(body.data.platforms[0].status).toBe('unpublished');
   });
 });

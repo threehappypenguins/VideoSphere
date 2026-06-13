@@ -80,4 +80,20 @@ describe('platform-upload-document', () => {
     expect(parsed.title).toBe('ok');
     expect(parsed.description.length).toBeLessThan(25_000);
   });
+
+  it('serializePlatformUploadDocumentForStorage retains sermonAudioAutoPublishOnProcessed when truncating', () => {
+    const huge = 'x'.repeat(25_000);
+    const json = serializePlatformUploadDocumentForStorage({
+      title: 'Sermon title',
+      description: huge,
+      tags: ['faith', 'hope'],
+      visibility: 'public',
+      draftYoutube: { playlistTitles: [huge.slice(0, 5000)] },
+      sermonAudioAutoPublishOnProcessed: true,
+    });
+
+    expect(json.length).toBeLessThanOrEqual(MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS);
+    const parsed = platformUploadDocumentFromRow({ document: json });
+    expect(parsed.sermonAudioAutoPublishOnProcessed).toBe(true);
+  });
 });

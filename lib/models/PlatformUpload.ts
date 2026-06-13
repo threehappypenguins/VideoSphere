@@ -37,7 +37,7 @@ const PlatformUploadSchema = new Schema<PlatformUploadDocument>(
     },
     status: {
       type: String,
-      enum: ['pending', 'uploading', 'completed', 'failed'],
+      enum: ['pending', 'uploading', 'completed', 'unpublished', 'published', 'failed'],
       default: 'pending',
       index: true,
     },

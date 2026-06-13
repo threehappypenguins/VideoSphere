@@ -93,6 +93,7 @@ import {
   isPlatformBrandIcon,
 } from '@/components/icons/PlatformIcon';
 import { platformLabel } from '@/lib/ui/platform-label';
+import { isPlatformUploadRowActive } from '@/lib/uploads/status';
 import {
   buildYouTubeAccountDefaultsSeedPatch,
   type YouTubeAccountDefaults,
@@ -186,19 +187,18 @@ type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
 
 const PRIVACY_PLATFORM_ORDER: PrivacyPlatform[] = ['youtube', 'vimeo'];
 
-/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo/Facebook today). */
-const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo', 'facebook'] as const;
+/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo/Facebook/SermonAudio). */
+const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo', 'facebook', 'sermon_audio'] as const;
 
 type DraftThumbnailPlatform = (typeof DRAFT_THUMBNAIL_PLATFORMS)[number];
 
 /**
  * Whether the draft editor should show the thumbnail upload section for the current target list.
  * @param targets - Selected distribute targets on the draft.
- * @returns False when SermonAudio is the only selected target (no supported thumbnail consumer).
+ * @returns True when at least one selected platform consumes draft thumbnails.
  */
 function showDraftThumbnailUploadSection(targets: ConnectedAccountPlatform[]): boolean {
   if (targets.length === 0) return true;
-  if (targets.length === 1 && targets[0] === 'sermon_audio') return false;
   return targets.some((platform): platform is DraftThumbnailPlatform =>
     (DRAFT_THUMBNAIL_PLATFORMS as readonly string[]).includes(platform)
   );
@@ -345,6 +345,7 @@ interface DraftUploadHistoryItem {
     platform: ConnectedAccountPlatform;
     status: PlatformUploadStatus;
     updatedAt: string;
+    sermonAudioAutoPublishOnProcessed?: boolean;
   }>;
 }
 
@@ -681,8 +682,12 @@ export function DraftMetadataModal({
             item.status === 'pending' ||
             item.status === 'uploading' ||
             item.status === 'distributing' ||
-            item.platforms.some(
-              (platform) => platform.status === 'pending' || platform.status === 'uploading'
+            item.platforms.some((platform) =>
+              isPlatformUploadRowActive({
+                platform: platform.platform,
+                status: platform.status,
+                sermonAudioAutoPublishOnProcessed: platform.sermonAudioAutoPublishOnProcessed,
+              })
             )
         )
         .map((item) => item.uploadJobId),
@@ -3655,7 +3660,6 @@ export function DraftMetadataModal({
                 {facebookPlatformFieldsSection}
               </DraftModalCard>
             ) : null}
-            {/* TODO(sermon-audio-thumbnail): Ask SermonAudio how to set display video thumbnails via the public API (uploadType, API key permissions). Hidden when SermonAudio is the only distribute target until supported. */}
             {showDraftThumbnailUpload ? (
               <DraftModalCard ref={thumbnailSectionRef} tabIndex={-1} title="Thumbnail">
                 {/* Thumbnail-scoped live region — announced while focus is within this section */}

@@ -99,8 +99,14 @@ export interface PerPlatformOverrides extends PerPlatformCopyOverrides {
   visibilityOverride?: PlatformUploadVisibility;
 }
 
-/** Platform upload status (PRD: pending, uploading, completed, failed). */
-export type PlatformUploadStatus = 'pending' | 'uploading' | 'completed' | 'failed';
+/** Platform upload status. SermonAudio uses `unpublished` / `published` after upload instead of `completed`. */
+export type PlatformUploadStatus =
+  | 'pending'
+  | 'uploading'
+  | 'completed'
+  | 'unpublished'
+  | 'published'
+  | 'failed';
 
 /** Per-platform visibility (PRD: public, unlisted, private). */
 export type PlatformUploadVisibility = 'public' | 'unlisted' | 'private';
@@ -462,6 +468,8 @@ export interface PlatformUpload {
   visibility: PlatformUploadVisibility;
   scheduledAt: string | null;
   errorMessage: string | null;
+  /** SermonAudio: auto-publish intent snapshot from distribute time. */
+  sermonAudioAutoPublishOnProcessed?: boolean;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

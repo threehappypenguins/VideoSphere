@@ -26,6 +26,8 @@ export interface PlatformUploadDocumentStored {
   draftYoutube?: YouTubeDraftFields;
   /** Audit: `platforms.vimeo` from the draft at distribute time. */
   draftVimeo?: VimeoDraftFields;
+  /** SermonAudio: whether auto-publish after processing was enabled at distribute time. */
+  sermonAudioAutoPublishOnProcessed?: boolean;
 }
 
 /**
@@ -77,6 +79,9 @@ export function stringifyPlatformUploadDocumentForStorage(
   if (d.vimeoCategoryUri !== undefined) payload.vimeoCategoryUri = d.vimeoCategoryUri;
   if (d.draftYoutube !== undefined) payload.draftYoutube = d.draftYoutube;
   if (d.draftVimeo !== undefined) payload.draftVimeo = d.draftVimeo;
+  if (d.sermonAudioAutoPublishOnProcessed !== undefined) {
+    payload.sermonAudioAutoPublishOnProcessed = d.sermonAudioAutoPublishOnProcessed;
+  }
   if (options?.documentStorageTruncated === true) {
     payload.__documentStorageTruncated = true;
   }
@@ -176,7 +181,8 @@ function shrinkDescriptionToFit(doc: PlatformUploadDocumentStored, truncatedFlag
 /**
  * Serialize `platform_uploads.document` so it never exceeds {@link MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS}.
  * Order: drop optional audit snapshots (`draftYoutube` / `draftVimeo`), then shrink description, tags,
- * and title. Actual upload metadata still comes from the draft in the distribute route — this row is
+ * and title. `sermonAudioAutoPublishOnProcessed` is always retained when set (needed for UI polling).
+ * Actual upload metadata still comes from the draft in the distribute route — this row is
  * primarily an audit snapshot.
  */
 export function serializePlatformUploadDocumentForStorage(d: PlatformUploadDocumentStored): string {
@@ -253,6 +259,7 @@ export function platformUploadDocumentJsonForCreateRow(
     vimeoCategoryUri,
     draftYoutube,
     draftVimeo,
+    sermonAudioAutoPublishOnProcessed,
   } = data;
   return serializePlatformUploadDocumentForStorage({
     title,
@@ -264,6 +271,9 @@ export function platformUploadDocumentJsonForCreateRow(
     ...(vimeoCategoryUri !== undefined ? { vimeoCategoryUri } : {}),
     ...(draftYoutube !== undefined ? { draftYoutube } : {}),
     ...(draftVimeo !== undefined ? { draftVimeo } : {}),
+    ...(sermonAudioAutoPublishOnProcessed !== undefined
+      ? { sermonAudioAutoPublishOnProcessed }
+      : {}),
   });
 }
 
@@ -303,6 +313,10 @@ export function platformUploadDocumentFromRow(
     const draftVimeo = isPlainObject(rec.draftVimeo)
       ? normalizeDraftPlatforms({ vimeo: rec.draftVimeo }).vimeo
       : undefined;
+    const sermonAudioAutoPublishOnProcessed =
+      typeof rec.sermonAudioAutoPublishOnProcessed === 'boolean'
+        ? rec.sermonAudioAutoPublishOnProcessed
+        : undefined;
 
     return {
       title: typeof rec.title === 'string' ? rec.title : '',
@@ -314,6 +328,9 @@ export function platformUploadDocumentFromRow(
       ...(vimeoCategoryUri !== undefined ? { vimeoCategoryUri } : {}),
       ...(draftYoutube !== undefined ? { draftYoutube } : {}),
       ...(draftVimeo !== undefined ? { draftVimeo } : {}),
+      ...(sermonAudioAutoPublishOnProcessed !== undefined
+        ? { sermonAudioAutoPublishOnProcessed }
+        : {}),
     };
   } catch {
     return { ...EMPTY_DOC };

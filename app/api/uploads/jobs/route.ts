@@ -23,6 +23,7 @@ interface UploadHistoryPlatformItem {
   errorMessage: string | null;
   retryable: boolean;
   retryReason: string;
+  sermonAudioAutoPublishOnProcessed?: boolean;
 }
 
 interface UploadHistoryJobItem {
@@ -117,16 +118,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const perJob = pagedJobs.map((job) => {
       const latestPlatforms = latestPlatformUploadsPerPlatform(job.platformUploads);
       const platformItems: UploadHistoryPlatformItem[] = latestPlatforms.map((platformUpload) => {
-        if (job.status === 'completed') {
-          return {
-            platform: platformUpload.platform,
-            status: 'completed',
-            updatedAt: platformUpload.$updatedAt,
-            errorMessage: null,
-            retryable: false,
-            retryReason: '',
-          };
-        }
         const retryability = assessPlatformUploadRetryability(platformUpload.errorMessage);
         return {
           platform: platformUpload.platform,
@@ -135,6 +126,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           errorMessage: platformUpload.errorMessage,
           retryable: platformUpload.status === 'failed' ? retryability.retryable : false,
           retryReason: platformUpload.status === 'failed' ? retryability.reason : '',
+          ...(platformUpload.platform === 'sermon_audio'
+            ? {
+                sermonAudioAutoPublishOnProcessed:
+                  platformUpload.sermonAudioAutoPublishOnProcessed === true,
+              }
+            : {}),
         };
       });
       const needsR2Head = platformItems.some((p) => p.status === 'failed' && p.retryable);

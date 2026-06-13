@@ -23,6 +23,7 @@ export interface UploadJobStatusResponse {
     platform: ConnectedAccountPlatform;
     status: PlatformUploadStatus;
     updatedAt: string;
+    sermonAudioAutoPublishOnProcessed?: boolean;
   }>;
 }
 
@@ -62,15 +63,14 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
         platform: platformUpload.platform,
         status: platformUpload.status,
         updatedAt: platformUpload.$updatedAt,
+        ...(platformUpload.platform === 'sermon_audio'
+          ? {
+              sermonAudioAutoPublishOnProcessed:
+                platformUpload.sermonAudioAutoPublishOnProcessed === true,
+            }
+          : {}),
       }))
     );
-    const normalizedPlatforms =
-      job.status === 'completed'
-        ? platforms.map((platform) => ({
-            ...platform,
-            status: 'completed' as PlatformUploadStatus,
-          }))
-        : platforms;
 
     const response: ApiResponse<UploadJobStatusResponse> = {
       data: {
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
         status: job.status,
         createdAt: job.$createdAt,
         updatedAt: job.$updatedAt,
-        platforms: normalizedPlatforms,
+        platforms,
       },
     };
 

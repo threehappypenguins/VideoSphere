@@ -35,6 +35,9 @@ export function rowToPlatformUpload(doc: PlatformUploadDocument): PlatformUpload
     scheduledAt: doc.scheduledAt != null && doc.scheduledAt !== '' ? String(doc.scheduledAt) : null,
     errorMessage:
       doc.errorMessage != null && doc.errorMessage !== '' ? String(doc.errorMessage) : null,
+    ...(String(doc.platform) === 'sermon_audio'
+      ? { sermonAudioAutoPublishOnProcessed: parsed.sermonAudioAutoPublishOnProcessed === true }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -230,8 +233,9 @@ export async function getPlatformUploadsByJob(uploadJobId: string): Promise<Plat
 
 /**
  * Update a platform upload's status and optional result fields.
- * Use platformVideoId and platformUrl when status is 'completed';
- * use errorMessage when status is 'failed'. Returns the updated record or null if not found.
+ * Use platformVideoId and platformUrl when status is terminal success
+ * (`completed`, `unpublished`, or `published`); use errorMessage when status is `failed`.
+ * Returns the updated record or null if not found.
  */
 export async function updatePlatformUploadStatus(
   id: string,
