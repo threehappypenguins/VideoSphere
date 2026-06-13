@@ -151,7 +151,7 @@ describe('Vimeo platform metadata routes', () => {
     const res = await getCategories(makeRequest('/api/platforms/vimeo/categories'));
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=86400');
     expect(await res.json()).toEqual({
       data: [
         { uri: '/categories/music', name: 'Music', subcategories: [], mayHaveSubcategories: false },
@@ -290,6 +290,7 @@ describe('Vimeo platform metadata routes', () => {
     const res = await getMetadataOptions(makeRequest('/api/platforms/vimeo/metadata-options'));
 
     expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=86400');
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(14);
     expect(await res.json()).toEqual({
       data: {

@@ -1017,6 +1017,10 @@ export function DraftMetadataModal({
     };
 
     void loadYouTubeMetadataOptions();
+
+    return () => {
+      youtubeMetadataRequestIdRef.current += 1;
+    };
   }, [draftId, youtubeTargetActive]);
 
   useEffect(() => {
@@ -1032,23 +1036,21 @@ export function DraftMetadataModal({
 
     const loadVimeoMetadataOptions = async () => {
       try {
-        const response = await fetch('/api/platforms/vimeo/metadata-options', {
-          cache: 'no-store',
-        });
+        const response = await fetch('/api/platforms/vimeo/metadata-options');
 
         if (requestId !== vimeoMetadataRequestIdRef.current) {
           return;
         }
 
-        if (response.ok) {
-          const payload = (await response.json()) as ApiResponse<{
-            contentRatings: Array<{ code: string; name: string }>;
-            categories: VimeoCategoryOption[];
-            licenses: VimeoLicenseOption[];
-            accountDefaults: VimeoAccountDefaults;
-          }>;
+        const payload = (await response.json().catch(() => null)) as ApiResponse<{
+          contentRatings: Array<{ code: string; name: string }>;
+          categories: VimeoCategoryOption[];
+          licenses: VimeoLicenseOption[];
+          accountDefaults: VimeoAccountDefaults;
+        }> | null;
 
-          const bundle = payload.data;
+        if (response.ok) {
+          const bundle = payload?.data;
           if (
             bundle &&
             typeof bundle === 'object' &&
@@ -1069,7 +1071,6 @@ export function DraftMetadataModal({
           }
         }
 
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         setVimeoMetadataLoadError(
           payload?.message ??
             'Failed to load Vimeo metadata. Reconnect Vimeo in Settings if this persists.'
@@ -1085,6 +1086,10 @@ export function DraftMetadataModal({
     };
 
     void loadVimeoMetadataOptions();
+
+    return () => {
+      vimeoMetadataRequestIdRef.current += 1;
+    };
   }, [draftId, vimeoTargetActive]);
 
   useEffect(() => {
@@ -1635,8 +1640,7 @@ export function DraftMetadataModal({
     }
 
     const response = await fetch(
-      `/api/platforms/vimeo/categories/${encodeURIComponent(slug)}/subcategories`,
-      { cache: 'no-store' }
+      `/api/platforms/vimeo/categories/${encodeURIComponent(slug)}/subcategories`
     );
     if (!response.ok) {
       return;
