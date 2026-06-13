@@ -21,6 +21,8 @@ import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
+import type { VimeoCategoryOption } from '@/lib/platforms/vimeo-categories';
+import type { VimeoLicenseOption } from '@/lib/platforms/vimeo-licenses';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
 import {
@@ -34,6 +36,7 @@ import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeries
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
 import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
+import { VimeoCategoryPicker } from '@/components/drafts/VimeoCategoryPicker';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -75,6 +78,7 @@ import type {
   SermonAudioDraftFields,
   UploadJobStatus,
   VimeoDraftFields,
+  VimeoVideoLicense,
   YouTubeDraftFields,
   FacebookDraftFields,
 } from '@/types';
@@ -98,6 +102,18 @@ import {
   buildYouTubeAccountDefaultsSeedPatch,
   type YouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-account-defaults';
+import {
+  buildVimeoAccountDefaultsSeedPatch,
+  type VimeoAccountDefaults,
+} from '@/lib/platforms/vimeo-account-defaults';
+import {
+  VIMEO_CONTENT_RATING_SAFE,
+  VIMEO_CONTENT_RATING_TIER_MATURE,
+  buildVimeoContentRatingPayload,
+  buildVimeoPrimaryTierOptions,
+  filterVimeoMatureDetailOptions,
+  parseVimeoContentRatingTier,
+} from '@/lib/platforms/vimeo-content-rating';
 import {
   getDefaultScheduleDate,
   getDefaultScheduleTime,
@@ -137,6 +153,13 @@ const YOUTUBE_LICENSE_OPTIONS = [
   { value: 'youtube', label: 'Standard YouTube License' },
   { value: 'creativeCommon', label: 'Creative Commons — Attribution' },
 ] as const;
+
+/** Select sentinel for Vimeo no Creative Commons license (`license: null` on create). */
+const VIMEO_LICENSE_NONE = '__vimeo_license_none__';
+const VIMEO_LICENSE_NONE_LABEL = 'Select a license...';
+
+/** Select sentinel for no Vimeo audience content rating selected. */
+const VIMEO_CONTENT_RATING_NONE = '__vimeo_content_rating_none__';
 
 const PREFERRED_PLATFORM_ORDER: ConnectedAccountPlatform[] = [
   'youtube',
@@ -420,6 +443,8 @@ export function DraftMetadataModal({
 }: DraftMetadataModalProps) {
   const router = useRouter();
   const draftId = value?.id ?? null;
+  const youtubeTargetActive = value?.targets.includes('youtube') ?? false;
+  const vimeoTargetActive = value?.targets.includes('vimeo') ?? false;
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedAccountPlatform[]>(
     initialConnectedPlatforms ?? []
   );
@@ -469,6 +494,20 @@ export function DraftMetadataModal({
     YouTubeAccountDefaults | undefined
   >();
   const youtubeDefaultsSeededRef = useRef<string | null>(null);
+  const [vimeoContentRatings, setVimeoContentRatings] = useState<
+    Array<{ code: string; name: string }>
+  >([]);
+  const [vimeoCategories, setVimeoCategories] = useState<VimeoCategoryOption[]>([]);
+  const [vimeoLicenses, setVimeoLicenses] = useState<VimeoLicenseOption[]>([]);
+  const [vimeoAccountDefaults, setVimeoAccountDefaults] = useState<
+    VimeoAccountDefaults | undefined
+  >();
+  const vimeoDefaultsSeededRef = useRef<string | null>(null);
+  const vimeoMetadataLoadedRef = useRef(false);
+  const vimeoMetadataRequestIdRef = useRef(0);
+  const [vimeoMetadataLoadError, setVimeoMetadataLoadError] = useState<string | null>(null);
+  const youtubeMetadataLoadedRef = useRef(false);
+  const youtubeMetadataRequestIdRef = useRef(0);
   const [uploadFieldErrors, setUploadFieldErrors] = useState<Set<DraftUploadFieldKey>>(new Set());
   const [sermonEventTypes, setSermonEventTypes] = useState<string[] | null>(null);
   const [sermonEventTypesLoadFailed, setSermonEventTypesLoadFailed] = useState(false);
@@ -902,18 +941,33 @@ export function DraftMetadataModal({
   }, [draftId, initialConnectionsResolved]);
 
   useEffect(() => {
-    setYoutubeLanguages([]);
-    setYoutubeCategories([]);
-    setYoutubeAccountDefaults(undefined);
-    youtubeDefaultsSeededRef.current = null;
-  }, [draftId]);
-
-  useEffect(() => {
-    if (!value?.targets.includes('youtube')) {
+    if (draftId) {
+      youtubeDefaultsSeededRef.current = null;
+      vimeoDefaultsSeededRef.current = null;
       return;
     }
 
-    let cancelled = false;
+    setYoutubeLanguages([]);
+    setYoutubeCategories([]);
+    setYoutubeAccountDefaults(undefined);
+    youtubeMetadataLoadedRef.current = false;
+    setVimeoContentRatings([]);
+    setVimeoCategories([]);
+    setVimeoLicenses([]);
+    setVimeoAccountDefaults(undefined);
+    vimeoMetadataLoadedRef.current = false;
+    setVimeoMetadataLoadError(null);
+  }, [draftId]);
+
+  useEffect(() => {
+    if (!youtubeTargetActive || !draftId) {
+      return;
+    }
+    if (youtubeMetadataLoadedRef.current) {
+      return;
+    }
+
+    const requestId = ++youtubeMetadataRequestIdRef.current;
 
     const loadYouTubeMetadataOptions = async () => {
       try {
@@ -923,11 +977,15 @@ export function DraftMetadataModal({
           fetch('/api/platforms/youtube/account-defaults', { cache: 'no-store' }),
         ]);
 
+        if (requestId !== youtubeMetadataRequestIdRef.current) {
+          return;
+        }
+
         if (languagesResponse.ok) {
           const payload = (await languagesResponse.json()) as ApiResponse<
             Array<{ id: string; name: string }>
           >;
-          if (!cancelled && Array.isArray(payload.data)) {
+          if (Array.isArray(payload.data)) {
             setYoutubeLanguages(payload.data);
           }
         }
@@ -936,7 +994,7 @@ export function DraftMetadataModal({
           const payload = (await categoriesResponse.json()) as ApiResponse<
             Array<{ id: string; title: string }>
           >;
-          if (!cancelled && Array.isArray(payload.data)) {
+          if (Array.isArray(payload.data)) {
             setYoutubeCategories(payload.data);
           }
         }
@@ -944,9 +1002,13 @@ export function DraftMetadataModal({
         if (accountDefaultsResponse.ok) {
           const payload =
             (await accountDefaultsResponse.json()) as ApiResponse<YouTubeAccountDefaults>;
-          if (!cancelled && payload.data) {
+          if (payload.data) {
             setYoutubeAccountDefaults(payload.data);
           }
+        }
+
+        if (languagesResponse.ok || categoriesResponse.ok || accountDefaultsResponse.ok) {
+          youtubeMetadataLoadedRef.current = true;
         }
       } catch {
         // Language/category/account-default lists are optional for editing.
@@ -954,10 +1016,129 @@ export function DraftMetadataModal({
     };
 
     void loadYouTubeMetadataOptions();
-    return () => {
-      cancelled = true;
+  }, [draftId, youtubeTargetActive]);
+
+  useEffect(() => {
+    if (!vimeoTargetActive || !draftId) {
+      return;
+    }
+    if (vimeoMetadataLoadedRef.current) {
+      return;
+    }
+
+    const requestId = ++vimeoMetadataRequestIdRef.current;
+    setVimeoMetadataLoadError(null);
+
+    const loadVimeoMetadataOptions = async () => {
+      try {
+        const [
+          contentRatingsResponse,
+          categoriesResponse,
+          licensesResponse,
+          accountDefaultsResponse,
+        ] = await Promise.all([
+          fetch('/api/platforms/vimeo/content-ratings', { cache: 'no-store' }),
+          fetch('/api/platforms/vimeo/categories', { cache: 'no-store' }),
+          fetch('/api/platforms/vimeo/licenses', { cache: 'no-store' }),
+          fetch('/api/platforms/vimeo/me', { cache: 'no-store' }),
+        ]);
+
+        if (requestId !== vimeoMetadataRequestIdRef.current) {
+          return;
+        }
+
+        const errors: string[] = [];
+
+        if (contentRatingsResponse.ok) {
+          const payload = (await contentRatingsResponse.json()) as ApiResponse<
+            Array<{ code: string; name: string }>
+          >;
+          if (Array.isArray(payload.data)) {
+            setVimeoContentRatings(payload.data);
+          }
+        } else {
+          const payload = (await contentRatingsResponse.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          errors.push(payload?.message ?? 'Failed to load Vimeo content ratings.');
+        }
+
+        if (categoriesResponse.ok) {
+          const payload = (await categoriesResponse.json()) as ApiResponse<VimeoCategoryOption[]>;
+          if (Array.isArray(payload.data)) {
+            setVimeoCategories(payload.data);
+          }
+        } else {
+          const payload = (await categoriesResponse.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          errors.push(payload?.message ?? 'Failed to load Vimeo categories.');
+        }
+
+        if (licensesResponse.ok) {
+          const payload = (await licensesResponse.json()) as ApiResponse<VimeoLicenseOption[]>;
+          if (Array.isArray(payload.data)) {
+            setVimeoLicenses(payload.data);
+          }
+        } else {
+          const payload = (await licensesResponse.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          errors.push(payload?.message ?? 'Failed to load Vimeo licenses.');
+        }
+
+        if (accountDefaultsResponse.ok) {
+          const payload =
+            (await accountDefaultsResponse.json()) as ApiResponse<VimeoAccountDefaults>;
+          if (payload.data) {
+            setVimeoAccountDefaults(payload.data);
+          }
+        } else {
+          const payload = (await accountDefaultsResponse.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          errors.push(payload?.message ?? 'Failed to load Vimeo account defaults.');
+        }
+
+        if (
+          contentRatingsResponse.ok ||
+          categoriesResponse.ok ||
+          licensesResponse.ok ||
+          accountDefaultsResponse.ok
+        ) {
+          vimeoMetadataLoadedRef.current = true;
+          setVimeoMetadataLoadError(errors.length > 0 ? errors[0] : null);
+          return;
+        }
+
+        setVimeoMetadataLoadError(
+          errors[0] ??
+            'Failed to load Vimeo metadata. Reconnect Vimeo in Settings if this persists.'
+        );
+      } catch {
+        if (requestId !== vimeoMetadataRequestIdRef.current) {
+          return;
+        }
+        setVimeoMetadataLoadError(
+          'Failed to load Vimeo metadata. Check your connection and try reopening the draft.'
+        );
+      }
     };
-  }, [draftId, value?.targets]);
+
+    void loadVimeoMetadataOptions();
+  }, [draftId, vimeoTargetActive]);
+
+  useEffect(() => {
+    if (!vimeoTargetActive) {
+      vimeoMetadataLoadedRef.current = false;
+    }
+  }, [vimeoTargetActive]);
+
+  useEffect(() => {
+    if (!youtubeTargetActive) {
+      youtubeMetadataLoadedRef.current = false;
+    }
+  }, [youtubeTargetActive]);
 
   useEffect(() => {
     if (!value) {
@@ -1104,12 +1285,15 @@ export function DraftMetadataModal({
 
   const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
   const showYouTubeFields = value?.targets.includes('youtube') ?? false;
+  const showVimeoFields = value?.targets.includes('vimeo') ?? false;
   const showFacebookFields = value?.targets.includes('facebook') ?? false;
   const showPlatformSectionHeaders =
-    [showYouTubeFields, showSermonAudioFields, showFacebookFields].filter(Boolean).length >= 2;
+    [showYouTubeFields, showVimeoFields, showSermonAudioFields, showFacebookFields].filter(Boolean)
+      .length >= 2;
   const showDraftThumbnailUpload = value != null && showDraftThumbnailUploadSection(value.targets);
   const sermonAudioFields = value?.platforms.sermon_audio;
   const youtubeFields = value?.platforms.youtube;
+  const vimeoFields = value?.platforms.vimeo;
   const facebookFields = value?.platforms.facebook;
   const sermonAudioEffectiveTitleText = value
     ? sermonAudioEffectiveTitle(value, showPerPlatformTitle)
@@ -1339,6 +1523,28 @@ export function DraftMetadataModal({
     [onChange, value]
   );
 
+  const updateVimeoFields = useCallback(
+    (patch: Partial<VimeoDraftFields>) => {
+      if (!value) return;
+      const current: Record<string, unknown> = { ...(value.platforms.vimeo ?? {}) };
+      for (const [key, fieldValue] of Object.entries(patch)) {
+        if (fieldValue === undefined) {
+          delete current[key];
+        } else {
+          current[key] = fieldValue;
+        }
+      }
+      onChange({
+        ...value,
+        platforms: {
+          ...value.platforms,
+          vimeo: Object.keys(current).length > 0 ? (current as VimeoDraftFields) : undefined,
+        },
+      });
+    },
+    [onChange, value]
+  );
+
   const updateFacebookFields = useCallback(
     (patch: Partial<FacebookDraftFields>) => {
       if (!value) return;
@@ -1386,6 +1592,12 @@ export function DraftMetadataModal({
   }, [value?.targets]);
 
   useEffect(() => {
+    if (!value?.targets.includes('vimeo')) {
+      vimeoDefaultsSeededRef.current = null;
+    }
+  }, [value?.targets]);
+
+  useEffect(() => {
     if (!value?.targets.includes('youtube') || !youtubeAccountDefaults) {
       return;
     }
@@ -1405,6 +1617,23 @@ export function DraftMetadataModal({
     }
   }, [draftId, value, youtubeAccountDefaults, updateYouTubeFields]);
 
+  useEffect(() => {
+    if (!value?.targets.includes('vimeo') || !vimeoAccountDefaults) {
+      return;
+    }
+
+    const seedKey = `${draftId}:${JSON.stringify(vimeoAccountDefaults)}`;
+    if (vimeoDefaultsSeededRef.current === seedKey) {
+      return;
+    }
+
+    vimeoDefaultsSeededRef.current = seedKey;
+    const patch = buildVimeoAccountDefaultsSeedPatch(value.platforms.vimeo, vimeoAccountDefaults);
+    if (Object.keys(patch).length > 0) {
+      updateVimeoFields(patch);
+    }
+  }, [draftId, value, vimeoAccountDefaults, updateVimeoFields]);
+
   const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
   const youtubeDefaultAudioLanguageValue =
     youtubeFields?.defaultAudioLanguage ?? youtubeAccountDefaults?.defaultAudioLanguage;
@@ -1421,6 +1650,50 @@ export function DraftMetadataModal({
     () => youtubeCategories.map((category) => ({ value: category.id, label: category.title })),
     [youtubeCategories]
   );
+  const vimeoContentRatingCodes =
+    vimeoFields?.contentRating !== undefined
+      ? vimeoFields.contentRating
+      : vimeoAccountDefaults?.contentRating;
+  const vimeoContentRatingParsed = useMemo(
+    () => parseVimeoContentRatingTier(vimeoContentRatingCodes),
+    [vimeoContentRatingCodes]
+  );
+  const vimeoContentRatingTier = vimeoContentRatingParsed.tier;
+  const vimeoContentRatingSelectValue =
+    vimeoContentRatingTier === 'all_audiences'
+      ? VIMEO_CONTENT_RATING_SAFE
+      : vimeoContentRatingTier === 'mature'
+        ? VIMEO_CONTENT_RATING_TIER_MATURE
+        : VIMEO_CONTENT_RATING_NONE;
+  const vimeoPrimaryTierOptions = useMemo(
+    () => buildVimeoPrimaryTierOptions(vimeoContentRatings),
+    [vimeoContentRatings]
+  );
+  const vimeoMatureDetailOptions = useMemo(
+    () => filterVimeoMatureDetailOptions(vimeoContentRatings),
+    [vimeoContentRatings]
+  );
+  const vimeoMatureDetailSelection = vimeoContentRatingParsed.matureDetails;
+  const vimeoCategoryUrisValue = vimeoFields?.categoryUris ?? [];
+  const vimeoLicenseValue =
+    vimeoFields?.license !== undefined ? vimeoFields.license : vimeoAccountDefaults?.license;
+  const vimeoLicenseSelectValue =
+    vimeoLicenseValue === undefined || vimeoLicenseValue === null
+      ? VIMEO_LICENSE_NONE
+      : vimeoLicenseValue;
+  const vimeoLicenseOptions = useMemo(() => {
+    const options = vimeoLicenses.map((license) => ({
+      value: license.code,
+      label: license.name,
+    }));
+    if (
+      typeof vimeoLicenseValue === 'string' &&
+      !options.some((option) => option.value === vimeoLicenseValue)
+    ) {
+      options.push({ value: vimeoLicenseValue, label: vimeoLicenseValue });
+    }
+    return options;
+  }, [vimeoLicenses, vimeoLicenseValue]);
   const youtubePublishAtValue = youtubeFields?.publishAt;
   const youtubeSchedulePastWarning =
     youtubePublishAtValue !== undefined && isPublishAtInPast(youtubePublishAtValue);
@@ -2726,6 +2999,156 @@ export function DraftMetadataModal({
     </>
   );
 
+  const vimeoPlatformFieldsSection = (
+    <>
+      <div>
+        <label htmlFor="draft-vimeo-content-rating" className="text-sm font-medium text-foreground">
+          Content rating
+        </label>
+        <Select
+          value={vimeoContentRatingSelectValue}
+          onValueChange={(next) => {
+            if (next === VIMEO_CONTENT_RATING_NONE) {
+              updateVimeoFields({ contentRating: undefined });
+              return;
+            }
+            if (next === VIMEO_CONTENT_RATING_SAFE) {
+              updateVimeoFields({
+                contentRating: buildVimeoContentRatingPayload('all_audiences', []),
+              });
+              return;
+            }
+            if (next === VIMEO_CONTENT_RATING_TIER_MATURE) {
+              updateVimeoFields({
+                contentRating:
+                  vimeoMatureDetailSelection.length > 0 ? vimeoMatureDetailSelection : [],
+              });
+            }
+          }}
+        >
+          <SelectTrigger
+            id="draft-vimeo-content-rating"
+            className={cn(
+              fieldBorderClass('vimeo.contentRating'),
+              'mt-1 flex h-10 items-center justify-between text-left'
+            )}
+          >
+            <SelectValue placeholder="Not selected" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={VIMEO_CONTENT_RATING_NONE}>Not selected</SelectItem>
+            {vimeoPrimaryTierOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {vimeoMetadataLoadError && vimeoPrimaryTierOptions.length === 0 ? (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            {vimeoMetadataLoadError}
+          </p>
+        ) : null}
+      </div>
+
+      {vimeoContentRatingTier === 'mature' ? (
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium text-foreground">Mature content types</legend>
+          {vimeoMatureDetailOptions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Connect Vimeo to load mature content rating options.
+            </p>
+          ) : (
+            vimeoMatureDetailOptions.map((option) => {
+              const checked = vimeoMatureDetailSelection.includes(option.code);
+              return (
+                <label
+                  key={option.code}
+                  className="flex cursor-pointer items-start gap-2 text-sm text-foreground"
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={checked}
+                    onChange={(event) => {
+                      const next = event.target.checked
+                        ? [...vimeoMatureDetailSelection, option.code]
+                        : vimeoMatureDetailSelection.filter((code) => code !== option.code);
+                      updateVimeoFields({
+                        contentRating: next.length > 0 ? next : [],
+                      });
+                    }}
+                  />
+                  <span>{option.name}</span>
+                </label>
+              );
+            })
+          )}
+        </fieldset>
+      ) : null}
+
+      <div>
+        <label htmlFor="draft-vimeo-category" className="text-sm font-medium text-foreground">
+          Category
+        </label>
+        <VimeoCategoryPicker
+          id="draft-vimeo-category"
+          value={vimeoCategoryUrisValue}
+          categories={vimeoCategories}
+          onChange={(next) =>
+            updateVimeoFields({ categoryUris: next.length > 0 ? next : undefined })
+          }
+          className={fieldBorderClass('vimeo.categoryUris')}
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Vimeo accepts up to two categories and one subcategory suggestion per video.
+        </p>
+        {vimeoMetadataLoadError && vimeoCategories.length === 0 ? (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            {vimeoMetadataLoadError}
+          </p>
+        ) : null}
+      </div>
+
+      <div>
+        <label htmlFor="draft-vimeo-license" className="text-sm font-medium text-foreground">
+          License
+        </label>
+        <Select
+          value={vimeoLicenseSelectValue}
+          onValueChange={(next) => {
+            updateVimeoFields({
+              license: next === VIMEO_LICENSE_NONE ? null : (next as VimeoVideoLicense),
+            });
+          }}
+        >
+          <SelectTrigger
+            id="draft-vimeo-license"
+            className={cn(
+              fieldBorderClass('vimeo.license'),
+              'mt-1 flex h-10 items-center justify-between text-left'
+            )}
+          >
+            <SelectValue placeholder={VIMEO_LICENSE_NONE_LABEL} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={VIMEO_LICENSE_NONE}>{VIMEO_LICENSE_NONE_LABEL}</SelectItem>
+            {vimeoLicenseOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {vimeoMetadataLoadError && vimeoLicenseOptions.length === 0 ? (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            {vimeoMetadataLoadError}
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
+
   const facebookPlatformFieldsSection = (
     <>
       <div>
@@ -3620,6 +4043,9 @@ export function DraftMetadataModal({
               {mergePlatformFieldsIntoMetadataCard && showYouTubeFields
                 ? youtubePlatformFieldsSection
                 : null}
+              {mergePlatformFieldsIntoMetadataCard && showVimeoFields
+                ? vimeoPlatformFieldsSection
+                : null}
               {mergePlatformFieldsIntoMetadataCard && showSermonAudioFields
                 ? sermonAudioPlatformFieldsSection
                 : null}
@@ -3636,6 +4062,17 @@ export function DraftMetadataModal({
                 }
               >
                 {youtubePlatformFieldsSection}
+              </DraftModalCard>
+            ) : null}
+            {!mergePlatformFieldsIntoMetadataCard && showVimeoFields ? (
+              <DraftModalCard
+                header={
+                  showPlatformSectionHeaders ? (
+                    <PlatformSectionHeader platform="vimeo" />
+                  ) : undefined
+                }
+              >
+                {vimeoPlatformFieldsSection}
               </DraftModalCard>
             ) : null}
             {!mergePlatformFieldsIntoMetadataCard && showSermonAudioFields ? (

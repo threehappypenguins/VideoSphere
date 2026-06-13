@@ -45,8 +45,8 @@ export interface YoutubeSpecificUploadMetadata {
 
 /** Vimeo API upload–specific fields (omit unused keys for YouTube-only jobs). */
 export interface VimeoSpecificUploadMetadata {
-  /** `/categories/{slug}`, plain slug, or vimeo.com category URL. */
-  vimeoCategoryUri?: string;
+  /** Category URIs for `PUT /videos/{id}/categories`. */
+  vimeoCategoryUris?: string[];
   /** Vimeo-only create options (from draft `platforms.vimeo`). */
   vimeo?: VimeoDraftFields;
 }

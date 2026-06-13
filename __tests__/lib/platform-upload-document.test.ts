@@ -39,7 +39,7 @@ describe('platform-upload-document', () => {
       description: 'D',
       tags: ['x'],
       visibility: 'private' as const,
-      vimeoCategoryUri: '/categories/animation',
+      vimeoCategoryUris: ['/categories/animation'],
     };
     expect(
       platformUploadDocumentFromRow({ document: stringifyPlatformUploadDocumentForStorage(vm) })

@@ -567,7 +567,7 @@ describe('POST /api/uploads/distribute', () => {
       tags: ['one'],
       platforms: {
         youtube: { categoryId: '22', madeForKids: true },
-        vimeo: { categoryUri: '/categories/docs' },
+        vimeo: { categoryUris: ['/categories/docs'] },
       },
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
@@ -596,7 +596,7 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockCreatePlatformUpload).toHaveBeenCalledWith(
       expect.objectContaining({
         platform: 'vimeo',
-        vimeoCategoryUri: '/categories/docs',
+        vimeoCategoryUris: ['/categories/docs'],
       })
     );
   });

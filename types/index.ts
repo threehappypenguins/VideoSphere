@@ -175,60 +175,6 @@ export interface PlatformDefaults {
   youtube?: YouTubeUserDefaults;
 }
 
-/** Vimeo `privacy` object (subset); merged after mapping draft `visibility` → `privacy.view`. */
-export type VimeoPrivacyView =
-  | 'anybody'
-  | 'contacts'
-  | 'disable'
-  | 'nobody'
-  | 'password'
-  | 'unlisted'
-  | 'users';
-
-/**
- * Defines the VimeoPrivacyComments type.
- */
-export type VimeoPrivacyComments = 'anybody' | 'contacts' | 'nobody';
-/**
- * Defines the VimeoPrivacyEmbed type.
- */
-export type VimeoPrivacyEmbed = 'private' | 'public' | 'whitelist';
-
-/** Subset of Vimeo `embed` on `POST /me` videos (player chrome). */
-export interface VimeoDraftEmbed {
-  playbar?: boolean;
-  volume?: boolean;
-  buttons?: Partial<{
-    like: boolean;
-    share: boolean;
-    embed: boolean;
-    fullscreen: boolean;
-    hd: boolean;
-    watchlater: boolean;
-    scaling: boolean;
-  }>;
-  title?: Partial<{
-    name: 'hide' | 'show' | 'user';
-    owner: 'hide' | 'show' | 'user';
-    portrait: 'hide' | 'show' | 'user';
-  }>;
-}
-
-/**
- * Defines the shape of vimeo draft privacy.
- */
-export interface VimeoDraftPrivacy {
-  view?: VimeoPrivacyView;
-  comments?: VimeoPrivacyComments;
-  embed?: VimeoPrivacyEmbed;
-  /**
-   * Stored for future use / UI; **not** sent on video create (Vimeo frequently returns 2204 for
-   * `privacy.download` on create across membership tiers). Enable downloads in Vimeo if your plan allows.
-   */
-  download?: boolean;
-  add?: boolean;
-}
-
 /** Creative Commons license codes on Vimeo `POST /me/videos` / `PATCH /videos/{id}`. */
 export type VimeoVideoLicense =
   | 'by'
@@ -245,27 +191,19 @@ export type VimeoVideoLicense =
  */
 export interface VimeoDraftFields extends PerPlatformOverrides {
   /**
-   * Category hint for `PUT /videos/{id}/categories` batch body: `/categories/{slug}`, plain slug,
-   * or vimeo.com category URL — not a made-up numeric id.
+   * Category hints for `PUT /videos/{id}/categories` batch body. Each entry is a top-level
+   * `/categories/{slug}` URI or a subcategory `/categories/{parent}/subcategories/{slug}` URI.
    */
-  categoryUri?: string;
-  /** Maps to API `license`. */
-  license?: VimeoVideoLicense;
-  /** Maps to API `locale` (e.g. `en-US`). See `GET /languages?filter=texttracks`. */
-  locale?: string;
+  categoryUris?: string[];
   /**
-   * Maps to API `content_rating` (string array). Valid values from `GET /contentratings`.
-   * Example often used in ratings UI: `"safe"`.
+   * Maps to API `license`. Omit or set `null` for All Rights Reserved; CC codes are sent on create.
+   */
+  license?: VimeoVideoLicense | null;
+  /**
+   * Vimeo `content_rating` codes for upload: `['safe']` or one or more mature-detail
+   * codes from `GET /contentratings` (every API row except `safe` and `unrated`).
    */
   contentRating?: string[];
-  /** Required when `privacy.view` is `password`. */
-  password?: string;
-  /** Maps to API `review_page`: `{ "active": true }`. */
-  reviewPage?: { active?: boolean };
-  /** Merged into `privacy` after draft-level `visibility` → `view`. */
-  privacy?: VimeoDraftPrivacy;
-  /** Player / embed chrome; maps to API `embed`. */
-  embed?: VimeoDraftEmbed;
 }
 
 /**

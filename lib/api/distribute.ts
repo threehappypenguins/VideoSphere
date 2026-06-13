@@ -95,8 +95,8 @@ export function distributeCreatePlatformUploadInput(
       : {}),
     ...(platform === 'vimeo'
       ? {
-          ...(meta.vimeoCategoryUri !== undefined
-            ? { vimeoCategoryUri: meta.vimeoCategoryUri }
+          ...(meta.vimeoCategoryUris !== undefined && meta.vimeoCategoryUris.length > 0
+            ? { vimeoCategoryUris: meta.vimeoCategoryUris }
             : {}),
           ...(draft.platforms.vimeo !== undefined ? { draftVimeo: draft.platforms.vimeo } : {}),
         }

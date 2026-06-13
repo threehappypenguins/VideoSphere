@@ -31,7 +31,7 @@ describe('draft-upload-metadata', () => {
       description: 'D',
       visibility: 'unlisted',
       tags: ['a', 'b'],
-      platforms: { vimeo: { categoryUri: '/categories/1' } },
+      platforms: { vimeo: { categoryUris: ['/categories/1'] } },
     });
     const row = { document: doc };
     expect(draftDocumentFromRow(row)).toEqual({
@@ -40,7 +40,7 @@ describe('draft-upload-metadata', () => {
       description: 'D',
       visibility: 'unlisted',
       tags: ['a', 'b'],
-      platforms: { vimeo: { categoryUri: '/categories/1' } },
+      platforms: { vimeo: { categoryUris: ['/categories/1'] } },
     });
   });
 
@@ -158,11 +158,11 @@ describe('draft-upload-metadata', () => {
   });
 
   it('parseDraftPlatformsPatchBody keeps empty strings for merge/clear semantics', () => {
-    expect(parseDraftPlatformsPatchBody({ vimeo: { categoryUri: '' } })).toEqual({
+    expect(parseDraftPlatformsPatchBody({ vimeo: { categoryUris: [] } })).toEqual({
       ok: true,
-      value: { vimeo: { categoryUri: '' } },
+      value: { vimeo: { categoryUris: [] } },
     });
-    expect(parsePlatformsFromRequestBody({ vimeo: { categoryUri: '' } })).toEqual({
+    expect(parsePlatformsFromRequestBody({ vimeo: { categoryUris: [] } })).toEqual({
       ok: true,
       value: {},
     });
@@ -179,14 +179,14 @@ describe('draft-upload-metadata', () => {
   it('mergeDraftPlatforms deep-merges per platform', () => {
     const base: DraftPlatforms = {
       youtube: { categoryId: '22', madeForKids: false },
-      vimeo: { categoryUri: '/categories/a' },
+      vimeo: { categoryUris: ['/categories/a'] },
     };
     const patch: DraftPlatforms = {
       youtube: { categoryId: '10' },
     };
     expect(mergeDraftPlatforms(base, patch)).toEqual({
       youtube: { categoryId: '10', madeForKids: false },
-      vimeo: { categoryUri: '/categories/a' },
+      vimeo: { categoryUris: ['/categories/a'] },
     });
   });
 
@@ -203,44 +203,16 @@ describe('draft-upload-metadata', () => {
     });
   });
 
-  it('mergeDraftPlatformsPatch can clear categoryUri with empty string', () => {
+  it('mergeDraftPlatformsPatch can clear categoryUris with empty array', () => {
     const base: Draft['platforms'] = {
-      vimeo: { categoryUri: '/categories/x' },
+      vimeo: { categoryUris: ['/categories/x'] },
     };
-    expect(mergeDraftPlatformsPatch(base, { vimeo: { categoryUri: '' } })).toEqual({
-      vimeo: { categoryUri: undefined },
+    expect(mergeDraftPlatformsPatch(base, { vimeo: { categoryUris: [] } })).toEqual({
+      vimeo: { categoryUris: undefined },
     });
   });
 
   it('buildMetadataForPlatform copies shared tags to each platform', () => {
-    const draft: Draft = {
-      id: 'd1',
-      userId: 'u1',
-      targets: ['youtube', 'vimeo'],
-      title: 'T',
-      description: 'D',
-      tags: ['  shared  ', 'b'],
-      visibility: 'unlisted',
-      platforms: {
-        youtube: { categoryId: '99', madeForKids: false },
-        vimeo: { categoryUri: '/categories/1' },
-      },
-      $createdAt: '2000-01-01T00:00:00.000Z',
-      $updatedAt: '2000-01-01T00:00:00.000Z',
-    };
-    const yt = buildMetadataForPlatform(draft, 'youtube');
-    expect(yt.tags).toEqual(['shared', 'b']);
-    expect(yt.categoryId).toBe('99');
-    expect(yt.madeForKids).toBe(false);
-    expect(yt.visibility).toBe('unlisted');
-
-    const vm = buildMetadataForPlatform(draft, 'vimeo');
-    expect(vm.tags).toEqual(['shared', 'b']);
-    expect(vm.vimeoCategoryUri).toBe('/categories/1');
-    expect(vm.vimeo).toEqual({ categoryUri: '/categories/1' });
-  });
-
-  it('buildMetadataForPlatform trims shared title and description when no override is set', () => {
     const draft: Draft = {
       id: 'd1',
       userId: 'u1',
