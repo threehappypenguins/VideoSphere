@@ -4,7 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { PlatformUpload } from '@/types';
-import type { PlatformUploadMetadata } from '@/lib/platforms/types';
+import type { PlatformUploadMetadata, PlatformUploadResult } from '@/lib/platforms/types';
+import type { uploadToSermonAudio } from '@/lib/platforms/sermon-audio';
 
 const mockGetObjectWebStream = vi.fn();
 const mockDeleteObject = vi.fn();
@@ -17,7 +18,7 @@ const mockUpdatePlatformUploadStatus = vi.fn();
 const mockUpdateUploadJobStatus = vi.fn();
 const mockGetUploadJobById = vi.fn();
 const mockUpdateTokens = vi.fn();
-const mockUploadToSermonAudio = vi.fn();
+const mockUploadToSermonAudio = vi.fn<typeof uploadToSermonAudio>();
 const mockPollSermonAudioProcessing = vi.fn();
 const mockPublishSermonAudio = vi.fn();
 
@@ -60,7 +61,8 @@ vi.mock('@/lib/platforms/vimeo', () => ({
 }));
 
 vi.mock('@/lib/platforms/sermon-audio', () => ({
-  uploadToSermonAudio: (...args: unknown[]) => mockUploadToSermonAudio(...args),
+  uploadToSermonAudio: (...args: Parameters<typeof uploadToSermonAudio>) =>
+    mockUploadToSermonAudio(...args),
   pollSermonAudioProcessing: (...args: unknown[]) => mockPollSermonAudioProcessing(...args),
   publishSermonAudio: (...args: unknown[]) => mockPublishSermonAudio(...args),
 }));
@@ -110,6 +112,19 @@ const baseMetadata: PlatformUploadMetadata = {
   tags: [],
   visibility: 'private',
 };
+
+type PlatformUploadSuccess = Extract<PlatformUploadResult, { ok: true }>;
+
+function platformUploadSuccess(
+  overrides: Partial<PlatformUploadSuccess> = {}
+): PlatformUploadSuccess {
+  return {
+    ok: true,
+    platformVideoId: 'platform-vid',
+    platformUrl: 'https://example.com/platform-vid',
+    ...overrides,
+  };
+}
 
 describe('assessPlatformUploadRetryability', () => {
   it('treats null and blank messages as non-retryable', () => {
@@ -334,6 +349,16 @@ function makeVideoStream(): ReadableStream<Uint8Array> {
 describe('runDistributionInBackground — SermonAudio auto-publish failure', () => {
   const sermonUrl = 'https://www.sermonaudio.com/sermons/sermon-123';
 
+  function sermonAudioUploadSuccess(
+    overrides: Partial<PlatformUploadSuccess> = {}
+  ): PlatformUploadSuccess {
+    return platformUploadSuccess({
+      platformVideoId: 'sermon-123',
+      platformUrl: sermonUrl,
+      ...overrides,
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -365,10 +390,7 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
       contentType: 'video/mp4',
     });
 
-    mockUploadToSermonAudio.mockResolvedValue({
-      platformVideoId: 'sermon-123',
-      platformUrl: sermonUrl,
-    });
+    mockUploadToSermonAudio.mockResolvedValue(sermonAudioUploadSuccess());
 
     mockUpdatePlatformUploadStatus.mockImplementation(
       async (
@@ -470,11 +492,9 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
   });
 
   it('passes customThumbnailUploaded true to poll when thumbnail upload succeeded', async () => {
-    mockUploadToSermonAudio.mockResolvedValue({
-      platformVideoId: 'sermon-123',
-      platformUrl: sermonUrl,
-      sermonAudioCustomThumbnailUploaded: true,
-    });
+    mockUploadToSermonAudio.mockResolvedValue(
+      sermonAudioUploadSuccess({ sermonAudioCustomThumbnailUploaded: true })
+    );
     mockPollSermonAudioProcessing.mockResolvedValue(undefined);
     mockPublishSermonAudio.mockResolvedValue(undefined);
 
