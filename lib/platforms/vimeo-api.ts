@@ -345,6 +345,114 @@ function buildVimeoCategoryTreeFromRows(rows: VimeoCategoryApiRow[]): VimeoCateg
     .sort((a, b) => a.name.localeCompare(b.name, 'en'));
 }
 
+function mapSubcategoryRowsFromApi(
+  rows: VimeoCategoryApiRow[]
+): Array<{ uri: string; name: string }> {
+  return rows
+    .map((row) =>
+      normalizeVimeoSubcategoryRow({
+        uri: row.uri,
+        name: row.name,
+        top_level: row.top_level ?? false,
+      })
+    )
+    .filter((subcategory): subcategory is { uri: string; name: string } => subcategory !== null)
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
+}
+
+/**
+ * Loads subcategories from Vimeo's dedicated collection endpoint
+ * (`GET /categories/{slug}/subcategories`).
+ * @param categorySlug - Top-level category slug (e.g. `brandedcontent`).
+ * @param accessToken - OAuth access token with Vimeo read scope.
+ * @param signal - Optional abort signal.
+ * @returns Subcategory URI/name rows, or an empty array when the request fails.
+ */
+async function fetchSubcategoriesFromDedicatedEndpoint(
+  categorySlug: string,
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<Array<{ uri: string; name: string }>> {
+  const slug = categorySlug.trim();
+  if (!slug) {
+    return [];
+  }
+
+  const authHeaders = vimeoAuthHeaders(accessToken);
+  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
+  const rows: VimeoCategoryApiRow[] = [];
+
+  let nextUrl: string | null =
+    `${VIMEO_API_BASE}/categories/${encodeURIComponent(slug)}/subcategories?${new URLSearchParams({
+      per_page: '100',
+      sort: 'name',
+      direction: 'asc',
+    }).toString()}`;
+
+  while (nextUrl) {
+    const res = await fetch(nextUrl, fetchInit);
+    if (!res.ok) {
+      return [];
+    }
+
+    const body = await res.json().catch(() => ({}));
+    rows.push(...unwrapVimeoDataArray<VimeoCategoryApiRow>(body));
+
+    const pagingNext =
+      isPlainObject(body) && isPlainObject(body.paging) && typeof body.paging.next === 'string'
+        ? body.paging.next
+        : null;
+    nextUrl = pagingNext?.trim() ? pagingNext : null;
+  }
+
+  return mapSubcategoryRowsFromApi(rows);
+}
+
+/**
+ * Resolves subcategories for one top-level category using detail, flat-list, and
+ * dedicated collection fallbacks.
+ * @param categorySlug - Top-level category slug (e.g. `brandedcontent`).
+ * @param accessToken - OAuth access token with Vimeo read scope.
+ * @param signal - Optional abort signal.
+ * @param prefetchedRows - Optional rows from a prior `GET /categories` fetch.
+ * @returns Subcategory URI/name rows (possibly empty).
+ */
+async function resolveSubcategoriesForCategorySlug(
+  categorySlug: string,
+  accessToken: string,
+  signal?: AbortSignal,
+  prefetchedRows?: VimeoCategoryApiRow[]
+): Promise<Array<{ uri: string; name: string }>> {
+  const slug = categorySlug.trim();
+  if (!slug) {
+    return [];
+  }
+
+  const parentUri = `/categories/${slug}`;
+
+  const detailRes = await fetch(`${VIMEO_API_BASE}/categories/${encodeURIComponent(slug)}`, {
+    headers: vimeoAuthHeaders(accessToken),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (detailRes.ok) {
+    const subs = parseSubcategoriesFromCategoryBody(
+      (await detailRes.json().catch(() => ({}))) as VimeoCategoryApiRow
+    );
+    if (subs.length > 0) {
+      return subs;
+    }
+  }
+
+  const rows = prefetchedRows ?? (await fetchAllVimeoCategoryRows(accessToken, signal));
+  const fromRows = extractSubcategoriesForParentFromRows(rows, parentUri, slug);
+  if (fromRows.length > 0) {
+    return fromRows;
+  }
+
+  return fetchSubcategoriesFromDedicatedEndpoint(slug, accessToken, signal);
+}
+
 async function mapWithConcurrency<T>(
   items: readonly T[],
   concurrency: number,
@@ -367,17 +475,20 @@ async function mapWithConcurrency<T>(
 }
 
 /**
- * Loads subcategories from `GET /categories/{slug}` for top-level categories still missing children.
- * Vimeo's category list often omits nested subcategories until the category detail is fetched.
+ * Loads subcategories for top-level categories still missing children.
+ * Vimeo often omits nested subcategories in list/detail responses; the dedicated
+ * `GET /categories/{slug}/subcategories` collection is used as a final fallback.
  * @param categories - Top-level categories built from the paginated list response.
  * @param accessToken - OAuth access token with Vimeo read scope.
  * @param signal - Optional abort signal.
+ * @param prefetchedRows - Rows from the initial paginated `GET /categories` fetch.
  * @returns Categories with subcategories and `mayHaveSubcategories` filled in.
  */
 async function fillMissingSubcategoriesFromDetail(
   categories: VimeoCategoryOption[],
   accessToken: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  prefetchedRows?: VimeoCategoryApiRow[]
 ): Promise<VimeoCategoryOption[]> {
   const needingDetail = categories.filter((category) => category.subcategories.length === 0);
   if (needingDetail.length === 0) {
@@ -392,16 +503,11 @@ async function fillMissingSubcategoriesFromDetail(
       return;
     }
 
-    const detailRes = await fetch(`${VIMEO_API_BASE}/categories/${encodeURIComponent(slug)}`, {
-      headers: vimeoAuthHeaders(accessToken),
-      ...(signal ? { signal } : {}),
-    });
-    if (!detailRes.ok) {
-      return;
-    }
-
-    const subs = parseSubcategoriesFromCategoryBody(
-      (await detailRes.json().catch(() => ({}))) as VimeoCategoryApiRow
+    const subs = await resolveSubcategoriesForCategorySlug(
+      slug,
+      accessToken,
+      signal,
+      prefetchedRows
     );
     const current = byUri.get(category.uri);
     if (!current) {
@@ -425,7 +531,9 @@ async function fillMissingSubcategoriesFromDetail(
 }
 
 /**
- * Fetches subcategories for one top-level Vimeo category (`GET /categories/{category}`).
+ * Fetches subcategories for one top-level Vimeo category.
+ * Tries `GET /categories/{category}`, the flat category list, then
+ * `GET /categories/{category}/subcategories`.
  * @param categorySlug - Top-level category slug (e.g. `brandedcontent`).
  * @param accessToken - OAuth access token with Vimeo read scope.
  * @param signal - Optional abort signal.
@@ -443,25 +551,16 @@ export async function fetchVimeoCategorySubcategories(
     return { ok: false, details: 'Category slug is required.' };
   }
 
-  const parentUri = `/categories/${slug}`;
-  const detailRes = await fetch(`${VIMEO_API_BASE}/categories/${encodeURIComponent(slug)}`, {
-    headers: vimeoAuthHeaders(accessToken),
-    ...(signal ? { signal } : {}),
-  });
-
-  if (!detailRes.ok) {
-    return { ok: false, details: await readVimeoApiErrorDetails(detailRes) };
+  try {
+    const items = await resolveSubcategoriesForCategorySlug(slug, accessToken, signal);
+    return { ok: true, items };
+  } catch (err) {
+    const details =
+      err instanceof Error && err.message.trim() !== ''
+        ? err.message.trim()
+        : 'Failed to load Vimeo subcategories.';
+    return { ok: false, details };
   }
-
-  const detailBody = (await detailRes.json().catch(() => ({}))) as VimeoCategoryApiRow;
-  let items = parseSubcategoriesFromCategoryBody(detailBody);
-
-  if (items.length === 0) {
-    const rows = await fetchAllVimeoCategoryRows(accessToken, signal);
-    items = extractSubcategoriesForParentFromRows(rows, parentUri, slug);
-  }
-
-  return { ok: true, items };
 }
 
 async function fetchAllVimeoCategoryRows(
@@ -540,7 +639,7 @@ export async function fetchVimeoCategories(
   try {
     const rows = await fetchAllVimeoCategoryRows(accessToken, signal);
     const tree = buildVimeoCategoryTreeFromRows(rows);
-    const items = await fillMissingSubcategoriesFromDetail(tree, accessToken, signal);
+    const items = await fillMissingSubcategoriesFromDetail(tree, accessToken, signal, rows);
     return { ok: true, items };
   } catch (err) {
     const details =

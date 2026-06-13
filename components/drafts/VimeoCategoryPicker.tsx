@@ -230,13 +230,14 @@ export function VimeoCategoryPicker({
                       </div>
 
                       {expanded && loadingSubcategories ? (
-                        <p className="px-3 py-2 pl-10 text-sm text-muted-foreground">
+                        <p className="px-3 py-2 pl-14 text-sm text-muted-foreground">
                           Loading subcategories…
                         </p>
                       ) : null}
 
-                      {expanded && !loadingSubcategories && hasSubcategories
-                        ? category.subcategories.map((subcategory) => {
+                      {expanded && !loadingSubcategories && hasSubcategories ? (
+                        <div className="pl-9 pr-1">
+                          {category.subcategories.map((subcategory) => {
                             const subcategorySelected = selectedSet.has(subcategory.uri);
                             const subcategoryDisabled = isOptionDisabled(
                               subcategory.uri,
@@ -246,7 +247,7 @@ export function VimeoCategoryPicker({
                               <label
                                 key={subcategory.uri}
                                 className={cn(
-                                  'flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-md py-1 pl-10 pr-2 text-sm hover:bg-muted',
+                                  'flex min-h-7 w-full cursor-pointer items-center gap-2 rounded-md py-1 pl-5 pr-2 text-sm hover:bg-muted',
                                   subcategorySelected && 'bg-muted font-medium text-foreground',
                                   subcategoryDisabled &&
                                     'cursor-not-allowed opacity-50 hover:bg-transparent'
@@ -262,8 +263,9 @@ export function VimeoCategoryPicker({
                                 <span>{subcategory.name}</span>
                               </label>
                             );
-                          })
-                        : null}
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })

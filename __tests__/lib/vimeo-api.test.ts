@@ -98,6 +98,72 @@ describe('fetchVimeoCategories', () => {
       ],
     });
   });
+
+  it('fills subcategories from the dedicated collection endpoint when list and detail omit them', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/categories/brandedcontent/subcategories')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/brandedcontent/brandeddoc',
+                name: 'Documentary',
+                top_level: false,
+              },
+              {
+                uri: '/categories/brandedcontent/smallbusiness',
+                name: 'Small Business',
+                top_level: false,
+              },
+            ],
+          });
+        }
+
+        if (url.includes('/categories/brandedcontent')) {
+          return Response.json({
+            uri: '/categories/brandedcontent',
+            name: 'Branded Content',
+            top_level: true,
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/brandedcontent',
+                name: 'Branded Content',
+                top_level: true,
+              },
+            ],
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategories('token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/brandedcontent',
+          name: 'Branded Content',
+          subcategories: [
+            { uri: '/categories/brandedcontent/brandeddoc', name: 'Documentary' },
+            { uri: '/categories/brandedcontent/smallbusiness', name: 'Small Business' },
+          ],
+          mayHaveSubcategories: true,
+        },
+      ],
+    });
+  });
 });
 
 describe('fetchVimeoCategorySubcategories', () => {
@@ -136,6 +202,50 @@ describe('fetchVimeoCategorySubcategories', () => {
           name: 'Documentary',
         },
       ],
+    });
+  });
+
+  it('falls back to the dedicated subcategories collection when detail omits children', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.includes('/categories/brandedcontent/subcategories')) {
+          return Response.json({
+            data: [
+              {
+                uri: '/categories/brandedcontent/brandeddoc',
+                name: 'Documentary',
+                top_level: false,
+              },
+            ],
+          });
+        }
+
+        if (url.includes('/categories/brandedcontent')) {
+          return Response.json({
+            uri: '/categories/brandedcontent',
+            name: 'Branded Content',
+            subcategories: [],
+          });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [{ uri: '/categories/brandedcontent', name: 'Branded Content', top_level: true }],
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategorySubcategories('brandedcontent', 'token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [{ uri: '/categories/brandedcontent/brandeddoc', name: 'Documentary' }],
     });
   });
 });
