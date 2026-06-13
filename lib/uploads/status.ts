@@ -1,4 +1,13 @@
 import type { ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
+
+/**
+ * Minimal platform upload snapshot for polling and deduplicating latest status per platform.
+ * Used by {@link latestPlatformStatuses} and {@link isPlatformUploadRowActive} consumers.
+ * @property platform - Target platform for this upload row.
+ * @property status - Current platform upload lifecycle status.
+ * @property updatedAt - ISO timestamp of the row’s last update (for latest-wins merging).
+ * @property sermonAudioAutoPublishOnProcessed - When platform is `sermon_audio`, whether auto-publish was enabled for this distribute snapshot.
+ */
 export type PlatformStatusItem = {
   platform: ConnectedAccountPlatform;
   status: PlatformUploadStatus;

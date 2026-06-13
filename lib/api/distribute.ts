@@ -494,7 +494,7 @@ export async function runDistributionInBackground(
       await updateUploadJobStatus(
         jobId,
         'failed',
-        `Platform upload(s) not in completed state: ${nonCompleted.map((u) => `${u.platform}=${u.status}`).join('; ')}`
+        `Platform upload(s) not in a terminal distribution state: ${nonCompleted.map((u) => `${u.platform}=${u.status}`).join('; ')}`
       );
       return;
     }
@@ -511,7 +511,7 @@ export async function runDistributionInBackground(
         await updateUploadJobStatus(
           jobId,
           'failed',
-          `After retry, ${stillIncomplete.length} platform upload(s) still not completed: ${errorDetails}`
+          `After retry, ${stillIncomplete.length} platform upload(s) still not in a terminal distribution state: ${errorDetails}`
         );
         return;
       }

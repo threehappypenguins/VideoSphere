@@ -34,7 +34,7 @@ vi.mock('@/components/drafts/DraftMetadataModal', () => ({
     return (
       <div data-testid={`${mode}-modal-open`}>
         <div data-testid={`${mode}-modal-targets`}>{value.targets.join(',')}</div>
-        <button type="button" onClick={onClose}>
+        <button type="button" aria-label={`close-${mode}`} onClick={onClose}>
           close-{mode}
         </button>
       </div>
@@ -74,6 +74,45 @@ function draft1DetailPayload() {
       $updatedAt: '2000-01-02T00:00:00.000Z',
     },
   };
+}
+
+function jsonResponse(body: unknown): Response {
+  return {
+    ok: true,
+    json: async () => body,
+  } as Response;
+}
+
+/** Route-aware fetch mock for editDraft query tests (survives remount / repeated loadDrafts). */
+function mockEditDraftQueryFetch() {
+  const draftListItem = {
+    id: 'draft-1',
+    title: 'Test Draft',
+    description: '',
+    tags: [],
+    visibility: 'public',
+    targets: ['youtube'],
+    $updatedAt: new Date().toISOString(),
+  };
+
+  return vi.spyOn(global, 'fetch').mockImplementation((input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+
+    if (url.includes('/api/drafts/draft-1')) {
+      return Promise.resolve(jsonResponse(draft1DetailPayload()));
+    }
+    if (url.includes('/api/drafts')) {
+      return Promise.resolve(jsonResponse({ data: [draftListItem] }));
+    }
+    if (url.includes('/api/platforms/connections')) {
+      return Promise.resolve(jsonResponse({ data: ['youtube'] }));
+    }
+    if (url.includes('/api/auth/ai-access')) {
+      return Promise.resolve(jsonResponse({ canUseAiMetadata: true }));
+    }
+
+    return Promise.reject(new Error(`Unexpected fetch in editDraft test: ${url}`));
+  });
 }
 
 describe('DraftsPage', () => {
@@ -280,35 +319,7 @@ describe('DraftsPage', () => {
   it('opens edit modal from editDraft query param', async () => {
     mockSearchParams = new URLSearchParams('editDraft=draft-1');
 
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: [
-            {
-              id: 'draft-1',
-              title: 'Test Draft',
-              description: '',
-              tags: [],
-              visibility: 'public',
-              targets: ['youtube'],
-              $updatedAt: new Date().toISOString(),
-            },
-          ],
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: ['youtube'] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => draft1DetailPayload(),
-      } as Response);
+    mockEditDraftQueryFetch();
 
     render(<DraftsPage />);
 
@@ -321,40 +332,13 @@ describe('DraftsPage', () => {
   it('clears editDraft query param when edit modal closes', async () => {
     mockSearchParams = new URLSearchParams('editDraft=draft-1');
 
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: [
-            {
-              id: 'draft-1',
-              title: 'Test Draft',
-              description: '',
-              tags: [],
-              visibility: 'public',
-              targets: ['youtube'],
-              $updatedAt: new Date().toISOString(),
-            },
-          ],
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: ['youtube'] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => draft1DetailPayload(),
-      } as Response);
+    mockEditDraftQueryFetch();
 
     render(<DraftsPage />);
 
-    const closeButton = await screen.findByRole('button', { name: 'close-edit' });
-    fireEvent.click(closeButton);
+    expect(await screen.findByTestId('edit-modal-open')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'close-edit' }));
 
     expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
   });
