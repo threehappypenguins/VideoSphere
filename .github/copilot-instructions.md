@@ -41,6 +41,18 @@ TypeDoc expectations by export kind:
 - Prefer clarity and maintainability over clever one-off patterns.
 - Keep changes focused and avoid unrelated modifications.
 
+## Vimeo Draft Metadata UX (Do Not Re-Suggest)
+
+- **License picker:** Vimeo’s upload UI uses **“Select a license…”** for the no–Creative Commons
+  choice. There is **no** “All Rights Reserved” option in Vimeo’s UI. Do not suggest renaming
+  the sentinel to “All Rights Reserved”.
+- **`license: null` vs `undefined`:** `null` is an explicit no-CC override; `undefined` means
+  no draft override (inherit/display account default). Both may show the same Vimeo label in
+  the select; that is intentional UI parity, not a bug. Do not suggest splitting into
+  “All Rights Reserved” vs “Not selected” unless product explicitly requests Vimeo-parity changes.
+- **Content rating:** See `VimeoDraftFields.contentRating` docs for `[]` as a Mature-tier
+  draft placeholder.
+
 Reference:
 - [GitHub repository instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions)
 - [Repository agent rules](../AGENTS.md)

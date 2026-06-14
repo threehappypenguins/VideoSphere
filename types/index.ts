@@ -196,7 +196,17 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
    */
   categoryUris?: string[];
   /**
-   * Maps to API `license`. Omit or set `null` for All Rights Reserved; CC codes are sent on create.
+   * Stored Vimeo upload license selection.
+   * @remarks
+   * - `undefined` — no draft override; UI falls back to {@link VimeoAccountDefaults.license}
+   *   and seeding may copy the connected account default onto the draft.
+   * - `null` — explicit “no Creative Commons license” override (Vimeo upload UI label:
+   *   “Select a license…”, **not** “All Rights Reserved”).
+   * - `'by-nc'`, etc. — explicit Creative Commons license code from `GET /creativecommons`.
+   *
+   * Upload omits `license` on create when unset or `null`; only CC codes are sent.
+   * Do not add a separate “All Rights Reserved” picker option — that label is internal/API
+   * shorthand only and does not appear in Vimeo’s upload UI.
    */
   license?: VimeoVideoLicense | null;
   /**

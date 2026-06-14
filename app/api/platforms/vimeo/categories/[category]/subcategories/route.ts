@@ -19,7 +19,17 @@ export async function GET(req: NextRequest, context: { params: Promise<{ categor
   }
 
   const { category } = await context.params;
-  const categorySlug = decodeURIComponent(category).trim();
+  let categorySlug: string;
+  try {
+    categorySlug = decodeURIComponent(category).trim();
+  } catch {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: 'Category slug is invalid.',
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
   if (!categorySlug) {
     const errRes: ApiError = {
       error: 'Bad Request',

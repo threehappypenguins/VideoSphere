@@ -155,7 +155,12 @@ const YOUTUBE_LICENSE_OPTIONS = [
   { value: 'creativeCommon', label: 'Creative Commons — Attribution' },
 ] as const;
 
-/** Select sentinel for Vimeo no Creative Commons license (`license: null` on create). */
+/**
+ * Select value for Vimeo’s “no Creative Commons license” choice.
+ * Maps to `license: null` on save. Label matches Vimeo upload UI (“Select a license…”),
+ * not “All Rights Reserved” (internal/API shorthand only).
+ * When `license` is `undefined` on the draft, display falls back to account defaults instead.
+ */
 const VIMEO_LICENSE_NONE = '__vimeo_license_none__';
 const VIMEO_LICENSE_NONE_LABEL = 'Select a license...';
 

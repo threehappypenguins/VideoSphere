@@ -17,7 +17,7 @@ function parseVimeoLicenseValue(value: unknown): VimeoVideoLicense | null | unde
  * Reads the user's default upload license from `preferences.videos.license` on `GET /me`.
  * Do not use top-level `license` on the user object — that is not the upload default.
  * @param body - Parsed `/me` JSON body.
- * @returns Parsed license code, `null` for All Rights Reserved, or `undefined` when unset.
+ * @returns Parsed license code, `null` for no Creative Commons default, or `undefined` when unset.
  */
 export function readMeDefaultLicense(
   body: Record<string, unknown>
@@ -38,7 +38,8 @@ export interface VimeoAccountDefaults {
   /** Default upload content rating codes from `preferences.videos.rating` on `GET /me`. */
   contentRating?: string[];
   /**
-   * Default upload license from `preferences.videos.license`, or `null` for All Rights Reserved.
+   * Default upload license from `preferences.videos.license`, or `null` when the Vimeo
+   * account default is “No Creative Commons License” (upload UI: “Select a license…”).
    */
   license?: VimeoVideoLicense | null;
 }

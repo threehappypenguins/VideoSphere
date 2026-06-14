@@ -172,9 +172,6 @@ export function VimeoCategoryPicker({
               Subcategories count as both the parent category and the subcategory.
             </p>
             <div
-              role="listbox"
-              aria-multiselectable="true"
-              aria-labelledby={id}
               className="scrollbar-visible max-h-64 overflow-y-auto overscroll-y-contain py-1"
               onWheel={handleListWheel}
             >
