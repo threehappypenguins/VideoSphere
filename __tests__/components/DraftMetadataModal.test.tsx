@@ -1322,8 +1322,8 @@ describe('DraftMetadataModal Vimeo fields', () => {
 
     await screen.findByRole('dialog');
     expect(screen.getByText(/^Mature content types$/i)).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /^Violence$/i })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: /^Language$/i })).toBeChecked();
+    expect(await screen.findByRole('checkbox', { name: /^Violence$/i })).toBeChecked();
+    expect(await screen.findByRole('checkbox', { name: /^Language$/i })).toBeChecked();
   });
 
   it('shows mature content type checkboxes when Mature is selected without detail flags yet', async () => {
@@ -1349,7 +1349,7 @@ describe('DraftMetadataModal Vimeo fields', () => {
 
     await screen.findByRole('dialog');
     expect(screen.getByText(/^Mature content types$/i)).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /^Violence$/i })).not.toBeChecked();
+    expect(await screen.findByRole('checkbox', { name: /^Violence$/i })).not.toBeChecked();
   });
 });
 

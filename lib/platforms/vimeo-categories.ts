@@ -21,6 +21,19 @@ export interface VimeoCategoryOption {
 /** Maximum category and subcategory entries Vimeo accepts on `PUT /videos/{id}/categories`. */
 export const VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES = 6;
 
+/** Non-category path segments on `/categories/{slug}/…` connection URIs from the Vimeo API. */
+const VIMEO_CATEGORY_CONNECTION_SEGMENTS = new Set([
+  'videos',
+  'channels',
+  'groups',
+  'users',
+  'subcategories',
+]);
+
+function isVimeoCategoryConnectionSegment(slug: string): boolean {
+  return VIMEO_CATEGORY_CONNECTION_SEGMENTS.has(slug.trim().toLowerCase());
+}
+
 /**
  * Parses a stored category URI or slug into Vimeo batch slug entries.
  * Subcategory URIs expand to both the parent category slug and the subcategory slug.
@@ -35,7 +48,12 @@ export function parseVimeoCategorySlugs(categoryUriOrSlug: string): string[] | n
   if (sub) return [sub[1], sub[2]];
 
   const shortSub = s.match(/\/categories\/([^/]+)\/([^/?#]+)/i);
-  if (shortSub) return [shortSub[1], shortSub[2]];
+  if (shortSub) {
+    if (isVimeoCategoryConnectionSegment(shortSub[2])) {
+      return null;
+    }
+    return [shortSub[1], shortSub[2]];
+  }
 
   const top = s.match(/\/categories\/([^/?#]+)/i);
   if (top) return [top[1]];
@@ -45,7 +63,12 @@ export function parseVimeoCategorySlugs(categoryUriOrSlug: string): string[] | n
     const subU = path.match(/\/categories\/([^/]+)\/subcategories\/([^/?#]+)/i);
     if (subU) return [subU[1], subU[2]];
     const shortSubU = path.match(/\/categories\/([^/]+)\/([^/?#]+)/i);
-    if (shortSubU) return [shortSubU[1], shortSubU[2]];
+    if (shortSubU) {
+      if (isVimeoCategoryConnectionSegment(shortSubU[2])) {
+        return null;
+      }
+      return [shortSubU[1], shortSubU[2]];
+    }
     const topU = path.match(/\/categories\/([^/?#]+)/i);
     if (topU) return [topU[1]];
   } catch {
@@ -142,7 +165,9 @@ export function isVimeoSubcategoryUri(uri: string): boolean {
   if (/\/subcategories\//i.test(trimmed)) {
     return true;
   }
-  return /^\/categories\/[^/]+\/[^/?#]+/.test(trimmed);
+
+  const shortPath = trimmed.match(/^\/categories\/([^/]+)\/([^/?#]+)/i);
+  return shortPath !== null && !isVimeoCategoryConnectionSegment(shortPath[2]);
 }
 
 /**
@@ -162,7 +187,7 @@ export function vimeoParentCategoryUriForSubcategoryUri(
   }
 
   const shortPath = trimmed.match(/^\/categories\/([^/]+)\/([^/?#]+)/i);
-  if (shortPath) {
+  if (shortPath && !isVimeoCategoryConnectionSegment(shortPath[2])) {
     return `/categories/${shortPath[1]}`;
   }
 

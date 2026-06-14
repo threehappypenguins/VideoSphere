@@ -107,6 +107,12 @@ describe('parseVimeoCategorySlugs', () => {
     expect(isVimeoApiSubcategoryPathUri('/categories/brandedcontent/brandeddoc')).toBe(false);
     expect(isVimeoApiSubcategoryPathUri('/categories/animation/subcategories/2d')).toBe(true);
   });
+
+  it('rejects Vimeo connection URIs that are not upload subcategories', () => {
+    expect(parseVimeoCategorySlugs('/categories/comedy/videos')).toBeNull();
+    expect(parseVimeoCategorySlugs('/categories/travel/channels')).toBeNull();
+    expect(isVimeoSubcategoryUri('/categories/comedy/videos')).toBe(false);
+  });
 });
 
 describe('addVimeoCategoryUri', () => {
