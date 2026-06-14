@@ -330,6 +330,11 @@ export function isVimeoCategoryBatchAtLimit(categoryUris: readonly string[]): bo
   return countVimeoCategoryBatchEntries(categoryUris) >= VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES;
 }
 
+/**
+ * Extracts the top-level category slug from a stored Vimeo category URI.
+ * @param uri - Category URI or path (e.g. `/categories/animation`).
+ * @returns Bare slug segment, or null when the URI is not a top-level category path.
+ */
 export function vimeoCategorySlugFromUri(uri: string): string | null {
   const match = uri.trim().match(/^\/categories\/([^/?#]+)/i);
   return match?.[1] ?? null;
