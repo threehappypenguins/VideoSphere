@@ -18,7 +18,7 @@ describe('readMeDefaultLicense', () => {
     ).toBe('by-nc-sa');
   });
 
-  it('returns null when the user default is All Rights Reserved', () => {
+  it('returns null when the user default has no Creative Commons license', () => {
     expect(
       readMeDefaultLicense({
         preferences: {
@@ -54,7 +54,7 @@ describe('buildVimeoAccountDefaultsSeedPatch', () => {
     expect(buildVimeoAccountDefaultsSeedPatch(undefined, defaults)).toEqual(defaults);
   });
 
-  it('seeds explicit All Rights Reserved when account default license is null', () => {
+  it('seeds license null when account default has no Creative Commons license', () => {
     expect(buildVimeoAccountDefaultsSeedPatch(undefined, { license: null })).toEqual({
       license: null,
     });

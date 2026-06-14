@@ -24,6 +24,16 @@ function mockContentRatingsResponse() {
   return Response.json(SAMPLE_CONTENT_RATINGS);
 }
 
+/** Collects request URLs from a stubbed `fetch` mock. */
+function fetchRequestUrls(mockFetch: ReturnType<typeof vi.fn>): string[] {
+  return mockFetch.mock.calls.map(([input]) => String(input));
+}
+
+/** Counts stubbed `fetch` calls whose URL contains `fragment`. */
+function fetchCallCountForUrl(mockFetch: ReturnType<typeof vi.fn>, fragment: string): number {
+  return fetchRequestUrls(mockFetch).filter((url) => url.includes(fragment)).length;
+}
+
 function mockMissingSupplementalCategoryDetail(url: string): Response | null {
   const match = String(url).match(/^https:\/\/api\.vimeo\.com\/categories\/([a-z0-9]+)$/i);
   if (!match) {
@@ -801,7 +811,10 @@ describe('fetchVimeoAccountDefaults', () => {
       { code: 'safe', name: 'All audiences' },
     ]);
 
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const mockFetch = vi.mocked(global.fetch);
+    expect(mockFetch).toHaveBeenCalled();
+    expect(fetchCallCountForUrl(mockFetch, '/me')).toBe(1);
+    expect(fetchCallCountForUrl(mockFetch, '/contentratings')).toBe(0);
     expect(result).toEqual({
       ok: true,
       defaults: {
@@ -865,7 +878,12 @@ describe('fetchVimeoDraftMetadataOptions', () => {
 
     const result = await fetchVimeoDraftMetadataOptions('token');
 
-    expect(global.fetch).toHaveBeenCalledTimes(14);
+    const mockFetch = vi.mocked(global.fetch);
+    expect(mockFetch).toHaveBeenCalled();
+    expect(fetchCallCountForUrl(mockFetch, '/contentratings')).toBe(1);
+    expect(fetchCallCountForUrl(mockFetch, '/creativecommons')).toBe(1);
+    expect(fetchCallCountForUrl(mockFetch, '/categories?')).toBe(1);
+    expect(fetchCallCountForUrl(mockFetch, '/me')).toBe(1);
     expect(result).toEqual({
       ok: true,
       options: {

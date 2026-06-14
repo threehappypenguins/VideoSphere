@@ -730,7 +730,7 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       if (!batchBody) {
         return toError(
           'VIMEO_CATEGORY_INVALID',
-          'Invalid platforms.vimeo.categoryUris: use slugs (e.g. "animation"), paths like "/categories/animation", subcategory paths like "/categories/animation/subcategories/2d", or full vimeo.com category URLs.'
+          'Invalid Vimeo category URI(s): use slugs (e.g. "animation"), paths like "/categories/animation", subcategory paths like "/categories/animation/subcategories/2d", or full vimeo.com category URLs.'
         );
       }
       if (batchBody.length > VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES) {

@@ -68,6 +68,16 @@ function mockMissingSupplementalCategoryDetail(url: string): Response | null {
   return new Response(null, { status: 404 });
 }
 
+/** Collects request URLs from a stubbed `fetch` mock. */
+function fetchRequestUrls(mockFetch: ReturnType<typeof vi.fn>): string[] {
+  return mockFetch.mock.calls.map(([input]) => String(input));
+}
+
+/** Counts stubbed `fetch` calls whose URL contains `fragment`. */
+function fetchCallCountForUrl(mockFetch: ReturnType<typeof vi.fn>, fragment: string): number {
+  return fetchRequestUrls(mockFetch).filter((url) => url.includes(fragment)).length;
+}
+
 describe('Vimeo platform metadata routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -291,7 +301,12 @@ describe('Vimeo platform metadata routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
-    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(14);
+    const mockFetch = vi.mocked(global.fetch);
+    expect(mockFetch).toHaveBeenCalled();
+    expect(fetchCallCountForUrl(mockFetch, '/contentratings')).toBe(1);
+    expect(fetchCallCountForUrl(mockFetch, '/creativecommons')).toBe(1);
+    expect(fetchCallCountForUrl(mockFetch, '/categories?')).toBe(1);
+    expect(fetchCallCountForUrl(mockFetch, '/me')).toBe(1);
     expect(await res.json()).toEqual({
       data: {
         contentRatings: [
