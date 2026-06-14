@@ -219,13 +219,14 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
    * Stored Vimeo `content_rating` codes for draft metadata and upload resolution.
    * @remarks
    * - `undefined` — not selected in the UI (field omitted on upload).
+   * - `null` — explicit “Not selected” clear sent on PATCH; normalized to `undefined` when stored.
    * - `['safe']` — All audiences.
    * - `[]` — Mature tier selected with no detail flags yet (draft/UI placeholder only;
    *   omitted on upload until one or more mature-detail codes are chosen).
    * - `['language', …]` — one or more mature-detail codes from `GET /contentratings`
    *   (every API row except `safe` and `unrated`).
    */
-  contentRating?: string[];
+  contentRating?: string[] | null;
 }
 
 /**

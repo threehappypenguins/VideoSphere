@@ -1639,9 +1639,11 @@ export function DraftMetadataModal({
     [youtubeCategories]
   );
   const vimeoContentRatingCodes =
-    vimeoFields?.contentRating !== undefined
-      ? vimeoFields.contentRating
-      : vimeoAccountDefaults?.contentRating;
+    vimeoFields?.contentRating === null
+      ? undefined
+      : vimeoFields?.contentRating !== undefined
+        ? vimeoFields.contentRating
+        : vimeoAccountDefaults?.contentRating;
   const vimeoContentRatingParsed = useMemo(
     () => parseVimeoContentRatingTier(vimeoContentRatingCodes),
     [vimeoContentRatingCodes]
@@ -3027,7 +3029,7 @@ export function DraftMetadataModal({
           value={vimeoContentRatingSelectValue}
           onValueChange={(next) => {
             if (next === VIMEO_CONTENT_RATING_NONE) {
-              updateVimeoFields({ contentRating: undefined });
+              updateVimeoFields({ contentRating: null });
               return;
             }
             if (next === VIMEO_CONTENT_RATING_SAFE) {
@@ -3113,9 +3115,7 @@ export function DraftMetadataModal({
           id="draft-vimeo-category"
           value={vimeoCategoryUrisValue}
           categories={vimeoCategories}
-          onChange={(next) =>
-            updateVimeoFields({ categoryUris: next.length > 0 ? next : undefined })
-          }
+          onChange={(next) => updateVimeoFields({ categoryUris: next })}
           onLoadSubcategories={loadVimeoCategorySubcategories}
           className={fieldBorderClass('vimeo.categoryUris')}
         />

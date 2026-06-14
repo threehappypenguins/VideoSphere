@@ -239,6 +239,9 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
 }
 
 function normalizeVimeoContentRating(value: unknown): string[] | undefined {
+  if (value === null) {
+    return undefined;
+  }
   return normalizeVimeoContentRatingCodes(value);
 }
 
@@ -702,7 +705,11 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       }
     }
     if ('contentRating' in p) {
-      vm.contentRating = normalizeVimeoContentRating(p.contentRating);
+      if (p.contentRating === null) {
+        vm.contentRating = undefined;
+      } else {
+        vm.contentRating = normalizeVimeoContentRating(p.contentRating);
+      }
     }
     if ('titleOverride' in p) {
       const s = p.titleOverride;

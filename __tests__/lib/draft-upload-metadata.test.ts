@@ -229,6 +229,15 @@ describe('draft-upload-metadata', () => {
     });
   });
 
+  it('mergeDraftPlatformsPatch can clear contentRating with null', () => {
+    const base: Draft['platforms'] = {
+      vimeo: { contentRating: ['safe'] },
+    };
+    expect(mergeDraftPlatformsPatch(base, { vimeo: { contentRating: null } })).toEqual({
+      vimeo: { contentRating: undefined },
+    });
+  });
+
   it('mergeDraftPlatformsPatch dedupes vimeo categoryUris in first-seen order', () => {
     expect(
       mergeDraftPlatformsPatch(
