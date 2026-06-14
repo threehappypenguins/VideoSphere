@@ -62,6 +62,23 @@ describe('draft-upload-metadata', () => {
     ).toBe('Only');
   });
 
+  it('normalizeDraftPlatforms dedupes vimeo categoryUris in first-seen order', () => {
+    expect(
+      normalizeDraftPlatforms({
+        vimeo: {
+          categoryUris: [
+            '/categories/animation',
+            ' /categories/animation ',
+            '/categories/music',
+            '/categories/animation',
+          ],
+        },
+      })
+    ).toEqual({
+      vimeo: { categoryUris: ['/categories/animation', '/categories/music'] },
+    });
+  });
+
   it('draftDocumentFromRow uses defaults when missing or invalid', () => {
     expect(draftDocumentFromRow({})).toEqual({
       targets: [],
@@ -209,6 +226,26 @@ describe('draft-upload-metadata', () => {
     };
     expect(mergeDraftPlatformsPatch(base, { vimeo: { categoryUris: [] } })).toEqual({
       vimeo: { categoryUris: undefined },
+    });
+  });
+
+  it('mergeDraftPlatformsPatch dedupes vimeo categoryUris in first-seen order', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        { vimeo: {} },
+        {
+          vimeo: {
+            categoryUris: [
+              '/categories/animation',
+              ' /categories/animation ',
+              '/categories/music',
+              '/categories/animation',
+            ],
+          },
+        }
+      )
+    ).toEqual({
+      vimeo: { categoryUris: ['/categories/animation', '/categories/music'] },
     });
   });
 

@@ -347,6 +347,23 @@ function SermonAudioShortTitleField({
   );
 }
 
+/** Tracks which YouTube metadata option endpoints have loaded successfully. */
+interface YouTubeMetadataLoadedState {
+  languages: boolean;
+  categories: boolean;
+  accountDefaults: boolean;
+}
+
+const EMPTY_YOUTUBE_METADATA_LOADED: YouTubeMetadataLoadedState = {
+  languages: false,
+  categories: false,
+  accountDefaults: false,
+};
+
+function isYouTubeMetadataFullyLoaded(state: YouTubeMetadataLoadedState): boolean {
+  return state.languages && state.categories && state.accountDefaults;
+}
+
 interface DraftMetadataModalProps {
   mode: 'create' | 'edit';
   value: DraftEditorValues | null;
@@ -512,7 +529,9 @@ export function DraftMetadataModal({
   const vimeoMetadataLoadedRef = useRef(false);
   const vimeoMetadataRequestIdRef = useRef(0);
   const [vimeoMetadataLoadError, setVimeoMetadataLoadError] = useState<string | null>(null);
-  const youtubeMetadataLoadedRef = useRef(false);
+  const youtubeMetadataLoadedRef = useRef<YouTubeMetadataLoadedState>({
+    ...EMPTY_YOUTUBE_METADATA_LOADED,
+  });
   const youtubeMetadataRequestIdRef = useRef(0);
   const [uploadFieldErrors, setUploadFieldErrors] = useState<Set<DraftUploadFieldKey>>(new Set());
   const [sermonEventTypes, setSermonEventTypes] = useState<string[] | null>(null);
@@ -956,7 +975,7 @@ export function DraftMetadataModal({
     setYoutubeLanguages([]);
     setYoutubeCategories([]);
     setYoutubeAccountDefaults(undefined);
-    youtubeMetadataLoadedRef.current = false;
+    youtubeMetadataLoadedRef.current = { ...EMPTY_YOUTUBE_METADATA_LOADED };
     setVimeoContentRatings([]);
     setVimeoCategories([]);
     setVimeoLicenses([]);
@@ -969,52 +988,58 @@ export function DraftMetadataModal({
     if (!youtubeTargetActive || !draftId) {
       return;
     }
-    if (youtubeMetadataLoadedRef.current) {
+    if (isYouTubeMetadataFullyLoaded(youtubeMetadataLoadedRef.current)) {
       return;
     }
 
     const requestId = ++youtubeMetadataRequestIdRef.current;
+    const loadedAtStart = youtubeMetadataLoadedRef.current;
 
     const loadYouTubeMetadataOptions = async () => {
       try {
         const [languagesResponse, categoriesResponse, accountDefaultsResponse] = await Promise.all([
-          fetch('/api/platforms/youtube/languages', { cache: 'no-store' }),
-          fetch('/api/platforms/youtube/categories', { cache: 'no-store' }),
-          fetch('/api/platforms/youtube/account-defaults', { cache: 'no-store' }),
+          loadedAtStart.languages
+            ? Promise.resolve(null)
+            : fetch('/api/platforms/youtube/languages', { cache: 'no-store' }),
+          loadedAtStart.categories
+            ? Promise.resolve(null)
+            : fetch('/api/platforms/youtube/categories', { cache: 'no-store' }),
+          loadedAtStart.accountDefaults
+            ? Promise.resolve(null)
+            : fetch('/api/platforms/youtube/account-defaults', { cache: 'no-store' }),
         ]);
 
         if (requestId !== youtubeMetadataRequestIdRef.current) {
           return;
         }
 
-        if (languagesResponse.ok) {
+        if (languagesResponse?.ok) {
           const payload = (await languagesResponse.json()) as ApiResponse<
             Array<{ id: string; name: string }>
           >;
           if (Array.isArray(payload.data)) {
             setYoutubeLanguages(payload.data);
           }
+          youtubeMetadataLoadedRef.current.languages = true;
         }
 
-        if (categoriesResponse.ok) {
+        if (categoriesResponse?.ok) {
           const payload = (await categoriesResponse.json()) as ApiResponse<
             Array<{ id: string; title: string }>
           >;
           if (Array.isArray(payload.data)) {
             setYoutubeCategories(payload.data);
           }
+          youtubeMetadataLoadedRef.current.categories = true;
         }
 
-        if (accountDefaultsResponse.ok) {
+        if (accountDefaultsResponse?.ok) {
           const payload =
             (await accountDefaultsResponse.json()) as ApiResponse<YouTubeAccountDefaults>;
           if (payload.data) {
             setYoutubeAccountDefaults(payload.data);
           }
-        }
-
-        if (languagesResponse.ok || categoriesResponse.ok || accountDefaultsResponse.ok) {
-          youtubeMetadataLoadedRef.current = true;
+          youtubeMetadataLoadedRef.current.accountDefaults = true;
         }
       } catch {
         // Language/category/account-default lists are optional for editing.
@@ -1099,7 +1124,7 @@ export function DraftMetadataModal({
 
   useEffect(() => {
     if (!youtubeTargetActive) {
-      youtubeMetadataLoadedRef.current = false;
+      youtubeMetadataLoadedRef.current = { ...EMPTY_YOUTUBE_METADATA_LOADED };
     }
   }, [youtubeTargetActive]);
 

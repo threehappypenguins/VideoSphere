@@ -242,15 +242,28 @@ function normalizeVimeoContentRating(value: unknown): string[] | undefined {
   return normalizeVimeoContentRatingCodes(value);
 }
 
+/** Trims, drops empties, and dedupes category URIs in first-seen order. */
+function uniqueTrimmedVimeoCategoryUris(values: readonly unknown[]): string[] {
+  const seen = new Set<string>();
+  const uris: string[] = [];
+
+  for (const raw of values) {
+    if (typeof raw !== 'string') continue;
+    const uri = raw.trim();
+    if (!uri || seen.has(uri)) continue;
+    seen.add(uri);
+    uris.push(uri);
+  }
+
+  return uris;
+}
+
 function normalizeVimeoCategoryUris(v: Record<string, unknown>): string[] | undefined {
   if (!Array.isArray(v.categoryUris)) {
     return undefined;
   }
 
-  const uris = v.categoryUris
-    .filter((uri): uri is string => typeof uri === 'string')
-    .map((uri) => uri.trim())
-    .filter(Boolean);
+  const uris = uniqueTrimmedVimeoCategoryUris(v.categoryUris);
   return uris.length > 0 ? uris : undefined;
 }
 
@@ -671,13 +684,8 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
     const vm = { ...base.vimeo };
     if ('categoryUris' in p) {
       if (Array.isArray(p.categoryUris)) {
-        vm.categoryUris = p.categoryUris
-          .filter((uri): uri is string => typeof uri === 'string')
-          .map((uri) => uri.trim())
-          .filter(Boolean);
-        if (vm.categoryUris.length === 0) {
-          vm.categoryUris = undefined;
-        }
+        const uris = uniqueTrimmedVimeoCategoryUris(p.categoryUris);
+        vm.categoryUris = uris.length > 0 ? uris : undefined;
       } else {
         vm.categoryUris = undefined;
       }

@@ -1196,6 +1196,85 @@ describe('DraftMetadataModal YouTube fields', () => {
     await userEvent.click(screen.getByLabelText(/^Category$/i));
     expect(await screen.findByRole('option', { name: 'People & Blogs' })).toBeInTheDocument();
   });
+
+  it('retries failed YouTube metadata endpoints after switching drafts', async () => {
+    let categoriesCallCount = 0;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/platforms/youtube/playlists/recent')) {
+          return {
+            ok: true,
+            json: async () => ({ data: [] }),
+          } as Response;
+        }
+        if (url.includes('/api/platforms/youtube/languages')) {
+          return {
+            ok: true,
+            json: async () => ({ data: [{ id: 'en', name: 'English' }] }),
+          } as Response;
+        }
+        if (url.includes('/api/platforms/youtube/categories')) {
+          categoriesCallCount += 1;
+          if (categoriesCallCount === 1) {
+            return { ok: false, json: async () => ({}) } as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ data: [{ id: '22', title: 'People & Blogs' }] }),
+          } as Response;
+        }
+        if (url.includes('/api/platforms/youtube/account-defaults')) {
+          return {
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({ data: [] }) } as Response;
+      })
+    );
+
+    const { rerender } = render(
+      <DraftMetadataModal
+        mode="edit"
+        value={youtubeDraftValue}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await waitFor(() => {
+      expect(categoriesCallCount).toBe(1);
+    });
+
+    rerender(
+      <DraftMetadataModal
+        mode="edit"
+        value={{ ...youtubeDraftValue, id: 'draft-youtube-2', title: 'Another draft' }}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: 'draft-youtube-2' })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(categoriesCallCount).toBe(2);
+    });
+
+    await expandShowMore();
+    await userEvent.click(screen.getByLabelText(/^Category$/i));
+    expect(await screen.findByRole('option', { name: 'People & Blogs' })).toBeInTheDocument();
+  });
 });
 
 describe('DraftMetadataModal Vimeo fields', () => {
