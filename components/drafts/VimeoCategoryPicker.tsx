@@ -152,12 +152,10 @@ export function VimeoCategoryPicker({
             <button
               type="button"
               id={id}
-              aria-label="Add Vimeo category"
-              aria-disabled={atLimit}
-              className={cn(
-                'inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground hover:text-foreground',
-                atLimit && 'cursor-not-allowed opacity-50 hover:text-muted-foreground'
-              )}
+              aria-label={
+                atLimit ? 'Manage Vimeo categories (selection limit reached)' : 'Add Vimeo category'
+              }
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground hover:text-foreground"
             >
               <Plus className="h-4 w-4" />
             </button>

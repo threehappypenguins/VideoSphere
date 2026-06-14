@@ -140,6 +140,55 @@ describe('fetchVimeoCategories', () => {
     });
   });
 
+  it('follows relative paging.next links when loading the category list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const missingSupplemental = mockMissingSupplementalCategoryDetail(url);
+        if (missingSupplemental) {
+          return missingSupplemental;
+        }
+
+        if (url.includes('/categories?') && url.includes('page=2')) {
+          expect(url.startsWith('https://api.vimeo.com/')).toBe(true);
+          return Response.json({
+            data: [{ uri: '/categories/music', name: 'Music', top_level: true }],
+          });
+        }
+
+        if (url.includes('/categories?')) {
+          return Response.json({
+            data: [{ uri: '/categories/animation', name: 'Animation', top_level: true }],
+            paging: { next: '/categories?page=2&per_page=100&sort=name&direction=asc' },
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
+    const result = await fetchVimeoCategories('token');
+
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        {
+          uri: '/categories/animation',
+          name: 'Animation',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+        {
+          uri: '/categories/music',
+          name: 'Music',
+          subcategories: [],
+          mayHaveSubcategories: false,
+        },
+      ],
+    });
+  });
+
   it('fills subcategories from the dedicated collection endpoint when list and detail omit them', async () => {
     vi.stubGlobal(
       'fetch',

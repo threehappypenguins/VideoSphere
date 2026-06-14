@@ -45,6 +45,27 @@ function vimeoAuthHeaders(accessToken: string): HeadersInit {
   };
 }
 
+/**
+ * Resolves a Vimeo API paging link to an absolute URL suitable for `fetch`.
+ * @param next - Value from `body.paging.next` (absolute or path-relative).
+ * @returns Absolute URL, or null when empty or unparseable.
+ */
+function resolveVimeoPagingNextUrl(next: string): string | null {
+  const trimmed = next.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      return new URL(trimmed).toString();
+    }
+    return new URL(trimmed, `${VIMEO_API_BASE}/`).toString();
+  } catch {
+    return null;
+  }
+}
+
 async function readVimeoApiErrorDetails(response: Response): Promise<string> {
   const raw = await response.text().catch(() => '');
   if (!raw.trim()) {
@@ -496,7 +517,7 @@ async function fetchSubcategoriesFromDedicatedEndpoint(
       isPlainObject(body) && isPlainObject(body.paging) && typeof body.paging.next === 'string'
         ? body.paging.next
         : null;
-    nextUrl = pagingNext?.trim() ? pagingNext : null;
+    nextUrl = pagingNext ? resolveVimeoPagingNextUrl(pagingNext) : null;
   }
 
   return mapDedicatedSubcategoryRows(rows, slug, topLevelCategoryUris);
@@ -758,7 +779,7 @@ async function fetchAllVimeoCategoryRows(
       isPlainObject(body) && isPlainObject(body.paging) && typeof body.paging.next === 'string'
         ? body.paging.next
         : null;
-    nextUrl = pagingNext?.trim() ? pagingNext : null;
+    nextUrl = pagingNext ? resolveVimeoPagingNextUrl(pagingNext) : null;
   }
 
   return rows;
