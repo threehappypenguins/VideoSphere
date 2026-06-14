@@ -269,6 +269,21 @@ export function removeVimeoCategoryUri(
   });
 }
 
+function vimeoSubcategorySlugFallbackFromUri(uri: string): string | null {
+  const trimmed = uri.trim();
+  if (!isVimeoSubcategoryUri(trimmed)) {
+    return null;
+  }
+
+  const subcategoriesPath = trimmed.match(/\/categories\/[^/]+\/subcategories\/([^/?#]+)/i);
+  if (subcategoriesPath) {
+    return subcategoriesPath[1];
+  }
+
+  const shortPath = trimmed.match(/^\/categories\/[^/]+\/([^/?#]+)/i);
+  return shortPath?.[1] ?? null;
+}
+
 /**
  * Returns a short chip label for one stored category URI.
  * @param uri - Stored category or subcategory URI.
@@ -292,9 +307,9 @@ export function vimeoCategoryChipLabelForUri(
   }
 
   if (isVimeoSubcategoryUri(trimmed)) {
-    const subMatch = trimmed.match(/\/subcategories\/([^/?#]+)/i);
-    if (subMatch) {
-      return subMatch[1];
+    const subSlug = vimeoSubcategorySlugFallbackFromUri(trimmed);
+    if (subSlug) {
+      return subSlug;
     }
   }
 
@@ -342,6 +357,11 @@ export function vimeoCategoryLabelForUri(uri: string, categories: VimeoCategoryO
   const subMatch = trimmed.match(/\/categories\/([^/]+)\/subcategories\/([^/?#]+)/i);
   if (subMatch) {
     return `${subMatch[1]} › ${subMatch[2]}`;
+  }
+
+  const shortSubMatch = trimmed.match(/^\/categories\/([^/]+)\/([^/?#]+)/i);
+  if (shortSubMatch && isVimeoSubcategoryUri(trimmed)) {
+    return `${shortSubMatch[1]} › ${shortSubMatch[2]}`;
   }
 
   const topMatch = trimmed.match(/\/categories\/([^/?#]+)/i);

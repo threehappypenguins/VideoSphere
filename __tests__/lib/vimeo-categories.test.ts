@@ -40,6 +40,12 @@ describe('vimeoCategoryLabelForUri', () => {
   it('falls back to slug parsing for unknown URIs', () => {
     expect(vimeoCategoryLabelForUri('/categories/documentary', categories)).toBe('documentary');
   });
+
+  it('falls back to parent and subcategory slugs for short-form URIs when the tree is unavailable', () => {
+    expect(vimeoCategoryLabelForUri('/categories/brandedcontent/brandeddoc', [])).toBe(
+      'brandedcontent › brandeddoc'
+    );
+  });
 });
 
 describe('countVimeoCategoryBatchEntries', () => {
@@ -151,6 +157,12 @@ describe('vimeoCategoryChipLabelForUri', () => {
     expect(vimeoCategoryChipLabelForUri('/categories/animation', categories)).toBe('Animation');
     expect(vimeoCategoryChipLabelForUri('/categories/animation/subcategories/2d', categories)).toBe(
       '2D'
+    );
+  });
+
+  it('falls back to the subcategory slug for short-form URIs when the tree is unavailable', () => {
+    expect(vimeoCategoryChipLabelForUri('/categories/brandedcontent/brandeddoc', [])).toBe(
+      'brandeddoc'
     );
   });
 });

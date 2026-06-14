@@ -3,6 +3,7 @@ import {
   fetchVimeoCategories,
   requireVimeoConnection,
   vimeoUpstreamErrorResponse,
+  type VimeoCategoryOption,
 } from '@/lib/platforms/vimeo-api';
 import type { ApiError, ApiResponse } from '@/types';
 
@@ -23,9 +24,7 @@ export async function GET(req: NextRequest) {
       return vimeoUpstreamErrorResponse(result.details);
     }
 
-    const res: ApiResponse<
-      Array<{ uri: string; name: string; subcategories: Array<{ uri: string; name: string }> }>
-    > = { data: result.items };
+    const res: ApiResponse<VimeoCategoryOption[]> = { data: result.items };
     return NextResponse.json(res, {
       status: 200,
       headers: {

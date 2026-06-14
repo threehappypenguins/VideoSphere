@@ -191,8 +191,14 @@ export type VimeoVideoLicense =
  */
 export interface VimeoDraftFields extends PerPlatformOverrides {
   /**
-   * Category hints for `PUT /videos/{id}/categories` batch body. Each entry is a top-level
-   * `/categories/{slug}` URI or a subcategory `/categories/{parent}/subcategories/{slug}` URI.
+   * Category hints for `PUT /videos/{id}/categories` batch body.
+   * @remarks
+   * Each entry may be a bare slug, full `vimeo.com` URL, or one of:
+   * - `/categories/{slug}` — top-level category
+   * - `/categories/{parent}/subcategories/{slug}` — API subcategory path (e.g. Animation)
+   * - `/categories/{parent}/{slug}` — short-form subcategory path (e.g. Branded Content)
+   *
+   * Connection URIs such as `/categories/{parent}/videos` are not valid selections.
    */
   categoryUris?: string[];
   /**
