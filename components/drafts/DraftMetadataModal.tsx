@@ -233,8 +233,10 @@ function showDraftThumbnailUploadSection(targets: ConnectedAccountPlatform[]): b
   );
 }
 
-/** SermonAudio short title (`displayTitle`) is offered when the effective title exceeds this length. */
-const SERMON_AUDIO_SHORT_TITLE_THRESHOLD = 30;
+/** SermonAudio short title (`displayTitle`) max length (including spaces). */
+const SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH = 30;
+/** SermonAudio short title field is offered when the effective title exceeds this length. */
+const SERMON_AUDIO_SHORT_TITLE_THRESHOLD = SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH;
 
 function isOverridePlatform(platform: ConnectedAccountPlatform): platform is OverridePlatform {
   return (OVERRIDE_PLATFORMS as readonly string[]).includes(platform);
@@ -337,7 +339,10 @@ function SermonAudioShortTitleField({
       <input
         id="draft-sermon-audio-display-title"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        maxLength={SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH}
+        onChange={(event) =>
+          onChange(event.target.value.slice(0, SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH))
+        }
         className={fieldBorderClassName}
       />
       <p className="mt-1 text-xs text-muted-foreground">
