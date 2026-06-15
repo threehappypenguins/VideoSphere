@@ -165,14 +165,18 @@ async function persistSermonAudioAutoPublishFailure(
 /**
  * Starts detached poll-and-publish work for SermonAudio rows that uploaded successfully in this
  * attempt. Runs independently of whether other platforms on the same job failed.
+ * Immediate failures (e.g. missing API key) are awaited so rows leave `unpublished` before the
+ * caller continues; long-running poll/publish work remains detached.
  */
-function startSermonAudioAutoPublishForSuccessfulUploads(
+async function startSermonAudioAutoPublishForSuccessfulUploads(
   jobId: string,
   attemptResults: PlatformUpload[],
   metadataByPlatformId: Map<string, PlatformUploadMetadata>,
   saApiKeyByPlatformUploadId: ReadonlyMap<string, string>,
   saCustomThumbnailUploadedByPlatformUploadId: ReadonlyMap<string, boolean>
-): void {
+): Promise<void> {
+  const immediateFailureWrites: Promise<void>[] = [];
+
   for (const upload of attemptResults) {
     if (upload.platform !== 'sermon_audio' || upload.status !== 'unpublished') {
       continue;
@@ -192,11 +196,13 @@ function startSermonAudioAutoPublishForSuccessfulUploads(
       console.warn(
         `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
       );
-      void persistSermonAudioAutoPublishFailure(
-        upload.id,
-        sermonID,
-        upload.platformUrl,
-        'SermonAudio API key was not captured during upload; auto-publish could not run.'
+      immediateFailureWrites.push(
+        persistSermonAudioAutoPublishFailure(
+          upload.id,
+          sermonID,
+          upload.platformUrl,
+          'SermonAudio API key was not captured during upload; auto-publish could not run.'
+        )
       );
       continue;
     }
@@ -241,6 +247,8 @@ function startSermonAudioAutoPublishForSuccessfulUploads(
       }
     })();
   }
+
+  await Promise.all(immediateFailureWrites);
 }
 
 // ---------------------------------------------------------------------------
@@ -542,7 +550,7 @@ export async function runDistributionInBackground(
     const finalPlatformUploads = await getPlatformUploadsByJob(jobId);
     const attemptResults = finalPlatformUploads.filter((u) => attemptPlatformUploadIds.has(u.id));
 
-    startSermonAudioAutoPublishForSuccessfulUploads(
+    await startSermonAudioAutoPublishForSuccessfulUploads(
       jobId,
       attemptResults,
       metadataByPlatformId,
