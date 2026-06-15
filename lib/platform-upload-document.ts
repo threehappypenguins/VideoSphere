@@ -20,8 +20,8 @@ export interface PlatformUploadDocumentStored {
   categoryId?: string;
   /** YouTube: `status.selfDeclaredMadeForKids` when set. */
   madeForKids?: boolean;
-  /** Vimeo: category URI from the draft when set. */
-  vimeoCategoryUri?: string;
+  /** Vimeo: category URIs from the draft when set. */
+  vimeoCategoryUris?: string[];
   /** Audit: `platforms.youtube` from the draft at distribute time. */
   draftYoutube?: YouTubeDraftFields;
   /** Audit: `platforms.vimeo` from the draft at distribute time. */
@@ -76,7 +76,9 @@ export function stringifyPlatformUploadDocumentForStorage(
   };
   if (d.categoryId !== undefined) payload.categoryId = d.categoryId;
   if (d.madeForKids !== undefined) payload.madeForKids = d.madeForKids;
-  if (d.vimeoCategoryUri !== undefined) payload.vimeoCategoryUri = d.vimeoCategoryUri;
+  if (d.vimeoCategoryUris !== undefined && d.vimeoCategoryUris.length > 0) {
+    payload.vimeoCategoryUris = [...d.vimeoCategoryUris];
+  }
   if (d.draftYoutube !== undefined) payload.draftYoutube = d.draftYoutube;
   if (d.draftVimeo !== undefined) payload.draftVimeo = d.draftVimeo;
   if (d.sermonAudioAutoPublishOnProcessed !== undefined) {
@@ -232,7 +234,7 @@ export function serializePlatformUploadDocumentForStorage(d: PlatformUploadDocum
   doc = {
     ...doc,
     categoryId: undefined,
-    vimeoCategoryUri: undefined,
+    vimeoCategoryUris: undefined,
   };
 
   if (jsonCharLengthForDocument(doc, truncated) <= MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS) {
@@ -256,7 +258,7 @@ export function platformUploadDocumentJsonForCreateRow(
     visibility,
     categoryId,
     madeForKids,
-    vimeoCategoryUri,
+    vimeoCategoryUris,
     draftYoutube,
     draftVimeo,
     sermonAudioAutoPublishOnProcessed,
@@ -268,7 +270,9 @@ export function platformUploadDocumentJsonForCreateRow(
     visibility,
     ...(categoryId !== undefined ? { categoryId } : {}),
     ...(madeForKids !== undefined ? { madeForKids } : {}),
-    ...(vimeoCategoryUri !== undefined ? { vimeoCategoryUri } : {}),
+    ...(vimeoCategoryUris !== undefined && vimeoCategoryUris.length > 0
+      ? { vimeoCategoryUris: [...vimeoCategoryUris] }
+      : {}),
     ...(draftYoutube !== undefined ? { draftYoutube } : {}),
     ...(draftVimeo !== undefined ? { draftVimeo } : {}),
     ...(sermonAudioAutoPublishOnProcessed !== undefined
@@ -304,9 +308,13 @@ export function platformUploadDocumentFromRow(
         ? categoryIdRaw.trim()
         : undefined;
     const madeForKids = typeof rec.madeForKids === 'boolean' ? rec.madeForKids : undefined;
-    const vimeoUriRaw = rec.vimeoCategoryUri;
-    const vimeoCategoryUri =
-      typeof vimeoUriRaw === 'string' && vimeoUriRaw.trim() !== '' ? vimeoUriRaw.trim() : undefined;
+    const vimeoUrisRaw = rec.vimeoCategoryUris;
+    const vimeoCategoryUris = Array.isArray(vimeoUrisRaw)
+      ? vimeoUrisRaw
+          .filter((uri): uri is string => typeof uri === 'string')
+          .map((uri) => uri.trim())
+          .filter(Boolean)
+      : undefined;
     const draftYoutube = isPlainObject(rec.draftYoutube)
       ? normalizeDraftPlatforms({ youtube: rec.draftYoutube }).youtube
       : undefined;
@@ -325,7 +333,9 @@ export function platformUploadDocumentFromRow(
       visibility: visibilityFromRow(rec.visibility),
       ...(categoryId !== undefined ? { categoryId } : {}),
       ...(madeForKids !== undefined ? { madeForKids } : {}),
-      ...(vimeoCategoryUri !== undefined ? { vimeoCategoryUri } : {}),
+      ...(vimeoCategoryUris !== undefined && vimeoCategoryUris.length > 0
+        ? { vimeoCategoryUris }
+        : {}),
       ...(draftYoutube !== undefined ? { draftYoutube } : {}),
       ...(draftVimeo !== undefined ? { draftVimeo } : {}),
       ...(sermonAudioAutoPublishOnProcessed !== undefined

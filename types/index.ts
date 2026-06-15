@@ -175,60 +175,6 @@ export interface PlatformDefaults {
   youtube?: YouTubeUserDefaults;
 }
 
-/** Vimeo `privacy` object (subset); merged after mapping draft `visibility` → `privacy.view`. */
-export type VimeoPrivacyView =
-  | 'anybody'
-  | 'contacts'
-  | 'disable'
-  | 'nobody'
-  | 'password'
-  | 'unlisted'
-  | 'users';
-
-/**
- * Defines the VimeoPrivacyComments type.
- */
-export type VimeoPrivacyComments = 'anybody' | 'contacts' | 'nobody';
-/**
- * Defines the VimeoPrivacyEmbed type.
- */
-export type VimeoPrivacyEmbed = 'private' | 'public' | 'whitelist';
-
-/** Subset of Vimeo `embed` on `POST /me` videos (player chrome). */
-export interface VimeoDraftEmbed {
-  playbar?: boolean;
-  volume?: boolean;
-  buttons?: Partial<{
-    like: boolean;
-    share: boolean;
-    embed: boolean;
-    fullscreen: boolean;
-    hd: boolean;
-    watchlater: boolean;
-    scaling: boolean;
-  }>;
-  title?: Partial<{
-    name: 'hide' | 'show' | 'user';
-    owner: 'hide' | 'show' | 'user';
-    portrait: 'hide' | 'show' | 'user';
-  }>;
-}
-
-/**
- * Defines the shape of vimeo draft privacy.
- */
-export interface VimeoDraftPrivacy {
-  view?: VimeoPrivacyView;
-  comments?: VimeoPrivacyComments;
-  embed?: VimeoPrivacyEmbed;
-  /**
-   * Stored for future use / UI; **not** sent on video create (Vimeo frequently returns 2204 for
-   * `privacy.download` on create across membership tiers). Enable downloads in Vimeo if your plan allows.
-   */
-  download?: boolean;
-  add?: boolean;
-}
-
 /** Creative Commons license codes on Vimeo `POST /me/videos` / `PATCH /videos/{id}`. */
 export type VimeoVideoLicense =
   | 'by'
@@ -245,27 +191,42 @@ export type VimeoVideoLicense =
  */
 export interface VimeoDraftFields extends PerPlatformOverrides {
   /**
-   * Category hint for `PUT /videos/{id}/categories` batch body: `/categories/{slug}`, plain slug,
-   * or vimeo.com category URL — not a made-up numeric id.
+   * Category hints for `PUT /videos/{id}/categories` batch body.
+   * @remarks
+   * Each entry may be a bare slug, full `vimeo.com` URL, or one of:
+   * - `/categories/{slug}` — top-level category
+   * - `/categories/{parent}/subcategories/{slug}` — API subcategory path (e.g. Animation)
+   * - `/categories/{parent}/{slug}` — short-form subcategory path (e.g. Branded Content)
+   *
+   * Connection URIs such as `/categories/{parent}/videos` are not valid selections.
    */
-  categoryUri?: string;
-  /** Maps to API `license`. */
-  license?: VimeoVideoLicense;
-  /** Maps to API `locale` (e.g. `en-US`). See `GET /languages?filter=texttracks`. */
-  locale?: string;
+  categoryUris?: string[];
   /**
-   * Maps to API `content_rating` (string array). Valid values from `GET /contentratings`.
-   * Example often used in ratings UI: `"safe"`.
+   * Stored Vimeo upload license selection.
+   * @remarks
+   * - `undefined` — no draft override; UI falls back to {@link VimeoAccountDefaults.license}
+   *   and seeding may copy the connected account default onto the draft.
+   * - `null` — explicit “no Creative Commons license” override (Vimeo upload UI label:
+   *   “Select a license…”, **not** “All Rights Reserved”).
+   * - `'by-nc'`, etc. — explicit Creative Commons license code from `GET /creativecommons`.
+   *
+   * Upload omits `license` on create when unset or `null`; only CC codes are sent.
+   * Do not add a separate “All Rights Reserved” picker option — that label is internal/API
+   * shorthand only and does not appear in Vimeo’s upload UI.
    */
-  contentRating?: string[];
-  /** Required when `privacy.view` is `password`. */
-  password?: string;
-  /** Maps to API `review_page`: `{ "active": true }`. */
-  reviewPage?: { active?: boolean };
-  /** Merged into `privacy` after draft-level `visibility` → `view`. */
-  privacy?: VimeoDraftPrivacy;
-  /** Player / embed chrome; maps to API `embed`. */
-  embed?: VimeoDraftEmbed;
+  license?: VimeoVideoLicense | null;
+  /**
+   * Stored Vimeo `content_rating` codes for draft metadata and upload resolution.
+   * @remarks
+   * - `undefined` — not selected in the UI (field omitted on upload).
+   * - `null` — explicit “Not selected” clear sent on PATCH; normalized to `undefined` when stored.
+   * - `['safe']` — All audiences.
+   * - `[]` — Mature tier selected with no detail flags yet (draft/UI placeholder only;
+   *   omitted on upload until one or more mature-detail codes are chosen).
+   * - `['language', …]` — one or more mature-detail codes from `GET /contentratings`
+   *   (every API row except `safe` and `unrated`).
+   */
+  contentRating?: string[] | null;
 }
 
 /**

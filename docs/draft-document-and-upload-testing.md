@@ -27,7 +27,7 @@ The app’s draft APIs (`POST/PATCH /api/drafts`, `GET /api/drafts`, …) read a
 ### `platform_uploads` collection
 
 - Each document has a **`document`** field: JSON string snapshot **at distribution time**.
-- Typical contents: `title`, `description`, `tags`, `visibility`, optional `categoryId` / `madeForKids` (YouTube), `vimeoCategoryUri`, and optional audit copies **`draftYoutube`** / **`draftVimeo`** (the `platforms.youtube` / `platforms.vimeo` slices from the draft when distribute ran).
+- Typical contents: `title`, `description`, `tags`, `visibility`, optional `categoryId` / `madeForKids` (YouTube), `vimeoCategoryUris`, and optional audit copies **`draftYoutube`** / **`draftVimeo`** (the `platforms.youtube` / `platforms.vimeo` slices from the draft when distribute ran).
 - Purpose: debugging, support, and correlating what was sent to each platform without re-reading the draft.
 
 See [`lib/platform-upload-document.ts`](../lib/platform-upload-document.ts) for the stored shape and size limit (`MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS`).
@@ -59,7 +59,7 @@ Use this when you only need minimal fields; adjust `draftId` in the upload flow 
       "madeForKids": true
     },
     "vimeo": {
-      "categoryUri": "/categories/animation"
+      "categoryUris": ["/categories/animation"]
     }
   }
 }
@@ -90,33 +90,9 @@ Valid for `drafts.document` and for `POST /api/drafts` / `PATCH /api/drafts/[id]
       "playlistIds": []
     },
     "vimeo": {
-      "categoryUri": "/categories/animation",
+      "categoryUris": ["/categories/animation"],
       "license": "by",
-      "locale": "en-US",
-      "reviewPage": { "active": false },
-      "privacy": {
-        "comments": "anybody",
-        "embed": "public",
-        "add": true
-      },
-      "embed": {
-        "playbar": true,
-        "volume": true,
-        "buttons": {
-          "like": true,
-          "share": true,
-          "embed": true,
-          "fullscreen": true,
-          "hd": true,
-          "watchlater": true,
-          "scaling": true
-        },
-        "title": {
-          "name": "user",
-          "owner": "user",
-          "portrait": "user"
-        }
-      }
+      "contentRating": ["safe"]
     }
   }
 }
@@ -152,14 +128,9 @@ Sent on Vimeo **`POST /me/videos`** using **snake_case** on the wire where the A
 
 | Field | Role |
 |--------|------|
-| `categoryUri` | Parsed into batch `[{ "category": "<slug>" }]` for `PUT …/videos/{id}/categories`. Use `/categories/animation`, slug `animation`, or a vimeo.com category URL — not a fake numeric path. |
+| `categoryUris` | String array parsed into batch `[{ "category": "<slug>" }, …]` for `PUT …/videos/{id}/categories`. Use `/categories/animation`, slug `animation`, or a vimeo.com category URL — not a fake numeric path. |
 | `license` | Creative Commons codes: `by` \| `by-nc` \| `by-nc-nd` \| `by-nc-sa` \| `by-nd` \| `by-sa` \| `cc0` |
-| `locale` | e.g. `en-US` (see Vimeo `GET /languages?filter=texttracks`) |
-| `contentRating` | Optional `string[]`; valid tokens from `GET https://api.vimeo.com/contentratings` |
-| `password` | Required when `privacy.view` is `password` |
-| `reviewPage` | `{ "active": true \| false }` → API `review_page` |
-| `privacy` | Merged after mapping draft `visibility` → `privacy.view` (`anybody` \| `unlisted` \| `nobody`, etc.). Optional: `view`, `comments`, `embed`, `add`. **Do not set `download`: `false`** — Vimeo often rejects `privacy.download` on create (e.g. HTTP 2204) even when `false`. Omit `download` unless you need it; we do not send `privacy.download` on Vimeo video **create** in this app. |
-| `embed` | Player chrome: `playbar`, `volume`, `buttons.*`, `title.name` \| `owner` \| `portrait`: `hide` \| `show` \| `user` |
+| `contentRating` | Optional `string[]`; audience tier and mature-detail flags from `GET https://api.vimeo.com/contentratings` |
 
 **Not implemented**: spatial/360 payloads, full embed logos/color, showcase/folder membership, custom domain whitelist bodies.
 

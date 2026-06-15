@@ -30,6 +30,47 @@ vi.mock('next/image', () => ({
   ),
 }));
 
+function mockVimeoMetadataOptionsResponse() {
+  return {
+    ok: true,
+    json: async () => ({
+      data: {
+        contentRatings: [
+          { code: 'safe', name: 'All audiences' },
+          { code: 'violence', name: 'Violence' },
+          { code: 'language', name: 'Language' },
+          { code: 'unrated', name: 'Not Yet Rated' },
+        ],
+        categories: [{ uri: '/categories/documentary', name: 'Documentary', subcategories: [] }],
+        licenses: [
+          { code: 'by-nc', name: 'Attribution Non-Commercial' },
+          { code: 'by-sa', name: 'Attribution Share Alike' },
+        ],
+        accountDefaults: {
+          contentRating: ['safe'],
+          license: null,
+        },
+      },
+    }),
+  } as Response;
+}
+
+function mockFetchWithVimeoMetadataOptions(
+  handler?: (url: string) => Response | Promise<Response> | undefined
+) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/api/platforms/vimeo/metadata-options')) {
+      return mockVimeoMetadataOptionsResponse();
+    }
+    const custom = handler?.(url);
+    if (custom) {
+      return custom;
+    }
+    return { ok: true, json: async () => ({ data: [] }) } as Response;
+  });
+}
+
 vi.mock('sonner', () => ({
   toast: {
     success: vi.fn(),
@@ -342,10 +383,7 @@ describe('DraftMetadataModal shared metadata overrides', () => {
   }
 
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }) as Response)
-    );
+    vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
   });
 
   afterEach(() => {
@@ -420,10 +458,7 @@ describe('DraftMetadataModal shared metadata overrides', () => {
 
 describe('DraftMetadataModal privacy field', () => {
   beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }) as Response)
-    );
+    vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
   });
 
   afterEach(() => {
@@ -557,6 +592,32 @@ describe('DraftMetadataModal YouTube fields', () => {
                 categoryId: '22',
                 license: 'creativeCommon',
                 embeddable: false,
+              },
+            }),
+          } as Response;
+        }
+        if (url.includes('/api/platforms/vimeo/metadata-options')) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                contentRatings: [
+                  { code: 'safe', name: 'All audiences' },
+                  { code: 'violence', name: 'Violence' },
+                  { code: 'language', name: 'Language' },
+                  { code: 'unrated', name: 'Not Yet Rated' },
+                ],
+                categories: [
+                  { uri: '/categories/documentary', name: 'Documentary', subcategories: [] },
+                ],
+                licenses: [
+                  { code: 'by-nc', name: 'Attribution Non-Commercial' },
+                  { code: 'by-sa', name: 'Attribution Share Alike' },
+                ],
+                accountDefaults: {
+                  contentRating: ['safe'],
+                  license: null,
+                },
               },
             }),
           } as Response;
@@ -1134,6 +1195,240 @@ describe('DraftMetadataModal YouTube fields', () => {
     await userEvent.keyboard('{Escape}');
     await userEvent.click(screen.getByLabelText(/^Category$/i));
     expect(await screen.findByRole('option', { name: 'People & Blogs' })).toBeInTheDocument();
+  });
+
+  it('retries failed YouTube metadata endpoints after switching drafts', async () => {
+    let categoriesCallCount = 0;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/platforms/youtube/playlists/recent')) {
+          return {
+            ok: true,
+            json: async () => ({ data: [] }),
+          } as Response;
+        }
+        if (url.includes('/api/platforms/youtube/languages')) {
+          return {
+            ok: true,
+            json: async () => ({ data: [{ id: 'en', name: 'English' }] }),
+          } as Response;
+        }
+        if (url.includes('/api/platforms/youtube/categories')) {
+          categoriesCallCount += 1;
+          if (categoriesCallCount === 1) {
+            return { ok: false, json: async () => ({}) } as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({ data: [{ id: '22', title: 'People & Blogs' }] }),
+          } as Response;
+        }
+        if (url.includes('/api/platforms/youtube/account-defaults')) {
+          return {
+            ok: true,
+            json: async () => ({ data: {} }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({ data: [] }) } as Response;
+      })
+    );
+
+    const { rerender } = render(
+      <DraftMetadataModal
+        mode="edit"
+        value={youtubeDraftValue}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await waitFor(() => {
+      expect(categoriesCallCount).toBe(1);
+    });
+
+    rerender(
+      <DraftMetadataModal
+        mode="edit"
+        value={{ ...youtubeDraftValue, id: 'draft-youtube-2', title: 'Another draft' }}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: 'draft-youtube-2' })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(categoriesCallCount).toBe(2);
+    });
+
+    await expandShowMore();
+    await userEvent.click(screen.getByLabelText(/^Category$/i));
+    expect(await screen.findByRole('option', { name: 'People & Blogs' })).toBeInTheDocument();
+  });
+});
+
+describe('DraftMetadataModal Vimeo fields', () => {
+  const vimeoDraftValue: DraftEditorValues = {
+    id: 'draft-vimeo-1',
+    title: 'Video title',
+    description: 'Video description',
+    tags: [],
+    visibility: 'public',
+    targets: ['vimeo'],
+    platforms: {},
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/platforms/vimeo/metadata-options')) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                contentRatings: [
+                  { code: 'safe', name: 'All audiences' },
+                  { code: 'violence', name: 'Violence' },
+                  { code: 'language', name: 'Language' },
+                  { code: 'unrated', name: 'Not Yet Rated' },
+                ],
+                categories: [
+                  { uri: '/categories/documentary', name: 'Documentary', subcategories: [] },
+                ],
+                licenses: [
+                  { code: 'by-nc', name: 'Attribution Non-Commercial' },
+                  { code: 'by-sa', name: 'Attribution Share Alike' },
+                ],
+                accountDefaults: {
+                  contentRating: ['safe'],
+                  license: 'by-nc',
+                },
+              },
+            }),
+          } as Response;
+        }
+        return { ok: true, json: async () => ({ data: [] }) } as Response;
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('renders Vimeo settings when Vimeo is an active target', async () => {
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={vimeoDraftValue}
+        initialConnectedPlatforms={['vimeo']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: vimeoDraftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.getByLabelText(/^Content rating$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Category$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^License$/i)).toBeInTheDocument();
+  });
+
+  it('seeds unset Vimeo fields from account defaults when the modal loads', async () => {
+    const onChange = vi.fn();
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={vimeoDraftValue}
+        initialConnectedPlatforms={['vimeo']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: vimeoDraftValue.id })}
+        onChange={onChange}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          platforms: expect.objectContaining({
+            vimeo: expect.objectContaining({
+              contentRating: ['safe'],
+              license: 'by-nc',
+            }),
+          }),
+        })
+      );
+    });
+  });
+
+  it('shows mature content type checkboxes when the draft has mature ratings', async () => {
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={{
+          ...vimeoDraftValue,
+          platforms: {
+            vimeo: {
+              contentRating: ['language', 'violence'],
+            },
+          },
+        }}
+        initialConnectedPlatforms={['vimeo']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: vimeoDraftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.getByText(/^Mature content types$/i)).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: /^Violence$/i })).toBeChecked();
+    expect(await screen.findByRole('checkbox', { name: /^Language$/i })).toBeChecked();
+  });
+
+  it('shows mature content type checkboxes when Mature is selected without detail flags yet', async () => {
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={{
+          ...vimeoDraftValue,
+          platforms: {
+            vimeo: {
+              contentRating: [],
+            },
+          },
+        }}
+        initialConnectedPlatforms={['vimeo']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: vimeoDraftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.getByText(/^Mature content types$/i)).toBeInTheDocument();
+    expect(await screen.findByRole('checkbox', { name: /^Violence$/i })).not.toBeChecked();
   });
 });
 

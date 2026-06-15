@@ -8,6 +8,30 @@ vi.mock('@/lib/r2', () => ({
 
 import * as vimeo from '@/lib/platforms/vimeo';
 
+describe('buildVimeoCategorySuggestBatchBodyFromUris', () => {
+  it('combines multiple category URIs into one batch body', () => {
+    expect(
+      vimeo.buildVimeoCategorySuggestBatchBodyFromUris([
+        '/categories/music',
+        '/categories/animation/subcategories/2d',
+      ])
+    ).toEqual([{ category: 'music' }, { category: 'animation' }, { category: '2d' }]);
+  });
+
+  it('returns null when no URIs parse', () => {
+    expect(vimeo.buildVimeoCategorySuggestBatchBodyFromUris(['', '/foo/bar'])).toBeNull();
+  });
+
+  it('deduplicates shared parent slugs across subcategories', () => {
+    expect(
+      vimeo.buildVimeoCategorySuggestBatchBodyFromUris([
+        '/categories/animation/subcategories/2d',
+        '/categories/animation/subcategories/3d',
+      ])
+    ).toEqual([{ category: 'animation' }, { category: '2d' }, { category: '3d' }]);
+  });
+});
+
 describe('buildVimeoCategorySuggestBatchBody', () => {
   it('parses /categories/{slug} into Vimeo batch format', () => {
     expect(vimeo.buildVimeoCategorySuggestBatchBody('/categories/animation')).toEqual([
@@ -531,7 +555,8 @@ describe('uploadToVimeo', () => {
         description: 'd',
         tags: [],
         visibility: 'public',
-        vimeoCategoryUri: 'animation',
+        vimeoCategoryUris: ['/categories/animation'],
+        vimeo: { categoryUris: ['/categories/animation'] },
       },
       tokens: { accessToken: 'tok' },
     });

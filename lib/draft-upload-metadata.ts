@@ -3,13 +3,14 @@
  *
  * Stored shape:
  * - **Shared:** `targets`, `title`, `description`, `visibility`, `tags` (one list for all targets)
- * - **Per platform:** `platforms.youtube` / `platforms.vimeo` / `platforms.sermon_audio` (e.g. YouTube `categoryId`, Vimeo `categoryUri`, SermonAudio sermon fields);
+ * - **Per platform:** `platforms.youtube` / `platforms.vimeo` / `platforms.sermon_audio` (e.g. YouTube `categoryId`, Vimeo `categoryUris`, SermonAudio sermon fields);
  *   backup targets (`platforms.sftp` / `platforms.smb`) are carried through as empty objects until fields exist.
  */
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { formatSermonAudioKeywordsFromTags } from '@/lib/platforms/sermon-audio-tags';
 import { normalizeSermonAudioCrossPublishSettings } from '@/lib/platforms/sermon-audio-cross-publish';
+import { normalizeVimeoContentRatingCodes } from '@/lib/platforms/vimeo-content-rating';
 import { uniqueTrimmedPlaylistTitles } from '@/lib/platforms/youtube';
 import {
   CONNECTED_ACCOUNT_PLATFORMS,
@@ -17,8 +18,6 @@ import {
   type Draft,
   type DraftPlatforms,
   type PlatformUploadVisibility,
-  type VimeoDraftEmbed,
-  type VimeoDraftPrivacy,
   type VimeoVideoLicense,
   type YouTubeDraftFields,
   type VimeoDraftFields,
@@ -196,75 +195,6 @@ const VIMEO_LICENSE = new Set<VimeoVideoLicense>([
   'cc0',
 ]);
 
-const VIMEO_VIEW = new Set<string>([
-  'anybody',
-  'contacts',
-  'disable',
-  'nobody',
-  'password',
-  'unlisted',
-  'users',
-]);
-const VIMEO_COMMENTS = new Set<string>(['anybody', 'contacts', 'nobody']);
-const VIMEO_EMBED = new Set<string>(['private', 'public', 'whitelist']);
-const TITLE_BAR = new Set<string>(['hide', 'show', 'user']);
-
-function normalizeVimeoEmbed(e: unknown): VimeoDraftEmbed | undefined {
-  if (!isPlainObject(e)) return undefined;
-  const out: VimeoDraftEmbed = {};
-  if (typeof e.playbar === 'boolean') out.playbar = e.playbar;
-  if (typeof e.volume === 'boolean') out.volume = e.volume;
-  if (isPlainObject(e.buttons)) {
-    const b = e.buttons;
-    const buttons: NonNullable<VimeoDraftEmbed['buttons']> = {};
-    let anyBtn = false;
-    for (const k of [
-      'like',
-      'share',
-      'embed',
-      'fullscreen',
-      'hd',
-      'watchlater',
-      'scaling',
-    ] as const) {
-      if (typeof b[k] === 'boolean') {
-        buttons[k] = b[k];
-        anyBtn = true;
-      }
-    }
-    if (anyBtn) out.buttons = buttons;
-  }
-  if (isPlainObject(e.title)) {
-    const t = e.title;
-    const title: NonNullable<VimeoDraftEmbed['title']> = {};
-    let anyT = false;
-    for (const k of ['name', 'owner', 'portrait'] as const) {
-      const x = t[k];
-      if (typeof x === 'string' && TITLE_BAR.has(x)) {
-        title[k] = x as 'hide' | 'show' | 'user';
-        anyT = true;
-      }
-    }
-    if (anyT) out.title = title;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-function normalizeVimeoPrivacy(p: unknown): VimeoDraftPrivacy | undefined {
-  if (!isPlainObject(p)) return undefined;
-  const out: VimeoDraftPrivacy = {};
-  const view = trimStr(p.view);
-  if (view && VIMEO_VIEW.has(view)) out.view = view as VimeoDraftPrivacy['view'];
-  const comments = trimStr(p.comments);
-  if (comments && VIMEO_COMMENTS.has(comments))
-    out.comments = comments as VimeoDraftPrivacy['comments'];
-  const embed = trimStr(p.embed);
-  if (embed && VIMEO_EMBED.has(embed)) out.embed = embed as VimeoDraftPrivacy['embed'];
-  if (p.download === true) out.download = true;
-  if (typeof p.add === 'boolean') out.add = p.add;
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
 function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields {
   const categoryId = trimStr(y.categoryId);
   const madeForKids = typeof y.madeForKids === 'boolean' ? y.madeForKids : undefined;
@@ -308,33 +238,57 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
   };
 }
 
+function normalizeVimeoContentRating(value: unknown): string[] | undefined {
+  if (value === null) {
+    return undefined;
+  }
+  return normalizeVimeoContentRatingCodes(value);
+}
+
+/** Trims, drops empties, and dedupes category URIs in first-seen order. */
+function uniqueTrimmedVimeoCategoryUris(values: readonly unknown[]): string[] {
+  const seen = new Set<string>();
+  const uris: string[] = [];
+
+  for (const raw of values) {
+    if (typeof raw !== 'string') continue;
+    const uri = raw.trim();
+    if (!uri || seen.has(uri)) continue;
+    seen.add(uri);
+    uris.push(uri);
+  }
+
+  return uris;
+}
+
+function normalizeVimeoCategoryUris(v: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(v.categoryUris)) {
+    return undefined;
+  }
+
+  const uris = uniqueTrimmedVimeoCategoryUris(v.categoryUris);
+  return uris.length > 0 ? uris : undefined;
+}
+
 function normalizeVimeoFields(v: Record<string, unknown>): VimeoDraftFields {
-  const categoryUri = trimStr(v.categoryUri);
-  const licRaw = trimStr(v.license);
-  const license =
-    licRaw && VIMEO_LICENSE.has(licRaw as VimeoVideoLicense)
-      ? (licRaw as VimeoVideoLicense)
-      : undefined;
-  const locale = trimStr(v.locale);
-  const contentRating = stringList(v.contentRating);
-  const password = trimStr(v.password);
-  const reviewPage =
-    isPlainObject(v.reviewPage) && typeof v.reviewPage.active === 'boolean'
-      ? { active: v.reviewPage.active }
-      : undefined;
-  const privacy = normalizeVimeoPrivacy(v.privacy);
-  const embed = normalizeVimeoEmbed(v.embed);
+  const categoryUris = normalizeVimeoCategoryUris(v);
+  let license: VimeoVideoLicense | null | undefined;
+  if (v.license === null) {
+    license = null;
+  } else {
+    const licRaw = trimStr(v.license);
+    license =
+      licRaw && VIMEO_LICENSE.has(licRaw as VimeoVideoLicense)
+        ? (licRaw as VimeoVideoLicense)
+        : undefined;
+  }
+  const contentRating = normalizeVimeoContentRating(v.contentRating);
 
   return {
     ...normalizePerPlatformOverrideFields(v),
-    ...(categoryUri !== undefined ? { categoryUri } : {}),
+    ...(categoryUris !== undefined ? { categoryUris } : {}),
     ...(license !== undefined ? { license } : {}),
-    ...(locale !== undefined ? { locale } : {}),
-    ...(contentRating !== undefined && contentRating.length > 0 ? { contentRating } : {}),
-    ...(password !== undefined ? { password } : {}),
-    ...(reviewPage !== undefined ? { reviewPage } : {}),
-    ...(privacy !== undefined ? { privacy } : {}),
-    ...(embed !== undefined ? { embed } : {}),
+    ...(contentRating !== undefined ? { contentRating } : {}),
   };
 }
 
@@ -581,7 +535,7 @@ export function parseTagsFromRequestBody(
 
 /**
  * Validate optional `platforms` on **POST** bodies: trims strings, drops empties, full normalized snapshot.
- * For **PATCH**, use {@link parseDraftPlatformsPatchBody} so fields like `categoryUri: ""` still reach
+ * For **PATCH**, use {@link parseDraftPlatformsPatchBody} so fields like `categoryUris: []` still reach
  * {@link mergeDraftPlatformsPatch} and can clear stored values.
  */
 export function parsePlatformsFromRequestBody(
@@ -731,42 +685,31 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
   if (isPlainObject(patch.vimeo)) {
     const p = patch.vimeo;
     const vm = { ...base.vimeo };
-    if ('categoryUri' in p) {
-      const u = p.categoryUri;
-      vm.categoryUri = typeof u === 'string' && u.trim() !== '' ? u.trim() : undefined;
+    if ('categoryUris' in p) {
+      if (Array.isArray(p.categoryUris)) {
+        const uris = uniqueTrimmedVimeoCategoryUris(p.categoryUris);
+        vm.categoryUris = uris.length > 0 ? uris : undefined;
+      } else {
+        vm.categoryUris = undefined;
+      }
     }
     if ('license' in p) {
-      const lic = trimStr(p.license);
-      vm.license =
-        lic && VIMEO_LICENSE.has(lic as VimeoVideoLicense) ? (lic as VimeoVideoLicense) : undefined;
-    }
-    if ('locale' in p) {
-      const s = p.locale;
-      vm.locale = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+      if (p.license === null) {
+        vm.license = null;
+      } else {
+        const lic = trimStr(p.license);
+        vm.license =
+          lic && VIMEO_LICENSE.has(lic as VimeoVideoLicense)
+            ? (lic as VimeoVideoLicense)
+            : undefined;
+      }
     }
     if ('contentRating' in p) {
-      vm.contentRating = Array.isArray(p.contentRating)
-        ? p.contentRating
-            .filter((x): x is string => typeof x === 'string')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : undefined;
-    }
-    if ('password' in p) {
-      const s = p.password;
-      vm.password = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
-    }
-    if ('reviewPage' in p) {
-      vm.reviewPage =
-        isPlainObject(p.reviewPage) && typeof p.reviewPage.active === 'boolean'
-          ? { active: p.reviewPage.active }
-          : undefined;
-    }
-    if ('privacy' in p) {
-      vm.privacy = normalizeVimeoPrivacy(p.privacy);
-    }
-    if ('embed' in p) {
-      vm.embed = normalizeVimeoEmbed(p.embed);
+      if (p.contentRating === null) {
+        vm.contentRating = undefined;
+      } else {
+        vm.contentRating = normalizeVimeoContentRating(p.contentRating);
+      }
     }
     if ('titleOverride' in p) {
       const s = p.titleOverride;
@@ -972,7 +915,10 @@ export function buildMetadataForPlatform(
       visibility,
       thumbnailR2Key,
       thumbnailContentType,
-      vimeoCategoryUri: vm?.categoryUri?.trim() || undefined,
+      vimeoCategoryUris:
+        vm?.categoryUris && vm.categoryUris.length > 0
+          ? vm.categoryUris.map((uri) => uri.trim()).filter(Boolean)
+          : undefined,
       vimeo: vm,
     };
   }

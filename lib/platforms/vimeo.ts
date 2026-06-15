@@ -1,10 +1,16 @@
-import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
+import { vimeoContentRatingForUpload } from '@/lib/platforms/vimeo-content-rating';
+import {
+  buildVimeoCategoryBatchSlugsFromUris,
+  parseVimeoCategorySlugs,
+  VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES,
+} from '@/lib/platforms/vimeo-categories';
 import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
+import type { PlatformUploadVisibility, VimeoDraftFields } from '@/types';
 import type {
   PlatformUploadMetadata,
   PlatformUploadResult,
@@ -160,40 +166,43 @@ const vimeoCategorySuggestHeaders = (accessToken: string) => ({
  *
  * @see https://developer.vimeo.com/api/common-formats#working-with-batch-requests
  */
-function parseVimeoCategorySlugs(categoryUriOrSlug: string): string[] | null {
-  const s = categoryUriOrSlug.trim();
-  if (!s) return null;
+export { parseVimeoCategorySlugs };
 
-  const sub = s.match(/\/categories\/([^/]+)\/subcategories\/([^/?#]+)/i);
-  if (sub) return [sub[1], sub[2]];
-
-  const top = s.match(/\/categories\/([^/?#]+)/i);
-  if (top) return [top[1]];
-
-  try {
-    const path = new URL(s).pathname;
-    const subU = path.match(/\/categories\/([^/]+)\/subcategories\/([^/?#]+)/i);
-    if (subU) return [subU[1], subU[2]];
-    const topU = path.match(/\/categories\/([^/?#]+)/i);
-    if (topU) return [topU[1]];
-  } catch {
-    /* not an absolute URL */
+/**
+ * Builds the Vimeo category suggest batch body from one or more stored category URIs.
+ * @param categoryUris - Top-level or subcategory URIs from draft metadata.
+ * @returns Batch entries for `PUT /videos/{id}/categories`, or null when none parse.
+ */
+export function buildVimeoCategorySuggestBatchBodyFromUris(
+  categoryUris: readonly string[]
+): { category: string }[] | null {
+  const slugs = buildVimeoCategoryBatchSlugsFromUris(categoryUris);
+  if (slugs.length === 0) {
+    return null;
   }
-
-  if (!s.includes('/') && !s.toLowerCase().startsWith('http')) {
-    return [s];
-  }
-
-  return null;
+  return slugs.map((category) => ({ category }));
 }
 
-/** Batch body for category suggest; exported for unit tests. */
+/** Batch body for a single category URI; exported for unit tests. */
 export function buildVimeoCategorySuggestBatchBody(
   categoryUriOrSlug: string
 ): { category: string }[] | null {
-  const slugs = parseVimeoCategorySlugs(categoryUriOrSlug);
-  if (!slugs?.length) return null;
-  return slugs.map((name) => ({ category: name }));
+  return buildVimeoCategorySuggestBatchBodyFromUris([categoryUriOrSlug]);
+}
+
+/**
+ * Resolves Vimeo category URIs from draft fields and upload metadata.
+ * @param vimeo - Draft `platforms.vimeo` slice when present.
+ * @param metadata - Optional upload metadata category URIs from distribute.
+ * @returns Trimmed unique category URIs to suggest on upload.
+ */
+export function resolveVimeoCategoryUrisForUpload(
+  vimeo: { categoryUris?: string[] } | undefined,
+  metadata?: { vimeoCategoryUris?: string[] }
+): string[] {
+  const fromDraft = Array.isArray(vimeo?.categoryUris) ? vimeo.categoryUris : [];
+  const fromMetaUris = metadata?.vimeoCategoryUris ?? [];
+  return [...new Set([...fromDraft, ...fromMetaUris].map((uri) => uri.trim()).filter(Boolean))];
 }
 
 class VimeoIngestWaitFailedError extends Error {
@@ -598,16 +607,6 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
     const safeTags = input.metadata.tags.map((t) => t.trim()).filter((t) => t.length > 0);
 
     const vm: VimeoDraftFields | undefined = input.metadata.vimeo;
-    const privacy: Record<string, unknown> = {
-      view: visibilityToVimeoPrivacy(input.metadata.visibility),
-    };
-    const vp = vm?.privacy;
-    if (vp?.view !== undefined) privacy.view = vp.view;
-    if (vp?.comments !== undefined) privacy.comments = vp.comments;
-    if (vp?.embed !== undefined) privacy.embed = vp.embed;
-    // Omit `privacy.download` on create: Vimeo often rejects it with 2204 (Basic and others).
-    // Draft `platforms.vimeo.privacy.download` is ignored here; use Vimeo account/UI if needed.
-    if (vp?.add !== undefined) privacy.add = vp.add;
 
     const createBody: Record<string, unknown> = {
       upload: {
@@ -616,21 +615,14 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       },
       name: safeTitle,
       description: safeDescription,
-      privacy,
+      privacy: {
+        view: visibilityToVimeoPrivacy(input.metadata.visibility),
+      },
     };
-    if (vm?.license !== undefined) createBody.license = vm.license;
-    if (vm?.locale !== undefined) createBody.locale = vm.locale;
-    if (vm?.contentRating !== undefined && vm.contentRating.length > 0) {
-      createBody.content_rating = vm.contentRating;
-    }
-    if (vm?.password !== undefined && vm.password !== '') {
-      createBody.password = vm.password;
-    }
-    if (vm?.reviewPage?.active !== undefined) {
-      createBody.review_page = { active: vm.reviewPage.active };
-    }
-    if (vm?.embed !== undefined && Object.keys(vm.embed).length > 0) {
-      createBody.embed = vm.embed;
+    if (vm?.license) createBody.license = vm.license;
+    const contentRating = vimeoContentRatingForUpload(vm?.contentRating);
+    if (contentRating !== undefined) {
+      createBody.content_rating = contentRating;
     }
 
     const createResponse = await fetch(VIMEO_CREATE_VIDEO_URL, {
@@ -700,11 +692,13 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       ...(signal ? { signal } : {}),
     }).catch(() => undefined);
 
-    const categoryUriRaw = vm?.categoryUri?.trim() || input.metadata.vimeoCategoryUri?.trim();
-    const needsIngestWait = safeTags.length > 0 || Boolean(categoryUriRaw);
+    const uniqueCategoryUris = resolveVimeoCategoryUrisForUpload(vm, {
+      vimeoCategoryUris: input.metadata.vimeoCategoryUris,
+    });
+    const needsIngestWait = safeTags.length > 0 || uniqueCategoryUris.length > 0;
     ingestWaitDone = !needsIngestWait;
     tagsDone = safeTags.length === 0;
-    categoryDone = !Boolean(categoryUriRaw);
+    categoryDone = uniqueCategoryUris.length === 0;
 
     if (needsIngestWait) {
       await waitUntilVimeoUploadAndTranscodeComplete(videoBasePath, input.tokens.accessToken, {
@@ -731,12 +725,18 @@ export async function uploadToVimeo(input: UploadToVimeoInput): Promise<Platform
       tagsDone = true;
     }
 
-    if (categoryUriRaw) {
-      const batchBody = buildVimeoCategorySuggestBatchBody(categoryUriRaw);
+    if (uniqueCategoryUris.length > 0) {
+      const batchBody = buildVimeoCategorySuggestBatchBodyFromUris(uniqueCategoryUris);
       if (!batchBody) {
         return toError(
           'VIMEO_CATEGORY_INVALID',
-          'Invalid platforms.vimeo.categoryUri: use a slug (e.g. "animation"), a path like "/categories/animation", or a full vimeo.com category URL.'
+          'Invalid Vimeo category URI(s): use slugs (e.g. "animation"), paths like "/categories/animation", subcategory paths like "/categories/animation/subcategories/2d", or full vimeo.com category URLs.'
+        );
+      }
+      if (batchBody.length > VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES) {
+        return toError(
+          'VIMEO_CATEGORY_LIMIT',
+          `Too many Vimeo categories selected (${batchBody.length}). Vimeo accepts up to ${VIMEO_MAX_VIDEO_CATEGORY_BATCH_ENTRIES} categories and subcategories combined. Subcategories count as both the parent category and the subcategory.`
         );
       }
       const catRes = await fetch(`https://api.vimeo.com/${videoBasePath}/categories`, {
