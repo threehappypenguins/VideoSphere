@@ -9,7 +9,12 @@ import type {
   PlatformUploadStatus,
   UploadJobStatus,
 } from '@/types';
-import { latestPlatformStatuses } from '@/lib/uploads/status';
+import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
+import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
+import {
+  r2FileAvailableForRetryJob,
+  resolveR2AvailabilityForKeys,
+} from '@/lib/uploads/r2-availability';
 
 /**
  * Defines one upload-history row returned for a draft.
@@ -19,10 +24,14 @@ export interface DraftUploadHistoryItem {
   status: UploadJobStatus;
   createdAt: string;
   updatedAt: string;
+  r2FileAvailable: boolean | null;
   platforms: Array<{
     platform: ConnectedAccountPlatform;
     status: PlatformUploadStatus;
     updatedAt: string;
+    errorMessage: string | null;
+    retryable: boolean;
+    retryReason: string;
     sermonAudioAutoPublishOnProcessed?: boolean;
   }>;
 }
@@ -75,19 +84,40 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const offset = parseOffsetParam(searchParams.get('offset'));
 
     const jobs = await getUploadJobsWithPlatformUploadsForDraft(userId, id, { limit, offset });
-    const history: DraftUploadHistoryItem[] = jobs.map((job) => {
-      const latestPlatforms = latestPlatformStatuses(
-        job.platformUploads.map((platformUpload) => ({
+
+    const perJob = jobs.map((job) => {
+      const latestPlatforms = latestPlatformUploadsPerPlatform(job.platformUploads);
+      const platformItems = latestPlatforms.map((platformUpload) => {
+        const retryability = assessPlatformUploadRetryability(platformUpload.errorMessage);
+        return {
           platform: platformUpload.platform,
           status: platformUpload.status,
           updatedAt: platformUpload.$updatedAt,
+          errorMessage: platformUpload.errorMessage,
+          retryable: platformUpload.status === 'failed' ? retryability.retryable : false,
+          retryReason: platformUpload.status === 'failed' ? retryability.reason : '',
           ...(platformUpload.platform === 'sermon_audio'
             ? {
                 sermonAudioAutoPublishOnProcessed:
                   platformUpload.sermonAudioAutoPublishOnProcessed === true,
               }
             : {}),
-        }))
+        };
+      });
+      const needsR2Head = platformItems.some((p) => p.status === 'failed' && p.retryable);
+      return { job, platformItems, needsR2Head };
+    });
+
+    const keysToHead = perJob
+      .filter((p) => p.needsR2Head && p.job.r2Key)
+      .map((p) => p.job.r2Key as string);
+    const r2AvailabilityByKey = await resolveR2AvailabilityForKeys(keysToHead);
+
+    const history: DraftUploadHistoryItem[] = perJob.map(({ job, platformItems, needsR2Head }) => {
+      const r2FileAvailable = r2FileAvailableForRetryJob(
+        needsR2Head,
+        job.r2Key,
+        r2AvailabilityByKey
       );
 
       return {
@@ -95,7 +125,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         status: job.status,
         createdAt: job.$createdAt,
         updatedAt: job.$updatedAt,
-        platforms: latestPlatforms,
+        r2FileAvailable,
+        platforms: platformItems,
       };
     });
 

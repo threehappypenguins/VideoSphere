@@ -80,6 +80,12 @@ vi.mock('@/lib/platforms/smb', () => ({
   uploadToSmb: vi.fn(),
 }));
 
+const mockUploadToFacebook = vi.fn();
+
+vi.mock('@/lib/platforms/facebook', () => ({
+  uploadToFacebook: (...args: unknown[]) => mockUploadToFacebook(...args),
+}));
+
 import { runDistributionInBackground } from '@/lib/api/distribute';
 import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 import { isPlatformUploadRowActive } from '@/lib/uploads/status';
@@ -555,5 +561,76 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
 
     expect(mockPollSermonAudioProcessing).not.toHaveBeenCalled();
     expect(mockPublishSermonAudio).not.toHaveBeenCalled();
+  });
+
+  it('starts auto-publish when SermonAudio succeeds even if another platform failed', async () => {
+    mockPollSermonAudioProcessing.mockResolvedValue(undefined);
+    mockPublishSermonAudio.mockResolvedValue(undefined);
+
+    mockGetConnectedAccountWithTokens.mockImplementation(
+      async (_userId: string, platform: string) => ({
+        id: platform === 'sermon_audio' ? 'acct-sa' : 'acct-fb',
+        userId: 'u1',
+        platform,
+        accessToken: platform === 'sermon_audio' ? 'sa-api-key' : 'fb-page-token',
+        refreshToken: '',
+        tokenExpiry: '',
+        hasRefreshToken: false,
+        platformUserId: 'platform-user',
+        platformName: 'Platform',
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      })
+    );
+
+    mockUploadToFacebook.mockResolvedValue({
+      ok: false as const,
+      error: {
+        code: 'FACEBOOK_UPLOAD_FAILED',
+        message: 'Facebook upload failed.',
+        statusCode: 500,
+        details: 'fetch failed',
+      },
+    });
+
+    mockGetPlatformUploadsByJob.mockResolvedValue([
+      basePlatformUpload({
+        id: 'pu-sa',
+        platform: 'sermon_audio',
+        status: 'unpublished',
+        platformVideoId: 'sermon-123',
+        platformUrl: sermonUrl,
+      }),
+      basePlatformUpload({
+        id: 'pu-fb',
+        platform: 'facebook',
+        status: 'failed',
+        errorMessage:
+          'FACEBOOK_UPLOAD_FAILED: Facebook upload failed. (HTTP 500) Details: fetch failed',
+      }),
+    ]);
+
+    const puSa = basePlatformUpload({ id: 'pu-sa', platform: 'sermon_audio' });
+    const puFb = basePlatformUpload({ id: 'pu-fb', platform: 'facebook' });
+    const meta = new Map<string, PlatformUploadMetadata>([
+      ['pu-sa', { ...baseMetadata, autoPublishOnProcessed: true }],
+      ['pu-fb', baseMetadata],
+    ]);
+
+    await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [puSa, puFb], meta);
+
+    expect(mockUpdateUploadJobStatus).toHaveBeenCalledWith(
+      'job-1',
+      'failed',
+      expect.stringContaining('facebook')
+    );
+
+    await vi.waitFor(() => {
+      expect(mockPollSermonAudioProcessing).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sermonID: 'sermon-123',
+        })
+      );
+    });
   });
 });

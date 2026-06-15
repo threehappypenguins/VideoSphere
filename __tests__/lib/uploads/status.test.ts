@@ -4,6 +4,7 @@ import {
   isPlatformUploadRowActive,
   isPlatformUploadStatusInProgress,
   isSermonAudioAwaitingAutoPublish,
+  SERMONAUDIO_AUTO_PUBLISH_UI_STALE_MS,
 } from '@/lib/uploads/status';
 
 describe('isPlatformUploadDistributionComplete', () => {
@@ -64,5 +65,33 @@ describe('isPlatformUploadRowActive', () => {
         status: 'unpublished',
       })
     ).toBe(false);
+  });
+
+  it('stops polling SermonAudio auto-publish rows that have not changed within the UI stale window', () => {
+    const staleUpdatedAt = new Date(
+      Date.now() - SERMONAUDIO_AUTO_PUBLISH_UI_STALE_MS - 60_000
+    ).toISOString();
+
+    expect(
+      isPlatformUploadRowActive({
+        platform: 'sermon_audio',
+        status: 'unpublished',
+        sermonAudioAutoPublishOnProcessed: true,
+        updatedAt: staleUpdatedAt,
+      })
+    ).toBe(false);
+  });
+
+  it('keeps polling recent SermonAudio auto-publish rows', () => {
+    const recentUpdatedAt = new Date(Date.now() - 5 * 60_000).toISOString();
+
+    expect(
+      isPlatformUploadRowActive({
+        platform: 'sermon_audio',
+        status: 'unpublished',
+        sermonAudioAutoPublishOnProcessed: true,
+        updatedAt: recentUpdatedAt,
+      })
+    ).toBe(true);
   });
 });

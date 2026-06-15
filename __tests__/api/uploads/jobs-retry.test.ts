@@ -122,14 +122,22 @@ function makePlatformUpload(
   return { ...base, ...overrides };
 }
 
-function createRequest(jobId: string, cookies: Record<string, string> = {}): NextRequest {
+function createRequest(
+  jobId: string,
+  cookies: Record<string, string> = {},
+  body?: { platforms: string[] }
+): NextRequest {
   const url = new URL(`http://localhost:3000/api/uploads/jobs/${jobId}/retry`);
   const cookieHeader = Object.entries(cookies)
     .map(([k, v]) => `${k}=${v}`)
     .join('; ');
   return new NextRequest(url, {
     method: 'POST',
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    headers: {
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
   });
 }
 
@@ -509,6 +517,87 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     const callInputs = vi.mocked(ensurePlatformUploadsForJobTargets).mock.calls[0][0];
     expect(callInputs).toHaveLength(1);
     expect(callInputs[0].platform).toBe('vimeo');
+  });
+
+  it('retries only the platform named in the request body when multiple are retryable', async () => {
+    vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
+      makePlatformUpload({
+        id: 'pu-yt',
+        platform: 'youtube',
+        status: 'failed',
+        errorMessage: 'network error',
+        $updatedAt: '2026-01-03T10:00:00.000Z',
+      }),
+      makePlatformUpload({
+        id: 'pu-fb',
+        platform: 'facebook',
+        status: 'failed',
+        errorMessage: 'fetch failed',
+        $updatedAt: '2026-01-03T10:00:00.000Z',
+      }),
+    ]);
+
+    const created = [
+      makePlatformUpload({
+        id: 'pu-facebook-new',
+        platform: 'facebook',
+        status: 'pending',
+        errorMessage: null,
+      }),
+    ];
+    vi.mocked(ensurePlatformUploadsForJobTargets).mockResolvedValueOnce(created);
+
+    const res = await POST(
+      createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }, { platforms: ['facebook'] }),
+      makeParams('job-abc')
+    );
+
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { retriedPlatforms: string[] };
+    expect(body.retriedPlatforms).toEqual(['facebook']);
+
+    const callInputs = vi.mocked(ensurePlatformUploadsForJobTargets).mock.calls[0][0];
+    expect(callInputs).toHaveLength(1);
+    expect(callInputs[0].platform).toBe('facebook');
+  });
+
+  it('returns 400 when the requested platform is not retryable', async () => {
+    vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
+      makePlatformUpload({
+        id: 'pu-yt',
+        platform: 'youtube',
+        status: 'failed',
+        errorMessage: 'network error',
+      }),
+      makePlatformUpload({
+        id: 'pu-vm',
+        platform: 'vimeo',
+        status: 'failed',
+        errorMessage: 'Permission denied (HTTP 403)',
+      }),
+    ]);
+
+    const res = await POST(
+      createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }, { platforms: ['vimeo'] }),
+      makeParams('job-abc')
+    );
+
+    expect(res.status).toBe(400);
+    expect(await bodyError(res)).toBe(
+      'No retryable failed platform uploads were found for this job.'
+    );
+    expect(ensurePlatformUploadsForJobTargets).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an invalid platform identifier in the body', async () => {
+    const res = await POST(
+      createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }, { platforms: ['not-a-platform'] }),
+      makeParams('job-abc')
+    );
+
+    expect(res.status).toBe(400);
+    expect(await bodyError(res)).toMatch(/invalid platform/i);
+    expect(getPlatformUploadsByJob).not.toHaveBeenCalled();
   });
 
   it('returns 404 and does not schedule distribution when updateUploadJobStatus returns null', async () => {

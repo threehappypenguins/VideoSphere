@@ -19,6 +19,16 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
   getUploadJobsWithPlatformUploadsForDraft: vi.fn(async () => []),
 }));
 
+const mockHeadObject = vi.fn();
+
+vi.mock('@/lib/r2', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/r2')>();
+  return {
+    ...actual,
+    headObject: (...args: unknown[]) => mockHeadObject(...args),
+  };
+});
+
 import { GET } from '@/app/api/drafts/[id]/upload-history/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -67,6 +77,7 @@ describe('GET /api/drafts/[id]/upload-history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
+    mockHeadObject.mockResolvedValue(4096);
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(getDraftById).mockResolvedValue(baseDraft);
   });
@@ -227,5 +238,64 @@ describe('GET /api/drafts/[id]/upload-history', () => {
       limit: 20,
       offset: 0,
     });
+  });
+
+  it('includes retry metadata and r2 availability for failed retryable platforms', async () => {
+    vi.mocked(getUploadJobsWithPlatformUploadsForDraft).mockResolvedValueOnce([
+      {
+        id: 'job-1',
+        userId: 'user-123',
+        draftId: DRAFT_ID,
+        r2Key: 'temp/uploads/user-123/v.mp4',
+        status: 'failed',
+        errorMessage: null,
+        $createdAt: '2026-01-01T00:00:00.000Z',
+        $updatedAt: '2026-01-02T00:00:00.000Z',
+        platformUploads: [
+          {
+            id: 'pu-fb',
+            uploadJobId: 'job-1',
+            platform: 'facebook',
+            status: 'failed',
+            platformVideoId: '',
+            platformUrl: '',
+            title: 't',
+            description: '',
+            tags: [],
+            visibility: 'public',
+            scheduledAt: null,
+            errorMessage: 'fetch failed',
+            $createdAt: '2026-01-01T00:00:00.000Z',
+            $updatedAt: '2026-01-03T00:00:00.000Z',
+          },
+        ],
+      },
+    ] as Awaited<ReturnType<typeof getUploadJobsWithPlatformUploadsForDraft>>);
+
+    const res = await GET(
+      createRequest(DRAFT_ID, { cookies: { [SESSION_COOKIE]: 'tok' } }),
+      makeParams(DRAFT_ID)
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{
+        uploadJobId: string;
+        r2FileAvailable: boolean | null;
+        platforms: Array<{
+          platform: string;
+          retryable: boolean;
+          errorMessage: string | null;
+        }>;
+      }>;
+    };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]?.r2FileAvailable).toBe(true);
+    expect(body.data[0]?.platforms[0]).toMatchObject({
+      platform: 'facebook',
+      retryable: true,
+      errorMessage: 'fetch failed',
+    });
+    expect(mockHeadObject).toHaveBeenCalledWith('temp/uploads/user-123/v.mp4');
   });
 });

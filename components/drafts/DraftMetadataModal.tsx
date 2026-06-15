@@ -387,10 +387,14 @@ interface DraftUploadHistoryItem {
   status: UploadJobStatus;
   createdAt: string;
   updatedAt: string;
+  r2FileAvailable: boolean | null;
   platforms: Array<{
     platform: ConnectedAccountPlatform;
     status: PlatformUploadStatus;
     updatedAt: string;
+    errorMessage: string | null;
+    retryable: boolean;
+    retryReason: string;
     sermonAudioAutoPublishOnProcessed?: boolean;
   }>;
 }
@@ -494,6 +498,7 @@ export function DraftMetadataModal({
   const [isLoadingUploadHistory, setIsLoadingUploadHistory] = useState(false);
   const [showUploadHistory, setShowUploadHistory] = useState(false);
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
+  const [retryingUploadKey, setRetryingUploadKey] = useState<string | null>(null);
   const [platformOverrideTagInput, setPlatformOverrideTagInput] = useState<
     Partial<Record<OverridePlatform, string>>
   >({});
@@ -738,6 +743,69 @@ export function DraftMetadataModal({
     }
   };
 
+  /** Reconcile thumbnail fields with the server after distribute consumes and clears them. */
+  const syncDraftThumbnailFromServer = useCallback(
+    async (id: string) => {
+      try {
+        const response = await fetch(`/api/drafts/${id}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const payload = (await response.json()) as ApiResponse<
+          Draft & { thumbnailPreviewUrl?: string }
+        >;
+        const serverDraft = payload.data;
+        if (!serverDraft || latestDraftIdRef.current !== id) return;
+
+        const latest = latestValueRef.current;
+        if (!latest) return;
+
+        const serverKey = serverDraft.thumbnailR2Key;
+        const serverType = serverDraft.thumbnailContentType;
+        const serverPreview = serverDraft.thumbnailPreviewUrl;
+
+        const unchanged =
+          (latest.thumbnailR2Key ?? undefined) === (serverKey ?? undefined) &&
+          (latest.thumbnailContentType ?? undefined) === (serverType ?? undefined) &&
+          (latest.thumbnailPreviewUrl ?? undefined) === (serverPreview ?? undefined);
+
+        if (unchanged) return;
+
+        onChange({
+          ...latest,
+          thumbnailR2Key: serverKey,
+          thumbnailContentType: serverType,
+          thumbnailPreviewUrl: serverPreview,
+        });
+      } catch {
+        // Best-effort; modal stays usable if refresh fails.
+      }
+    },
+    [onChange]
+  );
+
+  const retryPlatformUpload = async (uploadJobId: string, platform: ConnectedAccountPlatform) => {
+    const retryKey = `${uploadJobId}:${platform}`;
+    setRetryingUploadKey(retryKey);
+    try {
+      const response = await fetch(`/api/uploads/jobs/${uploadJobId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platforms: [platform] }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? 'Retry failed');
+      }
+      toast.success('Retry started');
+      if (draftId) {
+        await loadUploadHistory(draftId);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Retry failed');
+    } finally {
+      setRetryingUploadKey(null);
+    }
+  };
+
   const activeUploadJobIds = useMemo(
     () =>
       uploadHistory
@@ -751,6 +819,7 @@ export function DraftMetadataModal({
                 platform: platform.platform,
                 status: platform.status,
                 sermonAudioAutoPublishOnProcessed: platform.sermonAudioAutoPublishOnProcessed,
+                updatedAt: platform.updatedAt,
               })
             )
         )
@@ -852,14 +921,24 @@ export function DraftMetadataModal({
     return () => controller.abort();
   }, [draftId]);
 
+  const needsLiveUploadHistoryUpdates = uploading || uploadComplete || showUploadHistory;
+
   useEffect(() => {
     if (!activeUploadJobSetKey) {
       // If we just transitioned from active -> idle, do one final full refresh
       // to avoid stale "uploading" states from the last targeted poll tick.
       if (hadActiveJobsRef.current && draftId) {
         hadActiveJobsRef.current = false;
-        void loadUploadHistory(draftId);
+        void (async () => {
+          await loadUploadHistory(draftId);
+          await syncDraftThumbnailFromServer(draftId);
+        })();
       }
+      return;
+    }
+    // Retry buttons and terminal failure states come from upload-history GET; polling is only
+    // for live in-flight work (current upload, or expanded history while rows may still change).
+    if (!needsLiveUploadHistoryUpdates) {
       return;
     }
     hadActiveJobsRef.current = true;
@@ -914,7 +993,7 @@ export function DraftMetadataModal({
       controller.abort();
       window.clearInterval(intervalId);
     };
-  }, [activeUploadJobSetKey, draftId]);
+  }, [activeUploadJobSetKey, draftId, needsLiveUploadHistoryUpdates, syncDraftThumbnailFromServer]);
 
   useEffect(() => {
     if (!draftId) return;
@@ -4362,17 +4441,58 @@ export function DraftMetadataModal({
                         <div
                           id={uploadHistoryPanelId}
                           hidden={!uploadHistoryExpanded}
-                          className="mt-2 flex flex-wrap gap-2"
+                          className="mt-2 space-y-2"
                         >
-                          {item.platforms.map((platform) => (
-                            <span
-                              key={`${item.uploadJobId}-${platform.platform}`}
-                              className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
-                            >
-                              {platformLabel(platform.platform)}: {platform.status} (
-                              {new Date(platform.updatedAt).toLocaleString()})
-                            </span>
-                          ))}
+                          {item.platforms.map((platform) => {
+                            const retryKey = `${item.uploadJobId}:${platform.platform}`;
+                            const showRetry =
+                              item.status === 'failed' &&
+                              platform.status === 'failed' &&
+                              platform.retryable;
+                            const isExpired =
+                              platform.status === 'failed' && item.r2FileAvailable === false;
+                            return (
+                              <div
+                                key={retryKey}
+                                className="rounded-md border border-border bg-muted/30 p-2"
+                              >
+                                <p className="text-xs text-foreground">
+                                  <span className="font-medium">
+                                    {platformLabel(platform.platform)}
+                                  </span>
+                                  : {platform.status} (
+                                  {new Date(platform.updatedAt).toLocaleString()})
+                                </p>
+                                {platform.errorMessage ? (
+                                  <p className="mt-1 text-xs text-red-600">
+                                    {platform.errorMessage}
+                                  </p>
+                                ) : null}
+                                {isExpired ? (
+                                  <p className="mt-1 text-xs font-medium text-amber-600">
+                                    Video file expired — please re-upload
+                                  </p>
+                                ) : null}
+                                {showRetry && item.r2FileAvailable !== false ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      void retryPlatformUpload(item.uploadJobId, platform.platform);
+                                    }}
+                                    disabled={retryingUploadKey !== null}
+                                    className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                                  >
+                                    {retryingUploadKey === retryKey ? 'Retrying...' : 'Retry'}
+                                  </button>
+                                ) : null}
+                                {platform.status === 'failed' && !showRetry && !isExpired ? (
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {platform.retryReason}
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
