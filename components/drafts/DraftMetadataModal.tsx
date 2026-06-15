@@ -336,11 +336,17 @@ function SermonAudioShortTitleField({
           Short Title <span className="font-normal text-muted-foreground">(optional)</span>
         </span>
       </label>
+      {/*
+        maxLength blocks typing/paste in the UI; slice in onChange keeps controlled state
+        ≤ 30 if autofill or a browser quirk bypasses the attribute (no-op for normal input).
+      */}
       <input
         id="draft-sermon-audio-display-title"
         value={value}
         maxLength={SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) =>
+          onChange(event.target.value.slice(0, SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH))
+        }
         className={fieldBorderClassName}
       />
       <p className="mt-1 text-xs text-muted-foreground">
