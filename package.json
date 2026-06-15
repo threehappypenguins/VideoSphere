@@ -69,6 +69,7 @@
     "@anthropic-ai/claude-code": "^2.1.87",
     "@commitlint/cli": "^20",
     "@commitlint/config-conventional": "^20",
+    "@svgr/webpack": "^8.1.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6",
     "@testing-library/react": "^16",
@@ -93,6 +94,7 @@
     "tsx": "^4.21.0",
     "typedoc": "^0.28.18",
     "typescript": "^5",
+    "vite-plugin-svgr": "^5.2.0",
     "vitepress": "^1.6.4",
     "vitest": "^4",
     "vitest-axe": "^0.1.0"

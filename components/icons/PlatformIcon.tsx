@@ -1,11 +1,12 @@
+import type { FC, SVGProps } from 'react';
 import type { ConnectedAccountPlatform } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
 import { cn } from '@/lib/utils';
 
-import youtubeIcon from '@/components/icons/platforms/youtube.svg';
-import vimeoIcon from '@/components/icons/platforms/vimeo.svg';
-import sermonAudioIcon from '@/components/icons/platforms/sermon-audio.svg';
-import facebookIcon from '@/components/icons/platforms/facebook.svg';
+import YoutubeIcon from '@/components/icons/platforms/youtube.svg';
+import VimeoIcon from '@/components/icons/platforms/vimeo.svg';
+import SermonAudioIcon from '@/components/icons/platforms/sermon-audio.svg';
+import FacebookIcon from '@/components/icons/platforms/facebook.svg';
 
 /** Platform identifier backed by a brand icon SVG. */
 export type PlatformBrandIcon = (typeof PLATFORM_BRAND_ICONS)[number];
@@ -13,22 +14,13 @@ export type PlatformBrandIcon = (typeof PLATFORM_BRAND_ICONS)[number];
 /** Platforms that have a dedicated brand icon asset in this app. */
 export const PLATFORM_BRAND_ICONS = ['youtube', 'vimeo', 'sermon_audio', 'facebook'] as const;
 
-type SvgModule = string | { src: string };
+type PlatformSvgComponent = FC<SVGProps<SVGSVGElement>>;
 
-/**
- * Normalizes SVG module imports across Next.js (StaticImageData) and Vitest (URL string).
- * @param module - Imported SVG module.
- * @returns Public URL for the SVG asset.
- */
-function svgAssetUrl(module: SvgModule): string {
-  return typeof module === 'string' ? module : module.src;
-}
-
-const PLATFORM_ICON_SRC: Record<PlatformBrandIcon, string> = {
-  youtube: svgAssetUrl(youtubeIcon),
-  vimeo: svgAssetUrl(vimeoIcon),
-  sermon_audio: svgAssetUrl(sermonAudioIcon),
-  facebook: svgAssetUrl(facebookIcon),
+const PLATFORM_ICONS: Record<PlatformBrandIcon, PlatformSvgComponent> = {
+  youtube: YoutubeIcon,
+  vimeo: VimeoIcon,
+  sermon_audio: SermonAudioIcon,
+  facebook: FacebookIcon,
 };
 
 /**
@@ -64,15 +56,16 @@ export function PlatformIcon({
   className,
   decorative = true,
 }: PlatformIconProps) {
+  const Icon = PLATFORM_ICONS[platform];
+
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- brand SVGs are static URL imports; next/image is unnecessary and they are not inlined as React components.
-    <img
-      src={PLATFORM_ICON_SRC[platform]}
-      alt={decorative ? '' : platformLabel(platform)}
-      {...(decorative ? { 'aria-hidden': true as const } : {})}
+    <Icon
       width={size}
       height={size}
-      className={cn('shrink-0 object-contain', className)}
+      className={cn('shrink-0', className)}
+      {...(decorative
+        ? { 'aria-hidden': true as const }
+        : { role: 'img' as const, 'aria-label': platformLabel(platform) })}
     />
   );
 }

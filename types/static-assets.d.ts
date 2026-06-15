@@ -4,6 +4,15 @@
  * but that file is gitignored; this keeps `tsc --noEmit` working in CI without a local build.
  */
 declare module '*.svg' {
-  const content: string | { src: string; width?: number; height?: number };
+  import type { FC, SVGProps } from 'react';
+
+  /** SVG imported as an inline React component via SVGR. */
+  const ReactComponent: FC<SVGProps<SVGSVGElement>>;
+  export default ReactComponent;
+}
+
+declare module '*.svg?url' {
+  /** SVG imported as a static asset URL (append `?url` to the import path). */
+  const content: string;
   export default content;
 }

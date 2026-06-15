@@ -15,6 +15,62 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  webpack(config) {
+    const fileLoaderRule = config.module.rules.find(
+      (rule) =>
+        typeof rule === 'object' &&
+        rule !== null &&
+        'test' in rule &&
+        rule.test instanceof RegExp &&
+        rule.test.test('.svg')
+    );
+
+    if (!fileLoaderRule || typeof fileLoaderRule !== 'object') {
+      return config;
+    }
+
+    config.module.rules.push(
+      {
+        ...fileLoaderRule,
+        test: /\.svg$/i,
+        resourceQuery: /url/,
+      },
+      {
+        test: /\.svg$/i,
+        issuer: fileLoaderRule.issuer,
+        resourceQuery: { not: [...(fileLoaderRule.resourceQuery?.not ?? []), /url/] },
+        use: [
+          {
+            loader: '@svgr/webpack',
+            options: {
+              icon: true,
+              dimensions: false,
+            },
+          },
+        ],
+      }
+    );
+
+    fileLoaderRule.exclude = /\.svg$/i;
+
+    return config;
+  },
+  turbopack: {
+    rules: {
+      '*.svg': {
+        loaders: [
+          {
+            loader: '@svgr/webpack',
+            options: {
+              icon: true,
+              dimensions: false,
+            },
+          },
+        ],
+        as: '*.js',
+      },
+    },
+  },
 };
 
 export default nextConfig;
