@@ -285,7 +285,7 @@ export function UploadHistoryClient() {
                         onClick={() => {
                           void retryJob(job.uploadJobId, platform.platform);
                         }}
-                        disabled={retryingJobId === `${job.uploadJobId}:${platform.platform}`}
+                        disabled={retryingJobId !== null}
                         className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
                       >
                         {retryingJobId === `${job.uploadJobId}:${platform.platform}`

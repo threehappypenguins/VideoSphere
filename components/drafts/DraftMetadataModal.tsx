@@ -4479,7 +4479,7 @@ export function DraftMetadataModal({
                                     onClick={() => {
                                       void retryPlatformUpload(item.uploadJobId, platform.platform);
                                     }}
-                                    disabled={retryingUploadKey === retryKey}
+                                    disabled={retryingUploadKey !== null}
                                     className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
                                   >
                                     {retryingUploadKey === retryKey ? 'Retrying...' : 'Retry'}
