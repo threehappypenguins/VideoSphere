@@ -456,6 +456,78 @@ describe('DraftMetadataModal shared metadata overrides', () => {
   });
 });
 
+describe('DraftMetadataModal SermonAudio short title', () => {
+  function ControlledModal({ initialValue }: { initialValue: DraftEditorValues }) {
+    const [value, setValue] = useState(initialValue);
+    return (
+      <DraftMetadataModal
+        mode="edit"
+        value={value}
+        initialConnectedPlatforms={initialValue.targets}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: initialValue.id })}
+        onChange={setValue}
+      />
+    );
+  }
+
+  const longSharedTitle = 'A'.repeat(31);
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('shows the short title field when the shared title exceeds 30 characters', async () => {
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          title: longSharedTitle,
+          targets: ['sermon_audio'],
+          platforms: { sermon_audio: {} },
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    const shortTitleInput = screen.getByLabelText(/Short Title/i);
+    expect(shortTitleInput).toBeInTheDocument();
+    expect(shortTitleInput).toHaveAttribute('maxLength', '30');
+  });
+
+  it('prevents typing and pasting more than 30 characters into the short title field', async () => {
+    const user = userEvent.setup();
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          title: longSharedTitle,
+          targets: ['sermon_audio'],
+          platforms: { sermon_audio: {} },
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    const shortTitleInput = screen.getByLabelText(/Short Title/i);
+
+    await user.type(shortTitleInput, 'B'.repeat(35));
+    expect(shortTitleInput).toHaveValue('B'.repeat(30));
+
+    await user.clear(shortTitleInput);
+    await user.click(shortTitleInput);
+    await user.paste('C'.repeat(40));
+    expect(shortTitleInput).toHaveValue('C'.repeat(30));
+  });
+});
+
 describe('DraftMetadataModal privacy field', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());

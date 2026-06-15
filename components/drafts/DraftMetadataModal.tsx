@@ -340,9 +340,7 @@ function SermonAudioShortTitleField({
         id="draft-sermon-audio-display-title"
         value={value}
         maxLength={SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH}
-        onChange={(event) =>
-          onChange(event.target.value.slice(0, SERMON_AUDIO_SHORT_TITLE_MAX_LENGTH))
-        }
+        onChange={(event) => onChange(event.target.value)}
         className={fieldBorderClassName}
       />
       <p className="mt-1 text-xs text-muted-foreground">
