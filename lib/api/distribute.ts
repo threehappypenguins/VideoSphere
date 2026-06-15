@@ -163,10 +163,10 @@ async function persistSermonAudioAutoPublishFailure(
 }
 
 /**
- * Starts detached poll-and-publish work for SermonAudio rows that uploaded successfully in this
- * attempt. Runs independently of whether other platforms on the same job failed.
+ * Starts poll-and-publish work for SermonAudio rows that uploaded successfully in this attempt.
+ * Runs independently of whether other platforms on the same job failed.
  * Immediate failures (e.g. missing API key) are awaited so rows leave `unpublished` before the
- * caller continues; long-running poll/publish work remains detached.
+ * caller continues; long-running poll/publish work remains detached (see inline note below).
  */
 async function startSermonAudioAutoPublishForSuccessfulUploads(
   jobId: string,
@@ -208,6 +208,12 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
     }
 
     // Detached (not awaited): SermonAudio may need up to ~1 hour of processing polls before publish.
+    // This is intentionally outside the awaited distribution chain so job completion and R2 cleanup
+    // are not blocked. Delivery is best-effort: if the Node process exits (deploy, crash, scale-in)
+    // before the detached task finishes, the row can remain `unpublished` until the user retries or
+    // publishes manually. Hosts that freeze the runtime when the request/`after()` callback ends
+    // (typical serverless) are especially affected; long-lived containers usually keep the event
+    // loop running, but still offer no durability guarantee without a queue/worker.
     void (async () => {
       const platformUploadId = upload.id;
       const platformUrl = upload.platformUrl;

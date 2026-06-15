@@ -22,7 +22,9 @@ const CONNECTED_PLATFORM_SET = new Set<string>(CONNECTED_ACCOUNT_PLATFORMS);
 /**
  * Parses an optional `{ platforms }` body for single- or multi-platform retry.
  * @param request - Incoming POST request.
- * @returns `null` when the body is empty (retry all retryable failed platforms); otherwise the validated platform list, or an error message.
+ * @returns On success, `{ ok: true, platforms }` where `platforms` is `null` when the body is
+ *   empty or omits `platforms` (retry all retryable failed platforms), or a deduped platform list
+ *   when `{ platforms: [...] }` is provided. On failure, `{ ok: false, error }`.
  */
 async function parseRetryPlatformsBody(
   request: NextRequest

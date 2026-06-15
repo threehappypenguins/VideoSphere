@@ -33,6 +33,7 @@ export async function checkR2Availability(
  * @param items - Work items to process.
  * @param limit - Maximum concurrent workers.
  * @param fn - Async handler invoked once per item.
+ * @returns Resolves when all items have been processed.
  */
 export async function runWithConcurrency<T>(
   items: T[],
