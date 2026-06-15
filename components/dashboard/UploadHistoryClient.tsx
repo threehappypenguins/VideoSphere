@@ -54,6 +54,7 @@ function isJobActive(job: UploadHistoryJobItem): boolean {
         platform: p.platform,
         status: p.status,
         sermonAudioAutoPublishOnProcessed: p.sermonAudioAutoPublishOnProcessed,
+        updatedAt: p.updatedAt,
       })
     )
   );
@@ -129,10 +130,15 @@ export function UploadHistoryClient() {
     setExpandedJobIds(new Set());
   }, [offset]);
 
-  const retryJob = async (jobId: string) => {
-    setRetryingJobId(jobId);
+  const retryJob = async (jobId: string, platform: ConnectedAccountPlatform) => {
+    const retryKey = `${jobId}:${platform}`;
+    setRetryingJobId(retryKey);
     try {
-      const response = await fetch(`/api/uploads/jobs/${jobId}/retry`, { method: 'POST' });
+      const response = await fetch(`/api/uploads/jobs/${jobId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platforms: [platform] }),
+      });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(payload?.error ?? 'Retry failed');
@@ -277,12 +283,14 @@ export function UploadHistoryClient() {
                       <button
                         type="button"
                         onClick={() => {
-                          void retryJob(job.uploadJobId);
+                          void retryJob(job.uploadJobId, platform.platform);
                         }}
-                        disabled={retryingJobId === job.uploadJobId}
+                        disabled={retryingJobId === `${job.uploadJobId}:${platform.platform}`}
                         className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
                       >
-                        {retryingJobId === job.uploadJobId ? 'Retrying...' : 'Retry'}
+                        {retryingJobId === `${job.uploadJobId}:${platform.platform}`
+                          ? 'Retrying...'
+                          : 'Retry'}
                       </button>
                     ) : null}
                     {platform.status === 'failed' && !showRetry && !isExpired ? (

@@ -1,5 +1,18 @@
 import type { ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
 
+/** Must stay in sync with {@link SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS} in sermon-audio.ts. */
+const SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS = 30_000;
+/** Must stay in sync with {@link SERMONAUDIO_PROCESSING_MAX_ATTEMPTS} in sermon-audio.ts. */
+const SERMONAUDIO_PROCESSING_MAX_ATTEMPTS = 120;
+
+/**
+ * Stop UI polling for SermonAudio auto-publish after the server-side processing budget
+ * (120 × 30s ≈ 1 hour) plus a small buffer. Rows older than this with no status change
+ * are treated as terminal so stuck historical jobs do not poll forever.
+ */
+export const SERMONAUDIO_AUTO_PUBLISH_UI_STALE_MS =
+  SERMONAUDIO_PROCESSING_MAX_ATTEMPTS * SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS + 15 * 60_000;
+
 /**
  * Minimal platform upload snapshot for polling and deduplicating latest status per platform.
  * Used by {@link latestPlatformStatuses} and {@link isPlatformUploadRowActive} consumers.
@@ -58,13 +71,26 @@ export function isPlatformUploadRowActive(input: {
   platform: ConnectedAccountPlatform;
   status: PlatformUploadStatus;
   sermonAudioAutoPublishOnProcessed?: boolean;
+  /** ISO timestamp of the platform row; used to stop polling stale SermonAudio auto-publish waits. */
+  updatedAt?: string;
 }): boolean {
   if (isPlatformUploadStatusInProgress(input.status)) return true;
   if (input.platform === 'sermon_audio') {
-    return isSermonAudioAwaitingAutoPublish(
-      input.status,
-      input.sermonAudioAutoPublishOnProcessed === true
-    );
+    if (
+      !isSermonAudioAwaitingAutoPublish(
+        input.status,
+        input.sermonAudioAutoPublishOnProcessed === true
+      )
+    ) {
+      return false;
+    }
+    if (input.updatedAt) {
+      const ts = Date.parse(input.updatedAt);
+      if (!Number.isNaN(ts) && Date.now() - ts > SERMONAUDIO_AUTO_PUBLISH_UI_STALE_MS) {
+        return false;
+      }
+    }
+    return true;
   }
   return false;
 }

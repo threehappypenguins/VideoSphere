@@ -14,6 +14,58 @@ import {
 } from '@/lib/api/distribute';
 import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
+import type { ConnectedAccountPlatform } from '@/types';
+import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
+
+const CONNECTED_PLATFORM_SET = new Set<string>(CONNECTED_ACCOUNT_PLATFORMS);
+
+/**
+ * Parses an optional `{ platforms }` body for single- or multi-platform retry.
+ * @param request - Incoming POST request.
+ * @returns `null` when the body is empty (retry all retryable failed platforms); otherwise the validated platform list, or an error message.
+ */
+async function parseRetryPlatformsBody(
+  request: NextRequest
+): Promise<
+  { ok: true; platforms: ConnectedAccountPlatform[] | null } | { ok: false; error: string }
+> {
+  let raw: unknown;
+  try {
+    const text = await request.text();
+    if (text.trim() === '') {
+      return { ok: true, platforms: null };
+    }
+    raw = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'Invalid JSON body.' };
+  }
+
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'Request body must be a JSON object.' };
+  }
+
+  const platformsRaw = (raw as { platforms?: unknown }).platforms;
+  if (platformsRaw === undefined) {
+    return { ok: true, platforms: null };
+  }
+
+  if (!Array.isArray(platformsRaw) || platformsRaw.length === 0) {
+    return { ok: false, error: 'platforms must be a non-empty array of platform identifiers.' };
+  }
+
+  const platforms: ConnectedAccountPlatform[] = [];
+  for (const value of platformsRaw) {
+    if (typeof value !== 'string' || !CONNECTED_PLATFORM_SET.has(value)) {
+      return { ok: false, error: `Invalid platform identifier: ${String(value)}` };
+    }
+    const platform = value as ConnectedAccountPlatform;
+    if (!platforms.includes(platform)) {
+      platforms.push(platform);
+    }
+  }
+
+  return { ok: true, platforms };
+}
 
 /**
  * Handles POST requests for this route.
@@ -86,6 +138,11 @@ export async function POST(
       return NextResponse.json({ error: 'Draft not found for this upload job' }, { status: 404 });
     }
 
+    const parsedBody = await parseRetryPlatformsBody(request);
+    if (parsedBody.ok === false) {
+      return NextResponse.json({ error: parsedBody.error }, { status: 400 });
+    }
+
     const allUploads = await getPlatformUploadsByJob(job.id);
     const latestByPlatform = latestPlatformUploadsPerPlatform(allUploads);
 
@@ -94,7 +151,12 @@ export async function POST(
       .filter((upload) => assessPlatformUploadRetryability(upload.errorMessage).retryable)
       .map((upload) => upload.platform);
 
-    if (retryableFailedPlatforms.length === 0) {
+    const platformsToRetry =
+      parsedBody.platforms == null
+        ? retryableFailedPlatforms
+        : parsedBody.platforms.filter((platform) => retryableFailedPlatforms.includes(platform));
+
+    if (platformsToRetry.length === 0) {
       return NextResponse.json(
         { error: 'No retryable failed platform uploads were found for this job.' },
         { status: 400 }
@@ -102,7 +164,7 @@ export async function POST(
     }
 
     const platformUploads = await ensurePlatformUploadsForJobTargets(
-      retryableFailedPlatforms.map((platform) =>
+      platformsToRetry.map((platform) =>
         distributeCreatePlatformUploadInput(job.id, draft, platform)
       )
     );
@@ -133,7 +195,7 @@ export async function POST(
     return NextResponse.json(
       {
         jobId: job.id,
-        retriedPlatforms: retryableFailedPlatforms,
+        retriedPlatforms: platformsToRetry,
       },
       { status: 202 }
     );

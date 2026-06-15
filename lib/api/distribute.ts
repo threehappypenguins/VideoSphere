@@ -162,6 +162,87 @@ async function persistSermonAudioAutoPublishFailure(
   }
 }
 
+/**
+ * Starts detached poll-and-publish work for SermonAudio rows that uploaded successfully in this
+ * attempt. Runs independently of whether other platforms on the same job failed.
+ */
+function startSermonAudioAutoPublishForSuccessfulUploads(
+  jobId: string,
+  attemptResults: PlatformUpload[],
+  metadataByPlatformId: Map<string, PlatformUploadMetadata>,
+  saApiKeyByPlatformUploadId: ReadonlyMap<string, string>,
+  saCustomThumbnailUploadedByPlatformUploadId: ReadonlyMap<string, boolean>
+): void {
+  for (const upload of attemptResults) {
+    if (upload.platform !== 'sermon_audio' || upload.status !== 'unpublished') {
+      continue;
+    }
+
+    const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
+    const customThumbnailUploaded =
+      saCustomThumbnailUploadedByPlatformUploadId.get(upload.id) === true;
+
+    const sermonID = upload.platformVideoId.trim();
+    if (!sermonID) continue;
+
+    const meta = metadataByPlatformId.get(upload.id);
+    if (meta?.autoPublishOnProcessed !== true) continue;
+
+    if (!apiKey) {
+      console.warn(
+        `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
+      );
+      void persistSermonAudioAutoPublishFailure(
+        upload.id,
+        sermonID,
+        upload.platformUrl,
+        'SermonAudio API key was not captured during upload; auto-publish could not run.'
+      );
+      continue;
+    }
+
+    // Detached (not awaited): SermonAudio may need up to ~1 hour of processing polls before publish.
+    void (async () => {
+      const platformUploadId = upload.id;
+      const platformUrl = upload.platformUrl;
+      try {
+        await pollSermonAudioProcessing({
+          sermonID,
+          tokens: { accessToken: apiKey },
+          customThumbnailUploaded,
+        });
+        await publishSermonAudio({
+          sermonID,
+          tokens: { accessToken: apiKey },
+        });
+        await updatePlatformUploadStatus(
+          platformUploadId,
+          'published',
+          sermonID,
+          platformUrl || undefined,
+          null
+        );
+        const crossPublishActive = sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish);
+        console.log(
+          `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${platformUploadId})` +
+            (crossPublishActive ? '; Cross Publish enabled' : '')
+        );
+      } catch (err) {
+        console.error(
+          `[distribute] SermonAudio auto-publish failed for platform_upload ${platformUploadId} (job ${jobId}, sermon ${sermonID}):`,
+          err
+        );
+        await persistSermonAudioAutoPublishFailure(
+          platformUploadId,
+          sermonID,
+          platformUrl,
+          sermonAudioAutoPublishErrorMessage(err)
+        );
+      }
+    })();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Single-platform upload
 // ---------------------------------------------------------------------------
@@ -460,6 +541,15 @@ export async function runDistributionInBackground(
 
     const finalPlatformUploads = await getPlatformUploadsByJob(jobId);
     const attemptResults = finalPlatformUploads.filter((u) => attemptPlatformUploadIds.has(u.id));
+
+    startSermonAudioAutoPublishForSuccessfulUploads(
+      jobId,
+      attemptResults,
+      metadataByPlatformId,
+      saApiKeyByPlatformUploadId,
+      saCustomThumbnailUploadedByPlatformUploadId
+    );
+
     const foundAttemptIds = new Set(attemptResults.map((u) => u.id));
     const missingAttemptRows = [...attemptPlatformUploadIds].filter(
       (id) => !foundAttemptIds.has(id)
@@ -526,81 +616,6 @@ export async function runDistributionInBackground(
     });
 
     await updateUploadJobStatus(jobId, 'completed', null);
-
-    for (const upload of attemptResults) {
-      if (upload.platform !== 'sermon_audio') continue;
-
-      const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
-      saApiKeyByPlatformUploadId.delete(upload.id);
-
-      const customThumbnailUploaded =
-        saCustomThumbnailUploadedByPlatformUploadId.get(upload.id) === true;
-      saCustomThumbnailUploadedByPlatformUploadId.delete(upload.id);
-
-      const sermonID = upload.platformVideoId.trim();
-      if (!sermonID) continue;
-
-      const meta = metadataByPlatformId.get(upload.id);
-      if (meta?.autoPublishOnProcessed !== true) continue;
-
-      if (!apiKey) {
-        console.warn(
-          `[distribute] Skipping SermonAudio auto-publish for platform_upload ${upload.id} (job ${jobId}): API key not captured during upload.`
-        );
-        await persistSermonAudioAutoPublishFailure(
-          upload.id,
-          sermonID,
-          upload.platformUrl,
-          'SermonAudio API key was not captured during upload; auto-publish could not run.'
-        );
-        continue;
-      }
-
-      // Auto-publish is a separate phase after the upload job is marked completed: SermonAudio
-      // may need up to ~1 hour of processing polls before publish. Detached (not awaited) so
-      // runDistributionInBackground returns promptly. Self-hosted Docker: the poll continues in
-      // the long-lived Node process. Serverless: this work is outside `after()`'s awaited chain
-      // and may be cut short; a persisted pending job plus queue/worker/cron would be needed for
-      // guaranteed delivery across invocations.
-      void (async () => {
-        const platformUploadId = upload.id;
-        const platformUrl = upload.platformUrl;
-        try {
-          await pollSermonAudioProcessing({
-            sermonID,
-            tokens: { accessToken: apiKey },
-            customThumbnailUploaded,
-          });
-          await publishSermonAudio({
-            sermonID,
-            tokens: { accessToken: apiKey },
-          });
-          await updatePlatformUploadStatus(
-            platformUploadId,
-            'published',
-            sermonID,
-            platformUrl || undefined,
-            null
-          );
-          const crossPublishActive = sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish);
-          console.log(
-            `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${platformUploadId})` +
-              (crossPublishActive ? '; Cross Publish enabled' : '')
-          );
-        } catch (err) {
-          console.error(
-            `[distribute] SermonAudio auto-publish failed for platform_upload ${platformUploadId} (job ${jobId}, sermon ${sermonID}):`,
-            err
-          );
-          await persistSermonAudioAutoPublishFailure(
-            platformUploadId,
-            sermonID,
-            platformUrl,
-            sermonAudioAutoPublishErrorMessage(err)
-          );
-        }
-      })();
-    }
 
     // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
     // Capture the thumbnail key from the metadata snapshot used for this distribution so that
