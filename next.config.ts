@@ -1,5 +1,29 @@
 import type { NextConfig } from 'next';
 
+/** Matches `?url` (and `&url`) SVG import queries, aligned with webpack `resourceQuery: /url/`. */
+const svgUrlImportQuery = /[?&]url(?=&|$)/;
+
+/** Turbopack: `?url` → asset URL; bare `.svg` → SVGR React component (matches webpack above). */
+const platformSvgTurbopackRules: NonNullable<NextConfig['turbopack']>['rules'][string] = [
+  {
+    condition: { query: svgUrlImportQuery },
+    type: 'asset',
+  },
+  {
+    condition: { not: { query: svgUrlImportQuery } },
+    loaders: [
+      {
+        loader: '@svgr/webpack',
+        options: {
+          icon: true,
+          dimensions: false,
+        },
+      },
+    ],
+    as: '*.js',
+  },
+];
+
 const nextConfig: NextConfig = {
   output: 'standalone', // required for Docker (produces server.js)
   // Mongoose/MongoDB use Node built-ins (net, tls, etc.); must not be webpack-bundled
@@ -57,18 +81,7 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     rules: {
-      '*.svg': {
-        loaders: [
-          {
-            loader: '@svgr/webpack',
-            options: {
-              icon: true,
-              dimensions: false,
-            },
-          },
-        ],
-        as: '*.js',
-      },
+      '*.svg': platformSvgTurbopackRules,
     },
   },
 };

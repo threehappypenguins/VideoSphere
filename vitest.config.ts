@@ -24,6 +24,7 @@ export default defineConfig({
     react(),
     svgr({
       include: '**/*.svg',
+      exclude: /\?url$/,
       svgrOptions: {
         icon: true,
         dimensions: false,
