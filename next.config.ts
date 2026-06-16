@@ -1,6 +1,6 @@
 import type { NextConfig } from 'next';
 
-/** Matches `?url` (and `&url`) SVG import queries, aligned with webpack `resourceQuery: /url/`. */
+/** Matches `?url` (and `&url`) SVG import queries; shared by webpack and Turbopack. */
 const svgUrlImportQuery = /[?&]url(?=&|$)/;
 
 /** Turbopack: `?url` → asset URL; bare `.svg` → SVGR React component (matches webpack above). */
@@ -57,12 +57,14 @@ const nextConfig: NextConfig = {
       {
         ...fileLoaderRule,
         test: /\.svg$/i,
-        resourceQuery: /url/,
+        resourceQuery: svgUrlImportQuery,
       },
       {
         test: /\.svg$/i,
         issuer: fileLoaderRule.issuer,
-        resourceQuery: { not: [...(fileLoaderRule.resourceQuery?.not ?? []), /url/] },
+        resourceQuery: {
+          not: [...(fileLoaderRule.resourceQuery?.not ?? []), svgUrlImportQuery],
+        },
         use: [
           {
             loader: '@svgr/webpack',
