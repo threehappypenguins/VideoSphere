@@ -16,10 +16,21 @@
 
 import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import svgr from 'vite-plugin-svgr';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    svgr({
+      include: '**/*.svg',
+      exclude: /\?url$/,
+      svgrOptions: {
+        icon: true,
+        dimensions: false,
+      },
+    }),
+  ],
   test: {
     environment: 'jsdom',
     globals: true,
@@ -33,5 +44,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './'),
     },
   },
-  assetsInclude: ['**/*.svg'],
 });
