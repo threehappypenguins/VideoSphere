@@ -22,6 +22,7 @@ import {
   type YouTubeDraftFields,
   type VimeoDraftFields,
   type PerPlatformCopyOverrides,
+  type PerPlatformOverrides,
   type SermonAudioDraftFields,
   type SftpDraftFields,
   type SmbDraftFields,
@@ -35,6 +36,13 @@ export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'public';
 
 /** Matches YouTube Data API `videos.snippet.title` maximum length. */
 export const MAX_DRAFT_TITLE_LENGTH = 100;
+
+export {
+  DRAFT_TITLE_OVERRIDE_PLATFORM_ORDER,
+  draftHasPersistableTitle,
+  resolveDraftTitleForStorage,
+  type ResolveDraftTitleInput,
+} from '@/lib/draft-title';
 
 /** String column max; entire `document` must serialize under this. */
 export const MAX_DRAFT_DOCUMENT_CHARS = 16_383;
@@ -167,11 +175,28 @@ function normalizePerPlatformCopyOverrides(
   };
 }
 
+function normalizeThumbnailOverrideFields(
+  o: Record<string, unknown>
+): Pick<PerPlatformOverrides, 'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride'> {
+  const thumbnailR2KeyOverride = trimStr(o.thumbnailR2KeyOverride);
+  const thumbnailContentTypeOverride = trimStr(o.thumbnailContentTypeOverride);
+
+  return {
+    ...(thumbnailR2KeyOverride !== undefined ? { thumbnailR2KeyOverride } : {}),
+    ...(thumbnailContentTypeOverride !== undefined ? { thumbnailContentTypeOverride } : {}),
+  };
+}
+
 function normalizePerPlatformOverrideFields(
   o: Record<string, unknown>
 ): Pick<
   YouTubeDraftFields,
-  'titleOverride' | 'descriptionOverride' | 'tagsOverride' | 'visibilityOverride'
+  | 'titleOverride'
+  | 'descriptionOverride'
+  | 'tagsOverride'
+  | 'visibilityOverride'
+  | 'thumbnailR2KeyOverride'
+  | 'thumbnailContentTypeOverride'
 > {
   const visibilityOverride = isPlatformUploadVisibility(o.visibilityOverride)
     ? o.visibilityOverride
@@ -180,6 +205,7 @@ function normalizePerPlatformOverrideFields(
   return {
     ...normalizePerPlatformCopyOverrides(o),
     ...(visibilityOverride !== undefined ? { visibilityOverride } : {}),
+    ...normalizeThumbnailOverrideFields(o),
   };
 }
 
@@ -302,6 +328,7 @@ function normalizeFacebookFields(f: Record<string, unknown>): FacebookDraftField
 
   return {
     ...normalizePerPlatformTitleDescriptionOverrides(f),
+    ...normalizeThumbnailOverrideFields(f),
     ...(videoState !== undefined ? { videoState } : {}),
     ...(scheduledPublishTime !== undefined ? { scheduledPublishTime } : {}),
   };
@@ -335,6 +362,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
 
   return {
     ...normalizePerPlatformCopyOverrides(sa),
+    ...normalizeThumbnailOverrideFields(sa),
     ...(speakerName !== undefined ? { speakerName } : {}),
     ...(speakerID !== undefined ? { speakerID } : {}),
     ...(preachDate !== undefined ? { preachDate } : {}),
@@ -679,7 +707,7 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const v = p.visibilityOverride;
       yb.visibilityOverride = isPlatformUploadVisibility(v) ? v : undefined;
     }
-    next.youtube = yb;
+    next.youtube = applyThumbnailOverridePatch(yb, p);
   }
 
   if (isPlainObject(patch.vimeo)) {
@@ -733,7 +761,7 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const v = p.visibilityOverride;
       vm.visibilityOverride = isPlatformUploadVisibility(v) ? v : undefined;
     }
-    next.vimeo = vm;
+    next.vimeo = applyThumbnailOverridePatch(vm, p);
   }
 
   if (isPlainObject(patch.sermon_audio)) {
@@ -803,7 +831,7 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
         sa.tagsOverride = undefined;
       }
     }
-    next.sermon_audio = sa;
+    next.sermon_audio = applyThumbnailOverridePatch(sa, p);
   }
 
   if (isPlainObject(patch.facebook)) {
@@ -826,7 +854,7 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const s = p.descriptionOverride;
       fb.descriptionOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
     }
-    next.facebook = fb;
+    next.facebook = applyThumbnailOverridePatch(fb, p);
   }
 
   if (isPlainObject(patch.sftp)) {
@@ -863,6 +891,46 @@ function resolveVisibilityForPlatform(
   return platformFields?.visibilityOverride ?? draft.visibility;
 }
 
+function resolveThumbnailForPlatform(
+  draft: Draft,
+  platformFields?: {
+    thumbnailR2KeyOverride?: string;
+    thumbnailContentTypeOverride?: string;
+  }
+): { thumbnailR2Key?: string; thumbnailContentType?: string } {
+  if (platformFields && 'thumbnailR2KeyOverride' in platformFields) {
+    const overrideKey = platformFields.thumbnailR2KeyOverride?.trim();
+    if (!overrideKey) {
+      return {};
+    }
+    const overrideType = platformFields.thumbnailContentTypeOverride?.trim();
+    return {
+      thumbnailR2Key: overrideKey,
+      ...(overrideType ? { thumbnailContentType: overrideType } : {}),
+    };
+  }
+  const thumbnailR2Key = draft.thumbnailR2Key?.trim() || undefined;
+  const thumbnailContentType = draft.thumbnailContentType?.trim() || undefined;
+  return { thumbnailR2Key, thumbnailContentType };
+}
+
+function applyThumbnailOverridePatch<T extends PerPlatformOverrides>(
+  fields: T,
+  patch: Record<string, unknown>
+): T {
+  const next = { ...fields };
+  if ('thumbnailR2KeyOverride' in patch) {
+    const s = patch.thumbnailR2KeyOverride;
+    next.thumbnailR2KeyOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+  }
+  if ('thumbnailContentTypeOverride' in patch) {
+    const s = patch.thumbnailContentTypeOverride;
+    next.thumbnailContentTypeOverride =
+      typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+  }
+  return next;
+}
+
 /**
  * Executes build metadata for platform.
  * @param draft - Input value for draft.
@@ -873,13 +941,11 @@ export function buildMetadataForPlatform(
   draft: Draft,
   platform: ConnectedAccountPlatform
 ): PlatformUploadMetadata {
-  const thumbnailR2Key = draft.thumbnailR2Key?.trim() || undefined;
-  const thumbnailContentType = draft.thumbnailContentType?.trim() || undefined;
-
   if (platform === 'youtube') {
     const yt = draft.platforms.youtube;
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, yt);
     const visibility = resolveVisibilityForPlatform(draft, yt);
+    const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft, yt);
     const playlistTitles =
       yt?.playlistTitles !== undefined && yt.playlistTitles.length > 0
         ? uniqueTrimmedPlaylistTitles(yt.playlistTitles)
@@ -908,6 +974,7 @@ export function buildMetadataForPlatform(
     const vm = draft.platforms.vimeo;
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, vm);
     const visibility = resolveVisibilityForPlatform(draft, vm);
+    const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft, vm);
     return {
       title,
       description,
@@ -927,6 +994,7 @@ export function buildMetadataForPlatform(
     const { title, description, tags } = resolveDraftCopyForPlatform(draft, sa);
     const keywords = formatSermonAudioKeywordsFromTags(tags);
     const visibility = draft.visibility;
+    const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft, sa);
 
     return {
       title,
@@ -955,6 +1023,7 @@ export function buildMetadataForPlatform(
   if (platform === 'facebook') {
     const fb = draft.platforms.facebook;
     const { title, description } = resolveDraftCopyForPlatform(draft, fb);
+    const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft, fb);
     return {
       title,
       description,
@@ -969,6 +1038,7 @@ export function buildMetadataForPlatform(
 
   const { title, description, tags } = resolveDraftCopyForPlatform(draft);
   const visibility = draft.visibility;
+  const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft);
   return {
     title,
     description,

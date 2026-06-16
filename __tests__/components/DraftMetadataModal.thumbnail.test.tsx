@@ -191,7 +191,7 @@ async function startThumbnailUpload(user: ReturnType<typeof userEvent.setup>) {
   const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'thumb.jpg', {
     type: 'image/jpeg',
   });
-  const input = document.getElementById('draft-thumbnail-file') as HTMLInputElement;
+  const input = document.getElementById('draft-thumbnail-file-shared') as HTMLInputElement;
   expect(input).toBeTruthy();
   await user.upload(input, file);
 }
@@ -206,8 +206,12 @@ async function waitForInFlightThumbnailPut() {
 /** Asserts the modal is not stuck in the pre-fix "Uploading… 0%" state. */
 function expectThumbnailUploadUiCleared() {
   expect(screen.queryByText(/Uploading thumbnail/i)).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /^Upload$/i })).toBeEnabled();
+  expect(getThumbnailChooseFileButton()).toBeEnabled();
   expect(screen.getByRole('button', { name: /Save draft/i })).toBeEnabled();
+}
+
+function getThumbnailChooseFileButton() {
+  return screen.getAllByRole('button', { name: /^Choose file$/i })[0]!;
 }
 
 type ThumbnailUploadHarnessApi = {
@@ -288,7 +292,7 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
     await startThumbnailUpload(user);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Uploading/i })).toBeDisabled();
+      expect(getThumbnailChooseFileButton()).toBeDisabled();
     });
 
     expect(screen.getByRole('button', { name: /Save draft/i })).toBeEnabled();
@@ -330,14 +334,15 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
           thumbnailPreviewUrl: 'https://r2.example/preview.jpg',
         })
       );
-      expect(screen.getByRole('button', { name: /^Upload$/i })).toBeEnabled();
+      expect(getThumbnailChooseFileButton()).toBeEnabled();
       expect(screen.queryByText(/Uploading thumbnail/i)).not.toBeInTheDocument();
     });
 
+    expect(screen.getByText('thumb.jpg')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Save draft/i })).toBeEnabled();
   });
 
-  it('shows Replace after parent state picks up completed thumbnail upload', async () => {
+  it('keeps Choose file after parent state picks up completed thumbnail upload', async () => {
     const user = userEvent.setup();
 
     function ControlledModal() {
@@ -368,7 +373,8 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
     MockXMLHttpRequest.instances.at(-1)!.simulateSuccess();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^Replace$/i })).toBeEnabled();
+      expect(getThumbnailChooseFileButton()).toBeEnabled();
+      expect(screen.getByText('thumb.jpg')).toBeInTheDocument();
     });
   });
 
@@ -387,7 +393,7 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalled();
-      expect(screen.getByRole('button', { name: /^Upload$/i })).toBeEnabled();
+      expect(getThumbnailChooseFileButton()).toBeEnabled();
       expect(screen.getByRole('button', { name: /Save draft/i })).toBeEnabled();
     });
 
@@ -420,7 +426,7 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith('Failed to presign thumbnail upload');
-      expect(screen.getByRole('button', { name: /^Upload$/i })).toBeEnabled();
+      expect(getThumbnailChooseFileButton()).toBeEnabled();
       expect(screen.getByRole('button', { name: /Save draft/i })).toBeEnabled();
     });
   });

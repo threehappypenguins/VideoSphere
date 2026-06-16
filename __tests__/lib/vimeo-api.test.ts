@@ -755,7 +755,9 @@ describe('fetchVimeoAccountDefaults', () => {
           return mockContentRatingsResponse();
         }
         expect(url).toContain('/me');
-        expect(url).toContain('fields=preferences.videos.license%2Cpreferences.videos.rating');
+        expect(url).toContain(
+          'fields=membership.type%2Cpreferences.videos.license%2Cpreferences.videos.rating'
+        );
 
         return Response.json({
           preferences: {

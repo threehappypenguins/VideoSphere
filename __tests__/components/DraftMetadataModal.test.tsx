@@ -404,17 +404,43 @@ describe('DraftMetadataModal shared metadata overrides', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.getByLabelText(/^Title$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Title(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/^Title \(YouTube\)$/i)).not.toBeInTheDocument();
 
     const titleSharedCheckbox = screen.getByTitle(/all selected platforms share one title/i);
     await user.click(titleSharedCheckbox);
 
-    expect(screen.queryByLabelText(/^Title$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Title(\s*\*)?$/i)).not.toBeInTheDocument();
     expect(document.getElementById('edit-title-youtube')).toBeInTheDocument();
     expect(document.getElementById('edit-title-sermon_audio')).toBeInTheDocument();
     expect(screen.getByLabelText(/Title — YouTube/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Title — SermonAudio/i)).toBeInTheDocument();
+  });
+
+  it('expands per-platform thumbnail pickers when use shared thumbnail is unchecked', async () => {
+    const user = userEvent.setup();
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          targets: ['youtube', 'vimeo'],
+          platforms: {},
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(document.getElementById('draft-thumbnail-file-shared')).toBeInTheDocument();
+    expect(document.getElementById('draft-thumbnail-file-youtube')).not.toBeInTheDocument();
+
+    const thumbnailSharedCheckbox = screen.getByTitle(
+      /all selected platforms share one thumbnail/i
+    );
+    await user.click(thumbnailSharedCheckbox);
+
+    expect(document.getElementById('draft-thumbnail-file-shared')).not.toBeInTheDocument();
+    expect(document.getElementById('draft-thumbnail-file-youtube')).toBeInTheDocument();
+    expect(document.getElementById('draft-thumbnail-file-vimeo')).toBeInTheDocument();
   });
 
   it('hides tags when only Facebook is selected', async () => {
@@ -578,7 +604,7 @@ describe('DraftMetadataModal privacy field', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.getByLabelText(/^Privacy$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Privacy(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.getByTitle(/YouTube and Vimeo share one privacy setting/i)).toBeInTheDocument();
   });
 });

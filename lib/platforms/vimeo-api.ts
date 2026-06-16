@@ -11,6 +11,10 @@ import {
   resolveVimeoAccountContentRatingDefault,
   type VimeoContentRatingOption,
 } from '@/lib/platforms/vimeo-content-rating';
+import {
+  readMembershipTypeFromMeBody,
+  vimeoMembershipTypeSupportsUnlistedPrivacy,
+} from '@/lib/platforms/vimeo-membership';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import type { VimeoCategoryOption } from '@/lib/platforms/vimeo-categories';
 import {
@@ -28,7 +32,8 @@ export type { VimeoLicenseOption };
 const VIMEO_API_BASE = 'https://api.vimeo.com';
 const VIMEO_ACCEPT = 'application/vnd.vimeo.*+json;version=3.4';
 
-const VIMEO_ME_UPLOAD_DEFAULT_FIELDS = 'preferences.videos.license,preferences.videos.rating';
+const VIMEO_ME_UPLOAD_DEFAULT_FIELDS =
+  'membership.type,preferences.videos.license,preferences.videos.rating';
 
 type VimeoConnectionResult =
   | { ok: true; accessToken: string }
@@ -914,6 +919,12 @@ function buildVimeoAccountDefaultsFromMeBody(
   const license = readMeDefaultLicense(body);
   if (license !== undefined) {
     defaults.license = license;
+  }
+
+  const membershipType = readMembershipTypeFromMeBody(body);
+  if (membershipType !== undefined) {
+    defaults.membershipType = membershipType;
+    defaults.supportsUnlistedPrivacy = vimeoMembershipTypeSupportsUnlistedPrivacy(membershipType);
   }
 
   return defaults;

@@ -131,28 +131,67 @@ describe('POST /api/drafts', () => {
       expect(res.status).toBe(400);
     });
 
-    it('returns 400 when title is missing', async () => {
+    it('allows creating a draft when the title field is omitted', async () => {
+      vi.mocked(createDraft).mockResolvedValueOnce({ ...baseDraft, title: '' });
+
       const req = makeRequest(
         'POST',
         { description: 'No title', targets: ['youtube'] },
         { [SESSION_COOKIE]: 'tok' }
       );
       const res = await POST(req);
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.message).toMatch(/title/i);
+      expect(res.status).toBe(201);
+      expect(createDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ title: '', targets: ['youtube'] })
+      );
     });
 
-    it('returns 400 when title is an empty string', async () => {
+    it('allows an empty shared title when platform overrides are present', async () => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce('user-123');
+      vi.mocked(createDraft).mockResolvedValueOnce({
+        ...baseDraft,
+        title: 'YouTube Title',
+        platforms: { youtube: { titleOverride: 'YouTube Title' } },
+      });
+
+      const req = makeRequest(
+        'POST',
+        {
+          title: '',
+          targets: ['youtube', 'vimeo'],
+          platforms: {
+            youtube: { titleOverride: 'YouTube Title' },
+            vimeo: { titleOverride: 'Vimeo Title' },
+          },
+        },
+        { [SESSION_COOKIE]: 'tok' }
+      );
+      const res = await POST(req);
+      expect(res.status).toBe(201);
+      expect(createDraft).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: '',
+          platforms: {
+            youtube: { titleOverride: 'YouTube Title' },
+            vimeo: { titleOverride: 'Vimeo Title' },
+          },
+        })
+      );
+    });
+
+    it('allows creating a draft with an empty title when no overrides are present', async () => {
+      vi.mocked(createDraft).mockResolvedValueOnce({ ...baseDraft, title: '' });
+
       const req = makeRequest(
         'POST',
         { title: '   ', targets: ['youtube'] },
         { [SESSION_COOKIE]: 'tok' }
       );
       const res = await POST(req);
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.message).toMatch(/title/i);
+      expect(res.status).toBe(201);
+      expect(createDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ title: '', targets: ['youtube'] })
+      );
     });
 
     it(`returns 400 when title is longer than ${MAX_DRAFT_TITLE_LENGTH} characters (after trim)`, async () => {

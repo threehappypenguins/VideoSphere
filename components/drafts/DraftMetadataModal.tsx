@@ -40,6 +40,7 @@ import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSe
 import { VimeoCategoryPicker } from '@/components/drafts/VimeoCategoryPicker';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
+import { RequiredFieldMarker } from '@/components/ui/required-field-marker';
 import {
   Dialog,
   DialogContent,
@@ -86,10 +87,13 @@ import type {
 import {
   DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
   DRAFT_THUMBNAIL_MAX_SIZE_LABEL,
+  DRAFT_THUMBNAIL_PLATFORM_ORDER,
   draftThumbnailFileInputAccept,
   draftThumbnailMaxSizeExceededMessage,
   isAllowedDraftThumbnailContentType,
+  isDraftThumbnailPlatform,
   MAX_DRAFT_THUMBNAIL_BYTES,
+  type DraftThumbnailPlatform,
 } from '@/lib/draft-thumbnail';
 import {
   PlatformIcon,
@@ -107,6 +111,10 @@ import {
   buildVimeoAccountDefaultsSeedPatch,
   type VimeoAccountDefaults,
 } from '@/lib/platforms/vimeo-account-defaults';
+import {
+  clampVisibilityForPrivacyUi,
+  visibilityOptionsForPrivacyUi,
+} from '@/lib/platforms/vimeo-membership';
 import {
   VIMEO_CONTENT_RATING_SAFE,
   VIMEO_CONTENT_RATING_TIER_MATURE,
@@ -128,6 +136,9 @@ import {
 
 const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
+/** Shared draft thumbnail or a per-platform thumbnail override target. */
+type ThumbnailUploadScope = 'shared' | DraftThumbnailPlatform;
+
 /**
  * Defines the shape of draft editor values.
  */
@@ -143,12 +154,6 @@ export interface DraftEditorValues {
   thumbnailContentType?: string;
   thumbnailPreviewUrl?: string;
 }
-
-const VISIBILITY_OPTIONS: Array<{ value: Draft['visibility']; label: string }> = [
-  { value: 'public', label: 'Public' },
-  { value: 'unlisted', label: 'Unlisted' },
-  { value: 'private', label: 'Private' },
-];
 
 const YOUTUBE_LICENSE_OPTIONS = [
   { value: 'youtube', label: 'Standard YouTube License' },
@@ -202,6 +207,10 @@ type TagOverridePlatform = (typeof TAG_OVERRIDE_PLATFORMS)[number];
 type CopyOverridePatch = Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride'>;
 type TagOverridePatch = Pick<PerPlatformCopyOverrides, 'tagsOverride'>;
 type PrivacyOverridePatch = Pick<PerPlatformOverrides, 'visibilityOverride'>;
+type ThumbnailOverridePatch = Pick<
+  PerPlatformOverrides,
+  'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride' | 'thumbnailPreviewUrlOverride'
+>;
 
 const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = [
   'youtube',
@@ -216,10 +225,13 @@ type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
 
 const PRIVACY_PLATFORM_ORDER: PrivacyPlatform[] = ['youtube', 'vimeo'];
 
-/** Platforms that receive draft `thumbnailR2Key` on distribute (YouTube/Vimeo/Facebook/SermonAudio). */
-const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo', 'facebook', 'sermon_audio'] as const;
-
-type DraftThumbnailPlatform = (typeof DRAFT_THUMBNAIL_PLATFORMS)[number];
+function sortDraftThumbnailPlatforms(
+  platforms: DraftThumbnailPlatform[]
+): DraftThumbnailPlatform[] {
+  return [...platforms].sort(
+    (a, b) => DRAFT_THUMBNAIL_PLATFORM_ORDER.indexOf(a) - DRAFT_THUMBNAIL_PLATFORM_ORDER.indexOf(b)
+  );
+}
 
 /**
  * Whether the draft editor should show the thumbnail upload section for the current target list.
@@ -229,7 +241,7 @@ type DraftThumbnailPlatform = (typeof DRAFT_THUMBNAIL_PLATFORMS)[number];
 function showDraftThumbnailUploadSection(targets: ConnectedAccountPlatform[]): boolean {
   if (targets.length === 0) return true;
   return targets.some((platform): platform is DraftThumbnailPlatform =>
-    (DRAFT_THUMBNAIL_PLATFORMS as readonly string[]).includes(platform)
+    isDraftThumbnailPlatform(platform)
   );
 }
 
@@ -274,6 +286,10 @@ function platformUsesSharedVisibility(fields: PerPlatformOverrides | undefined):
   return fields?.visibilityOverride === undefined;
 }
 
+function platformUsesSharedThumbnail(fields: PerPlatformOverrides | undefined): boolean {
+  return fields?.thumbnailR2KeyOverride === undefined;
+}
+
 function sortOverridePlatforms(platforms: OverridePlatform[]): OverridePlatform[] {
   return [...platforms].sort(
     (a, b) => OVERRIDE_PLATFORM_ORDER.indexOf(a) - OVERRIDE_PLATFORM_ORDER.indexOf(b)
@@ -291,16 +307,45 @@ function needsSermonAudioShortTitle(title: string): boolean {
   return title.length > SERMON_AUDIO_SHORT_TITLE_THRESHOLD;
 }
 
+function thumbnailInputIdForScope(scope: ThumbnailUploadScope): string {
+  return scope === 'shared' ? 'draft-thumbnail-file-shared' : `draft-thumbnail-file-${scope}`;
+}
+
+function platformThumbnailSelectionLabel(
+  platformFields: PerPlatformOverrides | undefined,
+  fileName: string | undefined
+): string {
+  if (fileName) return fileName;
+  if (platformFields?.thumbnailR2KeyOverride || platformFields?.thumbnailPreviewUrlOverride) {
+    return platformFields.thumbnailR2KeyOverride?.split('/').pop() ?? 'Thumbnail selected';
+  }
+  return 'No file selected';
+}
+
 type SharedCopyField = 'title' | 'description' | 'tags';
+
+function uploadFieldFocusId(field: DraftUploadFieldKey): string | null {
+  if (field === 'title') return 'edit-title';
+  if (field.startsWith('title:')) return `edit-title-${field.slice('title:'.length)}`;
+  if (field === 'visibility') return 'edit-visibility';
+  if (field.startsWith('visibility:'))
+    return `edit-visibility-${field.slice('visibility:'.length)}`;
+  if (field === 'sermon_audio.speakerName') return 'draft-sermon-audio-speaker';
+  if (field === 'sermon_audio.preachDate') return 'draft-sermon-audio-preach-date';
+  if (field === 'sermon_audio.eventType') return 'draft-sermon-audio-event-type';
+  return null;
+}
 
 function SharedMetadataCheckbox({
   checked,
   onChange,
   hint,
+  label = 'Use shared metadata',
 }: {
   checked: boolean;
   onChange: (useShared: boolean) => void;
   hint: string;
+  label?: string;
 }) {
   return (
     <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" title={hint}>
@@ -309,7 +354,7 @@ function SharedMetadataCheckbox({
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
       />
-      Use shared metadata
+      {label}
     </label>
   );
 }
@@ -332,9 +377,7 @@ function SermonAudioShortTitleField({
         className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
       >
         <PlatformIcon platform="sermon_audio" size={28} />
-        <span>
-          Short Title <span className="font-normal text-muted-foreground">(optional)</span>
-        </span>
+        <span>Short Title</span>
       </label>
       {/*
         maxLength blocks typing/paste in the UI; slice in onChange keeps controlled state
@@ -555,7 +598,7 @@ export function DraftMetadataModal({
   const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
   const [aiRedoStack, setAiRedoStack] = useState<DraftEditorValues[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRefs = useRef<Partial<Record<ThumbnailUploadScope, HTMLInputElement>>>({});
   const thumbnailSectionRef = useRef<HTMLDivElement>(null);
   const thumbnailAnnouncerRef = useRef<HTMLDivElement>(null);
   const thumbnailAnnounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -567,8 +610,14 @@ export function DraftMetadataModal({
   const [modalStatusMsg, setModalStatusMsg] = useState<string | null>(null);
   const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
   const thumbnailRequestAbortRef = useRef<AbortController | null>(null);
-  const [thumbnailUploading, setThumbnailUploading] = useState(false);
+  const [thumbnailUploadScope, setThumbnailUploadScope] = useState<ThumbnailUploadScope | null>(
+    null
+  );
   const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState(0);
+  const [thumbnailFileNames, setThumbnailFileNames] = useState<
+    Partial<Record<ThumbnailUploadScope, string>>
+  >({});
+  const thumbnailUploading = thumbnailUploadScope !== null;
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
@@ -670,10 +719,12 @@ export function DraftMetadataModal({
   }, []);
 
   const resetThumbnailUploadUi = useCallback(() => {
-    setThumbnailUploading(false);
+    setThumbnailUploadScope(null);
     setThumbnailUploadProgress(0);
-    if (thumbnailInputRef.current) {
-      thumbnailInputRef.current.value = '';
+    for (const input of Object.values(thumbnailInputRefs.current)) {
+      if (input) {
+        input.value = '';
+      }
     }
   }, []);
 
@@ -1236,10 +1287,12 @@ export function DraftMetadataModal({
       setIsGeneratingAi(false);
       setAiUndoStack([]);
       setAiRedoStack([]);
+      setThumbnailFileNames({});
       return;
     }
     setAiUndoStack([]);
     setAiRedoStack([]);
+    setThumbnailFileNames({});
   }, [draftId]);
 
   useEffect(() => {
@@ -1359,6 +1412,100 @@ export function DraftMetadataModal({
   const showPerPlatformPrivacy =
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
 
+  const vimeoSupportsUnlisted =
+    vimeoAccountDefaults?.supportsUnlistedPrivacy ??
+    (vimeoAccountDefaults?.membershipType !== undefined ? false : null);
+
+  const sharedVisibilityOptions = useMemo(
+    () =>
+      visibilityOptionsForPrivacyUi({
+        scope: 'shared',
+        vimeoSupportsUnlisted,
+        selectedPrivacyPlatforms,
+      }),
+    [selectedPrivacyPlatforms, vimeoSupportsUnlisted]
+  );
+
+  const youtubeVisibilityOptions = useMemo(
+    () =>
+      visibilityOptionsForPrivacyUi({
+        scope: 'youtube',
+        vimeoSupportsUnlisted,
+        selectedPrivacyPlatforms,
+      }),
+    [selectedPrivacyPlatforms, vimeoSupportsUnlisted]
+  );
+
+  const vimeoVisibilityOptions = useMemo(
+    () =>
+      visibilityOptionsForPrivacyUi({
+        scope: 'vimeo',
+        vimeoSupportsUnlisted,
+        selectedPrivacyPlatforms,
+      }),
+    [selectedPrivacyPlatforms, vimeoSupportsUnlisted]
+  );
+
+  useEffect(() => {
+    if (!value || vimeoSupportsUnlisted !== false) {
+      return;
+    }
+
+    const privacyParams = {
+      vimeoSupportsUnlisted,
+      selectedPrivacyPlatforms,
+    };
+
+    let nextVisibility = value.visibility;
+    let nextPlatforms = value.platforms;
+
+    if (
+      usesSharedVisibilityGlobally &&
+      selectedPrivacyPlatforms.includes('vimeo') &&
+      value.visibility === 'unlisted'
+    ) {
+      nextVisibility = clampVisibilityForPrivacyUi(value.visibility, {
+        scope: 'shared',
+        ...privacyParams,
+      });
+    }
+
+    const vimeoVisibility = value.platforms.vimeo?.visibilityOverride ?? value.visibility;
+    if (
+      !usesSharedVisibilityGlobally &&
+      value.targets.includes('vimeo') &&
+      vimeoVisibility === 'unlisted'
+    ) {
+      const clamped = clampVisibilityForPrivacyUi(vimeoVisibility, {
+        scope: 'vimeo',
+        ...privacyParams,
+      });
+      if (clamped !== vimeoVisibility) {
+        nextPlatforms = {
+          ...value.platforms,
+          vimeo: {
+            ...value.platforms.vimeo,
+            visibilityOverride: clamped,
+          },
+        };
+      }
+    }
+
+    if (nextVisibility !== value.visibility || nextPlatforms !== value.platforms) {
+      onChange({
+        ...value,
+        visibility: nextVisibility,
+        platforms: nextPlatforms,
+      });
+    }
+  }, [
+    onChange,
+    selectedPrivacyPlatforms,
+    usesSharedVisibilityGlobally,
+    value,
+    vimeoSupportsUnlisted,
+  ]);
+
   const showSermonAudioFields = value?.targets.includes('sermon_audio') ?? false;
   const showYouTubeFields = value?.targets.includes('youtube') ?? false;
   const showVimeoFields = value?.targets.includes('vimeo') ?? false;
@@ -1367,6 +1514,23 @@ export function DraftMetadataModal({
     [showYouTubeFields, showVimeoFields, showSermonAudioFields, showFacebookFields].filter(Boolean)
       .length >= 2;
   const showDraftThumbnailUpload = value != null && showDraftThumbnailUploadSection(value.targets);
+  const selectedThumbnailPlatforms = useMemo(() => {
+    if (!value) return [] as DraftThumbnailPlatform[];
+    return sortDraftThumbnailPlatforms(value.targets.filter(isDraftThumbnailPlatform));
+  }, [value]);
+  const usesSharedThumbnailGlobally = useMemo(() => {
+    if (selectedThumbnailPlatforms.length < 2) return true;
+    return selectedThumbnailPlatforms.every((platform) =>
+      platformUsesSharedThumbnail(value?.platforms[platform])
+    );
+  }, [selectedThumbnailPlatforms, value?.platforms]);
+  const showPerPlatformThumbnail =
+    selectedThumbnailPlatforms.length >= 2 && !usesSharedThumbnailGlobally;
+  const sharedThumbnailSelectionLabel =
+    thumbnailFileNames.shared ??
+    (value?.thumbnailR2Key || value?.thumbnailPreviewUrl
+      ? (value.thumbnailR2Key?.split('/').pop() ?? 'Thumbnail selected')
+      : 'No file selected');
   const sermonAudioFields = value?.platforms.sermon_audio;
   const youtubeFields = value?.platforms.youtube;
   const vimeoFields = value?.platforms.vimeo;
@@ -1436,6 +1600,23 @@ export function DraftMetadataModal({
   const updatePrivacyOverridePlatformFields = (
     platform: PrivacyPlatform,
     patch: Partial<PrivacyOverridePatch>
+  ) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        [platform]: {
+          ...value.platforms[platform],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const updateThumbnailOverridePlatformFields = (
+    platform: DraftThumbnailPlatform,
+    patch: Partial<ThumbnailOverridePatch>
   ) => {
     if (!value) return;
     onChange({
@@ -1532,6 +1713,49 @@ export function DraftMetadataModal({
     }
 
     onChange({ ...value, platforms: nextPlatforms });
+  };
+
+  const setUseSharedThumbnail = (useShared: boolean) => {
+    if (!value) return;
+
+    let nextPlatforms: DraftPlatforms = { ...value.platforms };
+    for (const platform of selectedThumbnailPlatforms) {
+      const current = nextPlatforms[platform] ?? {};
+      let next: DraftPlatforms[DraftThumbnailPlatform];
+
+      if (useShared) {
+        const {
+          thumbnailR2KeyOverride,
+          thumbnailContentTypeOverride,
+          thumbnailPreviewUrlOverride,
+          ...rest
+        } = current;
+        next =
+          Object.keys(rest).length > 0
+            ? (rest as NonNullable<DraftPlatforms[DraftThumbnailPlatform]>)
+            : undefined;
+      } else {
+        next = {
+          ...current,
+          thumbnailR2KeyOverride: value.thumbnailR2Key ?? '',
+          thumbnailContentTypeOverride: value.thumbnailContentType ?? '',
+          thumbnailPreviewUrlOverride: value.thumbnailPreviewUrl,
+        };
+      }
+
+      nextPlatforms = { ...nextPlatforms, [platform]: next };
+    }
+
+    onChange({ ...value, platforms: nextPlatforms });
+    if (useShared) {
+      setThumbnailFileNames((prev) => {
+        const next = { ...prev };
+        for (const platform of selectedThumbnailPlatforms) {
+          delete next[platform];
+        }
+        return next;
+      });
+    }
   };
 
   const commitPlatformOverrideTags = (platform: TagOverridePlatform) => {
@@ -1979,17 +2203,31 @@ export function DraftMetadataModal({
       title: value.title,
       description: value.description,
       tags: value.tags,
+      visibility: value.visibility,
       targets: value.targets,
       platforms: value.platforms,
+      vimeoSupportsUnlistedPrivacy: vimeoSupportsUnlisted,
     });
     if (issues.length > 0) {
       setUploadFieldErrors(new Set(issues.map((issue) => issue.field)));
       toast.error(issues[0]?.message ?? 'Fill in required fields before uploading.');
+      const firstField = issues[0]?.field;
+      if (firstField) {
+        const focusId = uploadFieldFocusId(firstField);
+        if (focusId) {
+          requestAnimationFrame(() => {
+            document
+              .getElementById(focusId)
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            document.getElementById(focusId)?.focus();
+          });
+        }
+      }
       return false;
     }
     setUploadFieldErrors(new Set());
     return true;
-  }, [commitTagsBeforeSave, value]);
+  }, [commitTagsBeforeSave, value, vimeoSupportsUnlisted]);
 
   const displayPlatforms = useMemo(() => {
     if (!value) return [] as ConnectedAccountPlatform[];
@@ -2032,8 +2270,7 @@ export function DraftMetadataModal({
     !isCancellingUpload &&
     value !== null &&
     value.targets.length > 0 &&
-    (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0) &&
-    value.title.trim() !== '';
+    (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0);
   /** Blocks video upload while thumbnail PUT/complete is in-flight so distribute reads thumbnailR2Key. */
   const canUploadVideo =
     canSave && !thumbnailUploading && !uploading && !cancelServerFailed && !isSaving;
@@ -2499,29 +2736,31 @@ export function DraftMetadataModal({
     }
   };
 
-  const handleThumbnailFile = async (file: File) => {
+  const handleThumbnailFile = async (file: File, scope: ThumbnailUploadScope) => {
     if (!value || !draftId) return;
     const requestDraftId = draftId;
+    const platform = scope === 'shared' ? undefined : scope;
     const ac = new AbortController();
     // Starting a new thumbnail upload must cancel both prior fetches and any in-flight PUT XHR.
     abortThumbnailUploadFlow();
     thumbnailRequestAbortRef.current = ac;
     const isCancelled = () => ac.signal.aborted || latestDraftIdRef.current !== requestDraftId;
     const canUpdateThumbnailUi = () => isMountedRef.current && !isCancelled();
+    const scopeInput = thumbnailInputRefs.current[scope];
 
     if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
       toast.error(draftThumbnailMaxSizeExceededMessage());
       thumbnailRequestAbortRef.current = null;
-      if (thumbnailInputRef.current) thumbnailInputRef.current.value = '';
+      if (scopeInput) scopeInput.value = '';
       return;
     }
     if (!isAllowedDraftThumbnailContentType(file.type)) {
       toast.error(DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE);
       thumbnailRequestAbortRef.current = null;
-      if (thumbnailInputRef.current) thumbnailInputRef.current.value = '';
+      if (scopeInput) scopeInput.value = '';
       return;
     }
-    setThumbnailUploading(true);
+    setThumbnailUploadScope(scope);
     setThumbnailUploadProgress(0);
     try {
       const presignRes = await fetch(`/api/drafts/${draftId}/thumbnail/presign`, {
@@ -2637,7 +2876,10 @@ export function DraftMetadataModal({
       const completeRes = await fetch(`/api/drafts/${draftId}/thumbnail/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pendingKey }),
+        body: JSON.stringify({
+          pendingKey,
+          ...(platform ? { platform } : {}),
+        }),
         signal: ac.signal,
       });
       if (isCancelled()) return;
@@ -2646,7 +2888,12 @@ export function DraftMetadataModal({
         throw new Error(err?.message ?? 'Failed to finalize thumbnail');
       }
       const payload = (await completeRes.json()) as ApiResponse<
-        Draft & { thumbnailPreviewUrl?: string }
+        Draft & {
+          thumbnailPreviewUrl?: string;
+          thumbnailPlatform?: DraftThumbnailPlatform;
+          thumbnailPreviewUrlOverride?: string;
+          platforms: DraftPlatforms;
+        }
       >;
       const d = payload.data;
       if (!d) {
@@ -2655,12 +2902,29 @@ export function DraftMetadataModal({
       if (isCancelled()) return;
       const latest = latestValueRef.current ?? value;
       if (!latest) return;
-      onChange({
-        ...latest,
-        thumbnailR2Key: d.thumbnailR2Key,
-        thumbnailContentType: d.thumbnailContentType,
-        thumbnailPreviewUrl: d.thumbnailPreviewUrl,
-      });
+      if (platform) {
+        const platformFields = d.platforms[platform];
+        onChange({
+          ...latest,
+          platforms: {
+            ...latest.platforms,
+            [platform]: {
+              ...latest.platforms[platform],
+              thumbnailR2KeyOverride: platformFields?.thumbnailR2KeyOverride,
+              thumbnailContentTypeOverride: platformFields?.thumbnailContentTypeOverride,
+              thumbnailPreviewUrlOverride:
+                d.thumbnailPreviewUrlOverride ?? platformFields?.thumbnailPreviewUrlOverride,
+            },
+          },
+        });
+      } else {
+        onChange({
+          ...latest,
+          thumbnailR2Key: d.thumbnailR2Key,
+          thumbnailContentType: d.thumbnailContentType,
+          thumbnailPreviewUrl: d.thumbnailPreviewUrl,
+        });
+      }
       if (isCancelled()) return;
       announceThumbnail('Thumbnail uploaded');
     } catch (e) {
@@ -2692,23 +2956,53 @@ export function DraftMetadataModal({
     }
   };
 
-  const handleRemoveThumbnail = async () => {
+  const handleRemoveThumbnail = async (scope: ThumbnailUploadScope) => {
     if (!value || !draftId) return;
-    setThumbnailUploading(true);
+    const platform = scope === 'shared' ? undefined : scope;
+    setThumbnailUploadScope(scope);
     try {
-      const res = await fetch(`/api/drafts/${draftId}/thumbnail`, { method: 'DELETE' });
+      const url =
+        platform === undefined
+          ? `/api/drafts/${draftId}/thumbnail`
+          : `/api/drafts/${draftId}/thumbnail?platform=${platform}`;
+      const res = await fetch(url, { method: 'DELETE' });
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as { message?: string } | null;
         throw new Error(err?.message ?? 'Failed to remove thumbnail');
       }
       const latest = latestValueRef.current ?? value;
       if (!latest) return;
-      onChange({
-        ...latest,
-        thumbnailR2Key: undefined,
-        thumbnailContentType: undefined,
-        thumbnailPreviewUrl: undefined,
-      });
+      if (platform) {
+        onChange({
+          ...latest,
+          platforms: {
+            ...latest.platforms,
+            [platform]: {
+              ...latest.platforms[platform],
+              thumbnailR2KeyOverride: '',
+              thumbnailContentTypeOverride: '',
+              thumbnailPreviewUrlOverride: undefined,
+            },
+          },
+        });
+        setThumbnailFileNames((prev) => {
+          const next = { ...prev };
+          delete next[platform];
+          return next;
+        });
+      } else {
+        onChange({
+          ...latest,
+          thumbnailR2Key: undefined,
+          thumbnailContentType: undefined,
+          thumbnailPreviewUrl: undefined,
+        });
+        setThumbnailFileNames((prev) => {
+          const next = { ...prev };
+          delete next.shared;
+          return next;
+        });
+      }
       announceThumbnail('Thumbnail removed');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to remove thumbnail');
@@ -3384,11 +3678,13 @@ export function DraftMetadataModal({
       <div>
         <label htmlFor="draft-sermon-audio-speaker" className="text-sm font-medium text-foreground">
           Speaker
+          <RequiredFieldMarker />
         </label>
         <SermonAudioSpeakerCombobox
           id="draft-sermon-audio-speaker"
           speakerName={sermonAudioFields?.speakerName ?? ''}
           speakerID={sermonAudioFields?.speakerID}
+          required
           onSpeakerChange={(next) => {
             clearUploadFieldError('sermon_audio.speakerName');
             updateSermonAudioFields(next);
@@ -3403,11 +3699,13 @@ export function DraftMetadataModal({
           className="text-sm font-medium text-foreground"
         >
           Date Recorded
+          <RequiredFieldMarker />
         </label>
         <input
           id="draft-sermon-audio-preach-date"
           type="date"
           value={sermonAudioFields?.preachDate ?? ''}
+          required
           onChange={(event) => {
             clearUploadFieldError('sermon_audio.preachDate');
             updateSermonAudioFields({ preachDate: event.target.value });
@@ -3422,11 +3720,13 @@ export function DraftMetadataModal({
           className="text-sm font-medium text-foreground"
         >
           Event Category
+          <RequiredFieldMarker />
         </label>
         {sermonEventTypesLoadFailed || sermonEventTypes === null ? (
           <input
             id="draft-sermon-audio-event-type"
             value={sermonAudioFields?.eventType ?? ''}
+            required
             onChange={(event) => {
               clearUploadFieldError('sermon_audio.eventType');
               updateSermonAudioFields({ eventType: event.target.value });
@@ -3448,6 +3748,7 @@ export function DraftMetadataModal({
           >
             <SelectTrigger
               id="draft-sermon-audio-event-type"
+              aria-required
               aria-invalid={uploadFieldErrors.has('sermon_audio.eventType')}
               className={cn(
                 fieldBorderClass('sermon_audio.eventType'),
@@ -3722,6 +4023,7 @@ export function DraftMetadataModal({
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
                     Title
+                    <RequiredFieldMarker />
                   </label>
                   {selectedOverridePlatforms.length >= 2 ? (
                     <SharedMetadataCheckbox
@@ -3755,6 +4057,7 @@ export function DraftMetadataModal({
                           <input
                             id={`edit-title-${platform}`}
                             value={platformTitle}
+                            required
                             onChange={(event) => {
                               clearUploadFieldError(fieldKey);
                               updateCopyOverridePlatformFields(platform, {
@@ -3782,6 +4085,7 @@ export function DraftMetadataModal({
                       id="edit-title"
                       data-tour="draft-title-input"
                       value={value.title}
+                      required
                       onChange={(event) => {
                         clearUploadFieldError('title');
                         onChange({ ...value, title: event.target.value });
@@ -3863,6 +4167,7 @@ export function DraftMetadataModal({
                       className="text-sm font-medium text-foreground"
                     >
                       Privacy
+                      <RequiredFieldMarker />
                     </label>
                     {selectedPrivacyPlatforms.length >= 2 ? (
                       <SharedMetadataCheckbox
@@ -3892,14 +4197,16 @@ export function DraftMetadataModal({
                             </label>
                             <Select
                               value={platformVisibility}
-                              onValueChange={(next) =>
+                              onValueChange={(next) => {
+                                clearUploadFieldError(`visibility:${platform}`);
                                 updatePrivacyOverridePlatformFields(platform, {
                                   visibilityOverride: next as Draft['visibility'],
-                                })
-                              }
+                                });
+                              }}
                             >
                               <SelectTrigger
                                 id={`edit-visibility-${platform}`}
+                                aria-required
                                 className={cn(
                                   fieldBorderClass(`visibility:${platform}`),
                                   'flex h-10 items-center justify-between text-left'
@@ -3908,7 +4215,10 @@ export function DraftMetadataModal({
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {VISIBILITY_OPTIONS.map((option) => (
+                                {(platform === 'youtube'
+                                  ? youtubeVisibilityOptions
+                                  : vimeoVisibilityOptions
+                                ).map((option) => (
                                   <SelectItem key={option.value} value={option.value}>
                                     {option.label}
                                   </SelectItem>
@@ -3922,15 +4232,17 @@ export function DraftMetadataModal({
                   ) : (
                     <Select
                       value={value.visibility}
-                      onValueChange={(next) =>
+                      onValueChange={(next) => {
+                        clearUploadFieldError('visibility');
                         onChange({
                           ...value,
                           visibility: next as Draft['visibility'],
-                        })
-                      }
+                        });
+                      }}
                     >
                       <SelectTrigger
                         id="edit-visibility"
+                        aria-required
                         className={cn(
                           fieldBorderClass('visibility'),
                           'flex h-10 items-center justify-between text-left'
@@ -3939,7 +4251,7 @@ export function DraftMetadataModal({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {VISIBILITY_OPTIONS.map((option) => (
+                        {sharedVisibilityOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
@@ -4208,7 +4520,33 @@ export function DraftMetadataModal({
               </DraftModalCard>
             ) : null}
             {showDraftThumbnailUpload ? (
-              <DraftModalCard ref={thumbnailSectionRef} tabIndex={-1} title="Thumbnail">
+              <DraftModalCard
+                ref={thumbnailSectionRef}
+                tabIndex={-1}
+                header={
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <p className="text-sm font-medium text-foreground">Thumbnail</p>
+                    {selectedThumbnailPlatforms.length > 0 ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="sr-only">
+                          Applies to {selectedThumbnailPlatforms.map(platformLabel).join(', ')}
+                        </span>
+                        {selectedThumbnailPlatforms.map((platform) => (
+                          <PlatformIcon key={platform} platform={platform} size={24} />
+                        ))}
+                      </span>
+                    ) : null}
+                    {selectedThumbnailPlatforms.length >= 2 ? (
+                      <SharedMetadataCheckbox
+                        checked={usesSharedThumbnailGlobally}
+                        onChange={setUseSharedThumbnail}
+                        label="Use shared thumbnail"
+                        hint="When checked, all selected platforms share one thumbnail. Uncheck to set a thumbnail per platform."
+                      />
+                    ) : null}
+                  </div>
+                }
+              >
                 {/* Thumbnail-scoped live region — announced while focus is within this section */}
                 <div
                   ref={thumbnailAnnouncerRef}
@@ -4218,8 +4556,7 @@ export function DraftMetadataModal({
                   className="sr-only"
                 />
                 <p className="text-xs text-muted-foreground">
-                  JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}. Shown on platforms that support
-                  custom thumbnails when you distribute.
+                  JPG or PNG, max {DRAFT_THUMBNAIL_MAX_SIZE_LABEL}.
                 </p>
                 {!draftId ? (
                   <p className="text-xs text-muted-foreground">
@@ -4227,80 +4564,180 @@ export function DraftMetadataModal({
                   </p>
                 ) : (
                   <>
-                    {value.thumbnailPreviewUrl ? (
-                      <div className="relative inline-block max-w-full">
-                        <Image
-                          src={value.thumbnailPreviewUrl}
-                          alt="Draft thumbnail preview"
-                          width={800}
-                          height={450}
-                          unoptimized
-                          className="max-h-40 max-w-full rounded-md border border-border object-contain"
-                        />
+                    {showPerPlatformThumbnail ? (
+                      <div className="space-y-4">
+                        {selectedThumbnailPlatforms.map((platform) => {
+                          const platformFields = value.platforms[platform];
+                          const scope: ThumbnailUploadScope = platform;
+                          const inputId = thumbnailInputIdForScope(scope);
+                          const previewUrl = platformFields?.thumbnailPreviewUrlOverride;
+                          const hasThumbnail = Boolean(
+                            platformFields?.thumbnailR2KeyOverride ||
+                            platformFields?.thumbnailPreviewUrlOverride
+                          );
+                          const isScopeUploading = thumbnailUploadScope === scope;
+                          const selectionLabel = platformThumbnailSelectionLabel(
+                            platformFields,
+                            thumbnailFileNames[scope]
+                          );
+                          return (
+                            <div key={platform}>
+                              <PlatformOverrideLabel platform={platform} />
+                              {previewUrl ? (
+                                <div className="relative mt-2 inline-block max-w-full">
+                                  <Image
+                                    src={previewUrl}
+                                    alt={`${platformLabel(platform)} thumbnail preview`}
+                                    width={800}
+                                    height={450}
+                                    unoptimized
+                                    className="max-h-40 max-w-full rounded-md border border-border object-contain"
+                                  />
+                                </div>
+                              ) : null}
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <label htmlFor={inputId} className="sr-only">
+                                  Choose thumbnail image for {platformLabel(platform)}
+                                </label>
+                                <input
+                                  id={inputId}
+                                  ref={(element) => {
+                                    if (element) {
+                                      thumbnailInputRefs.current[scope] = element;
+                                    } else {
+                                      delete thumbnailInputRefs.current[scope];
+                                    }
+                                  }}
+                                  type="file"
+                                  accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
+                                  className="hidden"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (file) {
+                                      setThumbnailFileNames((prev) => ({
+                                        ...prev,
+                                        [scope]: file.name,
+                                      }));
+                                      requestAnimationFrame(() => {
+                                        thumbnailSectionRef.current?.focus();
+                                      });
+                                      void handleThumbnailFile(file, scope);
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  disabled={thumbnailUploading}
+                                  onClick={() => thumbnailInputRefs.current[scope]?.click()}
+                                  className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                                >
+                                  Choose file
+                                </button>
+                                <span className="max-w-full truncate text-xs text-muted-foreground">
+                                  {selectionLabel}
+                                </span>
+                                {hasThumbnail ? (
+                                  <button
+                                    type="button"
+                                    disabled={thumbnailUploading}
+                                    onClick={() => {
+                                      void handleRemoveThumbnail(scope);
+                                    }}
+                                    className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                                  >
+                                    Remove
+                                  </button>
+                                ) : null}
+                              </div>
+                              {isScopeUploading ? (
+                                <div className="mt-2 space-y-2">
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>Uploading thumbnail…</span>
+                                    <span>{thumbnailUploadProgress}%</span>
+                                  </div>
+                                  <Progress value={thumbnailUploadProgress} className="h-2" />
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
                       </div>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label htmlFor="draft-thumbnail-file" className="sr-only">
-                        Choose thumbnail image
-                      </label>
-                      <input
-                        id="draft-thumbnail-file"
-                        ref={thumbnailInputRef}
-                        type="file"
-                        accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
-                        className="hidden"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file) {
-                            // The browser restores focus from the native file
-                            // picker *after* onChange fires and after any state
-                            // updates.  The upload button is disabled by then, so
-                            // the browser falls back to the dialog root and the
-                            // screen reader re-reads the entire modal.  Instead
-                            // we focus the thumbnail section container (tabIndex
-                            // -1, never disabled) in a rAF so we run after the
-                            // browser's own focus-restoration tick.
-                            requestAnimationFrame(() => {
-                              thumbnailSectionRef.current?.focus();
-                            });
-                            void handleThumbnailFile(file);
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        disabled={thumbnailUploading}
-                        onClick={() => thumbnailInputRef.current?.click()}
-                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
-                      >
-                        {thumbnailUploading
-                          ? 'Uploading…'
-                          : value.thumbnailPreviewUrl
-                            ? 'Replace'
-                            : 'Upload'}
-                      </button>
-                      {value.thumbnailR2Key || value.thumbnailPreviewUrl ? (
-                        <button
-                          type="button"
-                          disabled={thumbnailUploading}
-                          onClick={() => {
-                            void handleRemoveThumbnail();
-                          }}
-                          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                        >
-                          Remove
-                        </button>
-                      ) : null}
-                    </div>
-                    {thumbnailUploading ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>Uploading thumbnail…</span>
-                          <span>{thumbnailUploadProgress}%</span>
+                    ) : (
+                      <>
+                        {value.thumbnailPreviewUrl ? (
+                          <div className="relative inline-block max-w-full">
+                            <Image
+                              src={value.thumbnailPreviewUrl}
+                              alt="Draft thumbnail preview"
+                              width={800}
+                              height={450}
+                              unoptimized
+                              className="max-h-40 max-w-full rounded-md border border-border object-contain"
+                            />
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label htmlFor="draft-thumbnail-file-shared" className="sr-only">
+                            Choose thumbnail image
+                          </label>
+                          <input
+                            id="draft-thumbnail-file-shared"
+                            ref={(element) => {
+                              if (element) {
+                                thumbnailInputRefs.current.shared = element;
+                              } else {
+                                delete thumbnailInputRefs.current.shared;
+                              }
+                            }}
+                            type="file"
+                            accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
+                            className="hidden"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) {
+                                setThumbnailFileNames((prev) => ({ ...prev, shared: file.name }));
+                                requestAnimationFrame(() => {
+                                  thumbnailSectionRef.current?.focus();
+                                });
+                                void handleThumbnailFile(file, 'shared');
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={thumbnailUploading}
+                            onClick={() => thumbnailInputRefs.current.shared?.click()}
+                            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                          >
+                            Choose file
+                          </button>
+                          <span className="max-w-full truncate text-xs text-muted-foreground">
+                            {sharedThumbnailSelectionLabel}
+                          </span>
+                          {value.thumbnailR2Key || value.thumbnailPreviewUrl ? (
+                            <button
+                              type="button"
+                              disabled={thumbnailUploading}
+                              onClick={() => {
+                                void handleRemoveThumbnail('shared');
+                              }}
+                              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                            >
+                              Remove
+                            </button>
+                          ) : null}
                         </div>
-                        <Progress value={thumbnailUploadProgress} className="h-2" />
-                      </div>
-                    ) : null}
+                        {thumbnailUploadScope === 'shared' ? (
+                          <div className="mt-2 space-y-2">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>Uploading thumbnail…</span>
+                              <span>{thumbnailUploadProgress}%</span>
+                            </div>
+                            <Progress value={thumbnailUploadProgress} className="h-2" />
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </>
                 )}
               </DraftModalCard>

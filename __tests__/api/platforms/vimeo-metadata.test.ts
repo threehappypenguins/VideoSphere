@@ -286,6 +286,7 @@ describe('Vimeo platform metadata routes', () => {
       expect(url).toContain('/me');
       return new Response(
         JSON.stringify({
+          membership: { type: 'free' },
           preferences: {
             videos: {
               rating: ['safe'],
@@ -327,6 +328,8 @@ describe('Vimeo platform metadata routes', () => {
         accountDefaults: {
           contentRating: ['safe'],
           license: 'by-sa',
+          membershipType: 'free',
+          supportsUnlistedPrivacy: false,
         },
       },
     });

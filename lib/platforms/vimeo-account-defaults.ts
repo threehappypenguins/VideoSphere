@@ -1,5 +1,9 @@
 import type { VimeoDraftFields, VimeoVideoLicense } from '@/types';
 import { isVimeoVideoLicenseCode } from '@/lib/platforms/vimeo-licenses';
+import {
+  readMembershipTypeFromMeBody,
+  vimeoMembershipTypeSupportsUnlistedPrivacy,
+} from '@/lib/platforms/vimeo-membership';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -42,6 +46,13 @@ export interface VimeoAccountDefaults {
    * account default is “No Creative Commons License” (upload UI: “Select a license…”).
    */
   license?: VimeoVideoLicense | null;
+  /**
+   * Whether upload privacy `unlisted` is supported for this Vimeo account (`membership.type` on `GET /me`).
+   * Omitted when membership could not be read.
+   */
+  supportsUnlistedPrivacy?: boolean;
+  /** Raw `membership.type` from `GET /me` when present. */
+  membershipType?: string;
 }
 
 /**

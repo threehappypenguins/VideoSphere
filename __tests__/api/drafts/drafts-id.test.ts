@@ -249,14 +249,17 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(body.message).toMatch(/at least one field/i);
     });
 
-    it('returns 400 when title is an empty string', async () => {
+    it('accepts an empty shared title and delegates resolution to updateDraft', async () => {
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce('user-123');
+      vi.mocked(getDraftById).mockResolvedValueOnce(baseDraft);
+      vi.mocked(updateDraft).mockResolvedValueOnce({ ...baseDraft, title: '' });
+
       const res = await PATCH(
         makeRequest('PATCH', { title: '' }, { [SESSION_COOKIE]: 'tok' }),
         makeParams()
       );
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      expect(body.message).toMatch(/title/i);
+      expect(res.status).toBe(200);
+      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { title: '' });
     });
 
     it(`returns 400 when title exceeds ${MAX_DRAFT_TITLE_LENGTH} characters`, async () => {

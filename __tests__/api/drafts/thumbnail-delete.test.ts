@@ -47,8 +47,11 @@ const baseDraft = {
   $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
-function makeRequest(cookies: Record<string, string> = {}): NextRequest {
+function makeRequest(cookies: Record<string, string> = {}, platform?: string): NextRequest {
   const url = new URL(`http://localhost:3000/api/drafts/${DRAFT_ID}/thumbnail`);
+  if (platform) {
+    url.searchParams.set('platform', platform);
+  }
   const cookieHeader = Object.entries(cookies)
     .map(([k, v]) => `${k}=${v}`)
     .join('; ');
@@ -208,4 +211,43 @@ describe('DELETE /api/drafts/[id]/thumbnail', () => {
     });
     expect(deleteObject).toHaveBeenCalledWith(goodKey);
   });
+
+  it.each(['facebook', 'sermon_audio'] as const)(
+    'clears per-platform override and deletes R2 for %s',
+    async (platform) => {
+      const goodKey = buildDraftThumbnailFinalKey(USER_ID, DRAFT_ID, `${platform}-thumb`, 'jpg');
+      vi.mocked(getAuthenticatedUserId).mockResolvedValueOnce(USER_ID);
+      vi.mocked(getDraftById).mockResolvedValueOnce({
+        ...baseDraft,
+        platforms: {
+          [platform]: {
+            thumbnailR2KeyOverride: goodKey,
+            thumbnailContentTypeOverride: 'image/jpeg',
+          },
+        },
+      });
+      vi.mocked(updateDraft).mockResolvedValueOnce({
+        ...baseDraft,
+        platforms: {
+          [platform]: {
+            thumbnailR2KeyOverride: '',
+            thumbnailContentTypeOverride: '',
+          },
+        },
+      });
+
+      const res = await DELETE(makeRequest({ [SESSION_COOKIE]: 'tok' }, platform), makeParams());
+
+      expect(res.status).toBe(200);
+      expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, {
+        platformsPatch: {
+          [platform]: {
+            thumbnailR2KeyOverride: '',
+            thumbnailContentTypeOverride: '',
+          },
+        },
+      });
+      expect(deleteObject).toHaveBeenCalledWith(goodKey);
+    }
+  );
 });

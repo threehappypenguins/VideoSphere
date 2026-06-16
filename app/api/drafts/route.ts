@@ -18,6 +18,7 @@ import {
   parseDraftTargetsFromRequestBody,
   parsePlatformsFromRequestBody,
   parseTagsFromRequestBody,
+  resolveDraftTitleForStorage,
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
@@ -124,24 +125,6 @@ export async function POST(req: NextRequest) {
 
   const trimmedTitle = typeof title === 'string' ? title.trim() : '';
 
-  if (!isMinimal && trimmedTitle === '') {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: 'title is required',
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
-  }
-
-  if (trimmedTitle.length > MAX_DRAFT_TITLE_LENGTH) {
-    const errRes: ApiError = {
-      error: 'Bad Request',
-      message: `title must be at most ${MAX_DRAFT_TITLE_LENGTH} characters (YouTube limit)`,
-      statusCode: 400,
-    };
-    return NextResponse.json(errRes, { status: 400 });
-  }
-
   if (description !== undefined && typeof description !== 'string') {
     const errRes: ApiError = {
       error: 'Bad Request',
@@ -175,6 +158,21 @@ export async function POST(req: NextRequest) {
     const errRes: ApiError = {
       error: 'Bad Request',
       message: tagsParse.error,
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
+  const resolvedTitle = resolveDraftTitleForStorage({
+    title: trimmedTitle,
+    targets: targetsParse.value,
+    platforms: platformsParse.value,
+  });
+
+  if (resolvedTitle.length > MAX_DRAFT_TITLE_LENGTH) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: `title must be at most ${MAX_DRAFT_TITLE_LENGTH} characters (YouTube limit)`,
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });

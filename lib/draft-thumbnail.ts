@@ -49,6 +49,29 @@ export function draftThumbnailMaxSizeExceededMessage(): string {
 /** Client toast when the file MIME type is not in {@link DRAFT_THUMBNAIL_ALLOWED_CONTENT_TYPES}. */
 export const DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE = 'Only JPG or PNG images are allowed';
 
+/** Platforms that consume the draft-level or per-platform thumbnail on distribute. */
+export const DRAFT_THUMBNAIL_PLATFORMS = ['youtube', 'vimeo', 'facebook', 'sermon_audio'] as const;
+
+/** Platform id that accepts draft thumbnails on distribute. */
+export type DraftThumbnailPlatform = (typeof DRAFT_THUMBNAIL_PLATFORMS)[number];
+
+/** Display order for thumbnail platform icons and per-platform pickers. */
+export const DRAFT_THUMBNAIL_PLATFORM_ORDER: DraftThumbnailPlatform[] = [
+  'youtube',
+  'vimeo',
+  'facebook',
+  'sermon_audio',
+];
+
+/**
+ * Returns whether a platform id supports draft thumbnail upload/distribution.
+ * @param platform - Connected platform identifier.
+ * @returns True when the platform uses draft thumbnails.
+ */
+export function isDraftThumbnailPlatform(platform: string): platform is DraftThumbnailPlatform {
+  return (DRAFT_THUMBNAIL_PLATFORMS as readonly string[]).includes(platform);
+}
+
 /**
  * Executes file extension for thumbnail content type.
  * @param contentType - Input value for content type.
