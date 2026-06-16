@@ -3570,9 +3570,11 @@ export function DraftMetadataModal({
           <div className="flex items-start justify-between gap-3">
             <DialogTitle>{mode === 'edit' ? 'Edit draft' : 'Draft details'}</DialogTitle>
           </div>
-          {mode === 'create' ? (
-            <DialogDescription>Configure your draft metadata.</DialogDescription>
-          ) : null}
+          <DialogDescription>
+            {mode === 'edit'
+              ? 'Update metadata, platform targets, and upload settings for this draft.'
+              : 'Configure your draft metadata.'}
+          </DialogDescription>
         </DialogHeader>
 
         {value ? (

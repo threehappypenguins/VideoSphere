@@ -79,4 +79,25 @@ describe('Draft metadata modal accessibility', () => {
 
     await expectNoAxeViolations(baseElement);
   });
+
+  it('exposes a dialog description in edit mode', async () => {
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={draftValue}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+        onChange={vi.fn()}
+        canUseAiMetadata
+      />
+    );
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(
+      screen.getByText(/update metadata, platform targets, and upload settings/i)
+    ).toBeInTheDocument();
+  });
 });
