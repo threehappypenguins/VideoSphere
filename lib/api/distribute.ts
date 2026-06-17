@@ -13,9 +13,10 @@ import type {
   PlatformUploadStatus,
 } from '@/types';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
+import { isDraftThumbnailPlatform } from '@/lib/draft-thumbnail';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { deleteObject, getObjectWebStream, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
-import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
+import { getDraftById, updateDraft, type UpdateDraftInput } from '@/lib/repositories/drafts';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
 import { refreshTokenIfNeeded, type PlatformTokens } from '@/lib/platforms/token-refresh';
@@ -506,6 +507,130 @@ async function runSinglePlatformUpload(
 // Background orchestrator
 // ---------------------------------------------------------------------------
 
+const MAX_DRAFT_THUMBNAIL_UPDATE_ATTEMPTS = 3;
+
+/**
+ * Clears distributed draft thumbnail keys from the draft document and deletes the R2 objects.
+ * Uses the metadata snapshot from this distribution attempt so thumbnails replaced mid-upload
+ * are not removed. Clears shared `thumbnailR2Key` with `null` and per-platform overrides with
+ * `''` so platforms do not fall back to a shared thumbnail that was not distributed.
+ * @param jobId - Upload job id (for logging).
+ * @param userId - Draft owner.
+ * @param draftId - Draft whose thumbnails were distributed.
+ * @param platformUploads - Platform upload rows included in this distribution attempt.
+ * @param metadataByPlatformId - Metadata snapshot keyed by platform upload id.
+ */
+async function cleanupDistributedDraftThumbnails(
+  jobId: string,
+  userId: string,
+  draftId: string,
+  platformUploads: PlatformUpload[],
+  metadataByPlatformId: Map<string, PlatformUploadMetadata>
+): Promise<void> {
+  const draft = await getDraftById(draftId);
+  if (!draft || draft.userId !== userId) {
+    return;
+  }
+
+  const distributedByKey = new Map<string, Set<PlatformUpload['platform']>>();
+  for (const upload of platformUploads) {
+    const key = metadataByPlatformId.get(upload.id)?.thumbnailR2Key?.trim();
+    if (!key) {
+      continue;
+    }
+    const platforms = distributedByKey.get(key) ?? new Set<PlatformUpload['platform']>();
+    platforms.add(upload.platform);
+    distributedByKey.set(key, platforms);
+  }
+
+  if (distributedByKey.size === 0) {
+    return;
+  }
+
+  let clearSharedThumbnail = false;
+  const platformsPatch: NonNullable<UpdateDraftInput['platformsPatch']> = {};
+  const keysToDelete = new Set<string>();
+
+  for (const [key, platforms] of distributedByKey) {
+    if (!isDraftThumbnailFinalKeyForUser(key, userId, draftId)) {
+      console.warn(
+        `[distribute] Skipped draft thumbnail cleanup for draft ${draftId} (unexpected key prefix "${key}"; job ${jobId}); retaining key for later manual cleanup.`
+      );
+      continue;
+    }
+
+    let shouldDeleteKey = false;
+
+    if (draft.thumbnailR2Key === key) {
+      clearSharedThumbnail = true;
+      shouldDeleteKey = true;
+    }
+
+    for (const platform of platforms) {
+      if (!isDraftThumbnailPlatform(platform)) {
+        continue;
+      }
+      if (draft.platforms[platform]?.thumbnailR2KeyOverride === key) {
+        platformsPatch[platform] = {
+          thumbnailR2KeyOverride: '',
+          thumbnailContentTypeOverride: '',
+        };
+        shouldDeleteKey = true;
+      }
+    }
+
+    if (shouldDeleteKey) {
+      keysToDelete.add(key);
+    }
+  }
+
+  if (!clearSharedThumbnail && Object.keys(platformsPatch).length === 0) {
+    return;
+  }
+
+  const updateInput: UpdateDraftInput = {};
+  if (clearSharedThumbnail) {
+    updateInput.thumbnailR2Key = null;
+    updateInput.thumbnailContentType = null;
+  }
+  if (Object.keys(platformsPatch).length > 0) {
+    updateInput.platformsPatch = platformsPatch;
+  }
+
+  let draftCleared = false;
+  for (let attempt = 1; attempt <= MAX_DRAFT_THUMBNAIL_UPDATE_ATTEMPTS; attempt++) {
+    try {
+      await updateDraft(draftId, updateInput);
+      draftCleared = true;
+      break;
+    } catch (updateErr) {
+      if (attempt < MAX_DRAFT_THUMBNAIL_UPDATE_ATTEMPTS) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 500 * attempt));
+      } else {
+        console.error(
+          `[distribute] Failed to clear thumbnail fields on draft ${draftId} after ${MAX_DRAFT_THUMBNAIL_UPDATE_ATTEMPTS} attempts (job ${jobId}); retaining R2 keys for retry.`,
+          updateErr
+        );
+      }
+    }
+  }
+
+  if (!draftCleared) {
+    return;
+  }
+
+  for (const key of keysToDelete) {
+    try {
+      await deleteObject(key);
+    } catch (thumbErr) {
+      console.error(
+        `[distribute] Failed to delete draft thumbnail "${key}" for job ${jobId}:`,
+        thumbErr
+      );
+    }
+  }
+}
+
 /**
  * Defines the shape of run distribution in background options.
  */
@@ -632,81 +757,17 @@ export async function runDistributionInBackground(
     await updateUploadJobStatus(jobId, 'completed', null);
 
     // Best-effort: draft thumbnail cleanup must not fail the job (uploads already completed).
-    // Capture the thumbnail key from the metadata snapshot used for this distribution so that
-    // a replacement uploaded during the (potentially multi-minute) job is not accidentally deleted.
-    const distributedThumbKey = [...metadataByPlatformId.values()].find(
-      (m) => m.thumbnailR2Key
-    )?.thumbnailR2Key;
     try {
       const jobRow = await getUploadJobById(jobId);
       const draftIdForThumb = jobRow?.draftId ?? null;
-      if (!draftIdForThumb) {
-        return;
-      }
-      const draftForThumb = await getDraftById(draftIdForThumb);
-      const thumbKey = draftForThumb?.thumbnailR2Key;
-      if (!thumbKey || draftForThumb?.userId !== userId) {
-        return;
-      }
-      // If this job had no thumbnail, there is nothing to clean up — and we must not delete
-      // a thumbnail the user added after distribution started.
-      if (!distributedThumbKey) {
-        return;
-      }
-      // If the user replaced the thumbnail while distribution was running, the current key will
-      // differ from the one that was actually distributed; skip cleanup to avoid deleting it.
-      if (thumbKey !== distributedThumbKey) {
-        return;
-      }
-      const keyMatchesDraftThumbnailPrefix = isDraftThumbnailFinalKeyForUser(
-        thumbKey,
-        userId,
-        draftIdForThumb
-      );
-      if (!keyMatchesDraftThumbnailPrefix) {
-        console.warn(
-          `[distribute] Skipped draft thumbnail cleanup for draft ${draftIdForThumb} (unexpected key prefix; job ${jobId}); retaining key for later manual cleanup.`
+      if (draftIdForThumb) {
+        await cleanupDistributedDraftThumbnails(
+          jobId,
+          userId,
+          draftIdForThumb,
+          platformUploads,
+          metadataByPlatformId
         );
-        return;
-      }
-
-      // Clear draft fields first (DB-first ordering, consistent with DELETE /api/drafts/:id/thumbnail).
-      // If updateDraft fails, the draft retains the key and the R2 object is still intact,
-      // so there is no stale-key corruption. If deleteObject later fails, the draft is already
-      // clean and the orphaned object can be swept up later.
-      const MAX_UPDATE_DRAFT_ATTEMPTS = 3;
-      let draftCleared = false;
-      for (let attempt = 1; attempt <= MAX_UPDATE_DRAFT_ATTEMPTS; attempt++) {
-        try {
-          await updateDraft(draftIdForThumb, {
-            thumbnailR2Key: null,
-            thumbnailContentType: null,
-          });
-          draftCleared = true;
-          break;
-        } catch (updateErr) {
-          if (attempt < MAX_UPDATE_DRAFT_ATTEMPTS) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 500 * attempt));
-          } else {
-            console.error(
-              `[distribute] Failed to clear thumbnail fields on draft ${draftIdForThumb} ` +
-                `(key "${thumbKey}") after ${MAX_UPDATE_DRAFT_ATTEMPTS} attempts ` +
-                `(job ${jobId}); retaining R2 key for retry.`,
-              updateErr
-            );
-          }
-        }
-      }
-      if (!draftCleared) {
-        // Retain key/type so the next cleanup attempt can still find and delete the R2 object.
-        return;
-      }
-
-      // Best-effort R2 delete after confirmed DB clear.
-      try {
-        await deleteObject(thumbKey);
-      } catch (thumbErr) {
-        console.error(`[distribute] Failed to delete draft thumbnail for job ${jobId}:`, thumbErr);
       }
     } catch (thumbCleanupErr) {
       console.error(

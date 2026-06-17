@@ -30,7 +30,14 @@ vi.mock('next/image', () => ({
   ),
 }));
 
-function mockVimeoMetadataOptionsResponse() {
+function mockVimeoMetadataOptionsResponse(
+  accountDefaults: Record<string, unknown> = {
+    contentRating: ['safe'],
+    license: null,
+    membershipType: 'basic',
+    supportsUnlistedPrivacy: false,
+  }
+) {
   return {
     ok: true,
     json: async () => ({
@@ -46,10 +53,7 @@ function mockVimeoMetadataOptionsResponse() {
           { code: 'by-nc', name: 'Attribution Non-Commercial' },
           { code: 'by-sa', name: 'Attribution Share Alike' },
         ],
-        accountDefaults: {
-          contentRating: ['safe'],
-          license: null,
-        },
+        accountDefaults,
       },
     }),
   } as Response;
@@ -404,17 +408,43 @@ describe('DraftMetadataModal shared metadata overrides', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.getByLabelText(/^Title$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Title(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/^Title \(YouTube\)$/i)).not.toBeInTheDocument();
 
     const titleSharedCheckbox = screen.getByTitle(/all selected platforms share one title/i);
     await user.click(titleSharedCheckbox);
 
-    expect(screen.queryByLabelText(/^Title$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Title(\s*\*)?$/i)).not.toBeInTheDocument();
     expect(document.getElementById('edit-title-youtube')).toBeInTheDocument();
     expect(document.getElementById('edit-title-sermon_audio')).toBeInTheDocument();
     expect(screen.getByLabelText(/Title — YouTube/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Title — SermonAudio/i)).toBeInTheDocument();
+  });
+
+  it('expands per-platform thumbnail pickers when use shared thumbnail is unchecked', async () => {
+    const user = userEvent.setup();
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          targets: ['youtube', 'vimeo'],
+          platforms: {},
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(document.getElementById('draft-thumbnail-file-shared')).toBeInTheDocument();
+    expect(document.getElementById('draft-thumbnail-file-youtube')).not.toBeInTheDocument();
+
+    const thumbnailSharedCheckbox = screen.getByTitle(
+      /all selected platforms share one thumbnail/i
+    );
+    await user.click(thumbnailSharedCheckbox);
+
+    expect(document.getElementById('draft-thumbnail-file-shared')).not.toBeInTheDocument();
+    expect(document.getElementById('draft-thumbnail-file-youtube')).toBeInTheDocument();
+    expect(document.getElementById('draft-thumbnail-file-vimeo')).toBeInTheDocument();
   });
 
   it('hides tags when only Facebook is selected', async () => {
@@ -530,6 +560,14 @@ describe('DraftMetadataModal SermonAudio short title', () => {
 
 describe('DraftMetadataModal privacy field', () => {
   beforeEach(() => {
+    if (!HTMLElement.prototype.hasPointerCapture) {
+      HTMLElement.prototype.hasPointerCapture = () => false;
+      HTMLElement.prototype.setPointerCapture = () => undefined;
+      HTMLElement.prototype.releasePointerCapture = () => undefined;
+    }
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = () => undefined;
+    }
     vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
   });
 
@@ -578,8 +616,36 @@ describe('DraftMetadataModal privacy field', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.getByLabelText(/^Privacy$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Privacy(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.getByTitle(/YouTube and Vimeo share one privacy setting/i)).toBeInTheDocument();
+  });
+
+  it('hides Unlisted for Vimeo-only drafts on basic accounts', async () => {
+    const user = userEvent.setup();
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={{
+          ...draftValue,
+          targets: ['vimeo'],
+          platforms: { vimeo: {} },
+        }}
+        initialConnectedPlatforms={['vimeo']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    const privacyTrigger = await screen.findByRole('combobox', { name: /^Privacy/i });
+    await user.click(privacyTrigger);
+
+    expect(await screen.findByRole('option', { name: 'Public' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Private' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Unlisted' })).not.toBeInTheDocument();
   });
 });
 

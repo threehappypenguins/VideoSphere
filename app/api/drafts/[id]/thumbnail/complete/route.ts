@@ -4,8 +4,11 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
   fileExtensionForThumbnailContentType,
   isAllowedDraftThumbnailContentType,
+  isDraftThumbnailPlatform,
   MAX_DRAFT_THUMBNAIL_BYTES,
+  type DraftThumbnailPlatform,
 } from '@/lib/draft-thumbnail';
+import { draftPlatformsWithThumbnailPreviewOverrides } from '@/lib/draft-thumbnail-previews';
 import { DraftDocumentTooLargeError } from '@/lib/draft-upload-metadata';
 import {
   buildDraftThumbnailFinalKey,
@@ -21,6 +24,8 @@ import { getDraftById, updateDraft } from '@/lib/repositories/drafts';
 
 interface CompleteBody {
   pendingKey?: unknown;
+  /** When set, stores the thumbnail on that platform instead of the shared draft thumbnail. */
+  platform?: unknown;
 }
 
 /**
@@ -54,6 +59,19 @@ export async function POST(
   }
 
   const pendingKey = typeof body.pendingKey === 'string' ? body.pendingKey.trim() : '';
+  const platformRaw = typeof body.platform === 'string' ? body.platform.trim() : '';
+  const platform: DraftThumbnailPlatform | undefined =
+    platformRaw && isDraftThumbnailPlatform(platformRaw) ? platformRaw : undefined;
+  if (platformRaw && !platform) {
+    return NextResponse.json(
+      {
+        error: 'Bad Request',
+        message: 'platform is invalid for thumbnail upload',
+        statusCode: 400,
+      },
+      { status: 400 }
+    );
+  }
   if (!pendingKey || !isDraftThumbnailPendingKeyForUser(pendingKey, userId, draftId)) {
     return NextResponse.json(
       { error: 'Bad Request', message: 'pendingKey is invalid for this draft', statusCode: 400 },
@@ -130,7 +148,9 @@ export async function POST(
     fileExtensionForThumbnailContentType(resolvedType)
   );
 
-  const previousKey = draft.thumbnailR2Key;
+  const previousKey = platform
+    ? draft.platforms[platform]?.thumbnailR2KeyOverride
+    : draft.thumbnailR2Key;
 
   try {
     await copyObjectInBucket(pendingKey, finalKey);
@@ -143,10 +163,22 @@ export async function POST(
   }
 
   try {
-    const updated = await updateDraft(draftId, {
-      thumbnailR2Key: finalKey,
-      thumbnailContentType: resolvedType,
-    });
+    const updated = await updateDraft(
+      draftId,
+      platform
+        ? {
+            platformsPatch: {
+              [platform]: {
+                thumbnailR2KeyOverride: finalKey,
+                thumbnailContentTypeOverride: resolvedType,
+              },
+            },
+          }
+        : {
+            thumbnailR2Key: finalKey,
+            thumbnailContentType: resolvedType,
+          }
+    );
     if (!updated) {
       await deleteObject(finalKey).catch(() => undefined);
       return NextResponse.json(
@@ -172,13 +204,35 @@ export async function POST(
     }
 
     let thumbnailPreviewUrl: string | undefined;
+    let thumbnailPreviewUrlOverride: string | undefined;
     try {
-      thumbnailPreviewUrl = await getObjectUrl(finalKey);
+      const previewUrl = await getObjectUrl(finalKey);
+      if (platform) {
+        thumbnailPreviewUrlOverride = previewUrl;
+      } else {
+        thumbnailPreviewUrl = previewUrl;
+      }
     } catch {
       thumbnailPreviewUrl = undefined;
+      thumbnailPreviewUrlOverride = undefined;
     }
+
+    const platformsWithPreviews = platform
+      ? await draftPlatformsWithThumbnailPreviewOverrides(updated.platforms, userId, draftId)
+      : updated.platforms;
+
     return NextResponse.json({
-      data: { ...updated, thumbnailPreviewUrl },
+      data: {
+        ...updated,
+        platforms: platformsWithPreviews,
+        ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
+        ...(platform && thumbnailPreviewUrlOverride
+          ? {
+              thumbnailPlatform: platform,
+              thumbnailPreviewUrlOverride,
+            }
+          : {}),
+      },
       message: 'Thumbnail saved',
     });
   } catch (err) {

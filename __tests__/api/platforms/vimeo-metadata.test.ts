@@ -228,7 +228,7 @@ describe('Vimeo platform metadata routes', () => {
     const res = await getMe(makeRequest('/api/platforms/vimeo/me'));
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect(await res.json()).toEqual({
       data: {
         contentRating: ['safe'],
@@ -286,6 +286,7 @@ describe('Vimeo platform metadata routes', () => {
       expect(url).toContain('/me');
       return new Response(
         JSON.stringify({
+          membership: { type: 'free' },
           preferences: {
             videos: {
               rating: ['safe'],
@@ -300,7 +301,7 @@ describe('Vimeo platform metadata routes', () => {
     const res = await getMetadataOptions(makeRequest('/api/platforms/vimeo/metadata-options'));
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     const mockFetch = vi.mocked(global.fetch);
     expect(mockFetch).toHaveBeenCalled();
     expect(fetchCallCountForUrl(mockFetch, '/contentratings')).toBe(1);
@@ -327,6 +328,8 @@ describe('Vimeo platform metadata routes', () => {
         accountDefaults: {
           contentRating: ['safe'],
           license: 'by-sa',
+          membershipType: 'free',
+          supportsUnlistedPrivacy: false,
         },
       },
     });

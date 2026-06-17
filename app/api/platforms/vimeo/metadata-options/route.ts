@@ -28,8 +28,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(res, {
       status: 200,
       headers: {
-        // Includes account defaults from `/me`; keep TTL aligned with `/api/platforms/vimeo/me`.
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (err) {

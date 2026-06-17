@@ -10,15 +10,64 @@ import {
   normalizeDraftPlatforms,
   parseDraftTargetsAllowEmpty,
   parseDraftTargetsFromRequestBody,
+  draftHasPersistableTitle,
   parseDraftPlatformsPatchBody,
   parsePlatformsFromRequestBody,
   parseTagsFromRequestBody,
+  resolveDraftTitleForStorage,
   stringifyDraftDocumentForStorage,
   visibilityFromRow,
 } from '@/lib/draft-upload-metadata';
 import type { Draft, DraftPlatforms } from '@/types';
 
 describe('draft-upload-metadata', () => {
+  it('resolveDraftTitleForStorage prefers shared title when set', () => {
+    expect(
+      resolveDraftTitleForStorage({
+        title: ' Shared ',
+        targets: ['youtube', 'vimeo'],
+        platforms: {
+          youtube: { titleOverride: 'YouTube only' },
+        },
+      })
+    ).toBe('Shared');
+  });
+
+  it('resolveDraftTitleForStorage uses first non-empty override when shared title is empty', () => {
+    expect(
+      resolveDraftTitleForStorage({
+        title: '',
+        targets: ['youtube', 'vimeo', 'sermon_audio'],
+        platforms: {
+          vimeo: { titleOverride: 'Vimeo Title' },
+          youtube: { titleOverride: 'YouTube Title' },
+          sermon_audio: { titleOverride: 'SA Title' },
+        },
+      })
+    ).toBe('YouTube Title');
+  });
+
+  it('resolveDraftTitleForStorage skips empty overrides and unselected targets', () => {
+    expect(
+      resolveDraftTitleForStorage({
+        title: '   ',
+        targets: ['facebook'],
+        platforms: {
+          youtube: { titleOverride: 'YouTube Title' },
+          facebook: { titleOverride: 'Facebook Title' },
+        },
+      })
+    ).toBe('Facebook Title');
+
+    expect(
+      draftHasPersistableTitle({
+        title: '',
+        targets: ['youtube'],
+        platforms: { youtube: { titleOverride: '   ' } },
+      })
+    ).toBe(false);
+  });
+
   it('assertDraftDocumentJsonWithinLimit throws when JSON exceeds storage column max', () => {
     const huge = 'z'.repeat(MAX_DRAFT_DOCUMENT_CHARS + 1);
     expect(() => assertDraftDocumentJsonWithinLimit(huge)).toThrow(DraftDocumentTooLargeError);
@@ -306,6 +355,178 @@ describe('draft-upload-metadata', () => {
     expect(buildMetadataForPlatform(draft, 'vimeo').visibility).toBe('unlisted');
   });
 
+  it('buildMetadataForPlatform uses per-platform thumbnail overrides when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'vimeo'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      thumbnailR2Key: 'draft-thumbnails/u1/d1/shared.jpg',
+      thumbnailContentType: 'image/jpeg',
+      platforms: {
+        youtube: {
+          thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/youtube.jpg',
+          thumbnailContentTypeOverride: 'image/png',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').thumbnailR2Key).toBe(
+      'draft-thumbnails/u1/d1/youtube.jpg'
+    );
+    expect(buildMetadataForPlatform(draft, 'youtube').thumbnailContentType).toBe('image/png');
+    expect(buildMetadataForPlatform(draft, 'vimeo').thumbnailR2Key).toBe(
+      'draft-thumbnails/u1/d1/shared.jpg'
+    );
+  });
+
+  it('buildMetadataForPlatform does not fall back to shared thumbnail when override is explicitly empty', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'vimeo'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      thumbnailR2Key: 'draft-thumbnails/u1/d1/shared.jpg',
+      thumbnailContentType: 'image/jpeg',
+      platforms: {
+        youtube: { thumbnailR2KeyOverride: '' },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').thumbnailR2Key).toBeUndefined();
+    expect(buildMetadataForPlatform(draft, 'vimeo').thumbnailR2Key).toBe(
+      'draft-thumbnails/u1/d1/shared.jpg'
+    );
+  });
+
+  it('buildMetadataForPlatform falls back to shared thumbnail when override is null', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'vimeo'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      thumbnailR2Key: 'draft-thumbnails/u1/d1/shared.jpg',
+      thumbnailContentType: 'image/jpeg',
+      platforms: {
+        youtube: {
+          thumbnailR2KeyOverride: null,
+          thumbnailContentTypeOverride: null,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').thumbnailR2Key).toBe(
+      'draft-thumbnails/u1/d1/shared.jpg'
+    );
+    expect(buildMetadataForPlatform(draft, 'youtube').thumbnailContentType).toBe('image/jpeg');
+  });
+
+  it('normalizeDraftPlatforms preserves explicit empty thumbnailR2KeyOverride', () => {
+    expect(
+      normalizeDraftPlatforms({
+        youtube: { thumbnailR2KeyOverride: '' },
+        facebook: {
+          thumbnailR2KeyOverride: '',
+          thumbnailContentTypeOverride: '',
+        },
+      })
+    ).toEqual({
+      youtube: { thumbnailR2KeyOverride: '' },
+      facebook: {
+        thumbnailR2KeyOverride: '',
+        thumbnailContentTypeOverride: '',
+      },
+    });
+  });
+
+  it('draftDocumentFromRow preserves explicit empty thumbnailR2KeyOverride', () => {
+    const doc = draftDocumentFromRow({
+      document: JSON.stringify({
+        targets: ['youtube'],
+        title: 'T',
+        description: 'D',
+        visibility: 'public',
+        tags: [],
+        thumbnailR2Key: 'draft-thumbnails/u1/d1/shared.jpg',
+        platforms: {
+          youtube: { thumbnailR2KeyOverride: '' },
+        },
+      }),
+    });
+
+    expect(doc.platforms.youtube).toEqual({ thumbnailR2KeyOverride: '' });
+    expect(doc.thumbnailR2Key).toBe('draft-thumbnails/u1/d1/shared.jpg');
+  });
+
+  it('mergeDraftPlatformsPatch preserves explicit empty thumbnailR2KeyOverride', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        {
+          youtube: {
+            thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/youtube.jpg',
+            thumbnailContentTypeOverride: 'image/jpeg',
+          },
+        },
+        {
+          youtube: {
+            thumbnailR2KeyOverride: '',
+            thumbnailContentTypeOverride: '',
+          },
+        }
+      )
+    ).toEqual({
+      youtube: {
+        thumbnailR2KeyOverride: '',
+        thumbnailContentTypeOverride: '',
+      },
+    });
+  });
+
+  it('mergeDraftPlatformsPatch clears thumbnail overrides when patch sends null', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        {
+          youtube: {
+            categoryId: '22',
+            thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/youtube.jpg',
+            thumbnailContentTypeOverride: 'image/jpeg',
+          },
+          facebook: {
+            thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/fb.jpg',
+          },
+        },
+        {
+          youtube: {
+            thumbnailR2KeyOverride: null,
+            thumbnailContentTypeOverride: null,
+          },
+          facebook: {
+            thumbnailR2KeyOverride: null,
+            thumbnailContentTypeOverride: null,
+          },
+        }
+      )
+    ).toEqual({
+      youtube: { categoryId: '22' },
+      facebook: {},
+    });
+  });
+
   it('buildMetadataForPlatform passes playlistTitles and playlistIds for YouTube', () => {
     const draft: Draft = {
       id: 'd1',
@@ -551,6 +772,8 @@ describe('draft-upload-metadata', () => {
           titleOverride: '  SA Title  ',
           descriptionOverride: ' SA Desc ',
           tagsOverride: ['  holy ', 'day'],
+          thumbnailR2KeyOverride: ' draft-thumbnails/u1/d1/sa.jpg ',
+          thumbnailContentTypeOverride: ' image/png ',
         },
       })
     ).toEqual({
@@ -568,6 +791,8 @@ describe('draft-upload-metadata', () => {
         titleOverride: 'SA Title',
         descriptionOverride: 'SA Desc',
         tagsOverride: ['holy', 'day'],
+        thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/sa.jpg',
+        thumbnailContentTypeOverride: 'image/png',
       },
     });
   });
@@ -820,6 +1045,8 @@ describe('draft-upload-metadata', () => {
           videoState: 'SCHEDULED',
           scheduledPublishTime: 1_700_000_000.9,
           titleOverride: ' FB title ',
+          thumbnailR2KeyOverride: ' draft-thumbnails/u1/d1/fb.jpg ',
+          thumbnailContentTypeOverride: ' image/jpeg ',
         },
       })
     ).toEqual({
@@ -827,6 +1054,8 @@ describe('draft-upload-metadata', () => {
         videoState: 'SCHEDULED',
         scheduledPublishTime: 1_700_000_000,
         titleOverride: 'FB title',
+        thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/fb.jpg',
+        thumbnailContentTypeOverride: 'image/jpeg',
       },
     });
   });

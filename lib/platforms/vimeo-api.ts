@@ -11,6 +11,10 @@ import {
   resolveVimeoAccountContentRatingDefault,
   type VimeoContentRatingOption,
 } from '@/lib/platforms/vimeo-content-rating';
+import {
+  readMembershipTypeFromMeBody,
+  vimeoMembershipTypeSupportsUnlistedPrivacy,
+} from '@/lib/platforms/vimeo-membership';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import type { VimeoCategoryOption } from '@/lib/platforms/vimeo-categories';
 import {
@@ -28,7 +32,11 @@ export type { VimeoLicenseOption };
 const VIMEO_API_BASE = 'https://api.vimeo.com';
 const VIMEO_ACCEPT = 'application/vnd.vimeo.*+json;version=3.4';
 
-const VIMEO_ME_UPLOAD_DEFAULT_FIELDS = 'preferences.videos.license,preferences.videos.rating';
+const VIMEO_ME_UPLOAD_DEFAULT_FIELDS =
+  'account,membership.type,membership.display,preferences.videos.license,preferences.videos.rating';
+
+const VIMEO_ME_MEMBERSHIP_FALLBACK_FIELDS =
+  'account,membership,preferences.videos.license,preferences.videos.rating';
 
 type VimeoConnectionResult =
   | { ok: true; accessToken: string }
@@ -896,6 +904,54 @@ export interface VimeoDraftMetadataOptions {
   accountDefaults: VimeoAccountDefaults;
 }
 
+async function fetchVimeoMeUploadDefaultsBody(
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; details: string }> {
+  const authHeaders = vimeoAuthHeaders(accessToken);
+  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
+
+  const fetchMe = (fields: string) => {
+    const meUrl = new URL(`${VIMEO_API_BASE}/me`);
+    meUrl.searchParams.set('fields', fields);
+    return fetch(meUrl.toString(), fetchInit);
+  };
+
+  const primaryRes = await fetchMe(VIMEO_ME_UPLOAD_DEFAULT_FIELDS);
+  if (!primaryRes.ok) {
+    return { ok: false, details: await readVimeoApiErrorDetails(primaryRes) };
+  }
+
+  let body = (await primaryRes.json().catch(() => ({}))) as Record<string, unknown>;
+  if (readMembershipTypeFromMeBody(body) !== undefined) {
+    return { ok: true, body };
+  }
+
+  const fallbackRes = await fetchMe(VIMEO_ME_MEMBERSHIP_FALLBACK_FIELDS);
+  if (fallbackRes.ok) {
+    const fallbackBody = (await fallbackRes.json().catch(() => ({}))) as Record<string, unknown>;
+    body = {
+      ...body,
+      ...fallbackBody,
+      membership: fallbackBody.membership ?? body.membership,
+      account: fallbackBody.account ?? body.account,
+      preferences: fallbackBody.preferences ?? body.preferences,
+    };
+  }
+
+  if (readMembershipTypeFromMeBody(body) === undefined) {
+    console.warn(
+      '[vimeo-api] GET /me did not include membership.type, membership.display, or account',
+      {
+        membership: body.membership,
+        account: body.account,
+      }
+    );
+  }
+
+  return { ok: true, body };
+}
+
 function buildVimeoAccountDefaultsFromMeBody(
   body: Record<string, unknown>,
   contentRatings: VimeoContentRatingOption[]
@@ -916,6 +972,12 @@ function buildVimeoAccountDefaultsFromMeBody(
     defaults.license = license;
   }
 
+  const membershipType = readMembershipTypeFromMeBody(body);
+  if (membershipType !== undefined) {
+    defaults.membershipType = membershipType;
+    defaults.supportsUnlistedPrivacy = vimeoMembershipTypeSupportsUnlistedPrivacy(membershipType);
+  }
+
   return defaults;
 }
 
@@ -929,16 +991,11 @@ export async function fetchVimeoDraftMetadataOptions(
   accessToken: string,
   signal?: AbortSignal
 ): Promise<{ ok: true; options: VimeoDraftMetadataOptions } | { ok: false; details: string }> {
-  const authHeaders = vimeoAuthHeaders(accessToken);
-  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
-  const meUrl = new URL(`${VIMEO_API_BASE}/me`);
-  meUrl.searchParams.set('fields', VIMEO_ME_UPLOAD_DEFAULT_FIELDS);
-
-  const [ratingsResult, categoriesResult, licensesResult, meRes] = await Promise.all([
+  const [ratingsResult, categoriesResult, licensesResult, meResult] = await Promise.all([
     fetchVimeoContentRatings(accessToken, signal),
     fetchVimeoCategories(accessToken, signal),
     fetchVimeoCreativeCommonsLicenses(accessToken, signal),
-    fetch(meUrl.toString(), fetchInit),
+    fetchVimeoMeUploadDefaultsBody(accessToken, signal),
   ]);
 
   if (ratingsResult.ok === false) {
@@ -950,11 +1007,9 @@ export async function fetchVimeoDraftMetadataOptions(
   if (licensesResult.ok === false) {
     return { ok: false, details: licensesResult.details };
   }
-  if (!meRes.ok) {
-    return { ok: false, details: await readVimeoApiErrorDetails(meRes) };
+  if (meResult.ok === false) {
+    return { ok: false, details: meResult.details };
   }
-
-  const body = (await meRes.json().catch(() => ({}))) as Record<string, unknown>;
 
   return {
     ok: true,
@@ -962,7 +1017,7 @@ export async function fetchVimeoDraftMetadataOptions(
       contentRatings: ratingsResult.items,
       categories: categoriesResult.items,
       licenses: licensesResult.items,
-      accountDefaults: buildVimeoAccountDefaultsFromMeBody(body, ratingsResult.items),
+      accountDefaults: buildVimeoAccountDefaultsFromMeBody(meResult.body, ratingsResult.items),
     },
   };
 }
@@ -979,32 +1034,25 @@ export async function fetchVimeoAccountDefaults(
   signal?: AbortSignal,
   contentRatings?: VimeoContentRatingOption[]
 ): Promise<{ ok: true; defaults: VimeoAccountDefaults } | { ok: false; details: string }> {
-  const authHeaders = vimeoAuthHeaders(accessToken);
-  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
-  const meUrl = new URL(`${VIMEO_API_BASE}/me`);
-  meUrl.searchParams.set('fields', VIMEO_ME_UPLOAD_DEFAULT_FIELDS);
-
   const ratingsPromise =
     contentRatings !== undefined
       ? Promise.resolve({ ok: true as const, items: contentRatings })
       : fetchVimeoContentRatings(accessToken, signal);
 
-  const [meRes, ratingsResult] = await Promise.all([
-    fetch(meUrl.toString(), fetchInit),
+  const [meResult, ratingsResult] = await Promise.all([
+    fetchVimeoMeUploadDefaultsBody(accessToken, signal),
     ratingsPromise,
   ]);
 
-  if (!meRes.ok) {
-    return { ok: false, details: await readVimeoApiErrorDetails(meRes) };
+  if (meResult.ok === false) {
+    return { ok: false, details: meResult.details };
   }
   if (ratingsResult.ok === false) {
     return { ok: false, details: ratingsResult.details };
   }
 
-  const body = (await meRes.json().catch(() => ({}))) as Record<string, unknown>;
-
   return {
     ok: true,
-    defaults: buildVimeoAccountDefaultsFromMeBody(body, ratingsResult.items),
+    defaults: buildVimeoAccountDefaultsFromMeBody(meResult.body, ratingsResult.items),
   };
 }

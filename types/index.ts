@@ -97,6 +97,23 @@ export interface PerPlatformCopyOverrides {
 export interface PerPlatformOverrides extends PerPlatformCopyOverrides {
   /** Platform-specific privacy (YouTube and Vimeo only). */
   visibilityOverride?: PlatformUploadVisibility;
+  /**
+   * Platform-specific draft thumbnail R2 key when not using the shared draft thumbnail.
+   * - Omitted/`undefined` — use the shared draft thumbnail.
+   * - `''` — explicit per-platform “no thumbnail” (do not fall back to shared).
+   * - `null` — PATCH/editor clear sentinel; merge removes the override so shared is used again.
+   */
+  thumbnailR2KeyOverride?: string | null;
+  /**
+   * MIME type for {@link thumbnailR2KeyOverride}.
+   * Uses the same `undefined` / `''` / `null` semantics as {@link thumbnailR2KeyOverride}.
+   */
+  thumbnailContentTypeOverride?: string | null;
+  /**
+   * Presigned preview URL for {@link thumbnailR2KeyOverride} in the draft editor only.
+   * Not persisted in draft document JSON.
+   */
+  thumbnailPreviewUrlOverride?: string;
 }
 
 /** Platform upload status. SermonAudio uses `unpublished` / `published` after upload instead of `completed`. */
@@ -233,10 +250,13 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
  * Facebook Reels API–specific draft fields.
  * Stored under `platforms.facebook` in the draft `document` JSON.
  */
-export interface FacebookDraftFields extends Pick<
-  PerPlatformCopyOverrides,
-  'titleOverride' | 'descriptionOverride'
-> {
+export interface FacebookDraftFields
+  extends
+    Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride'>,
+    Pick<
+      PerPlatformOverrides,
+      'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride' | 'thumbnailPreviewUrlOverride'
+    > {
   /**
    * Desired publish state sent as `video_state` on the finish call.
    * - `PUBLISHED` — publish immediately (default)
@@ -258,7 +278,13 @@ export interface FacebookDraftFields extends Pick<
  *
  * Field names align with SermonAudio `POST /v2/node/sermons` where applicable.
  */
-export interface SermonAudioDraftFields extends PerPlatformCopyOverrides {
+export interface SermonAudioDraftFields
+  extends
+    PerPlatformCopyOverrides,
+    Pick<
+      PerPlatformOverrides,
+      'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride' | 'thumbnailPreviewUrlOverride'
+    > {
   /** SermonAudio speaker name. */
   speakerName?: string;
   /** SermonAudio speaker id when selected from SA speaker records. */

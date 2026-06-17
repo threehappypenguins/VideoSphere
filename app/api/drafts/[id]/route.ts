@@ -10,15 +10,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { draftPlatformsWithThumbnailPreviewOverrides } from '@/lib/draft-thumbnail-previews';
 import { getObjectUrl, deleteObject, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
 import {
   DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
   MAX_DRAFT_TITLE_LENGTH,
+  mergeDraftPlatformsPatch,
   parseDraftPlatformsPatchBody,
   parseDraftTargetsFromRequestBody,
   parseTagsFromRequestBody,
+  resolveDraftTitleForStorage,
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
@@ -34,13 +37,19 @@ async function draftResponseWithThumbnailPreview(
   userId: string,
   draftId: string
 ): Promise<Draft & { thumbnailPreviewUrl?: string }> {
+  const platforms = await draftPlatformsWithThumbnailPreviewOverrides(
+    draft.platforms,
+    userId,
+    draftId
+  );
   const key = draft.thumbnailR2Key;
   if (!key) {
-    return draft;
+    return { ...draft, platforms };
   }
   if (!isDraftThumbnailFinalKeyForUser(key, userId, draftId)) {
     return {
       ...draft,
+      platforms,
       thumbnailR2Key: undefined,
       thumbnailContentType: undefined,
     };
@@ -55,6 +64,7 @@ async function draftResponseWithThumbnailPreview(
 
   return {
     ...draft,
+    platforms,
     ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
   };
 }
@@ -189,10 +199,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (title !== undefined && (typeof title !== 'string' || title.trim() === '')) {
+  if (title !== undefined && typeof title !== 'string') {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: 'title must be a non-empty string',
+      message: 'title must be a string',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -262,6 +272,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const errRes: ApiError = {
         error: 'Bad Request',
         message: platformsPatchParse.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+  }
+
+  if (title !== undefined || targets !== undefined || platforms !== undefined) {
+    const mergedPlatforms =
+      platformsPatchParse?.ok === true
+        ? mergeDraftPlatformsPatch(existing.platforms, platformsPatchParse.value)
+        : existing.platforms;
+    const mergedTitle =
+      title !== undefined && typeof title === 'string' ? title.trim() : existing.title;
+    const mergedTargets = parsedTargets?.ok === true ? parsedTargets.value : [...existing.targets];
+
+    const resolvedTitle = resolveDraftTitleForStorage({
+      title: mergedTitle,
+      targets: mergedTargets,
+      platforms: mergedPlatforms,
+    });
+
+    if (resolvedTitle.length > MAX_DRAFT_TITLE_LENGTH) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: `title must be at most ${MAX_DRAFT_TITLE_LENGTH} characters (YouTube limit)`,
         statusCode: 400,
       };
       return NextResponse.json(errRes, { status: 400 });

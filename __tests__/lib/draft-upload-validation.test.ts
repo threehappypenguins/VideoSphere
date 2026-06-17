@@ -7,6 +7,7 @@ describe('validateDraftForUpload', () => {
       title: '  ',
       description: 'Desc',
       tags: [],
+      visibility: 'public',
       targets: ['sermon_audio'],
       platforms: {
         sermon_audio: {
@@ -24,6 +25,7 @@ describe('validateDraftForUpload', () => {
       title: 'Shared',
       description: 'Desc',
       tags: [],
+      visibility: 'public',
       targets: ['youtube', 'vimeo'],
       platforms: {
         youtube: { titleOverride: 'YouTube title' },
@@ -38,11 +40,32 @@ describe('validateDraftForUpload', () => {
     ]);
   });
 
+  it('requires facebook title when per-platform overrides are enabled', () => {
+    const issues = validateDraftForUpload({
+      title: '',
+      description: 'Desc',
+      tags: [],
+      visibility: 'public',
+      targets: ['youtube', 'facebook'],
+      platforms: {
+        youtube: { titleOverride: 'YouTube title' },
+        facebook: { titleOverride: '  ' },
+      },
+    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        field: 'title:facebook',
+        message: 'Facebook title is required before upload.',
+      }),
+    ]);
+  });
+
   it('requires SermonAudio speaker, date, and event category on upload', () => {
     const issues = validateDraftForUpload({
       title: 'Sermon',
       description: '',
       tags: [],
+      visibility: 'public',
       targets: ['sermon_audio'],
       platforms: { sermon_audio: {} },
     });
@@ -58,6 +81,7 @@ describe('validateDraftForUpload', () => {
       title: 'Sermon',
       description: '',
       tags: [],
+      visibility: 'public',
       targets: ['sermon_audio'],
       platforms: {
         sermon_audio: {
@@ -75,6 +99,7 @@ describe('validateDraftForUpload', () => {
       title: '',
       description: 'Desc',
       tags: [],
+      visibility: 'public',
       targets: ['sermon_audio'],
       platforms: {
         sermon_audio: {
@@ -84,6 +109,40 @@ describe('validateDraftForUpload', () => {
           eventType: 'Sunday Service',
         },
       },
+    });
+    expect(issues.map((issue) => issue.field)).toEqual([]);
+  });
+
+  it('rejects unlisted shared privacy when Vimeo does not support unlisted', () => {
+    const issues = validateDraftForUpload({
+      title: 'Title',
+      description: 'Desc',
+      tags: [],
+      targets: ['youtube', 'vimeo'],
+      visibility: 'unlisted',
+      platforms: {},
+      vimeoSupportsUnlistedPrivacy: false,
+    });
+    expect(issues).toEqual([
+      expect.objectContaining({
+        field: 'visibility',
+        message: expect.stringMatching(/Unlisted is not available on your Vimeo plan/i),
+      }),
+    ]);
+  });
+
+  it('allows unlisted YouTube override when Vimeo does not support unlisted', () => {
+    const issues = validateDraftForUpload({
+      title: 'Title',
+      description: 'Desc',
+      tags: [],
+      targets: ['youtube', 'vimeo'],
+      visibility: 'public',
+      platforms: {
+        youtube: { visibilityOverride: 'unlisted' },
+        vimeo: { visibilityOverride: 'private' },
+      },
+      vimeoSupportsUnlistedPrivacy: false,
     });
     expect(issues.map((issue) => issue.field)).toEqual([]);
   });

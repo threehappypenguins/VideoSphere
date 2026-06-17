@@ -16,6 +16,7 @@ import type {
 } from '@/types';
 import { connectToDatabase } from '@/lib/mongodb';
 import { DraftModel, type DraftDocument } from '@/lib/models/Draft';
+import { resolveDraftTitleForStorage } from '@/lib/draft-title';
 import {
   assertDraftDocumentJsonWithinLimit,
   DEFAULT_DRAFT_VISIBILITY,
@@ -151,9 +152,14 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
   const visibility = input.visibility ?? DEFAULT_DRAFT_VISIBILITY;
   const platforms = input.platforms ?? {};
   const tags = input.tags ?? [];
+  const title = resolveDraftTitleForStorage({
+    title: input.title,
+    targets: input.targets,
+    platforms,
+  });
   const documentJson = stringifyDraftDocumentForStorage({
     targets: input.targets,
-    title: input.title,
+    title,
     description: input.description,
     visibility,
     tags,
@@ -380,9 +386,15 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
           : input.thumbnailContentType;
   }
 
+  const title = resolveDraftTitleForStorage({
+    title: input.title !== undefined ? input.title : current.title,
+    targets: input.targets ?? current.targets,
+    platforms: mergedPlatforms,
+  });
+
   const documentJson = stringifyDraftDocumentForStorage({
     targets: input.targets ?? current.targets,
-    title: input.title ?? current.title,
+    title,
     description: input.description ?? current.description,
     tags: input.tags ?? current.tags,
     visibility: input.visibility ?? current.visibility,

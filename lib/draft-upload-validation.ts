@@ -1,9 +1,11 @@
-import type { ConnectedAccountPlatform, DraftPlatforms } from '@/types';
+import type { ConnectedAccountPlatform, DraftPlatforms, PlatformUploadVisibility } from '@/types';
+import { DRAFT_TITLE_OVERRIDE_PLATFORM_ORDER } from '@/lib/draft-title';
 import { platformLabel } from '@/lib/ui/platform-label';
 
-const METADATA_PLATFORMS = ['youtube', 'vimeo', 'sermon_audio'] as const;
+type TitlePlatform = (typeof DRAFT_TITLE_OVERRIDE_PLATFORM_ORDER)[number];
 
-type MetadataPlatform = (typeof METADATA_PLATFORMS)[number];
+const PRIVACY_PLATFORMS = ['youtube', 'vimeo'] as const;
+type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
 
 /** Stable field keys used for upload validation highlighting in the draft modal. */
 export type DraftUploadFieldKey = string;
@@ -25,28 +27,45 @@ export interface DraftUploadValidationInput {
   title: string;
   description: string;
   tags: string[];
+  visibility: PlatformUploadVisibility;
   targets: ConnectedAccountPlatform[];
   platforms: DraftPlatforms;
+  /** When `false`, Vimeo cannot accept `unlisted` visibility. */
+  vimeoSupportsUnlistedPrivacy?: boolean | null;
 }
 
-function isMetadataPlatform(platform: ConnectedAccountPlatform): platform is MetadataPlatform {
-  return (METADATA_PLATFORMS as readonly string[]).includes(platform);
+function selectedPrivacyPlatforms(targets: ConnectedAccountPlatform[]): PrivacyPlatform[] {
+  return PRIVACY_PLATFORMS.filter((platform) => targets.includes(platform));
 }
 
-function selectedMetadataPlatforms(targets: ConnectedAccountPlatform[]): MetadataPlatform[] {
-  return targets.filter(isMetadataPlatform);
+function usesSharedVisibilityGlobally(
+  draft: DraftUploadValidationInput,
+  platforms: readonly PrivacyPlatform[]
+): boolean {
+  return platforms.every((platform) => draft.platforms[platform]?.visibilityOverride === undefined);
+}
+
+function effectiveVisibilityForPlatform(
+  draft: DraftUploadValidationInput,
+  platform: PrivacyPlatform
+): PlatformUploadVisibility {
+  return draft.platforms[platform]?.visibilityOverride ?? draft.visibility;
+}
+
+function selectedTitlePlatforms(targets: ConnectedAccountPlatform[]): TitlePlatform[] {
+  return DRAFT_TITLE_OVERRIDE_PLATFORM_ORDER.filter((platform) => targets.includes(platform));
 }
 
 function usesSharedTitleGlobally(
   draft: DraftUploadValidationInput,
-  platforms: MetadataPlatform[]
+  platforms: readonly TitlePlatform[]
 ): boolean {
   return platforms.every((platform) => draft.platforms[platform]?.titleOverride === undefined);
 }
 
 function effectiveTitleForPlatform(
   draft: DraftUploadValidationInput,
-  platform: MetadataPlatform
+  platform: TitlePlatform
 ): string {
   const fields = draft.platforms[platform];
   return fields?.titleOverride !== undefined ? fields.titleOverride : draft.title;
@@ -83,22 +102,20 @@ export function validateDraftForUpload(
   draft: DraftUploadValidationInput
 ): DraftUploadValidationIssue[] {
   const issues: DraftUploadValidationIssue[] = [];
-  const metadataTargets = selectedMetadataPlatforms(draft.targets);
+  const titlePlatforms = selectedTitlePlatforms(draft.targets);
 
-  if (metadataTargets.length === 0) {
-    return issues;
-  }
-
-  if (usesSharedTitleGlobally(draft, metadataTargets)) {
-    pushIfEmpty(issues, 'title', draft.title, 'Title is required before upload.');
-  } else {
-    for (const platform of metadataTargets) {
-      pushIfEmpty(
-        issues,
-        `title:${platform}`,
-        effectiveTitleForPlatform(draft, platform),
-        `${platformLabel(platform)} title is required before upload.`
-      );
+  if (titlePlatforms.length > 0) {
+    if (usesSharedTitleGlobally(draft, titlePlatforms)) {
+      pushIfEmpty(issues, 'title', draft.title, 'Title is required before upload.');
+    } else {
+      for (const platform of titlePlatforms) {
+        pushIfEmpty(
+          issues,
+          `title:${platform}`,
+          effectiveTitleForPlatform(draft, platform),
+          `${platformLabel(platform)} title is required before upload.`
+        );
+      }
     }
   }
 
@@ -122,6 +139,25 @@ export function validateDraftForUpload(
       sa?.eventType,
       'Event category is required for SermonAudio before upload.'
     );
+  }
+
+  if (draft.targets.includes('vimeo') && draft.vimeoSupportsUnlistedPrivacy === false) {
+    const privacyPlatforms = selectedPrivacyPlatforms(draft.targets);
+    if (privacyPlatforms.length > 0) {
+      if (usesSharedVisibilityGlobally(draft, privacyPlatforms)) {
+        if (draft.visibility === 'unlisted') {
+          issues.push({
+            field: 'visibility',
+            message: 'Unlisted is not available on your Vimeo plan. Choose Public or Private.',
+          });
+        }
+      } else if (effectiveVisibilityForPlatform(draft, 'vimeo') === 'unlisted') {
+        issues.push({
+          field: 'visibility:vimeo',
+          message: 'Unlisted is not available on your Vimeo plan. Choose Public or Private.',
+        });
+      }
+    }
   }
 
   return issues;

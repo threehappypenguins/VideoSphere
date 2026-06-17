@@ -336,10 +336,6 @@ export default function DraftsPage() {
       closeAfterSave?: boolean;
     }): Promise<{ saved: boolean; draftId?: string; message?: string }> => {
       if (!editingDraft) return { saved: false };
-      if (editingDraft.title.trim() === '') {
-        toast.error('Title is required');
-        return { saved: false };
-      }
       if (editingDraft.targets.length === 0) {
         toast.error('Select at least one target platform');
         return { saved: false };
@@ -363,6 +359,11 @@ export default function DraftsPage() {
           const err = (await response.json().catch(() => null)) as { message?: string } | null;
           throw new Error(err?.message ?? 'Failed to update draft');
         }
+        const payload = (await response.json()) as ApiResponse<Draft>;
+        const updatedDraft = payload.data;
+        if (updatedDraft && options?.closeAfterSave !== true) {
+          setEditingDraft(createEditorValues(updatedDraft));
+        }
         if (options?.closeAfterSave === true) {
           setEditingDraft(null);
         }
@@ -383,10 +384,6 @@ export default function DraftsPage() {
       closeAfterSave?: boolean;
     }): Promise<{ saved: boolean; draftId?: string; message?: string }> => {
       if (!creatingDraft) return { saved: false };
-      if (creatingDraft.title.trim() === '') {
-        toast.error('Title is required');
-        return { saved: false };
-      }
       if (creatingDraft.targets.length === 0) {
         toast.error('Select at least one target platform');
         return { saved: false };

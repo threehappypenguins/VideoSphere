@@ -42,6 +42,14 @@ export interface VimeoAccountDefaults {
    * account default is “No Creative Commons License” (upload UI: “Select a license…”).
    */
   license?: VimeoVideoLicense | null;
+  /**
+   * Whether upload privacy `unlisted` is supported for this Vimeo account.
+   * Derived from `membership.type`, `membership.display`, or top-level `account` on `GET /me`.
+   * Omitted when no plan tier could be read.
+   */
+  supportsUnlistedPrivacy?: boolean;
+  /** Resolved plan tier code from `GET /me` when present. */
+  membershipType?: string;
 }
 
 /**

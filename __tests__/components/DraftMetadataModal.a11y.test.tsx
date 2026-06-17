@@ -74,7 +74,7 @@ describe('Draft metadata modal accessibility', () => {
 
     const aiButton = screen.getByRole('button', { name: /generate with ai/i });
     expect(aiButton).toHaveAttribute('aria-describedby', 'draft-ai-metadata-help');
-    expect(screen.getByLabelText(/^title$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^title(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^description$/i)).toBeInTheDocument();
 
     await expectNoAxeViolations(baseElement);

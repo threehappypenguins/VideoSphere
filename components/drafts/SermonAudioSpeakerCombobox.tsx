@@ -28,6 +28,8 @@ interface SermonAudioSpeakerComboboxProps {
   onSpeakerChange: (value: SermonAudioSpeakerValue) => void;
   /** When true, applies invalid styling for upload validation. */
   invalid?: boolean;
+  /** When true, exposes `aria-required` on the combobox search input for assistive technology. */
+  required?: boolean;
   /** Additional classes for the trigger button. */
   className?: string;
 }
@@ -54,6 +56,7 @@ export function SermonAudioSpeakerCombobox({
   speakerID,
   onSpeakerChange,
   invalid = false,
+  required = false,
   className,
 }: SermonAudioSpeakerComboboxProps) {
   const listboxId = useId();
@@ -318,6 +321,7 @@ export function SermonAudioSpeakerCombobox({
               aria-activedescendant={highlightedOptionId}
               aria-autocomplete="list"
               aria-invalid={invalid}
+              aria-required={required || undefined}
             />
           </div>
           <p className="border-b border-border px-3 py-2 text-xs font-medium text-muted-foreground">
