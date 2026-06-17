@@ -43,12 +43,12 @@ export interface VimeoAccountDefaults {
    */
   license?: VimeoVideoLicense | null;
   /**
-   * Whether upload privacy `unlisted` is supported for this Vimeo account
-   * (`membership.type` or legacy `account` on `GET /me`).
-   * Omitted when the plan tier could not be read.
+   * Whether upload privacy `unlisted` is supported for this Vimeo account.
+   * Derived from `membership.type`, `membership.display`, or top-level `account` on `GET /me`.
+   * Omitted when no plan tier could be read.
    */
   supportsUnlistedPrivacy?: boolean;
-  /** Raw plan tier from `membership.type` or legacy `account` on `GET /me` when present. */
+  /** Resolved plan tier code from `GET /me` when present. */
   membershipType?: string;
 }
 

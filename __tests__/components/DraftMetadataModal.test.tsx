@@ -30,7 +30,14 @@ vi.mock('next/image', () => ({
   ),
 }));
 
-function mockVimeoMetadataOptionsResponse() {
+function mockVimeoMetadataOptionsResponse(
+  accountDefaults: Record<string, unknown> = {
+    contentRating: ['safe'],
+    license: null,
+    membershipType: 'basic',
+    supportsUnlistedPrivacy: false,
+  }
+) {
   return {
     ok: true,
     json: async () => ({
@@ -46,10 +53,7 @@ function mockVimeoMetadataOptionsResponse() {
           { code: 'by-nc', name: 'Attribution Non-Commercial' },
           { code: 'by-sa', name: 'Attribution Share Alike' },
         ],
-        accountDefaults: {
-          contentRating: ['safe'],
-          license: null,
-        },
+        accountDefaults,
       },
     }),
   } as Response;
@@ -556,6 +560,14 @@ describe('DraftMetadataModal SermonAudio short title', () => {
 
 describe('DraftMetadataModal privacy field', () => {
   beforeEach(() => {
+    if (!HTMLElement.prototype.hasPointerCapture) {
+      HTMLElement.prototype.hasPointerCapture = () => false;
+      HTMLElement.prototype.setPointerCapture = () => undefined;
+      HTMLElement.prototype.releasePointerCapture = () => undefined;
+    }
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = () => undefined;
+    }
     vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
   });
 
@@ -606,6 +618,34 @@ describe('DraftMetadataModal privacy field', () => {
     await screen.findByRole('dialog');
     expect(screen.getByLabelText(/^Privacy(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.getByTitle(/YouTube and Vimeo share one privacy setting/i)).toBeInTheDocument();
+  });
+
+  it('hides Unlisted for Vimeo-only drafts on basic accounts', async () => {
+    const user = userEvent.setup();
+    render(
+      <DraftMetadataModal
+        mode="edit"
+        value={{
+          ...draftValue,
+          targets: ['vimeo'],
+          platforms: { vimeo: {} },
+        }}
+        initialConnectedPlatforms={['vimeo']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+        onChange={vi.fn()}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    const privacyTrigger = await screen.findByRole('combobox', { name: /^Privacy/i });
+    await user.click(privacyTrigger);
+
+    expect(await screen.findByRole('option', { name: 'Public' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Private' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Unlisted' })).not.toBeInTheDocument();
   });
 });
 

@@ -113,6 +113,7 @@ import {
 } from '@/lib/platforms/vimeo-account-defaults';
 import {
   clampVisibilityForPrivacyUi,
+  resolveVimeoSupportsUnlistedForPrivacyUi,
   visibilityOptionsForPrivacyUi,
 } from '@/lib/platforms/vimeo-membership';
 import {
@@ -1111,6 +1112,9 @@ export function DraftMetadataModal({
     if (draftId) {
       youtubeDefaultsSeededRef.current = null;
       vimeoDefaultsSeededRef.current = null;
+      vimeoMetadataLoadedRef.current = false;
+      setVimeoMetadataLoaded(false);
+      setVimeoAccountDefaults(undefined);
       return;
     }
 
@@ -1211,7 +1215,9 @@ export function DraftMetadataModal({
 
     const loadVimeoMetadataOptions = async () => {
       try {
-        const response = await fetch('/api/platforms/vimeo/metadata-options');
+        const response = await fetch('/api/platforms/vimeo/metadata-options', {
+          cache: 'no-store',
+        });
 
         if (requestId !== vimeoMetadataRequestIdRef.current) {
           return;
@@ -1428,15 +1434,17 @@ export function DraftMetadataModal({
   const showPerPlatformPrivacy =
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
 
-  const vimeoSupportsUnlisted = useMemo(() => {
-    if (!vimeoTargetActive) {
-      return true;
-    }
-    if (!vimeoMetadataLoaded) {
-      return null;
-    }
-    return vimeoAccountDefaults?.supportsUnlistedPrivacy ?? false;
-  }, [vimeoTargetActive, vimeoMetadataLoaded, vimeoAccountDefaults]);
+  const vimeoSupportsUnlisted = useMemo(
+    () =>
+      resolveVimeoSupportsUnlistedForPrivacyUi({
+        vimeoTargetActive,
+        metadataLoaded: vimeoMetadataLoaded,
+        accountDefaults: vimeoAccountDefaults,
+      }),
+    [vimeoTargetActive, vimeoMetadataLoaded, vimeoAccountDefaults]
+  );
+  const vimeoPlanTierUnresolved =
+    vimeoTargetActive && vimeoMetadataLoaded && vimeoSupportsUnlisted === null;
 
   const sharedVisibilityOptions = useMemo(
     () =>
@@ -4200,6 +4208,13 @@ export function DraftMetadataModal({
                       />
                     ) : null}
                   </div>
+                  {vimeoPlanTierUnresolved ? (
+                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                      Could not read your Vimeo plan from the API, so Unlisted may appear even when
+                      your account does not support it. Disconnect and reconnect Vimeo in Settings,
+                      then close and reopen this draft.
+                    </p>
+                  ) : null}
                   {showPerPlatformPrivacy ? (
                     <div className="mt-2 space-y-3">
                       {selectedPrivacyPlatforms.map((platform) => {

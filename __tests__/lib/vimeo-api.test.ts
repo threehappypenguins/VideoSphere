@@ -755,11 +755,9 @@ describe('fetchVimeoAccountDefaults', () => {
           return mockContentRatingsResponse();
         }
         expect(url).toContain('/me');
-        expect(url).toContain(
-          'fields=account%2Cmembership.type%2Cpreferences.videos.license%2Cpreferences.videos.rating'
-        );
 
         return Response.json({
+          account: 'plus',
           preferences: {
             videos: {
               rating: ['safe'],
@@ -777,11 +775,13 @@ describe('fetchVimeoAccountDefaults', () => {
       defaults: {
         contentRating: ['safe'],
         license: 'by-sa',
+        membershipType: 'plus',
+        supportsUnlistedPrivacy: false,
       },
     });
   });
 
-  it('reads legacy account tier from /me when membership.type is absent', async () => {
+  it('requests membership fields on GET /me', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -789,6 +789,10 @@ describe('fetchVimeoAccountDefaults', () => {
         if (url.includes('/contentratings')) {
           return mockContentRatingsResponse();
         }
+        expect(url).toContain('/me');
+        expect(url).toContain(
+          'fields=account%2Cmembership.type%2Cmembership.display%2Cpreferences.videos.license%2Cpreferences.videos.rating'
+        );
 
         return Response.json({
           account: 'basic',
@@ -798,6 +802,72 @@ describe('fetchVimeoAccountDefaults', () => {
             },
           },
         });
+      })
+    );
+
+    await fetchVimeoAccountDefaults('token');
+  });
+
+  it('reads membership.type from /me and resolves unlisted support', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/contentratings')) {
+          return mockContentRatingsResponse();
+        }
+
+        return Response.json({
+          membership: { type: 'free' },
+          preferences: {
+            videos: {
+              rating: ['safe'],
+            },
+          },
+        });
+      })
+    );
+
+    const result = await fetchVimeoAccountDefaults('token');
+
+    expect(result).toEqual({
+      ok: true,
+      defaults: {
+        contentRating: ['safe'],
+        membershipType: 'free',
+        supportsUnlistedPrivacy: false,
+      },
+    });
+  });
+
+  it('falls back to a broader /me fields request when membership.type is omitted', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/contentratings')) {
+          return mockContentRatingsResponse();
+        }
+        if (url.includes('membership.type')) {
+          return Response.json({
+            preferences: {
+              videos: {
+                rating: ['safe'],
+              },
+            },
+          });
+        }
+        if (url.includes('fields=account%2Cmembership%2C')) {
+          return Response.json({
+            account: 'basic',
+            preferences: {
+              videos: {
+                rating: ['safe'],
+              },
+            },
+          });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
       })
     );
 
@@ -823,6 +893,7 @@ describe('fetchVimeoAccountDefaults', () => {
         }
 
         return Response.json({
+          account: 'plus',
           preferences: {
             videos: {
               rating: ['language', 'violence'],
@@ -838,6 +909,8 @@ describe('fetchVimeoAccountDefaults', () => {
       ok: true,
       defaults: {
         contentRating: ['language', 'violence'],
+        membershipType: 'plus',
+        supportsUnlistedPrivacy: false,
       },
     });
   });
@@ -852,6 +925,7 @@ describe('fetchVimeoAccountDefaults', () => {
         }
 
         return Response.json({
+          account: 'plus',
           preferences: {
             videos: {
               license: 'by-sa',
@@ -867,6 +941,8 @@ describe('fetchVimeoAccountDefaults', () => {
       ok: true,
       defaults: {
         license: 'by-sa',
+        membershipType: 'plus',
+        supportsUnlistedPrivacy: false,
       },
     });
   });
@@ -880,6 +956,7 @@ describe('fetchVimeoAccountDefaults', () => {
         expect(url).not.toContain('/contentratings');
 
         return Response.json({
+          account: 'basic',
           preferences: {
             videos: {
               rating: ['safe'],
@@ -903,6 +980,8 @@ describe('fetchVimeoAccountDefaults', () => {
       defaults: {
         contentRating: ['safe'],
         license: 'by-sa',
+        membershipType: 'basic',
+        supportsUnlistedPrivacy: false,
       },
     });
   });
@@ -949,6 +1028,7 @@ describe('fetchVimeoDraftMetadataOptions', () => {
         }
         expect(url).toContain('/me');
         return Response.json({
+          account: 'basic',
           preferences: {
             videos: {
               rating: ['safe'],
@@ -985,6 +1065,8 @@ describe('fetchVimeoDraftMetadataOptions', () => {
         accountDefaults: {
           contentRating: ['safe'],
           license: null,
+          membershipType: 'basic',
+          supportsUnlistedPrivacy: false,
         },
       },
     });

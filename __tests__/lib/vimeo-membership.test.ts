@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   readMembershipTypeFromMeBody,
+  resolveVimeoSupportsUnlistedForPrivacyUi,
   shouldIncludeUnlistedVisibilityOption,
   vimeoMembershipTypeSupportsUnlistedPrivacy,
   visibilityOptionsForPrivacyUi,
@@ -12,22 +13,72 @@ describe('vimeoMembershipTypeSupportsUnlistedPrivacy', () => {
     expect(vimeoMembershipTypeSupportsUnlistedPrivacy('basic')).toBe(false);
   });
 
-  it('returns true for paid memberships that support unlisted uploads', () => {
+  it('returns true only for Starter, Standard, and Advanced', () => {
     expect(vimeoMembershipTypeSupportsUnlistedPrivacy('starter')).toBe(true);
     expect(vimeoMembershipTypeSupportsUnlistedPrivacy('standard')).toBe(true);
     expect(vimeoMembershipTypeSupportsUnlistedPrivacy('advanced')).toBe(true);
-    expect(vimeoMembershipTypeSupportsUnlistedPrivacy('pro_unlimited')).toBe(true);
+  });
+
+  it('returns false for other paid tiers that are not Starter/Standard/Advanced', () => {
+    expect(vimeoMembershipTypeSupportsUnlistedPrivacy('plus')).toBe(false);
+    expect(vimeoMembershipTypeSupportsUnlistedPrivacy('pro')).toBe(false);
+    expect(vimeoMembershipTypeSupportsUnlistedPrivacy('pro_unlimited')).toBe(false);
+    expect(vimeoMembershipTypeSupportsUnlistedPrivacy('business')).toBe(false);
   });
 });
 
 describe('readMembershipTypeFromMeBody', () => {
   it('reads membership.type from /me', () => {
     expect(readMembershipTypeFromMeBody({ membership: { type: 'free' } })).toBe('free');
+    expect(readMembershipTypeFromMeBody({ membership: { type: 'starter' } })).toBe('starter');
   });
 
-  it('falls back to legacy account when membership.type is absent', () => {
+  it('reads membership.display when type is absent', () => {
+    expect(readMembershipTypeFromMeBody({ membership: { display: 'Free' } })).toBe('free');
+    expect(readMembershipTypeFromMeBody({ membership: { display: 'Business Live' } })).toBe(
+      'live_business'
+    );
+  });
+
+  it('reads top-level account when membership fields are absent', () => {
     expect(readMembershipTypeFromMeBody({ account: 'basic' })).toBe('basic');
-    expect(readMembershipTypeFromMeBody({ membership: {}, account: 'pro' })).toBe('pro');
+  });
+
+  it('returns undefined when no plan tier fields are present', () => {
+    expect(readMembershipTypeFromMeBody({})).toBeUndefined();
+    expect(readMembershipTypeFromMeBody({ membership: {} })).toBeUndefined();
+  });
+});
+
+describe('resolveVimeoSupportsUnlistedForPrivacyUi', () => {
+  it('returns null while metadata is loading', () => {
+    expect(
+      resolveVimeoSupportsUnlistedForPrivacyUi({
+        vimeoTargetActive: true,
+        metadataLoaded: false,
+        accountDefaults: undefined,
+      })
+    ).toBeNull();
+  });
+
+  it('returns explicit supportsUnlistedPrivacy when membership was resolved', () => {
+    expect(
+      resolveVimeoSupportsUnlistedForPrivacyUi({
+        vimeoTargetActive: true,
+        metadataLoaded: true,
+        accountDefaults: { supportsUnlistedPrivacy: false, membershipType: 'free' },
+      })
+    ).toBe(false);
+  });
+
+  it('returns null when metadata loaded but membership.type was not returned', () => {
+    expect(
+      resolveVimeoSupportsUnlistedForPrivacyUi({
+        vimeoTargetActive: true,
+        metadataLoaded: true,
+        accountDefaults: { license: 'by-sa' },
+      })
+    ).toBeNull();
   });
 });
 
@@ -98,5 +149,15 @@ describe('visibilityOptionsForPrivacyUi', () => {
         selectedPrivacyPlatforms: ['vimeo'],
       }).map((option) => option.value)
     ).toEqual(['public', 'private']);
+  });
+
+  it('shows unlisted when Vimeo support is unknown after metadata load', () => {
+    expect(
+      visibilityOptionsForPrivacyUi({
+        scope: 'vimeo',
+        vimeoSupportsUnlisted: null,
+        selectedPrivacyPlatforms: ['vimeo'],
+      }).map((option) => option.value)
+    ).toEqual(['public', 'unlisted', 'private']);
   });
 });
