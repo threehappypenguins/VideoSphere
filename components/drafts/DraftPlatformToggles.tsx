@@ -1,3 +1,6 @@
+'use client';
+
+import { useId } from 'react';
 import { PlatformIcon, isPlatformBrandIcon } from '@/components/icons/PlatformIcon';
 import type { ConnectedAccountPlatform } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
@@ -28,6 +31,7 @@ export function DraftPlatformToggles({
   youtubeIsShort,
   onYouTubeShortsToggle,
 }: DraftPlatformTogglesProps) {
+  const instanceId = useId();
   const connectedSet = new Set(connectedPlatforms);
 
   return (
@@ -37,7 +41,8 @@ export function DraftPlatformToggles({
           const isConnected = !connectionsResolved || connectedSet.has(platform);
           const isSelected = selectedPlatforms.includes(platform);
           const canToggle = isConnected || isSelected;
-          const switchId = `draft-platform-toggle-${platform}`;
+          const switchId = `${instanceId}-platform-toggle-${platform}`;
+          const youtubeShortsToggleId = `${switchId}-shorts`;
           return (
             <div
               key={platform}
@@ -77,11 +82,11 @@ export function DraftPlatformToggles({
                       Shorts
                     </span>
                     <label
-                      htmlFor="draft-youtube-shorts-toggle"
+                      htmlFor={youtubeShortsToggleId}
                       className="relative inline-flex cursor-pointer items-center"
                     >
                       <input
-                        id="draft-youtube-shorts-toggle"
+                        id={youtubeShortsToggleId}
                         type="checkbox"
                         aria-label="Upload as YouTube Short"
                         checked={youtubeIsShort}
