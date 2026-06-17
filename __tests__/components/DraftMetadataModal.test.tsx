@@ -580,7 +580,7 @@ describe('DraftMetadataModal SermonAudio short title', () => {
     );
 
     await screen.findByRole('dialog');
-    expect(screen.getByText(/^Language$/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Language(\s*\*)?$/i)).toBeInTheDocument();
     expect(
       screen.getByText(
         /Specify the correct language in which the sermon was preached to help people find it in their native language/i
