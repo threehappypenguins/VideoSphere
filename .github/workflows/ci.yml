@@ -4,13 +4,17 @@ on:
   issue_comment:
     types: [created]
 
+# Must match the required status check name configured in branch protection.
+env:
+  CHECK_NAME: Lint, Type Check, Build & Test
+
 jobs:
   ci:
     name: Lint, Type Check, Build & Test
     if: >-
       ${{
         github.event.issue.pull_request &&
-        github.event.comment.body == '/ci' &&
+        trim(github.event.comment.body) == '/ci' &&
         contains(
           fromJson('["OWNER","MEMBER","COLLABORATOR"]'),
           github.event.comment.author_association
@@ -22,13 +26,48 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      checks: write
 
     steps:
-      - name: Checkout PR branch
+      - name: Resolve PR head SHA
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput('sha', pr.head.sha);
+
+      - name: Start PR check
+        id: check
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+          CHECK_NAME: ${{ env.CHECK_NAME }}
+        with:
+          script: |
+            const { data: check } = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: process.env.CHECK_NAME,
+              head_sha: process.env.HEAD_SHA,
+              status: 'in_progress',
+              started_at: new Date().toISOString(),
+              output: {
+                title: 'CI in progress',
+                summary: 'Triggered by `/ci` on this pull request.',
+              },
+            });
+            core.setOutput('id', String(check.id));
+
+      - name: Checkout PR commit
         uses: actions/checkout@v5
         with:
           repository: ${{ github.event.repository.full_name }}
-          ref: refs/pull/${{ github.event.issue.number }}/head
+          ref: ${{ steps.pr.outputs.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -61,3 +100,42 @@ jobs:
 
       - name: Accessibility tests
         run: pnpm test:a11y
+
+      - name: Complete PR check
+        if: always() && steps.check.outputs.id != ''
+        uses: actions/github-script@v7
+        env:
+          CHECK_RUN_ID: ${{ steps.check.outputs.id }}
+          CHECK_NAME: ${{ env.CHECK_NAME }}
+          JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const conclusion =
+              process.env.JOB_STATUS === 'success'
+                ? 'success'
+                : process.env.JOB_STATUS === 'cancelled'
+                  ? 'cancelled'
+                  : 'failure';
+
+            const summaryByConclusion = {
+              success: 'CI passed.',
+              failure: 'CI failed. See the workflow log for details.',
+              cancelled: 'CI was cancelled.',
+            };
+
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: Number(process.env.CHECK_RUN_ID),
+              status: 'completed',
+              conclusion,
+              completed_at: new Date().toISOString(),
+              details_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              output: {
+                title:
+                  conclusion === 'success'
+                    ? `${process.env.CHECK_NAME} passed`
+                    : `${process.env.CHECK_NAME} ${conclusion}`,
+                summary: summaryByConclusion[conclusion],
+              },
+            });
