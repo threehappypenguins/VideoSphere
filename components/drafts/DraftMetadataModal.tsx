@@ -2758,18 +2758,27 @@ export function DraftMetadataModal({
     const canUpdateThumbnailUi = () => isMountedRef.current && !isCancelled();
     const scopeInput = thumbnailInputRefs.current[scope];
 
-    if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
-      toast.error(draftThumbnailMaxSizeExceededMessage());
+    const rejectThumbnailSelection = (message: string) => {
+      toast.error(message);
       thumbnailRequestAbortRef.current = null;
       if (scopeInput) scopeInput.value = '';
+      setThumbnailFileNames((prev) => {
+        if (!(scope in prev)) return prev;
+        const next = { ...prev };
+        delete next[scope];
+        return next;
+      });
+    };
+
+    if (file.size > MAX_DRAFT_THUMBNAIL_BYTES) {
+      rejectThumbnailSelection(draftThumbnailMaxSizeExceededMessage());
       return;
     }
     if (!isAllowedDraftThumbnailContentType(file.type)) {
-      toast.error(DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE);
-      thumbnailRequestAbortRef.current = null;
-      if (scopeInput) scopeInput.value = '';
+      rejectThumbnailSelection(DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE);
       return;
     }
+    setThumbnailFileNames((prev) => ({ ...prev, [scope]: file.name }));
     setThumbnailUploadScope(scope);
     setThumbnailUploadProgress(0);
     try {
@@ -4631,10 +4640,6 @@ export function DraftMetadataModal({
                                   onChange={(event) => {
                                     const file = event.target.files?.[0];
                                     if (file) {
-                                      setThumbnailFileNames((prev) => ({
-                                        ...prev,
-                                        [scope]: file.name,
-                                      }));
                                       requestAnimationFrame(() => {
                                         thumbnailSectionRef.current?.focus();
                                       });
@@ -4712,7 +4717,6 @@ export function DraftMetadataModal({
                             onChange={(event) => {
                               const file = event.target.files?.[0];
                               if (file) {
-                                setThumbnailFileNames((prev) => ({ ...prev, shared: file.name }));
                                 requestAnimationFrame(() => {
                                   thumbnailSectionRef.current?.focus();
                                 });

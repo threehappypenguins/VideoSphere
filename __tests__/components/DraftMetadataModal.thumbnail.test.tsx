@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
+import { MAX_DRAFT_THUMBNAIL_BYTES } from '@/lib/draft-thumbnail';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
 
 vi.mock('next/navigation', () => ({
@@ -277,6 +278,58 @@ describe('DraftMetadataModal thumbnail upload regressions', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('does not keep rejected oversized thumbnail filename in the selection label', async () => {
+    const user = userEvent.setup();
+    renderThumbnailModal();
+
+    await screen.findByRole('dialog');
+
+    const videoInput = document.getElementById('draft-video-file') as HTMLInputElement;
+    await user.upload(
+      videoInput,
+      new File([new Uint8Array([0, 1, 2])], 'sermon.mp4', { type: 'video/mp4' })
+    );
+
+    const oversized = new File([new Uint8Array(MAX_DRAFT_THUMBNAIL_BYTES + 1)], 'huge-thumb.jpg', {
+      type: 'image/jpeg',
+    });
+    const input = document.getElementById('draft-thumbnail-file-shared') as HTMLInputElement;
+    await user.upload(input, oversized);
+
+    expect(toast.error).toHaveBeenCalled();
+    expect(screen.queryByText('huge-thumb.jpg')).not.toBeInTheDocument();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalledWith(
+      expect.stringContaining('/thumbnail/presign'),
+      expect.anything()
+    );
+  });
+
+  it('does not keep rejected disallowed-type thumbnail filename in the selection label', async () => {
+    const user = userEvent.setup();
+    renderThumbnailModal();
+
+    await screen.findByRole('dialog');
+
+    const videoInput = document.getElementById('draft-video-file') as HTMLInputElement;
+    await user.upload(
+      videoInput,
+      new File([new Uint8Array([0, 1, 2])], 'sermon.mp4', { type: 'video/mp4' })
+    );
+
+    const invalidType = new File([new Uint8Array([0x47, 0x49, 0x46])], 'animation.gif', {
+      type: 'image/gif',
+    });
+    const input = document.getElementById('draft-thumbnail-file-shared') as HTMLInputElement;
+    await user.upload(input, invalidType);
+
+    expect(toast.error).toHaveBeenCalled();
+    expect(screen.queryByText('animation.gif')).not.toBeInTheDocument();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalledWith(
+      expect.stringContaining('/thumbnail/presign'),
+      expect.anything()
+    );
   });
 
   it('keeps Save draft enabled but disables Upload & Save while a thumbnail PUT is in progress', async () => {
