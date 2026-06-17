@@ -409,6 +409,33 @@ describe('draft-upload-metadata', () => {
     );
   });
 
+  it('buildMetadataForPlatform falls back to shared thumbnail when override is null', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube', 'vimeo'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      thumbnailR2Key: 'draft-thumbnails/u1/d1/shared.jpg',
+      thumbnailContentType: 'image/jpeg',
+      platforms: {
+        youtube: {
+          thumbnailR2KeyOverride: null,
+          thumbnailContentTypeOverride: null,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').thumbnailR2Key).toBe(
+      'draft-thumbnails/u1/d1/shared.jpg'
+    );
+    expect(buildMetadataForPlatform(draft, 'youtube').thumbnailContentType).toBe('image/jpeg');
+  });
+
   it('normalizeDraftPlatforms preserves explicit empty thumbnailR2KeyOverride', () => {
     expect(
       normalizeDraftPlatforms({

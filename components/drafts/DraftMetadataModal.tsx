@@ -208,10 +208,6 @@ type TagOverridePlatform = (typeof TAG_OVERRIDE_PLATFORMS)[number];
 type CopyOverridePatch = Pick<PerPlatformCopyOverrides, 'titleOverride' | 'descriptionOverride'>;
 type TagOverridePatch = Pick<PerPlatformCopyOverrides, 'tagsOverride'>;
 type PrivacyOverridePatch = Pick<PerPlatformOverrides, 'visibilityOverride'>;
-type ThumbnailOverridePatch = Pick<
-  PerPlatformOverrides,
-  'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride' | 'thumbnailPreviewUrlOverride'
->;
 
 const OVERRIDE_PLATFORM_ORDER: OverridePlatform[] = [
   'youtube',
@@ -1630,23 +1626,6 @@ export function DraftMetadataModal({
   const updatePrivacyOverridePlatformFields = (
     platform: PrivacyPlatform,
     patch: Partial<PrivacyOverridePatch>
-  ) => {
-    if (!value) return;
-    onChange({
-      ...value,
-      platforms: {
-        ...value.platforms,
-        [platform]: {
-          ...value.platforms[platform],
-          ...patch,
-        },
-      },
-    });
-  };
-
-  const updateThumbnailOverridePlatformFields = (
-    platform: DraftThumbnailPlatform,
-    patch: Partial<ThumbnailOverridePatch>
   ) => {
     if (!value) return;
     onChange({

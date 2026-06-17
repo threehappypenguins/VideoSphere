@@ -925,15 +925,19 @@ function resolveThumbnailForPlatform(
   >
 ): { thumbnailR2Key?: string; thumbnailContentType?: string } {
   if (platformFields && 'thumbnailR2KeyOverride' in platformFields) {
-    const overrideKey = platformFields.thumbnailR2KeyOverride?.trim();
-    if (!overrideKey) {
-      return {};
+    const rawOverride = platformFields.thumbnailR2KeyOverride;
+    if (rawOverride !== null && rawOverride !== undefined) {
+      const overrideKey = rawOverride.trim();
+      if (overrideKey === '') {
+        return {};
+      }
+      const rawType = platformFields.thumbnailContentTypeOverride;
+      const overrideType = typeof rawType === 'string' ? rawType.trim() : '';
+      return {
+        thumbnailR2Key: overrideKey,
+        ...(overrideType ? { thumbnailContentType: overrideType } : {}),
+      };
     }
-    const overrideType = platformFields.thumbnailContentTypeOverride?.trim();
-    return {
-      thumbnailR2Key: overrideKey,
-      ...(overrideType ? { thumbnailContentType: overrideType } : {}),
-    };
   }
   const thumbnailR2Key = draft.thumbnailR2Key?.trim() || undefined;
   const thumbnailContentType = draft.thumbnailContentType?.trim() || undefined;
