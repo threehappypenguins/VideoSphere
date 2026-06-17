@@ -301,7 +301,7 @@ export interface SermonAudioDraftFields
   bibleText?: string;
   /** Short title when the full title is long (SA `displayTitle`; not the series name). */
   displayTitle?: string;
-  /** Language code (e.g. ISO 639-1). */
+  /** Language code from `GET /v2/node/languages` (SA `languageCode`; defaults to `en`). */
   languageCode?: string;
   /** When not explicitly false, publish automatically after SA video processing completes (defaults to on). */
   autoPublishOnProcessed?: boolean;

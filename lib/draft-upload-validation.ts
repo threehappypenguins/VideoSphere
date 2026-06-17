@@ -139,6 +139,12 @@ export function validateDraftForUpload(
       sa?.eventType,
       'Event category is required for SermonAudio before upload.'
     );
+    pushIfEmpty(
+      issues,
+      'sermon_audio.languageCode',
+      sa?.languageCode,
+      'Language is required for SermonAudio before upload.'
+    );
   }
 
   if (draft.targets.includes('vimeo') && draft.vimeoSupportsUnlistedPrivacy === false) {

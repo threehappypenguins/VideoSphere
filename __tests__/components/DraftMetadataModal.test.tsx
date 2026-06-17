@@ -67,6 +67,17 @@ function mockFetchWithVimeoMetadataOptions(
     if (url.includes('/api/platforms/vimeo/metadata-options')) {
       return mockVimeoMetadataOptionsResponse();
     }
+    if (url.includes('/api/platforms/sermon-audio/languages')) {
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            { code: 'en', name: 'English' },
+            { code: 'es', name: 'Español' },
+          ],
+        }),
+      } as Response;
+    }
     const custom = handler?.(url);
     if (custom) {
       return custom;
@@ -555,6 +566,33 @@ describe('DraftMetadataModal SermonAudio short title', () => {
     await user.click(shortTitleInput);
     await user.paste('C'.repeat(40));
     expect(shortTitleInput).toHaveValue('C'.repeat(30));
+  });
+
+  it('shows the SermonAudio language field with help text and defaults to English', async () => {
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          targets: ['sermon_audio'],
+          platforms: { sermon_audio: {} },
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.getByText(/^Language$/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Specify the correct language in which the sermon was preached to help people find it in their native language/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Sermon language cannot be changed once media is uploaded/i)
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(document.getElementById('draft-sermon-audio-language')).toHaveTextContent('English');
+    });
   });
 });
 

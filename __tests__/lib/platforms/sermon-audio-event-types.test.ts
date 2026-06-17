@@ -36,10 +36,11 @@ describe('mergeSermonAudioDefaultFields', () => {
     vi.unstubAllEnvs();
   });
 
-  it('defaults preachDate and eventType when unset', () => {
+  it('defaults preachDate, eventType, and languageCode when unset', () => {
     const patch = mergeSermonAudioDefaultFields({});
     expect(patch.preachDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(patch.eventType).toBe('Sunday Service');
+    expect(patch.languageCode).toBe('en');
   });
 
   it('defaults preachDate using the local calendar date, not UTC', () => {
@@ -56,6 +57,7 @@ describe('mergeSermonAudioDefaultFields', () => {
       mergeSermonAudioDefaultFields({
         preachDate: '2026-01-01',
         eventType: 'Bible Study',
+        languageCode: 'es',
       })
     ).toEqual({});
   });
