@@ -287,7 +287,9 @@ function platformUsesSharedVisibility(fields: PerPlatformOverrides | undefined):
 }
 
 function platformUsesSharedThumbnail(fields: PerPlatformOverrides | undefined): boolean {
-  return fields?.thumbnailR2KeyOverride === undefined;
+  if (!fields || !('thumbnailR2KeyOverride' in fields)) return true;
+  const key = fields.thumbnailR2KeyOverride;
+  return key === undefined || key === null;
 }
 
 function sortOverridePlatforms(platforms: OverridePlatform[]): OverridePlatform[] {
@@ -1725,15 +1727,16 @@ export function DraftMetadataModal({
 
       if (useShared) {
         const {
-          thumbnailR2KeyOverride,
-          thumbnailContentTypeOverride,
-          thumbnailPreviewUrlOverride,
+          thumbnailR2KeyOverride: _thumbnailR2KeyOverride,
+          thumbnailContentTypeOverride: _thumbnailContentTypeOverride,
+          thumbnailPreviewUrlOverride: _thumbnailPreviewUrlOverride,
           ...rest
         } = current;
-        next =
-          Object.keys(rest).length > 0
-            ? (rest as NonNullable<DraftPlatforms[DraftThumbnailPlatform]>)
-            : undefined;
+        next = {
+          ...rest,
+          thumbnailR2KeyOverride: null,
+          thumbnailContentTypeOverride: null,
+        } as NonNullable<DraftPlatforms[DraftThumbnailPlatform]>;
       } else {
         next = {
           ...current,

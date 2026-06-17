@@ -135,6 +135,18 @@ function trimStr(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
 }
 
+/**
+ * Normalizes a thumbnail override string when the key is present on stored draft JSON.
+ * Preserves an explicit empty string so per-platform "no thumbnail" round-trips reliably.
+ * @param v - Raw field value from draft document JSON.
+ * @returns Trimmed key, `''` when explicitly empty, or `undefined` when not a string.
+ */
+function normalizePresentThumbnailOverrideString(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const trimmed = v.trim();
+  return trimmed === '' ? '' : trimmed;
+}
+
 function stringList(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out = v
@@ -178,13 +190,27 @@ function normalizePerPlatformCopyOverrides(
 function normalizeThumbnailOverrideFields(
   o: Record<string, unknown>
 ): Pick<PerPlatformOverrides, 'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride'> {
-  const thumbnailR2KeyOverride = trimStr(o.thumbnailR2KeyOverride);
-  const thumbnailContentTypeOverride = trimStr(o.thumbnailContentTypeOverride);
+  const out: Pick<PerPlatformOverrides, 'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride'> =
+    {};
 
-  return {
-    ...(thumbnailR2KeyOverride !== undefined ? { thumbnailR2KeyOverride } : {}),
-    ...(thumbnailContentTypeOverride !== undefined ? { thumbnailContentTypeOverride } : {}),
-  };
+  if ('thumbnailR2KeyOverride' in o) {
+    const thumbnailR2KeyOverride = normalizePresentThumbnailOverrideString(
+      o.thumbnailR2KeyOverride
+    );
+    if (thumbnailR2KeyOverride !== undefined) {
+      out.thumbnailR2KeyOverride = thumbnailR2KeyOverride;
+    }
+  }
+  if ('thumbnailContentTypeOverride' in o) {
+    const thumbnailContentTypeOverride = normalizePresentThumbnailOverrideString(
+      o.thumbnailContentTypeOverride
+    );
+    if (thumbnailContentTypeOverride !== undefined) {
+      out.thumbnailContentTypeOverride = thumbnailContentTypeOverride;
+    }
+  }
+
+  return out;
 }
 
 function normalizePerPlatformOverrideFields(
@@ -921,12 +947,21 @@ function applyThumbnailOverridePatch<T extends PerPlatformOverrides>(
   const next = { ...fields };
   if ('thumbnailR2KeyOverride' in patch) {
     const s = patch.thumbnailR2KeyOverride;
-    next.thumbnailR2KeyOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    if (typeof s === 'string') {
+      const trimmed = s.trim();
+      next.thumbnailR2KeyOverride = trimmed === '' ? '' : trimmed;
+    } else {
+      delete next.thumbnailR2KeyOverride;
+    }
   }
   if ('thumbnailContentTypeOverride' in patch) {
     const s = patch.thumbnailContentTypeOverride;
-    next.thumbnailContentTypeOverride =
-      typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    if (typeof s === 'string') {
+      const trimmed = s.trim();
+      next.thumbnailContentTypeOverride = trimmed === '' ? '' : trimmed;
+    } else {
+      delete next.thumbnailContentTypeOverride;
+    }
   }
   return next;
 }

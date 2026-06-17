@@ -17,9 +17,11 @@ import {
   DraftDocumentTooLargeError,
   isPlatformUploadVisibility,
   MAX_DRAFT_TITLE_LENGTH,
+  mergeDraftPlatformsPatch,
   parseDraftPlatformsPatchBody,
   parseDraftTargetsFromRequestBody,
   parseTagsFromRequestBody,
+  resolveDraftTitleForStorage,
 } from '@/lib/draft-upload-metadata';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
@@ -270,6 +272,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       const errRes: ApiError = {
         error: 'Bad Request',
         message: platformsPatchParse.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+  }
+
+  if (title !== undefined || targets !== undefined || platforms !== undefined) {
+    const mergedPlatforms =
+      platformsPatchParse?.ok === true
+        ? mergeDraftPlatformsPatch(existing.platforms, platformsPatchParse.value)
+        : existing.platforms;
+    const mergedTitle =
+      title !== undefined && typeof title === 'string' ? title.trim() : existing.title;
+    const mergedTargets = parsedTargets?.ok === true ? parsedTargets.value : [...existing.targets];
+
+    const resolvedTitle = resolveDraftTitleForStorage({
+      title: mergedTitle,
+      targets: mergedTargets,
+      platforms: mergedPlatforms,
+    });
+
+    if (resolvedTitle.length > MAX_DRAFT_TITLE_LENGTH) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: `title must be at most ${MAX_DRAFT_TITLE_LENGTH} characters (YouTube limit)`,
         statusCode: 400,
       };
       return NextResponse.json(errRes, { status: 400 });

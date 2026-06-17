@@ -276,6 +276,32 @@ describe('PATCH /api/drafts/[id]', () => {
       expect(body.message).toMatch(/100|YouTube/i);
     });
 
+    it(`returns 400 when resolved title from platform override exceeds ${MAX_DRAFT_TITLE_LENGTH} characters`, async () => {
+      vi.mocked(getDraftById).mockResolvedValueOnce({
+        ...baseDraft,
+        title: '',
+        targets: ['youtube'],
+      });
+
+      const res = await PATCH(
+        makeRequest(
+          'PATCH',
+          {
+            platforms: {
+              youtube: { titleOverride: 'y'.repeat(MAX_DRAFT_TITLE_LENGTH + 1) },
+            },
+          },
+          { [SESSION_COOKIE]: 'tok' }
+        ),
+        makeParams()
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.message).toMatch(/100|YouTube/i);
+      expect(updateDraft).not.toHaveBeenCalled();
+    });
+
     it('returns 400 when platforms is not an object', async () => {
       const res = await PATCH(
         makeRequest('PATCH', { platforms: 'bad' }, { [SESSION_COOKIE]: 'tok' }),

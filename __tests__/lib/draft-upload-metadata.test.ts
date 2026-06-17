@@ -409,6 +409,97 @@ describe('draft-upload-metadata', () => {
     );
   });
 
+  it('normalizeDraftPlatforms preserves explicit empty thumbnailR2KeyOverride', () => {
+    expect(
+      normalizeDraftPlatforms({
+        youtube: { thumbnailR2KeyOverride: '' },
+        facebook: {
+          thumbnailR2KeyOverride: '',
+          thumbnailContentTypeOverride: '',
+        },
+      })
+    ).toEqual({
+      youtube: { thumbnailR2KeyOverride: '' },
+      facebook: {
+        thumbnailR2KeyOverride: '',
+        thumbnailContentTypeOverride: '',
+      },
+    });
+  });
+
+  it('draftDocumentFromRow preserves explicit empty thumbnailR2KeyOverride', () => {
+    const doc = draftDocumentFromRow({
+      document: JSON.stringify({
+        targets: ['youtube'],
+        title: 'T',
+        description: 'D',
+        visibility: 'public',
+        tags: [],
+        thumbnailR2Key: 'draft-thumbnails/u1/d1/shared.jpg',
+        platforms: {
+          youtube: { thumbnailR2KeyOverride: '' },
+        },
+      }),
+    });
+
+    expect(doc.platforms.youtube).toEqual({ thumbnailR2KeyOverride: '' });
+    expect(doc.thumbnailR2Key).toBe('draft-thumbnails/u1/d1/shared.jpg');
+  });
+
+  it('mergeDraftPlatformsPatch preserves explicit empty thumbnailR2KeyOverride', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        {
+          youtube: {
+            thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/youtube.jpg',
+            thumbnailContentTypeOverride: 'image/jpeg',
+          },
+        },
+        {
+          youtube: {
+            thumbnailR2KeyOverride: '',
+            thumbnailContentTypeOverride: '',
+          },
+        }
+      )
+    ).toEqual({
+      youtube: {
+        thumbnailR2KeyOverride: '',
+        thumbnailContentTypeOverride: '',
+      },
+    });
+  });
+
+  it('mergeDraftPlatformsPatch clears thumbnail overrides when patch sends null', () => {
+    expect(
+      mergeDraftPlatformsPatch(
+        {
+          youtube: {
+            categoryId: '22',
+            thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/youtube.jpg',
+            thumbnailContentTypeOverride: 'image/jpeg',
+          },
+          facebook: {
+            thumbnailR2KeyOverride: 'draft-thumbnails/u1/d1/fb.jpg',
+          },
+        },
+        {
+          youtube: {
+            thumbnailR2KeyOverride: null,
+            thumbnailContentTypeOverride: null,
+          },
+          facebook: {
+            thumbnailR2KeyOverride: null,
+            thumbnailContentTypeOverride: null,
+          },
+        }
+      )
+    ).toEqual({
+      youtube: { categoryId: '22' },
+      facebook: {},
+    });
+  });
+
   it('buildMetadataForPlatform passes playlistTitles and playlistIds for YouTube', () => {
     const draft: Draft = {
       id: 'd1',
