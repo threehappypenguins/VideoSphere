@@ -4776,13 +4776,18 @@ export function DraftMetadataModal({
                   ref={fileInputRef}
                   type="file"
                   accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.avi,.mkv,.webm"
-                  onChange={(event) => setVideoFile(event.target.files?.[0] ?? null)}
+                  onChange={(event) => {
+                    if (uploadComplete || uploading) return;
+                    setVideoFile(event.target.files?.[0] ?? null);
+                  }}
                   className="hidden"
                 />
                 <button
                   type="button"
+                  aria-label="Choose video file"
+                  disabled={uploadComplete || uploading}
                   onClick={() => fileInputRef.current?.click()}
-                  className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                 >
                   Choose file
                 </button>

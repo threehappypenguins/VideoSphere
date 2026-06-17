@@ -1,0 +1,185 @@
+/**
+ * Regression tests for draft video upload behavior in DraftMetadataModal.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
+vi.mock('next/link', () => ({
+  default: ({ children, href, ...rest }: any) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+vi.mock('next/image', () => ({
+  default: ({ alt, priority: _priority, ...rest }: any) => (
+    <span role="img" aria-label={alt} {...rest} />
+  ),
+}));
+
+vi.mock('sonner', () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+type XhrListener = (...args: unknown[]) => void;
+
+/** Minimal XMLHttpRequest stand-in for presigned R2 PUT uploads. */
+class MockXMLHttpRequest {
+  static readonly instances: MockXMLHttpRequest[] = [];
+
+  status = 0;
+  upload = {
+    listeners: new Map<string, XhrListener[]>(),
+    addEventListener(type: string, cb: XhrListener) {
+      const bucket = this.listeners.get(type) ?? [];
+      bucket.push(cb);
+      this.listeners.set(type, bucket);
+    },
+  };
+
+  private readonly listeners = new Map<string, XhrListener[]>();
+
+  constructor() {
+    MockXMLHttpRequest.instances.push(this);
+  }
+
+  open = vi.fn();
+  setRequestHeader = vi.fn();
+  abort = vi.fn(() => {
+    this.dispatch('abort');
+  });
+  send = vi.fn();
+
+  addEventListener(type: string, cb: XhrListener) {
+    const bucket = this.listeners.get(type) ?? [];
+    bucket.push(cb);
+    this.listeners.set(type, bucket);
+  }
+
+  dispatch(type: string, ...args: unknown[]) {
+    for (const cb of this.listeners.get(type) ?? []) {
+      cb(...args);
+    }
+  }
+
+  simulateSuccess(status = 200) {
+    this.status = status;
+    this.dispatch('load');
+  }
+}
+
+const draftValue: DraftEditorValues = {
+  id: 'draft-video-regression',
+  title: 'Regression draft title',
+  description: '',
+  tags: [],
+  visibility: 'public',
+  targets: ['youtube'],
+  platforms: {},
+};
+
+const VIDEO_PRESIGN_URL = 'https://r2.example/presigned-video-put';
+const VIDEO_UPLOAD_JOB_ID = 'upload-job-video-regression';
+
+function mockVideoUploadFetch() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+
+      if (url.includes('/api/uploads/presign') && init?.method === 'POST') {
+        return {
+          ok: true,
+          json: async () => ({
+            uploadUrl: VIDEO_PRESIGN_URL,
+            uploadJobId: VIDEO_UPLOAD_JOB_ID,
+          }),
+        } as Response;
+      }
+
+      if (url.includes(`/api/uploads/${VIDEO_UPLOAD_JOB_ID}/complete`) && init?.method === 'POST') {
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ data: [] }),
+      } as Response;
+    })
+  );
+}
+
+function renderVideoModal() {
+  render(
+    <DraftMetadataModal
+      mode="edit"
+      value={draftValue}
+      initialConnectedPlatforms={['youtube']}
+      initialConnectionsResolved
+      isSaving={false}
+      onClose={vi.fn()}
+      onSave={vi.fn().mockResolvedValue({
+        saved: true,
+        draftId: draftValue.id,
+        message: 'Draft updated',
+      })}
+      onChange={vi.fn()}
+    />
+  );
+}
+
+function getThumbnailChooseFileButton() {
+  return screen.getAllByRole('button', { name: /^Choose file$/i })[0]!;
+}
+
+describe('DraftMetadataModal video upload regressions', () => {
+  beforeEach(() => {
+    MockXMLHttpRequest.instances.length = 0;
+    vi.stubGlobal('XMLHttpRequest', MockXMLHttpRequest as unknown as typeof XMLHttpRequest);
+    mockVideoUploadFetch();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('disables Choose video file after upload completes while thumbnail Choose file stays enabled', async () => {
+    const user = userEvent.setup();
+    renderVideoModal();
+
+    await screen.findByRole('dialog');
+
+    const videoInput = document.getElementById('draft-video-file') as HTMLInputElement;
+    await user.upload(
+      videoInput,
+      new File([new Uint8Array([0, 1, 2])], 'sermon.mp4', { type: 'video/mp4' })
+    );
+
+    await user.click(screen.getByRole('button', { name: /Upload & Save/i }));
+    await user.click(screen.getByRole('button', { name: /Yes, upload/i }));
+
+    await waitFor(() => {
+      expect(MockXMLHttpRequest.instances.length).toBeGreaterThan(0);
+    });
+
+    MockXMLHttpRequest.instances.at(-1)!.simulateSuccess();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Close/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Choose video file/i })).toBeDisabled();
+      expect(getThumbnailChooseFileButton()).toBeEnabled();
+    });
+  });
+});
