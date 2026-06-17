@@ -165,6 +165,11 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
    * Omitted from upload unless explicitly set.
    */
   recordingDate?: string;
+  /**
+   * When true, marks this draft as a YouTube Short (UI icon + shorts URL on success).
+   * Classification is automatic from format and duration.
+   */
+  isShort?: boolean;
 }
 
 /**

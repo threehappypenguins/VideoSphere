@@ -4,6 +4,7 @@ import { platformLabel } from '@/lib/ui/platform-label';
 import { cn } from '@/lib/utils';
 
 import YoutubeIcon from '@/components/icons/platforms/youtube.svg';
+import YoutubeShortsIcon from '@/components/icons/platforms/youtube-shorts.svg';
 import VimeoIcon from '@/components/icons/platforms/vimeo.svg';
 import SermonAudioIcon from '@/components/icons/platforms/sermon-audio.svg';
 import FacebookIcon from '@/components/icons/platforms/facebook.svg';
@@ -43,6 +44,8 @@ interface PlatformIconProps {
   className?: string;
   /** When true, the icon is hidden from assistive technology. */
   decorative?: boolean;
+  /** When true and platform is 'youtube', render the YouTube Shorts icon instead. */
+  isShort?: boolean;
 }
 
 /**
@@ -55,8 +58,9 @@ export function PlatformIcon({
   size = 28,
   className,
   decorative = true,
+  isShort,
 }: PlatformIconProps) {
-  const Icon = PLATFORM_ICONS[platform];
+  const Icon = platform === 'youtube' && isShort ? YoutubeShortsIcon : PLATFORM_ICONS[platform];
 
   return (
     <Icon
@@ -100,6 +104,8 @@ interface PlatformSectionHeaderProps {
   platform: PlatformBrandIcon;
   /** Optional class names for the header wrapper. */
   className?: string;
+  /** When true and platform is 'youtube', render the YouTube Shorts icon instead. */
+  isShort?: boolean;
 }
 
 /**
@@ -107,10 +113,14 @@ interface PlatformSectionHeaderProps {
  * @param props - Component props.
  * @returns Section header with icon and platform badge.
  */
-export function PlatformSectionHeader({ platform, className }: PlatformSectionHeaderProps) {
+export function PlatformSectionHeader({
+  platform,
+  className,
+  isShort,
+}: PlatformSectionHeaderProps) {
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <PlatformIcon platform={platform} size={36} />
+      <PlatformIcon platform={platform} size={36} isShort={isShort} />
       <PlatformNameBadge platform={platform} className="text-sm" />
     </div>
   );
@@ -123,6 +133,8 @@ interface PlatformOverrideLabelProps {
   suffix?: string;
   /** Optional class names for the label wrapper. */
   className?: string;
+  /** When true and platform is 'youtube', render the YouTube Shorts icon instead. */
+  isShort?: boolean;
 }
 
 /**
@@ -130,10 +142,15 @@ interface PlatformOverrideLabelProps {
  * @param props - Component props.
  * @returns Label content with icon, platform badge, and optional suffix.
  */
-export function PlatformOverrideLabel({ platform, suffix, className }: PlatformOverrideLabelProps) {
+export function PlatformOverrideLabel({
+  platform,
+  suffix,
+  className,
+  isShort,
+}: PlatformOverrideLabelProps) {
   return (
     <span className={cn('inline-flex items-center gap-2', className)}>
-      <PlatformIcon platform={platform} size={28} />
+      <PlatformIcon platform={platform} size={28} isShort={isShort} />
       <PlatformNameBadge platform={platform} />
       {suffix ? <span className="text-xs font-medium text-muted-foreground">{suffix}</span> : null}
     </span>

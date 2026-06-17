@@ -614,6 +614,40 @@ describe('draft-upload-metadata', () => {
     ).toBeUndefined();
   });
 
+  it('mergeDraftPlatformsPatch persists YouTube isShort when true', () => {
+    expect(
+      mergeDraftPlatformsPatch({ youtube: {} }, { youtube: { isShort: true } }).youtube?.isShort
+    ).toBe(true);
+  });
+
+  it('mergeDraftPlatformsPatch clears YouTube isShort when false', () => {
+    expect(
+      mergeDraftPlatformsPatch({ youtube: { isShort: true } }, { youtube: { isShort: false } })
+        .youtube?.isShort
+    ).toBeUndefined();
+  });
+
+  it('buildMetadataForPlatform passes isShort for YouTube when set', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['youtube'],
+      title: 'T',
+      description: 'D',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        youtube: {
+          isShort: true,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'youtube').isShort).toBe(true);
+  });
+
   it('buildMetadataForPlatform passes notifySubscribers for YouTube when set false', () => {
     const draft: Draft = {
       id: 'd1',

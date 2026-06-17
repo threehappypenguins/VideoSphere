@@ -287,6 +287,7 @@ function normalizeYoutubeFields(y: Record<string, unknown>): YouTubeDraftFields 
     ...(recordingDate !== undefined ? { recordingDate } : {}),
     ...(playlistIds !== undefined ? { playlistIds } : {}),
     ...(playlistTitles !== undefined ? { playlistTitles } : {}),
+    ...(y.isShort === true ? { isShort: true } : {}),
   };
 }
 
@@ -691,6 +692,9 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       const s = p.recordingDate;
       yb.recordingDate = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
     }
+    if ('isShort' in p) {
+      yb.isShort = p.isShort === true ? true : undefined;
+    }
     if ('playlistIds' in p) {
       if (Array.isArray(p.playlistIds)) {
         yb.playlistIds = p.playlistIds
@@ -1007,6 +1011,7 @@ export function buildMetadataForPlatform(
       recordingDate: yt?.recordingDate,
       playlistIds: yt?.playlistIds,
       ...(playlistTitles !== undefined && playlistTitles.length > 0 ? { playlistTitles } : {}),
+      isShort: yt?.isShort,
     };
   }
   if (platform === 'vimeo') {

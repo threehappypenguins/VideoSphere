@@ -1,3 +1,6 @@
+'use client';
+
+import { useId } from 'react';
 import { PlatformIcon, isPlatformBrandIcon } from '@/components/icons/PlatformIcon';
 import type { ConnectedAccountPlatform } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
@@ -9,6 +12,8 @@ interface DraftPlatformTogglesProps {
   connectionsResolved: boolean;
   onToggle: (platform: ConnectedAccountPlatform) => void;
   onConnectClick: () => void;
+  youtubeIsShort: boolean;
+  onYouTubeShortsToggle: (value: boolean) => void;
 }
 
 /**
@@ -23,7 +28,10 @@ export function DraftPlatformToggles({
   connectionsResolved,
   onToggle,
   onConnectClick,
+  youtubeIsShort,
+  onYouTubeShortsToggle,
 }: DraftPlatformTogglesProps) {
+  const instanceId = useId();
   const connectedSet = new Set(connectedPlatforms);
 
   return (
@@ -33,7 +41,8 @@ export function DraftPlatformToggles({
           const isConnected = !connectionsResolved || connectedSet.has(platform);
           const isSelected = selectedPlatforms.includes(platform);
           const canToggle = isConnected || isSelected;
-          const switchId = `draft-platform-toggle-${platform}`;
+          const switchId = `${instanceId}-platform-toggle-${platform}`;
+          const youtubeShortsToggleId = `${switchId}-shorts`;
           return (
             <div
               key={platform}
@@ -41,8 +50,13 @@ export function DraftPlatformToggles({
                 canToggle ? '' : 'opacity-80'
               }`}
             >
-              <span className="inline-flex items-center gap-2 text-sm text-foreground">
-                {isPlatformBrandIcon(platform) ? <PlatformIcon platform={platform} /> : null}
+              <span className="inline-flex flex-wrap items-center gap-2 text-sm text-foreground">
+                {isPlatformBrandIcon(platform) ? (
+                  <PlatformIcon
+                    platform={platform}
+                    isShort={platform === 'youtube' && youtubeIsShort}
+                  />
+                ) : null}
                 {platformLabel(platform)}
                 {!isConnected ? (
                   <>
@@ -61,10 +75,33 @@ export function DraftPlatformToggles({
                     </button>
                   </>
                 ) : null}
+                {platform === 'youtube' && isSelected ? (
+                  <>
+                    <span className="mx-0.5 hidden h-4 w-px bg-border sm:inline" aria-hidden />
+                    <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground">
+                      Shorts
+                    </span>
+                    <label
+                      htmlFor={youtubeShortsToggleId}
+                      className="relative inline-flex cursor-pointer items-center"
+                    >
+                      <input
+                        id={youtubeShortsToggleId}
+                        type="checkbox"
+                        aria-label="Upload as YouTube Short"
+                        checked={youtubeIsShort}
+                        onChange={(e) => onYouTubeShortsToggle(e.target.checked)}
+                        className="peer sr-only"
+                      />
+                      <span className="h-5 w-9 rounded-full bg-muted transition-colors peer-checked:bg-primary" />
+                      <span className="pointer-events-none absolute left-0.5 h-4 w-4 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-4" />
+                    </label>
+                  </>
+                ) : null}
               </span>
               <label
                 htmlFor={switchId}
-                className={`relative inline-flex items-center ${canToggle ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                className={`relative ml-3 inline-flex shrink-0 items-center ${canToggle ? 'cursor-pointer' : 'cursor-not-allowed'}`}
               >
                 <input
                   id={switchId}

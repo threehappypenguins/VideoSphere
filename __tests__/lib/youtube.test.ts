@@ -173,6 +173,62 @@ describe('uploadToYouTube resumable init body', () => {
     });
     expect(initUrl).toContain('notifySubscribers=false');
   });
+
+  it('does not modify title or description when isShort is true', async () => {
+    const { body } = await runResumableInitUpload({
+      ...BASE_UPLOAD_METADATA,
+      title: 'My sermon',
+      description: 'Watch this message.',
+      isShort: true,
+    });
+
+    expect(body.snippet).toEqual(
+      expect.objectContaining({
+        title: 'My sermon',
+        description: 'Watch this message.',
+      })
+    );
+  });
+
+  it('returns a youtube.com/shorts URL when isShort is true', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const sessionUrl = 'https://upload.youtube.test/session/shorts';
+
+    fetchMock.mockImplementation((url: unknown, options?: { method?: string }) => {
+      const sUrl = String(url);
+      const method = options?.method;
+
+      if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+        return Promise.resolve(
+          new Response(null, { status: 200, headers: { location: sessionUrl } })
+        );
+      }
+
+      if (method === 'PUT' && sUrl === sessionUrl) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'short-video-id' }), { status: 200 })
+        );
+      }
+
+      return Promise.resolve(new Response('', { status: 200 }));
+    });
+
+    const result = await youtube.uploadToYouTube({
+      videoStream: makeVideoStream(),
+      contentLength: 3,
+      contentType: 'video/mp4',
+      metadata: {
+        ...BASE_UPLOAD_METADATA,
+        isShort: true,
+      },
+      tokens: { accessToken: 'tok' },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformUrl).toBe('https://www.youtube.com/shorts/short-video-id');
+    }
+  });
 });
 
 describe('uploadToYouTube thumbnail path', () => {
