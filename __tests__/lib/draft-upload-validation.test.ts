@@ -14,6 +14,7 @@ describe('validateDraftForUpload', () => {
           speakerName: 'Rev. Smith',
           preachDate: '2026-06-01',
           eventType: 'Sunday Service',
+          languageCode: 'en',
         },
       },
     });
@@ -60,7 +61,7 @@ describe('validateDraftForUpload', () => {
     ]);
   });
 
-  it('requires SermonAudio speaker, date, and event category on upload', () => {
+  it('requires SermonAudio speaker, date, event category, and language on upload', () => {
     const issues = validateDraftForUpload({
       title: 'Sermon',
       description: '',
@@ -73,6 +74,7 @@ describe('validateDraftForUpload', () => {
       'sermon_audio.speakerName',
       'sermon_audio.preachDate',
       'sermon_audio.eventType',
+      'sermon_audio.languageCode',
     ]);
   });
 
@@ -88,6 +90,7 @@ describe('validateDraftForUpload', () => {
           speakerID: 42,
           preachDate: '2026-06-01',
           eventType: 'Sunday Service',
+          languageCode: 'en',
         },
       },
     });
@@ -107,6 +110,7 @@ describe('validateDraftForUpload', () => {
           speakerName: 'Rev. Smith',
           preachDate: '2026-06-01',
           eventType: 'Sunday Service',
+          languageCode: 'en',
         },
       },
     });

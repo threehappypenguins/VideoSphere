@@ -67,6 +67,17 @@ function mockFetchWithVimeoMetadataOptions(
     if (url.includes('/api/platforms/vimeo/metadata-options')) {
       return mockVimeoMetadataOptionsResponse();
     }
+    if (url.includes('/api/platforms/sermon-audio/languages')) {
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            { code: 'en', name: 'English' },
+            { code: 'es', name: 'Español' },
+          ],
+        }),
+      } as Response;
+    }
     const custom = handler?.(url);
     if (custom) {
       return custom;
@@ -556,6 +567,33 @@ describe('DraftMetadataModal SermonAudio short title', () => {
     await user.paste('C'.repeat(40));
     expect(shortTitleInput).toHaveValue('C'.repeat(30));
   });
+
+  it('shows the SermonAudio language field with help text and defaults to English', async () => {
+    render(
+      <ControlledModal
+        initialValue={{
+          ...draftValue,
+          targets: ['sermon_audio'],
+          platforms: { sermon_audio: {} },
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.getByLabelText(/^Language(\s*\*)?$/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Specify the correct language in which the sermon was preached to help people find it in their native language/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Sermon language cannot be changed once media is uploaded/i)
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(document.getElementById('draft-sermon-audio-language')).toHaveTextContent('English');
+    });
+  });
 });
 
 describe('DraftMetadataModal privacy field', () => {
@@ -659,6 +697,26 @@ describe('DraftMetadataModal YouTube fields', () => {
     targets: ['youtube'],
     platforms: {},
   };
+
+  function ControlledYoutubeModal({
+    initialValue = youtubeDraftValue,
+  }: {
+    initialValue?: DraftEditorValues;
+  }) {
+    const [value, setValue] = useState(initialValue);
+    return (
+      <DraftMetadataModal
+        mode="edit"
+        value={value}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: initialValue.id })}
+        onChange={setValue}
+      />
+    );
+  }
 
   const originalSupportedValuesOf = (
     Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
@@ -1139,24 +1197,34 @@ describe('DraftMetadataModal YouTube fields', () => {
   });
 
   it('initialises video language from the YouTube account default', async () => {
-    render(
-      <DraftMetadataModal
-        mode="edit"
-        value={youtubeDraftValue}
-        initialConnectedPlatforms={['youtube']}
-        initialConnectionsResolved
-        isSaving={false}
-        onClose={vi.fn()}
-        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-        onChange={vi.fn()}
-      />
-    );
+    render(<ControlledYoutubeModal />);
 
     await screen.findByRole('dialog');
     await expandShowMore();
 
     await waitFor(() => {
       expect(document.getElementById('draft-youtube-video-language')).toHaveTextContent('English');
+    });
+  });
+
+  it('allows clearing optional YouTube video language to None', async () => {
+    const user = userEvent.setup();
+    render(<ControlledYoutubeModal />);
+
+    await screen.findByRole('dialog');
+    await expandShowMore();
+
+    await waitFor(() => {
+      expect(document.getElementById('draft-youtube-video-language')).toHaveTextContent('English');
+    });
+
+    await user.click(document.getElementById('draft-youtube-video-language')!);
+    await user.click(screen.getByRole('option', { name: 'None' }));
+
+    await waitFor(() => {
+      expect(document.getElementById('draft-youtube-video-language')).toHaveTextContent(
+        'Select video language'
+      );
     });
   });
 
@@ -1233,18 +1301,7 @@ describe('DraftMetadataModal YouTube fields', () => {
   });
 
   it('initialises Show more fields from YouTube account defaults when draft values are unset', async () => {
-    render(
-      <DraftMetadataModal
-        mode="edit"
-        value={youtubeDraftValue}
-        initialConnectedPlatforms={['youtube']}
-        initialConnectionsResolved
-        isSaving={false}
-        onClose={vi.fn()}
-        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-        onChange={vi.fn()}
-      />
-    );
+    render(<ControlledYoutubeModal />);
 
     await screen.findByRole('dialog');
     await expandShowMore();

@@ -20,6 +20,7 @@ import {
 import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
+import type { SermonAudioLanguageOption } from '@/lib/platforms/sermon-audio-languages';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
 import type { VimeoCategoryOption } from '@/lib/platforms/vimeo-categories';
 import { vimeoCategorySlugFromUri } from '@/lib/platforms/vimeo-categories';
@@ -36,7 +37,7 @@ import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeak
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
-import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
+import { SearchableSelect } from '@/components/drafts/SearchableSelect';
 import { VimeoCategoryPicker } from '@/components/drafts/VimeoCategoryPicker';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
@@ -332,6 +333,7 @@ function uploadFieldFocusId(field: DraftUploadFieldKey): string | null {
   if (field === 'sermon_audio.speakerName') return 'draft-sermon-audio-speaker';
   if (field === 'sermon_audio.preachDate') return 'draft-sermon-audio-preach-date';
   if (field === 'sermon_audio.eventType') return 'draft-sermon-audio-event-type';
+  if (field === 'sermon_audio.languageCode') return 'draft-sermon-audio-language';
   return null;
 }
 
@@ -593,6 +595,8 @@ export function DraftMetadataModal({
   const [uploadFieldErrors, setUploadFieldErrors] = useState<Set<DraftUploadFieldKey>>(new Set());
   const [sermonEventTypes, setSermonEventTypes] = useState<string[] | null>(null);
   const [sermonEventTypesLoadFailed, setSermonEventTypesLoadFailed] = useState(false);
+  const [sermonLanguages, setSermonLanguages] = useState<SermonAudioLanguageOption[] | null>(null);
+  const [sermonLanguagesLoadFailed, setSermonLanguagesLoadFailed] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
@@ -1354,6 +1358,51 @@ export function DraftMetadataModal({
   }, [value?.targets]);
 
   useEffect(() => {
+    if (!value?.targets.includes('sermon_audio')) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSermonLanguages = async () => {
+      try {
+        const response = await fetch('/api/platforms/sermon-audio/languages', {
+          cache: 'no-store',
+        });
+        if (!response.ok) {
+          throw new Error('Failed to load SermonAudio languages');
+        }
+        const payload = (await response.json()) as ApiResponse<SermonAudioLanguageOption[]>;
+        const languages = Array.isArray(payload.data)
+          ? payload.data.filter(
+              (item) =>
+                item &&
+                typeof item === 'object' &&
+                typeof item.code === 'string' &&
+                item.code.trim() !== '' &&
+                typeof item.name === 'string' &&
+                item.name.trim() !== ''
+            )
+          : [];
+        if (!cancelled) {
+          setSermonLanguages(languages);
+          setSermonLanguagesLoadFailed(languages.length === 0);
+        }
+      } catch {
+        if (!cancelled) {
+          setSermonLanguages(null);
+          setSermonLanguagesLoadFailed(true);
+        }
+      }
+    };
+
+    void loadSermonLanguages();
+    return () => {
+      cancelled = true;
+    };
+  }, [value?.targets]);
+
+  useEffect(() => {
     if (!value?.targets.includes('sermon_audio')) return;
     const defaults = mergeSermonAudioDefaultFields(value.platforms.sermon_audio);
     if (Object.keys(defaults).length === 0) return;
@@ -1372,6 +1421,7 @@ export function DraftMetadataModal({
     value,
     value?.platforms.sermon_audio?.eventType,
     value?.platforms.sermon_audio?.preachDate,
+    value?.platforms.sermon_audio?.languageCode,
     value?.targets,
   ]);
 
@@ -1946,13 +1996,12 @@ export function DraftMetadataModal({
   }, [draftId, value, vimeoAccountDefaults, updateVimeoFields]);
 
   const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
-  const youtubeDefaultAudioLanguageValue =
-    youtubeFields?.defaultAudioLanguage ?? youtubeAccountDefaults?.defaultAudioLanguage;
+  const youtubeDefaultAudioLanguageValue = youtubeFields?.defaultAudioLanguage;
   const youtubeRecordingDateValue = youtubeFields?.recordingDate ?? '';
   const youtubeLicenseValue = youtubeFields?.license ?? youtubeAccountDefaults?.license;
   const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
   const youtubeNotifySubscribersValue = youtubeFields?.notifySubscribers !== false;
-  const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
+  const youtubeCategoryIdValue = youtubeFields?.categoryId;
   const youtubeLanguageOptions = useMemo(
     () => youtubeLanguages.map((language) => ({ value: language.id, label: language.name })),
     [youtubeLanguages]
@@ -1960,6 +2009,14 @@ export function DraftMetadataModal({
   const youtubeCategoryOptions = useMemo(
     () => youtubeCategories.map((category) => ({ value: category.id, label: category.title })),
     [youtubeCategories]
+  );
+  const sermonLanguageOptions = useMemo(
+    () =>
+      (sermonLanguages ?? []).map((language) => ({
+        value: language.code,
+        label: language.name,
+      })),
+    [sermonLanguages]
   );
   const vimeoContentRatingCodes =
     vimeoFields?.contentRating === null
@@ -3203,7 +3260,7 @@ export function DraftMetadataModal({
           <div className="space-y-6 rounded-lg border border-border bg-muted/20 p-3">
             <div className="space-y-3">
               <p className="text-sm font-medium text-foreground">Video language</p>
-              <YouTubeSearchableSelect
+              <SearchableSelect
                 id="draft-youtube-video-language"
                 value={youtubeDefaultAudioLanguageValue}
                 placeholder="Select video language"
@@ -3298,7 +3355,7 @@ export function DraftMetadataModal({
               >
                 Category
               </label>
-              <YouTubeSearchableSelect
+              <SearchableSelect
                 id="draft-youtube-category"
                 value={youtubeCategoryIdValue}
                 placeholder="Select category"
@@ -3786,6 +3843,63 @@ export function DraftMetadataModal({
             </SelectContent>
           </Select>
         )}
+      </div>
+      <div>
+        <label
+          htmlFor="draft-sermon-audio-language"
+          className="text-sm font-medium text-foreground"
+        >
+          Language
+          <RequiredFieldMarker />
+        </label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Specify the correct language in which the sermon was preached to help people find it in
+          their native language.
+        </p>
+        {sermonLanguages === null && !sermonLanguagesLoadFailed ? (
+          <div
+            id="draft-sermon-audio-language"
+            className={cn(
+              fieldBorderClass('sermon_audio.languageCode'),
+              'mt-2 flex h-10 items-center gap-2 px-3 text-sm text-muted-foreground'
+            )}
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Loading languages…
+          </div>
+        ) : sermonLanguagesLoadFailed ? (
+          <input
+            id="draft-sermon-audio-language"
+            value={sermonAudioFields?.languageCode ?? ''}
+            required
+            onChange={(event) => {
+              clearUploadFieldError('sermon_audio.languageCode');
+              updateSermonAudioFields({ languageCode: event.target.value });
+            }}
+            aria-invalid={uploadFieldErrors.has('sermon_audio.languageCode')}
+            className={cn(fieldBorderClass('sermon_audio.languageCode'), 'mt-2')}
+          />
+        ) : (
+          <SearchableSelect
+            id="draft-sermon-audio-language"
+            value={sermonAudioFields?.languageCode}
+            placeholder="Select sermon language"
+            options={sermonLanguageOptions}
+            allowClear={false}
+            invalid={uploadFieldErrors.has('sermon_audio.languageCode')}
+            onValueChange={(next) => {
+              clearUploadFieldError('sermon_audio.languageCode');
+              if (!next) return;
+              updateSermonAudioFields({ languageCode: next });
+            }}
+            className={cn(fieldBorderClass('sermon_audio.languageCode'), 'mt-2')}
+          />
+        )}
+        <p className="mt-1 text-xs text-muted-foreground">
+          Sermon language cannot be changed once media is uploaded.
+        </p>
       </div>
       <div>
         <label htmlFor="draft-sermon-audio-series" className="text-sm font-medium text-foreground">

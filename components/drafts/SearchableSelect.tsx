@@ -6,15 +6,15 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
-/** One selectable option in {@link YouTubeSearchableSelect}. */
-export interface YouTubeSearchableSelectOption {
-  /** Stored value (e.g. BCP-47 tag or category id). */
+/** One selectable option in {@link SearchableSelect}. */
+export interface SearchableSelectOption {
+  /** Stored value (e.g. BCP-47 tag, category id, or language code). */
   value: string;
   /** Human-readable label shown in the trigger and list. */
   label: string;
 }
 
-interface YouTubeSearchableSelectProps {
+interface SearchableSelectProps {
   /** Trigger id (label `htmlFor`). */
   id: string;
   /** Selected option value, if any. */
@@ -22,9 +22,16 @@ interface YouTubeSearchableSelectProps {
   /** Placeholder when no value is selected. */
   placeholder?: string;
   /** Full option list (filtered client-side while the panel is open). */
-  options: YouTubeSearchableSelectOption[];
-  /** Called when the user selects an option or clears the selection. */
+  options: SearchableSelectOption[];
+  /** Called when the user selects an option, or clears it when {@link allowClear} is true. */
   onValueChange: (value: string | undefined) => void;
+  /**
+   * When false, omits the “None” clear row (use for required fields with a default value).
+   * @defaultValue true
+   */
+  allowClear?: boolean;
+  /** When true, sets `aria-invalid` on the combobox trigger (validation error state). */
+  invalid?: boolean;
   /** Additional classes for the trigger button. */
   className?: string;
 }
@@ -37,8 +44,8 @@ function handleListWheel(event: WheelEvent<HTMLDivElement>) {
 
 function findMatchingOption(
   value: string | undefined,
-  options: YouTubeSearchableSelectOption[]
-): YouTubeSearchableSelectOption | undefined {
+  options: SearchableSelectOption[]
+): SearchableSelectOption | undefined {
   if (!value) return undefined;
   const exact = options.find((option) => option.value === value);
   if (exact) return exact;
@@ -53,18 +60,20 @@ function findMatchingOption(
 }
 
 /**
- * Searchable single-select dropdown for YouTube language and category fields.
+ * Searchable single-select dropdown for draft metadata fields (YouTube, SermonAudio, etc.).
  * @param props - Select configuration and callbacks.
  * @returns Searchable select UI.
  */
-export function YouTubeSearchableSelect({
+export function SearchableSelect({
   id,
   value,
   placeholder = 'Select…',
   options,
   onValueChange,
+  allowClear = true,
+  invalid = false,
   className,
-}: YouTubeSearchableSelectProps) {
+}: SearchableSelectProps) {
   const listboxId = useId();
   const optionIdPrefix = useId();
   const clearOptionId = `${optionIdPrefix}-clear`;
@@ -81,14 +90,14 @@ export function YouTubeSearchableSelect({
     return options.filter((option) => option.label.toLowerCase().includes(trimmedQuery));
   }, [options, trimmedQuery]);
 
-  const clearOptionOffset = 1;
+  const clearOptionOffset = allowClear ? 1 : 0;
   const optionCount = clearOptionOffset + visibleOptions.length;
 
   const getOptionId = (optionValue: string) => `${optionIdPrefix}-option-${optionValue}`;
 
   const highlightedOptionId = (() => {
     if (!open || highlightedIndex < 0) return undefined;
-    if (highlightedIndex === 0) return clearOptionId;
+    if (allowClear && highlightedIndex === 0) return clearOptionId;
     const optionIndex = highlightedIndex - clearOptionOffset;
     const option = visibleOptions[optionIndex];
     return option ? getOptionId(option.value) : undefined;
@@ -97,14 +106,14 @@ export function YouTubeSearchableSelect({
   const handleOpenChange = (nextOpen: boolean) => {
     if (nextOpen) {
       setPanelQuery('');
-      setHighlightedIndex(0);
+      setHighlightedIndex(optionCount > 0 ? 0 : -1);
     } else {
       setHighlightedIndex(-1);
     }
     setOpen(nextOpen);
   };
 
-  const selectOption = (option: YouTubeSearchableSelectOption) => {
+  const selectOption = (option: SearchableSelectOption) => {
     onValueChange(option.value);
     setOpen(false);
   };
@@ -115,7 +124,7 @@ export function YouTubeSearchableSelect({
   };
 
   const handleHighlightedSelection = () => {
-    if (highlightedIndex === 0) {
+    if (allowClear && highlightedIndex === 0) {
       clearSelection();
       return;
     }
@@ -160,6 +169,8 @@ export function YouTubeSearchableSelect({
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-controls={open ? listboxId : undefined}
+          aria-required={allowClear ? undefined : true}
+          aria-invalid={invalid || undefined}
           className={cn(
             className,
             'flex h-10 w-full items-center justify-between text-left',
@@ -204,21 +215,23 @@ export function YouTubeSearchableSelect({
           className="scrollbar-visible max-h-52 overflow-y-auto overscroll-y-contain"
           onWheel={handleListWheel}
         >
-          <button
-            id={clearOptionId}
-            type="button"
-            role="option"
-            aria-selected={!value}
-            className={cn(
-              'flex w-full px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-              highlightedIndex === 0 && 'bg-accent text-accent-foreground'
-            )}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={clearSelection}
-            onMouseEnter={() => setHighlightedIndex(0)}
-          >
-            None
-          </button>
+          {allowClear ? (
+            <button
+              id={clearOptionId}
+              type="button"
+              role="option"
+              aria-selected={!value}
+              className={cn(
+                'flex w-full px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                highlightedIndex === 0 && 'bg-accent text-accent-foreground'
+              )}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={clearSelection}
+              onMouseEnter={() => setHighlightedIndex(0)}
+            >
+              None
+            </button>
+          ) : null}
           {visibleOptions.map((option, index) => {
             const optionIndex = index + clearOptionOffset;
             return (

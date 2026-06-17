@@ -1,3 +1,5 @@
+import { SERMON_AUDIO_DEFAULT_LANGUAGE_CODE } from '@/lib/platforms/sermon-audio-languages';
+
 /**
  * Full SermonAudio sermon event type catalog from OpenAPI `SermonEventType` enum.
  * The filter_options API often returns only categories a broadcaster has used; upload
@@ -61,13 +63,17 @@ export function formatSermonAudioLocalDate(date: Date = new Date()): string {
 export function mergeSermonAudioDefaultFields(existing?: {
   preachDate?: string;
   eventType?: string;
-}): { preachDate?: string; eventType?: string } {
-  const patch: { preachDate?: string; eventType?: string } = {};
+  languageCode?: string;
+}): { preachDate?: string; eventType?: string; languageCode?: string } {
+  const patch: { preachDate?: string; eventType?: string; languageCode?: string } = {};
   if (!existing?.preachDate?.trim()) {
     patch.preachDate = formatSermonAudioLocalDate();
   }
   if (!existing?.eventType?.trim()) {
     patch.eventType = SERMON_AUDIO_DEFAULT_EVENT_TYPE;
+  }
+  if (!existing?.languageCode?.trim()) {
+    patch.languageCode = SERMON_AUDIO_DEFAULT_LANGUAGE_CODE;
   }
   return patch;
 }
