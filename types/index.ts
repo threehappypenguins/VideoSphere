@@ -4,11 +4,6 @@
 // Place your shared TypeScript types and interfaces in this file.
 // Types that are used across multiple components or pages belong here.
 //
-// STUDENT: Add your own types as you build features. For example:
-//   - User type for your auth system
-//   - Product/Item types for your core data
-//   - API response types
-//
 // Types specific to a single component can stay in that component's file.
 // =============================================================================
 

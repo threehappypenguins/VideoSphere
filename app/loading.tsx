@@ -9,11 +9,6 @@
 //   - While the page component is loading (data fetching, etc.), this is shown
 //   - Once the page is ready, Next.js swaps this out for the actual content
 //
-// STUDENT: You can also create route-specific loading states by adding a
-// loading.tsx file in any route segment directory. For example:
-//   - app/(dashboard)/dashboard/loading.tsx — loading state for the dashboard
-//   - app/(dashboard)/admin/dashboard/loading.tsx — loading state for admin
-//
 // See Next.js docs: https://nextjs.org/docs/app/building-your-application/routing/loading-ui-and-streaming
 // =============================================================================
 

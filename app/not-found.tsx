@@ -3,10 +3,6 @@
 // =============================================================================
 // This page is displayed when a user navigates to a route that doesn't exist.
 //
-// STUDENT: Restyle this page to match your final design. You can add:
-//   - Custom illustrations
-//   - Search functionality
-//   - Suggested links
 // =============================================================================
 
 import Link from 'next/link';

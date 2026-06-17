@@ -10,11 +10,6 @@
 //   - The `reset` function attempts to re-render the route segment
 //   - This catches errors in route segments and their children
 //
-// STUDENT: Style this to match your final design. You may also want to:
-//   - Log errors to an error tracking service (e.g., Sentry)
-//   - Show different messages based on error type
-//   - Add a "Contact Support" link
-//
 // See Next.js docs: https://nextjs.org/docs/app/building-your-application/routing/error-handling
 // =============================================================================
 
@@ -37,7 +32,6 @@ export interface ErrorProps {
  */
 export default function Error({ error, reset }: ErrorProps) {
   useEffect(() => {
-    // STUDENT: Log the error to an error reporting service
     console.error('Application error:', error);
   }, [error]);
 

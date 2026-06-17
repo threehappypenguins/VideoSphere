@@ -3,11 +3,6 @@
 // =============================================================================
 // The footer displayed at the bottom of every page.
 //
-// STUDENT: Update this component with your app's information:
-//   - Replace [Your App Name] with your actual app name
-//   - Update navigation links to match your routes
-//   - Replace social media placeholder links with real URLs
-//   - Add any additional sections relevant to your product
 // =============================================================================
 
 import Link from 'next/link';

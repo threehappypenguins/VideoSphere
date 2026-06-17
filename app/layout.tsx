@@ -4,7 +4,6 @@
 // This is the root layout that wraps every page in your application.
 // It includes the global font, navbar, and footer.
 //
-// STUDENT: Update the metadata below with your actual app name and description.
 // Fonts are self-hosted under app/fonts/ via next/font/local (no Google Fonts at build time).
 //
 // =============================================================================
@@ -39,7 +38,6 @@ const apfelGrotezk = localFont({
 });
 
 // --- Metadata ---
-// STUDENT: Replace these placeholder values with your actual app information.
 // See /docs/performance.md for more on metadata and SEO.
 /**
  * Provides static page metadata for this route segment.

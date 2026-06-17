@@ -4,8 +4,6 @@
 // Place shared utility functions here. These are helper functions used across
 // multiple components or pages.
 //
-// STUDENT: Add your own utility functions as your project grows.
-// Examples: date formatting, string manipulation, validation helpers, etc.
 // =============================================================================
 
 import { clsx, type ClassValue } from 'clsx';
