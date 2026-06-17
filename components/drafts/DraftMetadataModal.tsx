@@ -37,7 +37,7 @@ import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeak
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
-import { YouTubeSearchableSelect } from '@/components/drafts/YouTubeSearchableSelect';
+import { SearchableSelect } from '@/components/drafts/SearchableSelect';
 import { VimeoCategoryPicker } from '@/components/drafts/VimeoCategoryPicker';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import { Progress } from '@/components/ui/progress';
@@ -1996,13 +1996,12 @@ export function DraftMetadataModal({
   }, [draftId, value, vimeoAccountDefaults, updateVimeoFields]);
 
   const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
-  const youtubeDefaultAudioLanguageValue =
-    youtubeFields?.defaultAudioLanguage ?? youtubeAccountDefaults?.defaultAudioLanguage;
+  const youtubeDefaultAudioLanguageValue = youtubeFields?.defaultAudioLanguage;
   const youtubeRecordingDateValue = youtubeFields?.recordingDate ?? '';
   const youtubeLicenseValue = youtubeFields?.license ?? youtubeAccountDefaults?.license;
   const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
   const youtubeNotifySubscribersValue = youtubeFields?.notifySubscribers !== false;
-  const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
+  const youtubeCategoryIdValue = youtubeFields?.categoryId;
   const youtubeLanguageOptions = useMemo(
     () => youtubeLanguages.map((language) => ({ value: language.id, label: language.name })),
     [youtubeLanguages]
@@ -3261,7 +3260,7 @@ export function DraftMetadataModal({
           <div className="space-y-6 rounded-lg border border-border bg-muted/20 p-3">
             <div className="space-y-3">
               <p className="text-sm font-medium text-foreground">Video language</p>
-              <YouTubeSearchableSelect
+              <SearchableSelect
                 id="draft-youtube-video-language"
                 value={youtubeDefaultAudioLanguageValue}
                 placeholder="Select video language"
@@ -3356,7 +3355,7 @@ export function DraftMetadataModal({
               >
                 Category
               </label>
-              <YouTubeSearchableSelect
+              <SearchableSelect
                 id="draft-youtube-category"
                 value={youtubeCategoryIdValue}
                 placeholder="Select category"
@@ -3870,14 +3869,17 @@ export function DraftMetadataModal({
             className={cn(fieldBorderClass('sermon_audio.languageCode'), 'mt-2')}
           />
         ) : (
-          <YouTubeSearchableSelect
+          <SearchableSelect
             id="draft-sermon-audio-language"
             value={sermonAudioFields?.languageCode}
             placeholder="Select sermon language"
             options={sermonLanguageOptions}
+            allowClear={false}
+            invalid={uploadFieldErrors.has('sermon_audio.languageCode')}
             onValueChange={(next) => {
               clearUploadFieldError('sermon_audio.languageCode');
-              updateSermonAudioFields({ languageCode: next ?? '' });
+              if (!next) return;
+              updateSermonAudioFields({ languageCode: next });
             }}
             className={cn(fieldBorderClass('sermon_audio.languageCode'), 'mt-2')}
           />

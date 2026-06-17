@@ -698,6 +698,26 @@ describe('DraftMetadataModal YouTube fields', () => {
     platforms: {},
   };
 
+  function ControlledYoutubeModal({
+    initialValue = youtubeDraftValue,
+  }: {
+    initialValue?: DraftEditorValues;
+  }) {
+    const [value, setValue] = useState(initialValue);
+    return (
+      <DraftMetadataModal
+        mode="edit"
+        value={value}
+        initialConnectedPlatforms={['youtube']}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: initialValue.id })}
+        onChange={setValue}
+      />
+    );
+  }
+
   const originalSupportedValuesOf = (
     Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
   ).supportedValuesOf;
@@ -1177,24 +1197,34 @@ describe('DraftMetadataModal YouTube fields', () => {
   });
 
   it('initialises video language from the YouTube account default', async () => {
-    render(
-      <DraftMetadataModal
-        mode="edit"
-        value={youtubeDraftValue}
-        initialConnectedPlatforms={['youtube']}
-        initialConnectionsResolved
-        isSaving={false}
-        onClose={vi.fn()}
-        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-        onChange={vi.fn()}
-      />
-    );
+    render(<ControlledYoutubeModal />);
 
     await screen.findByRole('dialog');
     await expandShowMore();
 
     await waitFor(() => {
       expect(document.getElementById('draft-youtube-video-language')).toHaveTextContent('English');
+    });
+  });
+
+  it('allows clearing optional YouTube video language to None', async () => {
+    const user = userEvent.setup();
+    render(<ControlledYoutubeModal />);
+
+    await screen.findByRole('dialog');
+    await expandShowMore();
+
+    await waitFor(() => {
+      expect(document.getElementById('draft-youtube-video-language')).toHaveTextContent('English');
+    });
+
+    await user.click(document.getElementById('draft-youtube-video-language')!);
+    await user.click(screen.getByRole('option', { name: 'None' }));
+
+    await waitFor(() => {
+      expect(document.getElementById('draft-youtube-video-language')).toHaveTextContent(
+        'Select video language'
+      );
     });
   });
 
@@ -1271,18 +1301,7 @@ describe('DraftMetadataModal YouTube fields', () => {
   });
 
   it('initialises Show more fields from YouTube account defaults when draft values are unset', async () => {
-    render(
-      <DraftMetadataModal
-        mode="edit"
-        value={youtubeDraftValue}
-        initialConnectedPlatforms={['youtube']}
-        initialConnectionsResolved
-        isSaving={false}
-        onClose={vi.fn()}
-        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-        onChange={vi.fn()}
-      />
-    );
+    render(<ControlledYoutubeModal />);
 
     await screen.findByRole('dialog');
     await expandShowMore();
