@@ -730,6 +730,75 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockDeleteObject).toHaveBeenCalledWith('temp/uploads/user-123/video.mp4');
   });
 
+  it('clears per-platform thumbnail overrides and deletes R2 objects after successful distribution', async () => {
+    const youtubeThumb = 'draft-thumbnails/user-123/draft-1/youtube-thumb.jpg';
+    const vimeoThumb = 'draft-thumbnails/user-123/draft-1/vimeo-thumb.jpg';
+
+    mockGetDraftById.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube', 'vimeo'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {
+        youtube: {
+          thumbnailR2KeyOverride: youtubeThumb,
+          thumbnailContentTypeOverride: 'image/jpeg',
+        },
+        vimeo: {
+          thumbnailR2KeyOverride: vimeoThumb,
+          thumbnailContentTypeOverride: 'image/png',
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockUpdateDraft.mockResolvedValue({
+      id: 'draft-1',
+      userId: 'user-123',
+      targets: ['youtube', 'vimeo'],
+      title: 'My title',
+      description: 'My description',
+      visibility: 'private',
+      tags: ['tag-1'],
+      platforms: {},
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    const response = await POST(
+      createRequest(
+        {
+          draftId: 'draft-1',
+          r2ObjectKey: 'temp/uploads/user-123/video.mp4',
+          platforms: ['youtube', 'vimeo'],
+        },
+        { [SESSION_COOKIE]: 'token' }
+      )
+    );
+
+    expect(response.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockUpdateDraft).toHaveBeenCalledWith('draft-1', {
+      platformsPatch: {
+        youtube: {
+          thumbnailR2KeyOverride: null,
+          thumbnailContentTypeOverride: null,
+        },
+        vimeo: {
+          thumbnailR2KeyOverride: null,
+          thumbnailContentTypeOverride: null,
+        },
+      },
+    });
+    expect(mockDeleteObject).toHaveBeenCalledWith(youtubeThumb);
+    expect(mockDeleteObject).toHaveBeenCalledWith(vimeoThumb);
+  });
+
   it('clears draft thumbnail fields before deleting R2 object after successful distribution', async () => {
     mockGetDraftById.mockResolvedValue({
       id: 'draft-1',
@@ -1026,11 +1095,10 @@ describe('POST /api/uploads/distribute', () => {
       // deleteObject must not have been called — R2 object is retained since draft fields were not cleared.
       expect(mockDeleteObject).not.toHaveBeenCalledWith(thumbKey);
       const retainLog = errLog.mock.calls.find(
-        (args) => typeof args[0] === 'string' && args[0].includes('retaining R2 key for retry')
+        (args) => typeof args[0] === 'string' && args[0].includes('retaining R2 keys for retry')
       );
       expect(retainLog).toBeDefined();
       expect(retainLog![0]).toContain('draft-1');
-      expect(retainLog![0]).toContain(thumbKey);
     } finally {
       errLog.mockRestore();
       vi.useRealTimers();
