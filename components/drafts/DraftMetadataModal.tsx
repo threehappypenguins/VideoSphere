@@ -584,6 +584,7 @@ export function DraftMetadataModal({
   const [vimeoAccountDefaults, setVimeoAccountDefaults] = useState<
     VimeoAccountDefaults | undefined
   >();
+  const [vimeoMetadataLoaded, setVimeoMetadataLoaded] = useState(false);
   const vimeoDefaultsSeededRef = useRef<string | null>(null);
   const vimeoMetadataLoadedRef = useRef(false);
   const vimeoMetadataRequestIdRef = useRef(0);
@@ -1122,6 +1123,7 @@ export function DraftMetadataModal({
     setVimeoLicenses([]);
     setVimeoAccountDefaults(undefined);
     vimeoMetadataLoadedRef.current = false;
+    setVimeoMetadataLoaded(false);
     setVimeoMetadataLoadError(null);
   }, [draftId]);
 
@@ -1196,9 +1198,11 @@ export function DraftMetadataModal({
 
   useEffect(() => {
     if (!vimeoTargetActive || !draftId) {
+      setVimeoMetadataLoaded(false);
       return;
     }
     if (vimeoMetadataLoadedRef.current) {
+      setVimeoMetadataLoaded(true);
       return;
     }
 
@@ -1237,6 +1241,7 @@ export function DraftMetadataModal({
             setVimeoLicenses(bundle.licenses);
             setVimeoAccountDefaults(bundle.accountDefaults);
             vimeoMetadataLoadedRef.current = true;
+            setVimeoMetadataLoaded(true);
             setVimeoMetadataLoadError(null);
             return;
           }
@@ -1246,6 +1251,7 @@ export function DraftMetadataModal({
           payload?.message ??
             'Failed to load Vimeo metadata. Reconnect Vimeo in Settings if this persists.'
         );
+        setVimeoMetadataLoaded(true);
       } catch {
         if (requestId !== vimeoMetadataRequestIdRef.current) {
           return;
@@ -1253,6 +1259,7 @@ export function DraftMetadataModal({
         setVimeoMetadataLoadError(
           'Failed to load Vimeo metadata. Check your connection and try reopening the draft.'
         );
+        setVimeoMetadataLoaded(true);
       }
     };
 
@@ -1268,6 +1275,13 @@ export function DraftMetadataModal({
       youtubeMetadataLoadedRef.current = { ...EMPTY_YOUTUBE_METADATA_LOADED };
     }
   }, [youtubeTargetActive]);
+
+  useEffect(() => {
+    if (!vimeoTargetActive) {
+      vimeoMetadataLoadedRef.current = false;
+      setVimeoMetadataLoaded(false);
+    }
+  }, [vimeoTargetActive]);
 
   useEffect(() => {
     if (!value) {
@@ -1414,9 +1428,15 @@ export function DraftMetadataModal({
   const showPerPlatformPrivacy =
     selectedPrivacyPlatforms.length >= 2 && !usesSharedVisibilityGlobally;
 
-  const vimeoSupportsUnlisted =
-    vimeoAccountDefaults?.supportsUnlistedPrivacy ??
-    (vimeoAccountDefaults?.membershipType !== undefined ? false : null);
+  const vimeoSupportsUnlisted = useMemo(() => {
+    if (!vimeoTargetActive) {
+      return true;
+    }
+    if (!vimeoMetadataLoaded) {
+      return null;
+    }
+    return vimeoAccountDefaults?.supportsUnlistedPrivacy ?? false;
+  }, [vimeoTargetActive, vimeoMetadataLoaded, vimeoAccountDefaults]);
 
   const sharedVisibilityOptions = useMemo(
     () =>

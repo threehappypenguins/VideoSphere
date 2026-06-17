@@ -7,35 +7,42 @@ import type { PlatformUploadVisibility } from '@/types';
 const VIMEO_MEMBERSHIP_TYPES_WITHOUT_UNLISTED = new Set(['free', 'basic']);
 
 /**
- * Whether a Vimeo `membership.type` from `GET /me` supports unlisted upload privacy.
- * @param membershipType - Raw `membership.type` string from the Vimeo API.
- * @returns `true` when unlisted uploads are supported for this membership.
+ * Whether a Vimeo plan tier from `GET /me` supports unlisted upload privacy.
+ * @param planTier - `membership.type` or legacy `account` value from the Vimeo API.
+ * @returns `true` when unlisted uploads are supported for this plan.
  */
 export function vimeoMembershipTypeSupportsUnlistedPrivacy(
-  membershipType: string | null | undefined
+  planTier: string | null | undefined
 ): boolean {
-  if (typeof membershipType !== 'string' || membershipType.trim() === '') {
+  if (typeof planTier !== 'string' || planTier.trim() === '') {
     return false;
   }
-  return !VIMEO_MEMBERSHIP_TYPES_WITHOUT_UNLISTED.has(membershipType.trim().toLowerCase());
+  return !VIMEO_MEMBERSHIP_TYPES_WITHOUT_UNLISTED.has(planTier.trim().toLowerCase());
 }
 
 /**
- * Reads `membership.type` from a parsed Vimeo `GET /me` response body.
+ * Reads the Vimeo plan tier from a parsed `GET /me` response body.
+ * Prefers `membership.type` when present; falls back to legacy `account` (e.g. `basic` on free accounts).
  * @param body - Parsed `/me` JSON body.
- * @returns Trimmed membership type, or `undefined` when absent.
+ * @returns Trimmed plan tier, or `undefined` when absent.
  */
 export function readMembershipTypeFromMeBody(body: Record<string, unknown>): string | undefined {
   const membership = body.membership;
-  if (membership === null || typeof membership !== 'object' || Array.isArray(membership)) {
-    return undefined;
+  if (membership !== null && typeof membership === 'object' && !Array.isArray(membership)) {
+    const type = (membership as Record<string, unknown>).type;
+    if (typeof type === 'string') {
+      const trimmed = type.trim();
+      if (trimmed) return trimmed;
+    }
   }
-  const type = (membership as Record<string, unknown>).type;
-  if (typeof type !== 'string') {
-    return undefined;
+
+  const account = body.account;
+  if (typeof account === 'string') {
+    const trimmed = account.trim();
+    if (trimmed) return trimmed;
   }
-  const trimmed = type.trim();
-  return trimmed || undefined;
+
+  return undefined;
 }
 
 /** Draft editor privacy select options (YouTube-compatible labels). */

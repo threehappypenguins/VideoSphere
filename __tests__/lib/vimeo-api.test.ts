@@ -756,7 +756,7 @@ describe('fetchVimeoAccountDefaults', () => {
         }
         expect(url).toContain('/me');
         expect(url).toContain(
-          'fields=membership.type%2Cpreferences.videos.license%2Cpreferences.videos.rating'
+          'fields=account%2Cmembership.type%2Cpreferences.videos.license%2Cpreferences.videos.rating'
         );
 
         return Response.json({
@@ -777,6 +777,38 @@ describe('fetchVimeoAccountDefaults', () => {
       defaults: {
         contentRating: ['safe'],
         license: 'by-sa',
+      },
+    });
+  });
+
+  it('reads legacy account tier from /me when membership.type is absent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/contentratings')) {
+          return mockContentRatingsResponse();
+        }
+
+        return Response.json({
+          account: 'basic',
+          preferences: {
+            videos: {
+              rating: ['safe'],
+            },
+          },
+        });
+      })
+    );
+
+    const result = await fetchVimeoAccountDefaults('token');
+
+    expect(result).toEqual({
+      ok: true,
+      defaults: {
+        contentRating: ['safe'],
+        membershipType: 'basic',
+        supportsUnlistedPrivacy: false,
       },
     });
   });

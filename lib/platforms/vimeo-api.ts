@@ -33,7 +33,7 @@ const VIMEO_API_BASE = 'https://api.vimeo.com';
 const VIMEO_ACCEPT = 'application/vnd.vimeo.*+json;version=3.4';
 
 const VIMEO_ME_UPLOAD_DEFAULT_FIELDS =
-  'membership.type,preferences.videos.license,preferences.videos.rating';
+  'account,membership.type,preferences.videos.license,preferences.videos.rating';
 
 type VimeoConnectionResult =
   | { ok: true; accessToken: string }

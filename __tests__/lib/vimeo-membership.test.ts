@@ -24,6 +24,11 @@ describe('readMembershipTypeFromMeBody', () => {
   it('reads membership.type from /me', () => {
     expect(readMembershipTypeFromMeBody({ membership: { type: 'free' } })).toBe('free');
   });
+
+  it('falls back to legacy account when membership.type is absent', () => {
+    expect(readMembershipTypeFromMeBody({ account: 'basic' })).toBe('basic');
+    expect(readMembershipTypeFromMeBody({ membership: {}, account: 'pro' })).toBe('pro');
+  });
 });
 
 describe('visibilityOptionsForPrivacyUi', () => {
@@ -83,5 +88,15 @@ describe('visibilityOptionsForPrivacyUi', () => {
         selectedPrivacyPlatforms: ['vimeo'],
       }).map((option) => option.value)
     ).toEqual(['public', 'unlisted', 'private']);
+  });
+
+  it('hides unlisted for Vimeo when support is known false after metadata load', () => {
+    expect(
+      visibilityOptionsForPrivacyUi({
+        scope: 'vimeo',
+        vimeoSupportsUnlisted: false,
+        selectedPrivacyPlatforms: ['vimeo'],
+      }).map((option) => option.value)
+    ).toEqual(['public', 'private']);
   });
 });
