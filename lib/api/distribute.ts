@@ -512,7 +512,8 @@ const MAX_DRAFT_THUMBNAIL_UPDATE_ATTEMPTS = 3;
 /**
  * Clears distributed draft thumbnail keys from the draft document and deletes the R2 objects.
  * Uses the metadata snapshot from this distribution attempt so thumbnails replaced mid-upload
- * are not removed. Handles both shared `thumbnailR2Key` and per-platform overrides.
+ * are not removed. Clears shared `thumbnailR2Key` with `null` and per-platform overrides with
+ * `''` so platforms do not fall back to a shared thumbnail that was not distributed.
  * @param jobId - Upload job id (for logging).
  * @param userId - Draft owner.
  * @param draftId - Draft whose thumbnails were distributed.
@@ -571,8 +572,8 @@ async function cleanupDistributedDraftThumbnails(
       }
       if (draft.platforms[platform]?.thumbnailR2KeyOverride === key) {
         platformsPatch[platform] = {
-          thumbnailR2KeyOverride: null,
-          thumbnailContentTypeOverride: null,
+          thumbnailR2KeyOverride: '',
+          thumbnailContentTypeOverride: '',
         };
         shouldDeleteKey = true;
       }

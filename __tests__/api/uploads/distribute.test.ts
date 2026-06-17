@@ -786,12 +786,12 @@ describe('POST /api/uploads/distribute', () => {
     expect(mockUpdateDraft).toHaveBeenCalledWith('draft-1', {
       platformsPatch: {
         youtube: {
-          thumbnailR2KeyOverride: null,
-          thumbnailContentTypeOverride: null,
+          thumbnailR2KeyOverride: '',
+          thumbnailContentTypeOverride: '',
         },
         vimeo: {
-          thumbnailR2KeyOverride: null,
-          thumbnailContentTypeOverride: null,
+          thumbnailR2KeyOverride: '',
+          thumbnailContentTypeOverride: '',
         },
       },
     });
