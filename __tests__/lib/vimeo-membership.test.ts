@@ -66,4 +66,22 @@ describe('visibilityOptionsForPrivacyUi', () => {
       }).map((option) => option.value)
     ).toEqual(['public', 'unlisted', 'private']);
   });
+
+  it('shows unlisted while Vimeo membership support is still unknown', () => {
+    expect(
+      visibilityOptionsForPrivacyUi({
+        scope: 'shared',
+        vimeoSupportsUnlisted: null,
+        selectedPrivacyPlatforms: ['youtube', 'vimeo'],
+      }).map((option) => option.value)
+    ).toEqual(['public', 'unlisted', 'private']);
+
+    expect(
+      visibilityOptionsForPrivacyUi({
+        scope: 'vimeo',
+        vimeoSupportsUnlisted: undefined,
+        selectedPrivacyPlatforms: ['vimeo'],
+      }).map((option) => option.value)
+    ).toEqual(['public', 'unlisted', 'private']);
+  });
 });

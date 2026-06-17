@@ -919,10 +919,10 @@ function resolveVisibilityForPlatform(
 
 function resolveThumbnailForPlatform(
   draft: Draft,
-  platformFields?: {
-    thumbnailR2KeyOverride?: string;
-    thumbnailContentTypeOverride?: string;
-  }
+  platformFields?: Pick<
+    PerPlatformOverrides,
+    'thumbnailR2KeyOverride' | 'thumbnailContentTypeOverride'
+  >
 ): { thumbnailR2Key?: string; thumbnailContentType?: string } {
   if (platformFields && 'thumbnailR2KeyOverride' in platformFields) {
     const overrideKey = platformFields.thumbnailR2KeyOverride?.trim();

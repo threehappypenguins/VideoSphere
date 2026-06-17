@@ -54,7 +54,7 @@ export type DraftPrivacyUiScope = 'shared' | 'youtube' | 'vimeo';
 /**
  * Whether the Unlisted option should appear for a privacy select in the draft editor.
  * @param params.scope - Shared privacy or a per-platform override row.
- * @param params.vimeoSupportsUnlisted - From connected Vimeo account metadata; `true` when known supported.
+ * @param params.vimeoSupportsUnlisted - From connected Vimeo account metadata; `false` when known unsupported; `true` or unknown while loading when support is not confirmed unsupported.
  * @param params.selectedPrivacyPlatforms - Selected targets that expose privacy (YouTube and/or Vimeo).
  * @returns `true` when Unlisted should be listed in the dropdown.
  */
@@ -67,10 +67,10 @@ export function shouldIncludeUnlistedVisibilityOption(params: {
     return true;
   }
   if (params.scope === 'vimeo') {
-    return params.vimeoSupportsUnlisted === true;
+    return params.vimeoSupportsUnlisted !== false;
   }
   if (params.selectedPrivacyPlatforms.includes('vimeo')) {
-    return params.vimeoSupportsUnlisted === true;
+    return params.vimeoSupportsUnlisted !== false;
   }
   return true;
 }

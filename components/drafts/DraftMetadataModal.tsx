@@ -1736,7 +1736,7 @@ export function DraftMetadataModal({
           ...rest,
           thumbnailR2KeyOverride: null,
           thumbnailContentTypeOverride: null,
-        } as NonNullable<DraftPlatforms[DraftThumbnailPlatform]>;
+        };
       } else {
         next = {
           ...current,

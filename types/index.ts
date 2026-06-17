@@ -97,10 +97,18 @@ export interface PerPlatformCopyOverrides {
 export interface PerPlatformOverrides extends PerPlatformCopyOverrides {
   /** Platform-specific privacy (YouTube and Vimeo only). */
   visibilityOverride?: PlatformUploadVisibility;
-  /** Platform-specific draft thumbnail R2 key when not using the shared draft thumbnail. */
-  thumbnailR2KeyOverride?: string;
-  /** MIME type for {@link thumbnailR2KeyOverride}. */
-  thumbnailContentTypeOverride?: string;
+  /**
+   * Platform-specific draft thumbnail R2 key when not using the shared draft thumbnail.
+   * - Omitted/`undefined` — use the shared draft thumbnail.
+   * - `''` — explicit per-platform “no thumbnail” (do not fall back to shared).
+   * - `null` — PATCH/editor clear sentinel; merge removes the override so shared is used again.
+   */
+  thumbnailR2KeyOverride?: string | null;
+  /**
+   * MIME type for {@link thumbnailR2KeyOverride}.
+   * Uses the same `undefined` / `''` / `null` semantics as {@link thumbnailR2KeyOverride}.
+   */
+  thumbnailContentTypeOverride?: string | null;
   /**
    * Presigned preview URL for {@link thumbnailR2KeyOverride} in the draft editor only.
    * Not persisted in draft document JSON.
