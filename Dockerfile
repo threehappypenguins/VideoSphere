@@ -6,7 +6,7 @@
 # =============================================================================
 
 # Stage 1: install dependencies
-ARG NODE_VERSION=20.19.0
+ARG NODE_VERSION=24.16.0
 FROM node:${NODE_VERSION}-alpine AS deps
 RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app

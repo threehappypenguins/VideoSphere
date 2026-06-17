@@ -12,7 +12,7 @@
 
 | Tool    | Version  | Check Command    |
 | ------- | -------- | ---------------- |
-| Node.js | ≥ 20.19.0 | `node --version` |
+| Node.js | ≥ 24.0.0 | `node --version` |
 | pnpm    | ≥ 10.0.0 | `pnpm --version` |
 | Git     | Latest   | `git --version`  |
 
