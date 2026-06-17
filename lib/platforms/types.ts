@@ -41,6 +41,8 @@ export interface YoutubeSpecificUploadMetadata {
   playlistTitles?: string[];
   /** Sent to `recordingDetails.recordingDate` (RFC 3339 full-date). */
   recordingDate?: string;
+  /** When true, draft targets YouTube Shorts (shorts URL returned on success; YouTube classifies from format/duration). */
+  isShort?: boolean;
 }
 
 /** Vimeo API upload–specific fields (omit unused keys for YouTube-only jobs). */

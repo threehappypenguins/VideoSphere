@@ -801,11 +801,10 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       contentType: input.contentType ?? 'application/octet-stream',
     };
 
-    const safeTitle = input.metadata.title.trim() || 'Untitled video';
-    const safeDescription = input.metadata.description.trim();
-    const safeTags = normalizeYouTubeSnippetTags(input.metadata.tags);
-
     const m = input.metadata;
+    const safeTitle = m.title.trim() || 'Untitled video';
+    const safeDescription = m.description.trim();
+    const safeTags = normalizeYouTubeSnippetTags(m.tags);
     const snippet: Record<string, unknown> = {
       title: safeTitle,
       description: safeDescription,
@@ -1015,7 +1014,9 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     return {
       ok: true,
       platformVideoId: videoId,
-      platformUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      platformUrl: m.isShort
+        ? `https://www.youtube.com/shorts/${videoId}`
+        : `https://www.youtube.com/watch?v=${videoId}`,
     };
   } catch (error) {
     return toError(

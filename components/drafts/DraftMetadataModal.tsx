@@ -1559,6 +1559,7 @@ export function DraftMetadataModal({
       : 'No file selected');
   const sermonAudioFields = value?.platforms.sermon_audio;
   const youtubeFields = value?.platforms.youtube;
+  const youtubeIsShort = youtubeFields?.isShort ?? false;
   const vimeoFields = value?.platforms.vimeo;
   const facebookFields = value?.platforms.facebook;
   const sermonAudioEffectiveTitleText = value
@@ -3912,6 +3913,10 @@ export function DraftMetadataModal({
                 onConnectClick={() => {
                   void handleConnectAction();
                 }}
+                youtubeIsShort={youtubeIsShort}
+                onYouTubeShortsToggle={(checked) =>
+                  updateYouTubeFields({ isShort: checked || undefined })
+                }
               />
               {connectedPlatforms.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
@@ -4068,7 +4073,10 @@ export function DraftMetadataModal({
                           >
                             <span className="sr-only">Title — </span>
                             {isPlatformBrandIcon(platform) ? (
-                              <PlatformOverrideLabel platform={platform} />
+                              <PlatformOverrideLabel
+                                platform={platform}
+                                isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                              />
                             ) : (
                               platformLabel(platform)
                             )}
@@ -4148,7 +4156,10 @@ export function DraftMetadataModal({
                           >
                             <span className="sr-only">Description — </span>
                             {isPlatformBrandIcon(platform) ? (
-                              <PlatformOverrideLabel platform={platform} />
+                              <PlatformOverrideLabel
+                                platform={platform}
+                                isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                              />
                             ) : (
                               platformLabel(platform)
                             )}
@@ -4216,7 +4227,10 @@ export function DraftMetadataModal({
                               className="text-xs font-medium text-muted-foreground"
                             >
                               {isPlatformBrandIcon(platform) ? (
-                                <PlatformOverrideLabel platform={platform} />
+                                <PlatformOverrideLabel
+                                  platform={platform}
+                                  isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                                />
                               ) : (
                                 platformLabel(platform)
                               )}
@@ -4320,6 +4334,7 @@ export function DraftMetadataModal({
                               {isPlatformBrandIcon(platform) ? (
                                 <PlatformOverrideLabel
                                   platform={platform}
+                                  isShort={platform === 'youtube' ? youtubeIsShort : undefined}
                                   suffix={platform === 'sermon_audio' ? ' (hashtags)' : undefined}
                                 />
                               ) : (
@@ -4505,7 +4520,7 @@ export function DraftMetadataModal({
               <DraftModalCard
                 header={
                   showPlatformSectionHeaders ? (
-                    <PlatformSectionHeader platform="youtube" />
+                    <PlatformSectionHeader platform="youtube" isShort={youtubeIsShort} />
                   ) : undefined
                 }
               >
@@ -4558,7 +4573,12 @@ export function DraftMetadataModal({
                           Applies to {selectedThumbnailPlatforms.map(platformLabel).join(', ')}
                         </span>
                         {selectedThumbnailPlatforms.map((platform) => (
-                          <PlatformIcon key={platform} platform={platform} size={24} />
+                          <PlatformIcon
+                            key={platform}
+                            platform={platform}
+                            size={24}
+                            isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                          />
                         ))}
                       </span>
                     ) : null}
@@ -4608,7 +4628,10 @@ export function DraftMetadataModal({
                           );
                           return (
                             <div key={platform}>
-                              <PlatformOverrideLabel platform={platform} />
+                              <PlatformOverrideLabel
+                                platform={platform}
+                                isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                              />
                               {previewUrl ? (
                                 <div className="relative mt-2 inline-block max-w-full">
                                   <Image
