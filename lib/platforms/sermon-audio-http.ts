@@ -107,6 +107,20 @@ export function sermonAudioJsonHeaders(apiKey: string): Record<string, string> {
 }
 
 /**
+ * Thrown when a paginated SermonAudio list cannot be fully consumed because
+ * `next` repeats a visited URL or exceeds a max-page guard.
+ */
+export class SermonAudioPaginationGuardError extends Error {
+  /**
+   * @param message - Human-readable pagination guard failure summary.
+   */
+  constructor(message: string) {
+    super(message);
+    this.name = 'SermonAudioPaginationGuardError';
+  }
+}
+
+/**
  * Thrown when a SermonAudio upstream HTTP response is not OK.
  * @property status - Upstream HTTP status code.
  * @property details - Optional upstream response body text.

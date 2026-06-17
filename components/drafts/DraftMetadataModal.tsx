@@ -3856,7 +3856,20 @@ export function DraftMetadataModal({
           Specify the correct language in which the sermon was preached to help people find it in
           their native language.
         </p>
-        {sermonLanguagesLoadFailed || sermonLanguages === null ? (
+        {sermonLanguages === null && !sermonLanguagesLoadFailed ? (
+          <div
+            id="draft-sermon-audio-language"
+            className={cn(
+              fieldBorderClass('sermon_audio.languageCode'),
+              'mt-2 flex h-10 items-center gap-2 px-3 text-sm text-muted-foreground'
+            )}
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Loading languages…
+          </div>
+        ) : sermonLanguagesLoadFailed ? (
           <input
             id="draft-sermon-audio-language"
             value={sermonAudioFields?.languageCode ?? ''}

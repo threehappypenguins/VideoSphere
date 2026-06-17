@@ -100,6 +100,26 @@ describe('GET /api/platforms/sermon-audio/languages', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('returns 502 when pagination next repeats a visited URL', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          results: [{ languageCode: 'en', languageName: 'English', localizedName: 'English' }],
+          totalCount: 1,
+          next: '/v2/node/languages',
+        }),
+        { status: 200 }
+      )
+    );
+
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.statusCode).toBe(502);
+    expect(body.message).toContain('complete SermonAudio language catalog');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('returns 404 when SermonAudio is not connected', async () => {
     mockGetConnectedAccountWithTokens.mockResolvedValueOnce(null);
     const res = await GET(makeRequest());

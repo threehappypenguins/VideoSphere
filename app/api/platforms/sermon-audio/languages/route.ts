@@ -7,6 +7,7 @@ import {
 } from '@/lib/platforms/sermon-audio-languages';
 import {
   SERMONAUDIO_API_BASE,
+  SermonAudioPaginationGuardError,
   SermonAudioUpstreamHttpError,
   assertSermonAudioHttpOk,
   isSermonAudioCredentialsFailure,
@@ -32,8 +33,15 @@ async function fetchAllSermonAudioLanguages(apiKey: string): Promise<SermonAudio
   let nextUrl: string | null = resolveSermonAudioApiUrl(SERMONAUDIO_LANGUAGES_URL);
 
   while (nextUrl) {
-    if (visitedUrls.has(nextUrl) || visitedUrls.size >= SERMONAUDIO_LANGUAGES_MAX_PAGES) {
-      break;
+    if (visitedUrls.has(nextUrl)) {
+      throw new SermonAudioPaginationGuardError(
+        'SermonAudio languages pagination loop detected (repeated next URL)'
+      );
+    }
+    if (visitedUrls.size >= SERMONAUDIO_LANGUAGES_MAX_PAGES) {
+      throw new SermonAudioPaginationGuardError(
+        `SermonAudio languages pagination exceeded ${SERMONAUDIO_LANGUAGES_MAX_PAGES} pages`
+      );
     }
     visitedUrls.add(nextUrl);
 
@@ -72,6 +80,16 @@ export async function GET(req: NextRequest) {
     const res: ApiResponse<SermonAudioLanguageOption[]> = { data: languages };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {
+    if (err instanceof SermonAudioPaginationGuardError) {
+      console.error('[GET /api/platforms/sermon-audio/languages] Pagination guard:', err.message);
+      const errRes: ApiError = {
+        error: 'Bad Gateway',
+        message:
+          'Failed to load complete SermonAudio language catalog. Try again in a few minutes.',
+        statusCode: 502,
+      };
+      return NextResponse.json(errRes, { status: 502 });
+    }
     if (err instanceof SermonAudioUpstreamHttpError) {
       if (isSermonAudioCredentialsFailure(err.status)) {
         const errRes: ApiError = {
