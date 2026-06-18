@@ -50,6 +50,7 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
 
 import ConnectionsPage from '@/app/(dashboard)/profile/connections/page';
 import { redirect } from 'next/navigation';
+import type { ConnectedAccountPlatform } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,20 +64,15 @@ function setupAuthenticatedUser(userId = 'user-123') {
   mockGetCurrentUserIdFromCookies.mockResolvedValue(userId);
 }
 
-function getPlatformLabelsInSection(sectionTitle: string): string[] {
+function getPlatformsInSection(sectionTitle: string): ConnectedAccountPlatform[] {
   const heading = screen.getByRole('heading', { name: sectionTitle });
   const section = heading.closest('section');
   if (!section) {
     throw new Error(`Section not found for heading: ${sectionTitle}`);
   }
-  const rows = section.querySelectorAll('.rounded-xl.border');
-  return Array.from(rows).map((row) => {
-    const label = row.querySelector('p.font-medium.text-foreground');
-    if (!label?.textContent) {
-      throw new Error(`Platform label not found in section: ${sectionTitle}`);
-    }
-    return label.textContent;
-  });
+  return Array.from(section.querySelectorAll('[data-platform]'))
+    .map((row) => row.getAttribute('data-platform'))
+    .filter((platform): platform is ConnectedAccountPlatform => platform != null);
 }
 
 // ---------------------------------------------------------------------------
@@ -127,22 +123,18 @@ describe('ConnectionsPage', () => {
     it('lists video platforms alphabetically when none are connected', async () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(getPlatformLabelsInSection('Video Platforms')).toEqual([
-        'Facebook',
-        'SermonAudio',
-        'Vimeo',
-        'YouTube',
+      expect(getPlatformsInSection('Video Platforms')).toEqual([
+        'facebook',
+        'sermon_audio',
+        'vimeo',
+        'youtube',
       ]);
     });
 
     it('lists backup platforms alphabetically when none are connected', async () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(getPlatformLabelsInSection('Backup')).toEqual([
-        'Google Drive',
-        'SFTP Server',
-        'SMB / Network Share',
-      ]);
+      expect(getPlatformsInSection('Backup')).toEqual(['google_drive', 'sftp', 'smb']);
     });
 
     it('shows connected video platforms first in alphabetical order within the section', async () => {
@@ -174,11 +166,11 @@ describe('ConnectionsPage', () => {
       ]);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(getPlatformLabelsInSection('Video Platforms')).toEqual([
-        'Facebook',
-        'YouTube',
-        'SermonAudio',
-        'Vimeo',
+      expect(getPlatformsInSection('Video Platforms')).toEqual([
+        'facebook',
+        'youtube',
+        'sermon_audio',
+        'vimeo',
       ]);
     });
 
@@ -203,11 +195,7 @@ describe('ConnectionsPage', () => {
       ]);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(getPlatformLabelsInSection('Backup')).toEqual([
-        'SFTP Server',
-        'Google Drive',
-        'SMB / Network Share',
-      ]);
+      expect(getPlatformsInSection('Backup')).toEqual(['sftp', 'google_drive', 'smb']);
     });
 
     it('renders a row for YouTube', async () => {
