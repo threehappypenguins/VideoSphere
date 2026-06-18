@@ -30,6 +30,7 @@ vi.mock('node-smb2', () => {
 
 import {
   isValidSmbRemotePath,
+  isValidSmbUploadPathSegment,
   resolveSmbAuthDomain,
   SMB_DEFAULT_DOMAIN,
   testSmbConnection,
@@ -101,6 +102,20 @@ describe('isValidSmbRemotePath', () => {
     expect(isValidSmbRemotePath('VideoSphere')).toBe(false);
     expect(isValidSmbRemotePath('/backups/../etc')).toBe(false);
     expect(isValidSmbRemotePath('\\backups\\..\\etc')).toBe(false);
+  });
+});
+
+describe('isValidSmbUploadPathSegment', () => {
+  it('accepts normal backup filenames and year folders', () => {
+    expect(isValidSmbUploadPathSegment('20260415 - My Backup.mp4')).toBe(true);
+    expect(isValidSmbUploadPathSegment('2026')).toBe(true);
+  });
+
+  it('rejects traversal and absolute path segments', () => {
+    expect(isValidSmbUploadPathSegment('../secret.mp4')).toBe(false);
+    expect(isValidSmbUploadPathSegment('/etc/passwd')).toBe(false);
+    expect(isValidSmbUploadPathSegment('..')).toBe(false);
+    expect(isValidSmbUploadPathSegment('2026/../other')).toBe(false);
   });
 });
 
@@ -306,6 +321,35 @@ describe('uploadToSmb', () => {
     });
 
     expect(mocks.mockCreateDirectory).toHaveBeenCalledWith('/VideoSphere/2026');
+  });
+
+  it('rejects upload when fileName would escape the remote directory', async () => {
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: '../outside.mp4',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SMB_UPLOAD_PATH_INVALID', statusCode: 400 },
+    });
+    expect(mocks.MockClient).not.toHaveBeenCalled();
+  });
+
+  it('rejects upload when yearFolderName would escape the remote directory', async () => {
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: 'backup.mp4',
+      yearFolderName: '../other',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SMB_UPLOAD_PATH_INVALID', statusCode: 400 },
+    });
+    expect(mocks.MockClient).not.toHaveBeenCalled();
   });
 
   it('writes to the share root when remote path is /', async () => {

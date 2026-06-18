@@ -150,11 +150,39 @@ export function isValidSmbRemotePath(remotePath: string): boolean {
   return true;
 }
 
+/**
+ * Returns whether `segment` is a safe single path component for SMB uploads.
+ * Rejects separators, `.` / `..` segments, and control characters.
+ * @param segment - Candidate filename or year-folder name.
+ * @returns True when the segment may be joined under a configured remote directory.
+ */
+export function isValidSmbUploadPathSegment(segment: string): boolean {
+  const trimmed = segment.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes('\\')) return false;
+  if (/[\u0000-\u001f]/.test(trimmed)) return false;
+
+  for (const part of trimmed.split('/')) {
+    if (!part || part === '.' || part === '..') return false;
+  }
+
+  return true;
+}
+
 function invalidRemotePathError(): PlatformUploadError {
   return {
     code: 'SMB_REMOTE_PATH_INVALID',
     message:
       'Remote path must be empty (share root) or start with / or \\, without . or .. segments.',
+    statusCode: 400,
+  };
+}
+
+function invalidUploadPathSegmentError(): PlatformUploadError {
+  return {
+    code: 'SMB_UPLOAD_PATH_INVALID',
+    message:
+      'Backup filename and year folder must be single path segments without . or .. components.',
     statusCode: 400,
   };
 }
@@ -536,9 +564,20 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
     return toError('SMB_UPLOAD_ABORTED', 'SMB upload was cancelled.');
   }
 
+  const fileName = input.fileName.trim() || 'VideoSphere Backup.mp4';
+  const yearFolderName = input.yearFolderName?.trim();
+
+  if (!isValidSmbUploadPathSegment(fileName)) {
+    const err = invalidUploadPathSegmentError();
+    return toError(err.code, err.message, err.statusCode);
+  }
+
+  if (yearFolderName && !isValidSmbUploadPathSegment(yearFolderName)) {
+    const err = invalidUploadPathSegmentError();
+    return toError(err.code, err.message, err.statusCode);
+  }
+
   try {
-    const fileName = input.fileName.trim() || 'VideoSphere Backup.mp4';
-    const yearFolderName = input.yearFolderName?.trim();
     const baseDirectoryPath = toSmbClientDirectoryPath(credentials.remotePath);
     const uploadDirectoryPath = yearFolderName
       ? joinSmbFilePath(baseDirectoryPath, yearFolderName)

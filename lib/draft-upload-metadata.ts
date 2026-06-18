@@ -8,10 +8,7 @@
  */
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
-import {
-  mergeBackupFileNameSettingsPatch,
-  normalizeBackupFileNameSettings,
-} from '@/lib/backup-filename';
+import { normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 import { formatSermonAudioKeywordsFromTags } from '@/lib/platforms/sermon-audio-tags';
 import { normalizeSermonAudioCrossPublishSettings } from '@/lib/platforms/sermon-audio-cross-publish';
 import { normalizeVimeoContentRatingCodes } from '@/lib/platforms/vimeo-content-rating';
@@ -1220,23 +1217,6 @@ export function parseBackupNamingFromRequestBody(
 ): { ok: true; value: BackupFileNameSettings } | { ok: false; error: string } {
   if (value === undefined) {
     return { ok: true, value: normalizeBackupFileNameSettings(undefined) };
-  }
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return { ok: false, error: 'backupNaming must be an object' };
-  }
-  return { ok: true, value: normalizeBackupFileNameSettings(value) };
-}
-
-/**
- * Validate optional `backupNaming` patch on PATCH bodies (partial merge).
- * @param value - Raw request body value.
- * @returns Parsed partial patch or an error message.
- */
-export function parseBackupNamingPatchBody(
-  value: unknown
-): { ok: true; value: BackupFileNameSettings } | { ok: false; error: string } {
-  if (value === undefined) {
-    return { ok: false, error: 'backupNaming must be provided when included in the request' };
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return { ok: false, error: 'backupNaming must be an object' };

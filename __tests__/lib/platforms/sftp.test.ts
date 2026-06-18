@@ -21,10 +21,28 @@ vi.mock('ssh2', () => {
 
 import { PassThrough } from 'node:stream';
 import { EventEmitter } from 'node:events';
-import { testSftpConnection, uploadToSftp } from '@/lib/platforms/sftp';
+import {
+  testSftpConnection,
+  uploadToSftp,
+  isValidSftpUploadPathSegment,
+} from '@/lib/platforms/sftp';
 import type { ConnectedAccount } from '@/types';
 
 const TEST_HOST_KEY_FINGERPRINT = 'a'.repeat(64);
+
+describe('isValidSftpUploadPathSegment', () => {
+  it('accepts normal backup filenames and year folders', () => {
+    expect(isValidSftpUploadPathSegment('20260415 - My Backup.mp4')).toBe(true);
+    expect(isValidSftpUploadPathSegment('2026')).toBe(true);
+  });
+
+  it('rejects traversal and absolute path segments', () => {
+    expect(isValidSftpUploadPathSegment('../secret.mp4')).toBe(false);
+    expect(isValidSftpUploadPathSegment('/etc/passwd')).toBe(false);
+    expect(isValidSftpUploadPathSegment('..')).toBe(false);
+    expect(isValidSftpUploadPathSegment('2026/../other')).toBe(false);
+  });
+});
 
 function runMockHostVerifier(
   client: InstanceType<typeof EventEmitter>,
@@ -209,6 +227,72 @@ describe('uploadToSftp', () => {
       expect.objectContaining({ mode: 0o755 }),
       expect.any(Function)
     );
+  });
+
+  it('succeeds when mkdir returns EEXIST because another upload created the year folder', async () => {
+    let yearDirStatCalls = 0;
+    mocks.mockStat.mockImplementation(
+      (
+        remotePath: string,
+        callback: (err: Error | null, stats?: { isDirectory: () => boolean }) => void
+      ) => {
+        if (remotePath === '/backups/2026') {
+          yearDirStatCalls += 1;
+          if (yearDirStatCalls === 1) {
+            callback(Object.assign(new Error('No such file'), { code: 'ENOENT' }));
+            return;
+          }
+        }
+        callback(null, { isDirectory: () => true });
+      }
+    );
+    mocks.mockMkdir.mockImplementation(
+      (_path: string, _options: unknown, callback: (err: Error | null) => void) => {
+        callback(Object.assign(new Error('File exists'), { code: 'EEXIST' }));
+      }
+    );
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      fileName: '20260415 - My Backup.mp4',
+      yearFolderName: '2026',
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(mocks.mockCreateWriteStream).toHaveBeenCalledWith(
+      '/backups/2026/20260415 - My Backup.mp4',
+      expect.objectContaining({ flags: 'w', mode: 0o600 })
+    );
+  });
+
+  it('rejects upload when fileName would escape the remote directory', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      fileName: '../outside.mp4',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_UPLOAD_PATH_INVALID', statusCode: 400 },
+    });
+    expect(mocks.mockConnect).not.toHaveBeenCalled();
+  });
+
+  it('rejects upload when yearFolderName would escape the remote directory', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      fileName: 'backup.mp4',
+      yearFolderName: '../other',
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SFTP_UPLOAD_PATH_INVALID', statusCode: 400 },
+    });
+    expect(mocks.mockConnect).not.toHaveBeenCalled();
   });
 
   it('rejects upload when host key fingerprint is not pinned', async () => {

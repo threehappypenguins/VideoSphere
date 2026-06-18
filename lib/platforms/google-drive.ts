@@ -12,7 +12,7 @@ interface UploadToGoogleDriveInput {
   contentLength?: number;
   contentType?: string;
   fileName: string;
-  /** When set, upload inside this year folder at the Drive root. */
+  /** When set, upload inside this year subfolder under the configured backup root (or My Drive root when unset). */
   yearFolderName?: string;
   tokens: PlatformUploadTokens;
   signal?: AbortSignal;
