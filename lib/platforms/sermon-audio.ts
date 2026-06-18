@@ -186,6 +186,7 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   if (metadata.moreInfoText?.trim()) body.moreInfoText = metadata.moreInfoText.trim();
   if (metadata.keywords?.trim()) body.keywords = metadata.keywords.trim();
   if (metadata.languageCode?.trim()) body.languageCode = metadata.languageCode.trim();
+  if (metadata.publishDate?.trim()) body.publishDate = metadata.publishDate.trim();
 
   const socialSharingFields = buildSermonAudioSocialSharingCreateFields(metadata.crossPublish, {
     defaultTitle: fullTitle,

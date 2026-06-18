@@ -596,6 +596,131 @@ describe('DraftMetadataModal SermonAudio short title', () => {
   });
 });
 
+describe('DraftMetadataModal SermonAudio schedule', () => {
+  function TrackingSermonAudioModal({
+    initialValue,
+    onValueChange,
+  }: {
+    initialValue: DraftEditorValues;
+    onValueChange?: (value: DraftEditorValues) => void;
+  }) {
+    const [value, setValue] = useState(initialValue);
+    return (
+      <DraftMetadataModal
+        mode="edit"
+        value={value}
+        initialConnectedPlatforms={initialValue.targets}
+        initialConnectionsResolved
+        isSaving={false}
+        onClose={vi.fn()}
+        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: initialValue.id })}
+        onChange={(next) => {
+          setValue(next);
+          onValueChange?.(next);
+        }}
+      />
+    );
+  }
+
+  const sermonAudioDraftValue: DraftEditorValues = {
+    ...draftValue,
+    targets: ['sermon_audio'],
+    platforms: { sermon_audio: {} },
+  };
+
+  beforeEach(() => {
+    const originalSupportedValuesOf = (
+      Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
+    ).supportedValuesOf;
+
+    const mockTimeZoneSupportedValuesOf = (key: string): string[] => {
+      if (key === 'timeZone') {
+        return ['America/Halifax', 'America/New_York', 'UTC'];
+      }
+      throw new Error(`Unsupported Intl.supportedValuesOf key: ${key}`);
+    };
+
+    if (typeof originalSupportedValuesOf === 'function') {
+      vi.spyOn(Intl, 'supportedValuesOf').mockImplementation(
+        mockTimeZoneSupportedValuesOf as typeof Intl.supportedValuesOf
+      );
+    } else {
+      (
+        Intl as typeof Intl & { supportedValuesOf?: typeof Intl.supportedValuesOf }
+      ).supportedValuesOf = mockTimeZoneSupportedValuesOf as typeof Intl.supportedValuesOf;
+    }
+
+    vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('disables auto-publish when schedule for publication is checked', async () => {
+    render(<TrackingSermonAudioModal initialValue={sermonAudioDraftValue} />);
+    await screen.findByRole('dialog');
+
+    const autoPublish = document.getElementById(
+      'draft-sermon-audio-auto-publish'
+    ) as HTMLInputElement;
+    expect(autoPublish).not.toBeDisabled();
+    expect(autoPublish).toBeChecked();
+
+    await userEvent.click(screen.getByLabelText(/Schedule for Publication/i));
+
+    expect(autoPublish).toBeDisabled();
+    expect(autoPublish).not.toBeChecked();
+    expect(screen.getByLabelText(/^Date$/i)).toBeInTheDocument();
+  });
+
+  it('stores publishDate and turns off auto-publish when schedule inputs are complete', async () => {
+    let latestValue = sermonAudioDraftValue;
+    render(
+      <TrackingSermonAudioModal
+        initialValue={sermonAudioDraftValue}
+        onValueChange={(next) => {
+          latestValue = next;
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await userEvent.click(screen.getByLabelText(/Schedule for Publication/i));
+
+    await waitFor(() => {
+      expect(latestValue.platforms.sermon_audio?.publishDate).toEqual(expect.any(String));
+      expect(latestValue.platforms.sermon_audio?.autoPublishOnProcessed).toBe(false);
+    });
+  });
+
+  it('clears publishDate when schedule for publication is unchecked', async () => {
+    let latestValue = sermonAudioDraftValue;
+    render(
+      <TrackingSermonAudioModal
+        initialValue={sermonAudioDraftValue}
+        onValueChange={(next) => {
+          latestValue = next;
+        }}
+      />
+    );
+
+    await screen.findByRole('dialog');
+    await userEvent.click(screen.getByLabelText(/Schedule for Publication/i));
+
+    await waitFor(() => {
+      expect(latestValue.platforms.sermon_audio?.publishDate).toBeDefined();
+    });
+
+    await userEvent.click(screen.getByLabelText(/Schedule for Publication/i));
+
+    await waitFor(() => {
+      expect(latestValue.platforms.sermon_audio?.publishDate).toBeUndefined();
+    });
+  });
+});
+
 describe('DraftMetadataModal privacy field', () => {
   beforeEach(() => {
     if (!HTMLElement.prototype.hasPointerCapture) {

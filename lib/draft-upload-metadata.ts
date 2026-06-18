@@ -362,8 +362,9 @@ function normalizeFacebookFields(f: Record<string, unknown>): FacebookDraftField
 }
 
 function resolveSermonAudioAutoPublishOnProcessed(
-  fields: Pick<SermonAudioDraftFields, 'autoPublishOnProcessed'> | undefined
+  fields: Pick<SermonAudioDraftFields, 'autoPublishOnProcessed' | 'publishDate'> | undefined
 ): boolean {
+  if (fields?.publishDate?.trim()) return false;
   return fields?.autoPublishOnProcessed !== false;
 }
 
@@ -385,6 +386,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
   const languageCode = trimStr(sa.languageCode);
   const autoPublishOnProcessed =
     typeof sa.autoPublishOnProcessed === 'boolean' ? sa.autoPublishOnProcessed : undefined;
+  const publishDate = trimStr(sa.publishDate);
   const crossPublish = normalizeSermonAudioCrossPublishSettings(sa.crossPublish);
 
   return {
@@ -400,6 +402,7 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
     ...(displayTitle !== undefined ? { displayTitle } : {}),
     ...(languageCode !== undefined ? { languageCode } : {}),
     ...(autoPublishOnProcessed !== undefined ? { autoPublishOnProcessed } : {}),
+    ...(publishDate !== undefined ? { publishDate } : {}),
     ...(crossPublish !== undefined ? { crossPublish } : {}),
   };
 }
@@ -840,6 +843,10 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
       sa.autoPublishOnProcessed =
         typeof p.autoPublishOnProcessed === 'boolean' ? p.autoPublishOnProcessed : undefined;
     }
+    if ('publishDate' in p) {
+      const s = p.publishDate;
+      sa.publishDate = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
     if ('crossPublish' in p) {
       sa.crossPublish = normalizeSermonAudioCrossPublishSettings(p.crossPublish);
     }
@@ -1061,6 +1068,7 @@ export function buildMetadataForPlatform(
       ...(sa?.languageCode?.trim() ? { languageCode: sa.languageCode.trim() } : {}),
       acceptCopyright: true,
       autoPublishOnProcessed: resolveSermonAudioAutoPublishOnProcessed(sa),
+      ...(sa?.publishDate?.trim() ? { publishDate: sa.publishDate.trim() } : {}),
       ...(sa?.crossPublish !== undefined ? { crossPublish: sa.crossPublish } : {}),
     };
   }
