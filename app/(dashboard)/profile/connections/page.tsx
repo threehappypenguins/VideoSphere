@@ -42,6 +42,7 @@ import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
 import { PlatformIcon, isPlatformBrandIcon } from '@/components/icons/PlatformIcon';
 import type { ConnectedAccountPlatform } from '@/types';
+import { BACKUP_PLATFORMS, VIDEO_PLATFORMS } from '@/lib/ui/platform-sections';
 
 /**
  * Provides static page metadata for this route segment.
@@ -94,19 +95,6 @@ const PLATFORM_META: Record<
     connectHref: '/api/platforms/connect/facebook',
   },
 };
-
-const VIDEO_PLATFORMS = [
-  'youtube',
-  'vimeo',
-  'sermon_audio',
-  'facebook',
-] as const satisfies readonly ConnectedAccountPlatform[];
-
-const BACKUP_PLATFORMS = [
-  'google_drive',
-  'sftp',
-  'smb',
-] as const satisfies readonly ConnectedAccountPlatform[];
 
 /**
  * Sorts platforms within a connections section: rows with an existing connection
