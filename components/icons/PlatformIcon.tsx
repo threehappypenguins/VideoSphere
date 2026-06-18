@@ -8,18 +8,26 @@ import YoutubeShortsIcon from '@/components/icons/platforms/youtube-shorts.svg';
 import VimeoIcon from '@/components/icons/platforms/vimeo.svg';
 import SermonAudioIcon from '@/components/icons/platforms/sermon-audio.svg';
 import FacebookIcon from '@/components/icons/platforms/facebook.svg';
+import GoogleDriveIcon from '@/components/icons/platforms/google-drive.svg';
 
 /** Platform identifier backed by a brand icon SVG. */
 export type PlatformBrandIcon = (typeof PLATFORM_BRAND_ICONS)[number];
 
 /** Platforms that have a dedicated brand icon asset in this app. */
-export const PLATFORM_BRAND_ICONS = ['youtube', 'vimeo', 'sermon_audio', 'facebook'] as const;
+export const PLATFORM_BRAND_ICONS = [
+  'youtube',
+  'vimeo',
+  'google_drive',
+  'sermon_audio',
+  'facebook',
+] as const;
 
 type PlatformSvgComponent = FC<SVGProps<SVGSVGElement>>;
 
 const PLATFORM_ICONS: Record<PlatformBrandIcon, PlatformSvgComponent> = {
   youtube: YoutubeIcon,
   vimeo: VimeoIcon,
+  google_drive: GoogleDriveIcon,
   sermon_audio: SermonAudioIcon,
   facebook: FacebookIcon,
 };
