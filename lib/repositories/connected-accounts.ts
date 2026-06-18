@@ -47,6 +47,9 @@ function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount 
     ...(doc.smbShare != null ? { smbShare: String(doc.smbShare) } : {}),
     ...(doc.smbDomain != null ? { smbDomain: String(doc.smbDomain) } : {}),
     ...(doc.smbRemotePath != null ? { smbRemotePath: String(doc.smbRemotePath) } : {}),
+    ...(doc.googleDriveBackupFolderPath != null
+      ? { googleDriveBackupFolderPath: String(doc.googleDriveBackupFolderPath) }
+      : {}),
     ...(doc.facebookTargetType != null
       ? { facebookTargetType: doc.facebookTargetType as 'page' | 'profile' }
       : {}),
@@ -93,6 +96,9 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     ...(doc.smbShare != null ? { smbShare: String(doc.smbShare) } : {}),
     ...(doc.smbDomain != null ? { smbDomain: String(doc.smbDomain) } : {}),
     ...(doc.smbRemotePath != null ? { smbRemotePath: String(doc.smbRemotePath) } : {}),
+    ...(doc.googleDriveBackupFolderPath != null
+      ? { googleDriveBackupFolderPath: String(doc.googleDriveBackupFolderPath) }
+      : {}),
     ...(doc.facebookTargetType != null
       ? { facebookTargetType: doc.facebookTargetType as 'page' | 'profile' }
       : {}),
@@ -126,6 +132,7 @@ export interface CreateConnectedAccountData {
   smbShare?: string;
   smbDomain?: string;
   smbRemotePath?: string;
+  googleDriveBackupFolderPath?: string;
   facebookTargetType?: 'page' | 'profile';
   facebookPageId?: string;
 }
@@ -159,6 +166,9 @@ export async function createConnectedAccount(
     ...(data.smbShare != null ? { smbShare: data.smbShare } : {}),
     ...(data.smbDomain != null ? { smbDomain: data.smbDomain } : {}),
     ...(data.smbRemotePath != null ? { smbRemotePath: data.smbRemotePath } : {}),
+    ...(data.googleDriveBackupFolderPath != null
+      ? { googleDriveBackupFolderPath: data.googleDriveBackupFolderPath }
+      : {}),
     ...(data.facebookTargetType != null ? { facebookTargetType: data.facebookTargetType } : {}),
     ...(data.facebookPageId != null ? { facebookPageId: data.facebookPageId } : {}),
   });
@@ -355,6 +365,32 @@ export async function updateConnection(
           }
         : {}),
       ...facebookUpdate,
+    },
+    { returnDocument: 'after', runValidators: true }
+  ).lean<ConnectedAccountDocument | null>();
+
+  if (!updated) return null;
+  return rowToConnectedAccountPublic(updated);
+}
+
+/**
+ * Updates the configured Google Drive backup folder path and resolved folder id metadata.
+ * @param id - Connected account row id.
+ * @param backupFolderPath - User-facing folder path within My Drive (`''` or `/` for root).
+ * @param platformUserId - Serialized platform user metadata including optional `rootFolderId`.
+ * @returns Updated public account row, or null when the row does not exist.
+ */
+export async function updateGoogleDriveBackupFolder(
+  id: string,
+  backupFolderPath: string,
+  platformUserId: string
+): Promise<ConnectedAccountPublic | null> {
+  await connectToDatabase();
+  const updated = await ConnectedAccountModel.findByIdAndUpdate(
+    id,
+    {
+      googleDriveBackupFolderPath: backupFolderPath,
+      platformUserId,
     },
     { returnDocument: 'after', runValidators: true }
   ).lean<ConnectedAccountDocument | null>();

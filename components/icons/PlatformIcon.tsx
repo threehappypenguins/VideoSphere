@@ -32,6 +32,12 @@ const PLATFORM_ICONS: Record<PlatformBrandIcon, PlatformSvgComponent> = {
   facebook: FacebookIcon,
 };
 
+/** Emoji icons for platforms without a dedicated brand SVG (matches Connections page). */
+const PLATFORM_EMOJI_ICONS: Partial<Record<ConnectedAccountPlatform, string>> = {
+  sftp: '🖥️',
+  smb: '🗄️',
+};
+
 /**
  * Returns whether a connected platform has a brand icon asset.
  * @param platform - Connected platform identifier.
@@ -161,6 +167,93 @@ export function PlatformOverrideLabel({
       <PlatformIcon platform={platform} size={28} isShort={isShort} />
       <PlatformNameBadge platform={platform} />
       {suffix ? <span className="text-xs font-medium text-muted-foreground">{suffix}</span> : null}
+    </span>
+  );
+}
+
+interface PlatformTargetIconProps {
+  /** Publish or backup platform whose icon should be shown. */
+  platform: ConnectedAccountPlatform;
+  /** Rendered width and height in pixels. */
+  size?: number;
+  /** When true and platform is `youtube`, render the YouTube Shorts icon instead. */
+  isShort?: boolean;
+  /** Optional class names for the icon wrapper. */
+  className?: string;
+}
+
+/**
+ * Renders a platform icon for lists and toggles: brand SVG when available, otherwise emoji (SFTP/SMB).
+ * @param props - Component props.
+ * @returns Platform icon element, or null when no icon is defined for the platform.
+ */
+export function PlatformTargetIcon({
+  platform,
+  size = 28,
+  isShort,
+  className,
+}: PlatformTargetIconProps) {
+  if (isPlatformBrandIcon(platform)) {
+    return <PlatformIcon platform={platform} size={size} isShort={isShort} className={className} />;
+  }
+
+  const emoji = PLATFORM_EMOJI_ICONS[platform];
+  if (emoji) {
+    return (
+      <span
+        className={cn(
+          'inline-flex shrink-0 items-center justify-center rounded-md bg-muted leading-none',
+          className
+        )}
+        style={{ width: size, height: size, fontSize: Math.max(14, Math.round(size * 0.5)) }}
+        aria-hidden
+      >
+        {emoji}
+      </span>
+    );
+  }
+
+  return null;
+}
+
+interface TitleTargetPlatformLabelProps {
+  /** Platform this per-target title field belongs to (publish or backup). */
+  platform: ConnectedAccountPlatform;
+  /** When true and platform is `youtube`, render the YouTube Shorts icon instead. */
+  isShort?: boolean;
+  /** Optional class names for the label wrapper. */
+  className?: string;
+}
+
+/**
+ * Renders icon and platform badge for per-target title fields across publish and backup destinations.
+ * @param props - Component props.
+ * @returns Label content with brand SVG, emoji icon, or text fallback.
+ */
+export function TitleTargetPlatformLabel({
+  platform,
+  isShort,
+  className,
+}: TitleTargetPlatformLabelProps) {
+  if (isPlatformBrandIcon(platform)) {
+    return <PlatformOverrideLabel platform={platform} isShort={isShort} className={className} />;
+  }
+
+  const emoji = PLATFORM_EMOJI_ICONS[platform];
+  if (emoji) {
+    return (
+      <span className={cn('inline-flex items-center gap-2', className)}>
+        <PlatformTargetIcon platform={platform} />
+        <span className="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground">
+          {platformLabel(platform)}
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span className={cn('text-xs font-medium text-muted-foreground', className)}>
+      {platformLabel(platform)}
     </span>
   );
 }

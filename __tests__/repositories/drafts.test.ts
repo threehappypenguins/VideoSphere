@@ -40,6 +40,7 @@ import {
   getDraftById,
   listDraftsByUser,
   markDraftUsedInUpload,
+  updateDraft,
 } from '@/lib/repositories/drafts';
 
 function chain<T>(value: T) {
@@ -140,5 +141,72 @@ describe('drafts repository (mongo)', () => {
     expect(mockFindByIdAndUpdate).toHaveBeenCalled();
     expect(deleted).toBeUndefined();
     expect(mockDeleteOne).toHaveBeenCalledWith({ _id: 'draft-1' });
+  });
+
+  it('persists a stable datePrefixDate when backupNaming omits the date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+
+    mockCreate.mockImplementationOnce(async (input: { document: string }) => ({
+      toObject: () => ({
+        ...baseDoc,
+        document: input.document,
+      }),
+    }));
+
+    await createDraft({
+      userId: 'user-1',
+      targets: ['sftp'],
+      title: 'Backup',
+      description: '',
+      backupNaming: { datePrefixEnabled: true },
+    });
+
+    const storedDocument = JSON.parse(String(mockCreate.mock.calls[0][0].document)) as {
+      backupNaming?: { datePrefixDate?: string };
+    };
+    expect(storedDocument.backupNaming?.datePrefixDate).toBe('2026-06-18');
+
+    vi.useRealTimers();
+  });
+
+  it('fills datePrefixDate on backupNaming patch when prefix is enabled without a date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+
+    mockFindById.mockReturnValueOnce({
+      lean: vi.fn().mockResolvedValue({
+        ...baseDoc,
+        document: JSON.stringify({
+          targets: ['sftp'],
+          title: 'Backup',
+          description: '',
+          visibility: 'private',
+          tags: [],
+          platforms: {},
+          backupNaming: {
+            datePrefixEnabled: false,
+            yearFolderEnabled: false,
+          },
+        }),
+      }),
+    });
+    mockFindByIdAndUpdate.mockImplementationOnce((_id, update: { document: string }) => ({
+      lean: vi.fn().mockResolvedValue({
+        ...baseDoc,
+        document: update.document,
+      }),
+    }));
+
+    await updateDraft('draft-1', {
+      backupNamingPatch: { datePrefixEnabled: true },
+    });
+
+    const storedDocument = JSON.parse(String(mockFindByIdAndUpdate.mock.calls[0][1].document)) as {
+      backupNaming?: { datePrefixDate?: string };
+    };
+    expect(storedDocument.backupNaming?.datePrefixDate).toBe('2026-06-18');
+
+    vi.useRealTimers();
   });
 });

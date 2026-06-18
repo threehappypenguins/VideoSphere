@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
+import { backupNamingForStorage, normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 import { useOnboardingContext } from '@/components/onboarding/OnboardingContext';
 import type { ApiResponse, ConnectedAccountPlatform, ConnectedAccountPublic, Draft } from '@/types';
 
@@ -50,6 +51,7 @@ function createEditorValues(draft: Draft): DraftEditorValues {
     visibility: draft.visibility,
     targets: [...draft.targets],
     platforms: draft.platforms ?? {},
+    backupNaming: normalizeBackupFileNameSettings(draft.backupNaming),
     ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
     ...(draft.thumbnailContentType ? { thumbnailContentType: draft.thumbnailContentType } : {}),
     ...(draft.thumbnailPreviewUrl ? { thumbnailPreviewUrl: draft.thumbnailPreviewUrl } : {}),
@@ -65,6 +67,7 @@ function createNewEditorValues(): DraftEditorValues {
     visibility: 'public',
     targets: [],
     platforms: {},
+    backupNaming: { ...normalizeBackupFileNameSettings(undefined) },
   };
 }
 
@@ -314,6 +317,7 @@ export default function DraftsPage() {
             targets: draft.targets,
             visibility: draft.visibility,
             platforms: draft.platforms,
+            backupNaming: draft.backupNaming,
           }),
         });
         if (!response.ok) {
@@ -353,6 +357,7 @@ export default function DraftsPage() {
             visibility: editingDraft.visibility,
             targets: editingDraft.targets,
             platforms: editingDraft.platforms,
+            backupNaming: backupNamingForStorage(editingDraft.backupNaming),
           }),
         });
         if (!response.ok) {
@@ -405,6 +410,7 @@ export default function DraftsPage() {
             visibility: creatingDraft.visibility,
             targets: creatingDraft.targets,
             platforms: creatingDraft.platforms,
+            backupNaming: backupNamingForStorage(creatingDraft.backupNaming),
           }),
         });
         if (!response.ok) {

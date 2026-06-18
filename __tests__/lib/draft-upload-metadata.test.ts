@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 import {
   assertDraftDocumentJsonWithinLimit,
   buildMetadataForPlatform,
@@ -19,6 +20,8 @@ import {
   visibilityFromRow,
 } from '@/lib/draft-upload-metadata';
 import type { Draft, DraftPlatforms } from '@/types';
+
+const defaultBackupNaming = normalizeBackupFileNameSettings(undefined);
 
 describe('draft-upload-metadata', () => {
   it('resolveDraftTitleForStorage prefers shared title when set', () => {
@@ -90,6 +93,8 @@ describe('draft-upload-metadata', () => {
       visibility: 'unlisted',
       tags: ['a', 'b'],
       platforms: { vimeo: { categoryUris: ['/categories/1'] } },
+      backupNaming: defaultBackupNaming,
+      usedInUploadAt: undefined,
     });
   });
 
@@ -136,6 +141,7 @@ describe('draft-upload-metadata', () => {
       visibility: 'public',
       tags: [],
       platforms: {},
+      backupNaming: defaultBackupNaming,
     });
     expect(draftDocumentFromRow({ document: 'not-json' })).toEqual({
       targets: [],
@@ -144,7 +150,21 @@ describe('draft-upload-metadata', () => {
       visibility: 'public',
       tags: [],
       platforms: {},
+      backupNaming: defaultBackupNaming,
     });
+  });
+
+  it('draftDocumentFromRow computes backupNaming datePrefixDate at parse time', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    expect(draftDocumentFromRow({}).backupNaming?.datePrefixDate).toBe('2026-06-18');
+
+    vi.setSystemTime(new Date('2026-06-19T12:00:00.000Z'));
+    expect(draftDocumentFromRow({ document: 'not-json' }).backupNaming?.datePrefixDate).toBe(
+      '2026-06-19'
+    );
+
+    vi.useRealTimers();
   });
 
   it('draftDocumentFromRow migrates legacy per-platform tags to top-level tags', () => {
@@ -1149,5 +1169,24 @@ describe('draft-upload-metadata', () => {
     expect(meta.thumbnailR2Key).toBe('thumb/key.jpg');
     expect(meta.facebookVideoState).toBe('SCHEDULED');
     expect(meta.facebookScheduledPublishTime).toBe(1_800_000_000);
+  });
+
+  it('buildMetadataForPlatform uses backup title overrides for SFTP', () => {
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sftp'],
+      title: 'Shared Title',
+      description: 'Desc',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sftp: { titleOverride: 'Backup Title' },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    expect(buildMetadataForPlatform(draft, 'sftp').title).toBe('Backup Title');
   });
 });

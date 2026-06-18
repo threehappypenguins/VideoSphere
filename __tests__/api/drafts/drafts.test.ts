@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 
 // ---------------------------------------------------------------------------
 // Mock shared auth helper
@@ -306,6 +307,7 @@ describe('POST /api/drafts', () => {
         tags: [],
         targets: ['youtube', 'vimeo'],
         platforms: {},
+        backupNaming: normalizeBackupFileNameSettings(undefined),
       });
     });
 

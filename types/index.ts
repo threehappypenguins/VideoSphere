@@ -66,11 +66,47 @@ export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = 
 /** SFTP authentication method stored on a connected account. */
 export type SftpAuthMethod = 'key' | 'password';
 
-/** SFTP-only fields inside the draft `document.platforms` JSON (no publish options yet). */
-export interface SftpDraftFields {}
+/** Supported date tokens for backup filename prefixes. */
+export type BackupDateFormat = 'YYYYMMDD' | 'YYYY-MM-DD' | 'YYYYDDMM' | 'YYYY-DD-MM';
 
-/** SMB/CIFS draft fields placeholder (no publish-specific options yet). */
-export interface SmbDraftFields {}
+/** AM/PM suffix appended directly to the formatted date prefix. */
+export type BackupDateSuffix = 'AM' | '-AM' | 'PM' | '-PM';
+
+/**
+ * Draft-level backup filename settings for Google Drive, SFTP, and SMB uploads.
+ * Stored in the draft `document` JSON as `backupNaming`.
+ */
+export interface BackupFileNameSettings {
+  /** When true, prefix the filename with the selected date. Default true. */
+  datePrefixEnabled?: boolean;
+  /** Calendar date for the prefix (`YYYY-MM-DD`). Defaults to today in the editor when unset. */
+  datePrefixDate?: string;
+  /** Date format used when {@link datePrefixEnabled} is true. Default `YYYYMMDD`. */
+  dateFormat?: BackupDateFormat;
+  /** When true, append {@link dateSuffix} directly to the formatted date prefix. Default false. */
+  dateSuffixEnabled?: boolean;
+  /** AM/PM token appended to the date prefix when {@link dateSuffixEnabled} is true. Default `AM`. */
+  dateSuffix?: BackupDateSuffix;
+  /** When true, include the optional series segment between date and title. Default false. */
+  seriesEnabled?: boolean;
+  /** Series label inserted when {@link seriesEnabled} is true. */
+  series?: string;
+  /** When true, append {@link suffix} in parentheses after the title. Default false. */
+  suffixEnabled?: boolean;
+  /** Label appended as `(suffix)` after the title when {@link suffixEnabled} is true. */
+  suffix?: string;
+  /** When true, store backups in a `{year}/` subfolder under the configured remote root. Default true. */
+  yearFolderEnabled?: boolean;
+}
+
+/** SFTP backup fields inside the draft `document.platforms` JSON. */
+export interface SftpDraftFields extends Pick<PerPlatformCopyOverrides, 'titleOverride'> {}
+
+/** SMB/CIFS backup fields inside the draft `document.platforms` JSON. */
+export interface SmbDraftFields extends Pick<PerPlatformCopyOverrides, 'titleOverride'> {}
+
+/** Google Drive backup fields inside the draft `document.platforms` JSON. */
+export interface GoogleDriveDraftFields extends Pick<PerPlatformCopyOverrides, 'titleOverride'> {}
 
 /**
  * Optional per-platform overrides for shared draft copy (title, description, tags).
@@ -364,13 +400,14 @@ export interface SermonAudioCrossPublishSettings {
 /**
  * Per-platform metadata on a draft (inside `document` JSON).
  * Publish targets use `platforms.youtube` / `platforms.vimeo` / `platforms.sermon_audio`.
- * Google Drive is selected via `targets` only (no `platforms.google_drive` key).
- * SFTP / SMB may use `platforms.sftp` / `platforms.smb` as empty placeholders until backup-specific fields exist.
+ * Backup targets may store per-destination title overrides on `platforms.google_drive`,
+ * `platforms.sftp`, and `platforms.smb`.
  */
 export interface DraftPlatforms {
   youtube?: YouTubeDraftFields;
   vimeo?: VimeoDraftFields;
   sermon_audio?: SermonAudioDraftFields;
+  google_drive?: GoogleDriveDraftFields;
   sftp?: SftpDraftFields;
   smb?: SmbDraftFields;
   facebook?: FacebookDraftFields;
@@ -393,6 +430,8 @@ export interface Draft {
   visibility: PlatformUploadVisibility;
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */
   platforms: DraftPlatforms;
+  /** Backup filename settings applied to Google Drive, SFTP, and SMB uploads. */
+  backupNaming?: BackupFileNameSettings;
   /**
    * R2 object key for a custom thumbnail image (JPG or PNG), or undefined if none.
    * Best-effort cleared after distribution completes (retained if the cleanup DB write fails).
@@ -505,6 +544,8 @@ export interface ConnectedAccountPublic {
   smbDomain?: string;
   /** Path within the share for backups, e.g. `/VideoSphere` (SMB accounts only). */
   smbRemotePath?: string;
+  /** Folder path within My Drive for backups; empty or `/` means Drive root (Google Drive only). */
+  googleDriveBackupFolderPath?: string;
   /** Facebook publish target: Page or personal profile (Facebook accounts only). */
   facebookTargetType?: 'page' | 'profile';
   /** Facebook Page ID when `facebookTargetType` is `page` (Facebook accounts only). */

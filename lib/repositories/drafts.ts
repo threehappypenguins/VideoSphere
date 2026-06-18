@@ -13,10 +13,16 @@ import type {
   Draft,
   DraftPlatforms,
   PlatformUploadVisibility,
+  BackupFileNameSettings,
 } from '@/types';
 import { connectToDatabase } from '@/lib/mongodb';
 import { DraftModel, type DraftDocument } from '@/lib/models/Draft';
 import { resolveDraftTitleForStorage } from '@/lib/draft-title';
+import {
+  backupNamingForStorage,
+  mergeBackupFileNameSettingsPatch,
+  normalizeBackupFileNameSettings,
+} from '@/lib/backup-filename';
 import {
   assertDraftDocumentJsonWithinLimit,
   DEFAULT_DRAFT_VISIBILITY,
@@ -37,6 +43,7 @@ function mongoDocToDraft(doc: DraftDocument): Draft {
     tags: parsed.tags,
     visibility: parsed.visibility,
     platforms: parsed.platforms,
+    backupNaming: parsed.backupNaming,
     ...(parsed.thumbnailR2Key ? { thumbnailR2Key: parsed.thumbnailR2Key } : {}),
     ...(parsed.thumbnailContentType ? { thumbnailContentType: parsed.thumbnailContentType } : {}),
     ...(parsed.usedInUploadAt ? { usedInUploadAt: parsed.usedInUploadAt } : {}),
@@ -63,6 +70,7 @@ export async function markDraftUsedInUpload(
       visibility: draft.visibility,
       tags: draft.tags,
       platforms: draft.platforms,
+      backupNaming: draft.backupNaming,
       ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
       ...(draft.thumbnailContentType ? { thumbnailContentType: draft.thumbnailContentType } : {}),
       usedInUploadAt: normalizedUsedAtIso,
@@ -141,6 +149,7 @@ export interface CreateDraftInput {
   tags?: string[];
   visibility?: PlatformUploadVisibility;
   platforms?: DraftPlatforms;
+  backupNaming?: BackupFileNameSettings;
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
 }
@@ -164,6 +173,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
     visibility,
     tags,
     platforms,
+    backupNaming: backupNamingForStorage(input.backupNaming),
     ...(input.thumbnailR2Key ? { thumbnailR2Key: input.thumbnailR2Key } : {}),
     ...(input.thumbnailContentType ? { thumbnailContentType: input.thumbnailContentType } : {}),
   });
@@ -327,6 +337,9 @@ export interface UpdateDraftInput {
   visibility?: PlatformUploadVisibility;
   /** Partial platforms object from PATCH; merged without wiping omitted fields. */
   platformsPatch?: unknown;
+  /** Backup filename settings; merged when provided as a partial object. */
+  backupNaming?: BackupFileNameSettings;
+  backupNamingPatch?: unknown;
   /**
    * Pass `null` to atomically clear both `thumbnailR2Key` and `thumbnailContentType`.
    * Pass a string to set/replace the key (pair with `thumbnailContentType`).
@@ -348,6 +361,8 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     input.tags !== undefined ||
     input.visibility !== undefined ||
     input.platformsPatch !== undefined ||
+    input.backupNaming !== undefined ||
+    input.backupNamingPatch !== undefined ||
     input.thumbnailR2Key !== undefined ||
     input.thumbnailContentType !== undefined;
 
@@ -392,6 +407,17 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     platforms: mergedPlatforms,
   });
 
+  const mergedBackupNaming =
+    input.backupNamingPatch !== undefined
+      ? mergeBackupFileNameSettingsPatch(current.backupNaming, input.backupNamingPatch)
+      : input.backupNaming !== undefined
+        ? normalizeBackupFileNameSettings(input.backupNaming)
+        : current.backupNaming;
+  const backupNaming =
+    input.backupNamingPatch !== undefined || input.backupNaming !== undefined
+      ? backupNamingForStorage(mergedBackupNaming)
+      : mergedBackupNaming;
+
   const documentJson = stringifyDraftDocumentForStorage({
     targets: input.targets ?? current.targets,
     title,
@@ -399,6 +425,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     tags: input.tags ?? current.tags,
     visibility: input.visibility ?? current.visibility,
     platforms: mergedPlatforms,
+    backupNaming,
     ...(nextThumbKey !== undefined ? { thumbnailR2Key: nextThumbKey } : {}),
     ...(nextThumbType !== undefined ? { thumbnailContentType: nextThumbType } : {}),
     usedInUploadAt: current.usedInUploadAt,

@@ -13,7 +13,9 @@ interface UploadToSmbInput {
   videoStream: ReadableStream<Uint8Array>;
   contentLength?: number;
   contentType?: string;
-  metadata: { title: string };
+  fileName: string;
+  /** When set, upload inside this year folder under the configured remote root. */
+  yearFolderName?: string;
   signal?: AbortSignal;
 }
 
@@ -70,6 +72,7 @@ const SMB_NT_STATUS_LABELS: Record<number, string> = {
  */
 interface SmbShareTree {
   readDirectory(path?: string): Promise<unknown>;
+  createDirectory(path: string): Promise<void>;
   createFileWriteStream(path: string): Promise<Writable>;
 }
 
@@ -147,11 +150,36 @@ export function isValidSmbRemotePath(remotePath: string): boolean {
   return true;
 }
 
+/**
+ * Returns whether `segment` is a safe single path component for SMB uploads.
+ * Rejects separators, `.` / `..` segments, and control characters.
+ * @param segment - Candidate filename or year-folder name.
+ * @returns True when the segment may be joined under a configured remote directory.
+ */
+export function isValidSmbUploadPathSegment(segment: string): boolean {
+  const trimmed = segment.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes('/') || trimmed.includes('\\')) return false;
+  if (/[\u0000-\u001f]/.test(trimmed)) return false;
+  if (trimmed === '.' || trimmed === '..') return false;
+
+  return true;
+}
+
 function invalidRemotePathError(): PlatformUploadError {
   return {
     code: 'SMB_REMOTE_PATH_INVALID',
     message:
       'Remote path must be empty (share root) or start with / or \\, without . or .. segments.',
+    statusCode: 400,
+  };
+}
+
+function invalidUploadPathSegmentError(): PlatformUploadError {
+  return {
+    code: 'SMB_UPLOAD_PATH_INVALID',
+    message:
+      'Backup filename and year folder must be single path segments without . or .. components.',
     statusCode: 400,
   };
 }
@@ -171,33 +199,6 @@ function toError(
       details,
     },
   };
-}
-
-function extensionFromContentType(contentType: string | undefined): string {
-  const ct = (contentType ?? '').toLowerCase();
-  if (ct.includes('mp4')) return 'mp4';
-  if (ct.includes('quicktime')) return 'mov';
-  if (ct.includes('webm')) return 'webm';
-  if (ct.includes('x-matroska')) return 'mkv';
-  return 'mp4';
-}
-
-function formatSmbTimestamp(now: Date): string {
-  return now
-    .toISOString()
-    .replace(/\.\d{3}Z$/, 'Z')
-    .replace(/:/g, '-');
-}
-
-function normalizeSmbFileName(title: string, contentType: string | undefined, now: Date): string {
-  const base = title.trim() || 'VideoSphere Backup';
-  const safeBase = base
-    .replace(/[\\/:*?"<>|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const ext = extensionFromContentType(contentType);
-  const timestamp = formatSmbTimestamp(now);
-  return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
 /**
@@ -315,6 +316,22 @@ async function verifySmbRemoteDirectory(tree: SmbShareTree, remotePath: string):
       );
     }
     throw err;
+  }
+}
+
+/**
+ * Ensures a directory exists within the SMB share, creating it when missing.
+ * @param tree - Connected SMB tree for the target share.
+ * @param directoryPath - POSIX directory path within the share.
+ */
+async function ensureSmbDirectory(tree: SmbShareTree, directoryPath: string): Promise<void> {
+  try {
+    await tree.readDirectory(directoryPath);
+  } catch (err) {
+    if (!isRemotePathStatError(err)) {
+      throw err;
+    }
+    await tree.createDirectory(directoryPath);
   }
 }
 
@@ -544,12 +561,30 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
     return toError('SMB_UPLOAD_ABORTED', 'SMB upload was cancelled.');
   }
 
+  const fileName = input.fileName.trim() || 'VideoSphere Backup.mp4';
+  const yearFolderName = input.yearFolderName?.trim();
+
+  if (!isValidSmbUploadPathSegment(fileName)) {
+    const err = invalidUploadPathSegmentError();
+    return toError(err.code, err.message, err.statusCode);
+  }
+
+  if (yearFolderName && !isValidSmbUploadPathSegment(yearFolderName)) {
+    const err = invalidUploadPathSegmentError();
+    return toError(err.code, err.message, err.statusCode);
+  }
+
   try {
-    const fileName = normalizeSmbFileName(input.metadata.title, input.contentType, new Date());
-    const directoryPath = toSmbClientDirectoryPath(credentials.remotePath);
-    const fullRemotePath = joinSmbFilePath(directoryPath, fileName);
+    const baseDirectoryPath = toSmbClientDirectoryPath(credentials.remotePath);
+    const uploadDirectoryPath = yearFolderName
+      ? joinSmbFilePath(baseDirectoryPath, yearFolderName)
+      : baseDirectoryPath;
+    const fullRemotePath = joinSmbFilePath(uploadDirectoryPath, fileName);
 
     await withSmbTree(credentials, async (tree) => {
+      if (yearFolderName) {
+        await ensureSmbDirectory(tree, uploadDirectoryPath);
+      }
       const writeStream = await tree.createFileWriteStream(fullRemotePath);
       await pipeWebStreamToSmbWriteStream(input.videoStream, writeStream, input.signal);
     });

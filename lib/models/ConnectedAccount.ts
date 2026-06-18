@@ -67,6 +67,7 @@ export interface ConnectedAccountDocument {
   smbShare?: string;
   smbDomain?: string;
   smbRemotePath?: string;
+  googleDriveBackupFolderPath?: string;
   facebookTargetType?: 'page' | 'profile';
   facebookPageId?: string;
   createdAt: Date;
@@ -112,6 +113,7 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
     smbShare: { type: String, trim: true },
     smbDomain: { type: String, trim: true },
     smbRemotePath: { type: String, trim: true },
+    googleDriveBackupFolderPath: { type: String, trim: true },
     facebookTargetType: { type: String, enum: ['page', 'profile'] },
     facebookPageId: { type: String, trim: true },
   },

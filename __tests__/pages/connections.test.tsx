@@ -448,6 +448,28 @@ describe('ConnectionsPage', () => {
       expect(screen.getByRole('status').textContent).toMatch(/google drive account connected/i);
     });
 
+    it('opens the Google Drive backup folder dialog after OAuth connect', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'drive-1',
+          userId: 'user-123',
+          platform: 'google_drive',
+          tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
+          hasRefreshToken: true,
+          platformUserId: 'perm-1',
+          platformName: 'My Drive',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({
+        searchParams: makeSearchParams({ success: 'google_drive', setup: 'backup_folder' }),
+      });
+      render(page);
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      expect(await screen.findByText('Google Drive backup folder')).toBeInTheDocument();
+    });
+
     it('shows no flash when no query params are present', async () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);

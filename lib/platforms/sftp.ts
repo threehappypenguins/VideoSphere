@@ -12,7 +12,9 @@ interface UploadToSftpInput {
   videoStream: ReadableStream<Uint8Array>;
   contentLength?: number;
   contentType?: string;
-  metadata: { title: string };
+  fileName: string;
+  /** When set, upload inside this year folder under the configured remote root. */
+  yearFolderName?: string;
   signal?: AbortSignal;
 }
 
@@ -41,6 +43,9 @@ interface SftpCredentials {
 
 /** Far-future expiry for SFTP connected accounts (credentials do not expire). */
 export const SFTP_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z';
+
+/** Remote backup directory mode: owner full, group/others read+execute. */
+const SFTP_REMOTE_DIRECTORY_MODE = 0o755;
 
 /** Remote backup file mode: owner read/write only (private video content). */
 const SFTP_REMOTE_FILE_MODE = 0o600;
@@ -87,6 +92,22 @@ export function isValidSftpRemotePath(remotePath: string): boolean {
 }
 
 /**
+ * Returns whether `segment` is a safe single path component for SFTP uploads.
+ * Rejects separators, `.` / `..` segments, and control characters.
+ * @param segment - Candidate filename or year-folder name.
+ * @returns True when the segment may be joined under a configured remote directory.
+ */
+export function isValidSftpUploadPathSegment(segment: string): boolean {
+  const trimmed = segment.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes('/') || trimmed.includes('\\')) return false;
+  if (/[\u0000-\u001f]/.test(trimmed)) return false;
+  if (trimmed === '.' || trimmed === '..') return false;
+
+  return true;
+}
+
+/**
  * Returns whether `port` is a valid TCP port for SFTP connections.
  * @param port - Candidate port number.
  * @returns True when the port is an integer from 1 through 65535.
@@ -99,6 +120,15 @@ function invalidRemotePathError(): PlatformUploadError {
   return {
     code: 'SFTP_REMOTE_PATH_INVALID',
     message: 'Remote path must be an absolute path without . or .. segments or backslashes.',
+    statusCode: 400,
+  };
+}
+
+function invalidUploadPathSegmentError(): PlatformUploadError {
+  return {
+    code: 'SFTP_UPLOAD_PATH_INVALID',
+    message:
+      'Backup filename and year folder must be single path segments without . or .. components.',
     statusCode: 400,
   };
 }
@@ -118,33 +148,6 @@ function toError(
       details,
     },
   };
-}
-
-function extensionFromContentType(contentType: string | undefined): string {
-  const ct = (contentType ?? '').toLowerCase();
-  if (ct.includes('mp4')) return 'mp4';
-  if (ct.includes('quicktime')) return 'mov';
-  if (ct.includes('webm')) return 'webm';
-  if (ct.includes('x-matroska')) return 'mkv';
-  return 'mp4';
-}
-
-function formatSftpTimestamp(now: Date): string {
-  return now
-    .toISOString()
-    .replace(/\.\d{3}Z$/, 'Z')
-    .replace(/:/g, '-');
-}
-
-function normalizeSftpFileName(title: string, contentType: string | undefined, now: Date): string {
-  const base = title.trim() || 'VideoSphere Backup';
-  const safeBase = base
-    .replace(/[\\/:*?"<>|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const ext = extensionFromContentType(contentType);
-  const timestamp = formatSftpTimestamp(now);
-  return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
 function encodeSftpUriPath(remotePath: string): string {
@@ -340,6 +343,15 @@ function isRemotePathStatError(err: unknown): boolean {
   return lower.includes('no such file') || lower.includes('not a directory');
 }
 
+function isSftpMkdirExistsError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code =
+    'code' in err && typeof (err as { code: unknown }).code === 'string'
+      ? (err as { code: string }).code
+      : '';
+  return code === 'EEXIST';
+}
+
 function promisifySftpStat(sftp: SFTPWrapper, remotePath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     sftp.stat(remotePath, (err, stats) => {
@@ -354,6 +366,41 @@ function promisifySftpStat(sftp: SFTPWrapper, remotePath: string): Promise<void>
       resolve();
     });
   });
+}
+
+function promisifySftpMkdir(sftp: SFTPWrapper, remotePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.mkdir(remotePath, { mode: SFTP_REMOTE_DIRECTORY_MODE }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Ensures a remote SFTP directory exists, creating it when missing.
+ * @param sftp - Connected SFTP wrapper.
+ * @param remotePath - Absolute remote directory path.
+ */
+async function ensureSftpDirectory(sftp: SFTPWrapper, remotePath: string): Promise<void> {
+  try {
+    await promisifySftpStat(sftp, remotePath);
+    return;
+  } catch (err) {
+    if (!isRemotePathStatError(err)) {
+      throw err;
+    }
+  }
+
+  try {
+    await promisifySftpMkdir(sftp, remotePath);
+  } catch (err) {
+    if (!isSftpMkdirExistsError(err)) {
+      throw err;
+    }
+  }
+
+  await promisifySftpStat(sftp, remotePath);
 }
 
 function writeToNodeStream(writeStream: Writable, chunk: Uint8Array): Promise<void> {
@@ -598,6 +645,19 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
     );
   }
 
+  const fileName = input.fileName.trim() || 'VideoSphere Backup.mp4';
+  const yearFolderName = input.yearFolderName?.trim();
+
+  if (!isValidSftpUploadPathSegment(fileName)) {
+    const err = invalidUploadPathSegmentError();
+    return toError(err.code, err.message, err.statusCode);
+  }
+
+  if (yearFolderName && !isValidSftpUploadPathSegment(yearFolderName)) {
+    const err = invalidUploadPathSegmentError();
+    return toError(err.code, err.message, err.statusCode);
+  }
+
   const conn = new Client();
   const onAbort = () => {
     conn.end();
@@ -614,8 +674,15 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
     await promisifyConnect(conn, buildConnectConfig(credentials), input.signal);
     const sftp = await promisifySftp(conn);
 
-    const fileName = normalizeSftpFileName(input.metadata.title, input.contentType, new Date());
-    const fullRemotePath = pathPosix.join(credentials.remotePath, fileName);
+    const uploadDirectory = yearFolderName
+      ? pathPosix.join(credentials.remotePath, yearFolderName)
+      : credentials.remotePath;
+
+    if (yearFolderName) {
+      await ensureSftpDirectory(sftp, uploadDirectory);
+    }
+
+    const fullRemotePath = pathPosix.join(uploadDirectory, fileName);
 
     await pipeStreamToSftp(sftp, fullRemotePath, input.videoStream, input.signal);
 

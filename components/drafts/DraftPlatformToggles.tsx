@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useMemo } from 'react';
-import { PlatformIcon, isPlatformBrandIcon } from '@/components/icons/PlatformIcon';
+import { PlatformTargetIcon } from '@/components/icons/PlatformIcon';
 import type { ConnectedAccountPlatform } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
 import { groupPlatformsBySection } from '@/lib/ui/platform-sections';
@@ -55,9 +55,10 @@ function PlatformToggleRow({
       }`}
     >
       <span className="inline-flex flex-wrap items-center gap-2 text-sm text-foreground">
-        {isPlatformBrandIcon(platform) ? (
-          <PlatformIcon platform={platform} isShort={platform === 'youtube' && youtubeIsShort} />
-        ) : null}
+        <PlatformTargetIcon
+          platform={platform}
+          isShort={platform === 'youtube' && youtubeIsShort}
+        />
         {platformLabel(platform)}
         {!isConnected ? (
           <>
