@@ -1848,19 +1848,28 @@ export function DraftMetadataModal({
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: remainder }));
   };
 
-  const updateSermonAudioFields = (patch: Partial<SermonAudioDraftFields>) => {
-    if (!value) return;
-    onChange({
-      ...value,
-      platforms: {
-        ...value.platforms,
-        sermon_audio: {
-          ...value.platforms.sermon_audio,
-          ...patch,
+  const updateSermonAudioFields = useCallback(
+    (patch: Partial<SermonAudioDraftFields>) => {
+      if (!value) return;
+      const current: Record<string, unknown> = { ...(value.platforms.sermon_audio ?? {}) };
+      for (const [key, fieldValue] of Object.entries(patch)) {
+        if (fieldValue === undefined) {
+          delete current[key];
+        } else {
+          current[key] = fieldValue;
+        }
+      }
+      onChange({
+        ...value,
+        platforms: {
+          ...value.platforms,
+          sermon_audio:
+            Object.keys(current).length > 0 ? (current as SermonAudioDraftFields) : undefined,
         },
-      },
-    });
-  };
+      });
+    },
+    [onChange, value]
+  );
 
   const updateYouTubeFields = useCallback(
     (patch: Partial<YouTubeDraftFields>) => {
@@ -3959,6 +3968,7 @@ export function DraftMetadataModal({
           <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-5" />
         </label>
       </div>
+      {/* TODO(sermon-audio-schedule): Contact the SermonAudio developer — POST /v2/node/sermons rejects ISO datetimes for publishDate (422: dates must be YYYY-MM-DD only). Schedule for Publication UI hidden until API supports date+time scheduling. */}
       {/* TODO(sermon-audio-cross-publish): I will contact the SermonAudio developer about how to get Cross Publish working via the API. Cross Publish UI hidden until then. */}
     </>
   );
