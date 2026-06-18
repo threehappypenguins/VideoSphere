@@ -19,6 +19,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import { DraftModel, type DraftDocument } from '@/lib/models/Draft';
 import { resolveDraftTitleForStorage } from '@/lib/draft-title';
 import {
+  backupNamingForStorage,
   mergeBackupFileNameSettingsPatch,
   normalizeBackupFileNameSettings,
 } from '@/lib/backup-filename';
@@ -172,7 +173,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
     visibility,
     tags,
     platforms,
-    backupNaming: normalizeBackupFileNameSettings(input.backupNaming),
+    backupNaming: backupNamingForStorage(input.backupNaming),
     ...(input.thumbnailR2Key ? { thumbnailR2Key: input.thumbnailR2Key } : {}),
     ...(input.thumbnailContentType ? { thumbnailContentType: input.thumbnailContentType } : {}),
   });
@@ -412,6 +413,10 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
       : input.backupNaming !== undefined
         ? normalizeBackupFileNameSettings(input.backupNaming)
         : current.backupNaming;
+  const backupNaming =
+    input.backupNamingPatch !== undefined || input.backupNaming !== undefined
+      ? backupNamingForStorage(mergedBackupNaming)
+      : mergedBackupNaming;
 
   const documentJson = stringifyDraftDocumentForStorage({
     targets: input.targets ?? current.targets,
@@ -420,7 +425,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     tags: input.tags ?? current.tags,
     visibility: input.visibility ?? current.visibility,
     platforms: mergedPlatforms,
-    backupNaming: mergedBackupNaming,
+    backupNaming,
     ...(nextThumbKey !== undefined ? { thumbnailR2Key: nextThumbKey } : {}),
     ...(nextThumbType !== undefined ? { thumbnailContentType: nextThumbType } : {}),
     usedInUploadAt: current.usedInUploadAt,

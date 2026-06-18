@@ -11,6 +11,7 @@ import {
   getConnectedAccountWithTokens,
   updateGoogleDriveBackupFolder,
 } from '@/lib/repositories/connected-accounts';
+import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import type { ApiError } from '@/types';
 
 interface UpdateGoogleDriveSettingsBody {
@@ -80,10 +81,24 @@ export async function POST(req: NextRequest) {
     let rootFolderId: string | undefined;
 
     if (backupFolderPath) {
-      rootFolderId = await resolveGoogleDriveBackupRootFolderId(
-        backupFolderPath,
-        account.accessToken
-      );
+      let accessToken: string;
+      try {
+        const tokens = await refreshTokenIfNeeded(account);
+        accessToken = tokens.accessToken;
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.trim() !== ''
+            ? err.message.trim()
+            : 'Failed to refresh Google Drive access token. Reconnect your Google Drive account.';
+        const errRes: ApiError = {
+          error: 'Unauthorized',
+          message,
+          statusCode: 401,
+        };
+        return NextResponse.json(errRes, { status: 401 });
+      }
+
+      rootFolderId = await resolveGoogleDriveBackupRootFolderId(backupFolderPath, accessToken);
       if (!rootFolderId) {
         const errRes: ApiError = {
           error: 'Bad Request',

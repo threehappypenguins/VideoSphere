@@ -96,7 +96,6 @@ export interface FacebookSpecificUploadMetadata {
 /** Backup destination upload–specific fields (Google Drive, SFTP, SMB). */
 export interface BackupSpecificUploadMetadata {
   backupNaming?: BackupFileNameSettings;
-  draftCreatedAt?: string;
 }
 
 /**

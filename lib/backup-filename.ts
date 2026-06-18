@@ -305,8 +305,6 @@ export function backupExtensionFromContentType(contentType: string | undefined):
 export function buildBackupFileName(input: {
   title: string;
   contentType?: string;
-  /** @deprecated Date is taken from {@link BackupFileNameSettings.datePrefixDate} or today. */
-  createdAt?: string;
   settings?: BackupFileNameSettings;
   /** When false, omits the file extension (used for UI previews). Default true. */
   includeExtension?: boolean;

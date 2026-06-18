@@ -1154,7 +1154,6 @@ export function buildMetadataForPlatform(
       thumbnailR2Key,
       thumbnailContentType,
       backupNaming: draft.backupNaming,
-      draftCreatedAt: draft.$createdAt,
     };
   }
 
@@ -1171,7 +1170,6 @@ export function buildMetadataForPlatform(
       thumbnailR2Key,
       thumbnailContentType,
       backupNaming: draft.backupNaming,
-      draftCreatedAt: draft.$createdAt,
     };
   }
 
@@ -1188,7 +1186,6 @@ export function buildMetadataForPlatform(
       thumbnailR2Key,
       thumbnailContentType,
       backupNaming: draft.backupNaming,
-      draftCreatedAt: draft.$createdAt,
     };
   }
 
@@ -1203,7 +1200,6 @@ export function buildMetadataForPlatform(
     thumbnailR2Key,
     thumbnailContentType,
     backupNaming: draft.backupNaming,
-    draftCreatedAt: draft.$createdAt,
   };
 }
 

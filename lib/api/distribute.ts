@@ -338,7 +338,6 @@ async function runSinglePlatformUpload(
         const fileName = buildBackupFileName({
           title: metadata.title,
           contentType,
-          createdAt: metadata.draftCreatedAt ?? new Date().toISOString(),
           settings: metadata.backupNaming,
         });
         return uploadToGoogleDrive({
@@ -357,7 +356,6 @@ async function runSinglePlatformUpload(
         const fileName = buildBackupFileName({
           title: metadata.title,
           contentType,
-          createdAt: metadata.draftCreatedAt ?? new Date().toISOString(),
           settings: metadata.backupNaming,
         });
         return uploadToSftp({
@@ -375,7 +373,6 @@ async function runSinglePlatformUpload(
         const fileName = buildBackupFileName({
           title: metadata.title,
           contentType,
-          createdAt: metadata.draftCreatedAt ?? new Date().toISOString(),
           settings: metadata.backupNaming,
         });
         return uploadToSmb({

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildBackupFileName,
   buildBackupRemoteRelativePath,
+  backupNamingForStorage,
   formatBackupDatePrefix,
   isValidCalendarDateString,
   normalizeBackupFileNameSettings,
@@ -10,7 +11,6 @@ import {
 } from '@/lib/backup-filename';
 
 describe('backup filename helpers', () => {
-  const createdAt = '2026-06-18T15:30:00.000Z';
   const calendarDate = '2026-06-18';
 
   it('formats supported date tokens from a calendar date', () => {
@@ -36,7 +36,6 @@ describe('backup filename helpers', () => {
       buildBackupFileName({
         title: 'Title of Video',
         contentType: 'video/mp4',
-        createdAt,
         settings: normalizeBackupFileNameSettings({
           datePrefixDate: calendarDate,
         }),
@@ -44,12 +43,11 @@ describe('backup filename helpers', () => {
     ).toBe('20260618 - Title of Video.mp4');
   });
 
-  it('prefers an explicit date prefix date over draft creation time', () => {
+  it('uses explicit datePrefixDate from settings', () => {
     expect(
       buildBackupFileName({
         title: 'Title of Video',
         contentType: 'video/mp4',
-        createdAt,
         settings: normalizeBackupFileNameSettings({
           datePrefixDate: '2025-01-02',
         }),
@@ -71,6 +69,47 @@ describe('backup filename helpers', () => {
         })
       )
     ).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('fills datePrefixDate for storage when prefix is enabled without an explicit date', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+
+    expect(backupNamingForStorage({ datePrefixEnabled: true }).datePrefixDate).toBe('2026-06-18');
+
+    vi.useRealTimers();
+  });
+
+  it('fills datePrefixDate for storage when only year folders are enabled', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+
+    expect(
+      backupNamingForStorage({
+        datePrefixEnabled: false,
+        yearFolderEnabled: true,
+      }).datePrefixDate
+    ).toBe('2026-06-18');
+
+    vi.useRealTimers();
+  });
+
+  it('preserves an explicit datePrefixDate for storage', () => {
+    expect(
+      backupNamingForStorage({
+        datePrefixEnabled: true,
+        datePrefixDate: '2025-01-02',
+      }).datePrefixDate
+    ).toBe('2025-01-02');
+  });
+
+  it('omits datePrefixDate for storage when prefix and year folder are disabled', () => {
+    expect(
+      backupNamingForStorage({
+        datePrefixEnabled: false,
+        yearFolderEnabled: false,
+      }).datePrefixDate
+    ).toBeUndefined();
   });
 
   it('builds remote preview paths with a year folder by default', () => {
@@ -159,7 +198,6 @@ describe('backup filename helpers', () => {
       buildBackupFileName({
         title: 'Title of Video',
         contentType: 'video/mp4',
-        createdAt,
         settings: normalizeBackupFileNameSettings({
           datePrefixEnabled: true,
           dateFormat: 'YYYYMMDD',
@@ -176,7 +214,6 @@ describe('backup filename helpers', () => {
       buildBackupFileName({
         title: 'Title of Video',
         contentType: 'video/mp4',
-        createdAt,
         settings: normalizeBackupFileNameSettings({
           datePrefixEnabled: true,
           dateFormat: 'YYYYMMDD',
@@ -244,7 +281,6 @@ describe('backup filename helpers', () => {
       buildBackupFileName({
         title: 'Title of Video',
         contentType: 'video/quicktime',
-        createdAt,
         settings: normalizeBackupFileNameSettings({
           datePrefixEnabled: false,
           seriesEnabled: false,

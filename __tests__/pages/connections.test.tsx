@@ -466,8 +466,8 @@ describe('ConnectionsPage', () => {
         searchParams: makeSearchParams({ success: 'google_drive', setup: 'backup_folder' }),
       });
       render(page);
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
-      expect(screen.getByText('Google Drive backup folder')).toBeInTheDocument();
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      expect(await screen.findByText('Google Drive backup folder')).toBeInTheDocument();
     });
 
     it('shows no flash when no query params are present', async () => {
