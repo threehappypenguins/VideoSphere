@@ -4027,7 +4027,7 @@ export function DraftMetadataModal({
             {isLoadingPlatforms && displayPlatforms.length === 0 ? (
               <p className="text-xs text-muted-foreground">Loading connected platforms...</p>
             ) : null}
-            <DraftModalCard title="Target platforms" data-tour="draft-platforms">
+            <DraftModalCard data-tour="draft-platforms">
               <DraftPlatformToggles
                 availablePlatforms={displayPlatforms}
                 selectedPlatforms={value.targets}

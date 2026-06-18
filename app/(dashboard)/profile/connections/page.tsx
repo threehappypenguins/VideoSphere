@@ -40,6 +40,9 @@ import {
 } from '@/components/connections/FacebookConnectButton';
 import { DisconnectButton } from './DisconnectButton';
 import { FlashMessage } from './FlashMessage';
+import { PlatformIcon, isPlatformBrandIcon } from '@/components/icons/PlatformIcon';
+import type { ConnectedAccountPlatform } from '@/types';
+import { BACKUP_PLATFORMS, VIDEO_PLATFORMS } from '@/lib/ui/platform-sections';
 
 /**
  * Provides static page metadata for this route segment.
@@ -57,53 +60,72 @@ async function getCurrentUserId(): Promise<string | null> {
   return getCurrentUserIdFromCookies();
 }
 
-const PLATFORM_META: Record<string, { label: string; icon: string; connectHref: string | null }> = {
+const PLATFORM_META: Record<
+  ConnectedAccountPlatform,
+  { label: string; emoji?: string; connectHref: string | null }
+> = {
   youtube: {
     label: 'YouTube',
-    icon: '▶',
     connectHref: '/api/platforms/connect/youtube',
   },
   vimeo: {
     label: 'Vimeo',
-    icon: '🎬',
     connectHref: '/api/platforms/connect/vimeo',
   },
   google_drive: {
     label: 'Google Drive',
-    icon: '🗂️',
     connectHref: '/api/platforms/connect/drive',
   },
   sftp: {
     label: 'SFTP Server',
-    icon: '🖥️',
+    emoji: '🖥️',
     connectHref: null,
   },
   smb: {
     label: 'SMB / Network Share',
-    icon: '🗄️',
+    emoji: '🗄️',
     connectHref: null,
   },
   sermon_audio: {
     label: 'SermonAudio',
-    icon: '🎙️',
     connectHref: null,
   },
   facebook: {
     label: 'Facebook',
-    icon: '📘',
     connectHref: '/api/platforms/connect/facebook',
   },
 };
 
-const ALL_PLATFORMS = [
-  'youtube',
-  'vimeo',
-  'google_drive',
-  'sftp',
-  'smb',
-  'sermon_audio',
-  'facebook',
-] as const;
+/**
+ * Sorts platforms within a connections section: rows with an existing connection
+ * (connected or expired) appear first in alphabetical order, followed by
+ * not-connected rows in alphabetical order.
+ * @param platforms - Platforms belonging to the section.
+ * @param accounts - The user's connected account rows.
+ * @returns Platforms sorted for display.
+ */
+function sortPlatformsInSection(
+  platforms: readonly ConnectedAccountPlatform[],
+  accounts: ConnectedAccountPublic[]
+): ConnectedAccountPlatform[] {
+  return [...platforms]
+    .map((platform) => {
+      const account = accounts.find((a) => a.platform === platform);
+      const status = getConnectionStatus(account);
+      return {
+        platform,
+        label: PLATFORM_META[platform].label,
+        hasConnection: status !== 'not-connected',
+      };
+    })
+    .sort((a, b) => {
+      if (a.hasConnection !== b.hasConnection) {
+        return a.hasConnection ? -1 : 1;
+      }
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    })
+    .map(({ platform }) => platform);
+}
 
 /** True when an SFTP row has the fields required for backups (including a pinned host key). */
 function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
@@ -387,6 +409,146 @@ async function disconnectPlatform(accountId: string) {
   revalidatePath('/profile/connections');
 }
 
+interface ConnectionPlatformRowProps {
+  platform: ConnectedAccountPlatform;
+  account: ConnectedAccountPublic | undefined;
+}
+
+/**
+ * Renders a single platform row on the connections page.
+ * @param props - Row props.
+ * @returns Platform connection row UI.
+ */
+function ConnectionPlatformRow({ platform, account }: ConnectionPlatformRowProps) {
+  const meta = PLATFORM_META[platform];
+  const status = getConnectionStatus(account);
+  const sftpExistingConnection =
+    account?.platform === 'sftp' ? toSftpExistingConnection(account) : undefined;
+  const smbExistingConnection =
+    account?.platform === 'smb' ? toSmbExistingConnection(account) : undefined;
+  const sermonAudioExistingConnection =
+    account?.platform === 'sermon_audio' ? toSermonAudioExistingConnection(account) : undefined;
+  const facebookExistingConnection =
+    account?.platform === 'facebook' ? toFacebookExistingConnection(account) : undefined;
+
+  return (
+    <div
+      data-platform={platform}
+      className="flex items-center justify-between rounded-xl border border-border bg-background p-5"
+    >
+      <div className="flex items-center gap-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-lg">
+          {isPlatformBrandIcon(platform) ? (
+            <PlatformIcon platform={platform} size={36} />
+          ) : (
+            meta.emoji
+          )}
+        </div>
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium text-foreground">{meta.label}</p>
+            <StatusBadge status={status} />
+          </div>
+          {account && (
+            <p className="text-sm text-muted-foreground">
+              {status === 'expired' ? 'Was connected as ' : 'Connected as '}
+              <span className="font-medium text-foreground">{account.platformName}</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      {status === 'connected' && account ? (
+        platform === 'sftp' ? (
+          <div className="flex items-center gap-2">
+            <SftpConnectButton
+              label="Edit"
+              existingConnection={sftpExistingConnection!}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            />
+            <DisconnectButton
+              action={disconnectPlatform.bind(null, account.id)}
+              platformLabel={meta.label}
+            />
+          </div>
+        ) : platform === 'smb' ? (
+          <div className="flex items-center gap-2">
+            <SmbConnectButton
+              label="Edit"
+              existingConnection={smbExistingConnection!}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            />
+            <DisconnectButton
+              action={disconnectPlatform.bind(null, account.id)}
+              platformLabel={meta.label}
+            />
+          </div>
+        ) : platform === 'sermon_audio' ? (
+          <div className="flex items-center gap-2">
+            <SermonAudioConnectButton
+              label="Edit"
+              existingConnection={sermonAudioExistingConnection!}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            />
+            <DisconnectButton
+              action={disconnectPlatform.bind(null, account.id)}
+              platformLabel={meta.label}
+            />
+          </div>
+        ) : platform === 'facebook' ? (
+          <div className="flex items-center gap-2">
+            <FacebookConnectButton
+              label="Edit"
+              existingConnection={facebookExistingConnection}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            />
+            <DisconnectButton
+              action={disconnectPlatform.bind(null, account.id)}
+              platformLabel={meta.label}
+            />
+          </div>
+        ) : (
+          <DisconnectButton
+            action={disconnectPlatform.bind(null, account.id)}
+            platformLabel={meta.label}
+          />
+        )
+      ) : status === 'expired' && account ? (
+        <div className="flex items-center gap-2">
+          {meta.connectHref ? (
+            <ConnectButton href={meta.connectHref} label="Reconnect" />
+          ) : platform === 'sftp' ? (
+            <SftpConnectButton label="Reconnect" existingConnection={sftpExistingConnection} />
+          ) : platform === 'smb' ? (
+            <SmbConnectButton label="Reconnect" existingConnection={smbExistingConnection} />
+          ) : (
+            <SermonAudioConnectButton
+              label="Reconnect"
+              existingConnection={sermonAudioExistingConnection}
+            />
+          )}
+          <DisconnectButton
+            action={disconnectPlatform.bind(null, account.id)}
+            platformLabel={meta.label}
+          />
+        </div>
+      ) : meta.connectHref ? (
+        <ConnectButton
+          href={meta.connectHref}
+          label="Connect"
+          {...(platform === 'youtube' ? { 'data-tour': 'first-connect-button' } : {})}
+        />
+      ) : platform === 'sftp' ? (
+        <SftpConnectButton label="Connect" />
+      ) : platform === 'smb' ? (
+        <SmbConnectButton label="Connect" />
+      ) : (
+        <SermonAudioConnectButton label="Connect" />
+      )}
+    </div>
+  );
+}
+
 /**
  * Renders the connections page component.
  * @param props - Component props.
@@ -406,6 +568,9 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
   } catch (err) {
     console.error('[ConnectionsPage] Failed to fetch connected accounts:', err);
   }
+
+  const sortedVideoPlatforms = sortPlatformsInSection(VIDEO_PLATFORMS, accounts);
+  const sortedBackupPlatforms = sortPlatformsInSection(BACKUP_PLATFORMS, accounts);
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-8">
@@ -471,145 +636,33 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
         )}
 
         {/* Platform list */}
-        <section className="mt-8 space-y-4">
-          {ALL_PLATFORMS.map((platform) => {
-            const meta = PLATFORM_META[platform];
-            const account = accounts.find((a) => a.platform === platform);
-            const status = getConnectionStatus(account);
-            const sftpExistingConnection =
-              account?.platform === 'sftp' ? toSftpExistingConnection(account) : undefined;
-            const smbExistingConnection =
-              account?.platform === 'smb' ? toSmbExistingConnection(account) : undefined;
-            const sermonAudioExistingConnection =
-              account?.platform === 'sermon_audio'
-                ? toSermonAudioExistingConnection(account)
-                : undefined;
-            const facebookExistingConnection =
-              account?.platform === 'facebook' ? toFacebookExistingConnection(account) : undefined;
+        <div className="mt-8 space-y-8">
+          <section>
+            <h2 className="text-lg font-semibold text-foreground">Video Platforms</h2>
+            <div className="mt-4 space-y-4">
+              {sortedVideoPlatforms.map((platform) => (
+                <ConnectionPlatformRow
+                  key={platform}
+                  platform={platform}
+                  account={accounts.find((a) => a.platform === platform)}
+                />
+              ))}
+            </div>
+          </section>
 
-            return (
-              <div
-                key={platform}
-                className="flex items-center justify-between rounded-xl border border-border bg-background p-5"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-lg">
-                    {meta.icon}
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-foreground">{meta.label}</p>
-                      <StatusBadge status={status} />
-                    </div>
-                    {account && (
-                      <p className="text-sm text-muted-foreground">
-                        {status === 'expired' ? 'Was connected as ' : 'Connected as '}
-                        <span className="font-medium text-foreground">{account.platformName}</span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {status === 'connected' && account ? (
-                  platform === 'sftp' ? (
-                    <div className="flex items-center gap-2">
-                      <SftpConnectButton
-                        label="Edit"
-                        existingConnection={sftpExistingConnection!}
-                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                      />
-                      <DisconnectButton
-                        action={disconnectPlatform.bind(null, account.id)}
-                        platformLabel={meta.label}
-                      />
-                    </div>
-                  ) : platform === 'smb' ? (
-                    <div className="flex items-center gap-2">
-                      <SmbConnectButton
-                        label="Edit"
-                        existingConnection={smbExistingConnection!}
-                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                      />
-                      <DisconnectButton
-                        action={disconnectPlatform.bind(null, account.id)}
-                        platformLabel={meta.label}
-                      />
-                    </div>
-                  ) : platform === 'sermon_audio' ? (
-                    <div className="flex items-center gap-2">
-                      <SermonAudioConnectButton
-                        label="Edit"
-                        existingConnection={sermonAudioExistingConnection!}
-                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                      />
-                      <DisconnectButton
-                        action={disconnectPlatform.bind(null, account.id)}
-                        platformLabel={meta.label}
-                      />
-                    </div>
-                  ) : platform === 'facebook' ? (
-                    <div className="flex items-center gap-2">
-                      <FacebookConnectButton
-                        label="Edit"
-                        existingConnection={facebookExistingConnection}
-                        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                      />
-                      <DisconnectButton
-                        action={disconnectPlatform.bind(null, account.id)}
-                        platformLabel={meta.label}
-                      />
-                    </div>
-                  ) : (
-                    <DisconnectButton
-                      action={disconnectPlatform.bind(null, account.id)}
-                      platformLabel={meta.label}
-                    />
-                  )
-                ) : status === 'expired' && account ? (
-                  // Token is expired — offer both reconnect and disconnect.
-                  <div className="flex items-center gap-2">
-                    {meta.connectHref ? (
-                      <ConnectButton href={meta.connectHref} label="Reconnect" />
-                    ) : platform === 'sftp' ? (
-                      <SftpConnectButton
-                        label="Reconnect"
-                        existingConnection={sftpExistingConnection}
-                      />
-                    ) : platform === 'smb' ? (
-                      <SmbConnectButton
-                        label="Reconnect"
-                        existingConnection={smbExistingConnection}
-                      />
-                    ) : (
-                      <SermonAudioConnectButton
-                        label="Reconnect"
-                        existingConnection={sermonAudioExistingConnection}
-                      />
-                    )}
-                    <DisconnectButton
-                      action={disconnectPlatform.bind(null, account.id)}
-                      platformLabel={meta.label}
-                    />
-                  </div>
-                ) : meta.connectHref ? (
-                  <ConnectButton
-                    href={meta.connectHref}
-                    label="Connect"
-                    {...(platform === ALL_PLATFORMS[0]
-                      ? { 'data-tour': 'first-connect-button' }
-                      : {})}
-                  />
-                ) : platform === 'sftp' ? (
-                  <SftpConnectButton label="Connect" />
-                ) : platform === 'smb' ? (
-                  <SmbConnectButton label="Connect" />
-                ) : (
-                  <SermonAudioConnectButton label="Connect" />
-                )}
-              </div>
-            );
-          })}
-        </section>
+          <section>
+            <h2 className="text-lg font-semibold text-foreground">Backup</h2>
+            <div className="mt-4 space-y-4">
+              {sortedBackupPlatforms.map((platform) => (
+                <ConnectionPlatformRow
+                  key={platform}
+                  platform={platform}
+                  account={accounts.find((a) => a.platform === platform)}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );

@@ -50,6 +50,7 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
 
 import ConnectionsPage from '@/app/(dashboard)/profile/connections/page';
 import { redirect } from 'next/navigation';
+import type { ConnectedAccountPlatform } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -61,6 +62,17 @@ function makeSearchParams(params: Record<string, string> = {}) {
 
 function setupAuthenticatedUser(userId = 'user-123') {
   mockGetCurrentUserIdFromCookies.mockResolvedValue(userId);
+}
+
+function getPlatformsInSection(sectionTitle: string): ConnectedAccountPlatform[] {
+  const heading = screen.getByRole('heading', { name: sectionTitle });
+  const section = heading.closest('section');
+  if (!section) {
+    throw new Error(`Section not found for heading: ${sectionTitle}`);
+  }
+  return Array.from(section.querySelectorAll('[data-platform]'))
+    .map((row) => row.getAttribute('data-platform'))
+    .filter((platform): platform is ConnectedAccountPlatform => platform != null);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +111,91 @@ describe('ConnectionsPage', () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
       expect(screen.getByRole('heading', { name: /connected accounts/i })).toBeInTheDocument();
+    });
+
+    it('renders Video Platforms and Backup section headings', async () => {
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByRole('heading', { name: 'Video Platforms' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Backup' })).toBeInTheDocument();
+    });
+
+    it('lists video platforms alphabetically when none are connected', async () => {
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(getPlatformsInSection('Video Platforms')).toEqual([
+        'facebook',
+        'sermon_audio',
+        'vimeo',
+        'youtube',
+      ]);
+    });
+
+    it('lists backup platforms alphabetically when none are connected', async () => {
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(getPlatformsInSection('Backup')).toEqual(['google_drive', 'sftp', 'smb']);
+    });
+
+    it('shows connected video platforms first in alphabetical order within the section', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'account-youtube',
+          userId: 'user-123',
+          platform: 'youtube',
+          tokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(),
+          hasRefreshToken: true,
+          platformUserId: 'UCtest123',
+          platformName: 'My Test Channel',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+        {
+          id: 'account-facebook',
+          userId: 'user-123',
+          platform: 'facebook',
+          tokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(),
+          hasRefreshToken: true,
+          platformUserId: 'fb-user',
+          platformName: 'My Page',
+          facebookTargetType: 'page',
+          facebookPageId: 'page-123',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(getPlatformsInSection('Video Platforms')).toEqual([
+        'facebook',
+        'youtube',
+        'sermon_audio',
+        'vimeo',
+      ]);
+    });
+
+    it('shows connected backup platforms first in alphabetical order within the section', async () => {
+      mockGetConnectedAccountsByUser.mockResolvedValue([
+        {
+          id: 'sftp-1',
+          userId: 'user-123',
+          platform: 'sftp',
+          tokenExpiry: '2099-01-01T00:00:00.000Z',
+          hasRefreshToken: false,
+          platformUserId: 'backup-user',
+          platformName: 'My Home Server',
+          sftpHost: 'sftp.example.com',
+          sftpPort: 22,
+          sftpRemotePath: '/backups',
+          sftpAuthMethod: 'password',
+          sftpHostKeyFingerprint: 'a'.repeat(64),
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(getPlatformsInSection('Backup')).toEqual(['sftp', 'google_drive', 'smb']);
     });
 
     it('renders a row for YouTube', async () => {
