@@ -165,8 +165,6 @@ export interface DraftEditorValues {
   targets: ConnectedAccountPlatform[];
   platforms: DraftPlatforms;
   backupNaming?: BackupFileNameSettings;
-  /** Draft creation timestamp used for backup filename preview (not sent on save). */
-  createdAt?: string;
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
   thumbnailPreviewUrl?: string;
@@ -1679,14 +1677,15 @@ export function DraftMetadataModal({
     };
     const fileName = buildBackupFileName({
       title: backupPreviewTitle,
+      contentType: videoFile?.type,
       settings: previewSettings,
-      includeExtension: false,
+      includeExtension: videoFile != null,
     });
     return buildBackupRemoteRelativePath({
       fileName,
       settings: previewSettings,
     });
-  }, [value, backupNaming, backupPreviewTitle, effectiveBackupDatePrefix]);
+  }, [value, backupNaming, backupPreviewTitle, effectiveBackupDatePrefix, videoFile]);
   const showPlatformSectionHeaders =
     [showYouTubeFields, showVimeoFields, showSermonAudioFields, showFacebookFields].filter(Boolean)
       .length >= 2;

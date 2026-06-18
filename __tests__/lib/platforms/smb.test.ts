@@ -116,6 +116,7 @@ describe('isValidSmbUploadPathSegment', () => {
     expect(isValidSmbUploadPathSegment('/etc/passwd')).toBe(false);
     expect(isValidSmbUploadPathSegment('..')).toBe(false);
     expect(isValidSmbUploadPathSegment('2026/../other')).toBe(false);
+    expect(isValidSmbUploadPathSegment('nested/dir.mp4')).toBe(false);
   });
 });
 

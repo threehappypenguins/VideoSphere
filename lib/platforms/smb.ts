@@ -159,12 +159,9 @@ export function isValidSmbRemotePath(remotePath: string): boolean {
 export function isValidSmbUploadPathSegment(segment: string): boolean {
   const trimmed = segment.trim();
   if (!trimmed) return false;
-  if (trimmed.includes('\\')) return false;
+  if (trimmed.includes('/') || trimmed.includes('\\')) return false;
   if (/[\u0000-\u001f]/.test(trimmed)) return false;
-
-  for (const part of trimmed.split('/')) {
-    if (!part || part === '.' || part === '..') return false;
-  }
+  if (trimmed === '.' || trimmed === '..') return false;
 
   return true;
 }

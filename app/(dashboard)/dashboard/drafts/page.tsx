@@ -52,7 +52,6 @@ function createEditorValues(draft: Draft): DraftEditorValues {
     targets: [...draft.targets],
     platforms: draft.platforms ?? {},
     backupNaming: normalizeBackupFileNameSettings(draft.backupNaming),
-    createdAt: draft.$createdAt,
     ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
     ...(draft.thumbnailContentType ? { thumbnailContentType: draft.thumbnailContentType } : {}),
     ...(draft.thumbnailPreviewUrl ? { thumbnailPreviewUrl: draft.thumbnailPreviewUrl } : {}),

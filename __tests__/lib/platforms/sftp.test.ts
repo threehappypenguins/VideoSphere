@@ -41,6 +41,7 @@ describe('isValidSftpUploadPathSegment', () => {
     expect(isValidSftpUploadPathSegment('/etc/passwd')).toBe(false);
     expect(isValidSftpUploadPathSegment('..')).toBe(false);
     expect(isValidSftpUploadPathSegment('2026/../other')).toBe(false);
+    expect(isValidSftpUploadPathSegment('nested/dir.mp4')).toBe(false);
   });
 });
 
