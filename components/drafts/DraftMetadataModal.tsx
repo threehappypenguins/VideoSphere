@@ -126,10 +126,6 @@ import {
   parseVimeoContentRatingTier,
 } from '@/lib/platforms/vimeo-content-rating';
 import {
-  formatSermonAudioPublishDate,
-  sermonAudioPublishDateToScheduleParts,
-} from '@/lib/platforms/sermon-audio-schedule';
-import {
   getDefaultScheduleDate,
   getDefaultScheduleTime,
   getLocalTimeZone,
@@ -336,7 +332,6 @@ function uploadFieldFocusId(field: DraftUploadFieldKey): string | null {
     return `edit-visibility-${field.slice('visibility:'.length)}`;
   if (field === 'sermon_audio.speakerName') return 'draft-sermon-audio-speaker';
   if (field === 'sermon_audio.preachDate') return 'draft-sermon-audio-preach-date';
-  if (field === 'sermon_audio.publishDate') return 'draft-sermon-audio-publish-date';
   if (field === 'sermon_audio.eventType') return 'draft-sermon-audio-event-type';
   if (field === 'sermon_audio.languageCode') return 'draft-sermon-audio-language';
   return null;
@@ -571,11 +566,6 @@ export function DraftMetadataModal({
   const [fbScheduleTime, setFbScheduleTime] = useState('');
   const [fbScheduleTimeZone, setFbScheduleTimeZone] = useState('');
   const fbScheduleInitializedRef = useRef(false);
-  const [saScheduleEnabled, setSaScheduleEnabled] = useState(false);
-  const [saScheduleDate, setSaScheduleDate] = useState('');
-  const [saScheduleTime, setSaScheduleTime] = useState('');
-  const [saScheduleTimeZone, setSaScheduleTimeZone] = useState('');
-  const saScheduleInitializedRef = useRef(false);
   const supportedTimeZones = useMemo(() => getSupportedTimeZones(), []);
   const [youtubeLanguages, setYoutubeLanguages] = useState<Array<{ id: string; name: string }>>([]);
   const [youtubeCategories, setYoutubeCategories] = useState<Array<{ id: string; title: string }>>(
@@ -1965,23 +1955,6 @@ export function DraftMetadataModal({
     setFbScheduleTimeZone(tz);
   }, [value?.platforms.facebook?.scheduledPublishTime]);
 
-  const initSermonAudioScheduleFromStored = useCallback(() => {
-    const tz = getLocalTimeZone();
-    const existing = value?.platforms.sermon_audio?.publishDate;
-    if (existing?.trim()) {
-      const parts = sermonAudioPublishDateToScheduleParts(existing, tz);
-      if (parts) {
-        setSaScheduleDate(parts.dateStr);
-        setSaScheduleTime(parts.timeStr);
-        setSaScheduleTimeZone(tz);
-        return;
-      }
-    }
-    setSaScheduleDate(getDefaultScheduleDate(tz));
-    setSaScheduleTime(getDefaultScheduleTime(tz));
-    setSaScheduleTimeZone(tz);
-  }, [value?.platforms.sermon_audio?.publishDate]);
-
   useEffect(() => {
     if (!value?.targets.includes('youtube')) {
       youtubeDefaultsSeededRef.current = null;
@@ -2143,54 +2116,6 @@ export function DraftMetadataModal({
       ? validateFacebookScheduledPublishTime(facebookFields.scheduledPublishTime)
       : undefined;
 
-  const sermonAudioPublishDateValue = sermonAudioFields?.publishDate;
-  const sermonAudioSchedulePastWarning =
-    saScheduleEnabled &&
-    sermonAudioPublishDateValue !== undefined &&
-    isPublishAtInPast(sermonAudioPublishDateValue);
-  const sermonAudioAutoPublishDisabled = saScheduleEnabled;
-
-  useEffect(() => {
-    if (!value || !saScheduleEnabled) return;
-
-    const hasCompleteScheduleInputs =
-      Boolean(saScheduleDate) && Boolean(saScheduleTime) && Boolean(saScheduleTimeZone);
-
-    if (!hasCompleteScheduleInputs) {
-      if (
-        saScheduleInitializedRef.current &&
-        value.platforms.sermon_audio?.publishDate !== undefined
-      ) {
-        updateSermonAudioFields({ publishDate: undefined });
-      }
-      return;
-    }
-
-    let publishDate: string;
-    try {
-      publishDate = formatSermonAudioPublishDate(
-        saScheduleDate,
-        saScheduleTime,
-        saScheduleTimeZone
-      );
-    } catch {
-      if (value.platforms.sermon_audio?.publishDate !== undefined) {
-        updateSermonAudioFields({ publishDate: undefined });
-      }
-      return;
-    }
-
-    if (value.platforms.sermon_audio?.publishDate === publishDate) return;
-    updateSermonAudioFields({ publishDate, autoPublishOnProcessed: false });
-  }, [
-    saScheduleDate,
-    saScheduleEnabled,
-    saScheduleTime,
-    saScheduleTimeZone,
-    updateSermonAudioFields,
-    value,
-  ]);
-
   useEffect(() => {
     if (!value || facebookVideoState !== 'SCHEDULED') return;
 
@@ -2232,7 +2157,6 @@ export function DraftMetadataModal({
   useEffect(() => {
     scheduleInitializedRef.current = false;
     fbScheduleInitializedRef.current = false;
-    saScheduleInitializedRef.current = false;
     setShowMoreExpanded(false);
     setAgeRestrictionsExpanded(false);
     setScheduleExpanded(false);
@@ -2242,10 +2166,6 @@ export function DraftMetadataModal({
     setFbScheduleDate('');
     setFbScheduleTime('');
     setFbScheduleTimeZone('');
-    setSaScheduleEnabled(false);
-    setSaScheduleDate('');
-    setSaScheduleTime('');
-    setSaScheduleTimeZone('');
   }, [draftId]);
 
   useEffect(() => {
@@ -2256,20 +2176,6 @@ export function DraftMetadataModal({
     initFacebookScheduleFromStored();
     fbScheduleInitializedRef.current = true;
   }, [draftId, facebookVideoState, initFacebookScheduleFromStored, value?.targets]);
-
-  useEffect(() => {
-    if (!value?.targets.includes('sermon_audio')) return;
-    const hasPublishDate = Boolean(value.platforms.sermon_audio?.publishDate?.trim());
-    setSaScheduleEnabled(hasPublishDate);
-    if (!hasPublishDate || saScheduleInitializedRef.current) return;
-    initSermonAudioScheduleFromStored();
-    saScheduleInitializedRef.current = true;
-  }, [
-    draftId,
-    initSermonAudioScheduleFromStored,
-    value?.platforms.sermon_audio?.publishDate,
-    value?.targets,
-  ]);
 
   useEffect(() => {
     if (!value || !showMoreExpanded || !scheduleExpanded) return;
@@ -4039,156 +3945,30 @@ export function DraftMetadataModal({
           className={fieldBorderClass('sermon_audio.bibleText')}
         />
       </div>
-      <div className="space-y-3">
-        <label
-          htmlFor="draft-sermon-audio-schedule-enabled"
-          className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
-        >
-          <input
-            id="draft-sermon-audio-schedule-enabled"
-            type="checkbox"
-            checked={saScheduleEnabled}
-            onChange={(event) => {
-              const checked = event.target.checked;
-              if (checked) {
-                if (!saScheduleInitializedRef.current) {
-                  initSermonAudioScheduleFromStored();
-                  saScheduleInitializedRef.current = true;
-                }
-                setSaScheduleEnabled(true);
-                updateSermonAudioFields({ autoPublishOnProcessed: false });
-                return;
-              }
-
-              saScheduleInitializedRef.current = false;
-              setSaScheduleEnabled(false);
-              setSaScheduleDate('');
-              setSaScheduleTime('');
-              setSaScheduleTimeZone('');
-              updateSermonAudioFields({ publishDate: undefined });
-            }}
-            className="h-4 w-4 rounded border-border"
-          />
-          Schedule for Publication
-        </label>
-
-        {saScheduleEnabled ? (
-          <div className="space-y-3 rounded-lg border border-border bg-background p-3">
-            <p className="text-sm font-medium text-foreground">Scheduled publish time</p>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="draft-sermon-audio-publish-date"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Date
-                </label>
-                <input
-                  id="draft-sermon-audio-publish-date"
-                  type="date"
-                  value={saScheduleDate}
-                  onChange={(event) => setSaScheduleDate(event.target.value)}
-                  className={cn(
-                    fieldBorderClass('sermon_audio.publishDate'),
-                    'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
-                  )}
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="draft-sermon-audio-publish-time"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Time
-                </label>
-                <Select value={saScheduleTime} onValueChange={(next) => setSaScheduleTime(next)}>
-                  <SelectTrigger
-                    id="draft-sermon-audio-publish-time"
-                    className={cn(
-                      fieldBorderClass('sermon_audio.publishDate'),
-                      'mt-1 flex h-10 items-center justify-between text-left'
-                    )}
-                  >
-                    <SelectValue placeholder="Select time" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
-                      <SelectItem key={timeOption} value={timeOption}>
-                        {timeOption}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="min-w-0 flex-1">
-                <label
-                  htmlFor="draft-sermon-audio-publish-timezone"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Timezone
-                </label>
-                <YouTubeTimezoneSelect
-                  id="draft-sermon-audio-publish-timezone"
-                  value={saScheduleTimeZone}
-                  options={supportedTimeZones}
-                  onValueChange={(next) => setSaScheduleTimeZone(next)}
-                  className={cn(
-                    fieldBorderClass('sermon_audio.publishDate'),
-                    'mt-1 w-full rounded-md border bg-background px-3'
-                  )}
-                />
-              </div>
-            </div>
-            {sermonAudioSchedulePastWarning ? (
-              <p className="text-sm text-amber-600 dark:text-amber-400">
-                Scheduled time is in the past. SermonAudio may publish immediately.
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                SermonAudio publishes at this time in the selected timezone. Auto-publish when
-                processed is disabled while scheduling.
-              </p>
-            )}
-          </div>
-        ) : null}
-      </div>
       <div className="flex items-center justify-between">
-        <span
-          className={cn(
-            'text-sm text-foreground',
-            sermonAudioAutoPublishDisabled && 'text-muted-foreground'
-          )}
-        >
-          Auto-publish when processed
-        </span>
+        <span className="text-sm text-foreground">Auto-publish when processed</span>
         <label
           htmlFor="draft-sermon-audio-auto-publish"
-          className={cn(
-            'relative inline-flex items-center',
-            sermonAudioAutoPublishDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-          )}
+          className="relative inline-flex cursor-pointer items-center"
         >
           <input
             id="draft-sermon-audio-auto-publish"
             type="checkbox"
             role="switch"
             aria-label="Auto-publish when processed"
-            checked={
-              !sermonAudioAutoPublishDisabled && sermonAudioFields?.autoPublishOnProcessed !== false
-            }
-            disabled={sermonAudioAutoPublishDisabled}
-            onChange={(event) => {
-              if (sermonAudioAutoPublishDisabled) return;
+            checked={sermonAudioFields?.autoPublishOnProcessed !== false}
+            onChange={(event) =>
               updateSermonAudioFields({
                 autoPublishOnProcessed: event.target.checked,
-              });
-            }}
+              })
+            }
             className="peer sr-only"
           />
           <span className="h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-primary" />
           <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-5" />
         </label>
       </div>
+      {/* TODO(sermon-audio-schedule): Contact the SermonAudio developer — POST /v2/node/sermons rejects ISO datetimes for publishDate (422: dates must be YYYY-MM-DD only). Schedule for Publication UI hidden until API supports date+time scheduling. */}
       {/* TODO(sermon-audio-cross-publish): I will contact the SermonAudio developer about how to get Cross Publish working via the API. Cross Publish UI hidden until then. */}
     </>
   );

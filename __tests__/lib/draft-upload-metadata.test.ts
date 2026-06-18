@@ -985,30 +985,6 @@ describe('draft-upload-metadata', () => {
     expect(buildMetadataForPlatform(draft, 'sermon_audio').autoPublishOnProcessed).toBe(false);
   });
 
-  it('buildMetadataForPlatform sermon_audio disables autoPublishOnProcessed when publishDate is set', () => {
-    const draft: Draft = {
-      id: 'd1',
-      userId: 'u1',
-      targets: ['sermon_audio'],
-      title: 'Title',
-      description: 'Description',
-      tags: [],
-      visibility: 'public',
-      platforms: {
-        sermon_audio: {
-          publishDate: '2026-07-01T09:00:00-04:00',
-          autoPublishOnProcessed: true,
-        },
-      },
-      $createdAt: '2000-01-01T00:00:00.000Z',
-      $updatedAt: '2000-01-01T00:00:00.000Z',
-    };
-
-    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
-    expect(meta.autoPublishOnProcessed).toBe(false);
-    expect(meta.publishDate).toBe('2026-07-01T09:00:00-04:00');
-  });
-
   it('buildMetadataForPlatform sermon_audio includes crossPublish settings when set', () => {
     const draft: Draft = {
       id: 'd1',

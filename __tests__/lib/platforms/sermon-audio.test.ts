@@ -150,34 +150,6 @@ describe('uploadToSermonAudio', () => {
     vi.useRealTimers();
   });
 
-  it('includes publishDate on sermon create when scheduled', async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ sermonID: 'sermon-scheduled' }), { status: 200 })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
-          status: 200,
-        })
-      )
-      .mockResolvedValueOnce(new Response('', { status: 200 }));
-
-    await uploadToSermonAudio({
-      videoStream: makeVideoStream(),
-      contentLength: 3,
-      metadata: {
-        ...metadata,
-        publishDate: '2026-07-01T09:00:00-04:00',
-      },
-      tokens,
-    });
-
-    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
-    expect(createBody.publishDate).toBe('2026-07-01T09:00:00-04:00');
-  });
-
   it('omits non-positive speakerID and falls back to speakerName when provided', async () => {
     const fetchMock = vi.mocked(global.fetch);
     fetchMock

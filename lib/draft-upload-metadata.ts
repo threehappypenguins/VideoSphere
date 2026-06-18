@@ -362,9 +362,8 @@ function normalizeFacebookFields(f: Record<string, unknown>): FacebookDraftField
 }
 
 function resolveSermonAudioAutoPublishOnProcessed(
-  fields: Pick<SermonAudioDraftFields, 'autoPublishOnProcessed' | 'publishDate'> | undefined
+  fields: Pick<SermonAudioDraftFields, 'autoPublishOnProcessed'> | undefined
 ): boolean {
-  if (fields?.publishDate?.trim()) return false;
   return fields?.autoPublishOnProcessed !== false;
 }
 
@@ -1068,7 +1067,7 @@ export function buildMetadataForPlatform(
       ...(sa?.languageCode?.trim() ? { languageCode: sa.languageCode.trim() } : {}),
       acceptCopyright: true,
       autoPublishOnProcessed: resolveSermonAudioAutoPublishOnProcessed(sa),
-      ...(sa?.publishDate?.trim() ? { publishDate: sa.publishDate.trim() } : {}),
+      // TODO(sermon-audio-schedule): Include publishDate when SermonAudio API supports scheduling.
       ...(sa?.crossPublish !== undefined ? { crossPublish: sa.crossPublish } : {}),
     };
   }
