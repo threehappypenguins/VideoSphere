@@ -528,26 +528,28 @@ export function stringifyDraftDocumentForStorage(d: DraftDocumentStored): string
   });
 }
 
-const EMPTY_DOC: DraftDocumentStored = {
-  targets: [],
-  title: '',
-  description: '',
-  visibility: DEFAULT_DRAFT_VISIBILITY,
-  tags: [],
-  platforms: {},
-  backupNaming: { ...normalizeBackupFileNameSettings(undefined) },
-};
+function emptyDraftDocument(): DraftDocumentStored {
+  return {
+    targets: [],
+    title: '',
+    description: '',
+    visibility: DEFAULT_DRAFT_VISIBILITY,
+    tags: [],
+    platforms: {},
+    backupNaming: normalizeBackupFileNameSettings(undefined),
+  };
+}
 
 /** Parse `drafts.document` (current schema; tolerates legacy per-platform `tags`). */
 export function draftDocumentFromRow(row: Record<string, unknown>): DraftDocumentStored {
   const raw = row.document;
   if (typeof raw !== 'string' || raw.trim() === '') {
-    return { ...EMPTY_DOC };
+    return emptyDraftDocument();
   }
   try {
     const o = JSON.parse(raw) as unknown;
     if (!isPlainObject(o)) {
-      return { ...EMPTY_DOC };
+      return emptyDraftDocument();
     }
     const thumbKey =
       typeof o.thumbnailR2Key === 'string' && o.thumbnailR2Key.trim() !== ''
@@ -570,7 +572,7 @@ export function draftDocumentFromRow(row: Record<string, unknown>): DraftDocumen
       usedInUploadAt: typeof o.usedInUploadAt === 'string' ? o.usedInUploadAt : undefined,
     };
   } catch {
-    return { ...EMPTY_DOC };
+    return emptyDraftDocument();
   }
 }
 

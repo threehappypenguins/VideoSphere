@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 import {
   assertDraftDocumentJsonWithinLimit,
@@ -152,6 +152,19 @@ describe('draft-upload-metadata', () => {
       platforms: {},
       backupNaming: defaultBackupNaming,
     });
+  });
+
+  it('draftDocumentFromRow computes backupNaming datePrefixDate at parse time', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    expect(draftDocumentFromRow({}).backupNaming?.datePrefixDate).toBe('2026-06-18');
+
+    vi.setSystemTime(new Date('2026-06-19T12:00:00.000Z'));
+    expect(draftDocumentFromRow({ document: 'not-json' }).backupNaming?.datePrefixDate).toBe(
+      '2026-06-19'
+    );
+
+    vi.useRealTimers();
   });
 
   it('draftDocumentFromRow migrates legacy per-platform tags to top-level tags', () => {
