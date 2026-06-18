@@ -12,6 +12,7 @@ import type {
   PlatformUpload,
   PlatformUploadStatus,
 } from '@/types';
+import { buildBackupFileName, resolveBackupYearFolderName } from '@/lib/backup-filename';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import { isDraftThumbnailPlatform } from '@/lib/draft-thumbnail';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
@@ -334,35 +335,56 @@ async function runSinglePlatformUpload(
       }
 
       if (platformUpload.platform === 'google_drive') {
+        const fileName = buildBackupFileName({
+          title: metadata.title,
+          contentType,
+          createdAt: metadata.draftCreatedAt ?? new Date().toISOString(),
+          settings: metadata.backupNaming,
+        });
         return uploadToGoogleDrive({
           connectedAccount,
           videoStream: stream,
           contentLength,
           contentType,
-          metadata: { title: metadata.title },
+          fileName,
+          yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
           tokens,
           signal,
         });
       }
 
       if (platformUpload.platform === 'sftp') {
+        const fileName = buildBackupFileName({
+          title: metadata.title,
+          contentType,
+          createdAt: metadata.draftCreatedAt ?? new Date().toISOString(),
+          settings: metadata.backupNaming,
+        });
         return uploadToSftp({
           connectedAccount,
           videoStream: stream,
           contentLength,
           contentType,
-          metadata: { title: metadata.title },
+          fileName,
+          yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
           signal,
         });
       }
 
       if (platformUpload.platform === 'smb') {
+        const fileName = buildBackupFileName({
+          title: metadata.title,
+          contentType,
+          createdAt: metadata.draftCreatedAt ?? new Date().toISOString(),
+          settings: metadata.backupNaming,
+        });
         return uploadToSmb({
           connectedAccount,
           videoStream: stream,
           contentLength,
           contentType,
-          metadata: { title: metadata.title },
+          fileName,
+          yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
           signal,
         });
       }

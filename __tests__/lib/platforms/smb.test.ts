@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream';
 
 const mocks = vi.hoisted(() => ({
   mockReadDirectory: vi.fn(),
+  mockCreateDirectory: vi.fn(),
   mockCreateFileWriteStream: vi.fn(),
   mockAuthenticate: vi.fn(),
   mockConnectTree: vi.fn(),
@@ -80,8 +81,10 @@ function setupSuccessfulSmbMocks() {
   mocks.mockClose.mockResolvedValue(undefined);
   mocks.mockConnectTree.mockResolvedValue({
     readDirectory: mocks.mockReadDirectory,
+    createDirectory: mocks.mockCreateDirectory,
     createFileWriteStream: mocks.mockCreateFileWriteStream,
   });
+  mocks.mockCreateDirectory.mockResolvedValue(undefined);
   mocks.mockAuthenticate.mockResolvedValue({
     connectTree: mocks.mockConnectTree,
   });
@@ -256,48 +259,74 @@ describe('uploadToSmb', () => {
       connectedAccount: makeSmbAccount(),
       videoStream: makeVideoStream(),
       contentType: 'video/mp4',
-      metadata: { title: 'My Backup' },
+      fileName: 'My Backup.mp4',
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.platformVideoId).toMatch(
-        /^\/VideoSphere\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z - My Backup - backup\.mp4$/
-      );
+      expect(result.platformVideoId).toBe('/VideoSphere/My Backup.mp4');
       expect(result.platformUrl).toMatch(/^smb:\/\/192\.168\.1\.10\/storage\/VideoSphere\//);
     }
 
     expect(mocks.MockClient).toHaveBeenCalledWith('192.168.1.10');
+    expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith('/VideoSphere/My Backup.mp4');
+  });
+
+  it('uploads into a year subfolder when yearFolderName is provided', async () => {
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      contentType: 'video/mp4',
+      fileName: '20260415 - My Backup.mp4',
+      yearFolderName: '2026',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('/VideoSphere/2026/20260415 - My Backup.mp4');
+    }
     expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /^\/VideoSphere\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z - My Backup - backup\.mp4$/
-      )
+      '/VideoSphere/2026/20260415 - My Backup.mp4'
     );
+  });
+
+  it('creates the year subfolder when it does not exist yet', async () => {
+    mocks.mockReadDirectory.mockImplementation(async (directoryPath?: string) => {
+      if (directoryPath === '/VideoSphere/2026') {
+        throw Object.assign(new Error('not found'), { header: { status: 0xc0000034 } });
+      }
+      return [];
+    });
+
+    await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: '20260415 - My Backup.mp4',
+      yearFolderName: '2026',
+    });
+
+    expect(mocks.mockCreateDirectory).toHaveBeenCalledWith('/VideoSphere/2026');
   });
 
   it('writes to the share root when remote path is /', async () => {
     const result = await uploadToSmb({
       connectedAccount: makeSmbAccount({ smbRemotePath: '/' }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Root Backup' },
+      fileName: 'Root Backup.mp4',
     });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.platformVideoId).toMatch(
-        /^\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z - Root Backup - backup\.mp4$/
-      );
+      expect(result.platformVideoId).toBe('/Root Backup.mp4');
     }
-    expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z - Root Backup - backup\.mp4$/)
-    );
+    expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith('/Root Backup.mp4');
   });
 
   it('rejects upload when connection settings are incomplete', async () => {
     const result = await uploadToSmb({
       connectedAccount: makeSmbAccount({ smbShare: undefined }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'My Backup' },
+      fileName: 'My Backup.mp4',
     });
 
     expect(result).toEqual({
@@ -310,7 +339,7 @@ describe('uploadToSmb', () => {
     const result = await uploadToSmb({
       connectedAccount: makeSmbAccount({ smbRemotePath: undefined }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'My Backup' },
+      fileName: 'My Backup.mp4',
     });
 
     expect(result).toEqual({
@@ -326,7 +355,7 @@ describe('uploadToSmb', () => {
     const result = await uploadToSmb({
       connectedAccount: makeSmbAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'My Backup' },
+      fileName: 'My Backup.mp4',
     });
 
     expect(result).toEqual({

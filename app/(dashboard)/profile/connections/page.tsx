@@ -2,7 +2,7 @@
 // CONNECTED ACCOUNTS PAGE  (/profile/connections)
 // =============================================================================
 // Lists the user's connected platform accounts (YouTube, Vimeo, Google Drive, SFTP, SMB, SermonAudio, Facebook) and provides
-// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive/Facebook, and in-page modals for SFTP/SMB/SermonAudio.
+// connect actions: OAuth redirects for YouTube/Vimeo/Google Drive/Facebook, and in-page modals for SFTP/SMB/SermonAudio/Google Drive backup folder settings.
 //
 // Session is read server-side via the authenticated session cookie so the page can
 // fetch real connected-account data without an extra client round-trip.
@@ -31,6 +31,10 @@ import { ConnectButton } from './ConnectButton';
 import { SftpConnectButton, type SftpExistingConnection } from './SftpConnectButton';
 import { SmbConnectButton, type SmbExistingConnection } from './SmbConnectButton';
 import {
+  GoogleDriveConnectButton,
+  type GoogleDriveExistingConnection,
+} from './GoogleDriveConnectButton';
+import {
   SermonAudioConnectButton,
   type SermonAudioExistingConnection,
 } from './SermonAudioConnectButton';
@@ -53,7 +57,7 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ success?: string; error?: string }>;
+  searchParams: Promise<{ success?: string; error?: string; setup?: string }>;
 }
 
 async function getCurrentUserId(): Promise<string | null> {
@@ -198,6 +202,20 @@ function toSftpExistingConnection(
     username: account.platformUserId,
     remotePath: account.sftpRemotePath,
     authMethod: account.sftpAuthMethod,
+    label: account.platformName,
+  };
+}
+
+/** Build editable Google Drive settings from a connected account row (non-secret fields only). */
+function toGoogleDriveExistingConnection(
+  account: ConnectedAccountPublic
+): GoogleDriveExistingConnection | undefined {
+  if (account.platform !== 'google_drive') {
+    return undefined;
+  }
+
+  return {
+    backupFolderPath: account.googleDriveBackupFolderPath ?? '',
     label: account.platformName,
   };
 }
@@ -412,6 +430,7 @@ async function disconnectPlatform(accountId: string) {
 interface ConnectionPlatformRowProps {
   platform: ConnectedAccountPlatform;
   account: ConnectedAccountPublic | undefined;
+  openGoogleDriveBackupSetup?: boolean;
 }
 
 /**
@@ -419,7 +438,11 @@ interface ConnectionPlatformRowProps {
  * @param props - Row props.
  * @returns Platform connection row UI.
  */
-function ConnectionPlatformRow({ platform, account }: ConnectionPlatformRowProps) {
+function ConnectionPlatformRow({
+  platform,
+  account,
+  openGoogleDriveBackupSetup = false,
+}: ConnectionPlatformRowProps) {
   const meta = PLATFORM_META[platform];
   const status = getConnectionStatus(account);
   const sftpExistingConnection =
@@ -430,6 +453,8 @@ function ConnectionPlatformRow({ platform, account }: ConnectionPlatformRowProps
     account?.platform === 'sermon_audio' ? toSermonAudioExistingConnection(account) : undefined;
   const facebookExistingConnection =
     account?.platform === 'facebook' ? toFacebookExistingConnection(account) : undefined;
+  const googleDriveExistingConnection =
+    account?.platform === 'google_drive' ? toGoogleDriveExistingConnection(account) : undefined;
 
   return (
     <div
@@ -507,6 +532,19 @@ function ConnectionPlatformRow({ platform, account }: ConnectionPlatformRowProps
               platformLabel={meta.label}
             />
           </div>
+        ) : platform === 'google_drive' && googleDriveExistingConnection ? (
+          <div className="flex items-center gap-2">
+            <GoogleDriveConnectButton
+              label="Edit"
+              existingConnection={googleDriveExistingConnection}
+              autoOpen={openGoogleDriveBackupSetup}
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            />
+            <DisconnectButton
+              action={disconnectPlatform.bind(null, account.id)}
+              platformLabel={meta.label}
+            />
+          </div>
         ) : (
           <DisconnectButton
             action={disconnectPlatform.bind(null, account.id)}
@@ -560,7 +598,8 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
     redirect(`/login?redirect=${encodeURIComponent('/profile/connections')}`);
   }
 
-  const { success, error } = await searchParams;
+  const { success, error, setup } = await searchParams;
+  const openGoogleDriveBackupSetup = success === 'google_drive' && setup === 'backup_folder';
 
   let accounts: ConnectedAccountPublic[] = [];
   try {
@@ -658,6 +697,9 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
                   key={platform}
                   platform={platform}
                   account={accounts.find((a) => a.platform === platform)}
+                  openGoogleDriveBackupSetup={
+                    platform === 'google_drive' ? openGoogleDriveBackupSetup : false
+                  }
                 />
               ))}
             </div>

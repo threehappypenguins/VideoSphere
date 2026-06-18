@@ -13,7 +13,9 @@ interface UploadToSmbInput {
   videoStream: ReadableStream<Uint8Array>;
   contentLength?: number;
   contentType?: string;
-  metadata: { title: string };
+  fileName: string;
+  /** When set, upload inside this year folder under the configured remote root. */
+  yearFolderName?: string;
   signal?: AbortSignal;
 }
 
@@ -70,6 +72,7 @@ const SMB_NT_STATUS_LABELS: Record<number, string> = {
  */
 interface SmbShareTree {
   readDirectory(path?: string): Promise<unknown>;
+  createDirectory(path: string): Promise<void>;
   createFileWriteStream(path: string): Promise<Writable>;
 }
 
@@ -171,33 +174,6 @@ function toError(
       details,
     },
   };
-}
-
-function extensionFromContentType(contentType: string | undefined): string {
-  const ct = (contentType ?? '').toLowerCase();
-  if (ct.includes('mp4')) return 'mp4';
-  if (ct.includes('quicktime')) return 'mov';
-  if (ct.includes('webm')) return 'webm';
-  if (ct.includes('x-matroska')) return 'mkv';
-  return 'mp4';
-}
-
-function formatSmbTimestamp(now: Date): string {
-  return now
-    .toISOString()
-    .replace(/\.\d{3}Z$/, 'Z')
-    .replace(/:/g, '-');
-}
-
-function normalizeSmbFileName(title: string, contentType: string | undefined, now: Date): string {
-  const base = title.trim() || 'VideoSphere Backup';
-  const safeBase = base
-    .replace(/[\\/:*?"<>|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const ext = extensionFromContentType(contentType);
-  const timestamp = formatSmbTimestamp(now);
-  return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
 /**
@@ -315,6 +291,22 @@ async function verifySmbRemoteDirectory(tree: SmbShareTree, remotePath: string):
       );
     }
     throw err;
+  }
+}
+
+/**
+ * Ensures a directory exists within the SMB share, creating it when missing.
+ * @param tree - Connected SMB tree for the target share.
+ * @param directoryPath - POSIX directory path within the share.
+ */
+async function ensureSmbDirectory(tree: SmbShareTree, directoryPath: string): Promise<void> {
+  try {
+    await tree.readDirectory(directoryPath);
+  } catch (err) {
+    if (!isRemotePathStatError(err)) {
+      throw err;
+    }
+    await tree.createDirectory(directoryPath);
   }
 }
 
@@ -545,11 +537,18 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
   }
 
   try {
-    const fileName = normalizeSmbFileName(input.metadata.title, input.contentType, new Date());
-    const directoryPath = toSmbClientDirectoryPath(credentials.remotePath);
-    const fullRemotePath = joinSmbFilePath(directoryPath, fileName);
+    const fileName = input.fileName.trim() || 'VideoSphere Backup.mp4';
+    const yearFolderName = input.yearFolderName?.trim();
+    const baseDirectoryPath = toSmbClientDirectoryPath(credentials.remotePath);
+    const uploadDirectoryPath = yearFolderName
+      ? joinSmbFilePath(baseDirectoryPath, yearFolderName)
+      : baseDirectoryPath;
+    const fullRemotePath = joinSmbFilePath(uploadDirectoryPath, fileName);
 
     await withSmbTree(credentials, async (tree) => {
+      if (yearFolderName) {
+        await ensureSmbDirectory(tree, uploadDirectoryPath);
+      }
       const writeStream = await tree.createFileWriteStream(fullRemotePath);
       await pipeWebStreamToSmbWriteStream(input.videoStream, writeStream, input.signal);
     });

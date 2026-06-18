@@ -22,6 +22,14 @@ import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-up
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import type { SermonAudioLanguageOption } from '@/lib/platforms/sermon-audio-languages';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
+import {
+  buildBackupFileName,
+  buildBackupRemoteRelativePath,
+  MAX_BACKUP_SERIES_LENGTH,
+  MAX_BACKUP_SUFFIX_LENGTH,
+  normalizeBackupFileNameSettings,
+  todayCalendarDateString,
+} from '@/lib/backup-filename';
 import type { VimeoCategoryOption } from '@/lib/platforms/vimeo-categories';
 import { vimeoCategorySlugFromUri } from '@/lib/platforms/vimeo-categories';
 import type { VimeoLicenseOption } from '@/lib/platforms/vimeo-licenses';
@@ -71,6 +79,9 @@ import { DraftModalCard } from '@/components/drafts/DraftModalCard';
 import { DraftPlatformToggles } from '@/components/drafts/DraftPlatformToggles';
 import type {
   ApiResponse,
+  BackupDateFormat,
+  BackupDateSuffix,
+  BackupFileNameSettings,
   ConnectedAccountPlatform,
   ConnectedAccountPublic,
   Draft,
@@ -100,6 +111,7 @@ import {
   PlatformIcon,
   PlatformOverrideLabel,
   PlatformSectionHeader,
+  TitleTargetPlatformLabel,
   isPlatformBrandIcon,
 } from '@/components/icons/PlatformIcon';
 import { platformLabel } from '@/lib/ui/platform-label';
@@ -152,6 +164,9 @@ export interface DraftEditorValues {
   visibility: Draft['visibility'];
   targets: ConnectedAccountPlatform[];
   platforms: DraftPlatforms;
+  backupNaming?: BackupFileNameSettings;
+  /** Draft creation timestamp used for backup filename preview (not sent on save). */
+  createdAt?: string;
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
   thumbnailPreviewUrl?: string;
@@ -222,6 +237,46 @@ const PRIVACY_PLATFORMS = ['youtube', 'vimeo'] as const;
 type PrivacyPlatform = (typeof PRIVACY_PLATFORMS)[number];
 
 const PRIVACY_PLATFORM_ORDER: PrivacyPlatform[] = ['youtube', 'vimeo'];
+
+const BACKUP_TARGET_PLATFORMS: ConnectedAccountPlatform[] = ['google_drive', 'sftp', 'smb'];
+
+type BackupTitlePlatform = (typeof BACKUP_TARGET_PLATFORMS)[number];
+
+type TitleTargetPlatform = OverridePlatform | BackupTitlePlatform;
+
+const BACKUP_DATE_FORMAT_OPTIONS: Array<{ value: BackupDateFormat; label: string }> = [
+  { value: 'YYYYMMDD', label: 'YYYYMMDD' },
+  { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD' },
+  { value: 'YYYYDDMM', label: 'YYYYDDMM' },
+  { value: 'YYYY-DD-MM', label: 'YYYY-DD-MM' },
+];
+
+const BACKUP_DATE_SUFFIX_OPTIONS: Array<{ value: BackupDateSuffix; label: string }> = [
+  { value: 'AM', label: 'AM' },
+  { value: '-AM', label: '-AM' },
+  { value: 'PM', label: 'PM' },
+  { value: '-PM', label: '-PM' },
+];
+
+function isBackupTarget(platform: ConnectedAccountPlatform): boolean {
+  return BACKUP_TARGET_PLATFORMS.includes(platform);
+}
+
+function isBackupTitlePlatform(
+  platform: ConnectedAccountPlatform
+): platform is BackupTitlePlatform {
+  return BACKUP_TARGET_PLATFORMS.includes(platform);
+}
+
+function isTitleTargetPlatform(
+  platform: ConnectedAccountPlatform
+): platform is TitleTargetPlatform {
+  return isOverridePlatform(platform) || isBackupTitlePlatform(platform);
+}
+
+function sortTitleTargetPlatforms(platforms: TitleTargetPlatform[]): TitleTargetPlatform[] {
+  return [...platforms].sort((a, b) => comparePlatformsByPreference(a, b));
+}
 
 function sortDraftThumbnailPlatforms(
   platforms: DraftThumbnailPlatform[]
@@ -745,9 +800,14 @@ export function DraftMetadataModal({
     ...editor,
     tags: [...editor.tags],
     targets: [...editor.targets],
+    backupNaming: { ...normalizeBackupFileNameSettings(editor.backupNaming) },
     platforms: {
       youtube: editor.platforms.youtube !== undefined ? { ...editor.platforms.youtube } : undefined,
       vimeo: editor.platforms.vimeo !== undefined ? { ...editor.platforms.vimeo } : undefined,
+      google_drive:
+        editor.platforms.google_drive !== undefined
+          ? { ...editor.platforms.google_drive }
+          : undefined,
       sftp: editor.platforms.sftp !== undefined ? { ...editor.platforms.sftp } : undefined,
       smb: editor.platforms.smb !== undefined ? { ...editor.platforms.smb } : undefined,
       sermon_audio:
@@ -1440,12 +1500,22 @@ export function DraftMetadataModal({
     return sortPrivacyPlatforms(value.targets.filter(isPrivacyPlatform));
   }, [value]);
 
+  const selectedTitleTargetPlatforms = useMemo(() => {
+    if (!value) return [] as TitleTargetPlatform[];
+    return sortTitleTargetPlatforms(value.targets.filter(isTitleTargetPlatform));
+  }, [value]);
+
+  const selectedBackupTitlePlatforms = useMemo(
+    () => selectedTitleTargetPlatforms.filter(isBackupTitlePlatform),
+    [selectedTitleTargetPlatforms]
+  );
+
   const usesSharedTitleGlobally = useMemo(() => {
-    if (selectedOverridePlatforms.length < 2) return true;
-    return selectedOverridePlatforms.every((platform) =>
+    if (selectedTitleTargetPlatforms.length < 2) return true;
+    return selectedTitleTargetPlatforms.every((platform) =>
       platformUsesSharedTitle(value?.platforms[platform])
     );
-  }, [selectedOverridePlatforms, value?.platforms]);
+  }, [selectedTitleTargetPlatforms, value?.platforms]);
 
   const usesSharedDescriptionGlobally = useMemo(() => {
     if (selectedOverridePlatforms.length < 2) return true;
@@ -1468,9 +1538,11 @@ export function DraftMetadataModal({
     );
   }, [selectedPrivacyPlatforms, value?.platforms]);
 
-  const showPerPlatformTitle = selectedOverridePlatforms.length >= 2 && !usesSharedTitleGlobally;
+  const showTitleSharedCheckbox = selectedTitleTargetPlatforms.length >= 2;
+  const showPerPlatformTitle = showTitleSharedCheckbox && !usesSharedTitleGlobally;
   const showPerPlatformDescription =
     selectedOverridePlatforms.length >= 2 && !usesSharedDescriptionGlobally;
+  const showDescriptionField = selectedOverridePlatforms.length > 0;
   const showPerPlatformTags = selectedTagPlatforms.length >= 2 && !usesSharedTagsGlobally;
   const sermonAudioOnlySharedTagInput =
     !showPerPlatformTags &&
@@ -1586,6 +1658,35 @@ export function DraftMetadataModal({
   const showYouTubeFields = value?.targets.includes('youtube') ?? false;
   const showVimeoFields = value?.targets.includes('vimeo') ?? false;
   const showFacebookFields = value?.targets.includes('facebook') ?? false;
+  const showBackupFileNameFields = value?.targets.some(isBackupTarget) ?? false;
+  const backupNaming = normalizeBackupFileNameSettings(value?.backupNaming);
+  const effectiveBackupDatePrefix = backupNaming.datePrefixDate ?? todayCalendarDateString();
+  const showBackupDatePicker =
+    (backupNaming.datePrefixEnabled ?? true) || (backupNaming.yearFolderEnabled ?? true);
+  const backupPreviewTitle = useMemo(() => {
+    if (!value || selectedBackupTitlePlatforms.length === 0) return 'Title of Video';
+    if (usesSharedTitleGlobally) {
+      return value.title.trim() || 'Title of Video';
+    }
+    const platform = selectedBackupTitlePlatforms[0];
+    return (value.platforms[platform]?.titleOverride ?? value.title).trim() || 'Title of Video';
+  }, [value, usesSharedTitleGlobally, selectedBackupTitlePlatforms]);
+  const backupFileNamePreview = useMemo(() => {
+    if (!value) return '';
+    const previewSettings = {
+      ...backupNaming,
+      datePrefixDate: effectiveBackupDatePrefix,
+    };
+    const fileName = buildBackupFileName({
+      title: backupPreviewTitle,
+      settings: previewSettings,
+      includeExtension: false,
+    });
+    return buildBackupRemoteRelativePath({
+      fileName,
+      settings: previewSettings,
+    });
+  }, [value, backupNaming, backupPreviewTitle, effectiveBackupDatePrefix]);
   const showPlatformSectionHeaders =
     [showYouTubeFields, showVimeoFields, showSermonAudioFields, showFacebookFields].filter(Boolean)
       .length >= 2;
@@ -1643,6 +1744,23 @@ export function DraftMetadataModal({
   const updateCopyOverridePlatformFields = (
     platform: OverridePlatform,
     patch: Partial<CopyOverridePatch>
+  ) => {
+    if (!value) return;
+    onChange({
+      ...value,
+      platforms: {
+        ...value.platforms,
+        [platform]: {
+          ...value.platforms[platform],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const updateTitleOverridePlatformFields = (
+    platform: TitleTargetPlatform,
+    patch: Pick<CopyOverridePatch, 'titleOverride'>
   ) => {
     if (!value) return;
     onChange({
@@ -1721,26 +1839,38 @@ export function DraftMetadataModal({
     }
 
     let nextPlatforms: DraftPlatforms = { ...value.platforms };
+    if (field === 'title') {
+      for (const platform of selectedTitleTargetPlatforms) {
+        const current = nextPlatforms[platform] ?? {};
+        let next: DraftPlatforms[TitleTargetPlatform];
+
+        if (useShared) {
+          const { titleOverride, ...rest } = current;
+          next =
+            Object.keys(rest).length > 0
+              ? (rest as NonNullable<DraftPlatforms[TitleTargetPlatform]>)
+              : undefined;
+        } else {
+          next = { ...current, titleOverride: value.title };
+        }
+
+        nextPlatforms = { ...nextPlatforms, [platform]: next };
+      }
+
+      onChange({ ...value, platforms: nextPlatforms });
+      return;
+    }
+
     for (const platform of selectedOverridePlatforms) {
       const current = nextPlatforms[platform] ?? {};
       let next: DraftPlatforms[OverridePlatform];
 
       if (useShared) {
-        if (field === 'title') {
-          const { titleOverride, ...rest } = current;
-          next =
-            Object.keys(rest).length > 0
-              ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
-              : undefined;
-        } else {
-          const { descriptionOverride, ...rest } = current;
-          next =
-            Object.keys(rest).length > 0
-              ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
-              : undefined;
-        }
-      } else if (field === 'title') {
-        next = { ...current, titleOverride: value.title };
+        const { descriptionOverride, ...rest } = current;
+        next =
+          Object.keys(rest).length > 0
+            ? (rest as NonNullable<DraftPlatforms[OverridePlatform]>)
+            : undefined;
       } else {
         next = { ...current, descriptionOverride: value.description };
       }
@@ -1888,6 +2018,20 @@ export function DraftMetadataModal({
           ...value.platforms,
           youtube: Object.keys(current).length > 0 ? (current as YouTubeDraftFields) : undefined,
         },
+      });
+    },
+    [onChange, value]
+  );
+
+  const updateBackupNaming = useCallback(
+    (patch: Partial<BackupFileNameSettings>) => {
+      if (!value) return;
+      onChange({
+        ...value,
+        backupNaming: normalizeBackupFileNameSettings({
+          ...normalizeBackupFileNameSettings(value.backupNaming),
+          ...patch,
+        }),
       });
     },
     [onChange, value]
@@ -4080,6 +4224,197 @@ export function DraftMetadataModal({
                 </p>
               ) : null}
             </DraftModalCard>
+            {showBackupFileNameFields ? (
+              <DraftModalCard>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Backup filename</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Applies to Google Drive, SFTP, and SMB backups. Uses the selected date,
+                      optional series label, video title, and optional suffix under your configured
+                      remote folder. Invalid filename characters are removed automatically.
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={backupNaming.yearFolderEnabled ?? true}
+                          onChange={(event) => {
+                            const enabled = event.target.checked;
+                            updateBackupNaming({
+                              yearFolderEnabled: enabled,
+                              ...(enabled && !backupNaming.datePrefixDate
+                                ? { datePrefixDate: todayCalendarDateString() }
+                                : {}),
+                            });
+                          }}
+                        />
+                        Store in year folder
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={backupNaming.datePrefixEnabled ?? true}
+                          onChange={(event) => {
+                            const enabled = event.target.checked;
+                            updateBackupNaming({
+                              datePrefixEnabled: enabled,
+                              ...(enabled && !backupNaming.datePrefixDate
+                                ? { datePrefixDate: todayCalendarDateString() }
+                                : {}),
+                            });
+                          }}
+                        />
+                        Include date prefix
+                      </label>
+                    </div>
+                    {showBackupDatePicker ? (
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <div className="flex items-center gap-2">
+                          <label
+                            htmlFor="backup-date-prefix"
+                            className="text-xs text-muted-foreground"
+                          >
+                            Date
+                          </label>
+                          <input
+                            id="backup-date-prefix"
+                            type="date"
+                            value={effectiveBackupDatePrefix}
+                            onChange={(event) =>
+                              updateBackupNaming({ datePrefixDate: event.target.value })
+                            }
+                            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground"
+                          />
+                        </div>
+                        {backupNaming.datePrefixEnabled !== false ? (
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                            <div className="flex items-center gap-2">
+                              <label
+                                htmlFor="backup-date-format"
+                                className="text-xs text-muted-foreground"
+                              >
+                                Date format
+                              </label>
+                              <Select
+                                value={backupNaming.dateFormat ?? 'YYYYMMDD'}
+                                onValueChange={(next) =>
+                                  updateBackupNaming({ dateFormat: next as BackupDateFormat })
+                                }
+                              >
+                                <SelectTrigger id="backup-date-format" className="h-8 w-[9.5rem]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {BACKUP_DATE_FORMAT_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                              <input
+                                type="checkbox"
+                                checked={backupNaming.dateSuffixEnabled === true}
+                                onChange={(event) => {
+                                  const enabled = event.target.checked;
+                                  updateBackupNaming({
+                                    dateSuffixEnabled: enabled,
+                                    ...(enabled && !backupNaming.dateSuffix
+                                      ? { dateSuffix: 'AM' }
+                                      : {}),
+                                  });
+                                }}
+                              />
+                              Include date suffix
+                            </label>
+                            {backupNaming.dateSuffixEnabled ? (
+                              <div className="flex items-center gap-2">
+                                <label
+                                  htmlFor="backup-date-suffix"
+                                  className="text-xs text-muted-foreground"
+                                >
+                                  Date suffix
+                                </label>
+                                <Select
+                                  value={backupNaming.dateSuffix ?? 'AM'}
+                                  onValueChange={(next) =>
+                                    updateBackupNaming({ dateSuffix: next as BackupDateSuffix })
+                                  }
+                                >
+                                  <SelectTrigger id="backup-date-suffix" className="h-8 w-[6.5rem]">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {BACKUP_DATE_SUFFIX_OPTIONS.map((option) => (
+                                      <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="space-y-2">
+                      <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={backupNaming.seriesEnabled === true}
+                          onChange={(event) =>
+                            updateBackupNaming({ seriesEnabled: event.target.checked })
+                          }
+                        />
+                        Include series
+                      </label>
+                      {backupNaming.seriesEnabled ? (
+                        <input
+                          id="backup-series"
+                          value={backupNaming.series ?? ''}
+                          maxLength={MAX_BACKUP_SERIES_LENGTH}
+                          placeholder="Series name"
+                          onChange={(event) => updateBackupNaming({ series: event.target.value })}
+                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="space-y-2">
+                      <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={backupNaming.suffixEnabled === true}
+                          onChange={(event) =>
+                            updateBackupNaming({ suffixEnabled: event.target.checked })
+                          }
+                        />
+                        Include suffix
+                      </label>
+                      {backupNaming.suffixEnabled ? (
+                        <input
+                          id="backup-suffix"
+                          value={backupNaming.suffix ?? ''}
+                          maxLength={MAX_BACKUP_SUFFIX_LENGTH}
+                          placeholder="Suffix label"
+                          onChange={(event) => updateBackupNaming({ suffix: event.target.value })}
+                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        />
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Preview:{' '}
+                      <span className="font-mono text-foreground">{backupFileNamePreview}</span>
+                    </p>
+                  </div>
+                </div>
+              </DraftModalCard>
+            ) : null}
             {canUseAiMetadata ? (
               <DraftModalCard
                 className="bg-muted/40"
@@ -4173,17 +4508,17 @@ export function DraftMetadataModal({
                     Title
                     <RequiredFieldMarker />
                   </label>
-                  {selectedOverridePlatforms.length >= 2 ? (
+                  {showTitleSharedCheckbox ? (
                     <SharedMetadataCheckbox
                       checked={usesSharedTitleGlobally}
                       onChange={(useShared) => setUseSharedCopyField('title', useShared)}
-                      hint="When checked, all selected platforms share one title. Uncheck to set a title per platform."
+                      hint="When checked, all selected targets share one title. Uncheck to set a title per platform."
                     />
                   ) : null}
                 </div>
                 {showPerPlatformTitle ? (
                   <div className="mt-2 space-y-3">
-                    {selectedOverridePlatforms.map((platform) => {
+                    {selectedTitleTargetPlatforms.map((platform) => {
                       const platformFields = value.platforms[platform];
                       const fieldKey = `title:${platform}` as DraftUploadFieldKey;
                       const platformTitle = platformFields?.titleOverride ?? value.title;
@@ -4196,14 +4531,10 @@ export function DraftMetadataModal({
                             className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
                           >
                             <span className="sr-only">Title — </span>
-                            {isPlatformBrandIcon(platform) ? (
-                              <PlatformOverrideLabel
-                                platform={platform}
-                                isShort={platform === 'youtube' ? youtubeIsShort : undefined}
-                              />
-                            ) : (
-                              platformLabel(platform)
-                            )}
+                            <TitleTargetPlatformLabel
+                              platform={platform}
+                              isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                            />
                           </label>
                           <input
                             id={`edit-title-${platform}`}
@@ -4211,7 +4542,7 @@ export function DraftMetadataModal({
                             required
                             onChange={(event) => {
                               clearUploadFieldError(fieldKey);
-                              updateCopyOverridePlatformFields(platform, {
+                              updateTitleOverridePlatformFields(platform, {
                                 titleOverride: event.target.value,
                               });
                             }}
@@ -4255,64 +4586,69 @@ export function DraftMetadataModal({
                   </>
                 )}
               </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <label htmlFor="edit-description" className="text-sm font-medium text-foreground">
-                    Description
-                  </label>
-                  {selectedOverridePlatforms.length >= 2 ? (
-                    <SharedMetadataCheckbox
-                      checked={usesSharedDescriptionGlobally}
-                      onChange={(useShared) => setUseSharedCopyField('description', useShared)}
-                      hint="When checked, all selected platforms share one description. Uncheck to set a description per platform."
-                    />
-                  ) : null}
-                </div>
-                {showPerPlatformDescription ? (
-                  <div className="mt-2 space-y-3">
-                    {selectedOverridePlatforms.map((platform) => {
-                      const platformFields = value.platforms[platform];
-                      return (
-                        <div key={platform}>
-                          <label
-                            htmlFor={`edit-description-${platform}`}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
-                          >
-                            <span className="sr-only">Description — </span>
-                            {isPlatformBrandIcon(platform) ? (
-                              <PlatformOverrideLabel
-                                platform={platform}
-                                isShort={platform === 'youtube' ? youtubeIsShort : undefined}
-                              />
-                            ) : (
-                              platformLabel(platform)
-                            )}
-                          </label>
-                          <textarea
-                            id={`edit-description-${platform}`}
-                            value={platformFields?.descriptionOverride ?? value.description}
-                            onChange={(event) =>
-                              updateCopyOverridePlatformFields(platform, {
-                                descriptionOverride: event.target.value,
-                              })
-                            }
-                            rows={4}
-                            className={fieldBorderClass(`description:${platform}`)}
-                          />
-                        </div>
-                      );
-                    })}
+              {showDescriptionField ? (
+                <div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <label
+                      htmlFor="edit-description"
+                      className="text-sm font-medium text-foreground"
+                    >
+                      Description
+                    </label>
+                    {selectedOverridePlatforms.length >= 2 ? (
+                      <SharedMetadataCheckbox
+                        checked={usesSharedDescriptionGlobally}
+                        onChange={(useShared) => setUseSharedCopyField('description', useShared)}
+                        hint="When checked, all selected platforms share one description. Uncheck to set a description per platform."
+                      />
+                    ) : null}
                   </div>
-                ) : (
-                  <textarea
-                    id="edit-description"
-                    value={value.description}
-                    onChange={(event) => onChange({ ...value, description: event.target.value })}
-                    rows={4}
-                    className={fieldBorderClass('description')}
-                  />
-                )}
-              </div>
+                  {showPerPlatformDescription ? (
+                    <div className="mt-2 space-y-3">
+                      {selectedOverridePlatforms.map((platform) => {
+                        const platformFields = value.platforms[platform];
+                        return (
+                          <div key={platform}>
+                            <label
+                              htmlFor={`edit-description-${platform}`}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                            >
+                              <span className="sr-only">Description — </span>
+                              {isPlatformBrandIcon(platform) ? (
+                                <PlatformOverrideLabel
+                                  platform={platform}
+                                  isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                                />
+                              ) : (
+                                platformLabel(platform)
+                              )}
+                            </label>
+                            <textarea
+                              id={`edit-description-${platform}`}
+                              value={platformFields?.descriptionOverride ?? value.description}
+                              onChange={(event) =>
+                                updateCopyOverridePlatformFields(platform, {
+                                  descriptionOverride: event.target.value,
+                                })
+                              }
+                              rows={4}
+                              className={fieldBorderClass(`description:${platform}`)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <textarea
+                      id="edit-description"
+                      value={value.description}
+                      onChange={(event) => onChange({ ...value, description: event.target.value })}
+                      rows={4}
+                      className={fieldBorderClass('description')}
+                    />
+                  )}
+                </div>
+              ) : null}
               {showPrivacyField ? (
                 <div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

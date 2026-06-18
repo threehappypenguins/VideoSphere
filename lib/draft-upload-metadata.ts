@@ -8,12 +8,17 @@
  */
 
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
+import {
+  mergeBackupFileNameSettingsPatch,
+  normalizeBackupFileNameSettings,
+} from '@/lib/backup-filename';
 import { formatSermonAudioKeywordsFromTags } from '@/lib/platforms/sermon-audio-tags';
 import { normalizeSermonAudioCrossPublishSettings } from '@/lib/platforms/sermon-audio-cross-publish';
 import { normalizeVimeoContentRatingCodes } from '@/lib/platforms/vimeo-content-rating';
 import { uniqueTrimmedPlaylistTitles } from '@/lib/platforms/youtube';
 import {
   CONNECTED_ACCOUNT_PLATFORMS,
+  type BackupFileNameSettings,
   type ConnectedAccountPlatform,
   type Draft,
   type DraftPlatforms,
@@ -26,6 +31,7 @@ import {
   type SermonAudioDraftFields,
   type SftpDraftFields,
   type SmbDraftFields,
+  type GoogleDriveDraftFields,
   type FacebookDraftFields,
 } from '@/types';
 
@@ -406,14 +412,29 @@ function normalizeSermonAudioFields(sa: Record<string, unknown>): SermonAudioDra
   };
 }
 
-/** Backup destinations with no publish-specific fields yet; preserve `{}` when sent by clients. */
-function normalizeSftpFields(_value: Record<string, unknown>): SftpDraftFields {
-  return {};
+/** Normalizes backup destination title override fields. */
+function normalizeBackupTitleOverrideFields(
+  value: Record<string, unknown>
+): Pick<PerPlatformCopyOverrides, 'titleOverride'> {
+  const titleOverride = trimStr(value.titleOverride);
+  return {
+    ...(titleOverride !== undefined ? { titleOverride } : {}),
+  };
 }
 
-/** Backup destinations with no publish-specific fields yet; preserve `{}` when sent by clients. */
-function normalizeSmbFields(_value: Record<string, unknown>): SmbDraftFields {
-  return {};
+/** Backup destinations; preserve `{}` when sent by clients with no overrides. */
+function normalizeGoogleDriveFields(value: Record<string, unknown>): GoogleDriveDraftFields {
+  return normalizeBackupTitleOverrideFields(value);
+}
+
+/** Backup destinations; preserve `{}` when sent by clients with no overrides. */
+function normalizeSftpFields(value: Record<string, unknown>): SftpDraftFields {
+  return normalizeBackupTitleOverrideFields(value);
+}
+
+/** Backup destinations; preserve `{}` when sent by clients with no overrides. */
+function normalizeSmbFields(value: Record<string, unknown>): SmbDraftFields {
+  return normalizeBackupTitleOverrideFields(value);
 }
 
 /**
@@ -445,12 +466,19 @@ export function normalizeDraftPlatforms(value: unknown): DraftPlatforms {
     out.facebook = Object.keys(fb).length > 0 ? fb : undefined;
   }
 
+  if (isPlainObject(value.google_drive)) {
+    const gd = normalizeGoogleDriveFields(value.google_drive);
+    out.google_drive = Object.keys(gd).length > 0 ? gd : {};
+  }
+
   if (isPlainObject(value.sftp)) {
-    out.sftp = normalizeSftpFields(value.sftp);
+    const sftp = normalizeSftpFields(value.sftp);
+    out.sftp = Object.keys(sftp).length > 0 ? sftp : {};
   }
 
   if (isPlainObject(value.smb)) {
-    out.smb = normalizeSmbFields(value.smb);
+    const smb = normalizeSmbFields(value.smb);
+    out.smb = Object.keys(smb).length > 0 ? smb : {};
   }
 
   return out;
@@ -464,6 +492,7 @@ export interface DraftDocumentStored {
   visibility: PlatformUploadVisibility;
   tags: string[];
   platforms: DraftPlatforms;
+  backupNaming?: BackupFileNameSettings;
   /** R2 key for draft thumbnail; omitted when unset. */
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
@@ -487,6 +516,7 @@ export function stringifyDraftDocumentForStorage(d: DraftDocumentStored): string
     visibility: d.visibility,
     tags: d.tags,
     platforms: d.platforms,
+    ...(d.backupNaming !== undefined ? { backupNaming: d.backupNaming } : {}),
     ...(typeof d.thumbnailR2Key === 'string' && d.thumbnailR2Key.trim() !== ''
       ? {
           thumbnailR2Key: d.thumbnailR2Key.trim(),
@@ -508,6 +538,7 @@ const EMPTY_DOC: DraftDocumentStored = {
   visibility: DEFAULT_DRAFT_VISIBILITY,
   tags: [],
   platforms: {},
+  backupNaming: { ...normalizeBackupFileNameSettings(undefined) },
 };
 
 /** Parse `drafts.document` (current schema; tolerates legacy per-platform `tags`). */
@@ -536,6 +567,7 @@ export function draftDocumentFromRow(row: Record<string, unknown>): DraftDocumen
       visibility: visibilityFromRow(o.visibility),
       tags: tagsFromDocumentObject(o),
       platforms: normalizeDraftPlatforms(o.platforms),
+      backupNaming: normalizeBackupFileNameSettings(o.backupNaming),
       ...(thumbKey !== undefined ? { thumbnailR2Key: thumbKey } : {}),
       ...(thumbType !== undefined ? { thumbnailContentType: thumbType } : {}),
       usedInUploadAt: typeof o.usedInUploadAt === 'string' ? o.usedInUploadAt : undefined,
@@ -639,6 +671,9 @@ export function mergeDraftPlatforms(base: DraftPlatforms, patch: DraftPlatforms)
   }
   if (patch.sermon_audio !== undefined) {
     next.sermon_audio = { ...base.sermon_audio, ...patch.sermon_audio };
+  }
+  if (patch.google_drive !== undefined) {
+    next.google_drive = { ...base.google_drive, ...patch.google_drive };
   }
   if (patch.sftp !== undefined) {
     next.sftp = { ...base.sftp, ...patch.sftp };
@@ -894,11 +929,33 @@ export function mergeDraftPlatformsPatch(base: DraftPlatforms, patch: unknown): 
   }
 
   if (isPlainObject(patch.sftp)) {
-    next.sftp = { ...base.sftp, ...normalizeSftpFields(patch.sftp) };
+    const p = patch.sftp;
+    const sftp = { ...base.sftp };
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      sftp.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    next.sftp = sftp;
   }
 
   if (isPlainObject(patch.smb)) {
-    next.smb = { ...base.smb, ...normalizeSmbFields(patch.smb) };
+    const p = patch.smb;
+    const smb = { ...base.smb };
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      smb.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    next.smb = smb;
+  }
+
+  if (isPlainObject(patch.google_drive)) {
+    const p = patch.google_drive;
+    const gd = { ...base.google_drive };
+    if ('titleOverride' in p) {
+      const s = p.titleOverride;
+      gd.titleOverride = typeof s === 'string' && s.trim() !== '' ? s.trim() : undefined;
+    }
+    next.google_drive = gd;
   }
 
   return next;
@@ -1087,6 +1144,57 @@ export function buildMetadataForPlatform(
     };
   }
 
+  if (platform === 'google_drive') {
+    const gd = draft.platforms.google_drive;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, gd);
+    const visibility = draft.visibility;
+    const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft);
+    return {
+      title,
+      description,
+      tags,
+      visibility,
+      thumbnailR2Key,
+      thumbnailContentType,
+      backupNaming: draft.backupNaming,
+      draftCreatedAt: draft.$createdAt,
+    };
+  }
+
+  if (platform === 'sftp') {
+    const sftp = draft.platforms.sftp;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, sftp);
+    const visibility = draft.visibility;
+    const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft);
+    return {
+      title,
+      description,
+      tags,
+      visibility,
+      thumbnailR2Key,
+      thumbnailContentType,
+      backupNaming: draft.backupNaming,
+      draftCreatedAt: draft.$createdAt,
+    };
+  }
+
+  if (platform === 'smb') {
+    const smb = draft.platforms.smb;
+    const { title, description, tags } = resolveDraftCopyForPlatform(draft, smb);
+    const visibility = draft.visibility;
+    const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft);
+    return {
+      title,
+      description,
+      tags,
+      visibility,
+      thumbnailR2Key,
+      thumbnailContentType,
+      backupNaming: draft.backupNaming,
+      draftCreatedAt: draft.$createdAt,
+    };
+  }
+
   const { title, description, tags } = resolveDraftCopyForPlatform(draft);
   const visibility = draft.visibility;
   const { thumbnailR2Key, thumbnailContentType } = resolveThumbnailForPlatform(draft);
@@ -1097,5 +1205,41 @@ export function buildMetadataForPlatform(
     visibility,
     thumbnailR2Key,
     thumbnailContentType,
+    backupNaming: draft.backupNaming,
+    draftCreatedAt: draft.$createdAt,
   };
+}
+
+/**
+ * Validate optional `backupNaming` on POST/PATCH bodies.
+ * @param value - Raw request body value.
+ * @returns Parsed settings or an error message.
+ */
+export function parseBackupNamingFromRequestBody(
+  value: unknown
+): { ok: true; value: BackupFileNameSettings } | { ok: false; error: string } {
+  if (value === undefined) {
+    return { ok: true, value: normalizeBackupFileNameSettings(undefined) };
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'backupNaming must be an object' };
+  }
+  return { ok: true, value: normalizeBackupFileNameSettings(value) };
+}
+
+/**
+ * Validate optional `backupNaming` patch on PATCH bodies (partial merge).
+ * @param value - Raw request body value.
+ * @returns Parsed partial patch or an error message.
+ */
+export function parseBackupNamingPatchBody(
+  value: unknown
+): { ok: true; value: BackupFileNameSettings } | { ok: false; error: string } {
+  if (value === undefined) {
+    return { ok: false, error: 'backupNaming must be provided when included in the request' };
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'backupNaming must be an object' };
+  }
+  return { ok: true, value: normalizeBackupFileNameSettings(value) };
 }

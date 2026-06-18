@@ -18,6 +18,7 @@ import {
   isPlatformUploadVisibility,
   MAX_DRAFT_TITLE_LENGTH,
   mergeDraftPlatformsPatch,
+  parseBackupNamingFromRequestBody,
   parseDraftPlatformsPatchBody,
   parseDraftTargetsFromRequestBody,
   parseTagsFromRequestBody,
@@ -176,7 +177,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const { title, description, visibility, targets, platforms, tags } = body as Record<
+  const { title, description, visibility, targets, platforms, tags, backupNaming } = body as Record<
     string,
     unknown
   >;
@@ -188,12 +189,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     visibility === undefined &&
     targets === undefined &&
     platforms === undefined &&
-    tags === undefined
+    tags === undefined &&
+    backupNaming === undefined
   ) {
     const errRes: ApiError = {
       error: 'Bad Request',
       message:
-        'At least one field (title, description, visibility, targets, tags, platforms) must be provided',
+        'At least one field (title, description, visibility, targets, tags, platforms, backupNaming) must be provided',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -278,6 +280,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  let backupNamingParse: ReturnType<typeof parseBackupNamingFromRequestBody> | undefined;
+  if (backupNaming !== undefined) {
+    backupNamingParse = parseBackupNamingFromRequestBody(backupNaming);
+    if (backupNamingParse.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: backupNamingParse.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+  }
+
   if (title !== undefined || targets !== undefined || platforms !== undefined) {
     const mergedPlatforms =
       platformsPatchParse?.ok === true
@@ -311,6 +326,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(parsedTargets?.ok === true ? { targets: parsedTargets.value } : {}),
       ...(parsedTags?.ok === true ? { tags: parsedTags.value } : {}),
       ...(platformsPatchParse?.ok === true ? { platformsPatch: platformsPatchParse.value } : {}),
+      ...(backupNamingParse?.ok === true ? { backupNaming: backupNamingParse.value } : {}),
     });
 
     if (!updated) {

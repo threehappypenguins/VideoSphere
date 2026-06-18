@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   mockSftp: vi.fn(),
   mockCreateWriteStream: vi.fn(),
   mockStat: vi.fn(),
+  mockMkdir: vi.fn(),
 }));
 
 vi.mock('ssh2', () => {
@@ -92,6 +93,7 @@ function setupSuccessfulSftpMocks() {
   mocks.mockSftp.mockImplementation((callback: (err: Error | null, sftp: unknown) => void) => {
     callback(null, {
       stat: mocks.mockStat,
+      mkdir: mocks.mockMkdir,
       createWriteStream: mocks.mockCreateWriteStream,
     });
   });
@@ -102,6 +104,12 @@ function setupSuccessfulSftpMocks() {
       callback: (err: Error | null, stats: { isDirectory: () => boolean }) => void
     ) => {
       callback(null, { isDirectory: () => true });
+    }
+  );
+
+  mocks.mockMkdir.mockImplementation(
+    (_path: string, _options: unknown, callback: (err: Error | null) => void) => {
+      callback(null);
     }
   );
 
@@ -129,14 +137,13 @@ describe('uploadToSftp', () => {
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
       contentType: 'video/mp4',
-      metadata: { title: 'My Backup' },
+      fileName: '20260415 - My Backup.mp4',
     });
 
     expect(result).toEqual({
       ok: true,
-      platformVideoId: '/backups/2026-04-15T12-00-00Z - My Backup - backup.mp4',
-      platformUrl:
-        'sftp://sftp.example.com/backups/2026-04-15T12-00-00Z%20-%20My%20Backup%20-%20backup.mp4',
+      platformVideoId: '/backups/20260415 - My Backup.mp4',
+      platformUrl: 'sftp://sftp.example.com/backups/20260415%20-%20My%20Backup.mp4',
     });
 
     expect(mocks.mockConnect).toHaveBeenCalledWith(
@@ -156,11 +163,59 @@ describe('uploadToSftp', () => {
     expect(mocks.mockEnd).toHaveBeenCalled();
   });
 
+  it('uploads into a year subfolder when yearFolderName is provided', async () => {
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      contentType: 'video/mp4',
+      fileName: '20260415 - My Backup.mp4',
+      yearFolderName: '2026',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: '/backups/2026/20260415 - My Backup.mp4',
+      platformUrl: 'sftp://sftp.example.com/backups/2026/20260415%20-%20My%20Backup.mp4',
+    });
+    expect(mocks.mockCreateWriteStream).toHaveBeenCalledWith(
+      '/backups/2026/20260415 - My Backup.mp4',
+      expect.objectContaining({ flags: 'w', mode: 0o600 })
+    );
+  });
+
+  it('creates the year subfolder when it does not exist yet', async () => {
+    mocks.mockStat.mockImplementation(
+      (
+        remotePath: string,
+        callback: (err: Error | null, stats?: { isDirectory: () => boolean }) => void
+      ) => {
+        if (remotePath === '/backups/2026') {
+          callback(Object.assign(new Error('No such file'), { code: 'ENOENT' }));
+          return;
+        }
+        callback(null, { isDirectory: () => true });
+      }
+    );
+
+    await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      fileName: '20260415 - My Backup.mp4',
+      yearFolderName: '2026',
+    });
+
+    expect(mocks.mockMkdir).toHaveBeenCalledWith(
+      '/backups/2026',
+      expect.objectContaining({ mode: 0o755 }),
+      expect.any(Function)
+    );
+  });
+
   it('rejects upload when host key fingerprint is not pinned', async () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpHostKeyFingerprint: undefined }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Unpinned' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({
@@ -174,7 +229,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpHostKeyFingerprint: 'b'.repeat(64) }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Mismatch' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({
@@ -187,7 +242,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpRemotePath: '/backups/../etc' }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Unsafe Path' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({
@@ -201,7 +256,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpPort: 70000 }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Bad Port' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({
@@ -215,13 +270,12 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpPort: 2222 }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Custom Port Backup' },
+      fileName: 'Custom Port Backup.mp4',
     });
 
     expect(result).toMatchObject({
       ok: true,
-      platformUrl:
-        'sftp://sftp.example.com:2222/backups/2026-04-15T12-00-00Z%20-%20Custom%20Port%20Backup%20-%20backup.mp4',
+      platformUrl: 'sftp://sftp.example.com:2222/backups/Custom%20Port%20Backup.mp4',
     });
   });
 
@@ -229,13 +283,12 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpHost: '2001:db8::1' }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'IPv6 Backup' },
+      fileName: 'IPv6 Backup.mp4',
     });
 
     expect(result).toMatchObject({
       ok: true,
-      platformUrl:
-        'sftp://[2001:db8::1]/backups/2026-04-15T12-00-00Z%20-%20IPv6%20Backup%20-%20backup.mp4',
+      platformUrl: 'sftp://[2001:db8::1]/backups/IPv6%20Backup.mp4',
     });
     expect(mocks.mockConnect).toHaveBeenCalledWith(
       expect.objectContaining({ host: '2001:db8::1', port: 22 })
@@ -246,13 +299,12 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount({ sftpHost: '2001:db8::1', sftpPort: 2222 }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'IPv6 Port Backup' },
+      fileName: 'IPv6 Port Backup.mp4',
     });
 
     expect(result).toMatchObject({
       ok: true,
-      platformUrl:
-        'sftp://[2001:db8::1]:2222/backups/2026-04-15T12-00-00Z%20-%20IPv6%20Port%20Backup%20-%20backup.mp4',
+      platformUrl: 'sftp://[2001:db8::1]:2222/backups/IPv6%20Port%20Backup.mp4',
     });
   });
 
@@ -264,7 +316,7 @@ describe('uploadToSftp', () => {
         refreshToken: 'key-pass',
       }),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Key Backup' },
+      fileName: 'test.mp4',
     });
 
     expect(mocks.mockConnect).toHaveBeenCalledWith(
@@ -287,7 +339,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Finish Only' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({ ok: true });
@@ -305,7 +357,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Close Only' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({ ok: true });
@@ -319,7 +371,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Fail' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({
@@ -336,7 +388,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Fail' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({
@@ -357,7 +409,7 @@ describe('uploadToSftp', () => {
     const uploadPromise = uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Abort During Connect' },
+      fileName: 'test.mp4',
       signal: controller.signal,
     });
 
@@ -381,7 +433,7 @@ describe('uploadToSftp', () => {
     const result = await uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Fail' },
+      fileName: 'test.mp4',
     });
 
     expect(result).toMatchObject({
@@ -397,7 +449,7 @@ describe('uploadToSftp', () => {
     const uploadPromise = uploadToSftp({
       connectedAccount: makeSftpAccount(),
       videoStream: makeVideoStream(),
-      metadata: { title: 'Abort' },
+      fileName: 'test.mp4',
       signal: controller.signal,
     });
 

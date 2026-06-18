@@ -1,5 +1,4 @@
 import { messageFromThrown } from '@/lib/utils/error-message';
-import { updateConnection } from '@/lib/repositories/connected-accounts';
 import type { ConnectedAccount } from '@/types';
 import type {
   PlatformUploadError,
@@ -12,9 +11,9 @@ interface UploadToGoogleDriveInput {
   videoStream: ReadableStream<Uint8Array>;
   contentLength?: number;
   contentType?: string;
-  metadata: {
-    title: string;
-  };
+  fileName: string;
+  /** When set, upload inside this year folder at the Drive root. */
+  yearFolderName?: string;
   tokens: PlatformUploadTokens;
   signal?: AbortSignal;
 }
@@ -32,7 +31,6 @@ const DRIVE_FILES_LIST_URL =
   'https://www.googleapis.com/drive/v3/files?fields=files(id,name,mimeType,trashed)';
 const DRIVE_FILES_CREATE_URL = 'https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType';
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
-const GOOGLE_DRIVE_ROOT_FOLDER_NAME = 'VideoSphere Backups';
 
 class GoogleDriveApiError extends Error {
   statusCode: number;
@@ -86,15 +84,6 @@ async function readApiErrorDetails(response: Response): Promise<string | undefin
   return raw.slice(0, 1000);
 }
 
-function extensionFromContentType(contentType: string | undefined): string {
-  const ct = (contentType ?? '').toLowerCase();
-  if (ct.includes('mp4')) return 'mp4';
-  if (ct.includes('quicktime')) return 'mov';
-  if (ct.includes('webm')) return 'webm';
-  if (ct.includes('x-matroska')) return 'mkv';
-  return 'mp4';
-}
-
 interface ParsedGoogleDrivePlatformUserId {
   permissionId: string;
   rootFolderId?: string;
@@ -109,17 +98,6 @@ interface DriveFileLookupResponse {
 
 interface DriveListResponse {
   files?: DriveFileLookupResponse[];
-}
-
-function normalizeDriveFileName(title: string, contentType: string | undefined, now: Date): string {
-  const base = title.trim() || 'VideoSphere Backup';
-  const safeBase = base
-    .replace(/[\\/:*?"<>|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const ext = extensionFromContentType(contentType);
-  const timestamp = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
-  return `${timestamp} - ${safeBase || 'VideoSphere Backup'} - backup.${ext}`;
 }
 
 function escapeDriveQueryValue(value: string): string {
@@ -175,6 +153,39 @@ export function serializeGoogleDrivePlatformUserId(
     return safePermissionId;
   }
   return JSON.stringify({ permissionId: safePermissionId, rootFolderId: safeRootFolderId });
+}
+
+/**
+ * Returns whether `path` is a safe Google Drive backup folder path within My Drive.
+ * Empty string or `/` means the Drive root.
+ * @param path - Candidate folder path using `/` separators.
+ * @returns True when the path is allowed.
+ */
+export function isValidGoogleDriveBackupFolderPath(path: string): boolean {
+  const trimmed = path.trim();
+  if (trimmed === '' || trimmed === '/') return true;
+
+  const normalized = trimmed.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!normalized) return true;
+
+  for (const segment of normalized.split('/')) {
+    if (!segment || segment === '.' || segment === '..') return false;
+    if (/[\\/:*?"<>|\u0000-\u001f]/.test(segment)) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Normalizes a Google Drive backup folder path for storage and display.
+ * @param path - Raw folder path from the connections form.
+ * @returns Normalized path (`''` for Drive root).
+ */
+export function normalizeGoogleDriveBackupFolderPath(path: string): string {
+  const trimmed = path.trim();
+  if (trimmed === '' || trimmed === '/') return '';
+
+  return trimmed.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 }
 
 async function readDriveFileById(
@@ -277,28 +288,34 @@ async function ensureDriveFolder(
   return createDriveFolder(folderName, accessToken, opts);
 }
 
-async function persistGoogleDriveRootFolderId(
-  connectedAccount: ConnectedAccount,
-  tokens: PlatformUploadTokens,
-  rootFolderId: string
-): Promise<void> {
-  const parsed = parseGoogleDrivePlatformUserId(connectedAccount.platformUserId);
-  if (parsed.rootFolderId === rootFolderId) {
-    return;
+/**
+ * Resolves a configured backup folder path to a Drive folder id, creating folders as needed.
+ * @param backupFolderPath - Folder path within My Drive; empty means Drive root.
+ * @param accessToken - Valid Google Drive access token.
+ * @param signal - Optional abort signal.
+ * @returns Folder id for the configured path, or undefined for Drive root.
+ */
+export async function resolveGoogleDriveBackupRootFolderId(
+  backupFolderPath: string,
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<string | undefined> {
+  const normalized = normalizeGoogleDriveBackupFolderPath(backupFolderPath);
+  if (!normalized) {
+    return undefined;
   }
 
-  const accessToken = tokens.accessToken?.trim() || connectedAccount.accessToken;
-  const refreshToken = tokens.refreshToken?.trim() || connectedAccount.refreshToken;
-  const tokenExpiry = tokens.tokenExpiry?.trim() || connectedAccount.tokenExpiry;
+  const segments = normalized.split('/').filter(Boolean);
+  let parentId: string | undefined;
 
-  await updateConnection(
-    connectedAccount.id,
-    accessToken,
-    refreshToken,
-    tokenExpiry,
-    serializeGoogleDrivePlatformUserId(parsed.permissionId, rootFolderId),
-    connectedAccount.platformName
-  );
+  for (const segment of segments) {
+    parentId = await ensureDriveFolder(segment, accessToken, {
+      parentId,
+      signal,
+    });
+  }
+
+  return parentId;
 }
 
 /**
@@ -405,16 +422,14 @@ export async function uploadToGoogleDrive(
   }
 
   try {
-    const now = new Date();
     const contentType = input.contentType?.trim() || 'application/octet-stream';
-    const fileName = normalizeDriveFileName(input.metadata.title, contentType, now);
-    const currentYear = String(now.getUTCFullYear());
+    const fileName = input.fileName.trim() || 'VideoSphere Backup.mp4';
     const driveIdentity = parseGoogleDrivePlatformUserId(input.connectedAccount.platformUserId);
 
-    let rootFolderId = driveIdentity.rootFolderId;
-    if (rootFolderId) {
+    let backupRootFolderId = driveIdentity.rootFolderId?.trim() || undefined;
+    if (backupRootFolderId) {
       const existingRoot = await readDriveFileById(
-        rootFolderId,
+        backupRootFolderId,
         input.tokens.accessToken,
         input.signal
       );
@@ -423,31 +438,31 @@ export async function uploadToGoogleDrive(
         existingRoot.trashed === true ||
         existingRoot.mimeType !== DRIVE_FOLDER_MIME_TYPE;
       if (rootMissingOrInvalid) {
-        rootFolderId = undefined;
+        backupRootFolderId = undefined;
       }
     }
 
-    if (!rootFolderId) {
-      rootFolderId = await ensureDriveFolder(
-        GOOGLE_DRIVE_ROOT_FOLDER_NAME,
-        input.tokens.accessToken,
-        {
-          signal: input.signal,
-        }
+    if (!backupRootFolderId) {
+      const configuredPath = normalizeGoogleDriveBackupFolderPath(
+        input.connectedAccount.googleDriveBackupFolderPath ?? ''
       );
-      await persistGoogleDriveRootFolderId(
-        input.connectedAccount,
-        input.tokens,
-        rootFolderId
-      ).catch((error) => {
-        console.error('[google-drive] Failed to persist root backup folder id:', error);
-      });
+      if (configuredPath) {
+        backupRootFolderId = await resolveGoogleDriveBackupRootFolderId(
+          configuredPath,
+          input.tokens.accessToken,
+          input.signal
+        );
+      }
     }
 
-    const yearFolderId = await ensureDriveFolder(currentYear, input.tokens.accessToken, {
-      parentId: rootFolderId,
-      signal: input.signal,
-    });
+    let uploadParentFolderId: string | undefined = backupRootFolderId;
+    const yearFolderName = input.yearFolderName?.trim();
+    if (yearFolderName) {
+      uploadParentFolderId = await ensureDriveFolder(yearFolderName, input.tokens.accessToken, {
+        parentId: backupRootFolderId,
+        signal: input.signal,
+      });
+    }
 
     const createRes = await fetch(DRIVE_RESUMABLE_CREATE_URL, {
       method: 'POST',
@@ -460,7 +475,7 @@ export async function uploadToGoogleDrive(
       body: JSON.stringify({
         name: fileName,
         mimeType: contentType,
-        parents: [yearFolderId],
+        ...(uploadParentFolderId ? { parents: [uploadParentFolderId] } : {}),
       }),
       ...(input.signal ? { signal: input.signal } : {}),
     });

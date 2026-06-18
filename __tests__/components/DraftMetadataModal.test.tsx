@@ -422,7 +422,7 @@ describe('DraftMetadataModal shared metadata overrides', () => {
     expect(screen.getByLabelText(/^Title(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/^Title \(YouTube\)$/i)).not.toBeInTheDocument();
 
-    const titleSharedCheckbox = screen.getByTitle(/all selected platforms share one title/i);
+    const titleSharedCheckbox = screen.getByTitle(/all selected targets share one title/i);
     await user.click(titleSharedCheckbox);
 
     expect(screen.queryByLabelText(/^Title(\s*\*)?$/i)).not.toBeInTheDocument();

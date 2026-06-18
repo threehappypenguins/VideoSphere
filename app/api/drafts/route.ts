@@ -16,6 +16,7 @@ import {
   MAX_DRAFT_TITLE_LENGTH,
   parseDraftTargetsAllowEmpty,
   parseDraftTargetsFromRequestBody,
+  parseBackupNamingFromRequestBody,
   parsePlatformsFromRequestBody,
   parseTagsFromRequestBody,
   resolveDraftTitleForStorage,
@@ -104,10 +105,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const { title, description, visibility, targets, platforms, tags, minimal } = body as Record<
-    string,
-    unknown
-  >;
+  const { title, description, visibility, targets, platforms, tags, minimal, backupNaming } =
+    body as Record<string, unknown>;
 
   const isMinimal = minimal === true;
 
@@ -163,6 +162,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
+  const backupNamingParse = parseBackupNamingFromRequestBody(backupNaming);
+  if (backupNamingParse.ok === false) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: backupNamingParse.error,
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
   const resolvedTitle = resolveDraftTitleForStorage({
     title: trimmedTitle,
     targets: targetsParse.value,
@@ -187,6 +196,7 @@ export async function POST(req: NextRequest) {
       tags: tagsParse.value,
       ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
       platforms: platformsParse.value,
+      backupNaming: backupNamingParse.value,
     });
 
     const response: ApiResponse<Draft> = { data: draft, message: 'Draft created' };

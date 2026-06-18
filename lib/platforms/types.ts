@@ -7,6 +7,7 @@ import type {
   PlatformUploadVisibility,
   SermonAudioCrossPublishSettings,
   VimeoDraftFields,
+  BackupFileNameSettings,
 } from '@/types';
 
 /** Copy and visibility applied to every target platform. */
@@ -92,6 +93,12 @@ export interface FacebookSpecificUploadMetadata {
   facebookScheduledPublishTime?: number;
 }
 
+/** Backup destination upload–specific fields (Google Drive, SFTP, SMB). */
+export interface BackupSpecificUploadMetadata {
+  backupNaming?: BackupFileNameSettings;
+  draftCreatedAt?: string;
+}
+
 /**
  * Draft → adapter payload: shared copy plus optional per-platform blocks (flat merge for convenience).
  */
@@ -99,7 +106,8 @@ export type PlatformUploadMetadata = SharedPlatformUploadMetadata &
   YoutubeSpecificUploadMetadata &
   VimeoSpecificUploadMetadata &
   SermonAudioSpecificUploadMetadata &
-  FacebookSpecificUploadMetadata;
+  FacebookSpecificUploadMetadata &
+  BackupSpecificUploadMetadata;
 
 /**
  * Defines the shape of platform upload tokens.

@@ -38,7 +38,7 @@ interface GoogleDriveAboutResponse {
  */
 export async function GET(req: NextRequest) {
   const origin = req.nextUrl.origin;
-  const successUrl = `${origin}/profile/connections?success=google_drive`;
+  const successUrl = `${origin}/profile/connections?success=google_drive&setup=backup_folder`;
   const failureUrl = `${origin}/profile/connections?error=google_drive`;
 
   const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
