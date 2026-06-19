@@ -1,10 +1,10 @@
 import { isIPv6 } from 'node:net';
 import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Writable } from 'node:stream';
 import { Client } from 'node-smb2';
 import { resolveUniqueBackupFileName } from '@/lib/backup-filename';
+import { UploadWriteBuffer } from '@/lib/platforms/upload-write-buffer';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type { ConnectedAccount } from '@/types';
 import type { PlatformUploadError, PlatformUploadResult } from '@/lib/platforms/types';
@@ -634,6 +634,30 @@ function waitForWritableComplete(writeStream: Writable): Promise<void> {
   });
 }
 
+function writeToSmbStream(writeStream: Writable, chunk: Uint8Array): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (err: Error) => {
+      writeStream.off('error', onError);
+      writeStream.off('drain', onDrain);
+      reject(err);
+    };
+    const onDrain = () => {
+      writeStream.off('error', onError);
+      writeStream.off('drain', onDrain);
+      resolve();
+    };
+
+    writeStream.on('error', onError);
+    if (writeStream.write(Buffer.from(chunk))) {
+      writeStream.off('error', onError);
+      writeStream.off('drain', onDrain);
+      resolve();
+    } else {
+      writeStream.on('drain', onDrain);
+    }
+  });
+}
+
 async function pipeWebStreamToSmbWriteStream(
   source: ReadableStream<Uint8Array>,
   writeStream: Writable,
@@ -644,6 +668,7 @@ async function pipeWebStreamToSmbWriteStream(
   }
 
   const nodeReadable = Readable.fromWeb(source as NodeReadableStream<Uint8Array>);
+  const buffer = new UploadWriteBuffer(SMB_MAX_WRITE_CHUNK_LENGTH);
 
   const onAbort = () => {
     nodeReadable.destroy(new Error('SMB upload aborted'));
@@ -655,9 +680,26 @@ async function pipeWebStreamToSmbWriteStream(
   }
 
   try {
-    // Direct pipe (no write coalescing). SFTP uses 8 MB chunks, but node-smb2 fans out parallel SMB
-    // Write requests for chunks above SMB_MAX_WRITE_CHUNK_LENGTH; R2/file sources stay near 64 KiB.
-    await pipeline(nodeReadable, writeStream);
+    for await (const rawChunk of nodeReadable) {
+      if (signal?.aborted) {
+        throw new Error('SMB upload aborted');
+      }
+      const chunk =
+        rawChunk instanceof Buffer ? new Uint8Array(rawChunk) : (rawChunk as Uint8Array);
+      for (const block of buffer.takeWritableChunks(chunk)) {
+        await writeToSmbStream(writeStream, block);
+      }
+    }
+    const remainder = buffer.takeRemainder();
+    if (remainder) {
+      await writeToSmbStream(writeStream, remainder);
+    }
+    await new Promise<void>((resolve, reject) => {
+      writeStream.end((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
     await waitForWritableComplete(writeStream);
   } finally {
     if (signal) {

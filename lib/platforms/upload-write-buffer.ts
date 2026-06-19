@@ -24,19 +24,27 @@ function concatUint8Arrays(
  */
 export class UploadWriteBuffer {
   private pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+  private readonly chunkTarget: number;
+
+  /**
+   * @param chunkTarget - Target block size in bytes; defaults to {@link BACKUP_UPLOAD_WRITE_CHUNK_TARGET}.
+   */
+  constructor(chunkTarget = BACKUP_UPLOAD_WRITE_CHUNK_TARGET) {
+    this.chunkTarget = chunkTarget;
+  }
 
   /**
    * Appends a source chunk and returns full target-sized blocks ready to write.
    * @param chunk - Bytes from the upstream video stream.
-   * @returns Chunks of up to {@link BACKUP_UPLOAD_WRITE_CHUNK_TARGET} bytes.
+   * @returns Chunks of up to the configured target size.
    */
   takeWritableChunks(chunk: Uint8Array): Uint8Array[] {
     this.pending = concatUint8Arrays(this.pending, chunk);
     const chunks: Uint8Array[] = [];
 
-    while (this.pending.length >= BACKUP_UPLOAD_WRITE_CHUNK_TARGET) {
-      chunks.push(this.pending.subarray(0, BACKUP_UPLOAD_WRITE_CHUNK_TARGET));
-      this.pending = this.pending.subarray(BACKUP_UPLOAD_WRITE_CHUNK_TARGET);
+    while (this.pending.length >= this.chunkTarget) {
+      chunks.push(this.pending.subarray(0, this.chunkTarget));
+      this.pending = this.pending.subarray(this.chunkTarget);
     }
 
     return chunks;

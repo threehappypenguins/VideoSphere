@@ -32,6 +32,16 @@ describe('upload write buffer', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('honors a custom chunk target size', () => {
+    const customTarget = 32 * 1024;
+    const buffer = new UploadWriteBuffer(customTarget);
+    const chunks = buffer.takeWritableChunks(new Uint8Array(customTarget + 1));
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.length).toBe(customTarget);
+    expect(buffer.takeRemainder()?.length).toBe(1);
+  });
+
   it('transform coalesces small writes for pipeline consumers', async () => {
     const smallChunkSize = 64 * 1024;
     const chunkCount = 130;

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PassThrough, Writable } from 'node:stream';
+import { Writable } from 'node:stream';
 
 const mocks = vi.hoisted(() => ({
   mockReadDirectory: vi.fn(),
@@ -69,12 +69,17 @@ function makeSmbAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAcc
   };
 }
 
-function makeMockWriteStream(): PassThrough {
-  const stream = new PassThrough();
-  stream.on('finish', () => {
-    stream.emit('close');
+function makeMockWriteStream(): Writable {
+  return new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+    final(callback) {
+      this.emit('finish');
+      this.emit('close');
+      callback();
+    },
   });
-  return stream;
 }
 
 function setupSuccessfulSmbMocks() {
@@ -521,7 +526,7 @@ describe('uploadToSmb', () => {
     });
   });
 
-  it('does not coalesce source chunks into multi-megabyte SMB writes', async () => {
+  it('coalesces small source chunks up to the SMB write limit', async () => {
     const writeSizes: number[] = [];
     mocks.mockCreateFileWriteStream.mockImplementation(() => {
       return new Writable({
@@ -555,8 +560,11 @@ describe('uploadToSmb', () => {
     });
 
     expect(result).toMatchObject({ ok: true });
-    expect(writeSizes.length).toBe(chunkCount);
+    expect(writeSizes.length).toBeLessThan(chunkCount);
     expect(writeSizes.reduce((sum, size) => sum + size, 0)).toBe(smallChunkSize * chunkCount);
     expect(Math.max(...writeSizes)).toBeLessThanOrEqual(SMB_MAX_WRITE_CHUNK_LENGTH);
+    expect(writeSizes.filter((size) => size === SMB_MAX_WRITE_CHUNK_LENGTH).length).toBeGreaterThan(
+      0
+    );
   });
 });
