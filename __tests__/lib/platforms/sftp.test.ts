@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   mockCreateWriteStream: vi.fn(),
   mockStat: vi.fn(),
   mockMkdir: vi.fn(),
+  mockReaddir: vi.fn(),
 }));
 
 vi.mock('ssh2', () => {
@@ -113,6 +114,7 @@ function setupSuccessfulSftpMocks() {
     callback(null, {
       stat: mocks.mockStat,
       mkdir: mocks.mockMkdir,
+      readdir: mocks.mockReaddir,
       createWriteStream: mocks.mockCreateWriteStream,
     });
   });
@@ -129,6 +131,12 @@ function setupSuccessfulSftpMocks() {
   mocks.mockMkdir.mockImplementation(
     (_path: string, _options: unknown, callback: (err: Error | null) => void) => {
       callback(null);
+    }
+  );
+
+  mocks.mockReaddir.mockImplementation(
+    (_path: string, callback: (err: Error | null, list: Array<{ filename: string }>) => void) => {
+      callback(null, []);
     }
   );
 
@@ -180,6 +188,31 @@ describe('uploadToSftp', () => {
       expect.objectContaining({ flags: 'w', mode: 0o600 })
     );
     expect(mocks.mockEnd).toHaveBeenCalled();
+  });
+
+  it('appends (1) when the target filename already exists on the server', async () => {
+    mocks.mockReaddir.mockImplementation(
+      (_path: string, callback: (err: Error | null, list: Array<{ filename: string }>) => void) => {
+        callback(null, [{ filename: '20260415 - My Backup.mp4' }]);
+      }
+    );
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream: makeVideoStream(),
+      contentType: 'video/mp4',
+      fileName: '20260415 - My Backup.mp4',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: '/backups/20260415 - My Backup (1).mp4',
+      platformUrl: 'sftp://sftp.example.com/backups/20260415%20-%20My%20Backup%20(1).mp4',
+    });
+    expect(mocks.mockCreateWriteStream).toHaveBeenCalledWith(
+      '/backups/20260415 - My Backup (1).mp4',
+      expect.objectContaining({ flags: 'w', mode: 0o600 })
+    );
   });
 
   it('uploads into a year subfolder when yearFolderName is provided', async () => {
@@ -410,6 +443,57 @@ describe('uploadToSftp', () => {
         passphrase: 'key-pass',
       })
     );
+  });
+
+  it('buffers many small source chunks into fewer SFTP writes', async () => {
+    vi.useRealTimers();
+    const writeSizes: number[] = [];
+    mocks.mockCreateWriteStream.mockImplementation(() => {
+      const stream = new PassThrough();
+      stream.write = ((chunk, encoding, cb) => {
+        if (typeof chunk !== 'string') {
+          writeSizes.push(chunk.byteLength);
+        }
+        const done = typeof encoding === 'function' ? encoding : cb;
+        if (done) {
+          done(undefined);
+        }
+        return true;
+      }) as typeof stream.write;
+      const originalEnd = stream.end.bind(stream);
+      stream.end = ((...args: Parameters<typeof stream.end>) => {
+        queueMicrotask(() => stream.emit('finish'));
+        return originalEnd(...args);
+      }) as typeof stream.end;
+      stream.on('pipe', () => {
+        queueMicrotask(() => stream.emit('finish'));
+      });
+      return stream;
+    });
+
+    const smallChunkSize = 64 * 1024;
+    const chunkCount = 130;
+    const videoStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < chunkCount; i += 1) {
+          controller.enqueue(new Uint8Array(smallChunkSize));
+        }
+        controller.close();
+      },
+    });
+
+    const result = await uploadToSftp({
+      connectedAccount: makeSftpAccount(),
+      videoStream,
+      fileName: 'buffered-backup.mp4',
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(writeSizes.length).toBeLessThan(chunkCount);
+    expect(writeSizes.reduce((sum, size) => sum + size, 0)).toBe(smallChunkSize * chunkCount);
+    expect(Math.max(...writeSizes)).toBeLessThanOrEqual(8 * 1024 * 1024);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-15T12:00:00Z'));
   });
 
   it('completes upload when write stream emits finish without close', async () => {

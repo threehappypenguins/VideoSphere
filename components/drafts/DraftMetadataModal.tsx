@@ -42,6 +42,7 @@ import {
   parseSharedTagInput,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
+import { UploadHistoryJobActions } from '@/components/uploads/UploadHistoryJobActions';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
@@ -5481,12 +5482,15 @@ export function DraftMetadataModal({
                           hidden={!uploadHistoryExpanded}
                           className="mt-2 space-y-2"
                         >
+                          <UploadHistoryJobActions
+                            job={item}
+                            onChanged={() => (draftId ? loadUploadHistory(draftId) : undefined)}
+                            disabled={retryingUploadKey !== null}
+                          />
                           {item.platforms.map((platform) => {
                             const retryKey = `${item.uploadJobId}:${platform.platform}`;
                             const showRetry =
-                              item.status === 'failed' &&
-                              platform.status === 'failed' &&
-                              platform.retryable;
+                              item.status === 'failed' && platform.status === 'failed';
                             const isExpired =
                               platform.status === 'failed' && item.r2FileAvailable === false;
                             return (

@@ -340,7 +340,7 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     expect(await bodyError(res2)).toMatch(/draft not found/i);
   });
 
-  it('returns 400 when no failed uploads are retryable (e.g. only permanent HTTP errors)', async () => {
+  it('retries all failed platforms including permanent-looking HTTP errors', async () => {
     vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
       makePlatformUpload({
         id: 'pu-yt',
@@ -356,20 +356,36 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
       }),
     ]);
 
+    const created = [
+      makePlatformUpload({
+        id: 'pu-youtube-new',
+        platform: 'youtube',
+        status: 'pending',
+        errorMessage: null,
+      }),
+      makePlatformUpload({
+        id: 'pu-vimeo-new',
+        platform: 'vimeo',
+        status: 'pending',
+        errorMessage: null,
+      }),
+    ];
+    vi.mocked(ensurePlatformUploadsForJobTargets).mockResolvedValueOnce(created);
+
     const res = await POST(
       createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }),
       makeParams('job-abc')
     );
 
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe('No retryable failed platform uploads were found for this job.');
-    expect(ensurePlatformUploadsForJobTargets).not.toHaveBeenCalled();
-    expect(updateUploadJobStatus).not.toHaveBeenCalled();
-    expect(mockRunDistributionInBackground).not.toHaveBeenCalled();
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { retriedPlatforms: string[] };
+    expect(body.retriedPlatforms).toEqual(['youtube', 'vimeo']);
+    expect(ensurePlatformUploadsForJobTargets).toHaveBeenCalledTimes(1);
+    expect(updateUploadJobStatus).toHaveBeenCalledWith('job-abc', 'distributing', null);
+    expect(mockRunDistributionInBackground).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 400 when failures are only non-retryable by keyword (empty message)', async () => {
+  it('retries failed platforms even when the stored error message is empty', async () => {
     vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
       makePlatformUpload({
         id: 'pu-yt',
@@ -379,14 +395,24 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
       }),
     ]);
 
+    const created = [
+      makePlatformUpload({
+        id: 'pu-youtube-new',
+        platform: 'youtube',
+        status: 'pending',
+        errorMessage: null,
+      }),
+    ];
+    vi.mocked(ensurePlatformUploadsForJobTargets).mockResolvedValueOnce(created);
+
     const res = await POST(
       createRequest('job-abc', { [`${SESSION_COOKIE}`]: 'tok' }),
       makeParams('job-abc')
     );
 
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe('No retryable failed platform uploads were found for this job.');
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { retriedPlatforms: string[] };
+    expect(body.retriedPlatforms).toEqual(['youtube']);
   });
 
   it('returns 400 when there are no failed platform uploads at all', async () => {
@@ -405,12 +431,10 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(await bodyError(res)).toBe(
-      'No retryable failed platform uploads were found for this job.'
-    );
+    expect(await bodyError(res)).toBe('No failed platform uploads were found for this job.');
   });
 
-  it('retries only failed+retryable platforms and runs subset distribution', async () => {
+  it('retries all currently failed platforms and runs subset distribution', async () => {
     vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
       makePlatformUpload({
         id: 'pu-yt',
@@ -442,6 +466,12 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
         status: 'pending',
         errorMessage: null,
       }),
+      makePlatformUpload({
+        id: 'pu-vimeo-new',
+        platform: 'vimeo',
+        status: 'pending',
+        errorMessage: null,
+      }),
     ];
     vi.mocked(ensurePlatformUploadsForJobTargets).mockResolvedValueOnce(created);
 
@@ -453,12 +483,12 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     expect(res.status).toBe(202);
     const body = (await res.json()) as { jobId: string; retriedPlatforms: string[] };
     expect(body.jobId).toBe('job-abc');
-    expect(body.retriedPlatforms).toEqual(['youtube']);
+    expect(body.retriedPlatforms).toEqual(['youtube', 'vimeo']);
 
     expect(ensurePlatformUploadsForJobTargets).toHaveBeenCalledTimes(1);
     const callInputs = vi.mocked(ensurePlatformUploadsForJobTargets).mock.calls[0][0];
-    expect(callInputs).toHaveLength(1);
-    expect(callInputs[0].platform).toBe('youtube');
+    expect(callInputs).toHaveLength(2);
+    expect(callInputs.map((input) => input.platform).sort()).toEqual(['vimeo', 'youtube']);
 
     expect(updateUploadJobStatus).toHaveBeenCalledWith('job-abc', 'distributing', null);
 
@@ -519,7 +549,7 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     expect(callInputs[0].platform).toBe('vimeo');
   });
 
-  it('retries only the platform named in the request body when multiple are retryable', async () => {
+  it('retries only the platform named in the request body when multiple failed', async () => {
     vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
       makePlatformUpload({
         id: 'pu-yt',
@@ -561,7 +591,7 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     expect(callInputs[0].platform).toBe('facebook');
   });
 
-  it('returns 400 when the requested platform is not retryable', async () => {
+  it('returns 400 when the requested platform did not fail', async () => {
     vi.mocked(getPlatformUploadsByJob).mockResolvedValueOnce([
       makePlatformUpload({
         id: 'pu-yt',
@@ -572,8 +602,8 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
       makePlatformUpload({
         id: 'pu-vm',
         platform: 'vimeo',
-        status: 'failed',
-        errorMessage: 'Permission denied (HTTP 403)',
+        status: 'completed',
+        errorMessage: null,
       }),
     ]);
 
@@ -583,9 +613,7 @@ describe('POST /api/uploads/jobs/[id]/retry', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(await bodyError(res)).toBe(
-      'No retryable failed platform uploads were found for this job.'
-    );
+    expect(await bodyError(res)).toBe('No failed platform uploads were found for this job.');
     expect(ensurePlatformUploadsForJobTargets).not.toHaveBeenCalled();
   });
 

@@ -675,7 +675,7 @@ const MAX_DRAFT_THUMBNAIL_UPDATE_ATTEMPTS = 3;
  * @param platformUploads - Platform upload rows included in this distribution attempt.
  * @param metadataByPlatformId - Metadata snapshot keyed by platform upload id.
  */
-async function cleanupDistributedDraftThumbnails(
+export async function cleanupDistributedDraftThumbnails(
   jobId: string,
   userId: string,
   draftId: string,

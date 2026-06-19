@@ -11,6 +11,7 @@ import type {
 } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
 import { isPlatformUploadRowActive } from '@/lib/uploads/status';
+import { UploadHistoryJobActions } from '@/components/uploads/UploadHistoryJobActions';
 
 interface UploadHistoryPlatformItem {
   platform: ConnectedAccountPlatform;
@@ -256,8 +257,9 @@ export function UploadHistoryClient() {
             </button>
 
             <div id={jobPanelId} hidden={!jobExpanded} className="mt-3 space-y-2">
+              <UploadHistoryJobActions job={job} onChanged={loadHistory} />
               {job.platforms.map((platform) => {
-                const showRetry = platform.status === 'failed' && platform.retryable;
+                const showRetry = platform.status === 'failed';
                 const isExpired = platform.status === 'failed' && job.r2FileAvailable === false;
                 return (
                   <div

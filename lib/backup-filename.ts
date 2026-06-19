@@ -419,3 +419,96 @@ export function buildBackupRemoteRelativePath(input: {
 
   return `${yearFolder}/${fileName}`;
 }
+
+/** Maximum numeric suffix tried when disambiguating backup filenames on SFTP/SMB. */
+export const MAX_BACKUP_FILE_COPY_SUFFIX = 9999;
+
+function splitBackupFileName(fileName: string): { stem: string; ext: string } {
+  const lastDot = fileName.lastIndexOf('.');
+  if (lastDot <= 0) {
+    return { stem: fileName, ext: '' };
+  }
+  return { stem: fileName.slice(0, lastDot), ext: fileName.slice(lastDot) };
+}
+
+function backupFileNamesEqual(left: string, right: string, caseInsensitive: boolean): boolean {
+  return caseInsensitive ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+/**
+ * Returns the Windows-style copy index for a filename in a duplicate series, if it matches.
+ * @param fileName - Candidate filename in the upload directory.
+ * @param stem - Base filename stem (without extension).
+ * @param ext - Extension including the leading dot, or an empty string.
+ * @param caseInsensitive - Whether to compare names case-insensitively.
+ * @returns `0` for the base name, a positive integer for `stem (n).ext`, or `null` when unrelated.
+ */
+function parseBackupFileCopyIndex(
+  fileName: string,
+  stem: string,
+  ext: string,
+  caseInsensitive: boolean
+): number | null {
+  const baseName = `${stem}${ext}`;
+  if (backupFileNamesEqual(fileName, baseName, caseInsensitive)) {
+    return 0;
+  }
+
+  const prefix = `${stem} (`;
+  const suffix = `)${ext}`;
+  if (
+    fileName.length <= prefix.length + suffix.length ||
+    !fileName.endsWith(suffix) ||
+    (caseInsensitive
+      ? !fileName.toLowerCase().startsWith(prefix.toLowerCase())
+      : !fileName.startsWith(prefix))
+  ) {
+    return null;
+  }
+
+  const middle = fileName.slice(prefix.length, fileName.length - suffix.length);
+  if (!/^\d+$/.test(middle)) {
+    return null;
+  }
+
+  return Number(middle);
+}
+
+/**
+ * Picks the first available backup filename in a Windows-style duplicate series.
+ * When `sermon.mp4` already exists, returns `sermon (1).mp4`, then `sermon (2).mp4`, and so on.
+ * @param fileName - Desired backup filename, including extension.
+ * @param existingFileNames - Filenames already present in the target remote directory.
+ * @param options - Matching options for remote filesystem semantics.
+ * @param options.caseInsensitive - When true, treats names as equal regardless of case (SMB).
+ * @returns A filename that does not collide with `existingFileNames` under the chosen rules.
+ */
+export function resolveUniqueBackupFileName(
+  fileName: string,
+  existingFileNames: Iterable<string>,
+  options?: { caseInsensitive?: boolean }
+): string {
+  const trimmed = fileName.trim();
+  const { stem, ext } = splitBackupFileName(trimmed);
+  const caseInsensitive = options?.caseInsensitive === true;
+
+  const occupied = new Set<number>();
+  for (const existing of existingFileNames) {
+    const index = parseBackupFileCopyIndex(existing.trim(), stem, ext, caseInsensitive);
+    if (index != null) {
+      occupied.add(index);
+    }
+  }
+
+  if (!occupied.has(0)) {
+    return `${stem}${ext}`;
+  }
+
+  for (let copyIndex = 1; copyIndex <= MAX_BACKUP_FILE_COPY_SUFFIX; copyIndex += 1) {
+    if (!occupied.has(copyIndex)) {
+      return `${stem} (${copyIndex})${ext}`;
+    }
+  }
+
+  return `${stem} (${MAX_BACKUP_FILE_COPY_SUFFIX})${ext}`;
+}

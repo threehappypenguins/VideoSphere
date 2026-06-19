@@ -4,6 +4,8 @@ import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Writable } from 'node:stream';
 import { Client } from 'node-smb2';
+import { resolveUniqueBackupFileName } from '@/lib/backup-filename';
+import { createUploadWriteBufferTransform } from '@/lib/platforms/upload-write-buffer';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type { ConnectedAccount } from '@/types';
 import type { PlatformUploadError, PlatformUploadResult } from '@/lib/platforms/types';
@@ -335,6 +337,49 @@ async function ensureSmbDirectory(tree: SmbShareTree, directoryPath: string): Pr
   }
 }
 
+/**
+ * Normalizes SMB directory listing entries to bare filenames.
+ * @param entries - Value returned by `node-smb2` `readDirectory`.
+ * @returns Filenames present in the directory, excluding `.` and `..`.
+ */
+function parseSmbDirectoryFileNames(entries: unknown): string[] {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  const names: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry === 'string') {
+      names.push(entry);
+      continue;
+    }
+
+    if (entry && typeof entry === 'object') {
+      const record = entry as { filename?: unknown; name?: unknown; FileName?: unknown };
+      const name = record.filename ?? record.name ?? record.FileName;
+      if (typeof name === 'string') {
+        names.push(name);
+      }
+    }
+  }
+
+  return names.filter((name) => name !== '.' && name !== '..');
+}
+
+/**
+ * Lists filenames in an SMB directory for duplicate backup filename resolution.
+ * @param tree - Connected SMB tree for the target share.
+ * @param directoryPath - POSIX directory path within the share.
+ * @returns Filenames in the directory.
+ */
+async function listSmbDirectoryFileNames(
+  tree: SmbShareTree,
+  directoryPath: string
+): Promise<string[]> {
+  const entries = await tree.readDirectory(directoryPath);
+  return parseSmbDirectoryFileNames(entries);
+}
+
 function classifyConnectionError(err: unknown): PlatformUploadError {
   const message = messageFromSmbThrown(err);
   const lower = message.toLowerCase();
@@ -515,7 +560,7 @@ async function pipeWebStreamToSmbWriteStream(
   }
 
   try {
-    await pipeline(nodeReadable, writeStream);
+    await pipeline(nodeReadable, createUploadWriteBufferTransform(), writeStream);
     await waitForWritableComplete(writeStream);
   } finally {
     if (signal) {
@@ -579,12 +624,18 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
     const uploadDirectoryPath = yearFolderName
       ? joinSmbFilePath(baseDirectoryPath, yearFolderName)
       : baseDirectoryPath;
-    const fullRemotePath = joinSmbFilePath(uploadDirectoryPath, fileName);
+
+    let fullRemotePath = joinSmbFilePath(uploadDirectoryPath, fileName);
 
     await withSmbTree(credentials, async (tree) => {
       if (yearFolderName) {
         await ensureSmbDirectory(tree, uploadDirectoryPath);
       }
+      const existingNames = await listSmbDirectoryFileNames(tree, uploadDirectoryPath);
+      const uniqueFileName = resolveUniqueBackupFileName(fileName, existingNames, {
+        caseInsensitive: true,
+      });
+      fullRemotePath = joinSmbFilePath(uploadDirectoryPath, uniqueFileName);
       const writeStream = await tree.createFileWriteStream(fullRemotePath);
       await pipeWebStreamToSmbWriteStream(input.videoStream, writeStream, input.signal);
     });

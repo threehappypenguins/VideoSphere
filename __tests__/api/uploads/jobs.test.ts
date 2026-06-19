@@ -278,7 +278,8 @@ describe('GET /api/uploads/jobs', () => {
     expect(mockHeadObject).toHaveBeenCalledWith('temp/uploads/user-123/k/mixed.mp4');
   });
 
-  it('skips R2 HEAD and leaves r2FileAvailable null when failures are only non-retryable', async () => {
+  it('checks R2 availability for any failed platform, including quota-style errors', async () => {
+    mockHeadObject.mockResolvedValueOnce(1024);
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
     vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
@@ -299,8 +300,8 @@ describe('GET /api/uploads/jobs', () => {
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ r2FileAvailable: boolean | null }> };
-    expect(body.data[0].r2FileAvailable).toBeNull();
-    expect(mockHeadObject).not.toHaveBeenCalled();
+    expect(body.data[0].r2FileAvailable).toBe(true);
+    expect(mockHeadObject).toHaveBeenCalledWith('temp/uploads/user-123/k/file.mp4');
   });
 
   it('sets r2FileAvailable false when R2 object is missing', async () => {
@@ -381,7 +382,7 @@ describe('GET /api/uploads/jobs', () => {
     expect(body.data[0].platforms[0].retryReason).toMatch(/transient|network/i);
   });
 
-  it('maps retryable false for failed uploads with quota-style errors', async () => {
+  it('maps retryable true for all failed uploads regardless of error type', async () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(countUploadJobsByUser).mockResolvedValueOnce(1);
     vi.mocked(getUploadJobsWithPlatformUploadsPage).mockResolvedValueOnce([
@@ -401,9 +402,10 @@ describe('GET /api/uploads/jobs', () => {
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      data: Array<{ platforms: Array<{ retryable: boolean }> }>;
+      data: Array<{ platforms: Array<{ retryable: boolean; retryReason: string }> }>;
     };
-    expect(body.data[0].platforms[0].retryable).toBe(false);
+    expect(body.data[0].platforms[0].retryable).toBe(true);
+    expect(body.data[0].platforms[0].retryReason).toMatch(/403|account\/action/i);
   });
 
   it('returns stored platform statuses when job status is completed', async () => {
