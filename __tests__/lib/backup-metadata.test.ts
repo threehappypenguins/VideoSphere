@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
+import { execSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 import {
@@ -12,30 +12,16 @@ import {
   shouldInjectBackupMetadata,
 } from '@/lib/backup-metadata';
 
-async function createTinyMp4(path: string): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const ffmpeg = spawn('ffmpeg', [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-f',
-      'lavfi',
-      '-i',
-      'color=c=black:s=64x64:d=0.1',
-      '-c:v',
-      'libx264',
-      '-f',
-      'mp4',
-      path,
-      '-y',
-    ]);
-    ffmpeg.on('close', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`failed to create test mp4 (exit ${code})`));
-    });
-    ffmpeg.on('error', reject);
-  });
+function isFfmpegAvailable(): boolean {
+  try {
+    execSync('ffmpeg -version', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
 }
+
+const ffmpegAvailable = isFfmpegAvailable();
 
 describe('backup metadata helpers', () => {
   it('detects injectable MP4 and QuickTime content types', () => {
@@ -84,6 +70,33 @@ describe('backup metadata helpers', () => {
       )
     ).toBe(false);
   });
+});
+
+describe.skipIf(!ffmpegAvailable)('backup metadata ffmpeg integration', () => {
+  async function createTinyMp4(path: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const ffmpeg = spawn('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=black:s=64x64:d=0.1',
+        '-c:v',
+        'libx264',
+        '-f',
+        'mp4',
+        path,
+        '-y',
+      ]);
+      ffmpeg.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`failed to create test mp4 (exit ${code})`));
+      });
+      ffmpeg.on('error', reject);
+    });
+  }
 
   it('writes a standard MP4 with metadata and streams the full output for upload', async () => {
     const path = join(tmpdir(), `videosphere-backup-meta-${Date.now()}.mp4`);

@@ -23,6 +23,7 @@ import {
   prepareBackupMetadataVideoForUpload,
   resolveBackupInjectedMetadata,
   shouldInjectBackupMetadata,
+  type BackupInjectedMetadata,
   type SharedBackupMetadataSession,
 } from '@/lib/backup-metadata';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
@@ -281,32 +282,72 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
 // Shared backup metadata (one ffmpeg pass per job)
 // ---------------------------------------------------------------------------
 
-function isBackupPlatform(platform: ConnectedAccountPlatform): boolean {
+function isBackupPlatform(
+  platform: ConnectedAccountPlatform
+): platform is 'google_drive' | 'sftp' | 'smb' {
   return platform === 'google_drive' || platform === 'sftp' || platform === 'smb';
+}
+
+function backupInjectedMetadataMatches(
+  left: BackupInjectedMetadata,
+  right: BackupInjectedMetadata
+): boolean {
+  return (
+    left.title === right.title &&
+    left.albumArtist === right.albumArtist &&
+    left.album === right.album &&
+    left.genre === right.genre &&
+    left.year === right.year
+  );
 }
 
 /**
  * When any backup target needs metadata injection, prepares a shared session so Drive/SFTP/SMB
  * fan out from a single R2 download and ffmpeg pass instead of one per platform.
+ * Returns null when backup targets resolve different injectable metadata (e.g. per-platform
+ * title overrides), since a single ffmpeg output can only embed one title atom.
  */
 async function createSharedBackupMetadataSessionForJob(
   r2ObjectKey: string,
   platformUploads: PlatformUpload[],
   metadataByPlatformId: Map<string, PlatformUploadMetadata>
 ): Promise<SharedBackupMetadataSession | null> {
-  const backupUpload = platformUploads.find((platformUpload) =>
+  const backupUploads = platformUploads.filter((platformUpload) =>
     isBackupPlatform(platformUpload.platform)
   );
-  if (!backupUpload) {
+  if (backupUploads.length === 0) {
     return null;
   }
 
-  const backupMeta = metadataByPlatformId.get(backupUpload.id);
-  if (!backupMeta) {
+  const backupMetas = backupUploads
+    .map((platformUpload) => metadataByPlatformId.get(platformUpload.id))
+    .filter((meta): meta is PlatformUploadMetadata => meta != null);
+
+  if (backupMetas.length === 0) {
     return null;
   }
 
-  if (normalizeBackupFileNameSettings(backupMeta.backupNaming).metadataEnabled !== true) {
+  const referenceMeta = backupMetas[0];
+  if (normalizeBackupFileNameSettings(referenceMeta.backupNaming).metadataEnabled !== true) {
+    return null;
+  }
+
+  const injectedMetadata = resolveBackupInjectedMetadata({
+    title: referenceMeta.title,
+    settings: referenceMeta.backupNaming,
+  });
+
+  const allShareInjectedMetadata = backupMetas.every((meta) =>
+    backupInjectedMetadataMatches(
+      injectedMetadata,
+      resolveBackupInjectedMetadata({
+        title: meta.title,
+        settings: meta.backupNaming,
+      })
+    )
+  );
+
+  if (!allShareInjectedMetadata) {
     return null;
   }
 
@@ -316,11 +357,8 @@ async function createSharedBackupMetadataSessionForJob(
     openSource: (signal) => getObjectNodeStream(r2ObjectKey, { signal }),
     expectedContentLength: objectMeta.contentLength,
     sourceContentType: objectMeta.contentType,
-    backupNaming: backupMeta.backupNaming,
-    injectedMetadata: resolveBackupInjectedMetadata({
-      title: backupMeta.title,
-      settings: backupMeta.backupNaming,
-    }),
+    backupNaming: referenceMeta.backupNaming,
+    injectedMetadata,
   });
 }
 
@@ -375,9 +413,7 @@ async function runSinglePlatformUpload(
     // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
     // we never buffer multi‑GB files in RAM (unlike a shared presigned fetch() body).
     const executeUpload = async (signal: AbortSignal) => {
-      const isBackupTarget = isBackupPlatform(platformUpload.platform);
-
-      if (isBackupTarget) {
+      if (isBackupPlatform(platformUpload.platform)) {
         let videoStream: ReadableStream<Uint8Array>;
         let uploadContentLength: number;
         let uploadContentType: string;
@@ -503,7 +539,9 @@ async function runSinglePlatformUpload(
         });
       }
 
-      throw new Error(`Unsupported platform: ${platformUpload.platform}`);
+      // Exhaustive platform check — TypeScript error if a platform lacks an upload path.
+      const exhaustiveCheck: never = platformUpload.platform;
+      throw new Error(`Unsupported platform: ${exhaustiveCheck}`);
     };
 
     let uploadResult = await runUploadWithDeadline(

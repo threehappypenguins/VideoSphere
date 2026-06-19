@@ -139,7 +139,10 @@ function wrapStreamWithCleanup(
   stream: ReadableStream<Uint8Array>,
   cleanup: () => Promise<void>
 ): ReadableStream<Uint8Array> {
+  const reader = stream.getReader();
   let cleanedUp = false;
+  let readerReleased = false;
+
   const runCleanup = async () => {
     if (cleanedUp) {
       return;
@@ -148,27 +151,40 @@ function wrapStreamWithCleanup(
     await cleanup();
   };
 
+  const releaseReader = () => {
+    if (readerReleased) {
+      return;
+    }
+    readerReleased = true;
+    reader.releaseLock();
+  };
+
   return new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const reader = stream.getReader();
+    async pull(controller) {
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          controller.enqueue(value);
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          releaseReader();
+          await runCleanup();
+          return;
         }
-        controller.close();
+        controller.enqueue(value);
       } catch (err) {
         controller.error(err instanceof Error ? err : new Error(String(err)));
-      } finally {
-        reader.releaseLock();
+        releaseReader();
         await runCleanup();
       }
     },
-    async cancel() {
-      await runCleanup();
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } catch {
+        // Ignore errors while cancelling the underlying stream.
+      } finally {
+        releaseReader();
+        await runCleanup();
+      }
     },
   });
 }
@@ -260,6 +276,10 @@ async function runFfmpegMetadataCopy(input: {
     ffmpeg.kill('SIGKILL');
   };
 
+  const detachAbortListener = () => {
+    input.signal?.removeEventListener('abort', onAbort);
+  };
+
   if (input.signal?.aborted) {
     onAbort();
   } else if (input.signal) {
@@ -267,21 +287,25 @@ async function runFfmpegMetadataCopy(input: {
   }
 
   await new Promise<void>((resolve, reject) => {
+    const finish = (callback: () => void) => {
+      detachAbortListener();
+      callback();
+    };
+
     ffmpeg.on('close', (code) => {
-      if (input.signal) {
-        input.signal.removeEventListener('abort', onAbort);
-      }
       if (aborted) {
-        reject(new Error('Backup metadata injection aborted'));
+        finish(() => reject(new Error('Backup metadata injection aborted')));
         return;
       }
       if (code !== 0) {
-        reject(ffmpegExitError(code, stderrChunks));
+        finish(() => reject(ffmpegExitError(code, stderrChunks)));
         return;
       }
-      resolve();
+      finish(resolve);
     });
-    ffmpeg.on('error', reject);
+    ffmpeg.on('error', (err) => {
+      finish(() => reject(err));
+    });
   });
 }
 
