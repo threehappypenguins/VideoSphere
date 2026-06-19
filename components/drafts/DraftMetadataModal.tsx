@@ -3317,16 +3317,30 @@ export function DraftMetadataModal({
       'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
     );
 
-  const tryCloseModal = async () => {
+  const tryCloseModal = async (): Promise<boolean> => {
     const cleared = await clearPendingVideoSelection();
     if (cleared) {
       onClose();
-      return;
+      return true;
     }
     if (currentUploadJobId && cancelServerFailed && confirmLocalClear()) {
       await clearPendingVideoSelection({ skipServerCancel: true });
       onClose();
+      return true;
     }
+    return false;
+  };
+
+  const openFullUploadHistory = () => {
+    if (thumbnailUploading || uploading) {
+      return;
+    }
+    abortThumbnailUploadFlow();
+    void (async () => {
+      if (await tryCloseModal()) {
+        router.push('/dashboard/history');
+      }
+    })();
   };
 
   const closeUploadModal = () => {
@@ -4167,135 +4181,146 @@ export function DraftMetadataModal({
     panelIdPrefix: string,
     historyExpanded: boolean,
     onToggleHistoryExpanded: () => void
-  ) => (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            if (!isLoadingUploadHistory) {
-              onToggleHistoryExpanded();
-            }
-          }}
-          className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
-        >
-          {isLoadingUploadHistory ? (
-            <ChevronRight className="h-4 w-4 opacity-50" />
-          ) : historyExpanded ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-          Upload history
-          {isLoadingUploadHistory ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          ) : (
-            <span>({uploadHistory.length})</span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            onClose();
-            router.push('/dashboard/history');
-          }}
-          className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-        >
-          Open full history
-        </button>
-      </div>
-      {!isLoadingUploadHistory && historyExpanded && uploadHistory.length > 0 ? (
-        <div className="space-y-2">
-          {uploadHistory.map((item) => {
-            const uploadHistoryExpanded = expandedUploadHistoryIds.has(item.uploadJobId);
-            const uploadHistoryPanelId = `${panelIdPrefix}-${item.uploadJobId}`;
-            const uploadHistoryAriaExpanded: 'true' | 'false' = uploadHistoryExpanded
-              ? 'true'
-              : 'false';
-            return (
-              <div
-                key={item.uploadJobId}
-                className="rounded-md border border-border bg-background p-3"
-              >
-                <button
-                  type="button"
-                  onClick={() => toggleUploadHistoryItem(item.uploadJobId)}
-                  className="flex w-full items-center justify-between gap-2 text-left"
-                  aria-expanded={uploadHistoryAriaExpanded}
-                  aria-controls={uploadHistoryPanelId}
-                >
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      Upload: {new Date(item.createdAt).toLocaleString()}
-                    </p>
-                    <p className="mt-1 text-xs text-foreground">Job status: {item.status}</p>
-                  </div>
-                  {uploadHistoryExpanded ? (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  )}
-                </button>
-                <div
-                  id={uploadHistoryPanelId}
-                  hidden={!uploadHistoryExpanded}
-                  className="mt-2 space-y-2"
-                >
-                  <UploadHistoryJobActions
-                    job={item}
-                    onChanged={() => (draftId ? loadUploadHistory(draftId) : undefined)}
-                    disabled={retryingUploadKey !== null}
-                  />
-                  {item.platforms.map((platform) => {
-                    const retryKey = `${item.uploadJobId}:${platform.platform}`;
-                    const showRetry = item.status === 'failed' && platform.status === 'failed';
-                    const isExpired =
-                      platform.status === 'failed' && item.r2FileAvailable === false;
-                    return (
-                      <div
-                        key={retryKey}
-                        className="rounded-md border border-border bg-muted/30 p-2"
-                      >
-                        <p className="text-xs text-foreground">
-                          <span className="font-medium">{platformLabel(platform.platform)}</span>:{' '}
-                          {platform.status} ({new Date(platform.updatedAt).toLocaleString()})
-                        </p>
-                        {platform.errorMessage ? (
-                          <p className="mt-1 text-xs text-red-600">{platform.errorMessage}</p>
-                        ) : null}
-                        {isExpired ? (
-                          <p className="mt-1 text-xs font-medium text-amber-600">
-                            Video file expired — please re-upload
-                          </p>
-                        ) : null}
-                        {showRetry && item.r2FileAvailable !== false ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void retryPlatformUpload(item.uploadJobId, platform.platform);
-                            }}
-                            disabled={retryingUploadKey !== null}
-                            className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                          >
-                            {retryingUploadKey === retryKey ? 'Retrying...' : 'Retry'}
-                          </button>
-                        ) : null}
-                        {platform.status === 'failed' && !showRetry && !isExpired ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {platform.retryReason}
-                          </p>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+  ) => {
+    const uploadHistoryListPanelId = `${panelIdPrefix}-section`;
+    const uploadHistorySectionExpanded = !isLoadingUploadHistory && historyExpanded;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!isLoadingUploadHistory) {
+                onToggleHistoryExpanded();
+              }
+            }}
+            className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
+            aria-expanded={uploadHistorySectionExpanded}
+            aria-controls={uploadHistoryListPanelId}
+          >
+            {isLoadingUploadHistory ? (
+              <ChevronRight className="h-4 w-4 opacity-50" />
+            ) : historyExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            Upload history
+            {isLoadingUploadHistory ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : (
+              <span>({uploadHistory.length})</span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={openFullUploadHistory}
+            disabled={thumbnailUploading || uploading}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            Open full history
+          </button>
         </div>
-      ) : null}
-    </div>
-  );
+        {uploadHistorySectionExpanded ? (
+          <div id={uploadHistoryListPanelId} className="space-y-2">
+            {uploadHistory.length > 0
+              ? uploadHistory.map((item) => {
+                  const uploadHistoryExpanded = expandedUploadHistoryIds.has(item.uploadJobId);
+                  const uploadHistoryPanelId = `${panelIdPrefix}-${item.uploadJobId}`;
+                  const uploadHistoryAriaExpanded: 'true' | 'false' = uploadHistoryExpanded
+                    ? 'true'
+                    : 'false';
+                  return (
+                    <div
+                      key={item.uploadJobId}
+                      className="rounded-md border border-border bg-background p-3"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleUploadHistoryItem(item.uploadJobId)}
+                        className="flex w-full items-center justify-between gap-2 text-left"
+                        aria-expanded={uploadHistoryAriaExpanded}
+                        aria-controls={uploadHistoryPanelId}
+                      >
+                        <div>
+                          <p className="text-xs text-muted-foreground">
+                            Upload: {new Date(item.createdAt).toLocaleString()}
+                          </p>
+                          <p className="mt-1 text-xs text-foreground">Job status: {item.status}</p>
+                        </div>
+                        {uploadHistoryExpanded ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                      </button>
+                      <div
+                        id={uploadHistoryPanelId}
+                        hidden={!uploadHistoryExpanded}
+                        className="mt-2 space-y-2"
+                      >
+                        <UploadHistoryJobActions
+                          job={item}
+                          onChanged={() => (draftId ? loadUploadHistory(draftId) : undefined)}
+                          disabled={retryingUploadKey !== null}
+                        />
+                        {item.platforms.map((platform) => {
+                          const retryKey = `${item.uploadJobId}:${platform.platform}`;
+                          const showRetry =
+                            item.status === 'failed' && platform.status === 'failed';
+                          const isExpired =
+                            platform.status === 'failed' && item.r2FileAvailable === false;
+                          return (
+                            <div
+                              key={retryKey}
+                              className="rounded-md border border-border bg-muted/30 p-2"
+                            >
+                              <p className="text-xs text-foreground">
+                                <span className="font-medium">
+                                  {platformLabel(platform.platform)}
+                                </span>
+                                : {platform.status} ({new Date(platform.updatedAt).toLocaleString()}
+                                )
+                              </p>
+                              {platform.errorMessage ? (
+                                <p className="mt-1 text-xs text-red-600">{platform.errorMessage}</p>
+                              ) : null}
+                              {isExpired ? (
+                                <p className="mt-1 text-xs font-medium text-amber-600">
+                                  Video file expired — please re-upload
+                                </p>
+                              ) : null}
+                              {showRetry && item.r2FileAvailable !== false ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void retryPlatformUpload(item.uploadJobId, platform.platform);
+                                  }}
+                                  disabled={retryingUploadKey !== null}
+                                  className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                                >
+                                  {retryingUploadKey === retryKey ? 'Retrying...' : 'Retry'}
+                                </button>
+                              ) : null}
+                              {platform.status === 'failed' && !showRetry && !isExpired ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {platform.retryReason}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })
+              : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <Dialog
