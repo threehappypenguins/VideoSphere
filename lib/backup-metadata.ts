@@ -245,12 +245,22 @@ async function prepareBackupMetadataArtifact(input: {
 }): Promise<PreparedBackupMetadataArtifact> {
   const extension = backupMetadataStagingExtension(input.sourceContentType);
   const contentType = resolveBackupMetadataOutputContentType(input.sourceContentType);
-  const workDir = await mkdtemp(join(tmpdir(), 'videosphere-backup-meta-'));
-  const inputPath = join(workDir, `${BACKUP_METADATA_SOURCE_BASENAME}.${extension}`);
-  const outputPath = join(workDir, `${BACKUP_METADATA_OUTPUT_BASENAME}.${extension}`);
+  const workDir = await mkdtemp(
+    join(/* turbopackIgnore: true */ tmpdir(), 'videosphere-backup-meta-')
+  );
+  const inputPath = join(
+    /* turbopackIgnore: true */ workDir,
+    `${BACKUP_METADATA_SOURCE_BASENAME}.${extension}`
+  );
+  const outputPath = join(
+    /* turbopackIgnore: true */ workDir,
+    `${BACKUP_METADATA_OUTPUT_BASENAME}.${extension}`
+  );
 
   try {
-    await pipeline(input.source, createWriteStream(inputPath), { signal: input.signal });
+    await pipeline(input.source, createWriteStream(/* turbopackIgnore: true */ inputPath), {
+      signal: input.signal,
+    });
 
     const inputStat = await stat(inputPath);
     validateByteCount(inputStat.size, input.expectedContentLength, 'Backup metadata staging file');
@@ -377,7 +387,7 @@ export async function prepareBackupMetadataVideoForUpload(input: {
     await rm(artifact.workDir, { recursive: true, force: true }).catch(() => {});
   };
 
-  const nodeReadable = createReadStream(artifact.outputPath);
+  const nodeReadable = createReadStream(/* turbopackIgnore: true */ artifact.outputPath);
   const webStream = ReadableCtor.toWeb(nodeReadable) as ReadableStream<Uint8Array>;
 
   return {
@@ -426,7 +436,7 @@ export class SharedBackupMetadataSession {
   async openUploadStream(signal?: AbortSignal): Promise<PreparedBackupMetadataVideo> {
     const artifact = await this.ensureArtifact(signal);
 
-    const nodeReadable = createReadStream(artifact.outputPath);
+    const nodeReadable = createReadStream(/* turbopackIgnore: true */ artifact.outputPath);
     const webStream = ReadableCtor.toWeb(nodeReadable) as ReadableStream<Uint8Array>;
 
     return {
