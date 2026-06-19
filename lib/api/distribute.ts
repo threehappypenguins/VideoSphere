@@ -422,7 +422,7 @@ async function runSinglePlatformUpload(
           const prepared = await sharedBackupMetadataSession.openUploadStream(signal);
           videoStream = prepared.stream;
           uploadContentLength = prepared.contentLength;
-          uploadContentType = 'video/mp4';
+          uploadContentType = prepared.contentType;
         } else {
           const nodeObject = await getObjectNodeStream(r2ObjectKey, { signal });
           uploadContentLength = nodeObject.contentLength;
@@ -441,7 +441,7 @@ async function runSinglePlatformUpload(
             });
             videoStream = prepared.stream;
             uploadContentLength = prepared.contentLength;
-            uploadContentType = 'video/mp4';
+            uploadContentType = prepared.contentType;
           } else {
             videoStream = Readable.toWeb(nodeObject.readable) as ReadableStream<Uint8Array>;
           }

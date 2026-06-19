@@ -9,6 +9,7 @@ import {
   isBackupMetadataInjectableContentType,
   prepareBackupMetadataVideoForUpload,
   resolveBackupInjectedMetadata,
+  resolveBackupMetadataOutputContentType,
   shouldInjectBackupMetadata,
 } from '@/lib/backup-metadata';
 
@@ -28,6 +29,11 @@ describe('backup metadata helpers', () => {
     expect(isBackupMetadataInjectableContentType('video/mp4')).toBe(true);
     expect(isBackupMetadataInjectableContentType('video/quicktime')).toBe(true);
     expect(isBackupMetadataInjectableContentType('video/webm')).toBe(false);
+  });
+
+  it('preserves source container MIME type for metadata injection output', () => {
+    expect(resolveBackupMetadataOutputContentType('video/mp4')).toBe('video/mp4');
+    expect(resolveBackupMetadataOutputContentType('video/quicktime')).toBe('video/quicktime');
   });
 
   it('resolves injected metadata from backup settings and title', () => {
@@ -73,29 +79,37 @@ describe('backup metadata helpers', () => {
 });
 
 describe.skipIf(!ffmpegAvailable)('backup metadata ffmpeg integration', () => {
-  async function createTinyMp4(path: string): Promise<void> {
+  async function createTinyVideo(path: string, format: 'mp4' | 'mov'): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', [
         '-hide_banner',
         '-loglevel',
         'error',
+        '-y',
         '-f',
         'lavfi',
         '-i',
         'color=c=black:s=64x64:d=0.1',
         '-c:v',
-        'libx264',
+        'mpeg4',
         '-f',
-        'mp4',
+        format,
         path,
-        '-y',
       ]);
       ffmpeg.on('close', (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`failed to create test mp4 (exit ${code})`));
+        else reject(new Error(`failed to create test ${format} (exit ${code})`));
       });
       ffmpeg.on('error', reject);
     });
+  }
+
+  async function createTinyMp4(path: string): Promise<void> {
+    await createTinyVideo(path, 'mp4');
+  }
+
+  async function createTinyMov(path: string): Promise<void> {
+    await createTinyVideo(path, 'mov');
   }
 
   it('writes a standard MP4 with metadata and streams the full output for upload', async () => {
@@ -112,6 +126,7 @@ describe.skipIf(!ffmpegAvailable)('backup metadata ffmpeg integration', () => {
 
     expect(prepared.contentLength).toBeGreaterThan(1000);
     expect(prepared.contentLength).toBeGreaterThanOrEqual(await inputSize);
+    expect(prepared.contentType).toBe('video/mp4');
 
     let streamedBytes = 0;
     const reader = prepared.stream.getReader();
@@ -122,6 +137,22 @@ describe.skipIf(!ffmpegAvailable)('backup metadata ffmpeg integration', () => {
     }
 
     expect(streamedBytes).toBe(prepared.contentLength);
+  }, 15000);
+
+  it('preserves QuickTime container for MOV metadata injection', async () => {
+    const path = join(tmpdir(), `videosphere-backup-meta-${Date.now()}.mov`);
+    await createTinyMov(path);
+    const inputSize = (await import('node:fs/promises')).stat(path).then((s) => s.size);
+
+    const prepared = await prepareBackupMetadataVideoForUpload({
+      source: createReadStream(path),
+      expectedContentLength: await inputSize,
+      sourceContentType: 'video/quicktime',
+      metadata: { title: 'MOV title', year: '2026' },
+    });
+
+    expect(prepared.contentType).toBe('video/quicktime');
+    expect(prepared.contentLength).toBeGreaterThan(1000);
   }, 15000);
 
   it('fans one ffmpeg pass to multiple upload streams', async () => {
@@ -154,6 +185,8 @@ describe.skipIf(!ffmpegAvailable)('backup metadata ffmpeg integration', () => {
     expect(openSourceCount).toBe(1);
     expect(first.contentLength).toBeGreaterThan(1000);
     expect(second.contentLength).toBe(first.contentLength);
+    expect(first.contentType).toBe('video/mp4');
+    expect(second.contentType).toBe('video/mp4');
 
     const readStreamBytes = async (stream: ReadableStream<Uint8Array>) => {
       let bytes = 0;

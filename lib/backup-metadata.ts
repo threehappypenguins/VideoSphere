@@ -7,13 +7,14 @@ import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { Readable as ReadableCtor } from 'node:stream';
 import {
+  backupExtensionFromContentType,
   normalizeBackupFileNameSettings,
   resolveBackupDatePrefixCalendarDate,
 } from '@/lib/backup-filename';
 import type { BackupFileNameSettings } from '@/types';
 
-const BACKUP_METADATA_INPUT_FILE = 'source.mp4';
-const BACKUP_METADATA_OUTPUT_FILE = 'output.mp4';
+const BACKUP_METADATA_SOURCE_BASENAME = 'source';
+const BACKUP_METADATA_OUTPUT_BASENAME = 'output';
 
 /** Metadata atoms written into backup MP4/MOV files via ffmpeg. */
 export interface BackupInjectedMetadata {
@@ -31,10 +32,12 @@ export interface BackupInjectedMetadata {
 
 /** Prepared backup video stream after metadata injection. */
 export interface PreparedBackupMetadataVideo {
-  /** Stream of the metadata-injected MP4 file. */
+  /** Stream of the metadata-injected container file. */
   stream: ReadableStream<Uint8Array>;
   /** Byte length of {@link stream}. */
   contentLength: number;
+  /** MIME type of {@link stream}, matching the source container (e.g. MP4 or QuickTime). */
+  contentType: string;
 }
 
 /**
@@ -45,6 +48,28 @@ export interface PreparedBackupMetadataVideo {
 export function isBackupMetadataInjectableContentType(contentType: string | undefined): boolean {
   const ct = (contentType ?? '').toLowerCase();
   return ct.includes('mp4') || ct.includes('quicktime');
+}
+
+/**
+ * Resolves the upload MIME type for a metadata-injected backup, preserving the source container.
+ * @param sourceContentType - MIME type of the uploaded source object.
+ * @returns Output MIME type for backup upload (MP4 or QuickTime).
+ */
+export function resolveBackupMetadataOutputContentType(
+  sourceContentType: string | undefined
+): string {
+  const ext = backupExtensionFromContentType(sourceContentType);
+  if (ext === 'mov') {
+    return 'video/quicktime';
+  }
+  if (ext === 'mp4') {
+    return 'video/mp4';
+  }
+  return sourceContentType?.trim() || 'video/mp4';
+}
+
+function backupMetadataStagingExtension(sourceContentType: string | undefined): string {
+  return backupExtensionFromContentType(sourceContentType);
 }
 
 function trimMetadataField(value: string | undefined): string | undefined {
@@ -193,26 +218,31 @@ function wrapStreamWithCleanup(
 interface PreparedBackupMetadataArtifact {
   /** Temp directory containing staged input and output files. */
   workDir: string;
-  /** Path to the metadata-injected `output.mp4` inside {@link workDir}. */
+  /** Path to the metadata-injected output file inside {@link workDir}. */
   outputPath: string;
   /** Byte length of {@link outputPath}. */
   contentLength: number;
+  /** MIME type of {@link outputPath}, matching the source container. */
+  contentType: string;
 }
 
 /**
- * Stages the source to a temp file and runs ffmpeg once to produce a seekable metadata-injected MP4.
- * @param input - Node readable source, expected byte length, metadata fields, and optional abort signal.
- * @returns Paths and size for the output file. Caller owns cleanup of {@link PreparedBackupMetadataArtifact.workDir}.
+ * Stages the source to a temp file and runs ffmpeg once to produce a seekable metadata-injected file.
+ * @param input - Node readable source, expected byte length, source MIME type, metadata fields, and optional abort signal.
+ * @returns Paths, size, and content type for the output file. Caller owns cleanup of {@link PreparedBackupMetadataArtifact.workDir}.
  */
 async function prepareBackupMetadataArtifact(input: {
   source: Readable;
   expectedContentLength: number;
+  sourceContentType?: string;
   metadata: BackupInjectedMetadata;
   signal?: AbortSignal;
 }): Promise<PreparedBackupMetadataArtifact> {
+  const extension = backupMetadataStagingExtension(input.sourceContentType);
+  const contentType = resolveBackupMetadataOutputContentType(input.sourceContentType);
   const workDir = await mkdtemp(join(tmpdir(), 'videosphere-backup-meta-'));
-  const inputPath = join(workDir, BACKUP_METADATA_INPUT_FILE);
-  const outputPath = join(workDir, BACKUP_METADATA_OUTPUT_FILE);
+  const inputPath = join(workDir, `${BACKUP_METADATA_SOURCE_BASENAME}.${extension}`);
+  const outputPath = join(workDir, `${BACKUP_METADATA_OUTPUT_BASENAME}.${extension}`);
 
   try {
     await pipeline(input.source, createWriteStream(inputPath), { signal: input.signal });
@@ -234,7 +264,7 @@ async function prepareBackupMetadataArtifact(input: {
 
     validateByteCount(size, input.expectedContentLength, 'ffmpeg metadata injection output');
 
-    return { workDir, outputPath, contentLength: size };
+    return { workDir, outputPath, contentLength: size, contentType };
   } catch (err) {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
     throw err;
@@ -311,12 +341,12 @@ async function runFfmpegMetadataCopy(input: {
 
 /**
  * Stages the source stream to a short-lived temp file, runs ffmpeg with seekable input to write a
- * standard `isom` MP4 with injected metadata atoms (`+faststart`, `-codec copy`), then returns the
- * output file as a web ReadableStream for backup upload. MP4/MOV sources usually place `moov` at the
- * end of the file, so piping into ffmpeg stdin cannot demux the full media; a seekable temp copy
- * is required for reliable metadata injection without re-encoding.
- * @param input - Node readable source, expected byte length, metadata fields, and optional abort signal.
- * @returns Upload stream and content length. Temp files are removed after the stream finishes.
+ * metadata-injected MP4 or MOV (`+faststart`, `-codec copy`), then returns the output file as a web
+ * ReadableStream for backup upload. MP4/MOV sources usually place `moov` at the end of the file, so
+ * piping into ffmpeg stdin cannot demux the full media; a seekable temp copy is required for reliable
+ * metadata injection without re-encoding.
+ * @param input - Node readable source, expected byte length, source MIME type, metadata fields, and optional abort signal.
+ * @returns Upload stream, content length, and preserved container MIME type. Temp files are removed after the stream finishes.
  */
 export async function prepareBackupMetadataVideoForUpload(input: {
   source: Readable;
@@ -328,6 +358,7 @@ export async function prepareBackupMetadataVideoForUpload(input: {
   const artifact = await prepareBackupMetadataArtifact({
     source: input.source,
     expectedContentLength: input.expectedContentLength,
+    sourceContentType: input.sourceContentType,
     metadata: input.metadata,
     signal: input.signal,
   });
@@ -342,6 +373,7 @@ export async function prepareBackupMetadataVideoForUpload(input: {
   return {
     stream: wrapStreamWithCleanup(webStream, cleanup),
     contentLength: artifact.contentLength,
+    contentType: artifact.contentType,
   };
 }
 
@@ -361,11 +393,13 @@ export class SharedBackupMetadataSession {
   /**
    * @param openSource - Opens the R2 (or other) source stream; invoked at most once per session.
    * @param expectedContentLength - Source byte length from object HEAD metadata.
-   * @param metadata - Metadata atoms to inject into the output MP4.
+   * @param sourceContentType - MIME type of the source object (preserved on output).
+   * @param metadata - Metadata atoms to inject into the output container.
    */
   constructor(
     private readonly openSource: BackupMetadataSourceOpener,
     private readonly expectedContentLength: number,
+    private readonly sourceContentType: string | undefined,
     private readonly metadata: BackupInjectedMetadata
   ) {}
 
@@ -384,6 +418,7 @@ export class SharedBackupMetadataSession {
     return {
       stream: webStream,
       contentLength: artifact.contentLength,
+      contentType: artifact.contentType,
     };
   }
 
@@ -406,6 +441,7 @@ export class SharedBackupMetadataSession {
     return prepareBackupMetadataArtifact({
       source: source.readable,
       expectedContentLength: this.expectedContentLength,
+      sourceContentType: this.sourceContentType ?? source.contentType,
       metadata: this.metadata,
       signal,
     });
@@ -449,6 +485,7 @@ export function createSharedBackupMetadataSession(input: {
   return new SharedBackupMetadataSession(
     input.openSource,
     input.expectedContentLength,
+    input.sourceContentType,
     input.injectedMetadata
   );
 }
