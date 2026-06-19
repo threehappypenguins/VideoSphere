@@ -42,7 +42,8 @@ import {
   parseSharedTagInput,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
-import { UploadHistoryJobActions } from '@/components/uploads/UploadHistoryJobActions';
+import { UploadHistoryJobDiscard } from '@/components/uploads/UploadHistoryJobDiscard';
+import { UploadHistoryPlatformActions } from '@/components/uploads/UploadHistoryPlatformActions';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
@@ -472,6 +473,9 @@ function isYouTubeMetadataFullyLoaded(state: YouTubeMetadataLoadedState): boolea
   return state.languages && state.categories && state.accountDefaults;
 }
 
+type UploadModalPhase = 'confirm' | 'uploading' | 'complete' | 'clearPendingConfirm';
+type ClearPendingConfirmIntent = 'closeDraft' | 'clearOnly';
+
 interface DraftMetadataModalProps {
   mode: 'create' | 'edit';
   value: DraftEditorValues | null;
@@ -600,11 +604,13 @@ export function DraftMetadataModal({
   const [currentUploadJobId, setCurrentUploadJobId] = useState<string | null>(null);
   const [isCancellingUpload, setIsCancellingUpload] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showUploadConfirm, setShowUploadConfirm] = useState(false);
+  const [uploadModalPhase, setUploadModalPhase] = useState<UploadModalPhase | null>(null);
+  const showUploadModal = uploadModalPhase !== null;
   const [isDeleting, setIsDeleting] = useState(false);
   const [uploadHistory, setUploadHistory] = useState<DraftUploadHistoryItem[]>([]);
   const [isLoadingUploadHistory, setIsLoadingUploadHistory] = useState(false);
   const [showUploadHistory, setShowUploadHistory] = useState(false);
+  const [showUploadProgressModalHistory, setShowUploadProgressModalHistory] = useState(false);
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
   const [retryingUploadKey, setRetryingUploadKey] = useState<string | null>(null);
   const [platformOverrideTagInput, setPlatformOverrideTagInput] = useState<
@@ -678,6 +684,8 @@ export function DraftMetadataModal({
   >({});
   const thumbnailUploading = thumbnailUploadScope !== null;
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const clearPendingConfirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const clearPendingConfirmIntentRef = useRef<ClearPendingConfirmIntent>('clearOnly');
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
   const aiMetadataAbortRef = useRef<AbortController | null>(null);
@@ -965,6 +973,7 @@ export function DraftMetadataModal({
       setUsedPlatforms([]);
       setUploadHistory([]);
       setShowUploadHistory(false);
+      setShowUploadProgressModalHistory(false);
       setExpandedUploadHistoryIds(new Set());
       setIsLoadingUploadHistory(false);
       return;
@@ -1045,7 +1054,8 @@ export function DraftMetadataModal({
     return () => controller.abort();
   }, [draftId]);
 
-  const needsLiveUploadHistoryUpdates = uploading || uploadComplete || showUploadHistory;
+  const needsLiveUploadHistoryUpdates =
+    uploading || uploadComplete || showUploadHistory || showUploadModal;
 
   useEffect(() => {
     if (!activeUploadJobSetKey) {
@@ -1356,6 +1366,11 @@ export function DraftMetadataModal({
       setPlatformWarning(null);
       setTagInput('');
       setUploadComplete(false);
+      setUploadModalPhase(null);
+      setShowUploadProgressModalHistory(false);
+      clearPendingConfirmResolverRef.current?.(false);
+      clearPendingConfirmResolverRef.current = null;
+      clearPendingConfirmIntentRef.current = 'clearOnly';
       return;
     }
     if (value.targets.length > 0) {
@@ -2792,19 +2807,30 @@ export function DraftMetadataModal({
   };
 
   const handleUploadVideo = async () => {
-    if (!value || !videoFile) return;
-    if (thumbnailUploading) {
-      toast.error('Wait for the thumbnail upload to finish before uploading video.');
+    if (!value || !videoFile) {
+      closeUploadModal();
       return;
     }
-    if (!validateBeforeUpload()) return;
+    if (thumbnailUploading) {
+      toast.error('Wait for the thumbnail upload to finish before uploading video.');
+      setUploadModalPhase('confirm');
+      return;
+    }
+    if (!validateBeforeUpload()) {
+      setUploadModalPhase('confirm');
+      return;
+    }
 
     commitTagsBeforeSave();
     const saveResult = await onSave({ closeAfterSave: false });
-    if (!saveResult.saved) return;
+    if (!saveResult.saved) {
+      setUploadModalPhase('confirm');
+      return;
+    }
     const draftIdForUpload = saveResult.draftId ?? value.id;
     if (!draftIdForUpload) {
       toast.error('Please save the draft before uploading.');
+      setUploadModalPhase('confirm');
       return;
     }
 
@@ -2887,6 +2913,7 @@ export function DraftMetadataModal({
       }
       setUploadProgress(0);
       setUploadComplete(true);
+      setUploadModalPhase('complete');
       await loadUploadHistory(draftIdForUpload);
       await onUploadComplete?.();
       setShowUploadHistory(true);
@@ -2905,6 +2932,7 @@ export function DraftMetadataModal({
         });
       }
       setCurrentUploadJobId(null);
+      setUploadModalPhase(null);
       toast.error(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       xhrRef.current = null;
@@ -2940,6 +2968,7 @@ export function DraftMetadataModal({
 
       setCancelServerFailed(false);
       clearPendingVideoSelection({ skipServerCancel: true });
+      setUploadModalPhase(null);
       const draftId = value?.id;
       if (draftId) {
         await loadUploadHistory(draftId);
@@ -3290,21 +3319,75 @@ export function DraftMetadataModal({
     return true;
   };
 
-  const confirmLocalClear = () =>
-    window.confirm(
-      'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
-    );
+  const resolveClearPendingConfirm = (confirmed: boolean) => {
+    if (!clearPendingConfirmResolverRef.current) {
+      return;
+    }
+    clearPendingConfirmResolverRef.current(confirmed);
+    clearPendingConfirmResolverRef.current = null;
+    if (!confirmed) {
+      setUploadModalPhase('uploading');
+    }
+  };
 
-  const tryCloseModal = async () => {
+  const requestClearPendingConfirm = (intent: ClearPendingConfirmIntent): Promise<boolean> =>
+    new Promise((resolve) => {
+      clearPendingConfirmResolverRef.current = resolve;
+      clearPendingConfirmIntentRef.current = intent;
+      setUploadModalPhase('clearPendingConfirm');
+    });
+
+  const tryCloseModal = async (): Promise<boolean> => {
     const cleared = await clearPendingVideoSelection();
     if (cleared) {
       onClose();
+      return true;
+    }
+    if (currentUploadJobId && cancelServerFailed) {
+      const confirmed = await requestClearPendingConfirm('closeDraft');
+      if (confirmed) {
+        await clearPendingVideoSelection({ skipServerCancel: true });
+        closeUploadModal();
+        onClose();
+        return true;
+      }
+      return false;
+    }
+    return false;
+  };
+
+  const openFullUploadHistory = () => {
+    if (thumbnailUploading || uploading) {
       return;
     }
-    if (currentUploadJobId && cancelServerFailed && confirmLocalClear()) {
-      await clearPendingVideoSelection({ skipServerCancel: true });
-      onClose();
+    abortThumbnailUploadFlow();
+    void (async () => {
+      if (await tryCloseModal()) {
+        router.push('/dashboard/history');
+      }
+    })();
+  };
+
+  const closeUploadModal = () => {
+    setUploadModalPhase(null);
+    setShowUploadProgressModalHistory(false);
+  };
+
+  const handleCloseUploadProgressModal = async () => {
+    closeUploadModal();
+    if (uploadComplete) {
+      await tryCloseModal();
     }
+  };
+
+  const openUploadConfirmModal = () => {
+    setShowUploadProgressModalHistory(false);
+    setUploadModalPhase('confirm');
+  };
+
+  const confirmUploadVideo = () => {
+    setUploadModalPhase('uploading');
+    void handleUploadVideo();
   };
 
   const handleDeleteDraft = async () => {
@@ -4118,6 +4201,150 @@ export function DraftMetadataModal({
       {/* TODO(sermon-audio-cross-publish): I will contact the SermonAudio developer about how to get Cross Publish working via the API. Cross Publish UI hidden until then. */}
     </>
   );
+
+  const renderUploadHistorySection = (
+    panelIdPrefix: string,
+    historyExpanded: boolean,
+    onToggleHistoryExpanded: () => void,
+    elevatedJobActionConfirm = false
+  ) => {
+    const uploadHistoryListPanelId = `${panelIdPrefix}-section`;
+    const uploadHistorySectionExpanded = !isLoadingUploadHistory && historyExpanded;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!isLoadingUploadHistory) {
+                onToggleHistoryExpanded();
+              }
+            }}
+            className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
+            aria-expanded={uploadHistorySectionExpanded}
+            aria-controls={uploadHistoryListPanelId}
+          >
+            {isLoadingUploadHistory ? (
+              <ChevronRight className="h-4 w-4 opacity-50" />
+            ) : historyExpanded ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+            Upload history
+            {isLoadingUploadHistory ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : (
+              <span>({uploadHistory.length})</span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={openFullUploadHistory}
+            disabled={thumbnailUploading || uploading}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            Open full history
+          </button>
+        </div>
+        {uploadHistorySectionExpanded ? (
+          <div id={uploadHistoryListPanelId} className="space-y-2">
+            {uploadHistory.length > 0
+              ? uploadHistory.map((item) => {
+                  const uploadHistoryExpanded = expandedUploadHistoryIds.has(item.uploadJobId);
+                  const uploadHistoryPanelId = `${panelIdPrefix}-${item.uploadJobId}`;
+                  const uploadHistoryAriaExpanded: 'true' | 'false' = uploadHistoryExpanded
+                    ? 'true'
+                    : 'false';
+                  return (
+                    <div
+                      key={item.uploadJobId}
+                      className="rounded-md border border-border bg-background p-3"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleUploadHistoryItem(item.uploadJobId)}
+                        className="flex w-full items-center justify-between gap-2 text-left"
+                        aria-expanded={uploadHistoryAriaExpanded}
+                        aria-controls={uploadHistoryPanelId}
+                      >
+                        <div>
+                          <p className="text-xs text-muted-foreground">
+                            Upload: {new Date(item.createdAt).toLocaleString()}
+                          </p>
+                          <p className="mt-1 text-xs text-foreground">Job status: {item.status}</p>
+                        </div>
+                        {uploadHistoryExpanded ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                      </button>
+                      <div
+                        id={uploadHistoryPanelId}
+                        hidden={!uploadHistoryExpanded}
+                        className="mt-2 space-y-2"
+                      >
+                        <UploadHistoryJobDiscard
+                          job={item}
+                          onChanged={() => (draftId ? loadUploadHistory(draftId) : undefined)}
+                          disabled={retryingUploadKey !== null}
+                          elevatedConfirmDialog={elevatedJobActionConfirm}
+                        />
+                        {item.platforms.map((platform) => {
+                          const retryKey = `${item.uploadJobId}:${platform.platform}`;
+                          const isExpired =
+                            platform.status === 'failed' && item.r2FileAvailable === false;
+                          return (
+                            <div
+                              key={retryKey}
+                              className="rounded-md border border-border bg-muted/30 p-2"
+                            >
+                              <p className="text-xs text-foreground">
+                                <span className="font-medium">
+                                  {platformLabel(platform.platform)}
+                                </span>
+                                : {platform.status} ({new Date(platform.updatedAt).toLocaleString()}
+                                )
+                              </p>
+                              {platform.errorMessage ? (
+                                <p className="mt-1 text-xs text-red-600">{platform.errorMessage}</p>
+                              ) : null}
+                              {isExpired ? (
+                                <p className="mt-1 text-xs font-medium text-amber-600">
+                                  Video file expired — please re-upload
+                                </p>
+                              ) : null}
+                              <UploadHistoryPlatformActions
+                                job={item}
+                                platform={platform}
+                                onRetry={() =>
+                                  retryPlatformUpload(item.uploadJobId, platform.platform)
+                                }
+                                retryBusy={retryingUploadKey === retryKey}
+                                disabled={retryingUploadKey !== null}
+                              />
+                              {platform.status === 'failed' &&
+                              !(item.status === 'failed') &&
+                              !isExpired ? (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {platform.retryReason}
+                                </p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })
+              : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <Dialog
@@ -5360,188 +5587,10 @@ export function DraftMetadataModal({
                   {videoFile ? videoFile.name : 'No file selected'}
                 </span>
               </div>
-              {uploading || cancelServerFailed ? (
-                <div className="mt-2 space-y-2">
-                  {cancelServerFailed && !uploading ? (
-                    <p className="text-xs text-amber-600 dark:text-amber-500">
-                      Could not cancel on the server. Retry or clear this pending upload.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Uploading...</span>
-                        <span>{uploadProgress}%</span>
-                      </div>
-                      <Progress value={uploadProgress} className="h-2" />
-                    </>
-                  )}
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleCancelUpload();
-                      }}
-                      disabled={isCancellingUpload}
-                      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                    >
-                      {isCancellingUpload
-                        ? 'Cancelling...'
-                        : cancelServerFailed && !uploading
-                          ? 'Retry cancel'
-                          : 'Cancel upload'}
-                    </button>
-                    {cancelServerFailed && !uploading ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!confirmLocalClear()) return;
-                          void clearPendingVideoSelection({ skipServerCancel: true });
-                        }}
-                        disabled={isCancellingUpload}
-                        className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                      >
-                        Clear pending upload
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
             </DraftModalCard>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!isLoadingUploadHistory) {
-                      setShowUploadHistory((prev) => !prev);
-                    }
-                  }}
-                  className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
-                >
-                  {isLoadingUploadHistory ? (
-                    <ChevronRight className="h-4 w-4 opacity-50" />
-                  ) : showUploadHistory ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
-                  )}
-                  Upload history
-                  {isLoadingUploadHistory ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                  ) : (
-                    <span>({uploadHistory.length})</span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    router.push('/dashboard/history');
-                  }}
-                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                >
-                  Open full history
-                </button>
-              </div>
-              {!isLoadingUploadHistory && showUploadHistory && uploadHistory.length > 0 ? (
-                <div className="space-y-2">
-                  {uploadHistory.map((item) => {
-                    const uploadHistoryExpanded = expandedUploadHistoryIds.has(item.uploadJobId);
-                    const uploadHistoryPanelId = `draft-upload-history-panel-${item.uploadJobId}`;
-                    const uploadHistoryAriaExpanded: 'true' | 'false' = uploadHistoryExpanded
-                      ? 'true'
-                      : 'false';
-                    return (
-                      <div
-                        key={item.uploadJobId}
-                        className="rounded-md border border-border bg-background p-3"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleUploadHistoryItem(item.uploadJobId)}
-                          className="flex w-full items-center justify-between gap-2 text-left"
-                          aria-expanded={uploadHistoryAriaExpanded}
-                          aria-controls={uploadHistoryPanelId}
-                        >
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Upload: {new Date(item.createdAt).toLocaleString()}
-                            </p>
-                            <p className="mt-1 text-xs text-foreground">
-                              Job status: {item.status}
-                            </p>
-                          </div>
-                          {uploadHistoryExpanded ? (
-                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          )}
-                        </button>
-                        <div
-                          id={uploadHistoryPanelId}
-                          hidden={!uploadHistoryExpanded}
-                          className="mt-2 space-y-2"
-                        >
-                          <UploadHistoryJobActions
-                            job={item}
-                            onChanged={() => (draftId ? loadUploadHistory(draftId) : undefined)}
-                            disabled={retryingUploadKey !== null}
-                          />
-                          {item.platforms.map((platform) => {
-                            const retryKey = `${item.uploadJobId}:${platform.platform}`;
-                            const showRetry =
-                              item.status === 'failed' && platform.status === 'failed';
-                            const isExpired =
-                              platform.status === 'failed' && item.r2FileAvailable === false;
-                            return (
-                              <div
-                                key={retryKey}
-                                className="rounded-md border border-border bg-muted/30 p-2"
-                              >
-                                <p className="text-xs text-foreground">
-                                  <span className="font-medium">
-                                    {platformLabel(platform.platform)}
-                                  </span>
-                                  : {platform.status} (
-                                  {new Date(platform.updatedAt).toLocaleString()})
-                                </p>
-                                {platform.errorMessage ? (
-                                  <p className="mt-1 text-xs text-red-600">
-                                    {platform.errorMessage}
-                                  </p>
-                                ) : null}
-                                {isExpired ? (
-                                  <p className="mt-1 text-xs font-medium text-amber-600">
-                                    Video file expired — please re-upload
-                                  </p>
-                                ) : null}
-                                {showRetry && item.r2FileAvailable !== false ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      void retryPlatformUpload(item.uploadJobId, platform.platform);
-                                    }}
-                                    disabled={retryingUploadKey !== null}
-                                    className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                                  >
-                                    {retryingUploadKey === retryKey ? 'Retrying...' : 'Retry'}
-                                  </button>
-                                ) : null}
-                                {platform.status === 'failed' && !showRetry && !isExpired ? (
-                                  <p className="mt-1 text-xs text-muted-foreground">
-                                    {platform.retryReason}
-                                  </p>
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
+            {renderUploadHistorySection('draft-upload-history-panel', showUploadHistory, () =>
+              setShowUploadHistory((prev) => !prev)
+            )}
           </div>
         ) : null}
 
@@ -5587,26 +5636,182 @@ export function DraftMetadataModal({
           <button
             type="button"
             onClick={() => {
-              if (uploadComplete) {
-                void tryCloseModal();
-                return;
-              }
               if (!validateBeforeUpload()) return;
-              setShowUploadConfirm(true);
+              openUploadConfirmModal();
             }}
-            disabled={uploadComplete ? false : !canUploadVideo || !videoFile}
+            disabled={uploading || !canUploadVideo || !videoFile}
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
-            {uploadComplete
-              ? 'Close'
-              : uploading
-                ? `Uploading ${uploadProgress}%`
-                : cancelServerFailed
-                  ? 'Pending upload'
-                  : 'Upload & Save'}
+            {uploading ? 'Uploading...' : cancelServerFailed ? 'Pending upload' : 'Upload & Save'}
           </button>
         </DialogFooter>
       </DialogContent>
+
+      <Dialog
+        open={showUploadModal}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (uploadModalPhase === 'confirm') {
+              closeUploadModal();
+              return;
+            }
+            if (uploadModalPhase === 'clearPendingConfirm') {
+              resolveClearPendingConfirm(false);
+              return;
+            }
+            if (uploading || cancelServerFailed) {
+              return;
+            }
+            if (uploadModalPhase === 'complete') {
+              void handleCloseUploadProgressModal();
+            }
+          }
+        }}
+      >
+        <DialogContent
+          className="flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto sm:max-w-md"
+          onInteractOutside={(event) => event.preventDefault()}
+          onPointerDownOutside={(event) => event.preventDefault()}
+          onFocusOutside={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {uploadModalPhase === 'confirm'
+                ? 'Upload and save draft?'
+                : uploadModalPhase === 'clearPendingConfirm'
+                  ? 'Clear pending upload?'
+                  : uploadModalPhase === 'complete'
+                    ? 'Upload complete'
+                    : 'Uploading video'}
+            </DialogTitle>
+            <DialogDescription>
+              {uploadModalPhase === 'confirm'
+                ? 'This will save your latest draft changes and upload the selected video using this draft. Are you sure you want to continue?'
+                : uploadModalPhase === 'clearPendingConfirm'
+                  ? 'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
+                  : uploadModalPhase === 'complete'
+                    ? 'Your video was uploaded successfully. Distribution will continue in the background.'
+                    : 'Your video is uploading. Keep this window open until the upload finishes.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {uploadModalPhase === 'confirm' ||
+          uploadModalPhase === 'clearPendingConfirm' ? null : uploadModalPhase === 'complete' ? (
+            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
+              <CircleCheck className="h-4 w-4 shrink-0" />
+              Video uploaded successfully
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {cancelServerFailed && !uploading ? (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  Could not cancel on the server. Retry or clear this pending upload.
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <span>Uploading...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <Progress value={uploadProgress} className="h-2" />
+                </>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleCancelUpload();
+                  }}
+                  disabled={isCancellingUpload}
+                  className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                >
+                  {isCancellingUpload
+                    ? 'Cancelling...'
+                    : cancelServerFailed && !uploading
+                      ? 'Retry cancel'
+                      : 'Cancel upload'}
+                </button>
+                {cancelServerFailed && !uploading ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void (async () => {
+                        const confirmed = await requestClearPendingConfirm('clearOnly');
+                        if (!confirmed) return;
+                        await clearPendingVideoSelection({ skipServerCancel: true });
+                        closeUploadModal();
+                      })();
+                    }}
+                    disabled={isCancellingUpload}
+                    className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                  >
+                    Clear pending upload
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {uploadModalPhase !== 'confirm' && uploadModalPhase !== 'clearPendingConfirm'
+            ? renderUploadHistorySection(
+                'upload-modal-history-panel',
+                showUploadProgressModalHistory,
+                () => setShowUploadProgressModalHistory((prev) => !prev),
+                true
+              )
+            : null}
+
+          <DialogFooter>
+            {uploadModalPhase === 'confirm' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={closeUploadModal}
+                  className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmUploadVideo}
+                  disabled={!canUploadVideo || !videoFile}
+                  className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                >
+                  Yes, upload
+                </button>
+              </>
+            ) : uploadModalPhase === 'clearPendingConfirm' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => resolveClearPendingConfirm(false)}
+                  className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+                >
+                  Keep pending upload
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveClearPendingConfirm(true)}
+                  className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Clear locally
+                </button>
+              </>
+            ) : uploadModalPhase === 'complete' ? (
+              <button
+                type="button"
+                aria-label="Close upload"
+                onClick={() => {
+                  void handleCloseUploadProgressModal();
+                }}
+                className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                Close
+              </button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
@@ -5627,31 +5832,6 @@ export function DraftMetadataModal({
               disabled={isDeleting}
             >
               {isDeleting ? 'Deleting...' : 'Delete draft'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={showUploadConfirm} onOpenChange={setShowUploadConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Upload and save draft?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will save your latest draft changes and upload the selected video using this
-              draft. Are you sure you want to continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                setShowUploadConfirm(false);
-                void handleUploadVideo();
-              }}
-              disabled={!canUploadVideo || !videoFile}
-            >
-              Yes, upload
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

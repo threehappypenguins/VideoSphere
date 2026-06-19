@@ -458,7 +458,7 @@ async function runSinglePlatformUpload(
           const yearFolderName = resolveBackupYearFolderName(metadata.backupNaming);
 
           if (platformUpload.platform === 'google_drive') {
-            return uploadToGoogleDrive({
+            return await uploadToGoogleDrive({
               connectedAccount,
               videoStream,
               contentLength: uploadContentLength,
@@ -471,7 +471,7 @@ async function runSinglePlatformUpload(
           }
 
           if (platformUpload.platform === 'sftp') {
-            return uploadToSftp({
+            return await uploadToSftp({
               connectedAccount,
               videoStream,
               contentLength: uploadContentLength,
@@ -482,7 +482,7 @@ async function runSinglePlatformUpload(
             });
           }
 
-          return uploadToSmb({
+          return await uploadToSmb({
             connectedAccount,
             videoStream,
             contentLength: uploadContentLength,

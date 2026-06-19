@@ -11,7 +11,8 @@ import type {
 } from '@/types';
 import { platformLabel } from '@/lib/ui/platform-label';
 import { isPlatformUploadRowActive } from '@/lib/uploads/status';
-import { UploadHistoryJobActions } from '@/components/uploads/UploadHistoryJobActions';
+import { UploadHistoryJobDiscard } from '@/components/uploads/UploadHistoryJobDiscard';
+import { UploadHistoryPlatformActions } from '@/components/uploads/UploadHistoryPlatformActions';
 
 interface UploadHistoryPlatformItem {
   platform: ConnectedAccountPlatform;
@@ -257,15 +258,16 @@ export function UploadHistoryClient() {
             </button>
 
             <div id={jobPanelId} hidden={!jobExpanded} className="mt-3 space-y-2">
-              <UploadHistoryJobActions job={job} onChanged={loadHistory} />
+              <UploadHistoryJobDiscard
+                job={job}
+                onChanged={loadHistory}
+                disabled={retryingJobId !== null}
+              />
               {job.platforms.map((platform) => {
-                const showRetry = platform.status === 'failed';
+                const retryKey = `${job.uploadJobId}:${platform.platform}`;
                 const isExpired = platform.status === 'failed' && job.r2FileAvailable === false;
                 return (
-                  <div
-                    key={`${job.uploadJobId}-${platform.platform}`}
-                    className="rounded-md border border-border bg-muted/30 p-3"
-                  >
+                  <div key={retryKey} className="rounded-md border border-border bg-muted/30 p-3">
                     <p className="text-sm text-foreground">
                       <span className="font-medium">{platformLabel(platform.platform)}</span>:{' '}
                       {platform.status}
@@ -281,21 +283,14 @@ export function UploadHistoryClient() {
                         Video file expired — please re-upload
                       </p>
                     ) : null}
-                    {showRetry && job.r2FileAvailable !== false ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void retryJob(job.uploadJobId, platform.platform);
-                        }}
-                        disabled={retryingJobId !== null}
-                        className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                      >
-                        {retryingJobId === `${job.uploadJobId}:${platform.platform}`
-                          ? 'Retrying...'
-                          : 'Retry'}
-                      </button>
-                    ) : null}
-                    {platform.status === 'failed' && !showRetry && !isExpired ? (
+                    <UploadHistoryPlatformActions
+                      job={job}
+                      platform={platform}
+                      onRetry={() => retryJob(job.uploadJobId, platform.platform)}
+                      retryBusy={retryingJobId === retryKey}
+                      disabled={retryingJobId !== null}
+                    />
+                    {platform.status === 'failed' && job.status !== 'failed' && !isExpired ? (
                       <p className="mt-2 text-xs text-muted-foreground">{platform.retryReason}</p>
                     ) : null}
                   </div>

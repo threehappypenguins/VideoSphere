@@ -3,7 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
 
@@ -177,9 +177,18 @@ describe('DraftMetadataModal video upload regressions', () => {
     MockXMLHttpRequest.instances.at(-1)!.simulateSuccess();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Close/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Choose video file/i })).toBeDisabled();
-      expect(getThumbnailChooseFileButton()).toBeEnabled();
+      const uploadDialog = screen.getByRole('dialog', { name: /Upload complete/i });
+      expect(
+        within(uploadDialog).getByRole('button', { name: /Close upload/i })
+      ).toBeInTheDocument();
     });
+
+    const draftDialog = screen.getByRole('dialog', { name: /Edit draft/i, hidden: true });
+    expect(
+      within(draftDialog).getByRole('button', { name: /Choose video file/i, hidden: true })
+    ).toBeDisabled();
+    expect(
+      within(draftDialog).getAllByRole('button', { name: /^Choose file$/i, hidden: true })[0]!
+    ).toBeEnabled();
   });
 });
