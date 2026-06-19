@@ -3,6 +3,8 @@ import { isIPv6 } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
 import type { Writable } from 'node:stream';
 import { Client, type ConnectConfig, type SFTPWrapper } from 'ssh2';
+import { resolveUniqueBackupFileName } from '@/lib/backup-filename';
+import { UploadWriteBuffer } from '@/lib/platforms/upload-write-buffer';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type { ConnectedAccount, SftpAuthMethod } from '@/types';
 import type { PlatformUploadError, PlatformUploadResult } from '@/lib/platforms/types';
@@ -377,6 +379,22 @@ function promisifySftpMkdir(sftp: SFTPWrapper, remotePath: string): Promise<void
   });
 }
 
+function promisifySftpReaddir(sftp: SFTPWrapper, remotePath: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    sftp.readdir(remotePath, (err, list) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      const names = (list ?? [])
+        .map((entry) => entry.filename)
+        .filter((name) => name !== '.' && name !== '..');
+      resolve(names);
+    });
+  });
+}
+
 /**
  * Ensures a remote SFTP directory exists, creating it when missing.
  * @param sftp - Connected SFTP wrapper.
@@ -498,8 +516,19 @@ function pipeStreamToSftp(
   // Only listen for `error`; do not treat `close` without `finish` as failure (see closeNodeWriteStream).
   writeStream.on('error', noteFailure);
 
+  const writeBuffer = new UploadWriteBuffer();
+
+  const writeBufferedChunks = async (chunks: Uint8Array[]) => {
+    for (const bufferedChunk of chunks) {
+      if (streamFailure) {
+        throw streamFailure;
+      }
+      await writeToNodeStream(writeStream, bufferedChunk);
+    }
+  };
+
   const sink = new WritableStream<Uint8Array>({
-    write(chunk) {
+    async write(chunk) {
       if (streamFailure) {
         return Promise.reject(streamFailure);
       }
@@ -507,11 +536,15 @@ function pipeStreamToSftp(
         dataStarted = true;
         writeStream.emit('pipe');
       }
-      return writeToNodeStream(writeStream, chunk);
+      await writeBufferedChunks(writeBuffer.takeWritableChunks(chunk));
     },
-    close() {
+    async close() {
       if (streamFailure) {
         return Promise.reject(streamFailure);
+      }
+      const remainder = writeBuffer.takeRemainder();
+      if (remainder) {
+        await writeToNodeStream(writeStream, remainder);
       }
       return closeNodeWriteStream(writeStream);
     },
@@ -682,7 +715,11 @@ export async function uploadToSftp(input: UploadToSftpInput): Promise<PlatformUp
       await ensureSftpDirectory(sftp, uploadDirectory);
     }
 
-    const fullRemotePath = pathPosix.join(uploadDirectory, fileName);
+    const existingNames = await promisifySftpReaddir(sftp, uploadDirectory);
+    const uniqueFileName = resolveUniqueBackupFileName(fileName, existingNames, {
+      caseInsensitive: false,
+    });
+    const fullRemotePath = pathPosix.join(uploadDirectory, uniqueFileName);
 
     await pipeStreamToSftp(sftp, fullRemotePath, input.videoStream, input.signal);
 

@@ -94,7 +94,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           status: platformUpload.status,
           updatedAt: platformUpload.$updatedAt,
           errorMessage: platformUpload.errorMessage,
-          retryable: platformUpload.status === 'failed' ? retryability.retryable : false,
+          retryable: platformUpload.status === 'failed',
           retryReason: platformUpload.status === 'failed' ? retryability.reason : '',
           ...(platformUpload.platform === 'sermon_audio'
             ? {
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
             : {}),
         };
       });
-      const needsR2Head = platformItems.some((p) => p.status === 'failed' && p.retryable);
+      const needsR2Head = platformItems.some((p) => p.status === 'failed');
       return { job, platformItems, needsR2Head };
     });
 

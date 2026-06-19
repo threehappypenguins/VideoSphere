@@ -1,6 +1,6 @@
 /**
- * Heuristic classifier for whether a persisted platform upload failure is worth retrying.
- * Used by upload history and retry routes without pulling in the distribution pipeline.
+ * Heuristic classifier for upload failure hints shown in history UI.
+ * Does not gate retry — users may retry any failed platform while the R2 file remains.
  */
 
 export interface RetryabilityAssessment {
@@ -20,8 +20,9 @@ function includesAny(haystack: string, needles: string[]): boolean {
 }
 
 /**
- * Heuristic classifier for whether a persisted platform failure is worth retrying.
- * We intentionally limit retries to likely-transient failures (network, timeout, 5xx, 429).
+ * Heuristic hint for why a failure may or may not succeed on retry (informational only).
+ * @param errorMessage - Persisted platform upload error text.
+ * @returns Hint for upload history UI; not used to block retry actions.
  */
 export function assessPlatformUploadRetryability(
   errorMessage: string | null

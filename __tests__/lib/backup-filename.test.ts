@@ -7,6 +7,7 @@ import {
   isValidCalendarDateString,
   normalizeBackupFileNameSettings,
   resolveBackupDatePrefixCalendarDate,
+  resolveUniqueBackupFileName,
   sanitizeBackupFilenameComponent,
 } from '@/lib/backup-filename';
 
@@ -59,6 +60,10 @@ describe('backup filename helpers', () => {
     const normalized = normalizeBackupFileNameSettings(undefined);
     expect(normalized.datePrefixDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(isValidCalendarDateString(normalized.datePrefixDate ?? '')).toBe(true);
+    expect(normalized.metadataEnabled).toBe(false);
+    expect(normalized.albumArtist).toBe('');
+    expect(normalized.album).toBe('');
+    expect(normalized.genre).toBe('');
   });
 
   it('defaults missing date prefix date to today', () => {
@@ -287,5 +292,57 @@ describe('backup filename helpers', () => {
         }),
       })
     ).toBe('Title of Video.mov');
+  });
+});
+
+describe('resolveUniqueBackupFileName', () => {
+  it('returns the desired filename when the directory is empty', () => {
+    expect(resolveUniqueBackupFileName('Sunday Service.mp4', [])).toBe('Sunday Service.mp4');
+  });
+
+  it('appends (1) when the base filename already exists', () => {
+    expect(resolveUniqueBackupFileName('Sunday Service.mp4', ['Sunday Service.mp4'])).toBe(
+      'Sunday Service (1).mp4'
+    );
+  });
+
+  it('skips occupied suffixes in the duplicate series', () => {
+    expect(
+      resolveUniqueBackupFileName('Sunday Service.mp4', [
+        'Sunday Service.mp4',
+        'Sunday Service (1).mp4',
+      ])
+    ).toBe('Sunday Service (2).mp4');
+  });
+
+  it('keeps the base filename when only higher-numbered copies exist', () => {
+    expect(resolveUniqueBackupFileName('Sunday Service.mp4', ['Sunday Service (1).mp4'])).toBe(
+      'Sunday Service.mp4'
+    );
+  });
+
+  it('disambiguates a filename that already includes a copy suffix', () => {
+    expect(resolveUniqueBackupFileName('Sunday Service (1).mp4', ['Sunday Service (1).mp4'])).toBe(
+      'Sunday Service (1) (1).mp4'
+    );
+  });
+
+  it('matches existing names case-insensitively when requested', () => {
+    expect(
+      resolveUniqueBackupFileName('Sunday Service.mp4', ['SUNDAY SERVICE.MP4'], {
+        caseInsensitive: true,
+      })
+    ).toBe('Sunday Service (1).mp4');
+  });
+
+  it('throws when every duplicate slot through the cap is occupied', () => {
+    const existing = [`Sunday Service.mp4`];
+    for (let i = 1; i <= 9999; i += 1) {
+      existing.push(`Sunday Service (${i}).mp4`);
+    }
+
+    expect(() => resolveUniqueBackupFileName('Sunday Service.mp4', existing)).toThrow(
+      /No available backup filename/
+    );
   });
 });

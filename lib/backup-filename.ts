@@ -6,6 +6,9 @@ export const MAX_BACKUP_SERIES_LENGTH = 64;
 /** Maximum length for the optional backup filename suffix segment. */
 export const MAX_BACKUP_SUFFIX_LENGTH = 64;
 
+/** Maximum length for injectable backup metadata text fields (album artist, album, genre). */
+export const MAX_BACKUP_METADATA_FIELD_LENGTH = 255;
+
 /** Default backup filename settings applied when a draft has no stored override. */
 export const DEFAULT_BACKUP_FILE_NAME_SETTINGS: Required<
   Omit<BackupFileNameSettings, 'datePrefixDate'>
@@ -19,6 +22,10 @@ export const DEFAULT_BACKUP_FILE_NAME_SETTINGS: Required<
   suffixEnabled: false,
   suffix: '',
   yearFolderEnabled: true,
+  metadataEnabled: false,
+  albumArtist: '',
+  album: '',
+  genre: '',
 };
 
 const BACKUP_DATE_FORMATS: readonly BackupDateFormat[] = [
@@ -109,6 +116,21 @@ export function normalizeBackupFileNameSettings(value: unknown): BackupFileNameS
       ? raw.suffix.slice(0, MAX_BACKUP_SUFFIX_LENGTH)
       : DEFAULT_BACKUP_FILE_NAME_SETTINGS.suffix;
 
+  const albumArtist =
+    typeof raw.albumArtist === 'string'
+      ? raw.albumArtist.slice(0, MAX_BACKUP_METADATA_FIELD_LENGTH)
+      : DEFAULT_BACKUP_FILE_NAME_SETTINGS.albumArtist;
+
+  const album =
+    typeof raw.album === 'string'
+      ? raw.album.slice(0, MAX_BACKUP_METADATA_FIELD_LENGTH)
+      : DEFAULT_BACKUP_FILE_NAME_SETTINGS.album;
+
+  const genre =
+    typeof raw.genre === 'string'
+      ? raw.genre.slice(0, MAX_BACKUP_METADATA_FIELD_LENGTH)
+      : DEFAULT_BACKUP_FILE_NAME_SETTINGS.genre;
+
   const datePrefixDate =
     typeof raw.datePrefixDate === 'string' && isValidCalendarDateString(raw.datePrefixDate)
       ? raw.datePrefixDate.trim()
@@ -143,6 +165,13 @@ export function normalizeBackupFileNameSettings(value: unknown): BackupFileNameS
       typeof raw.yearFolderEnabled === 'boolean'
         ? raw.yearFolderEnabled
         : DEFAULT_BACKUP_FILE_NAME_SETTINGS.yearFolderEnabled,
+    metadataEnabled:
+      typeof raw.metadataEnabled === 'boolean'
+        ? raw.metadataEnabled
+        : DEFAULT_BACKUP_FILE_NAME_SETTINGS.metadataEnabled,
+    albumArtist,
+    album,
+    genre,
   };
 }
 
@@ -183,6 +212,10 @@ export function mergeBackupFileNameSettingsPatch(
     ...(typeof raw.yearFolderEnabled === 'boolean'
       ? { yearFolderEnabled: raw.yearFolderEnabled }
       : {}),
+    ...(typeof raw.metadataEnabled === 'boolean' ? { metadataEnabled: raw.metadataEnabled } : {}),
+    ...(typeof raw.albumArtist === 'string' ? { albumArtist: raw.albumArtist } : {}),
+    ...(typeof raw.album === 'string' ? { album: raw.album } : {}),
+    ...(typeof raw.genre === 'string' ? { genre: raw.genre } : {}),
   });
 }
 
@@ -385,4 +418,108 @@ export function buildBackupRemoteRelativePath(input: {
   }
 
   return `${yearFolder}/${fileName}`;
+}
+
+/**
+ * Maximum numeric suffix tried when disambiguating backup filenames on SFTP/SMB.
+ * Ten thousand variants of the same stem in one folder is far beyond realistic backup
+ * usage (re-uploading the same draft a handful of times), so we cap the search here.
+ */
+export const MAX_BACKUP_FILE_COPY_SUFFIX = 9999;
+
+function splitBackupFileName(fileName: string): { stem: string; ext: string } {
+  const lastDot = fileName.lastIndexOf('.');
+  if (lastDot <= 0) {
+    return { stem: fileName, ext: '' };
+  }
+  return { stem: fileName.slice(0, lastDot), ext: fileName.slice(lastDot) };
+}
+
+function backupFileNamesEqual(left: string, right: string, caseInsensitive: boolean): boolean {
+  return caseInsensitive ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+/**
+ * Returns the Windows-style copy index for a filename in a duplicate series, if it matches.
+ * @param fileName - Candidate filename in the upload directory.
+ * @param stem - Base filename stem (without extension).
+ * @param ext - Extension including the leading dot, or an empty string.
+ * @param caseInsensitive - Whether to compare names case-insensitively.
+ * @returns `0` for the base name, a positive integer for `stem (n).ext`, or `null` when unrelated.
+ */
+function parseBackupFileCopyIndex(
+  fileName: string,
+  stem: string,
+  ext: string,
+  caseInsensitive: boolean
+): number | null {
+  const baseName = `${stem}${ext}`;
+  if (backupFileNamesEqual(fileName, baseName, caseInsensitive)) {
+    return 0;
+  }
+
+  const prefix = `${stem} (`;
+  const suffix = `)${ext}`;
+  if (
+    fileName.length <= prefix.length + suffix.length ||
+    !fileName.endsWith(suffix) ||
+    (caseInsensitive
+      ? !fileName.toLowerCase().startsWith(prefix.toLowerCase())
+      : !fileName.startsWith(prefix))
+  ) {
+    return null;
+  }
+
+  const middle = fileName.slice(prefix.length, fileName.length - suffix.length);
+  if (!/^\d+$/.test(middle)) {
+    return null;
+  }
+
+  return Number(middle);
+}
+
+/**
+ * Picks the first available backup filename in a Windows-style duplicate series.
+ * When `sermon.mp4` already exists, returns `sermon (1).mp4`, then `sermon (2).mp4`, and so on.
+ * @param fileName - Desired backup filename, including extension.
+ * @param existingFileNames - Filenames already present in the target remote directory.
+ * @param options - Matching options for remote filesystem semantics.
+ * @param options.caseInsensitive - When true, treats names as equal regardless of case (SMB).
+ * @returns A filename that does not collide with `existingFileNames` under the chosen rules.
+ * @throws {Error} When every slot from the base name through
+ *   {@link MAX_BACKUP_FILE_COPY_SUFFIX} is already occupied (not expected in practice).
+ */
+export function resolveUniqueBackupFileName(
+  fileName: string,
+  existingFileNames: Iterable<string>,
+  options?: { caseInsensitive?: boolean }
+): string {
+  const trimmed = fileName.trim();
+  const { stem, ext } = splitBackupFileName(trimmed);
+  const caseInsensitive = options?.caseInsensitive === true;
+
+  const occupied = new Set<number>();
+  for (const existing of existingFileNames) {
+    const index = parseBackupFileCopyIndex(existing.trim(), stem, ext, caseInsensitive);
+    if (index != null) {
+      occupied.add(index);
+    }
+  }
+
+  if (!occupied.has(0)) {
+    return `${stem}${ext}`;
+  }
+
+  for (let copyIndex = 1; copyIndex <= MAX_BACKUP_FILE_COPY_SUFFIX; copyIndex += 1) {
+    if (!occupied.has(copyIndex)) {
+      return `${stem} (${copyIndex})${ext}`;
+    }
+  }
+
+  // Exhaustion requires base + (1)..(9999) all present in one folder — not a realistic backup
+  // scenario (users might collide a few times reusing a draft, not thousands). Fail loudly
+  // instead of returning an occupied name and risking overwrite.
+  throw new Error(
+    `No available backup filename for "${trimmed}" after ${MAX_BACKUP_FILE_COPY_SUFFIX} duplicates in the target folder.`
+  );
 }

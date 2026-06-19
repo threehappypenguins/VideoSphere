@@ -12,7 +12,6 @@ import {
   distributeCreatePlatformUploadInput,
   runDistributionInBackground,
 } from '@/lib/api/distribute';
-import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
 import type { ConnectedAccountPlatform } from '@/types';
 import { CONNECTED_ACCOUNT_PLATFORMS } from '@/types';
@@ -23,7 +22,7 @@ const CONNECTED_PLATFORM_SET = new Set<string>(CONNECTED_ACCOUNT_PLATFORMS);
  * Parses an optional `{ platforms }` body for single- or multi-platform retry.
  * @param request - Incoming POST request.
  * @returns On success, `{ ok: true, platforms }` where `platforms` is `null` when the body is
- *   empty or omits `platforms` (retry all retryable failed platforms), or a deduped platform list
+ *   empty or omits `platforms` (retry all failed platforms), or a deduped platform list
  *   when `{ platforms: [...] }` is provided. On failure, `{ ok: false, error }`.
  */
 async function parseRetryPlatformsBody(
@@ -148,19 +147,18 @@ export async function POST(
     const allUploads = await getPlatformUploadsByJob(job.id);
     const latestByPlatform = latestPlatformUploadsPerPlatform(allUploads);
 
-    const retryableFailedPlatforms = latestByPlatform
+    const failedPlatforms = latestByPlatform
       .filter((upload) => upload.status === 'failed')
-      .filter((upload) => assessPlatformUploadRetryability(upload.errorMessage).retryable)
       .map((upload) => upload.platform);
 
     const platformsToRetry =
       parsedBody.platforms == null
-        ? retryableFailedPlatforms
-        : parsedBody.platforms.filter((platform) => retryableFailedPlatforms.includes(platform));
+        ? failedPlatforms
+        : parsedBody.platforms.filter((platform) => failedPlatforms.includes(platform));
 
     if (platformsToRetry.length === 0) {
       return NextResponse.json(
-        { error: 'No retryable failed platform uploads were found for this job.' },
+        { error: 'No failed platform uploads were found for this job.' },
         { status: 400 }
       );
     }

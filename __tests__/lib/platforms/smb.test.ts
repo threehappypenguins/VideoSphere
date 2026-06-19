@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 
 const mocks = vi.hoisted(() => ({
   mockReadDirectory: vi.fn(),
@@ -288,6 +288,23 @@ describe('uploadToSmb', () => {
     expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith('/VideoSphere/My Backup.mp4');
   });
 
+  it('appends (1) when the target filename already exists on the share', async () => {
+    mocks.mockReadDirectory.mockResolvedValueOnce(['My Backup.mp4']);
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      contentType: 'video/mp4',
+      fileName: 'My Backup.mp4',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('/VideoSphere/My Backup (1).mp4');
+    }
+    expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith('/VideoSphere/My Backup (1).mp4');
+  });
+
   it('uploads into a year subfolder when yearFolderName is provided', async () => {
     const result = await uploadToSmb({
       connectedAccount: makeSmbAccount(),
@@ -407,5 +424,44 @@ describe('uploadToSmb', () => {
       ok: false,
       error: expect.objectContaining({ code: 'SMB_WRITE_FAILED' }),
     });
+  });
+
+  it('buffers many small source chunks into fewer SMB writes', async () => {
+    const writeSizes: number[] = [];
+    mocks.mockCreateFileWriteStream.mockImplementation(() => {
+      return new Writable({
+        write(chunk, _encoding, callback) {
+          writeSizes.push(Buffer.isBuffer(chunk) ? chunk.length : chunk.byteLength);
+          callback();
+        },
+        final(callback) {
+          this.emit('finish');
+          this.emit('close');
+          callback();
+        },
+      });
+    });
+
+    const smallChunkSize = 64 * 1024;
+    const chunkCount = 130;
+    const videoStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < chunkCount; i += 1) {
+          controller.enqueue(new Uint8Array(smallChunkSize));
+        }
+        controller.close();
+      },
+    });
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream,
+      fileName: 'buffered-backup.mp4',
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(writeSizes.length).toBeLessThan(chunkCount);
+    expect(writeSizes.reduce((sum, size) => sum + size, 0)).toBe(smallChunkSize * chunkCount);
+    expect(Math.max(...writeSizes)).toBeLessThanOrEqual(8 * 1024 * 1024);
   });
 });

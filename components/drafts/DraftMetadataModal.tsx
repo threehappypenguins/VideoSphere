@@ -25,6 +25,7 @@ import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-s
 import {
   buildBackupFileName,
   buildBackupRemoteRelativePath,
+  MAX_BACKUP_METADATA_FIELD_LENGTH,
   MAX_BACKUP_SERIES_LENGTH,
   MAX_BACKUP_SUFFIX_LENGTH,
   normalizeBackupFileNameSettings,
@@ -41,6 +42,7 @@ import {
   parseSharedTagInput,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
+import { UploadHistoryJobActions } from '@/components/uploads/UploadHistoryJobActions';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
@@ -1669,6 +1671,7 @@ export function DraftMetadataModal({
     const platform = selectedBackupTitlePlatforms[0];
     return (value.platforms[platform]?.titleOverride ?? value.title).trim() || 'Title of Video';
   }, [value, usesSharedTitleGlobally, selectedBackupTitlePlatforms]);
+  const backupMetadataYear = effectiveBackupDatePrefix.slice(0, 4);
   const backupFileNamePreview = useMemo(() => {
     if (!value) return '';
     const previewSettings = {
@@ -4227,11 +4230,11 @@ export function DraftMetadataModal({
               <DraftModalCard>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm font-medium text-foreground">Backup filename</p>
+                    <p className="text-sm font-medium text-foreground">Backup</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Applies to Google Drive, SFTP, and SMB backups. Uses the selected date,
-                      optional series label, video title, and optional suffix under your configured
-                      remote folder. Invalid filename characters are removed automatically.
+                      Applies to Google Drive, SFTP, and SMB backups. Configure filename segments,
+                      optional file metadata, and the remote folder layout under your configured
+                      backup root. Invalid filename characters are removed automatically.
                     </p>
                   </div>
                   <div className="space-y-3">
@@ -4404,6 +4407,86 @@ export function DraftMetadataModal({
                           onChange={(event) => updateBackupNaming({ suffix: event.target.value })}
                           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
                         />
+                      ) : null}
+                    </div>
+                    <div className="space-y-3 border-t border-border pt-3">
+                      <label className="inline-flex items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={backupNaming.metadataEnabled === true}
+                          onChange={(event) =>
+                            updateBackupNaming({ metadataEnabled: event.target.checked })
+                          }
+                        />
+                        Add file metadata
+                      </label>
+                      {backupNaming.metadataEnabled ? (
+                        <div className="space-y-3">
+                          <p className="text-xs text-muted-foreground">
+                            Injects MP4/MOV metadata atoms during upload (no re-encode). Title comes
+                            from the backup title (
+                            <span className="font-mono text-foreground">{backupPreviewTitle}</span>
+                            ). Year comes from the selected date (
+                            <span className="font-mono text-foreground">{backupMetadataYear}</span>
+                            ).
+                          </p>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <label
+                                htmlFor="backup-metadata-album-artist"
+                                className="text-xs text-muted-foreground"
+                              >
+                                Album Artist
+                              </label>
+                              <input
+                                id="backup-metadata-album-artist"
+                                value={backupNaming.albumArtist ?? ''}
+                                maxLength={MAX_BACKUP_METADATA_FIELD_LENGTH}
+                                placeholder="Album artist"
+                                onChange={(event) =>
+                                  updateBackupNaming({ albumArtist: event.target.value })
+                                }
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label
+                                htmlFor="backup-metadata-album"
+                                className="text-xs text-muted-foreground"
+                              >
+                                Album
+                              </label>
+                              <input
+                                id="backup-metadata-album"
+                                value={backupNaming.album ?? ''}
+                                maxLength={MAX_BACKUP_METADATA_FIELD_LENGTH}
+                                placeholder="Album"
+                                onChange={(event) =>
+                                  updateBackupNaming({ album: event.target.value })
+                                }
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                              />
+                            </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <label
+                                htmlFor="backup-metadata-genre"
+                                className="text-xs text-muted-foreground"
+                              >
+                                Genre
+                              </label>
+                              <input
+                                id="backup-metadata-genre"
+                                value={backupNaming.genre ?? ''}
+                                maxLength={MAX_BACKUP_METADATA_FIELD_LENGTH}
+                                placeholder="Genre"
+                                onChange={(event) =>
+                                  updateBackupNaming({ genre: event.target.value })
+                                }
+                                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                              />
+                            </div>
+                          </div>
+                        </div>
                       ) : null}
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -5399,12 +5482,15 @@ export function DraftMetadataModal({
                           hidden={!uploadHistoryExpanded}
                           className="mt-2 space-y-2"
                         >
+                          <UploadHistoryJobActions
+                            job={item}
+                            onChanged={() => (draftId ? loadUploadHistory(draftId) : undefined)}
+                            disabled={retryingUploadKey !== null}
+                          />
                           {item.platforms.map((platform) => {
                             const retryKey = `${item.uploadJobId}:${platform.platform}`;
                             const showRetry =
-                              item.status === 'failed' &&
-                              platform.status === 'failed' &&
-                              platform.retryable;
+                              item.status === 'failed' && platform.status === 'failed';
                             const isExpired =
                               platform.status === 'failed' && item.r2FileAvailable === false;
                             return (

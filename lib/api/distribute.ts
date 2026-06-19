@@ -12,11 +12,31 @@ import type {
   PlatformUpload,
   PlatformUploadStatus,
 } from '@/types';
-import { buildBackupFileName, resolveBackupYearFolderName } from '@/lib/backup-filename';
+import { Readable } from 'node:stream';
+import {
+  buildBackupFileName,
+  normalizeBackupFileNameSettings,
+  resolveBackupYearFolderName,
+} from '@/lib/backup-filename';
+import {
+  createSharedBackupMetadataSession,
+  prepareBackupMetadataVideoForUpload,
+  resolveBackupInjectedMetadata,
+  shouldInjectBackupMetadata,
+  type BackupInjectedMetadata,
+  type PreparedBackupMetadataVideo,
+  type SharedBackupMetadataSession,
+} from '@/lib/backup-metadata';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
 import { isDraftThumbnailPlatform } from '@/lib/draft-thumbnail';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
-import { deleteObject, getObjectWebStream, isDraftThumbnailFinalKeyForUser } from '@/lib/r2';
+import {
+  deleteObject,
+  getObjectNodeStream,
+  getObjectWebStream,
+  headObjectMetadata,
+  isDraftThumbnailFinalKeyForUser,
+} from '@/lib/r2';
 import { getDraftById, updateDraft, type UpdateDraftInput } from '@/lib/repositories/drafts';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import { getConnectedAccountWithTokens, updateTokens } from '@/lib/repositories/connected-accounts';
@@ -260,6 +280,90 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
 }
 
 // ---------------------------------------------------------------------------
+// Shared backup metadata (one ffmpeg pass per job)
+// ---------------------------------------------------------------------------
+
+function isBackupPlatform(
+  platform: ConnectedAccountPlatform
+): platform is 'google_drive' | 'sftp' | 'smb' {
+  return platform === 'google_drive' || platform === 'sftp' || platform === 'smb';
+}
+
+function backupInjectedMetadataMatches(
+  left: BackupInjectedMetadata,
+  right: BackupInjectedMetadata
+): boolean {
+  return (
+    left.title === right.title &&
+    left.albumArtist === right.albumArtist &&
+    left.album === right.album &&
+    left.genre === right.genre &&
+    left.year === right.year
+  );
+}
+
+/**
+ * When any backup target needs metadata injection, prepares a shared session so Drive/SFTP/SMB
+ * fan out from a single R2 download and ffmpeg pass instead of one per platform.
+ * Returns null when backup targets resolve different injectable metadata (e.g. per-platform
+ * title overrides), since a single ffmpeg output can only embed one title atom.
+ */
+async function createSharedBackupMetadataSessionForJob(
+  r2ObjectKey: string,
+  platformUploads: PlatformUpload[],
+  metadataByPlatformId: Map<string, PlatformUploadMetadata>
+): Promise<SharedBackupMetadataSession | null> {
+  const backupUploads = platformUploads.filter((platformUpload) =>
+    isBackupPlatform(platformUpload.platform)
+  );
+  if (backupUploads.length === 0) {
+    return null;
+  }
+
+  const backupMetas = backupUploads
+    .map((platformUpload) => metadataByPlatformId.get(platformUpload.id))
+    .filter((meta): meta is PlatformUploadMetadata => meta != null);
+
+  if (backupMetas.length === 0) {
+    return null;
+  }
+
+  const referenceMeta = backupMetas[0];
+  if (normalizeBackupFileNameSettings(referenceMeta.backupNaming).metadataEnabled !== true) {
+    return null;
+  }
+
+  const injectedMetadata = resolveBackupInjectedMetadata({
+    title: referenceMeta.title,
+    settings: referenceMeta.backupNaming,
+  });
+
+  const allShareInjectedMetadata = backupMetas.every((meta) =>
+    backupInjectedMetadataMatches(
+      injectedMetadata,
+      resolveBackupInjectedMetadata({
+        title: meta.title,
+        settings: meta.backupNaming,
+      })
+    )
+  );
+
+  if (!allShareInjectedMetadata) {
+    return null;
+  }
+
+  const objectMeta = await headObjectMetadata(r2ObjectKey);
+
+  return createSharedBackupMetadataSession({
+    openSource: (signal) => getObjectNodeStream(r2ObjectKey, { signal }),
+    expectedContentLength: objectMeta.contentLength,
+    sourceContentType: objectMeta.contentType,
+    backupNaming: referenceMeta.backupNaming,
+    injectedMetadata,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Single-platform upload
 // ---------------------------------------------------------------------------
 
@@ -269,7 +373,8 @@ async function runSinglePlatformUpload(
   platformUpload: PlatformUpload,
   metadata: PlatformUploadMetadata,
   saApiKeyByPlatformUploadId: Map<string, string>,
-  saCustomThumbnailUploadedByPlatformUploadId: Map<string, boolean>
+  saCustomThumbnailUploadedByPlatformUploadId: Map<string, boolean>,
+  sharedBackupMetadataSession: SharedBackupMetadataSession | null
 ): Promise<void> {
   try {
     await requireUpdatePlatformUploadStatus(platformUpload.id, 'uploading');
@@ -309,9 +414,92 @@ async function runSinglePlatformUpload(
     // Each attempt opens a new R2 GetObject stream so uploads stay parallel-safe and
     // we never buffer multi‑GB files in RAM (unlike a shared presigned fetch() body).
     const executeUpload = async (signal: AbortSignal) => {
+      if (isBackupPlatform(platformUpload.platform)) {
+        let videoStream: ReadableStream<Uint8Array>;
+        let uploadContentLength: number;
+        let uploadContentType: string;
+        let preparedMetadata: PreparedBackupMetadataVideo | null = null;
+
+        try {
+          if (sharedBackupMetadataSession) {
+            preparedMetadata = await sharedBackupMetadataSession.openUploadStream(signal);
+            videoStream = preparedMetadata.stream;
+            uploadContentLength = preparedMetadata.contentLength;
+            uploadContentType = preparedMetadata.contentType;
+          } else {
+            const nodeObject = await getObjectNodeStream(r2ObjectKey, { signal });
+            uploadContentLength = nodeObject.contentLength;
+            uploadContentType = nodeObject.contentType;
+
+            if (shouldInjectBackupMetadata(metadata.backupNaming, nodeObject.contentType)) {
+              preparedMetadata = await prepareBackupMetadataVideoForUpload({
+                source: nodeObject.readable,
+                expectedContentLength: nodeObject.contentLength,
+                sourceContentType: nodeObject.contentType,
+                metadata: resolveBackupInjectedMetadata({
+                  title: metadata.title,
+                  settings: metadata.backupNaming,
+                }),
+                signal,
+              });
+              videoStream = preparedMetadata.stream;
+              uploadContentLength = preparedMetadata.contentLength;
+              uploadContentType = preparedMetadata.contentType;
+            } else {
+              videoStream = Readable.toWeb(nodeObject.readable) as ReadableStream<Uint8Array>;
+            }
+          }
+
+          const fileName = buildBackupFileName({
+            title: metadata.title,
+            contentType: uploadContentType,
+            settings: metadata.backupNaming,
+          });
+          const yearFolderName = resolveBackupYearFolderName(metadata.backupNaming);
+
+          if (platformUpload.platform === 'google_drive') {
+            return uploadToGoogleDrive({
+              connectedAccount,
+              videoStream,
+              contentLength: uploadContentLength,
+              contentType: uploadContentType,
+              fileName,
+              yearFolderName,
+              tokens,
+              signal,
+            });
+          }
+
+          if (platformUpload.platform === 'sftp') {
+            return uploadToSftp({
+              connectedAccount,
+              videoStream,
+              contentLength: uploadContentLength,
+              contentType: uploadContentType,
+              fileName,
+              yearFolderName,
+              signal,
+            });
+          }
+
+          return uploadToSmb({
+            connectedAccount,
+            videoStream,
+            contentLength: uploadContentLength,
+            contentType: uploadContentType,
+            fileName,
+            yearFolderName,
+            signal,
+          });
+        } finally {
+          await preparedMetadata?.dispose();
+        }
+      }
+
       const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
         signal,
       });
+
       if (platformUpload.platform === 'youtube') {
         return uploadToYouTube({
           videoStream: stream,
@@ -330,58 +518,6 @@ async function runSinglePlatformUpload(
           contentType,
           metadata,
           tokens,
-          signal,
-        });
-      }
-
-      if (platformUpload.platform === 'google_drive') {
-        const fileName = buildBackupFileName({
-          title: metadata.title,
-          contentType,
-          settings: metadata.backupNaming,
-        });
-        return uploadToGoogleDrive({
-          connectedAccount,
-          videoStream: stream,
-          contentLength,
-          contentType,
-          fileName,
-          yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
-          tokens,
-          signal,
-        });
-      }
-
-      if (platformUpload.platform === 'sftp') {
-        const fileName = buildBackupFileName({
-          title: metadata.title,
-          contentType,
-          settings: metadata.backupNaming,
-        });
-        return uploadToSftp({
-          connectedAccount,
-          videoStream: stream,
-          contentLength,
-          contentType,
-          fileName,
-          yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
-          signal,
-        });
-      }
-
-      if (platformUpload.platform === 'smb') {
-        const fileName = buildBackupFileName({
-          title: metadata.title,
-          contentType,
-          settings: metadata.backupNaming,
-        });
-        return uploadToSmb({
-          connectedAccount,
-          videoStream: stream,
-          contentLength,
-          contentType,
-          fileName,
-          yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
           signal,
         });
       }
@@ -409,7 +545,7 @@ async function runSinglePlatformUpload(
         });
       }
 
-      // Exhaustive platform check — throw on unsupported platforms
+      // Exhaustive platform check — TypeScript error if a platform lacks an upload path.
       const exhaustiveCheck: never = platformUpload.platform;
       throw new Error(`Unsupported platform: ${exhaustiveCheck}`);
     };
@@ -539,7 +675,7 @@ const MAX_DRAFT_THUMBNAIL_UPDATE_ATTEMPTS = 3;
  * @param platformUploads - Platform upload rows included in this distribution attempt.
  * @param metadataByPlatformId - Metadata snapshot keyed by platform upload id.
  */
-async function cleanupDistributedDraftThumbnails(
+export async function cleanupDistributedDraftThumbnails(
   jobId: string,
   userId: string,
   draftId: string,
@@ -679,7 +815,13 @@ export async function runDistributionInBackground(
   const subsetRetry = options?.subsetRetry === true;
   const saApiKeyByPlatformUploadId = new Map<string, string>();
   const saCustomThumbnailUploadedByPlatformUploadId = new Map<string, boolean>();
+  let sharedBackupMetadataSession: SharedBackupMetadataSession | null = null;
   try {
+    sharedBackupMetadataSession = await createSharedBackupMetadataSessionForJob(
+      r2ObjectKey,
+      platformUploads,
+      metadataByPlatformId
+    );
     await Promise.all(
       platformUploads.map((platformUpload) => {
         const meta = metadataByPlatformId.get(platformUpload.id);
@@ -692,7 +834,8 @@ export async function runDistributionInBackground(
           platformUpload,
           meta,
           saApiKeyByPlatformUploadId,
-          saCustomThumbnailUploadedByPlatformUploadId
+          saCustomThumbnailUploadedByPlatformUploadId,
+          sharedBackupMetadataSession
         );
       })
     );
@@ -805,5 +948,6 @@ export async function runDistributionInBackground(
     });
   } finally {
     saApiKeyByPlatformUploadId.clear();
+    await sharedBackupMetadataSession?.dispose();
   }
 }

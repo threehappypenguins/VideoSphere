@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+import { Readable } from 'node:stream';
 import type { CreatePlatformUploadInput } from '@/lib/repositories/platform-uploads';
 
 vi.mock('next/server', async (importOriginal) => {
@@ -40,6 +41,8 @@ const mockEnsurePlatformUploadsForJobTargets = vi.fn();
 const mockGetConnectedAccountWithTokens = vi.fn();
 const mockUpdateTokens = vi.fn();
 const mockGetObjectWebStream = vi.fn();
+const mockGetObjectNodeStream = vi.fn();
+const mockHeadObjectMetadata = vi.fn();
 const mockDeleteObject = vi.fn();
 const mockUploadToYouTube = vi.fn();
 const mockRefreshYouTubeAccessToken = vi.fn();
@@ -87,6 +90,8 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   return {
     ...actual,
     getObjectWebStream: (...args: unknown[]) => mockGetObjectWebStream(...args),
+    getObjectNodeStream: (...args: unknown[]) => mockGetObjectNodeStream(...args),
+    headObjectMetadata: (...args: unknown[]) => mockHeadObjectMetadata(...args),
     deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
   };
 });
@@ -279,6 +284,15 @@ describe('POST /api/uploads/distribute', () => {
           controller.close();
         },
       }),
+      contentLength: 1024,
+      contentType: 'video/mp4',
+    });
+    mockHeadObjectMetadata.mockResolvedValue({
+      contentLength: 1024,
+      contentType: 'video/mp4',
+    });
+    mockGetObjectNodeStream.mockResolvedValue({
+      readable: Readable.from([]),
       contentLength: 1024,
       contentType: 'video/mp4',
     });
