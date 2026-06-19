@@ -38,6 +38,11 @@ export interface PreparedBackupMetadataVideo {
   contentLength: number;
   /** MIME type of {@link stream}, matching the source container (e.g. MP4 or QuickTime). */
   contentType: string;
+  /**
+   * Releases temp staging files. Safe to call after the stream is fully consumed; required when an
+   * upload fails before reading {@link stream} (e.g. resumable session init errors).
+   */
+  dispose: () => Promise<void>;
 }
 
 /**
@@ -346,7 +351,7 @@ async function runFfmpegMetadataCopy(input: {
  * piping into ffmpeg stdin cannot demux the full media; a seekable temp copy is required for reliable
  * metadata injection without re-encoding.
  * @param input - Node readable source, expected byte length, source MIME type, metadata fields, and optional abort signal.
- * @returns Upload stream, content length, and preserved container MIME type. Temp files are removed after the stream finishes.
+ * @returns Upload stream, content length, preserved container MIME type, and {@link PreparedBackupMetadataVideo.dispose}.
  */
 export async function prepareBackupMetadataVideoForUpload(input: {
   source: Readable;
@@ -363,7 +368,12 @@ export async function prepareBackupMetadataVideoForUpload(input: {
     signal: input.signal,
   });
 
-  const cleanup = async () => {
+  let cleanedUp = false;
+  const cleanupWorkDir = async () => {
+    if (cleanedUp) {
+      return;
+    }
+    cleanedUp = true;
     await rm(artifact.workDir, { recursive: true, force: true }).catch(() => {});
   };
 
@@ -371,9 +381,13 @@ export async function prepareBackupMetadataVideoForUpload(input: {
   const webStream = ReadableCtor.toWeb(nodeReadable) as ReadableStream<Uint8Array>;
 
   return {
-    stream: wrapStreamWithCleanup(webStream, cleanup),
+    stream: wrapStreamWithCleanup(webStream, cleanupWorkDir),
     contentLength: artifact.contentLength,
     contentType: artifact.contentType,
+    dispose: async () => {
+      await webStream.cancel().catch(() => {});
+      await cleanupWorkDir();
+    },
   };
 }
 
@@ -419,6 +433,9 @@ export class SharedBackupMetadataSession {
       stream: webStream,
       contentLength: artifact.contentLength,
       contentType: artifact.contentType,
+      dispose: async () => {
+        await webStream.cancel().catch(() => {});
+      },
     };
   }
 

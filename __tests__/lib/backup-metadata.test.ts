@@ -137,6 +137,7 @@ describe.skipIf(!ffmpegAvailable)('backup metadata ffmpeg integration', () => {
     }
 
     expect(streamedBytes).toBe(prepared.contentLength);
+    await prepared.dispose();
   }, 15000);
 
   it('preserves QuickTime container for MOV metadata injection', async () => {
@@ -153,6 +154,23 @@ describe.skipIf(!ffmpegAvailable)('backup metadata ffmpeg integration', () => {
 
     expect(prepared.contentType).toBe('video/quicktime');
     expect(prepared.contentLength).toBeGreaterThan(1000);
+    await prepared.dispose();
+  }, 15000);
+
+  it('disposes temp staging files when the prepared stream is never read', async () => {
+    const path = join(tmpdir(), `videosphere-backup-meta-dispose-${Date.now()}.mp4`);
+    await createTinyMp4(path);
+    const inputSize = (await import('node:fs/promises')).stat(path).then((s) => s.size);
+
+    const prepared = await prepareBackupMetadataVideoForUpload({
+      source: createReadStream(path),
+      expectedContentLength: await inputSize,
+      sourceContentType: 'video/mp4',
+      metadata: { title: 'Unused stream', year: '2026' },
+    });
+
+    await expect(prepared.dispose()).resolves.toBeUndefined();
+    await expect(prepared.dispose()).resolves.toBeUndefined();
   }, 15000);
 
   it('fans one ffmpeg pass to multiple upload streams', async () => {

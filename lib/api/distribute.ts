@@ -24,6 +24,7 @@ import {
   resolveBackupInjectedMetadata,
   shouldInjectBackupMetadata,
   type BackupInjectedMetadata,
+  type PreparedBackupMetadataVideo,
   type SharedBackupMetadataSession,
 } from '@/lib/backup-metadata';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
@@ -417,77 +418,82 @@ async function runSinglePlatformUpload(
         let videoStream: ReadableStream<Uint8Array>;
         let uploadContentLength: number;
         let uploadContentType: string;
+        let preparedMetadata: PreparedBackupMetadataVideo | null = null;
 
-        if (sharedBackupMetadataSession) {
-          const prepared = await sharedBackupMetadataSession.openUploadStream(signal);
-          videoStream = prepared.stream;
-          uploadContentLength = prepared.contentLength;
-          uploadContentType = prepared.contentType;
-        } else {
-          const nodeObject = await getObjectNodeStream(r2ObjectKey, { signal });
-          uploadContentLength = nodeObject.contentLength;
-          uploadContentType = nodeObject.contentType;
-
-          if (shouldInjectBackupMetadata(metadata.backupNaming, nodeObject.contentType)) {
-            const prepared = await prepareBackupMetadataVideoForUpload({
-              source: nodeObject.readable,
-              expectedContentLength: nodeObject.contentLength,
-              sourceContentType: nodeObject.contentType,
-              metadata: resolveBackupInjectedMetadata({
-                title: metadata.title,
-                settings: metadata.backupNaming,
-              }),
-              signal,
-            });
+        try {
+          if (sharedBackupMetadataSession) {
+            const prepared = await sharedBackupMetadataSession.openUploadStream(signal);
             videoStream = prepared.stream;
             uploadContentLength = prepared.contentLength;
             uploadContentType = prepared.contentType;
           } else {
-            videoStream = Readable.toWeb(nodeObject.readable) as ReadableStream<Uint8Array>;
+            const nodeObject = await getObjectNodeStream(r2ObjectKey, { signal });
+            uploadContentLength = nodeObject.contentLength;
+            uploadContentType = nodeObject.contentType;
+
+            if (shouldInjectBackupMetadata(metadata.backupNaming, nodeObject.contentType)) {
+              preparedMetadata = await prepareBackupMetadataVideoForUpload({
+                source: nodeObject.readable,
+                expectedContentLength: nodeObject.contentLength,
+                sourceContentType: nodeObject.contentType,
+                metadata: resolveBackupInjectedMetadata({
+                  title: metadata.title,
+                  settings: metadata.backupNaming,
+                }),
+                signal,
+              });
+              videoStream = preparedMetadata.stream;
+              uploadContentLength = preparedMetadata.contentLength;
+              uploadContentType = preparedMetadata.contentType;
+            } else {
+              videoStream = Readable.toWeb(nodeObject.readable) as ReadableStream<Uint8Array>;
+            }
           }
-        }
 
-        const fileName = buildBackupFileName({
-          title: metadata.title,
-          contentType: uploadContentType,
-          settings: metadata.backupNaming,
-        });
-        const yearFolderName = resolveBackupYearFolderName(metadata.backupNaming);
+          const fileName = buildBackupFileName({
+            title: metadata.title,
+            contentType: uploadContentType,
+            settings: metadata.backupNaming,
+          });
+          const yearFolderName = resolveBackupYearFolderName(metadata.backupNaming);
 
-        if (platformUpload.platform === 'google_drive') {
-          return uploadToGoogleDrive({
+          if (platformUpload.platform === 'google_drive') {
+            return uploadToGoogleDrive({
+              connectedAccount,
+              videoStream,
+              contentLength: uploadContentLength,
+              contentType: uploadContentType,
+              fileName,
+              yearFolderName,
+              tokens,
+              signal,
+            });
+          }
+
+          if (platformUpload.platform === 'sftp') {
+            return uploadToSftp({
+              connectedAccount,
+              videoStream,
+              contentLength: uploadContentLength,
+              contentType: uploadContentType,
+              fileName,
+              yearFolderName,
+              signal,
+            });
+          }
+
+          return uploadToSmb({
             connectedAccount,
             videoStream,
             contentLength: uploadContentLength,
             contentType: uploadContentType,
             fileName,
             yearFolderName,
-            tokens,
             signal,
           });
+        } finally {
+          await preparedMetadata?.dispose();
         }
-
-        if (platformUpload.platform === 'sftp') {
-          return uploadToSftp({
-            connectedAccount,
-            videoStream,
-            contentLength: uploadContentLength,
-            contentType: uploadContentType,
-            fileName,
-            yearFolderName,
-            signal,
-          });
-        }
-
-        return uploadToSmb({
-          connectedAccount,
-          videoStream,
-          contentLength: uploadContentLength,
-          contentType: uploadContentType,
-          fileName,
-          yearFolderName,
-          signal,
-        });
       }
 
       const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
