@@ -334,4 +334,15 @@ describe('resolveUniqueBackupFileName', () => {
       })
     ).toBe('Sunday Service (1).mp4');
   });
+
+  it('throws when every duplicate slot through the cap is occupied', () => {
+    const existing = [`Sunday Service.mp4`];
+    for (let i = 1; i <= 9999; i += 1) {
+      existing.push(`Sunday Service (${i}).mp4`);
+    }
+
+    expect(() => resolveUniqueBackupFileName('Sunday Service.mp4', existing)).toThrow(
+      /No available backup filename/
+    );
+  });
 });

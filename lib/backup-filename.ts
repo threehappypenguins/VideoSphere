@@ -420,7 +420,11 @@ export function buildBackupRemoteRelativePath(input: {
   return `${yearFolder}/${fileName}`;
 }
 
-/** Maximum numeric suffix tried when disambiguating backup filenames on SFTP/SMB. */
+/**
+ * Maximum numeric suffix tried when disambiguating backup filenames on SFTP/SMB.
+ * Ten thousand variants of the same stem in one folder is far beyond realistic backup
+ * usage (re-uploading the same draft a handful of times), so we cap the search here.
+ */
 export const MAX_BACKUP_FILE_COPY_SUFFIX = 9999;
 
 function splitBackupFileName(fileName: string): { stem: string; ext: string } {
@@ -482,6 +486,8 @@ function parseBackupFileCopyIndex(
  * @param options - Matching options for remote filesystem semantics.
  * @param options.caseInsensitive - When true, treats names as equal regardless of case (SMB).
  * @returns A filename that does not collide with `existingFileNames` under the chosen rules.
+ * @throws {Error} When every slot from the base name through
+ *   {@link MAX_BACKUP_FILE_COPY_SUFFIX} is already occupied (not expected in practice).
  */
 export function resolveUniqueBackupFileName(
   fileName: string,
@@ -510,5 +516,10 @@ export function resolveUniqueBackupFileName(
     }
   }
 
-  return `${stem} (${MAX_BACKUP_FILE_COPY_SUFFIX})${ext}`;
+  // Exhaustion requires base + (1)..(9999) all present in one folder — not a realistic backup
+  // scenario (users might collide a few times reusing a draft, not thousands). Fail loudly
+  // instead of returning an occupied name and risking overwrite.
+  throw new Error(
+    `No available backup filename for "${trimmed}" after ${MAX_BACKUP_FILE_COPY_SUFFIX} duplicates in the target folder.`
+  );
 }

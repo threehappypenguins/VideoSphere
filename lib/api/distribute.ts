@@ -422,10 +422,10 @@ async function runSinglePlatformUpload(
 
         try {
           if (sharedBackupMetadataSession) {
-            const prepared = await sharedBackupMetadataSession.openUploadStream(signal);
-            videoStream = prepared.stream;
-            uploadContentLength = prepared.contentLength;
-            uploadContentType = prepared.contentType;
+            preparedMetadata = await sharedBackupMetadataSession.openUploadStream(signal);
+            videoStream = preparedMetadata.stream;
+            uploadContentLength = preparedMetadata.contentLength;
+            uploadContentType = preparedMetadata.contentType;
           } else {
             const nodeObject = await getObjectNodeStream(r2ObjectKey, { signal });
             uploadContentLength = nodeObject.contentLength;
