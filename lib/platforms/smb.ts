@@ -143,6 +143,16 @@ function isSmbNameCollisionError(err: unknown): boolean {
 }
 
 /**
+ * Returns whether an SMB client error indicates a timed-out Write request.
+ * `node-smb2` reports these as `request_timeout: Write(<id>)`; other operations use different labels.
+ * @param message - Error message from the SMB client.
+ * @returns True when the timeout specifically occurred during a Write.
+ */
+function isSmbWriteRequestTimeoutError(message: string): boolean {
+  return /request_timeout:\s*write\s*\(/i.test(message);
+}
+
+/**
  * Builds a human-readable message from SMB client errors, including non-Error response rejections.
  * @param err - Thrown value from the SMB client.
  * @returns Message suitable for logs and API `details`.
@@ -634,6 +644,14 @@ function waitForWritableComplete(writeStream: Writable): Promise<void> {
   });
 }
 
+/** Returns a Buffer view over `chunk` without copying when the input is already bytes-backed. */
+function toWritableBuffer(chunk: Uint8Array): Buffer {
+  if (Buffer.isBuffer(chunk)) {
+    return chunk;
+  }
+  return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+}
+
 function writeToSmbStream(writeStream: Writable, chunk: Uint8Array): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (err: Error) => {
@@ -648,7 +666,7 @@ function writeToSmbStream(writeStream: Writable, chunk: Uint8Array): Promise<voi
     };
 
     writeStream.on('error', onError);
-    if (writeStream.write(Buffer.from(chunk))) {
+    if (writeStream.write(toWritableBuffer(chunk))) {
       writeStream.off('error', onError);
       writeStream.off('drain', onDrain);
       resolve();
@@ -697,7 +715,7 @@ async function pipeWebStreamToSmbWriteStream(
         throw new Error('SMB upload aborted');
       }
       const chunk =
-        rawChunk instanceof Buffer ? new Uint8Array(rawChunk) : (rawChunk as Uint8Array);
+        rawChunk instanceof Uint8Array ? rawChunk : new Uint8Array(rawChunk as ArrayLike<number>);
       for (const block of buffer.takeWritableChunks(chunk)) {
         if (streamFailure) {
           throw streamFailure;
@@ -817,7 +835,7 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
     const message = messageFromSmbThrown(err);
     const lower = message.toLowerCase();
 
-    if (lower.includes('request_timeout') || lower.startsWith('request_timeout:')) {
+    if (isSmbWriteRequestTimeoutError(message)) {
       return toError(
         'SMB_WRITE_FAILED',
         'SMB write timed out waiting for the server. The share may be slow or overloaded.',

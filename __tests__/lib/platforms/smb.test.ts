@@ -557,6 +557,24 @@ describe('uploadToSmb', () => {
     });
   });
 
+  it('classifies non-write request timeouts as connection failures', async () => {
+    mocks.mockAuthenticate.mockRejectedValueOnce(new Error('request_timeout: SessionSetup(1)'));
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: 'My Backup.mp4',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: 'SMB_CONNECTION_FAILED',
+        details: 'request_timeout: SessionSetup(1)',
+      }),
+    });
+  });
+
   it('coalesces small source chunks up to the SMB write limit', async () => {
     const writeSizes: number[] = [];
     mocks.mockCreateFileWriteStream.mockImplementation(() => {
