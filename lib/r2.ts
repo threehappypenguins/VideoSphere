@@ -289,18 +289,16 @@ export async function headObjectMetadata(
 }
 
 /**
- * Stream object bytes from R2 using the S3 API (not HTTP fetch to a presigned URL).
- *
- * Each call performs its own GetObject and returns an independent Web ReadableStream.
- * That lets multiple platforms read the same object in parallel without sharing a
- * single fetch() Response body (which can trigger "body disturbed or locked"), and
- * without buffering the entire object in memory (important for multi‑GB files).
+ * Opens an R2 object for streaming reads via the S3 GetObject body.
+ * @param key - R2 object key.
+ * @param options - Optional abort signal for the GetObject request.
+ * @returns Node readable body, content length, and MIME type.
  */
-export async function getObjectWebStream(
+async function openObjectNodeStream(
   key: string,
   options?: { signal?: AbortSignal }
 ): Promise<{
-  stream: ReadableStream<Uint8Array>;
+  readable: Readable;
   contentLength: number;
   contentType: string;
 }> {
@@ -340,9 +338,6 @@ export async function getObjectWebStream(
     throw new Error(`R2 GetObject returned empty body for key "${key}"`);
   }
 
-  const nodeReadable = response.Body as Readable;
-  const stream = Readable.toWeb(nodeReadable) as ReadableStream<Uint8Array>;
-
   let contentLength = response.ContentLength ?? 0;
   if (!Number.isFinite(contentLength) || contentLength <= 0) {
     contentLength = await headObject(key, { signal: options?.signal });
@@ -355,6 +350,49 @@ export async function getObjectWebStream(
   const contentType =
     trimmedType && trimmedType.length > 0 ? trimmedType : 'application/octet-stream';
 
+  return {
+    readable: response.Body as Readable,
+    contentLength,
+    contentType,
+  };
+}
+
+/**
+ * Stream object bytes from R2 as a Node.js {@link Readable}.
+ * Prefer this for ffmpeg stdin piping; avoid converting to a Web ReadableStream first.
+ * @param key - R2 object key.
+ * @param options - Optional abort signal for the GetObject request.
+ * @returns Node readable body, content length, and MIME type.
+ */
+export async function getObjectNodeStream(
+  key: string,
+  options?: { signal?: AbortSignal }
+): Promise<{
+  readable: Readable;
+  contentLength: number;
+  contentType: string;
+}> {
+  return openObjectNodeStream(key, options);
+}
+
+/**
+ * Stream object bytes from R2 using the S3 API (not HTTP fetch to a presigned URL).
+ *
+ * Each call performs its own GetObject and returns an independent Web ReadableStream.
+ * That lets multiple platforms read the same object in parallel without sharing a
+ * single fetch() Response body (which can trigger "body disturbed or locked"), and
+ * without buffering the entire object in memory (important for multi‑GB files).
+ */
+export async function getObjectWebStream(
+  key: string,
+  options?: { signal?: AbortSignal }
+): Promise<{
+  stream: ReadableStream<Uint8Array>;
+  contentLength: number;
+  contentType: string;
+}> {
+  const { readable, contentLength, contentType } = await openObjectNodeStream(key, options);
+  const stream = Readable.toWeb(readable) as ReadableStream<Uint8Array>;
   return { stream, contentLength, contentType };
 }
 

@@ -59,6 +59,10 @@ describe('backup filename helpers', () => {
     const normalized = normalizeBackupFileNameSettings(undefined);
     expect(normalized.datePrefixDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(isValidCalendarDateString(normalized.datePrefixDate ?? '')).toBe(true);
+    expect(normalized.metadataEnabled).toBe(false);
+    expect(normalized.albumArtist).toBe('');
+    expect(normalized.album).toBe('');
+    expect(normalized.genre).toBe('');
   });
 
   it('defaults missing date prefix date to today', () => {

@@ -97,6 +97,14 @@ export interface BackupFileNameSettings {
   suffix?: string;
   /** When true, store backups in a `{year}/` subfolder under the configured remote root. Default true. */
   yearFolderEnabled?: boolean;
+  /** When true, inject MP4/MOV metadata atoms during backup upload via ffmpeg (no re-encode). Default false. */
+  metadataEnabled?: boolean;
+  /** Album artist metadata (`album_artist` atom) when {@link metadataEnabled} is true. */
+  albumArtist?: string;
+  /** Album metadata (`album` atom) when {@link metadataEnabled} is true. */
+  album?: string;
+  /** Genre metadata (`genre` atom) when {@link metadataEnabled} is true. */
+  genre?: string;
 }
 
 /** SFTP backup fields inside the draft `document.platforms` JSON. */

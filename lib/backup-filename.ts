@@ -6,6 +6,9 @@ export const MAX_BACKUP_SERIES_LENGTH = 64;
 /** Maximum length for the optional backup filename suffix segment. */
 export const MAX_BACKUP_SUFFIX_LENGTH = 64;
 
+/** Maximum length for injectable backup metadata text fields (album artist, album, genre). */
+export const MAX_BACKUP_METADATA_FIELD_LENGTH = 255;
+
 /** Default backup filename settings applied when a draft has no stored override. */
 export const DEFAULT_BACKUP_FILE_NAME_SETTINGS: Required<
   Omit<BackupFileNameSettings, 'datePrefixDate'>
@@ -19,6 +22,10 @@ export const DEFAULT_BACKUP_FILE_NAME_SETTINGS: Required<
   suffixEnabled: false,
   suffix: '',
   yearFolderEnabled: true,
+  metadataEnabled: false,
+  albumArtist: '',
+  album: '',
+  genre: '',
 };
 
 const BACKUP_DATE_FORMATS: readonly BackupDateFormat[] = [
@@ -109,6 +116,21 @@ export function normalizeBackupFileNameSettings(value: unknown): BackupFileNameS
       ? raw.suffix.slice(0, MAX_BACKUP_SUFFIX_LENGTH)
       : DEFAULT_BACKUP_FILE_NAME_SETTINGS.suffix;
 
+  const albumArtist =
+    typeof raw.albumArtist === 'string'
+      ? raw.albumArtist.slice(0, MAX_BACKUP_METADATA_FIELD_LENGTH)
+      : DEFAULT_BACKUP_FILE_NAME_SETTINGS.albumArtist;
+
+  const album =
+    typeof raw.album === 'string'
+      ? raw.album.slice(0, MAX_BACKUP_METADATA_FIELD_LENGTH)
+      : DEFAULT_BACKUP_FILE_NAME_SETTINGS.album;
+
+  const genre =
+    typeof raw.genre === 'string'
+      ? raw.genre.slice(0, MAX_BACKUP_METADATA_FIELD_LENGTH)
+      : DEFAULT_BACKUP_FILE_NAME_SETTINGS.genre;
+
   const datePrefixDate =
     typeof raw.datePrefixDate === 'string' && isValidCalendarDateString(raw.datePrefixDate)
       ? raw.datePrefixDate.trim()
@@ -143,6 +165,13 @@ export function normalizeBackupFileNameSettings(value: unknown): BackupFileNameS
       typeof raw.yearFolderEnabled === 'boolean'
         ? raw.yearFolderEnabled
         : DEFAULT_BACKUP_FILE_NAME_SETTINGS.yearFolderEnabled,
+    metadataEnabled:
+      typeof raw.metadataEnabled === 'boolean'
+        ? raw.metadataEnabled
+        : DEFAULT_BACKUP_FILE_NAME_SETTINGS.metadataEnabled,
+    albumArtist,
+    album,
+    genre,
   };
 }
 
@@ -183,6 +212,10 @@ export function mergeBackupFileNameSettingsPatch(
     ...(typeof raw.yearFolderEnabled === 'boolean'
       ? { yearFolderEnabled: raw.yearFolderEnabled }
       : {}),
+    ...(typeof raw.metadataEnabled === 'boolean' ? { metadataEnabled: raw.metadataEnabled } : {}),
+    ...(typeof raw.albumArtist === 'string' ? { albumArtist: raw.albumArtist } : {}),
+    ...(typeof raw.album === 'string' ? { album: raw.album } : {}),
+    ...(typeof raw.genre === 'string' ? { genre: raw.genre } : {}),
   });
 }
 

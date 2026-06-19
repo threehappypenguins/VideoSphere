@@ -32,6 +32,7 @@ RUN pnpm build
 
 # Stage 3: production runtime
 FROM node:${NODE_VERSION}-alpine AS runner
+RUN apk add --no-cache ffmpeg
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
