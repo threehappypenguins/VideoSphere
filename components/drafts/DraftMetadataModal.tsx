@@ -42,7 +42,8 @@ import {
   parseSharedTagInput,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
-import { UploadHistoryJobActions } from '@/components/uploads/UploadHistoryJobActions';
+import { UploadHistoryJobDiscard } from '@/components/uploads/UploadHistoryJobDiscard';
+import { UploadHistoryPlatformActions } from '@/components/uploads/UploadHistoryPlatformActions';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
@@ -472,7 +473,8 @@ function isYouTubeMetadataFullyLoaded(state: YouTubeMetadataLoadedState): boolea
   return state.languages && state.categories && state.accountDefaults;
 }
 
-type UploadModalPhase = 'confirm' | 'uploading' | 'complete';
+type UploadModalPhase = 'confirm' | 'uploading' | 'complete' | 'clearPendingConfirm';
+type ClearPendingConfirmIntent = 'closeDraft' | 'clearOnly';
 
 interface DraftMetadataModalProps {
   mode: 'create' | 'edit';
@@ -682,6 +684,8 @@ export function DraftMetadataModal({
   >({});
   const thumbnailUploading = thumbnailUploadScope !== null;
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const clearPendingConfirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+  const clearPendingConfirmIntentRef = useRef<ClearPendingConfirmIntent>('clearOnly');
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
   const aiMetadataAbortRef = useRef<AbortController | null>(null);
@@ -1364,6 +1368,9 @@ export function DraftMetadataModal({
       setUploadComplete(false);
       setUploadModalPhase(null);
       setShowUploadProgressModalHistory(false);
+      clearPendingConfirmResolverRef.current?.(false);
+      clearPendingConfirmResolverRef.current = null;
+      clearPendingConfirmIntentRef.current = 'clearOnly';
       return;
     }
     if (value.targets.length > 0) {
@@ -3312,10 +3319,23 @@ export function DraftMetadataModal({
     return true;
   };
 
-  const confirmLocalClear = () =>
-    window.confirm(
-      'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
-    );
+  const resolveClearPendingConfirm = (confirmed: boolean) => {
+    if (!clearPendingConfirmResolverRef.current) {
+      return;
+    }
+    clearPendingConfirmResolverRef.current(confirmed);
+    clearPendingConfirmResolverRef.current = null;
+    if (!confirmed) {
+      setUploadModalPhase('uploading');
+    }
+  };
+
+  const requestClearPendingConfirm = (intent: ClearPendingConfirmIntent): Promise<boolean> =>
+    new Promise((resolve) => {
+      clearPendingConfirmResolverRef.current = resolve;
+      clearPendingConfirmIntentRef.current = intent;
+      setUploadModalPhase('clearPendingConfirm');
+    });
 
   const tryCloseModal = async (): Promise<boolean> => {
     const cleared = await clearPendingVideoSelection();
@@ -3323,10 +3343,15 @@ export function DraftMetadataModal({
       onClose();
       return true;
     }
-    if (currentUploadJobId && cancelServerFailed && confirmLocalClear()) {
-      await clearPendingVideoSelection({ skipServerCancel: true });
-      onClose();
-      return true;
+    if (currentUploadJobId && cancelServerFailed) {
+      const confirmed = await requestClearPendingConfirm('closeDraft');
+      if (confirmed) {
+        await clearPendingVideoSelection({ skipServerCancel: true });
+        closeUploadModal();
+        onClose();
+        return true;
+      }
+      return false;
     }
     return false;
   };
@@ -4180,7 +4205,8 @@ export function DraftMetadataModal({
   const renderUploadHistorySection = (
     panelIdPrefix: string,
     historyExpanded: boolean,
-    onToggleHistoryExpanded: () => void
+    onToggleHistoryExpanded: () => void,
+    elevatedJobActionConfirm = false
   ) => {
     const uploadHistoryListPanelId = `${panelIdPrefix}-section`;
     const uploadHistorySectionExpanded = !isLoadingUploadHistory && historyExpanded;
@@ -4260,15 +4286,14 @@ export function DraftMetadataModal({
                         hidden={!uploadHistoryExpanded}
                         className="mt-2 space-y-2"
                       >
-                        <UploadHistoryJobActions
+                        <UploadHistoryJobDiscard
                           job={item}
                           onChanged={() => (draftId ? loadUploadHistory(draftId) : undefined)}
                           disabled={retryingUploadKey !== null}
+                          elevatedConfirmDialog={elevatedJobActionConfirm}
                         />
                         {item.platforms.map((platform) => {
                           const retryKey = `${item.uploadJobId}:${platform.platform}`;
-                          const showRetry =
-                            item.status === 'failed' && platform.status === 'failed';
                           const isExpired =
                             platform.status === 'failed' && item.r2FileAvailable === false;
                           return (
@@ -4291,19 +4316,18 @@ export function DraftMetadataModal({
                                   Video file expired — please re-upload
                                 </p>
                               ) : null}
-                              {showRetry && item.r2FileAvailable !== false ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void retryPlatformUpload(item.uploadJobId, platform.platform);
-                                  }}
-                                  disabled={retryingUploadKey !== null}
-                                  className="mt-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                                >
-                                  {retryingUploadKey === retryKey ? 'Retrying...' : 'Retry'}
-                                </button>
-                              ) : null}
-                              {platform.status === 'failed' && !showRetry && !isExpired ? (
+                              <UploadHistoryPlatformActions
+                                job={item}
+                                platform={platform}
+                                onRetry={() =>
+                                  retryPlatformUpload(item.uploadJobId, platform.platform)
+                                }
+                                retryBusy={retryingUploadKey === retryKey}
+                                disabled={retryingUploadKey !== null}
+                              />
+                              {platform.status === 'failed' &&
+                              !(item.status === 'failed') &&
+                              !isExpired ? (
                                 <p className="mt-1 text-xs text-muted-foreground">
                                   {platform.retryReason}
                                 </p>
@@ -5631,6 +5655,10 @@ export function DraftMetadataModal({
               closeUploadModal();
               return;
             }
+            if (uploadModalPhase === 'clearPendingConfirm') {
+              resolveClearPendingConfirm(false);
+              return;
+            }
             if (uploading || cancelServerFailed) {
               return;
             }
@@ -5641,7 +5669,7 @@ export function DraftMetadataModal({
         }}
       >
         <DialogContent
-          className="z-[60] flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto sm:max-w-md"
+          className="flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto sm:max-w-md"
           onInteractOutside={(event) => event.preventDefault()}
           onPointerDownOutside={(event) => event.preventDefault()}
           onFocusOutside={(event) => event.preventDefault()}
@@ -5650,20 +5678,25 @@ export function DraftMetadataModal({
             <DialogTitle>
               {uploadModalPhase === 'confirm'
                 ? 'Upload and save draft?'
-                : uploadModalPhase === 'complete'
-                  ? 'Upload complete'
-                  : 'Uploading video'}
+                : uploadModalPhase === 'clearPendingConfirm'
+                  ? 'Clear pending upload?'
+                  : uploadModalPhase === 'complete'
+                    ? 'Upload complete'
+                    : 'Uploading video'}
             </DialogTitle>
             <DialogDescription>
               {uploadModalPhase === 'confirm'
                 ? 'This will save your latest draft changes and upload the selected video using this draft. Are you sure you want to continue?'
-                : uploadModalPhase === 'complete'
-                  ? 'Your video was uploaded successfully. Distribution will continue in the background.'
-                  : 'Your video is uploading. Keep this window open until the upload finishes.'}
+                : uploadModalPhase === 'clearPendingConfirm'
+                  ? 'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
+                  : uploadModalPhase === 'complete'
+                    ? 'Your video was uploaded successfully. Distribution will continue in the background.'
+                    : 'Your video is uploading. Keep this window open until the upload finishes.'}
             </DialogDescription>
           </DialogHeader>
 
-          {uploadModalPhase === 'confirm' ? null : uploadModalPhase === 'complete' ? (
+          {uploadModalPhase === 'confirm' ||
+          uploadModalPhase === 'clearPendingConfirm' ? null : uploadModalPhase === 'complete' ? (
             <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
               <CircleCheck className="h-4 w-4 shrink-0" />
               Video uploaded successfully
@@ -5702,9 +5735,12 @@ export function DraftMetadataModal({
                   <button
                     type="button"
                     onClick={() => {
-                      if (!confirmLocalClear()) return;
-                      void clearPendingVideoSelection({ skipServerCancel: true });
-                      closeUploadModal();
+                      void (async () => {
+                        const confirmed = await requestClearPendingConfirm('clearOnly');
+                        if (!confirmed) return;
+                        await clearPendingVideoSelection({ skipServerCancel: true });
+                        closeUploadModal();
+                      })();
                     }}
                     disabled={isCancellingUpload}
                     className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
@@ -5716,11 +5752,12 @@ export function DraftMetadataModal({
             </div>
           )}
 
-          {uploadModalPhase !== 'confirm'
+          {uploadModalPhase !== 'confirm' && uploadModalPhase !== 'clearPendingConfirm'
             ? renderUploadHistorySection(
                 'upload-modal-history-panel',
                 showUploadProgressModalHistory,
-                () => setShowUploadProgressModalHistory((prev) => !prev)
+                () => setShowUploadProgressModalHistory((prev) => !prev),
+                true
               )
             : null}
 
@@ -5741,6 +5778,23 @@ export function DraftMetadataModal({
                   className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 >
                   Yes, upload
+                </button>
+              </>
+            ) : uploadModalPhase === 'clearPendingConfirm' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => resolveClearPendingConfirm(false)}
+                  className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+                >
+                  Keep pending upload
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveClearPendingConfirm(true)}
+                  className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                >
+                  Clear locally
                 </button>
               </>
             ) : uploadModalPhase === 'complete' ? (
