@@ -501,6 +501,37 @@ describe('uploadToSmb', () => {
     });
   });
 
+  it('propagates write stream errors emitted between sequential writes', async () => {
+    let writeCount = 0;
+    mocks.mockCreateFileWriteStream.mockImplementationOnce(async () => {
+      return new Writable({
+        write(_chunk, _encoding, callback) {
+          writeCount += 1;
+          callback();
+          if (writeCount === 1) {
+            queueMicrotask(() => {
+              this.emit('error', new Error('async smb write failure'));
+            });
+          }
+        },
+      });
+    });
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: 'My Backup.mp4',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: 'SMB_WRITE_FAILED',
+        details: 'async smb write failure',
+      }),
+    });
+  });
+
   it('classifies SMB request write timeouts as write failures, not connection failures', async () => {
     mocks.mockCreateFileWriteStream.mockImplementationOnce(async () => {
       return new Writable({

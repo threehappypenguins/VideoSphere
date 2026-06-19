@@ -670,6 +670,15 @@ async function pipeWebStreamToSmbWriteStream(
   const nodeReadable = Readable.fromWeb(source as NodeReadableStream<Uint8Array>);
   const buffer = new UploadWriteBuffer(SMB_MAX_WRITE_CHUNK_LENGTH);
 
+  let streamFailure: Error | undefined;
+  const noteFailure = (err: Error) => {
+    if (streamFailure == null) {
+      streamFailure = err;
+      nodeReadable.destroy(err);
+    }
+  };
+  writeStream.on('error', noteFailure);
+
   const onAbort = () => {
     nodeReadable.destroy(new Error('SMB upload aborted'));
     writeStream.destroy(new Error('SMB upload aborted'));
@@ -681,27 +690,38 @@ async function pipeWebStreamToSmbWriteStream(
 
   try {
     for await (const rawChunk of nodeReadable) {
+      if (streamFailure) {
+        throw streamFailure;
+      }
       if (signal?.aborted) {
         throw new Error('SMB upload aborted');
       }
       const chunk =
         rawChunk instanceof Buffer ? new Uint8Array(rawChunk) : (rawChunk as Uint8Array);
       for (const block of buffer.takeWritableChunks(chunk)) {
+        if (streamFailure) {
+          throw streamFailure;
+        }
         await writeToSmbStream(writeStream, block);
       }
+    }
+    if (streamFailure) {
+      throw streamFailure;
     }
     const remainder = buffer.takeRemainder();
     if (remainder) {
       await writeToSmbStream(writeStream, remainder);
     }
-    await new Promise<void>((resolve, reject) => {
-      writeStream.end((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    if (streamFailure) {
+      throw streamFailure;
+    }
+    writeStream.end();
     await waitForWritableComplete(writeStream);
+    if (streamFailure) {
+      throw streamFailure;
+    }
   } finally {
+    writeStream.off('error', noteFailure);
     if (signal) {
       signal.removeEventListener('abort', onAbort);
     }

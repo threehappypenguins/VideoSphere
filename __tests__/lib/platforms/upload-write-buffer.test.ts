@@ -42,6 +42,10 @@ describe('upload write buffer', () => {
     expect(buffer.takeRemainder()?.length).toBe(1);
   });
 
+  it.each([0, -1, NaN, Infinity])('rejects invalid chunk target %s', (chunkTarget) => {
+    expect(() => new UploadWriteBuffer(chunkTarget)).toThrow(RangeError);
+  });
+
   it('transform coalesces small writes for pipeline consumers', async () => {
     const smallChunkSize = 64 * 1024;
     const chunkCount = 130;

@@ -28,8 +28,12 @@ export class UploadWriteBuffer {
 
   /**
    * @param chunkTarget - Target block size in bytes; defaults to {@link BACKUP_UPLOAD_WRITE_CHUNK_TARGET}.
+   * @throws {RangeError} When `chunkTarget` is not a positive finite integer.
    */
   constructor(chunkTarget = BACKUP_UPLOAD_WRITE_CHUNK_TARGET) {
+    if (!Number.isFinite(chunkTarget) || !Number.isInteger(chunkTarget) || chunkTarget < 1) {
+      throw new RangeError('UploadWriteBuffer chunkTarget must be a positive integer.');
+    }
     this.chunkTarget = chunkTarget;
   }
 
