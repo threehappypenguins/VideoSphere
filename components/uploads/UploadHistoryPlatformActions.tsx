@@ -1,6 +1,6 @@
 'use client';
 
-import type { ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
+import type { ConnectedAccountPlatform, PlatformUploadStatus, UploadJobStatus } from '@/types';
 
 /** Platform row shape used by upload history platform actions. */
 export interface UploadHistoryPlatformActionsPlatform {
@@ -11,6 +11,7 @@ export interface UploadHistoryPlatformActionsPlatform {
 /** Upload job row shape used by upload history platform actions. */
 export interface UploadHistoryPlatformActionsJob {
   uploadJobId: string;
+  status: UploadJobStatus;
   r2FileAvailable: boolean | null;
 }
 
@@ -33,7 +34,7 @@ export interface UploadHistoryPlatformActionsProps {
 /**
  * Per-platform retry control for failed upload history rows.
  * @param props - Job/platform row and retry handler.
- * @returns Retry button for a failed platform when R2 source is still available.
+ * @returns Retry button for a failed platform when the job has failed and R2 source is available.
  */
 export function UploadHistoryPlatformActions({
   job,
@@ -42,7 +43,7 @@ export function UploadHistoryPlatformActions({
   retryBusy = false,
   disabled = false,
 }: UploadHistoryPlatformActionsProps) {
-  if (platform.status !== 'failed' || job.r2FileAvailable === false) {
+  if (job.status !== 'failed' || platform.status !== 'failed' || job.r2FileAvailable === false) {
     return null;
   }
 
