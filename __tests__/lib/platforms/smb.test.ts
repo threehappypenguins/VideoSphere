@@ -15,9 +15,9 @@ vi.mock('node-smb2', () => {
   class MockClient {
     host: string;
 
-    constructor(host: string) {
+    constructor(host: string, options?: { requestTimeout?: number }) {
       this.host = host;
-      mocks.MockClient(host);
+      mocks.MockClient(host, options);
     }
 
     on = vi.fn();
@@ -33,6 +33,7 @@ import {
   isValidSmbUploadPathSegment,
   resolveSmbAuthDomain,
   SMB_DEFAULT_DOMAIN,
+  SMB_MAX_WRITE_CHUNK_LENGTH,
   testSmbConnection,
   toSmbClientDirectoryPath,
   uploadToSmb,
@@ -166,6 +167,18 @@ describe('testSmbConnection', () => {
     expect(mocks.mockClose).toHaveBeenCalled();
   });
 
+  it('passes a short request timeout for connection tests', async () => {
+    await testSmbConnection({
+      host: '192.168.1.10',
+      share: 'storage',
+      username: 'user',
+      password: 'pass',
+      remotePath: '/VideoSphere',
+    });
+
+    expect(mocks.MockClient).toHaveBeenCalledWith('192.168.1.10', { requestTimeout: 5000 });
+  });
+
   it('lists the share root when remote path is /', async () => {
     const result = await testSmbConnection({
       host: '192.168.1.10',
@@ -284,7 +297,7 @@ describe('uploadToSmb', () => {
       expect(result.platformUrl).toMatch(/^smb:\/\/192\.168\.1\.10\/storage\/VideoSphere\//);
     }
 
-    expect(mocks.MockClient).toHaveBeenCalledWith('192.168.1.10');
+    expect(mocks.MockClient).toHaveBeenCalledWith('192.168.1.10', { requestTimeout: 120_000 });
     expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith('/VideoSphere/My Backup.mp4');
   });
 
@@ -303,6 +316,35 @@ describe('uploadToSmb', () => {
       expect(result.platformVideoId).toBe('/VideoSphere/My Backup (1).mp4');
     }
     expect(mocks.mockCreateFileWriteStream).toHaveBeenCalledWith('/VideoSphere/My Backup (1).mp4');
+  });
+
+  it('retries with (1) when create reports a name collision but listing missed the file', async () => {
+    mocks.mockCreateFileWriteStream
+      .mockRejectedValueOnce({
+        header: { status: 0xc0000035 },
+        typeName: 'Create',
+      })
+      .mockImplementation(async () => makeMockWriteStream());
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      contentType: 'video/mp4',
+      fileName: 'My Backup.mp4',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('/VideoSphere/My Backup (1).mp4');
+    }
+    expect(mocks.mockCreateFileWriteStream).toHaveBeenNthCalledWith(
+      1,
+      '/VideoSphere/My Backup.mp4'
+    );
+    expect(mocks.mockCreateFileWriteStream).toHaveBeenNthCalledWith(
+      2,
+      '/VideoSphere/My Backup (1).mp4'
+    );
   });
 
   it('uploads into a year subfolder when yearFolderName is provided', async () => {
@@ -339,6 +381,34 @@ describe('uploadToSmb', () => {
     });
 
     expect(mocks.mockCreateDirectory).toHaveBeenCalledWith('/VideoSphere/2026');
+  });
+
+  it('treats year-folder create name collision as success when the folder already exists', async () => {
+    let yearFolderExists = false;
+    mocks.mockReadDirectory.mockImplementation(async (directoryPath?: string) => {
+      if (directoryPath === '/VideoSphere/2026' && !yearFolderExists) {
+        throw Object.assign(new Error('not found'), { header: { status: 0xc0000034 } });
+      }
+      return [];
+    });
+    mocks.mockCreateDirectory.mockImplementation(async (directoryPath: string) => {
+      if (directoryPath === '/VideoSphere/2026') {
+        yearFolderExists = true;
+        throw Object.assign(new Error('exists'), {
+          header: { status: 0xc0000035 },
+          typeName: 'Create',
+        });
+      }
+    });
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: '20260415 - My Backup.mp4',
+      yearFolderName: '2026',
+    });
+
+    expect(result).toMatchObject({ ok: true });
   });
 
   it('rejects upload when fileName would escape the remote directory', async () => {
@@ -426,7 +496,32 @@ describe('uploadToSmb', () => {
     });
   });
 
-  it('buffers many small source chunks into fewer SMB writes', async () => {
+  it('classifies SMB request write timeouts as write failures, not connection failures', async () => {
+    mocks.mockCreateFileWriteStream.mockImplementationOnce(async () => {
+      return new Writable({
+        write(_chunk, _encoding, callback) {
+          callback(new Error('request_timeout: Write(77)'));
+        },
+      });
+    });
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: 'My Backup.mp4',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: 'SMB_WRITE_FAILED',
+        message: 'SMB write timed out waiting for the server. The share may be slow or overloaded.',
+        details: 'request_timeout: Write(77)',
+      }),
+    });
+  });
+
+  it('does not coalesce source chunks into multi-megabyte SMB writes', async () => {
     const writeSizes: number[] = [];
     mocks.mockCreateFileWriteStream.mockImplementation(() => {
       return new Writable({
@@ -442,7 +537,7 @@ describe('uploadToSmb', () => {
       });
     });
 
-    const smallChunkSize = 64 * 1024;
+    const smallChunkSize = 32 * 1024;
     const chunkCount = 130;
     const videoStream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -456,12 +551,12 @@ describe('uploadToSmb', () => {
     const result = await uploadToSmb({
       connectedAccount: makeSmbAccount(),
       videoStream,
-      fileName: 'buffered-backup.mp4',
+      fileName: 'sequential-backup.mp4',
     });
 
     expect(result).toMatchObject({ ok: true });
-    expect(writeSizes.length).toBeLessThan(chunkCount);
+    expect(writeSizes.length).toBe(chunkCount);
     expect(writeSizes.reduce((sum, size) => sum + size, 0)).toBe(smallChunkSize * chunkCount);
-    expect(Math.max(...writeSizes)).toBeLessThanOrEqual(8 * 1024 * 1024);
+    expect(Math.max(...writeSizes)).toBeLessThanOrEqual(SMB_MAX_WRITE_CHUNK_LENGTH);
   });
 });

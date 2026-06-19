@@ -5,7 +5,6 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Writable } from 'node:stream';
 import { Client } from 'node-smb2';
 import { resolveUniqueBackupFileName } from '@/lib/backup-filename';
-import { createUploadWriteBufferTransform } from '@/lib/platforms/upload-write-buffer';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type { ConnectedAccount } from '@/types';
 import type { PlatformUploadError, PlatformUploadResult } from '@/lib/platforms/types';
@@ -44,6 +43,19 @@ interface SmbCredentials {
 export const SMB_TOKEN_EXPIRY = '2099-01-01T00:00:00.000Z';
 
 /**
+ * Maximum chunk size accepted by `node-smb2` file write streams before the library fans out
+ * parallel SMB Write requests (see `maxWriteChunkLength` in the package). Chunks above this size
+ * can overwhelm the server and hit the library's per-request timeout.
+ */
+export const SMB_MAX_WRITE_CHUNK_LENGTH = 0x0001_0000 - 0x71;
+
+/** Per-request timeout for SMB uploads (`node-smb2` default is 5s). */
+const SMB_UPLOAD_REQUEST_TIMEOUT_MS = 120_000;
+
+/** Per-request timeout for SMB connection tests (matches `node-smb2` default). */
+const SMB_TEST_REQUEST_TIMEOUT_MS = 5_000;
+
+/**
  * Default NTLM domain/workgroup when the user leaves the domain field empty.
  * Matches the typical Samba standalone default (`WORKGROUP`), as shown by smbclient.
  */
@@ -53,6 +65,7 @@ export const SMB_DEFAULT_DOMAIN = 'WORKGROUP';
 const SMB_NT_STATUS = {
   ACCESS_DENIED: 0xc0000022,
   OBJECT_NAME_NOT_FOUND: 0xc0000034,
+  OBJECT_NAME_COLLISION: 0xc0000035,
   OBJECT_PATH_NOT_FOUND: 0xc000003a,
   WRONG_PASSWORD: 0xc000006a,
   LOGON_FAILURE: 0xc000006d,
@@ -62,11 +75,15 @@ const SMB_NT_STATUS = {
 const SMB_NT_STATUS_LABELS: Record<number, string> = {
   [SMB_NT_STATUS.ACCESS_DENIED]: 'STATUS_ACCESS_DENIED',
   [SMB_NT_STATUS.OBJECT_NAME_NOT_FOUND]: 'STATUS_OBJECT_NAME_NOT_FOUND',
+  [SMB_NT_STATUS.OBJECT_NAME_COLLISION]: 'STATUS_OBJECT_NAME_COLLISION',
   [SMB_NT_STATUS.OBJECT_PATH_NOT_FOUND]: 'STATUS_OBJECT_PATH_NOT_FOUND',
   [SMB_NT_STATUS.WRONG_PASSWORD]: 'STATUS_WRONG_PASSWORD',
   [SMB_NT_STATUS.LOGON_FAILURE]: 'STATUS_LOGON_FAILURE',
   [SMB_NT_STATUS.BAD_NETWORK_NAME]: 'STATUS_BAD_NETWORK_NAME',
 };
+
+/** Retries when a unique backup filename races with an existing share object. */
+const SMB_UNIQUE_FILENAME_OPEN_ATTEMPTS = 20;
 
 /**
  * Minimal SMB share tree surface returned by `session.connectTree`.
@@ -103,6 +120,25 @@ function smbNtStatusFromThrown(err: unknown): number | undefined {
 function smbNtStatusLabel(status: number): string {
   return (
     SMB_NT_STATUS_LABELS[status >>> 0] ?? `NTSTATUS 0x${(status >>> 0).toString(16).toUpperCase()}`
+  );
+}
+
+/**
+ * Returns whether an SMB client error indicates the target path already exists.
+ * @param err - Thrown value from the SMB client.
+ * @returns True for `STATUS_OBJECT_NAME_COLLISION`.
+ */
+function isSmbNameCollisionError(err: unknown): boolean {
+  const nt = smbNtStatusFromThrown(err);
+  if (nt === SMB_NT_STATUS.OBJECT_NAME_COLLISION) {
+    return true;
+  }
+
+  const message = messageFromSmbThrown(err).toLowerCase();
+  return (
+    message.includes('status_object_name_collision') ||
+    message.includes('object_name_collision') ||
+    message.includes('0xc0000035')
   );
 }
 
@@ -333,7 +369,14 @@ async function ensureSmbDirectory(tree: SmbShareTree, directoryPath: string): Pr
     if (!isRemotePathStatError(err)) {
       throw err;
     }
-    await tree.createDirectory(directoryPath);
+    try {
+      await tree.createDirectory(directoryPath);
+    } catch (createErr) {
+      if (isSmbNameCollisionError(createErr)) {
+        return;
+      }
+      throw createErr;
+    }
   }
 }
 
@@ -378,6 +421,50 @@ async function listSmbDirectoryFileNames(
 ): Promise<string[]> {
   const entries = await tree.readDirectory(directoryPath);
   return parseSmbDirectoryFileNames(entries);
+}
+
+/**
+ * Opens a write stream for a backup file, retrying when the share reports a name collision.
+ * Collisions can occur when a prior failed upload left a file that directory listing missed.
+ * @param tree - Connected SMB tree for the target share.
+ * @param uploadDirectoryPath - Directory that will contain the backup file.
+ * @param fileName - Desired backup filename before duplicate resolution.
+ * @param signal - Optional abort signal checked between attempts.
+ * @returns Writable stream and resolved remote file path within the share.
+ */
+async function openUniqueSmbFileWriteStream(
+  tree: SmbShareTree,
+  uploadDirectoryPath: string,
+  fileName: string,
+  signal?: AbortSignal
+): Promise<{ writeStream: Writable; remoteFilePath: string }> {
+  const occupiedOverrides: string[] = [];
+
+  for (let attempt = 0; attempt < SMB_UNIQUE_FILENAME_OPEN_ATTEMPTS; attempt += 1) {
+    if (signal?.aborted) {
+      throw new Error('SMB upload aborted');
+    }
+
+    const listedNames = await listSmbDirectoryFileNames(tree, uploadDirectoryPath);
+    const uniqueFileName = resolveUniqueBackupFileName(
+      fileName,
+      [...listedNames, ...occupiedOverrides],
+      { caseInsensitive: true }
+    );
+    const remoteFilePath = joinSmbFilePath(uploadDirectoryPath, uniqueFileName);
+
+    try {
+      const writeStream = await tree.createFileWriteStream(remoteFilePath);
+      return { writeStream, remoteFilePath };
+    } catch (err) {
+      if (!isSmbNameCollisionError(err) || attempt === SMB_UNIQUE_FILENAME_OPEN_ATTEMPTS - 1) {
+        throw err;
+      }
+      occupiedOverrides.push(uniqueFileName);
+    }
+  }
+
+  throw new Error('Could not allocate a unique SMB backup filename after several attempts.');
 }
 
 function classifyConnectionError(err: unknown): PlatformUploadError {
@@ -477,11 +564,19 @@ function classifyConnectionError(err: unknown): PlatformUploadError {
  * @param fn - Callback receiving the connected tree.
  * @returns The callback result.
  */
+interface WithSmbTreeOptions {
+  /** Per SMB request timeout in milliseconds (`node-smb2` default: 5000). */
+  requestTimeoutMs?: number;
+}
+
 async function withSmbTree<T>(
   credentials: SmbCredentials,
-  fn: (tree: SmbShareTree) => Promise<T>
+  fn: (tree: SmbShareTree) => Promise<T>,
+  options: WithSmbTreeOptions = {}
 ): Promise<T> {
-  const client = new Client(credentials.host);
+  const client = new Client(credentials.host, {
+    requestTimeout: options.requestTimeoutMs ?? SMB_TEST_REQUEST_TIMEOUT_MS,
+  });
   let pendingError: Error | undefined;
 
   client.on('error', (err) => {
@@ -560,7 +655,9 @@ async function pipeWebStreamToSmbWriteStream(
   }
 
   try {
-    await pipeline(nodeReadable, createUploadWriteBufferTransform(), writeStream);
+    // Direct pipe (no write coalescing). SFTP uses 8 MB chunks, but node-smb2 fans out parallel SMB
+    // Write requests for chunks above SMB_MAX_WRITE_CHUNK_LENGTH; R2/file sources stay near 64 KiB.
+    await pipeline(nodeReadable, writeStream);
     await waitForWritableComplete(writeStream);
   } finally {
     if (signal) {
@@ -627,18 +724,23 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
 
     let fullRemotePath = joinSmbFilePath(uploadDirectoryPath, fileName);
 
-    await withSmbTree(credentials, async (tree) => {
-      if (yearFolderName) {
-        await ensureSmbDirectory(tree, uploadDirectoryPath);
-      }
-      const existingNames = await listSmbDirectoryFileNames(tree, uploadDirectoryPath);
-      const uniqueFileName = resolveUniqueBackupFileName(fileName, existingNames, {
-        caseInsensitive: true,
-      });
-      fullRemotePath = joinSmbFilePath(uploadDirectoryPath, uniqueFileName);
-      const writeStream = await tree.createFileWriteStream(fullRemotePath);
-      await pipeWebStreamToSmbWriteStream(input.videoStream, writeStream, input.signal);
-    });
+    await withSmbTree(
+      credentials,
+      async (tree) => {
+        if (yearFolderName) {
+          await ensureSmbDirectory(tree, uploadDirectoryPath);
+        }
+        const opened = await openUniqueSmbFileWriteStream(
+          tree,
+          uploadDirectoryPath,
+          fileName,
+          input.signal
+        );
+        fullRemotePath = opened.remoteFilePath;
+        await pipeWebStreamToSmbWriteStream(input.videoStream, opened.writeStream, input.signal);
+      },
+      { requestTimeoutMs: SMB_UPLOAD_REQUEST_TIMEOUT_MS }
+    );
 
     return {
       ok: true,
@@ -648,6 +750,27 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
   } catch (err) {
     if (input.signal?.aborted) {
       return toError('SMB_UPLOAD_ABORTED', 'SMB upload was cancelled.');
+    }
+
+    const message = messageFromSmbThrown(err);
+    const lower = message.toLowerCase();
+
+    if (lower.includes('request_timeout') || lower.startsWith('request_timeout:')) {
+      return toError(
+        'SMB_WRITE_FAILED',
+        'SMB write timed out waiting for the server. The share may be slow or overloaded.',
+        500,
+        message
+      );
+    }
+
+    if (isSmbNameCollisionError(err)) {
+      return toError(
+        'SMB_FILE_EXISTS',
+        'A file with this backup name already exists on the SMB share.',
+        409,
+        message
+      );
     }
 
     const classified = classifyConnectionError(err);
@@ -660,8 +783,6 @@ export async function uploadToSmb(input: UploadToSmbInput): Promise<PlatformUplo
       );
     }
 
-    const message = messageFromSmbThrown(err);
-    const lower = message.toLowerCase();
     if (
       lower.includes('timeout') ||
       lower.includes('timed out') ||
