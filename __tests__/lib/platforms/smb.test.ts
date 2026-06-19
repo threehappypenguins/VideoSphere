@@ -69,17 +69,24 @@ function makeSmbAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAcc
   };
 }
 
-function makeMockWriteStream(): Writable {
-  return new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    },
-    final(callback) {
-      this.emit('finish');
-      this.emit('close');
-      callback();
-    },
+function wireMockWritableClose(stream: Writable): Writable {
+  stream.once('finish', () => {
+    stream.emit('close');
   });
+  return stream;
+}
+
+function makeMockWriteStream(): Writable {
+  return wireMockWritableClose(
+    new Writable({
+      write(_chunk, _encoding, callback) {
+        callback();
+      },
+      final(callback) {
+        callback();
+      },
+    })
+  );
 }
 
 function setupSuccessfulSmbMocks() {
@@ -575,20 +582,44 @@ describe('uploadToSmb', () => {
     });
   });
 
+  it('surfaces synchronous write failures without leaking stream listeners', async () => {
+    mocks.mockCreateFileWriteStream.mockImplementationOnce(async () => {
+      const stream = makeMockWriteStream();
+      stream.write = vi.fn(() => {
+        throw new Error('write after destroy');
+      }) as typeof stream.write;
+      return stream;
+    });
+
+    const result = await uploadToSmb({
+      connectedAccount: makeSmbAccount(),
+      videoStream: makeVideoStream(),
+      fileName: 'My Backup.mp4',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: 'SMB_WRITE_FAILED',
+        details: 'write after destroy',
+      }),
+    });
+  });
+
   it('coalesces small source chunks up to the SMB write limit', async () => {
     const writeSizes: number[] = [];
     mocks.mockCreateFileWriteStream.mockImplementation(() => {
-      return new Writable({
-        write(chunk, _encoding, callback) {
-          writeSizes.push(Buffer.isBuffer(chunk) ? chunk.length : chunk.byteLength);
-          callback();
-        },
-        final(callback) {
-          this.emit('finish');
-          this.emit('close');
-          callback();
-        },
-      });
+      return wireMockWritableClose(
+        new Writable({
+          write(chunk, _encoding, callback) {
+            writeSizes.push(Buffer.isBuffer(chunk) ? chunk.length : chunk.byteLength);
+            callback();
+          },
+          final(callback) {
+            callback();
+          },
+        })
+      );
     });
 
     const smallChunkSize = 32 * 1024;

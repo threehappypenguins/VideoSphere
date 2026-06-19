@@ -655,23 +655,29 @@ function toWritableBuffer(chunk: Uint8Array): Buffer {
 function writeToSmbStream(writeStream: Writable, chunk: Uint8Array): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (err: Error) => {
-      writeStream.off('error', onError);
-      writeStream.off('drain', onDrain);
+      cleanup();
       reject(err);
     };
     const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
       writeStream.off('error', onError);
       writeStream.off('drain', onDrain);
-      resolve();
     };
 
     writeStream.on('error', onError);
-    if (writeStream.write(toWritableBuffer(chunk))) {
-      writeStream.off('error', onError);
-      writeStream.off('drain', onDrain);
-      resolve();
-    } else {
-      writeStream.on('drain', onDrain);
+    try {
+      if (writeStream.write(toWritableBuffer(chunk))) {
+        cleanup();
+        resolve();
+      } else {
+        writeStream.on('drain', onDrain);
+      }
+    } catch (err) {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
 }
