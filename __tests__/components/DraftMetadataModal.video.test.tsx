@@ -32,6 +32,8 @@ vi.mock('sonner', () => ({
   },
 }));
 
+import { toast } from 'sonner';
+
 type XhrListener = (...args: unknown[]) => void;
 
 /** Minimal XMLHttpRequest stand-in for presigned R2 multipart PUT uploads. */
@@ -89,7 +91,11 @@ const VIDEO_UPLOAD_ID = 'multipart-upload-id-regression';
 const VIDEO_UPLOAD_JOB_ID = 'upload-job-video-regression';
 const PART_SIZE = 10;
 
-function mockVideoUploadFetch() {
+function mockVideoUploadFetch(options?: {
+  completeFails?: boolean;
+  completeThrows?: boolean;
+  onCancel?: (body: unknown) => void;
+}) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -115,7 +121,22 @@ function mockVideoUploadFetch() {
       }
 
       if (url.includes(`/api/uploads/${VIDEO_UPLOAD_JOB_ID}/complete`) && init?.method === 'POST') {
+        if (options?.completeThrows) {
+          throw new TypeError('Failed to fetch');
+        }
+        if (options?.completeFails) {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({ error: 'Multipart upload completion failed' }),
+          } as Response;
+        }
         return { ok: true, json: async () => ({}) } as Response;
+      }
+
+      if (url.includes(`/api/uploads/${VIDEO_UPLOAD_JOB_ID}/cancel`) && init?.method === 'POST') {
+        options?.onCancel?.(JSON.parse(String(init.body)));
+        return { ok: true, json: async () => ({ success: true }) } as Response;
       }
 
       return {
@@ -206,5 +227,34 @@ describe('DraftMetadataModal video upload regressions', () => {
     expect(
       within(draftDialog).getAllByRole('button', { name: /^Choose file$/i, hidden: true })[0]!
     ).toBeEnabled();
+  });
+
+  it('calls cancel with uploadId when multipart completion fails', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    mockVideoUploadFetch({ completeFails: true, onCancel });
+
+    renderVideoModal();
+    await screen.findByRole('dialog');
+
+    const videoInput = document.getElementById('draft-video-file') as HTMLInputElement;
+    await user.upload(
+      videoInput,
+      new File([new Uint8Array([0, 1, 2])], 'sermon.mp4', { type: 'video/mp4' })
+    );
+
+    await user.click(screen.getByRole('button', { name: /Upload & Save/i }));
+    await user.click(screen.getByRole('button', { name: /Yes, upload/i }));
+
+    await waitFor(() => {
+      expect(MockXMLHttpRequest.instances.length).toBeGreaterThan(0);
+    });
+    MockXMLHttpRequest.instances.at(-1)!.simulateSuccess();
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalled();
+    });
+
+    expect(onCancel).toHaveBeenCalledWith({ uploadId: VIDEO_UPLOAD_ID });
   });
 });

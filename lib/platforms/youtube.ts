@@ -18,7 +18,6 @@ import {
   nextGoogleResumableChunkSize,
   parseGoogleResumable308RangeLastByteInclusive,
   probeGoogleResumableSession,
-  resolveGoogleResumableUploadSession,
   resumeOffsetFromStored,
   uploadGoogleResumableInChunks,
   uploadGoogleResumableSinglePut,

@@ -158,6 +158,12 @@ function isTransientResumableProbeHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || (status >= 500 && status < 600);
 }
 
+/**
+ * Derives a safe resume byte offset from persisted upload progress when a session probe is inconclusive.
+ * @param bytesConfirmed - Last confirmed byte count from a platform_upload row; missing or invalid values yield 0.
+ * @param totalBytes - Total object size in bytes; stored offsets at or beyond this reset to 0.
+ * @returns Next byte index to send when resuming the resumable upload.
+ */
 export function resumeOffsetFromStored(
   bytesConfirmed: number | null | undefined,
   totalBytes: number

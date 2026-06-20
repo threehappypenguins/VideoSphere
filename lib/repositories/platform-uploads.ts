@@ -8,6 +8,7 @@
 // Uses Mongoose for the platform_uploads collection.
 // =============================================================================
 
+import { randomUUID } from 'node:crypto';
 import type { PlatformUpload, ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
 import { connectToDatabase } from '@/lib/mongodb';
 import { PlatformUploadModel, type PlatformUploadDocument } from '@/lib/models/PlatformUpload';
@@ -79,7 +80,7 @@ export async function createPlatformUpload(
 
   try {
     const created = await PlatformUploadModel.create({
-      _id: crypto.randomUUID(),
+      _id: randomUUID(),
       uploadJobId: data.uploadJobId,
       platform: data.platform,
       status: 'pending',

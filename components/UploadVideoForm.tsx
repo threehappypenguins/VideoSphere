@@ -257,6 +257,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
       });
 
       if (!res.ok) {
+        void cancelMultipartUploadJob(presignData.uploadJobId, presignData.uploadId);
         const body = await res.json().catch(() => ({}));
         setState({
           phase: 'error',
@@ -274,6 +275,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
         r2Key: presignData.key,
       });
     } catch {
+      void cancelMultipartUploadJob(presignData.uploadJobId, presignData.uploadId);
       setState({
         phase: 'error',
         message: 'Network error while finalizing upload. Please try again.',

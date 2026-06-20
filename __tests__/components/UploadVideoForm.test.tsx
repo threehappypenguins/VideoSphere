@@ -104,6 +104,8 @@ function makePresignResponse(partCount: number) {
 function mockFetch(handlers: {
   onComplete?: (body: unknown) => void;
   onCancel?: (body: unknown) => void;
+  completeFails?: boolean;
+  completeThrows?: boolean;
 }) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -119,6 +121,16 @@ function mockFetch(handlers: {
 
     if (url.includes(`/api/uploads/${UPLOAD_JOB_ID}/complete`) && init?.method === 'POST') {
       handlers.onComplete?.(JSON.parse(String(init.body)));
+      if (handlers.completeThrows) {
+        throw new TypeError('Failed to fetch');
+      }
+      if (handlers.completeFails) {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({ error: 'Multipart upload completion failed' }),
+        } as Response;
+      }
       return { ok: true, json: async () => ({ success: true, distributing: true }) } as Response;
     }
 
@@ -244,6 +256,50 @@ describe('UploadVideoForm multipart upload', () => {
       expect(screen.getByText('Upload failed')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(onCancel).toHaveBeenCalledWith({ uploadId: UPLOAD_ID });
+  });
+
+  it('calls cancel with uploadId when /complete returns non-2xx', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    vi.stubGlobal('fetch', mockFetch({ onCancel, completeFails: true }));
+
+    const file = new File([new Uint8Array(5).fill(4)], 'complete-fail.mp4', { type: 'video/mp4' });
+    await startUpload(user, file);
+
+    await waitFor(() => {
+      expect(MockXMLHttpRequest.instances.length).toBe(1);
+    });
+    MockXMLHttpRequest.instances[0]!.simulateSuccess(200, '"etag-part-1"');
+
+    await waitFor(() => {
+      expect(screen.getByText('Upload failed')).toBeInTheDocument();
+    });
+
+    expect(onCancel).toHaveBeenCalledWith({ uploadId: UPLOAD_ID });
+  });
+
+  it('calls cancel with uploadId when /complete throws a network error', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    vi.stubGlobal('fetch', mockFetch({ onCancel, completeThrows: true }));
+
+    const file = new File([new Uint8Array(5).fill(5)], 'complete-network-fail.mp4', {
+      type: 'video/mp4',
+    });
+    await startUpload(user, file);
+
+    await waitFor(() => {
+      expect(MockXMLHttpRequest.instances.length).toBe(1);
+    });
+    MockXMLHttpRequest.instances[0]!.simulateSuccess(200, '"etag-part-1"');
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Network error while finalizing upload. Please try again.')
+      ).toBeInTheDocument();
+    });
+
     expect(onCancel).toHaveBeenCalledWith({ uploadId: UPLOAD_ID });
   });
 

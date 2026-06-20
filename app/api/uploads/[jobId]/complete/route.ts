@@ -46,7 +46,13 @@
 
 import { NextRequest, NextResponse, after } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { completeMultipartUpload, deleteObject, headObject, R2ObjectNotFoundError } from '@/lib/r2';
+import {
+  completeMultipartUpload,
+  abortMultipartUpload,
+  deleteObject,
+  headObject,
+  R2ObjectNotFoundError,
+} from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
@@ -217,6 +223,13 @@ export async function POST(
     try {
       await completeMultipartUpload(job.r2Key, uploadId, parts);
     } catch (err) {
+      await abortMultipartUpload(job.r2Key, uploadId).catch((abortErr) => {
+        console.error(
+          `Failed to abort multipart upload for job ${jobId} after completion error:`,
+          abortErr
+        );
+      });
+
       const clientError = isMultipartCompletionClientError(err);
       const failureMessage = clientError
         ? 'Multipart upload completion failed: invalid upload id, part numbers, or ETags'

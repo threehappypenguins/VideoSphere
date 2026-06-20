@@ -47,6 +47,7 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   return {
     ...actual,
     completeMultipartUpload: vi.fn(async () => undefined),
+    abortMultipartUpload: vi.fn(async () => undefined),
     headObject: vi.fn(async () => 1024),
     deleteObject: vi.fn(async () => undefined),
   };
@@ -122,7 +123,13 @@ vi.mock('next/server', async (importOriginal) => {
 
 import { POST } from '@/app/api/uploads/[jobId]/complete/route';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
-import { completeMultipartUpload, headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
+import {
+  completeMultipartUpload,
+  abortMultipartUpload,
+  headObject,
+  deleteObject,
+  R2ObjectNotFoundError,
+} from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
 
 const SESSION_COOKIE = 'videosphere_session';
@@ -165,6 +172,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
     mockGetAuthenticatedUserId.mockResolvedValue('user-123');
 
     vi.mocked(completeMultipartUpload).mockResolvedValue(undefined);
+    vi.mocked(abortMultipartUpload).mockResolvedValue(undefined);
     vi.mocked(headObject).mockResolvedValue(1024);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
     vi.mocked(getUploadJobById).mockResolvedValue({
@@ -264,6 +272,10 @@ describe('POST /api/uploads/[jobId]/complete', () => {
         'multipart-upload-id-abc',
         [{ partNumber: 1, eTag: '"etag-part-1"' }]
       );
+      expect(vi.mocked(abortMultipartUpload)).toHaveBeenCalledWith(
+        'temp/uploads/user-123/1234567890/test.mp4',
+        'multipart-upload-id-abc'
+      );
       expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
         'job-123',
         'failed',
@@ -287,6 +299,10 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(response.status).toBe(500);
       const body = await response.json();
       expect(body.error).toContain('storage error');
+      expect(vi.mocked(abortMultipartUpload)).toHaveBeenCalledWith(
+        'temp/uploads/user-123/1234567890/test.mp4',
+        'multipart-upload-id-abc'
+      );
       expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
         'job-123',
         'failed',

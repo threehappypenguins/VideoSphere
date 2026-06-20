@@ -101,7 +101,7 @@ async function main() {
   let keyMarker;
   let uploadIdMarker;
 
-  do {
+  for (;;) {
     const response = await client.send(
       new ListMultipartUploadsCommand({
         Bucket: bucket,
@@ -118,9 +118,10 @@ async function main() {
     }
 
     if (!response.IsTruncated) break;
+
     keyMarker = response.NextKeyMarker;
     uploadIdMarker = response.NextUploadIdMarker;
-  } while (keyMarker && uploadIdMarker);
+  }
 
   if (uploads.length === 0) {
     console.log(

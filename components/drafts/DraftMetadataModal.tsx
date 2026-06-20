@@ -2959,8 +2959,6 @@ export function DraftMetadataModal({
         setUploadProgress(Math.round((completedBytes / videoFile.size) * 100));
       }
 
-      uploadSessionRef.current = null;
-
       const completeRes = await fetch(`/api/uploads/${uploadJobId}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2974,6 +2972,7 @@ export function DraftMetadataModal({
         throw new Error(err?.message ?? err?.error ?? 'Failed to confirm upload');
       }
 
+      uploadSessionRef.current = null;
       activeUploadJobId = null;
       setCurrentUploadJobId(null);
       setVideoFile(null);
@@ -3001,7 +3000,7 @@ export function DraftMetadataModal({
           void cancelMultipartUploadJob(session.uploadJobId, session.uploadId);
         } else {
           void fetch(`/api/uploads/${activeUploadJobId}/cancel`, { method: 'POST' }).catch(() => {
-            // Best-effort: mark cancelled when complete failed after parts uploaded.
+            // Best-effort: mark cancelled when no multipart upload id is available.
           });
         }
       }
