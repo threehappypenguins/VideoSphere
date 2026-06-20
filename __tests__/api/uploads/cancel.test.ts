@@ -25,6 +25,7 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/r2')>();
   return {
     ...actual,
+    abortMultipartUpload: vi.fn(),
     deleteObject: vi.fn(),
   };
 });
@@ -32,7 +33,7 @@ vi.mock('@/lib/r2', async (importOriginal) => {
 import { POST } from '@/app/api/uploads/[jobId]/cancel/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
-import { deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
+import { abortMultipartUpload, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
 
 const SESSION_COOKIE = 'videosphere_session';
 
@@ -47,7 +48,11 @@ const baseJob = {
   $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
-function createRequest(jobId: string, cookies: Record<string, string> = {}): NextRequest {
+function createRequest(
+  jobId: string,
+  cookies: Record<string, string> = {},
+  body?: unknown
+): NextRequest {
   const url = new URL(`http://localhost:3000/api/uploads/${jobId}/cancel`);
   const cookieHeader = Object.entries(cookies)
     .map(([key, value]) => `${key}=${value}`)
@@ -55,7 +60,11 @@ function createRequest(jobId: string, cookies: Record<string, string> = {}): Nex
 
   return new NextRequest(url, {
     method: 'POST',
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    headers: {
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 }
 
@@ -73,6 +82,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
       status: 'cancelled',
       $updatedAt: '2026-01-01T00:00:01.000Z',
     });
+    vi.mocked(abortMultipartUpload).mockResolvedValue(undefined);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
   });
 
@@ -170,7 +180,7 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
   });
 
   describe('R2 cleanup behavior', () => {
-    it('deletes R2 object after marking the job cancelled', async () => {
+    it('deletes R2 object after marking the job cancelled when no uploadId is provided', async () => {
       await POST(
         createRequest('job-123', { [`${SESSION_COOKIE}`]: 'token' }),
         makeParams('job-123')
@@ -178,6 +188,25 @@ describe('POST /api/uploads/[jobId]/cancel', () => {
 
       expect(updateUploadJobStatus).toHaveBeenCalledWith('job-123', 'cancelled', null);
       expect(deleteObject).toHaveBeenCalledWith('temp/uploads/user-123/1234567890/test.mp4');
+      expect(abortMultipartUpload).not.toHaveBeenCalled();
+    });
+
+    it('aborts the multipart upload instead of deleteObject when uploadId is provided', async () => {
+      await POST(
+        createRequest(
+          'job-123',
+          { [`${SESSION_COOKIE}`]: 'token' },
+          { uploadId: 'multipart-upload-id-abc' }
+        ),
+        makeParams('job-123')
+      );
+
+      expect(updateUploadJobStatus).toHaveBeenCalledWith('job-123', 'cancelled', null);
+      expect(abortMultipartUpload).toHaveBeenCalledWith(
+        'temp/uploads/user-123/1234567890/test.mp4',
+        'multipart-upload-id-abc'
+      );
+      expect(deleteObject).not.toHaveBeenCalled();
     });
 
     it('does not attempt R2 cleanup when job has no r2Key', async () => {

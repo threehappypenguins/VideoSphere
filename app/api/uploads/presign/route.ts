@@ -1,8 +1,8 @@
 /**
  * POST /api/uploads/presign
  *
- * Generate a presigned URL for direct browser-to-R2 upload and create an
- * UploadJob record linked to the given draft.
+ * Initiate a multipart upload to R2 and return presigned PUT URLs for each part,
+ * plus an UploadJob record linked to the given draft.
  *
  * Request body:
  * {
@@ -14,10 +14,11 @@
  *
  * Response (200 OK):
  * {
- *   uploadUrl: string         - Presigned PUT URL (expires 15 min); PUT the file directly to this URL
+ *   uploadId: string          - R2 multipart upload id (required to complete or abort the upload)
  *   key: string               - R2 object key (store this for distribution)
  *   bucketName: string        - R2 bucket name
- *   expiresIn: number         - URL expiry in seconds (900)
+ *   partSize: number          - Fixed part size in bytes (32 MiB except the last part)
+ *   parts: Array<{ partNumber: number; url: string }> - Presigned PUT URL per part
  *   uploadJobId: string       - ID of the created UploadJob record in persistent storage
  * }
  *
@@ -33,25 +34,35 @@
  *
  * Security:
  * - Only authenticated users can request presigned URLs
- * - URLs expire in 15 minutes (NF-08)
- * - ContentType is locked in the presigned signature; a PUT with a mismatched
- *   Content-Type header fails R2's signature check
- * - ContentLength is NOT signed (browsers treat it as a forbidden header and
- *   set it automatically — signing it would cause SignatureDoesNotMatch on every
- *   browser upload). Actual byte size is verified server-side in
- *   POST /api/uploads/[jobId]/complete via a HEAD request after upload (layer 2)
+ * - Part URLs expire after {@link MULTIPART_PART_URL_EXPIRY_SECONDS} (see throughput assumption there)
+ * - Object Content-Type is set on CreateMultipartUpload and stored on the completed object
+ * - Actual byte size is verified server-side in POST /api/uploads/[jobId]/complete via HEAD
  * - Format validated by both MIME type and file extension
  * - draftId is required; ownership is verified (draft.userId === authenticatedUserId)
  *   before creating an UploadJob — prevents IDOR attacks
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getPresignedUploadUrl } from '@/lib/r2';
+import {
+  abortMultipartUpload,
+  computeMultipartPlan,
+  createMultipartUpload,
+  DEFAULT_MULTIPART_PART_SIZE_BYTES,
+  getPresignedUploadPartUrls,
+} from '@/lib/r2';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
+
+/**
+ * Presigned multipart part URL lifetime (12 h).
+ * Assumes a sustained ~1 Mbps upload (~125 KiB/s): 32 MiB per part ≈ 4.3 min/part;
+ * up to ~157 parts at 5 GB ≈ 11 h if parts are uploaded strictly one at a time.
+ * Twelve hours keeps later parts valid on slow connections without re-presigning mid-upload.
+ */
+const MULTIPART_PART_URL_EXPIRY_SECONDS = 12 * 60 * 60;
 
 const ALLOWED_MIME_TYPES = new Set([
   'video/mp4',
@@ -71,10 +82,11 @@ interface PresignRequestBody {
 }
 
 interface PresignResponse {
-  uploadUrl: string;
+  uploadId: string;
   key: string;
   bucketName: string;
-  expiresIn: number;
+  partSize: number;
+  parts: { partNumber: number; url: string }[];
   uploadJobId: string;
 }
 
@@ -205,13 +217,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Forbidden: you do not own this draft' }, { status: 403 });
     }
 
-    // Generate R2 object key and presigned upload URL, then create the UploadJob.
+    // Generate R2 multipart upload URLs, then create the UploadJob.
     // These steps are wrapped in a try/catch so failures return a consistent 500.
     const key = generateObjectKey(userId, filename);
-    let uploadUrl: string;
-    let uploadJob: Awaited<ReturnType<typeof createUploadJob>>;
+    let uploadId: string | undefined;
+    let parts: { partNumber: number; url: string }[] | undefined;
+    let uploadJob: Awaited<ReturnType<typeof createUploadJob>> | undefined;
     try {
-      uploadUrl = await getPresignedUploadUrl(key, contentType, fileSize);
+      const { partCount, partSize } = computeMultipartPlan(
+        fileSize,
+        DEFAULT_MULTIPART_PART_SIZE_BYTES
+      );
+      uploadId = await createMultipartUpload(key, contentType);
+      parts = await getPresignedUploadPartUrls(
+        key,
+        uploadId,
+        partCount,
+        MULTIPART_PART_URL_EXPIRY_SECONDS
+      );
       uploadJob = await createUploadJob({ userId, draftId, r2Key: key });
       await markDraftUsedInUpload(draftId, uploadJob.$createdAt).catch((err) => {
         console.error(
@@ -219,19 +242,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           err
         );
       });
+
+      const response: PresignResponse = {
+        uploadId,
+        key,
+        bucketName: process.env.R2_BUCKET_NAME || 'unknown',
+        partSize,
+        parts,
+        uploadJobId: uploadJob.id,
+      };
+
+      return NextResponse.json(response, { status: 200 });
     } catch (err) {
-      throw err; // fall through to outer catch → 500
+      if (uploadId) {
+        await abortMultipartUpload(key, uploadId).catch((abortErr) => {
+          console.error(
+            `[POST /api/uploads/presign] Failed to abort multipart upload for key ${key}:`,
+            abortErr
+          );
+        });
+      }
+      throw err;
     }
-
-    const response: PresignResponse = {
-      uploadUrl,
-      key,
-      bucketName: process.env.R2_BUCKET_NAME || 'unknown',
-      expiresIn: 900,
-      uploadJobId: uploadJob.id,
-    };
-
-    return NextResponse.json(response, { status: 200 });
   } catch (error) {
     console.error('Presigned URL generation error:', error);
 

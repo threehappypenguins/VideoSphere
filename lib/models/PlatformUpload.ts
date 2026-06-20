@@ -22,6 +22,9 @@ export interface PlatformUploadDocument {
   document: string;
   scheduledAt: string;
   errorMessage: string;
+  resumableUploadUrl?: string | null;
+  resumableBytesConfirmed?: number | null;
+  resumableUpdatedAt?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +49,9 @@ const PlatformUploadSchema = new Schema<PlatformUploadDocument>(
     document: { type: String, required: true },
     scheduledAt: { type: String, default: '' },
     errorMessage: { type: String, default: '' },
+    resumableUploadUrl: { type: String, default: '' },
+    resumableBytesConfirmed: { type: Number, default: null },
+    resumableUpdatedAt: { type: String, default: '' },
   },
   { timestamps: true }
 );

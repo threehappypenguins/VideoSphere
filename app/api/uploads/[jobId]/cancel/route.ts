@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
+import { abortMultipartUpload, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import type { ApiError } from '@/types';
 
@@ -11,6 +11,35 @@ function uploadJobNotFound(): NextResponse {
     statusCode: 404,
   };
   return NextResponse.json(errRes, { status: 404 });
+}
+
+/**
+ * Reads an optional `{ uploadId?: string }` body. Missing, empty, or invalid JSON is treated
+ * as no multipart session (legacy single-PUT cleanup via deleteObject).
+ * @param req - Incoming cancel request.
+ * @returns Trimmed upload id when provided, otherwise undefined.
+ */
+async function parseOptionalUploadId(req: NextRequest): Promise<string | undefined> {
+  try {
+    const text = await req.text();
+    if (!text.trim()) {
+      return undefined;
+    }
+
+    const body: unknown = JSON.parse(text);
+    if (typeof body !== 'object' || body === null) {
+      return undefined;
+    }
+
+    const uploadId = (body as Record<string, unknown>).uploadId;
+    if (typeof uploadId !== 'string' || uploadId.trim() === '') {
+      return undefined;
+    }
+
+    return uploadId.trim();
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -55,6 +84,8 @@ export async function POST(
   }
 
   try {
+    const uploadId = await parseOptionalUploadId(req);
+
     // Mark cancelled before R2 cleanup so a failed delete does not leave the job
     // pending/uploading while the blob may already be gone; R2 cleanup is best-effort.
     // Keep errorMessage for actual failures; cancelled is a terminal non-error state.
@@ -65,13 +96,17 @@ export async function POST(
     }
 
     if (job.r2Key) {
-      await deleteObject(job.r2Key).catch((error) => {
-        if (error instanceof R2ObjectNotFoundError) return;
-        console.error(
-          `[POST /api/uploads/:jobId/cancel] Failed to delete R2 object for cancelled job ${jobId}:`,
-          error
-        );
-      });
+      if (uploadId) {
+        await abortMultipartUpload(job.r2Key, uploadId);
+      } else {
+        await deleteObject(job.r2Key).catch((error) => {
+          if (error instanceof R2ObjectNotFoundError) return;
+          console.error(
+            `[POST /api/uploads/:jobId/cancel] Failed to delete R2 object for cancelled job ${jobId}:`,
+            error
+          );
+        });
+      }
     }
 
     return NextResponse.json({ success: true });

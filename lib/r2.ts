@@ -22,6 +22,10 @@ import {
   DeleteObjectCommand,
   HeadObjectCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -29,6 +33,15 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 const UPLOAD_URL_EXPIRY = 900; // 15 minutes
 const DOWNLOAD_URL_EXPIRY = 3600; // 1 hour
 const CONTENT_TYPE_HEADER = 'content-type';
+
+/** Default multipart part size (32 MiB) when callers do not specify one. */
+export const DEFAULT_MULTIPART_PART_SIZE_BYTES = 32 * 1024 * 1024;
+
+/** Minimum part size for S3/R2 multipart uploads (except the last part). */
+export const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
+
+/** Maximum number of parts allowed in a single multipart upload. */
+export const MAX_MULTIPART_PART_COUNT = 10_000;
 
 /**
  * Validate required R2 environment variables
@@ -149,6 +162,225 @@ export async function getPresignedUploadUrl(
   } catch (error) {
     throw new Error(
       `Failed to generate upload URL for key "${key}": ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+/**
+ * Computes multipart upload part count and fixed part size for a file.
+ * @param fileSize - Total object size in bytes.
+ * @param partSizeBytes - Part size in bytes (default {@link DEFAULT_MULTIPART_PART_SIZE_BYTES}).
+ * @returns Part count and the part size used for every part except the last (which may be smaller).
+ * @throws When `fileSize` is invalid, `partSizeBytes` is below 5 MiB, or the plan would exceed 10,000 parts.
+ */
+export function computeMultipartPlan(
+  fileSize: number,
+  partSizeBytes: number = DEFAULT_MULTIPART_PART_SIZE_BYTES
+): { partCount: number; partSize: number } {
+  if (!Number.isFinite(fileSize) || fileSize <= 0) {
+    throw new Error('File size must be a positive number');
+  }
+  if (!Number.isFinite(partSizeBytes) || partSizeBytes < MIN_MULTIPART_PART_SIZE_BYTES) {
+    throw new Error(
+      `Part size must be at least ${MIN_MULTIPART_PART_SIZE_BYTES} bytes (5 MiB) for multipart uploads`
+    );
+  }
+
+  const partCount = Math.ceil(fileSize / partSizeBytes);
+  if (partCount > MAX_MULTIPART_PART_COUNT) {
+    throw new Error(
+      `Multipart upload would require ${partCount} parts (maximum ${MAX_MULTIPART_PART_COUNT}). ` +
+        'Increase part size or reduce file size.'
+    );
+  }
+
+  return { partCount, partSize: partSizeBytes };
+}
+
+/**
+ * Starts a multipart upload in R2 and returns the provider upload id.
+ * @param key - Object key in the bucket.
+ * @param contentType - MIME type stored on the completed object.
+ * @returns Upload id from CreateMultipartUpload.
+ */
+export async function createMultipartUpload(key: string, contentType: string): Promise<string> {
+  if (!key) {
+    throw new Error('Object key is required');
+  }
+  if (!contentType) {
+    throw new Error('Content type is required');
+  }
+
+  const client = getR2Client();
+
+  const command = new CreateMultipartUploadCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: key,
+    ContentType: contentType,
+  });
+
+  try {
+    const response = await client.send(command);
+    const uploadId = response.UploadId?.trim();
+    if (!uploadId) {
+      throw new Error('CreateMultipartUpload did not return an UploadId');
+    }
+    return uploadId;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('CreateMultipartUpload did not return')) {
+      throw error;
+    }
+    throw new Error(
+      `Failed to create multipart upload for key "${key}": ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+/**
+ * Generates presigned PUT URLs for each part of an in-progress multipart upload.
+ * @param key - Object key in the bucket.
+ * @param uploadId - Multipart upload id from {@link createMultipartUpload}.
+ * @param partCount - Number of parts (1-based part numbers through `partCount`).
+ * @param expiresInSeconds - Presigned URL lifetime in seconds.
+ * @returns Presigned URLs indexed by part number.
+ */
+export async function getPresignedUploadPartUrls(
+  key: string,
+  uploadId: string,
+  partCount: number,
+  expiresInSeconds: number
+): Promise<{ partNumber: number; url: string }[]> {
+  if (!key) {
+    throw new Error('Object key is required');
+  }
+  if (!uploadId) {
+    throw new Error('Upload ID is required');
+  }
+  if (!Number.isFinite(partCount) || partCount <= 0) {
+    throw new Error('Part count must be a positive number');
+  }
+  if (!Number.isFinite(expiresInSeconds) || expiresInSeconds <= 0) {
+    throw new Error('Expiry must be a positive number of seconds');
+  }
+
+  const client = getR2Client();
+  const bucket = process.env.R2_BUCKET_NAME!;
+
+  try {
+    return await Promise.all(
+      Array.from({ length: partCount }, async (_, index) => {
+        const partNumber = index + 1;
+        const command = new UploadPartCommand({
+          Bucket: bucket,
+          Key: key,
+          UploadId: uploadId,
+          PartNumber: partNumber,
+        });
+        const url = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+        return { partNumber, url };
+      })
+    );
+  } catch (error) {
+    throw new Error(
+      `Failed to generate multipart part URLs for key "${key}": ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+/**
+ * Completes a multipart upload after all parts have been uploaded.
+ * @param key - Object key in the bucket.
+ * @param uploadId - Multipart upload id from {@link createMultipartUpload}.
+ * @param parts - Uploaded parts with provider ETags, sorted ascending by part number before send.
+ */
+export async function completeMultipartUpload(
+  key: string,
+  uploadId: string,
+  parts: { partNumber: number; eTag: string }[]
+): Promise<void> {
+  if (!key) {
+    throw new Error('Object key is required');
+  }
+  if (!uploadId) {
+    throw new Error('Upload ID is required');
+  }
+  if (!parts.length) {
+    throw new Error('At least one uploaded part is required');
+  }
+
+  for (const part of parts) {
+    if (
+      !Number.isFinite(part.partNumber) ||
+      !Number.isInteger(part.partNumber) ||
+      part.partNumber < 1 ||
+      part.partNumber > MAX_MULTIPART_PART_COUNT
+    ) {
+      throw new Error(`Each part number must be an integer from 1 to ${MAX_MULTIPART_PART_COUNT}`);
+    }
+    if (!part.eTag?.trim()) {
+      throw new Error('Each part must include an ETag');
+    }
+  }
+
+  const client = getR2Client();
+  const sortedParts = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+
+  const command = new CompleteMultipartUploadCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: key,
+    UploadId: uploadId,
+    MultipartUpload: {
+      Parts: sortedParts.map((part) => ({
+        PartNumber: part.partNumber,
+        ETag: part.eTag,
+      })),
+    },
+  });
+
+  try {
+    await client.send(command);
+  } catch (error) {
+    throw new Error(
+      `Failed to complete multipart upload for key "${key}": ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+/**
+ * Aborts an in-progress multipart upload. Errors are logged and not propagated so cleanup
+ * paths do not mask the original failure.
+ * @param key - Object key in the bucket.
+ * @param uploadId - Multipart upload id to abort.
+ */
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  if (!key) {
+    throw new Error('Object key is required');
+  }
+  if (!uploadId) {
+    throw new Error('Upload ID is required');
+  }
+
+  const client = getR2Client();
+
+  try {
+    await client.send(
+      new AbortMultipartUploadCommand({
+        Bucket: process.env.R2_BUCKET_NAME!,
+        Key: key,
+        UploadId: uploadId,
+      })
+    );
+  } catch (error) {
+    console.warn(
+      `Failed to abort multipart upload for key "${key}" (uploadId "${uploadId}"): ${
         error instanceof Error ? error.message : String(error)
       }`
     );
@@ -288,15 +520,38 @@ export async function headObjectMetadata(
   }
 }
 
+/** Options for streaming reads from R2 via GetObject. */
+export interface GetObjectStreamOptions {
+  signal?: AbortSignal;
+  /**
+   * When set, requests only bytes from this index through EOF (S3 `Range: bytes=N-`).
+   * Returned {@link contentLength} is still the full object size for resumable upload headers.
+   */
+  rangeStart?: number;
+}
+
+/**
+ * Parses the total object size from an S3 `Content-Range` response header.
+ * @param contentRange - Raw `Content-Range` header value.
+ * @returns Total object size in bytes, or null when missing or invalid.
+ */
+function parseS3ContentRangeTotal(contentRange: string | undefined): number | null {
+  if (!contentRange) return null;
+  const match = /^bytes \d+-\d+\/(\d+)$/.exec(contentRange.trim());
+  if (!match) return null;
+  const total = Number(match[1]);
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
 /**
  * Opens an R2 object for streaming reads via the S3 GetObject body.
  * @param key - R2 object key.
- * @param options - Optional abort signal for the GetObject request.
- * @returns Node readable body, content length, and MIME type.
+ * @param options - Optional abort signal and byte range for partial reads.
+ * @returns Node readable body, full object content length, and MIME type.
  */
 async function openObjectNodeStream(
   key: string,
-  options?: { signal?: AbortSignal }
+  options?: GetObjectStreamOptions
 ): Promise<{
   readable: Readable;
   contentLength: number;
@@ -304,6 +559,11 @@ async function openObjectNodeStream(
 }> {
   if (!key) {
     throw new Error('Object key is required');
+  }
+
+  const rangeStart = options?.rangeStart ?? 0;
+  if (!Number.isInteger(rangeStart) || rangeStart < 0) {
+    throw new Error('rangeStart must be a non-negative integer');
   }
 
   const client = getR2Client();
@@ -314,6 +574,7 @@ async function openObjectNodeStream(
       new GetObjectCommand({
         Bucket: process.env.R2_BUCKET_NAME!,
         Key: key,
+        ...(rangeStart > 0 ? { Range: `bytes=${rangeStart}-` } : {}),
       }),
       options?.signal ? { abortSignal: options.signal } : {}
     );
@@ -338,12 +599,18 @@ async function openObjectNodeStream(
     throw new Error(`R2 GetObject returned empty body for key "${key}"`);
   }
 
-  let contentLength = response.ContentLength ?? 0;
+  let contentLength =
+    parseS3ContentRangeTotal(response.ContentRange) ?? response.ContentLength ?? 0;
   if (!Number.isFinite(contentLength) || contentLength <= 0) {
     contentLength = await headObject(key, { signal: options?.signal });
   }
   if (contentLength <= 0) {
     throw new Error(`R2 object has invalid or unknown size for key "${key}"`);
+  }
+  if (rangeStart > 0 && rangeStart >= contentLength) {
+    throw new Error(
+      `rangeStart ${rangeStart} is at or beyond object size ${contentLength} for key "${key}"`
+    );
   }
 
   const trimmedType = response.ContentType?.trim();
@@ -361,12 +628,12 @@ async function openObjectNodeStream(
  * Stream object bytes from R2 as a Node.js {@link Readable}.
  * Prefer this for ffmpeg stdin piping; avoid converting to a Web ReadableStream first.
  * @param key - R2 object key.
- * @param options - Optional abort signal for the GetObject request.
- * @returns Node readable body, content length, and MIME type.
+ * @param options - Optional abort signal and byte range for partial reads.
+ * @returns Node readable body, full object content length, and MIME type.
  */
 export async function getObjectNodeStream(
   key: string,
-  options?: { signal?: AbortSignal }
+  options?: GetObjectStreamOptions
 ): Promise<{
   readable: Readable;
   contentLength: number;
@@ -385,7 +652,7 @@ export async function getObjectNodeStream(
  */
 export async function getObjectWebStream(
   key: string,
-  options?: { signal?: AbortSignal }
+  options?: GetObjectStreamOptions
 ): Promise<{
   stream: ReadableStream<Uint8Array>;
   contentLength: number;

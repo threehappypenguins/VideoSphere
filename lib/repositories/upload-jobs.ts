@@ -361,6 +361,50 @@ export async function getUploadJobsWithPlatformUploadsForDraft(
   return getUploadJobsWithPlatformUploadsFromJobs(jobs);
 }
 
+const STALE_UPLOAD_JOB_STATUSES: readonly UploadJobStatus[] = [
+  'pending',
+  'uploading',
+  'distributing',
+];
+
+/**
+ * Lists upload jobs still in a non-terminal in-progress status whose `updatedAt`
+ * is older than `updatedBefore` (e.g. after a server restart during distribution).
+ * @param updatedBefore - Cutoff instant; rows updated at or after this time are excluded.
+ * @param options - Optional paging controls.
+ * @returns Matching upload jobs, oldest first.
+ */
+export async function listStaleUploadJobs(
+  updatedBefore: Date,
+  options?: { pageSize?: number }
+): Promise<UploadJob[]> {
+  await connectToDatabase();
+
+  const pageSize = options?.pageSize ?? 100;
+  let offset = 0;
+  const jobs: UploadJob[] = [];
+
+  while (true) {
+    const docs = await UploadJobModel.find({
+      status: { $in: [...STALE_UPLOAD_JOB_STATUSES] },
+      updatedAt: { $lt: updatedBefore },
+    })
+      .sort({ updatedAt: 1 })
+      .skip(offset)
+      .limit(pageSize)
+      .lean<UploadJobDocument[]>();
+
+    const pageJobs = docs.map(rowToUploadJob);
+    jobs.push(...pageJobs);
+
+    if (pageJobs.length < pageSize) break;
+    if (pageJobs.length === 0) break;
+    offset += pageSize;
+  }
+
+  return jobs;
+}
+
 // -----------------------------------------------------------------------------
 // Update
 // -----------------------------------------------------------------------------

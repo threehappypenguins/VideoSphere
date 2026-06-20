@@ -510,6 +510,12 @@ export interface PlatformUpload {
   errorMessage: string | null;
   /** SermonAudio: auto-publish intent snapshot from distribute time. */
   sermonAudioAutoPublishOnProcessed?: boolean;
+  /** Provider resumable session URL/URI when a platform supports chunked resume. */
+  resumableUploadUrl?: string | null;
+  /** Last byte offset confirmed by the provider for an in-progress resumable upload. */
+  resumableBytesConfirmed?: number | null;
+  /** ISO timestamp of the last persisted resumable-state update (staleness checks). */
+  resumableUpdatedAt?: string | null;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

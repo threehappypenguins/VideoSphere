@@ -15,9 +15,15 @@ vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: vi.fn(),
 }));
 
-vi.mock('@/lib/r2', () => ({
-  getPresignedUploadUrl: vi.fn(),
-}));
+vi.mock('@/lib/r2', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/r2')>();
+  return {
+    ...actual,
+    createMultipartUpload: vi.fn(),
+    abortMultipartUpload: vi.fn(async () => undefined),
+    getPresignedUploadPartUrls: vi.fn(),
+  };
+});
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
   createUploadJob: vi.fn(),
@@ -30,12 +36,18 @@ vi.mock('@/lib/repositories/drafts', () => ({
 
 import { POST } from '@/app/api/uploads/presign/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getPresignedUploadUrl } from '@/lib/r2';
+import {
+  abortMultipartUpload,
+  createMultipartUpload,
+  DEFAULT_MULTIPART_PART_SIZE_BYTES,
+  getPresignedUploadPartUrls,
+} from '@/lib/r2';
 import { createUploadJob } from '@/lib/repositories/upload-jobs';
 import { getDraftById, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 import type { Draft } from '@/types';
 
 const SESSION_COOKIE = 'videosphere_session';
+const MULTIPART_PART_URL_EXPIRY_SECONDS = 12 * 60 * 60;
 
 const baseDraft: Draft = {
   id: 'draft-123',
@@ -72,7 +84,11 @@ describe('POST /api/uploads/presign', () => {
 
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(getDraftById).mockResolvedValue(baseDraft);
-    vi.mocked(getPresignedUploadUrl).mockResolvedValue('https://r2.example/presigned-put-url');
+    vi.mocked(createMultipartUpload).mockResolvedValue('multipart-upload-id-abc');
+    vi.mocked(abortMultipartUpload).mockResolvedValue(undefined);
+    vi.mocked(getPresignedUploadPartUrls).mockResolvedValue([
+      { partNumber: 1, url: 'https://r2.example/part-1' },
+    ]);
     vi.mocked(createUploadJob).mockResolvedValue({
       id: 'job-123',
       userId: 'user-123',
@@ -105,7 +121,8 @@ describe('POST /api/uploads/presign', () => {
     const body = await res.json();
     expect(body.error).toMatch(/Unauthorized/i);
     expect(getDraftById).not.toHaveBeenCalled();
-    expect(getPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(createMultipartUpload).not.toHaveBeenCalled();
+    expect(getPresignedUploadPartUrls).not.toHaveBeenCalled();
     expect(createUploadJob).not.toHaveBeenCalled();
   });
 
@@ -130,12 +147,13 @@ describe('POST /api/uploads/presign', () => {
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toContain('Forbidden');
-    expect(getPresignedUploadUrl).not.toHaveBeenCalled();
+    expect(createMultipartUpload).not.toHaveBeenCalled();
+    expect(getPresignedUploadPartUrls).not.toHaveBeenCalled();
     expect(createUploadJob).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when presign generation fails', async () => {
-    vi.mocked(getPresignedUploadUrl).mockRejectedValueOnce(new Error('R2 unavailable'));
+  it('returns 500 when multipart presign generation fails', async () => {
+    vi.mocked(createMultipartUpload).mockRejectedValueOnce(new Error('R2 unavailable'));
 
     const res = await POST(
       createRequest(
@@ -153,6 +171,52 @@ describe('POST /api/uploads/presign', () => {
     const body = await res.json();
     expect(body.error).toContain('Failed to generate upload URL');
     expect(createUploadJob).not.toHaveBeenCalled();
+    expect(abortMultipartUpload).not.toHaveBeenCalled();
+  });
+
+  it('aborts the multipart upload when createUploadJob fails after presign succeeds', async () => {
+    vi.mocked(createUploadJob).mockRejectedValueOnce(new Error('DB unavailable'));
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 4096,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(500);
+    expect(abortMultipartUpload).toHaveBeenCalledWith(
+      expect.stringMatching(/^temp\/uploads\/user-123\/.+\/clip\.mp4$/),
+      'multipart-upload-id-abc'
+    );
+  });
+
+  it('aborts the multipart upload when part URL presigning fails', async () => {
+    vi.mocked(getPresignedUploadPartUrls).mockRejectedValueOnce(new Error('R2 presign failed'));
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 4096,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(500);
+    expect(createUploadJob).not.toHaveBeenCalled();
+    expect(abortMultipartUpload).toHaveBeenCalledWith(
+      expect.stringMatching(/^temp\/uploads\/user-123\/.+\/clip\.mp4$/),
+      'multipart-upload-id-abc'
+    );
   });
 
   it('returns 200 and creates UploadJob for valid non-quota flow', async () => {
@@ -174,23 +238,28 @@ describe('POST /api/uploads/presign', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(getPresignedUploadUrl).toHaveBeenCalledWith(
-      'temp/uploads/user-123/1704067200000-uuid-abc-123/clip.mp4',
-      'video/mp4',
-      1024 * 1024
+    const objectKey = 'temp/uploads/user-123/1704067200000-uuid-abc-123/clip.mp4';
+
+    expect(createMultipartUpload).toHaveBeenCalledWith(objectKey, 'video/mp4');
+    expect(getPresignedUploadPartUrls).toHaveBeenCalledWith(
+      objectKey,
+      'multipart-upload-id-abc',
+      1,
+      MULTIPART_PART_URL_EXPIRY_SECONDS
     );
     expect(createUploadJob).toHaveBeenCalledWith({
       userId: 'user-123',
       draftId: 'draft-123',
-      r2Key: 'temp/uploads/user-123/1704067200000-uuid-abc-123/clip.mp4',
+      r2Key: objectKey,
     });
     expect(markDraftUsedInUpload).toHaveBeenCalledWith('draft-123', '2026-01-01T00:00:00.000Z');
 
     expect(body).toEqual({
-      uploadUrl: 'https://r2.example/presigned-put-url',
-      key: 'temp/uploads/user-123/1704067200000-uuid-abc-123/clip.mp4',
+      uploadId: 'multipart-upload-id-abc',
+      key: objectKey,
       bucketName: 'unknown',
-      expiresIn: 900,
+      partSize: DEFAULT_MULTIPART_PART_SIZE_BYTES,
+      parts: [{ partNumber: 1, url: 'https://r2.example/part-1' }],
       uploadJobId: 'job-123',
     });
 
@@ -198,5 +267,7 @@ describe('POST /api/uploads/presign', () => {
     expect(body.quotaRemaining).toBeUndefined();
     expect(body.quotaResetAt).toBeUndefined();
     expect(body.isSupporter).toBeUndefined();
+    expect(body.uploadUrl).toBeUndefined();
+    expect(body.expiresIn).toBeUndefined();
   });
 });

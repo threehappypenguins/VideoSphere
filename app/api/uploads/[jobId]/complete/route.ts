@@ -1,15 +1,21 @@
 /**
  * POST /api/uploads/[jobId]/complete
  *
- * Called by the client after a successful browser-to-R2 PUT.
- * Verifies the actual stored object size, transitions the UploadJob status,
- * and automatically starts distribution to the draft's target platforms.
- * The R2 object is deleted once all platform uploads finish.
+ * Called by the client after all multipart parts have been uploaded to R2.
+ * Finalizes the multipart upload, verifies the stored object size, transitions
+ * the UploadJob status, and automatically starts distribution to the draft's
+ * target platforms. The R2 object is deleted once all platform uploads finish.
  *
  * Quota is enforced at presign time (POST /api/uploads/presign), not here.
  *
  * Path parameter:
  *   jobId  - ID of the UploadJob created during the presign step
+ *
+ * Request body:
+ * {
+ *   uploadId: string                                    - R2 multipart upload id from presign
+ *   parts: Array<{ partNumber: number; eTag: string }> - Part ETags from each part PUT response
+ * }
  *
  * Response (200 OK):
  * {
@@ -20,8 +26,10 @@
  * platforms, or false if the job is only marked as uploading (e.g., no draft or no targets).
  *
  * Error responses:
- * - 400 Bad Request: UploadJob has no R2 key, or the stored object exceeds 5 GB
- *                  (oversized objects are deleted from R2; UploadJob is marked failed)
+ * - 400 Bad Request: Missing or invalid multipart completion body, UploadJob has no R2 key,
+ *                    multipart completion rejected by R2 (invalid parts/ETags), or the stored
+ *                    object exceeds 5 GB (oversized objects are deleted from R2; UploadJob is
+ *                    marked failed)
  * - 401 Unauthorized: Not authenticated
  * - 403 Forbidden (ownership): UploadJob belongs to a different user
  * - 404 Not Found: UploadJob does not exist
@@ -38,7 +46,14 @@
 
 import { NextRequest, NextResponse, after } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
+import {
+  completeMultipartUpload,
+  abortMultipartUpload,
+  deleteObject,
+  headObject,
+  MAX_MULTIPART_PART_COUNT,
+  R2ObjectNotFoundError,
+} from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
@@ -50,6 +65,108 @@ import {
 import type { ConnectedAccountPlatform } from '@/types';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
+
+interface CompleteUploadRequestBody {
+  uploadId: string;
+  parts: { partNumber: number; eTag: string }[];
+}
+
+/** S3/R2 error name or message fragments that indicate invalid client-supplied multipart data. */
+const MULTIPART_CLIENT_ERROR_PATTERNS = [
+  /InvalidPart/i,
+  /InvalidPartOrder/i,
+  /EntityTooSmall/i,
+  /NoSuchUpload/i,
+  /MalformedXML/i,
+];
+
+/**
+ * Returns true when a multipart completion failure is caused by invalid client input
+ * (wrong upload id, part numbers, or ETags) rather than a transient server-side fault.
+ * @param error - Error thrown by {@link completeMultipartUpload}.
+ */
+function isMultipartCompletionClientError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return MULTIPART_CLIENT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+/**
+ * Validate the multipart completion request body.
+ */
+function validateCompleteRequest(body: unknown): {
+  valid: boolean;
+  error?: string;
+  data?: CompleteUploadRequestBody;
+} {
+  if (typeof body !== 'object' || body === null) {
+    return { valid: false, error: 'Request body must be a JSON object' };
+  }
+
+  const req = body as Record<string, unknown>;
+
+  if (typeof req.uploadId !== 'string' || req.uploadId.trim() === '') {
+    return { valid: false, error: 'uploadId is required and must be a non-empty string' };
+  }
+
+  if (!Array.isArray(req.parts) || req.parts.length === 0) {
+    return { valid: false, error: 'parts is required and must be a non-empty array' };
+  }
+
+  if (req.parts.length > MAX_MULTIPART_PART_COUNT) {
+    return {
+      valid: false,
+      error: `parts must contain at most ${MAX_MULTIPART_PART_COUNT} entries`,
+    };
+  }
+
+  const parts: { partNumber: number; eTag: string }[] = [];
+  const seenPartNumbers = new Set<number>();
+  for (let i = 0; i < req.parts.length; i++) {
+    const part = req.parts[i];
+    if (typeof part !== 'object' || part === null) {
+      return {
+        valid: false,
+        error: `parts[${i}] must be an object with partNumber and eTag`,
+      };
+    }
+
+    const p = part as Record<string, unknown>;
+    if (
+      typeof p.partNumber !== 'number' ||
+      !Number.isFinite(p.partNumber) ||
+      !Number.isInteger(p.partNumber) ||
+      p.partNumber < 1 ||
+      p.partNumber > MAX_MULTIPART_PART_COUNT
+    ) {
+      return {
+        valid: false,
+        error: `parts[${i}].partNumber must be an integer from 1 to ${MAX_MULTIPART_PART_COUNT}`,
+      };
+    }
+
+    if (typeof p.eTag !== 'string' || p.eTag.trim() === '') {
+      return {
+        valid: false,
+        error: `parts[${i}].eTag is required and must be a non-empty string`,
+      };
+    }
+
+    if (seenPartNumbers.has(p.partNumber)) {
+      return {
+        valid: false,
+        error: `parts must not contain duplicate partNumber values (duplicate: ${p.partNumber})`,
+      };
+    }
+    seenPartNumbers.add(p.partNumber);
+
+    parts.push({ partNumber: p.partNumber, eTag: p.eTag.trim() });
+  }
+
+  return {
+    valid: true,
+    data: { uploadId: req.uploadId.trim(), parts },
+  };
+}
 
 /**
  * Handles POST requests for this route.
@@ -106,6 +223,47 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    }
+
+    const validation = validateCompleteRequest(body);
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+
+    const { uploadId, parts } = validation.data!;
+
+    try {
+      await completeMultipartUpload(job.r2Key, uploadId, parts);
+    } catch (err) {
+      await abortMultipartUpload(job.r2Key, uploadId).catch((abortErr) => {
+        console.error(
+          `Failed to abort multipart upload for job ${jobId} after completion error:`,
+          abortErr
+        );
+      });
+
+      const clientError = isMultipartCompletionClientError(err);
+      const failureMessage = clientError
+        ? 'Multipart upload completion failed: invalid upload id, part numbers, or ETags'
+        : 'Multipart upload completion failed due to a storage error';
+      const statusCode = clientError ? 400 : 500;
+
+      await updateUploadJobStatus(jobId, 'failed', failureMessage).catch((dbErr) => {
+        console.error(
+          `Failed to mark upload job ${jobId} as failed after multipart completion error:`,
+          dbErr
+        );
+      });
+
+      return NextResponse.json({ error: failureMessage }, { status: statusCode });
+    }
+
     let actualBytes: number;
     try {
       actualBytes = await headObject(job.r2Key);

@@ -45,6 +45,7 @@ import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/uplo
 import {
   type CreatePlatformUploadInput,
   getPlatformUploadsByJob,
+  updatePlatformUploadResumableState,
   updatePlatformUploadStatus,
 } from '@/lib/repositories/platform-uploads';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
@@ -65,7 +66,24 @@ import { isPlatformUploadDistributionComplete } from '@/lib/uploads/status';
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
 export { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 
-const PLATFORM_UPLOAD_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+
+function resolvePlatformUploadTimeoutMs(): number {
+  const raw = process.env.PLATFORM_UPLOAD_TIMEOUT_MS?.trim();
+  if (!raw) {
+    return DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `[distribute] Invalid PLATFORM_UPLOAD_TIMEOUT_MS value "${raw}"; using default ${DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS}ms.`
+    );
+    return DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS;
+  }
+  return parsed;
+}
+
+const PLATFORM_UPLOAD_TIMEOUT_MS = resolvePlatformUploadTimeoutMs();
 
 /**
  * Aborts `signal` when the deadline elapses so R2 reads and platform `fetch` bodies stop.
@@ -421,6 +439,85 @@ async function runSinglePlatformUpload(
         let preparedMetadata: PreparedBackupMetadataVideo | null = null;
 
         try {
+          if (platformUpload.platform === 'google_drive') {
+            const objectMeta =
+              sharedBackupMetadataSession != null
+                ? null
+                : await headObjectMetadata(r2ObjectKey, { signal });
+
+            if (sharedBackupMetadataSession) {
+              preparedMetadata = await sharedBackupMetadataSession.openUploadStream(signal);
+              videoStream = preparedMetadata.stream;
+              uploadContentLength = preparedMetadata.contentLength;
+              uploadContentType = preparedMetadata.contentType;
+            } else if (
+              objectMeta &&
+              shouldInjectBackupMetadata(metadata.backupNaming, objectMeta.contentType)
+            ) {
+              const nodeObject = await getObjectNodeStream(r2ObjectKey, { signal });
+              preparedMetadata = await prepareBackupMetadataVideoForUpload({
+                source: nodeObject.readable,
+                expectedContentLength: nodeObject.contentLength,
+                sourceContentType: nodeObject.contentType,
+                metadata: resolveBackupInjectedMetadata({
+                  title: metadata.title,
+                  settings: metadata.backupNaming,
+                }),
+                signal,
+              });
+              videoStream = preparedMetadata.stream;
+              uploadContentLength = preparedMetadata.contentLength;
+              uploadContentType = preparedMetadata.contentType;
+            } else {
+              uploadContentLength = objectMeta!.contentLength;
+              uploadContentType = objectMeta!.contentType ?? 'application/octet-stream';
+            }
+
+            return await uploadToGoogleDrive({
+              connectedAccount,
+              ...(!preparedMetadata && !sharedBackupMetadataSession
+                ? {
+                    openVideoStream: async (opts) => {
+                      const nodeObject = await getObjectNodeStream(r2ObjectKey, {
+                        signal: opts.signal ?? signal,
+                        rangeStart: opts.rangeStart,
+                      });
+                      return {
+                        stream: Readable.toWeb(nodeObject.readable) as ReadableStream<Uint8Array>,
+                        contentLength: nodeObject.contentLength,
+                        contentType: nodeObject.contentType,
+                      };
+                    },
+                  }
+                : { videoStream: videoStream! }),
+              contentLength: uploadContentLength,
+              contentType: uploadContentType,
+              fileName: buildBackupFileName({
+                title: metadata.title,
+                contentType: uploadContentType,
+                settings: metadata.backupNaming,
+              }),
+              yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
+              tokens,
+              signal,
+              resumableState: {
+                resumableUploadUrl: platformUpload.resumableUploadUrl,
+                resumableBytesConfirmed: platformUpload.resumableBytesConfirmed,
+                resumableUpdatedAt: platformUpload.resumableUpdatedAt,
+              },
+              persistResumableState: async (state) => {
+                await updatePlatformUploadResumableState(platformUpload.id, state);
+              },
+              clearResumableState: async () => {
+                await updatePlatformUploadResumableState(platformUpload.id, {
+                  resumableUploadUrl: null,
+                  resumableBytesConfirmed: null,
+                  resumableUpdatedAt: null,
+                });
+              },
+            });
+          }
+
           if (sharedBackupMetadataSession) {
             preparedMetadata = await sharedBackupMetadataSession.openUploadStream(signal);
             videoStream = preparedMetadata.stream;
@@ -457,19 +554,6 @@ async function runSinglePlatformUpload(
           });
           const yearFolderName = resolveBackupYearFolderName(metadata.backupNaming);
 
-          if (platformUpload.platform === 'google_drive') {
-            return await uploadToGoogleDrive({
-              connectedAccount,
-              videoStream,
-              contentLength: uploadContentLength,
-              contentType: uploadContentType,
-              fileName,
-              yearFolderName,
-              tokens,
-              signal,
-            });
-          }
-
           if (platformUpload.platform === 'sftp') {
             return await uploadToSftp({
               connectedAccount,
@@ -496,20 +580,41 @@ async function runSinglePlatformUpload(
         }
       }
 
-      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
-        signal,
-      });
+      const objectMeta = await headObjectMetadata(r2ObjectKey, { signal });
 
       if (platformUpload.platform === 'youtube') {
         return uploadToYouTube({
-          videoStream: stream,
-          contentLength,
-          contentType,
+          contentLength: objectMeta.contentLength,
+          contentType: objectMeta.contentType ?? 'application/octet-stream',
+          openVideoStream: (opts) =>
+            getObjectWebStream(r2ObjectKey, {
+              signal: opts.signal ?? signal,
+              rangeStart: opts.rangeStart,
+            }),
           metadata,
           tokens,
           signal,
+          resumableState: {
+            resumableUploadUrl: platformUpload.resumableUploadUrl,
+            resumableBytesConfirmed: platformUpload.resumableBytesConfirmed,
+            resumableUpdatedAt: platformUpload.resumableUpdatedAt,
+          },
+          persistResumableState: async (state) => {
+            await updatePlatformUploadResumableState(platformUpload.id, state);
+          },
+          clearResumableState: async () => {
+            await updatePlatformUploadResumableState(platformUpload.id, {
+              resumableUploadUrl: null,
+              resumableBytesConfirmed: null,
+              resumableUpdatedAt: null,
+            });
+          },
         });
       }
+
+      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
+        signal,
+      });
 
       if (platformUpload.platform === 'vimeo') {
         return uploadToVimeo({

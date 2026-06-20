@@ -2,6 +2,13 @@
 
 import { useCallback, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import Link from 'next/link';
+import {
+  cancelMultipartUploadJob,
+  getPartByteRange,
+  type CompletedMultipartPart,
+  type MultipartPresignResponse,
+  uploadPartWithRetry,
+} from '@/lib/uploads/browser-multipart-upload';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,6 +87,8 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
   const [state, setState] = useState<UploadState>({ phase: 'idle' });
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cancelledRef = useRef(false);
+  const uploadSessionRef = useRef<{ uploadJobId: string; uploadId: string } | null>(null);
 
   // -------------------------------------------------------------------------
   // File selection
@@ -128,8 +137,7 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
     if (state.phase !== 'selected' || state.error) return;
     const { file } = state;
 
-    // 1. Request a presigned URL from the server, passing draftId to create UploadJob
-    let presignData: { uploadUrl: string; key: string; uploadJobId: string };
+    let presignData: MultipartPresignResponse;
     try {
       const res = await fetch('/api/uploads/presign', {
         method: 'POST',
@@ -149,111 +157,145 @@ export default function UploadVideoForm({ draftId, backHref }: UploadVideoFormPr
         return;
       }
 
-      presignData = json as { uploadUrl: string; key: string; uploadJobId: string };
+      presignData = json as MultipartPresignResponse;
     } catch {
       setState({ phase: 'error', message: 'Network error. Check your connection and try again.' });
       return;
     }
 
-    // 2. Upload directly to R2 using XHR for progress tracking
-    setState({ phase: 'uploading', file, progress: 0, uploadJobId: presignData.uploadJobId });
+    cancelledRef.current = false;
+    uploadSessionRef.current = {
+      uploadJobId: presignData.uploadJobId,
+      uploadId: presignData.uploadId,
+    };
 
-    await new Promise<void>((resolve) => {
-      const xhr = new XMLHttpRequest();
-      xhrRef.current = xhr;
+    setState({
+      phase: 'uploading',
+      file,
+      progress: 0,
+      uploadJobId: presignData.uploadJobId,
+    });
 
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
+    const sortedParts = [...presignData.parts].sort((a, b) => a.partNumber - b.partNumber);
+    const completedParts: CompletedMultipartPart[] = [];
+    let completedBytes = 0;
+
+    for (const part of sortedParts) {
+      if (cancelledRef.current) {
+        uploadSessionRef.current = null;
+        return;
+      }
+
+      const { start, end } = getPartByteRange(part.partNumber, presignData.partSize, file.size);
+      const partBlob = file.slice(start, end);
+      const partByteLength = end - start;
+
+      const eTag = await uploadPartWithRetry({
+        url: part.url,
+        blob: partBlob,
+        contentType: file.type,
+        onProgress: (loaded) => {
+          const pct = Math.round(((completedBytes + loaded) / file.size) * 100);
           setState({
             phase: 'uploading',
             file,
             progress: pct,
             uploadJobId: presignData.uploadJobId,
           });
-        }
+        },
+        isCancelled: () => cancelledRef.current,
+        setXhr: (xhr) => {
+          xhrRef.current = xhr;
+        },
       });
 
-      xhr.addEventListener('load', () => {
-        (async () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            // Transition to finalizing while we notify the server. Quota
-            // enforcement and UploadJob status advancement happen in /complete,
-            // so we must wait for it to succeed before showing success.
-            setState({
-              phase: 'finalizing',
-              file,
-              uploadJobId: presignData.uploadJobId,
-              r2Key: presignData.key,
-            });
-            try {
-              const res = await fetch(`/api/uploads/${presignData.uploadJobId}/complete`, {
-                method: 'POST',
-              });
-              if (!res.ok) {
-                const body = await res.json().catch(() => ({}));
-                setState({
-                  phase: 'error',
-                  message:
-                    (body as { error?: string }).error ??
-                    'Upload could not be finalized. Please try again.',
-                });
-              } else {
-                setState({
-                  phase: 'success',
-                  file,
-                  uploadJobId: presignData.uploadJobId,
-                  r2Key: presignData.key,
-                });
-              }
-            } catch {
-              setState({
-                phase: 'error',
-                message: 'Network error while finalizing upload. Please try again.',
-              });
-            }
-          } else {
-            setState({
-              phase: 'error',
-              message: `Upload failed (HTTP ${xhr.status}). Please try again.`,
-            });
-          }
-          xhrRef.current = null;
-          resolve();
-        })();
-      });
+      if (cancelledRef.current) {
+        uploadSessionRef.current = null;
+        return;
+      }
 
-      xhr.addEventListener('error', () => {
-        setState({ phase: 'error', message: 'Network error during upload. Please try again.' });
+      if (!eTag) {
+        await cancelMultipartUploadJob(presignData.uploadJobId, presignData.uploadId);
+        uploadSessionRef.current = null;
         xhrRef.current = null;
-        resolve();
-      });
+        setState({
+          phase: 'error',
+          message:
+            'Upload failed after multiple retries on one part. Please try again from the beginning.',
+        });
+        return;
+      }
 
-      xhr.addEventListener('abort', () => {
-        // Best-effort: notify the server so it can mark the UploadJob as failed
-        // rather than leaving it in `pending` forever. The /complete endpoint
-        // will HEAD the (absent) R2 object, catch R2ObjectNotFoundError, and
-        // transition the job to `failed`. Errors here are intentionally ignored
-        // because the user-facing state has already been reset to idle.
-        fetch(`/api/uploads/${presignData.uploadJobId}/complete`, { method: 'POST' }).catch(
-          () => {}
-        );
-        setState({ phase: 'idle' });
-        if (inputRef.current) inputRef.current.value = '';
-        xhrRef.current = null;
-        resolve();
+      completedParts.push({ partNumber: part.partNumber, eTag });
+      completedBytes += partByteLength;
+      setState({
+        phase: 'uploading',
+        file,
+        progress: Math.round((completedBytes / file.size) * 100),
+        uploadJobId: presignData.uploadJobId,
       });
+    }
 
-      xhr.open('PUT', presignData.uploadUrl);
-      xhr.setRequestHeader('Content-Type', file.type);
-      xhr.send(file);
+    xhrRef.current = null;
+    uploadSessionRef.current = null;
+
+    setState({
+      phase: 'finalizing',
+      file,
+      uploadJobId: presignData.uploadJobId,
+      r2Key: presignData.key,
     });
+
+    try {
+      const res = await fetch(`/api/uploads/${presignData.uploadJobId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploadId: presignData.uploadId,
+          parts: completedParts.sort((a, b) => a.partNumber - b.partNumber),
+        }),
+      });
+
+      if (!res.ok) {
+        void cancelMultipartUploadJob(presignData.uploadJobId, presignData.uploadId);
+        const body = await res.json().catch(() => ({}));
+        setState({
+          phase: 'error',
+          message:
+            (body as { error?: string }).error ??
+            'Upload could not be finalized. Please try again.',
+        });
+        return;
+      }
+
+      setState({
+        phase: 'success',
+        file,
+        uploadJobId: presignData.uploadJobId,
+        r2Key: presignData.key,
+      });
+    } catch {
+      void cancelMultipartUploadJob(presignData.uploadJobId, presignData.uploadId);
+      setState({
+        phase: 'error',
+        message: 'Network error while finalizing upload. Please try again.',
+      });
+    }
   };
 
   const handleCancel = () => {
-    if (xhrRef.current) {
-      xhrRef.current.abort();
+    cancelledRef.current = true;
+    xhrRef.current?.abort();
+    xhrRef.current = null;
+
+    const session = uploadSessionRef.current;
+    if (session) {
+      void cancelMultipartUploadJob(session.uploadJobId, session.uploadId);
     }
+    uploadSessionRef.current = null;
+
+    setState({ phase: 'idle' });
+    if (inputRef.current) inputRef.current.value = '';
   };
 
   const handleReset = () => {
