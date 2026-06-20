@@ -731,7 +731,6 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
         startOffset = probe.bytesConfirmed;
       } else if (probe.status === 'complete') {
         completedVideoId = probe.platformVideoId;
-        await input.clearResumableState?.();
       } else if (probe.status === 'unconfirmed') {
         resumableUploadUrl = storedSessionUrl;
         startOffset = resumeOffsetFromStored(

@@ -276,6 +276,26 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(vi.mocked(headObject)).not.toHaveBeenCalled();
     });
 
+    it('returns 400 when a partNumber exceeds the S3/R2 maximum of 10,000', async () => {
+      const response = await POST(
+        createRequest(
+          'job-123',
+          { videosphere_session: 'token' },
+          {
+            uploadId: 'multipart-upload-id-abc',
+            parts: [{ partNumber: MAX_MULTIPART_PART_COUNT + 1, eTag: '"etag-1"' }],
+          }
+        ),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain(String(MAX_MULTIPART_PART_COUNT));
+      expect(vi.mocked(completeMultipartUpload)).not.toHaveBeenCalled();
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
     it('returns 400 when parts contains duplicate partNumber values', async () => {
       const response = await POST(
         createRequest(

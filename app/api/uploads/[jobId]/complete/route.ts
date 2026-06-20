@@ -135,11 +135,12 @@ function validateCompleteRequest(body: unknown): {
       typeof p.partNumber !== 'number' ||
       !Number.isFinite(p.partNumber) ||
       !Number.isInteger(p.partNumber) ||
-      p.partNumber <= 0
+      p.partNumber < 1 ||
+      p.partNumber > MAX_MULTIPART_PART_COUNT
     ) {
       return {
         valid: false,
-        error: `parts[${i}].partNumber must be a positive integer`,
+        error: `parts[${i}].partNumber must be an integer from 1 to ${MAX_MULTIPART_PART_COUNT}`,
       };
     }
 

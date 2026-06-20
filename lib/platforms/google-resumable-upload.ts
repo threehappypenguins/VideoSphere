@@ -1,4 +1,4 @@
-import type { PlatformUploadError, PlatformUploadResult } from '@/lib/platforms/types';
+import type { PlatformUploadResult } from '@/lib/platforms/types';
 
 type PlatformUploadFailure = Extract<PlatformUploadResult, { ok: false }>;
 
@@ -555,7 +555,6 @@ export async function resolveGoogleResumableUploadSession(input: {
       };
     }
     if (probe.status === 'complete') {
-      await input.clearResumableState?.();
       return { kind: 'complete', resourceId: probe.resourceId };
     }
     if (probe.status === 'unconfirmed') {

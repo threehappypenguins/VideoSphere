@@ -749,6 +749,70 @@ describe('uploadToYouTube resumable session reuse', () => {
     expect(clearResumableState).toHaveBeenCalledTimes(1);
   });
 
+  it('clears resumable fields once when a stored session probe reports the upload is already complete', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const storedSession = 'https://upload.youtube.test/session/already-complete';
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+    let initPostCount = 0;
+    let chunkPutCount = 0;
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+          initPostCount += 1;
+          return Promise.resolve(
+            new Response(null, {
+              status: 200,
+              headers: { location: 'https://upload.youtube.test/session/new' },
+            })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes */512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'already-complete-video-id' }), { status: 200 })
+          );
+        }
+
+        if (method === 'PUT' && sUrl === storedSession) {
+          chunkPutCount += 1;
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await youtube.uploadToYouTube({
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      metadata: BASE_UPLOAD_METADATA,
+      tokens: { accessToken: 'tok' },
+      resumableState: {
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 512,
+        resumableUpdatedAt: '2026-06-20T10:00:00.000Z',
+      },
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('already-complete-video-id');
+    }
+    expect(initPostCount).toBe(0);
+    expect(chunkPutCount).toBe(0);
+    expect(clearResumableState).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the stored session and offset when the probe fails transiently', async () => {
     const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
     const storedSession = 'https://upload.youtube.test/session/stored';

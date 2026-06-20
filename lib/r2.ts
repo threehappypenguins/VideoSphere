@@ -315,8 +315,13 @@ export async function completeMultipartUpload(
   }
 
   for (const part of parts) {
-    if (!Number.isFinite(part.partNumber) || part.partNumber <= 0) {
-      throw new Error('Each part must have a positive part number');
+    if (
+      !Number.isFinite(part.partNumber) ||
+      !Number.isInteger(part.partNumber) ||
+      part.partNumber < 1 ||
+      part.partNumber > MAX_MULTIPART_PART_COUNT
+    ) {
+      throw new Error(`Each part number must be an integer from 1 to ${MAX_MULTIPART_PART_COUNT}`);
     }
     if (!part.eTag?.trim()) {
       throw new Error('Each part must include an ETag');
