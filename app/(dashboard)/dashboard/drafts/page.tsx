@@ -115,6 +115,8 @@ export default function DraftsPage() {
   const shouldDeleteCreateDraftOnCancelRef = useRef(false);
   /** Baseline targets when minimal create opened (updated if auto-fill effect adds platforms). */
   const createModalBaselineTargetsRef = useRef<ConnectedAccountPlatform[] | null>(null);
+  /** Blocks duplicate POST when the duplicate button is clicked again before re-render. */
+  const duplicatingDraftIdRef = useRef<string | null>(null);
 
   const loadDrafts = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -305,6 +307,8 @@ export default function DraftsPage() {
 
   const handleDuplicateDraft = useCallback(
     async (draft: Draft) => {
+      if (duplicatingDraftIdRef.current === draft.id) return;
+      duplicatingDraftIdRef.current = draft.id;
       setIsDuplicatingId(draft.id);
       try {
         const response = await fetch('/api/drafts', {
@@ -329,6 +333,7 @@ export default function DraftsPage() {
       } catch (error) {
         toast.error(error instanceof Error ? error.message : 'Failed to duplicate draft');
       } finally {
+        duplicatingDraftIdRef.current = null;
         setIsDuplicatingId(null);
       }
     },
