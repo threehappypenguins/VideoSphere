@@ -1777,3 +1777,117 @@ describe('DraftMetadataModal Facebook fields', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+describe('DraftMetadataModal disconnected platform targets', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetchWithVimeoMetadataOptions());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('auto-deselects disconnected platforms once connections are resolved', async () => {
+    function ControlledModal() {
+      const [value, setValue] = useState<DraftEditorValues>({
+        ...draftValue,
+        targets: ['youtube', 'smb'],
+        platforms: { smb: {} },
+      });
+
+      return (
+        <DraftMetadataModal
+          mode="edit"
+          value={value}
+          initialConnectedPlatforms={['youtube']}
+          initialConnectionsResolved
+          isSaving={false}
+          onClose={vi.fn()}
+          onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+          onChange={setValue}
+        />
+      );
+    }
+
+    render(<ControlledModal />);
+    await screen.findByRole('dialog');
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /toggle youtube platform/i })).toBeChecked();
+      expect(screen.getByRole('button', { name: /save draft/i })).toBeEnabled();
+    });
+
+    expect(
+      screen.queryByText(/one or more selected targets are no longer connected/i)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('checkbox', { name: /toggle smb \/ network share platform/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it('selects connected platforms when every saved target is disconnected', async () => {
+    function ControlledModal() {
+      const [value, setValue] = useState<DraftEditorValues>({
+        ...draftValue,
+        targets: ['smb'],
+        platforms: { smb: {} },
+      });
+
+      return (
+        <DraftMetadataModal
+          mode="edit"
+          value={value}
+          initialConnectedPlatforms={['youtube']}
+          initialConnectionsResolved
+          isSaving={false}
+          onClose={vi.fn()}
+          onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+          onChange={setValue}
+        />
+      );
+    }
+
+    render(<ControlledModal />);
+    await screen.findByRole('dialog');
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /toggle youtube platform/i })).toBeChecked();
+    });
+  });
+
+  it('keeps disconnected targets when no connected platforms are available', async () => {
+    function ControlledModal() {
+      const [value, setValue] = useState<DraftEditorValues>({
+        ...draftValue,
+        targets: ['smb'],
+        platforms: { smb: {} },
+      });
+
+      return (
+        <DraftMetadataModal
+          mode="edit"
+          value={value}
+          initialConnectedPlatforms={[]}
+          initialConnectionsResolved
+          isSaving={false}
+          onClose={vi.fn()}
+          onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
+          onChange={setValue}
+        />
+      );
+    }
+
+    render(<ControlledModal />);
+    await screen.findByRole('dialog');
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('checkbox', { name: /toggle smb \/ network share platform/i })
+      ).toBeChecked();
+    });
+
+    expect(screen.getByText('Disconnected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save draft/i })).toBeDisabled();
+  });
+});

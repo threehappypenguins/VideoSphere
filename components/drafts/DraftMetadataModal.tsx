@@ -1021,6 +1021,27 @@ export function DraftMetadataModal({
   }, [initialConnectionsResolved]);
 
   useEffect(() => {
+    if (!value) return;
+    if (!hasLoadedConnections || connectionsError !== null) return;
+
+    const connectedSet = new Set(connectedPlatforms);
+    const connectedTargets = value.targets.filter((platform) => connectedSet.has(platform));
+    if (connectedTargets.length === value.targets.length) return;
+
+    const nextTargets =
+      connectedTargets.length > 0
+        ? connectedTargets
+        : [...connectedPlatforms].sort(comparePlatformsByPreference);
+
+    if (nextTargets.length === 0) return;
+
+    onChange({
+      ...value,
+      targets: nextTargets,
+    });
+  }, [connectedPlatforms, connectionsError, hasLoadedConnections, onChange, value]);
+
+  useEffect(() => {
     if (!draftId) return;
     const controller = new AbortController();
 
