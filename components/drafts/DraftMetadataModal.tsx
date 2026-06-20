@@ -42,6 +42,13 @@ import {
   parseSharedTagInput,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
+import {
+  cancelMultipartUploadJob,
+  getPartByteRange,
+  type CompletedMultipartPart,
+  type MultipartPresignResponse,
+  uploadPartWithRetry,
+} from '@/lib/uploads/browser-multipart-upload';
 import { UploadHistoryJobDiscard } from '@/components/uploads/UploadHistoryJobDiscard';
 import { UploadHistoryPlatformActions } from '@/components/uploads/UploadHistoryPlatformActions';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
@@ -684,6 +691,8 @@ export function DraftMetadataModal({
   >({});
   const thumbnailUploading = thumbnailUploadScope !== null;
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const uploadSessionRef = useRef<{ uploadJobId: string; uploadId: string } | null>(null);
+  const uploadCancelledRef = useRef(false);
   const clearPendingConfirmResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const clearPendingConfirmIntentRef = useRef<ClearPendingConfirmIntent>('clearOnly');
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
@@ -2889,35 +2898,74 @@ export function DraftMetadataModal({
         throw new Error(combinedMessage);
       }
 
-      const { uploadUrl, uploadJobId } = (await presignRes.json()) as {
-        uploadUrl: string;
-        uploadJobId: string;
-      };
+      const presignData = (await presignRes.json()) as MultipartPresignResponse;
+      const { uploadJobId, uploadId, partSize, parts } = presignData;
+
+      if (
+        !uploadJobId ||
+        !uploadId ||
+        !partSize ||
+        !Array.isArray(parts) ||
+        parts.length === 0 ||
+        parts.some((part) => typeof part.url !== 'string' || part.url.trim() === '')
+      ) {
+        throw new Error('Invalid presign response: missing multipart upload data');
+      }
+
       activeUploadJobId = uploadJobId;
       setCurrentUploadJobId(uploadJobId);
+      uploadSessionRef.current = { uploadJobId, uploadId };
+      uploadCancelledRef.current = false;
 
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhrRef.current = xhr;
-        xhr.open('PUT', uploadUrl);
-        xhr.setRequestHeader('Content-Type', videoFile.type);
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            setUploadProgress(Math.round((event.loaded / event.total) * 100));
-          }
+      const sortedParts = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+      const completedParts: CompletedMultipartPart[] = [];
+      let completedBytes = 0;
+
+      for (const part of sortedParts) {
+        if (uploadCancelledRef.current) {
+          throw new Error('UPLOAD_ABORTED');
+        }
+
+        const { start, end } = getPartByteRange(part.partNumber, partSize, videoFile.size);
+        const partBlob = videoFile.slice(start, end);
+        const partByteLength = end - start;
+
+        const eTag = await uploadPartWithRetry({
+          url: part.url,
+          blob: partBlob,
+          contentType: videoFile.type,
+          onProgress: (loaded) => {
+            setUploadProgress(Math.round(((completedBytes + loaded) / videoFile.size) * 100));
+          },
+          isCancelled: () => uploadCancelledRef.current,
+          setXhr: (xhr) => {
+            xhrRef.current = xhr;
+          },
         });
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed with status ${xhr.status}`));
-        });
-        xhr.addEventListener('error', () =>
-          reject(new Error('Upload failed due to network error'))
-        );
-        xhr.addEventListener('abort', () => reject(new Error('UPLOAD_ABORTED')));
-        xhr.send(videoFile);
+
+        if (uploadCancelledRef.current) {
+          throw new Error('UPLOAD_ABORTED');
+        }
+
+        if (!eTag) {
+          await cancelMultipartUploadJob(uploadJobId, uploadId);
+          throw new Error(
+            'Upload failed after multiple retries on one part. Please try again from the beginning.'
+          );
+        }
+
+        completedParts.push({ partNumber: part.partNumber, eTag });
+        completedBytes += partByteLength;
+        setUploadProgress(Math.round((completedBytes / videoFile.size) * 100));
+      }
+
+      uploadSessionRef.current = null;
+
+      const completeRes = await fetch(`/api/uploads/${uploadJobId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploadId, parts: completedParts }),
       });
-
-      const completeRes = await fetch(`/api/uploads/${uploadJobId}/complete`, { method: 'POST' });
       if (!completeRes.ok) {
         const err = (await completeRes.json().catch(() => null)) as {
           message?: string;
@@ -2948,10 +2996,16 @@ export function DraftMetadataModal({
         return;
       }
       if (activeUploadJobId) {
-        void fetch(`/api/uploads/${activeUploadJobId}/cancel`, { method: 'POST' }).catch(() => {
-          // Best-effort: mark cancelled when PUT or complete failed.
-        });
+        const session = uploadSessionRef.current;
+        if (session) {
+          void cancelMultipartUploadJob(session.uploadJobId, session.uploadId);
+        } else {
+          void fetch(`/api/uploads/${activeUploadJobId}/cancel`, { method: 'POST' }).catch(() => {
+            // Best-effort: mark cancelled when complete failed after parts uploaded.
+          });
+        }
       }
+      uploadSessionRef.current = null;
       setCurrentUploadJobId(null);
       setUploadModalPhase(null);
       toast.error(error instanceof Error ? error.message : 'Upload failed');
@@ -2968,12 +3022,16 @@ export function DraftMetadataModal({
     if (!uploading && !cancelServerFailed) return; // retry path only when stuck or in-flight
 
     setIsCancellingUpload(true);
+    uploadCancelledRef.current = true;
     try {
       if (xhrRef.current) {
         xhrRef.current.abort();
       }
+      const session = uploadSessionRef.current;
       const cancelRes = await fetch(`/api/uploads/${currentUploadJobId}/cancel`, {
         method: 'POST',
+        headers: session ? { 'Content-Type': 'application/json' } : undefined,
+        body: session ? JSON.stringify({ uploadId: session.uploadId }) : undefined,
       });
       if (!cancelRes.ok) {
         const errBody = (await cancelRes.json().catch(() => null)) as {
@@ -2988,6 +3046,7 @@ export function DraftMetadataModal({
       }
 
       setCancelServerFailed(false);
+      uploadSessionRef.current = null;
       clearPendingVideoSelection({ skipServerCancel: true });
       setUploadModalPhase(null);
       const draftId = value?.id;
@@ -3295,7 +3354,9 @@ export function DraftMetadataModal({
 
   const clearPendingVideoSelection = async (options?: { skipServerCancel?: boolean }) => {
     const jobId = currentUploadJobId;
+    const session = uploadSessionRef.current;
 
+    uploadCancelledRef.current = true;
     if (xhrRef.current) {
       xhrRef.current.abort();
       xhrRef.current = null;
@@ -3303,7 +3364,11 @@ export function DraftMetadataModal({
 
     if (jobId && !options?.skipServerCancel) {
       try {
-        const cancelRes = await fetch(`/api/uploads/${jobId}/cancel`, { method: 'POST' });
+        const cancelRes = await fetch(`/api/uploads/${jobId}/cancel`, {
+          method: 'POST',
+          headers: session ? { 'Content-Type': 'application/json' } : undefined,
+          body: session ? JSON.stringify({ uploadId: session.uploadId }) : undefined,
+        });
         if (!cancelRes.ok) {
           const errBody = (await cancelRes.json().catch(() => null)) as {
             message?: string;
@@ -3327,6 +3392,7 @@ export function DraftMetadataModal({
       }
     }
 
+    uploadSessionRef.current = null;
     setVideoFile(null);
     setUploadProgress(0);
     setUploadComplete(false);

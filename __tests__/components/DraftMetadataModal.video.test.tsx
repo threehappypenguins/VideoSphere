@@ -34,11 +34,12 @@ vi.mock('sonner', () => ({
 
 type XhrListener = (...args: unknown[]) => void;
 
-/** Minimal XMLHttpRequest stand-in for presigned R2 PUT uploads. */
+/** Minimal XMLHttpRequest stand-in for presigned R2 multipart PUT uploads. */
 class MockXMLHttpRequest {
   static readonly instances: MockXMLHttpRequest[] = [];
 
   status = 0;
+  responseHeaders: Record<string, string> = { ETag: '"part-etag"' };
   upload = {
     listeners: new Map<string, XhrListener[]>(),
     addEventListener(type: string, cb: XhrListener) {
@@ -67,30 +68,26 @@ class MockXMLHttpRequest {
     this.listeners.set(type, bucket);
   }
 
+  getResponseHeader(name: string) {
+    return this.responseHeaders[name] ?? null;
+  }
+
   dispatch(type: string, ...args: unknown[]) {
     for (const cb of this.listeners.get(type) ?? []) {
       cb(...args);
     }
   }
 
-  simulateSuccess(status = 200) {
+  simulateSuccess(status = 200, eTag = '"part-etag"') {
     this.status = status;
+    this.responseHeaders.ETag = eTag;
     this.dispatch('load');
   }
 }
 
-const draftValue: DraftEditorValues = {
-  id: 'draft-video-regression',
-  title: 'Regression draft title',
-  description: '',
-  tags: [],
-  visibility: 'public',
-  targets: ['youtube'],
-  platforms: {},
-};
-
-const VIDEO_PRESIGN_URL = 'https://r2.example/presigned-video-put';
+const VIDEO_UPLOAD_ID = 'multipart-upload-id-regression';
 const VIDEO_UPLOAD_JOB_ID = 'upload-job-video-regression';
+const PART_SIZE = 10;
 
 function mockVideoUploadFetch() {
   vi.stubGlobal(
@@ -99,10 +96,19 @@ function mockVideoUploadFetch() {
       const url = typeof input === 'string' ? input : input.toString();
 
       if (url.includes('/api/uploads/presign') && init?.method === 'POST') {
+        const requestBody = JSON.parse(String(init.body)) as { fileSize: number };
+        const partCount = Math.max(1, Math.ceil(requestBody.fileSize / PART_SIZE));
         return {
           ok: true,
           json: async () => ({
-            uploadUrl: VIDEO_PRESIGN_URL,
+            uploadId: VIDEO_UPLOAD_ID,
+            key: 'temp/uploads/user-123/clip.mp4',
+            bucketName: 'videosphere-uploads',
+            partSize: PART_SIZE,
+            parts: Array.from({ length: partCount }, (_, index) => ({
+              partNumber: index + 1,
+              url: `https://r2.example/part-${index + 1}`,
+            })),
             uploadJobId: VIDEO_UPLOAD_JOB_ID,
           }),
         } as Response;
@@ -119,6 +125,16 @@ function mockVideoUploadFetch() {
     })
   );
 }
+
+const draftValue: DraftEditorValues = {
+  id: 'draft-video-regression',
+  title: 'Regression draft title',
+  description: '',
+  tags: [],
+  visibility: 'public',
+  targets: ['youtube'],
+  platforms: {},
+};
 
 function renderVideoModal() {
   render(
