@@ -143,19 +143,34 @@ async function main() {
   }
 
   let aborted = 0;
+  let failed = 0;
   for (const upload of uploads) {
-    await client.send(
-      new AbortMultipartUploadCommand({
-        Bucket: bucket,
-        Key: upload.key,
-        UploadId: upload.uploadId,
-      })
-    );
-    aborted += 1;
-    console.log(`Aborted: ${upload.key}`);
+    try {
+      await client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: bucket,
+          Key: upload.key,
+          UploadId: upload.uploadId,
+        })
+      );
+      aborted += 1;
+      console.log(`Aborted: ${upload.key}`);
+    } catch (error) {
+      failed += 1;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to abort ${upload.key} (uploadId=${upload.uploadId}): ${message}`);
+    }
   }
 
-  console.log(`Done. Aborted ${aborted} multipart upload(s). Refresh the R2 dashboard to confirm.`);
+  console.log(
+    `Done. Aborted ${aborted} multipart upload(s)` +
+      (failed > 0 ? `; ${failed} failed` : '') +
+      '. Refresh the R2 dashboard to confirm.'
+  );
+
+  if (failed > 0) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {

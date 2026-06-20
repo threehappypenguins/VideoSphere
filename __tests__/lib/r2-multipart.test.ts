@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Readable } from 'node:stream';
 
 const mockSend = vi.hoisted(() => vi.fn());
 const mockGetSignedUrl = vi.hoisted(() => vi.fn());
@@ -32,6 +33,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 
 import {
   CreateMultipartUploadCommand,
+  GetObjectCommand,
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
@@ -42,6 +44,7 @@ import {
   computeMultipartPlan,
   createMultipartUpload,
   DEFAULT_MULTIPART_PART_SIZE_BYTES,
+  getObjectWebStream,
   getPresignedUploadPartUrls,
   MAX_MULTIPART_PART_COUNT,
   MIN_MULTIPART_PART_SIZE_BYTES,
@@ -242,6 +245,26 @@ describe('R2 multipart upload primitives', () => {
         expect.stringContaining(`Failed to abort multipart upload for key "${KEY}"`)
       );
       warnSpy.mockRestore();
+    });
+  });
+
+  describe('getObjectWebStream range reads', () => {
+    it('requests a Range starting at rangeStart and returns full object contentLength', async () => {
+      mockSend.mockResolvedValueOnce({
+        Body: Readable.from([Buffer.from([1, 2])]),
+        ContentRange: 'bytes 256-511/512',
+        ContentType: 'video/mp4',
+      });
+
+      const opened = await getObjectWebStream(KEY, { rangeStart: 256 });
+
+      expect(opened.contentLength).toBe(512);
+      expect(opened.contentType).toBe('video/mp4');
+      expect(GetObjectCommand).toHaveBeenCalledWith({
+        Bucket: MOCK_BUCKET,
+        Key: KEY,
+        Range: 'bytes=256-',
+      });
     });
   });
 });

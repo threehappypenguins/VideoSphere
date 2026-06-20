@@ -9,6 +9,7 @@ import type { PlatformUploadMetadata, PlatformUploadResult } from '@/lib/platfor
 type UploadToSermonAudioFn = typeof import('@/lib/platforms/sermon-audio').uploadToSermonAudio;
 
 const mockGetObjectWebStream = vi.fn();
+const mockHeadObjectMetadata = vi.fn();
 const mockDeleteObject = vi.fn();
 const mockGetConnectedAccountWithTokens = vi.fn();
 const mockRefreshTokenIfNeeded = vi.fn();
@@ -25,6 +26,7 @@ const mockPublishSermonAudio = vi.fn();
 
 vi.mock('@/lib/r2', () => ({
   getObjectWebStream: (...args: unknown[]) => mockGetObjectWebStream(...args),
+  headObjectMetadata: (...args: unknown[]) => mockHeadObjectMetadata(...args),
   deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
 }));
 
@@ -239,7 +241,7 @@ describe('runDistributionInBackground — platform upload timeout', () => {
       })
     );
 
-    mockGetObjectWebStream.mockImplementation(
+    mockHeadObjectMetadata.mockImplementation(
       (_key: string, opts?: { signal?: AbortSignal }) =>
         new Promise((_, reject) => {
           const sig = opts?.signal;
@@ -373,7 +375,7 @@ describe('PLATFORM_UPLOAD_TIMEOUT_MS env', () => {
       })
     );
 
-    mockGetObjectWebStream.mockImplementation(
+    mockHeadObjectMetadata.mockImplementation(
       (_key: string, opts?: { signal?: AbortSignal }) =>
         new Promise((_, reject) => {
           const sig = opts?.signal;
@@ -559,6 +561,11 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
         tokenExpiry: account.tokenExpiry || new Date(Date.now() + 3600_000).toISOString(),
       })
     );
+
+    mockHeadObjectMetadata.mockResolvedValue({
+      contentLength: 3,
+      contentType: 'video/mp4',
+    });
 
     mockGetObjectWebStream.mockResolvedValue({
       stream: makeVideoStream(),

@@ -14,6 +14,7 @@ import type {
 import {
   type GoogleResumablePersistedState,
   type GoogleResumableStateUpdate,
+  type OpenRangedVideoStream,
   isRetryableGoogleResumableUploadFailure,
   nextGoogleResumableChunkSize,
   parseGoogleResumable308RangeLastByteInclusive,
@@ -32,7 +33,13 @@ export type YouTubeResumablePersistedState = GoogleResumablePersistedState;
 export type YouTubeResumableStateUpdate = GoogleResumableStateUpdate;
 
 interface UploadToYouTubeInput {
-  videoStream: ReadableStream<Uint8Array>;
+  /** Pre-opened stream; use when no {@link openVideoStream} is supplied (tests or non-R2 sources). */
+  videoStream?: ReadableStream<Uint8Array>;
+  /**
+   * Opens a fresh stream for upload, optionally starting at `rangeStart` (e.g. R2 Range GET).
+   * Preferred for distribution so resume does not re-download skipped bytes from R2.
+   */
+  openVideoStream?: OpenRangedVideoStream;
   contentLength?: number;
   contentType?: string;
   metadata: PlatformUploadMetadata;
@@ -503,6 +510,7 @@ async function uploadYouTubeResumableInChunks(input: {
   totalBytes: number;
   contentType: string;
   startOffset?: number;
+  streamStartsAtOffset?: boolean;
   onBytesConfirmed?: (bytesConfirmed: number) => Promise<void>;
   signal?: AbortSignal;
 }): Promise<PlatformUploadResult> {
@@ -658,11 +666,8 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
   const { signal } = input;
 
   try {
-    const videoSource = {
-      stream: input.videoStream,
-      contentLength: input.contentLength,
-      contentType: input.contentType ?? 'application/octet-stream',
-    };
+    const contentLength = input.contentLength;
+    const contentType = input.contentType ?? 'application/octet-stream';
 
     const m = input.metadata;
     const safeTitle = m.title.trim() || 'Untitled video';
@@ -712,12 +717,12 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
     let completedVideoId: string | undefined;
 
     const storedSessionUrl = input.resumableState?.resumableUploadUrl?.trim();
-    if (storedSessionUrl && videoSource.contentLength && videoSource.contentLength > 0) {
+    if (storedSessionUrl && contentLength && contentLength > 0) {
       const probe = await probeYouTubeResumableSession({
         sessionUrl: storedSessionUrl,
         accessToken: input.tokens.accessToken,
-        totalBytes: videoSource.contentLength,
-        contentType: videoSource.contentType,
+        totalBytes: contentLength,
+        contentType,
         signal,
       });
 
@@ -731,7 +736,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
         resumableUploadUrl = storedSessionUrl;
         startOffset = resumeOffsetFromStored(
           input.resumableState?.resumableBytesConfirmed,
-          videoSource.contentLength
+          contentLength
         );
       } else {
         await input.clearResumableState?.();
@@ -744,10 +749,8 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
         headers: {
           Authorization: `Bearer ${input.tokens.accessToken}`,
           'Content-Type': 'application/json; charset=UTF-8',
-          'X-Upload-Content-Type': videoSource.contentType,
-          ...(videoSource.contentLength
-            ? { 'X-Upload-Content-Length': String(videoSource.contentLength) }
-            : {}),
+          'X-Upload-Content-Type': contentType,
+          ...(contentLength ? { 'X-Upload-Content-Length': String(contentLength) } : {}),
         },
         body: JSON.stringify(initBody),
         ...(signal ? { signal } : {}),
@@ -771,7 +774,7 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       resumableUploadUrl = location;
       startOffset = 0;
 
-      if (videoSource.contentLength && videoSource.contentLength > 0) {
+      if (contentLength && contentLength > 0) {
         await input.persistResumableState?.({
           resumableUploadUrl,
           resumableBytesConfirmed: 0,
@@ -790,34 +793,52 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       };
     } else if (!resumableUploadUrl) {
       return toError('YOUTUBE_RESUMABLE_URL_MISSING', 'YouTube upload URL was not returned.');
-    } else if (videoSource.contentLength && videoSource.contentLength > 0) {
-      uploadResult = await uploadYouTubeResumableInChunks({
-        sessionUrl: resumableUploadUrl,
-        accessToken: input.tokens.accessToken,
-        stream: videoSource.stream,
-        totalBytes: videoSource.contentLength,
-        contentType: videoSource.contentType,
-        startOffset,
-        onBytesConfirmed: input.persistResumableState
-          ? async (bytesConfirmed) => {
-              await input.persistResumableState?.({
-                resumableUploadUrl,
-                resumableBytesConfirmed: bytesConfirmed,
-                resumableUpdatedAt: new Date().toISOString(),
-              });
-            }
-          : undefined,
-        signal,
-      });
     } else {
-      uploadResult = await uploadYouTubeResumableSinglePut({
-        sessionUrl: resumableUploadUrl,
-        accessToken: input.tokens.accessToken,
-        stream: videoSource.stream,
-        contentLength: videoSource.contentLength,
-        contentType: videoSource.contentType,
-        signal,
-      });
+      const openedVideo =
+        input.openVideoStream != null
+          ? await input.openVideoStream({ rangeStart: startOffset, signal })
+          : input.videoStream != null
+            ? {
+                stream: input.videoStream,
+                contentLength: contentLength ?? 0,
+                contentType,
+              }
+            : null;
+
+      if (!openedVideo?.stream) {
+        return toError('YOUTUBE_VIDEO_SOURCE_MISSING', 'YouTube video stream is missing.');
+      }
+
+      if (contentLength && contentLength > 0) {
+        uploadResult = await uploadYouTubeResumableInChunks({
+          sessionUrl: resumableUploadUrl,
+          accessToken: input.tokens.accessToken,
+          stream: openedVideo.stream,
+          totalBytes: contentLength,
+          contentType,
+          startOffset,
+          streamStartsAtOffset: Boolean(input.openVideoStream),
+          onBytesConfirmed: input.persistResumableState
+            ? async (bytesConfirmed) => {
+                await input.persistResumableState?.({
+                  resumableUploadUrl,
+                  resumableBytesConfirmed: bytesConfirmed,
+                  resumableUpdatedAt: new Date().toISOString(),
+                });
+              }
+            : undefined,
+          signal,
+        });
+      } else {
+        uploadResult = await uploadYouTubeResumableSinglePut({
+          sessionUrl: resumableUploadUrl,
+          accessToken: input.tokens.accessToken,
+          stream: openedVideo.stream,
+          contentLength,
+          contentType,
+          signal,
+        });
+      }
     }
 
     if (uploadResult.ok === false) {

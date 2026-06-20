@@ -515,15 +515,38 @@ export async function headObjectMetadata(
   }
 }
 
+/** Options for streaming reads from R2 via GetObject. */
+export interface GetObjectStreamOptions {
+  signal?: AbortSignal;
+  /**
+   * When set, requests only bytes from this index through EOF (S3 `Range: bytes=N-`).
+   * Returned {@link contentLength} is still the full object size for resumable upload headers.
+   */
+  rangeStart?: number;
+}
+
+/**
+ * Parses the total object size from an S3 `Content-Range` response header.
+ * @param contentRange - Raw `Content-Range` header value.
+ * @returns Total object size in bytes, or null when missing or invalid.
+ */
+function parseS3ContentRangeTotal(contentRange: string | undefined): number | null {
+  if (!contentRange) return null;
+  const match = /^bytes \d+-\d+\/(\d+)$/.exec(contentRange.trim());
+  if (!match) return null;
+  const total = Number(match[1]);
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
 /**
  * Opens an R2 object for streaming reads via the S3 GetObject body.
  * @param key - R2 object key.
- * @param options - Optional abort signal for the GetObject request.
- * @returns Node readable body, content length, and MIME type.
+ * @param options - Optional abort signal and byte range for partial reads.
+ * @returns Node readable body, full object content length, and MIME type.
  */
 async function openObjectNodeStream(
   key: string,
-  options?: { signal?: AbortSignal }
+  options?: GetObjectStreamOptions
 ): Promise<{
   readable: Readable;
   contentLength: number;
@@ -531,6 +554,11 @@ async function openObjectNodeStream(
 }> {
   if (!key) {
     throw new Error('Object key is required');
+  }
+
+  const rangeStart = options?.rangeStart ?? 0;
+  if (!Number.isInteger(rangeStart) || rangeStart < 0) {
+    throw new Error('rangeStart must be a non-negative integer');
   }
 
   const client = getR2Client();
@@ -541,6 +569,7 @@ async function openObjectNodeStream(
       new GetObjectCommand({
         Bucket: process.env.R2_BUCKET_NAME!,
         Key: key,
+        ...(rangeStart > 0 ? { Range: `bytes=${rangeStart}-` } : {}),
       }),
       options?.signal ? { abortSignal: options.signal } : {}
     );
@@ -565,12 +594,18 @@ async function openObjectNodeStream(
     throw new Error(`R2 GetObject returned empty body for key "${key}"`);
   }
 
-  let contentLength = response.ContentLength ?? 0;
+  let contentLength =
+    parseS3ContentRangeTotal(response.ContentRange) ?? response.ContentLength ?? 0;
   if (!Number.isFinite(contentLength) || contentLength <= 0) {
     contentLength = await headObject(key, { signal: options?.signal });
   }
   if (contentLength <= 0) {
     throw new Error(`R2 object has invalid or unknown size for key "${key}"`);
+  }
+  if (rangeStart > 0 && rangeStart >= contentLength) {
+    throw new Error(
+      `rangeStart ${rangeStart} is at or beyond object size ${contentLength} for key "${key}"`
+    );
   }
 
   const trimmedType = response.ContentType?.trim();
@@ -588,12 +623,12 @@ async function openObjectNodeStream(
  * Stream object bytes from R2 as a Node.js {@link Readable}.
  * Prefer this for ffmpeg stdin piping; avoid converting to a Web ReadableStream first.
  * @param key - R2 object key.
- * @param options - Optional abort signal for the GetObject request.
- * @returns Node readable body, content length, and MIME type.
+ * @param options - Optional abort signal and byte range for partial reads.
+ * @returns Node readable body, full object content length, and MIME type.
  */
 export async function getObjectNodeStream(
   key: string,
-  options?: { signal?: AbortSignal }
+  options?: GetObjectStreamOptions
 ): Promise<{
   readable: Readable;
   contentLength: number;
@@ -612,7 +647,7 @@ export async function getObjectNodeStream(
  */
 export async function getObjectWebStream(
   key: string,
-  options?: { signal?: AbortSignal }
+  options?: GetObjectStreamOptions
 ): Promise<{
   stream: ReadableStream<Uint8Array>;
   contentLength: number;

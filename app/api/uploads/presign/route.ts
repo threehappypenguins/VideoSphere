@@ -44,6 +44,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  abortMultipartUpload,
   computeMultipartPlan,
   createMultipartUpload,
   DEFAULT_MULTIPART_PART_SIZE_BYTES,
@@ -219,9 +220,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Generate R2 multipart upload URLs, then create the UploadJob.
     // These steps are wrapped in a try/catch so failures return a consistent 500.
     const key = generateObjectKey(userId, filename);
-    let uploadId: string;
-    let parts: { partNumber: number; url: string }[];
-    let uploadJob: Awaited<ReturnType<typeof createUploadJob>>;
+    let uploadId: string | undefined;
+    let parts: { partNumber: number; url: string }[] | undefined;
+    let uploadJob: Awaited<ReturnType<typeof createUploadJob>> | undefined;
     try {
       const { partCount, partSize } = computeMultipartPlan(
         fileSize,
@@ -253,7 +254,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       return NextResponse.json(response, { status: 200 });
     } catch (err) {
-      throw err; // fall through to outer catch → 500
+      if (uploadId) {
+        await abortMultipartUpload(key, uploadId).catch((abortErr) => {
+          console.error(
+            `[POST /api/uploads/presign] Failed to abort multipart upload for key ${key}:`,
+            abortErr
+          );
+        });
+      }
+      throw err;
     }
   } catch (error) {
     console.error('Presigned URL generation error:', error);

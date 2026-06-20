@@ -20,6 +20,7 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   return {
     ...actual,
     createMultipartUpload: vi.fn(),
+    abortMultipartUpload: vi.fn(async () => undefined),
     getPresignedUploadPartUrls: vi.fn(),
   };
 });
@@ -36,6 +37,7 @@ vi.mock('@/lib/repositories/drafts', () => ({
 import { POST } from '@/app/api/uploads/presign/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
+  abortMultipartUpload,
   createMultipartUpload,
   DEFAULT_MULTIPART_PART_SIZE_BYTES,
   getPresignedUploadPartUrls,
@@ -83,6 +85,7 @@ describe('POST /api/uploads/presign', () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(getDraftById).mockResolvedValue(baseDraft);
     vi.mocked(createMultipartUpload).mockResolvedValue('multipart-upload-id-abc');
+    vi.mocked(abortMultipartUpload).mockResolvedValue(undefined);
     vi.mocked(getPresignedUploadPartUrls).mockResolvedValue([
       { partNumber: 1, url: 'https://r2.example/part-1' },
     ]);
@@ -168,6 +171,52 @@ describe('POST /api/uploads/presign', () => {
     const body = await res.json();
     expect(body.error).toContain('Failed to generate upload URL');
     expect(createUploadJob).not.toHaveBeenCalled();
+    expect(abortMultipartUpload).not.toHaveBeenCalled();
+  });
+
+  it('aborts the multipart upload when createUploadJob fails after presign succeeds', async () => {
+    vi.mocked(createUploadJob).mockRejectedValueOnce(new Error('DB unavailable'));
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 4096,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(500);
+    expect(abortMultipartUpload).toHaveBeenCalledWith(
+      expect.stringMatching(/^temp\/uploads\/user-123\/.+\/clip\.mp4$/),
+      'multipart-upload-id-abc'
+    );
+  });
+
+  it('aborts the multipart upload when part URL presigning fails', async () => {
+    vi.mocked(getPresignedUploadPartUrls).mockRejectedValueOnce(new Error('R2 presign failed'));
+
+    const res = await POST(
+      createRequest(
+        {
+          fileName: 'clip.mp4',
+          contentType: 'video/mp4',
+          fileSize: 4096,
+          draftId: 'draft-123',
+        },
+        { [`${SESSION_COOKIE}`]: 'token' }
+      )
+    );
+
+    expect(res.status).toBe(500);
+    expect(createUploadJob).not.toHaveBeenCalled();
+    expect(abortMultipartUpload).toHaveBeenCalledWith(
+      expect.stringMatching(/^temp\/uploads\/user-123\/.+\/clip\.mp4$/),
+      'multipart-upload-id-abc'
+    );
   });
 
   it('returns 200 and creates UploadJob for valid non-quota flow', async () => {

@@ -439,6 +439,85 @@ async function runSinglePlatformUpload(
         let preparedMetadata: PreparedBackupMetadataVideo | null = null;
 
         try {
+          if (platformUpload.platform === 'google_drive') {
+            const objectMeta =
+              sharedBackupMetadataSession != null
+                ? null
+                : await headObjectMetadata(r2ObjectKey, { signal });
+
+            if (sharedBackupMetadataSession) {
+              preparedMetadata = await sharedBackupMetadataSession.openUploadStream(signal);
+              videoStream = preparedMetadata.stream;
+              uploadContentLength = preparedMetadata.contentLength;
+              uploadContentType = preparedMetadata.contentType;
+            } else if (
+              objectMeta &&
+              shouldInjectBackupMetadata(metadata.backupNaming, objectMeta.contentType)
+            ) {
+              const nodeObject = await getObjectNodeStream(r2ObjectKey, { signal });
+              preparedMetadata = await prepareBackupMetadataVideoForUpload({
+                source: nodeObject.readable,
+                expectedContentLength: nodeObject.contentLength,
+                sourceContentType: nodeObject.contentType,
+                metadata: resolveBackupInjectedMetadata({
+                  title: metadata.title,
+                  settings: metadata.backupNaming,
+                }),
+                signal,
+              });
+              videoStream = preparedMetadata.stream;
+              uploadContentLength = preparedMetadata.contentLength;
+              uploadContentType = preparedMetadata.contentType;
+            } else {
+              uploadContentLength = objectMeta!.contentLength;
+              uploadContentType = objectMeta!.contentType ?? 'application/octet-stream';
+            }
+
+            return await uploadToGoogleDrive({
+              connectedAccount,
+              ...(!preparedMetadata && !sharedBackupMetadataSession
+                ? {
+                    openVideoStream: async (opts) => {
+                      const nodeObject = await getObjectNodeStream(r2ObjectKey, {
+                        signal: opts.signal ?? signal,
+                        rangeStart: opts.rangeStart,
+                      });
+                      return {
+                        stream: Readable.toWeb(nodeObject.readable) as ReadableStream<Uint8Array>,
+                        contentLength: nodeObject.contentLength,
+                        contentType: nodeObject.contentType,
+                      };
+                    },
+                  }
+                : { videoStream: videoStream! }),
+              contentLength: uploadContentLength,
+              contentType: uploadContentType,
+              fileName: buildBackupFileName({
+                title: metadata.title,
+                contentType: uploadContentType,
+                settings: metadata.backupNaming,
+              }),
+              yearFolderName: resolveBackupYearFolderName(metadata.backupNaming),
+              tokens,
+              signal,
+              resumableState: {
+                resumableUploadUrl: platformUpload.resumableUploadUrl,
+                resumableBytesConfirmed: platformUpload.resumableBytesConfirmed,
+                resumableUpdatedAt: platformUpload.resumableUpdatedAt,
+              },
+              persistResumableState: async (state) => {
+                await updatePlatformUploadResumableState(platformUpload.id, state);
+              },
+              clearResumableState: async () => {
+                await updatePlatformUploadResumableState(platformUpload.id, {
+                  resumableUploadUrl: null,
+                  resumableBytesConfirmed: null,
+                  resumableUpdatedAt: null,
+                });
+              },
+            });
+          }
+
           if (sharedBackupMetadataSession) {
             preparedMetadata = await sharedBackupMetadataSession.openUploadStream(signal);
             videoStream = preparedMetadata.stream;
@@ -475,34 +554,6 @@ async function runSinglePlatformUpload(
           });
           const yearFolderName = resolveBackupYearFolderName(metadata.backupNaming);
 
-          if (platformUpload.platform === 'google_drive') {
-            return await uploadToGoogleDrive({
-              connectedAccount,
-              videoStream,
-              contentLength: uploadContentLength,
-              contentType: uploadContentType,
-              fileName,
-              yearFolderName,
-              tokens,
-              signal,
-              resumableState: {
-                resumableUploadUrl: platformUpload.resumableUploadUrl,
-                resumableBytesConfirmed: platformUpload.resumableBytesConfirmed,
-                resumableUpdatedAt: platformUpload.resumableUpdatedAt,
-              },
-              persistResumableState: async (state) => {
-                await updatePlatformUploadResumableState(platformUpload.id, state);
-              },
-              clearResumableState: async () => {
-                await updatePlatformUploadResumableState(platformUpload.id, {
-                  resumableUploadUrl: null,
-                  resumableBytesConfirmed: null,
-                  resumableUpdatedAt: null,
-                });
-              },
-            });
-          }
-
           if (platformUpload.platform === 'sftp') {
             return await uploadToSftp({
               connectedAccount,
@@ -529,15 +580,17 @@ async function runSinglePlatformUpload(
         }
       }
 
-      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
-        signal,
-      });
+      const objectMeta = await headObjectMetadata(r2ObjectKey, { signal });
 
       if (platformUpload.platform === 'youtube') {
         return uploadToYouTube({
-          videoStream: stream,
-          contentLength,
-          contentType,
+          contentLength: objectMeta.contentLength,
+          contentType: objectMeta.contentType ?? 'application/octet-stream',
+          openVideoStream: (opts) =>
+            getObjectWebStream(r2ObjectKey, {
+              signal: opts.signal ?? signal,
+              rangeStart: opts.rangeStart,
+            }),
           metadata,
           tokens,
           signal,
@@ -558,6 +611,10 @@ async function runSinglePlatformUpload(
           },
         });
       }
+
+      const { stream, contentLength, contentType } = await getObjectWebStream(r2ObjectKey, {
+        signal,
+      });
 
       if (platformUpload.platform === 'vimeo') {
         return uploadToVimeo({

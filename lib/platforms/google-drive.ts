@@ -8,6 +8,7 @@ import type {
 import {
   type GoogleResumablePersistedState,
   type GoogleResumableStateUpdate,
+  type OpenRangedVideoStream,
   isRetryableGoogleResumableUploadFailure,
   probeGoogleResumableSession,
   resolveGoogleResumableUploadSession,
@@ -25,7 +26,13 @@ export type GoogleDriveResumableStateUpdate = GoogleResumableStateUpdate;
 
 interface UploadToGoogleDriveInput {
   connectedAccount: ConnectedAccount;
-  videoStream: ReadableStream<Uint8Array>;
+  /** Pre-opened stream; use when no {@link openVideoStream} is supplied (e.g. metadata-injected backup). */
+  videoStream?: ReadableStream<Uint8Array>;
+  /**
+   * Opens a fresh stream for upload, optionally starting at `rangeStart` (e.g. R2 Range GET).
+   * Preferred for distribution so resume does not re-download skipped bytes from R2.
+   */
+  openVideoStream?: OpenRangedVideoStream;
   contentLength?: number;
   contentType?: string;
   fileName: string;
@@ -649,14 +656,33 @@ export async function uploadToGoogleDrive(
     } else {
       const { sessionUrl, startOffset } = sessionResolution.session;
 
+      const openedVideo =
+        input.openVideoStream != null
+          ? await input.openVideoStream({ rangeStart: startOffset, signal: input.signal })
+          : input.videoStream != null
+            ? {
+                stream: input.videoStream,
+                contentLength: input.contentLength ?? 0,
+                contentType,
+              }
+            : null;
+
+      if (!openedVideo?.stream) {
+        return toError(
+          'GOOGLE_DRIVE_VIDEO_SOURCE_MISSING',
+          'Google Drive video stream is missing.'
+        );
+      }
+
       if (input.contentLength && input.contentLength > 0) {
         uploadResult = await uploadGoogleResumableInChunks({
           sessionUrl,
           accessToken: input.tokens.accessToken,
-          stream: input.videoStream,
+          stream: openedVideo.stream,
           totalBytes: input.contentLength,
           contentType,
           startOffset,
+          streamStartsAtOffset: Boolean(input.openVideoStream),
           onBytesConfirmed: input.persistResumableState
             ? async (bytesConfirmed) => {
                 await input.persistResumableState?.({
@@ -675,7 +701,7 @@ export async function uploadToGoogleDrive(
         uploadResult = await uploadGoogleResumableSinglePut({
           sessionUrl,
           accessToken: input.tokens.accessToken,
-          stream: input.videoStream,
+          stream: openedVideo.stream,
           contentLength: input.contentLength,
           contentType,
           signal: input.signal,

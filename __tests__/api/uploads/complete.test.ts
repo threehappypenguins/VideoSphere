@@ -128,6 +128,7 @@ import {
   abortMultipartUpload,
   headObject,
   deleteObject,
+  MAX_MULTIPART_PART_COUNT,
   R2ObjectNotFoundError,
 } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
@@ -232,6 +233,29 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(vi.mocked(headObject)).not.toHaveBeenCalled();
     });
 
+    it('returns 400 when parts exceeds the S3/R2 maximum part count', async () => {
+      const response = await POST(
+        createRequest(
+          'job-123',
+          { videosphere_session: 'token' },
+          {
+            uploadId: 'multipart-upload-id-abc',
+            parts: Array.from({ length: MAX_MULTIPART_PART_COUNT + 1 }, (_, index) => ({
+              partNumber: index + 1,
+              eTag: '"etag"',
+            })),
+          }
+        ),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain(String(MAX_MULTIPART_PART_COUNT));
+      expect(vi.mocked(completeMultipartUpload)).not.toHaveBeenCalled();
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
     it('returns 400 when a part has an invalid eTag', async () => {
       const response = await POST(
         createRequest(
@@ -248,6 +272,31 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       expect(response.status).toBe(400);
       const body = await response.json();
       expect(body.error).toContain('eTag');
+      expect(vi.mocked(completeMultipartUpload)).not.toHaveBeenCalled();
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when parts contains duplicate partNumber values', async () => {
+      const response = await POST(
+        createRequest(
+          'job-123',
+          { videosphere_session: 'token' },
+          {
+            uploadId: 'multipart-upload-id-abc',
+            parts: [
+              { partNumber: 1, eTag: '"etag-1"' },
+              { partNumber: 2, eTag: '"etag-2"' },
+              { partNumber: 1, eTag: '"etag-1-dup"' },
+            ],
+          }
+        ),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('duplicate partNumber');
+      expect(body.error).toContain('1');
       expect(vi.mocked(completeMultipartUpload)).not.toHaveBeenCalled();
       expect(vi.mocked(headObject)).not.toHaveBeenCalled();
     });

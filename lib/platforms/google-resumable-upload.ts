@@ -16,6 +16,29 @@ export interface GoogleResumableStateUpdate {
   resumableUpdatedAt: string;
 }
 
+/** Options when opening a byte stream for resumable upload. */
+export interface RangedVideoStreamOpenOptions {
+  /** Absolute byte index at which the returned stream must begin. */
+  rangeStart?: number;
+  signal?: AbortSignal;
+}
+
+/** Readable video bytes plus total object size for Content-Range headers. */
+export interface OpenedRangedVideoStream {
+  stream: ReadableStream<Uint8Array>;
+  /** Full object size in bytes (not the ranged slice length). */
+  contentLength: number;
+  contentType: string;
+}
+
+/**
+ * Opens an independent stream for resumable upload, optionally starting at a byte offset
+ * (for example via {@link getObjectWebStream} with `rangeStart`).
+ */
+export type OpenRangedVideoStream = (
+  options: RangedVideoStreamOpenOptions
+) => Promise<OpenedRangedVideoStream>;
+
 /** Google requires each chunk (except the last) to be a multiple of 256 KiB. */
 const GOOGLE_RESUMABLE_CHUNK_MULTIPLE = 256 * 1024;
 const GOOGLE_RESUMABLE_CHUNK_TARGET = 8 * 1024 * 1024;
@@ -322,6 +345,8 @@ async function skipStreamBytes(
 
 /**
  * Resumable upload in 256 KiB–aligned chunks (Google's recommended protocol).
+ * When {@link startOffset} is greater than zero, {@link stream} must already begin at that
+ * byte index unless {@link streamStartsAtOffset} is false (non-seekable sources).
  * @param input - Session URL, stream, and platform-specific error mapping.
  * @returns Platform upload result on success or failure.
  */
@@ -332,6 +357,11 @@ export async function uploadGoogleResumableInChunks(input: {
   totalBytes: number;
   contentType: string;
   startOffset?: number;
+  /**
+   * When true (default), {@link stream} already begins at {@link startOffset} (e.g. R2 Range GET).
+   * When false, bytes before {@link startOffset} are read from {@link stream} and discarded.
+   */
+  streamStartsAtOffset?: boolean;
   onBytesConfirmed?: (bytesConfirmed: number) => Promise<void>;
   signal?: AbortSignal;
   errorCodes: GoogleResumableUploadErrorCodes;
@@ -341,6 +371,7 @@ export async function uploadGoogleResumableInChunks(input: {
   const reader = input.stream.getReader();
   let carry: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   let offset = input.startOffset ?? 0;
+  const streamStartsAtOffset = input.streamStartsAtOffset !== false;
   const {
     sessionUrl,
     accessToken,
@@ -359,7 +390,7 @@ export async function uploadGoogleResumableInChunks(input: {
   };
 
   try {
-    if (offset > 0) {
+    if (offset > 0 && !streamStartsAtOffset) {
       carry = await skipStreamBytes(reader, carry, offset);
     }
 

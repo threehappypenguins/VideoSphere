@@ -51,6 +51,7 @@ import {
   abortMultipartUpload,
   deleteObject,
   headObject,
+  MAX_MULTIPART_PART_COUNT,
   R2ObjectNotFoundError,
 } from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
@@ -111,7 +112,15 @@ function validateCompleteRequest(body: unknown): {
     return { valid: false, error: 'parts is required and must be a non-empty array' };
   }
 
+  if (req.parts.length > MAX_MULTIPART_PART_COUNT) {
+    return {
+      valid: false,
+      error: `parts must contain at most ${MAX_MULTIPART_PART_COUNT} entries`,
+    };
+  }
+
   const parts: { partNumber: number; eTag: string }[] = [];
+  const seenPartNumbers = new Set<number>();
   for (let i = 0; i < req.parts.length; i++) {
     const part = req.parts[i];
     if (typeof part !== 'object' || part === null) {
@@ -140,6 +149,14 @@ function validateCompleteRequest(body: unknown): {
         error: `parts[${i}].eTag is required and must be a non-empty string`,
       };
     }
+
+    if (seenPartNumbers.has(p.partNumber)) {
+      return {
+        valid: false,
+        error: `parts must not contain duplicate partNumber values (duplicate: ${p.partNumber})`,
+      };
+    }
+    seenPartNumbers.add(p.partNumber);
 
     parts.push({ partNumber: p.partNumber, eTag: p.eTag.trim() });
   }
