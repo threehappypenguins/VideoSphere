@@ -4,18 +4,23 @@ import {
   isValidGoogleDriveBackupFolderPath,
   normalizeGoogleDriveBackupFolderPath,
   parseGoogleDrivePlatformUserId,
+  probeGoogleDriveResumableSession,
   serializeGoogleDrivePlatformUserId,
   uploadToGoogleDrive,
 } from '@/lib/platforms/google-drive';
 import type { ConnectedAccount } from '@/types';
 
-function makeVideoStream(): ReadableStream<Uint8Array> {
+function makeVideoStreamOfLength(totalBytes: number): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(new Uint8Array([1, 2, 3]));
+      controller.enqueue(new Uint8Array(totalBytes).fill(7));
       controller.close();
     },
   });
+}
+
+function makeVideoStream(): ReadableStream<Uint8Array> {
+  return makeVideoStreamOfLength(3);
 }
 
 function makeConnectedAccount(platformUserId: string): ConnectedAccount {
@@ -105,7 +110,10 @@ describe('uploadToGoogleDrive', () => {
       }
 
       if (method === 'PUT' && sUrl === uploadUrl) {
-        return Promise.resolve(new Response(JSON.stringify({ id: 'file-1' }), { status: 200 }));
+        const headers = options?.headers ?? {};
+        if (headers['Content-Range'] === 'bytes 0-2/3') {
+          return Promise.resolve(new Response(JSON.stringify({ id: 'file-1' }), { status: 200 }));
+        }
       }
 
       return Promise.resolve(new Response('', { status: 200 }));
@@ -154,7 +162,10 @@ describe('uploadToGoogleDrive', () => {
       }
 
       if (method === 'PUT' && sUrl === uploadUrl) {
-        return Promise.resolve(new Response(JSON.stringify({ id: 'file-1' }), { status: 200 }));
+        const headers = options?.headers ?? {};
+        if (headers['Content-Range'] === 'bytes 0-2/3') {
+          return Promise.resolve(new Response(JSON.stringify({ id: 'file-1' }), { status: 200 }));
+        }
       }
 
       return Promise.resolve(new Response('', { status: 200 }));
@@ -200,7 +211,10 @@ describe('uploadToGoogleDrive', () => {
       }
 
       if (method === 'PUT' && sUrl === uploadUrl) {
-        return Promise.resolve(new Response(JSON.stringify({ id: 'file-1' }), { status: 200 }));
+        const headers = options?.headers ?? {};
+        if (headers['Content-Range'] === 'bytes 0-2/3') {
+          return Promise.resolve(new Response(JSON.stringify({ id: 'file-1' }), { status: 200 }));
+        }
       }
 
       return Promise.resolve(new Response('', { status: 200 }));
@@ -220,7 +234,11 @@ describe('uploadToGoogleDrive', () => {
     });
 
     const putCall = fetchMock.mock.calls.find(([url, options]) => {
-      return String(url) === uploadUrl && options?.method === 'PUT';
+      return (
+        String(url) === uploadUrl &&
+        options?.method === 'PUT' &&
+        options?.headers?.['Content-Range'] === 'bytes 0-2/3'
+      );
     });
 
     expect(putCall).toBeDefined();
@@ -228,6 +246,7 @@ describe('uploadToGoogleDrive', () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: 'Bearer drive-access-token',
+          'Content-Range': 'bytes 0-2/3',
         }),
       })
     );
@@ -268,5 +287,254 @@ describe('uploadToGoogleDrive', () => {
     expect(result.error.code).toBe('GOOGLE_DRIVE_RESUMABLE_INIT_FAILED');
     expect(result.error.statusCode).toBe(403);
     expect((result.error.details ?? '').toLowerCase()).toContain('forbidden');
+  });
+});
+
+describe('uploadToGoogleDrive resumable session reuse', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('resumes from a probed byte offset without creating a new session', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const storedSession = 'https://upload.drive.test/session/stored';
+    const persistResumableState = vi.fn().mockResolvedValue(undefined);
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+    let initPostCount = 0;
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (method === 'POST' && sUrl.includes('/upload/drive/v3/files?uploadType=resumable')) {
+          initPostCount += 1;
+          return Promise.resolve(
+            new Response(null, {
+              status: 200,
+              headers: { location: 'https://upload.drive.test/session/new' },
+            })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes */512'
+        ) {
+          return Promise.resolve(
+            new Response(null, { status: 308, headers: { Range: 'bytes 0-255' } })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes 256-511/512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'resumed-file-id' }), { status: 200 })
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await uploadToGoogleDrive({
+      connectedAccount: makeConnectedAccount('perm-1'),
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      fileName: 'Backup title.mp4',
+      tokens: { accessToken: 'drive-access-token' },
+      resumableState: {
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 128,
+        resumableUpdatedAt: '2026-06-20T10:00:00.000Z',
+      },
+      persistResumableState,
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('resumed-file-id');
+    }
+    expect(initPostCount).toBe(0);
+    expect(persistResumableState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 512,
+      })
+    );
+    expect(clearResumableState).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards an invalid stored session, clears it, and starts a fresh upload', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const storedSession = 'https://upload.drive.test/session/expired';
+    const freshSession = 'https://upload.drive.test/session/fresh';
+    const persistResumableState = vi.fn().mockResolvedValue(undefined);
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes */512'
+        ) {
+          return Promise.resolve(new Response('', { status: 404 }));
+        }
+
+        if (method === 'POST' && sUrl.includes('/upload/drive/v3/files?uploadType=resumable')) {
+          return Promise.resolve(
+            new Response(null, { status: 200, headers: { location: freshSession } })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === freshSession &&
+          headers['Content-Range'] === 'bytes 0-511/512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'fresh-file-id' }), { status: 200 })
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await uploadToGoogleDrive({
+      connectedAccount: makeConnectedAccount('perm-1'),
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      fileName: 'Backup title.mp4',
+      tokens: { accessToken: 'drive-access-token' },
+      resumableState: {
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 256,
+        resumableUpdatedAt: '2026-06-20T10:00:00.000Z',
+      },
+      persistResumableState,
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('fresh-file-id');
+    }
+    expect(clearResumableState).toHaveBeenCalledTimes(2);
+    expect(persistResumableState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumableUploadUrl: freshSession,
+        resumableBytesConfirmed: 0,
+      })
+    );
+  });
+
+  it('clears resumable fields after a successful upload from a new session', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const sessionUrl = 'https://upload.drive.test/session/new-success';
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+    const persistResumableState = vi.fn().mockResolvedValue(undefined);
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (method === 'POST' && sUrl.includes('/upload/drive/v3/files?uploadType=resumable')) {
+          return Promise.resolve(
+            new Response(null, { status: 200, headers: { location: sessionUrl } })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === sessionUrl &&
+          headers['Content-Range'] === 'bytes 0-511/512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'success-file-id' }), { status: 200 })
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await uploadToGoogleDrive({
+      connectedAccount: makeConnectedAccount('perm-1'),
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      fileName: 'Backup title.mp4',
+      tokens: { accessToken: 'drive-access-token' },
+      persistResumableState,
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(persistResumableState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumableUploadUrl: sessionUrl,
+        resumableBytesConfirmed: 0,
+      })
+    );
+    expect(clearResumableState).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('probeGoogleDriveResumableSession', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns resume offset from a 308 Range response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 308, headers: { Range: 'bytes 0-255' } }))
+    );
+
+    await expect(
+      probeGoogleDriveResumableSession({
+        sessionUrl: 'https://upload.drive.test/session/probe',
+        accessToken: 'tok',
+        totalBytes: 512,
+        contentType: 'video/mp4',
+      })
+    ).resolves.toEqual({ status: 'resume', bytesConfirmed: 256 });
+  });
+
+  it('returns invalid for expired sessions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 410 }))
+    );
+
+    await expect(
+      probeGoogleDriveResumableSession({
+        sessionUrl: 'https://upload.drive.test/session/gone',
+        accessToken: 'tok',
+        totalBytes: 512,
+        contentType: 'video/mp4',
+      })
+    ).resolves.toEqual({ status: 'invalid' });
   });
 });

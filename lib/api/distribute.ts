@@ -45,6 +45,7 @@ import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/uplo
 import {
   type CreatePlatformUploadInput,
   getPlatformUploadsByJob,
+  updatePlatformUploadResumableState,
   updatePlatformUploadStatus,
 } from '@/lib/repositories/platform-uploads';
 import { refreshYouTubeAccessToken, uploadToYouTube } from '@/lib/platforms/youtube';
@@ -65,7 +66,24 @@ import { isPlatformUploadDistributionComplete } from '@/lib/uploads/status';
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
 export { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 
-const PLATFORM_UPLOAD_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+
+function resolvePlatformUploadTimeoutMs(): number {
+  const raw = process.env.PLATFORM_UPLOAD_TIMEOUT_MS?.trim();
+  if (!raw) {
+    return DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `[distribute] Invalid PLATFORM_UPLOAD_TIMEOUT_MS value "${raw}"; using default ${DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS}ms.`
+    );
+    return DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS;
+  }
+  return parsed;
+}
+
+const PLATFORM_UPLOAD_TIMEOUT_MS = resolvePlatformUploadTimeoutMs();
 
 /**
  * Aborts `signal` when the deadline elapses so R2 reads and platform `fetch` bodies stop.
@@ -467,6 +485,21 @@ async function runSinglePlatformUpload(
               yearFolderName,
               tokens,
               signal,
+              resumableState: {
+                resumableUploadUrl: platformUpload.resumableUploadUrl,
+                resumableBytesConfirmed: platformUpload.resumableBytesConfirmed,
+                resumableUpdatedAt: platformUpload.resumableUpdatedAt,
+              },
+              persistResumableState: async (state) => {
+                await updatePlatformUploadResumableState(platformUpload.id, state);
+              },
+              clearResumableState: async () => {
+                await updatePlatformUploadResumableState(platformUpload.id, {
+                  resumableUploadUrl: null,
+                  resumableBytesConfirmed: null,
+                  resumableUpdatedAt: null,
+                });
+              },
             });
           }
 
@@ -508,6 +541,21 @@ async function runSinglePlatformUpload(
           metadata,
           tokens,
           signal,
+          resumableState: {
+            resumableUploadUrl: platformUpload.resumableUploadUrl,
+            resumableBytesConfirmed: platformUpload.resumableBytesConfirmed,
+            resumableUpdatedAt: platformUpload.resumableUpdatedAt,
+          },
+          persistResumableState: async (state) => {
+            await updatePlatformUploadResumableState(platformUpload.id, state);
+          },
+          clearResumableState: async () => {
+            await updatePlatformUploadResumableState(platformUpload.id, {
+              resumableUploadUrl: null,
+              resumableBytesConfirmed: null,
+              resumableUpdatedAt: null,
+            });
+          },
         });
       }
 

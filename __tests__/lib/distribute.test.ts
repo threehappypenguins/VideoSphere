@@ -90,8 +90,8 @@ import { runDistributionInBackground } from '@/lib/api/distribute';
 import { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
 import { isPlatformUploadRowActive } from '@/lib/uploads/status';
 
-const TWENTY_MIN_MS = 20 * 60 * 1000;
-const TIMEOUT_MSG_SECONDS = Math.floor(TWENTY_MIN_MS / 1000);
+const DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS = 3 * 60 * 60 * 1000;
+const TIMEOUT_MSG_SECONDS = Math.floor(DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS / 1000);
 
 function basePlatformUpload(overrides: Partial<PlatformUpload> = {}): PlatformUpload {
   return {
@@ -283,13 +283,13 @@ describe('runDistributionInBackground — platform upload timeout', () => {
       })
     );
 
-    const failedRow = basePlatformUpload({
-      id: 'pu-youtube',
-      status: 'failed',
-      errorMessage: `youtube upload timed out after ${TIMEOUT_MSG_SECONDS}s`,
-    });
-
-    mockGetPlatformUploadsByJob.mockResolvedValue([failedRow]);
+    mockGetPlatformUploadsByJob.mockResolvedValue([
+      basePlatformUpload({
+        id: 'pu-youtube',
+        status: 'failed',
+        errorMessage: `youtube upload timed out after ${TIMEOUT_MSG_SECONDS}s`,
+      }),
+    ]);
 
     mockUpdateUploadJobStatus.mockResolvedValue({
       id: 'job-1',
@@ -313,7 +313,7 @@ describe('runDistributionInBackground — platform upload timeout', () => {
 
     const done = runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
 
-    await vi.advanceTimersByTimeAsync(TWENTY_MIN_MS);
+    await vi.advanceTimersByTimeAsync(DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS);
     await done;
 
     expect(mockUploadToYouTube).not.toHaveBeenCalled();
@@ -341,6 +341,175 @@ describe('runDistributionInBackground — platform upload timeout', () => {
     );
 
     expect(mockDeleteObject).not.toHaveBeenCalled();
+  });
+});
+
+describe('PLATFORM_UPLOAD_TIMEOUT_MS env', () => {
+  function setupUploadTimeoutMocks(timeoutMs: number): void {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+
+    const timeoutSeconds = Math.floor(timeoutMs / 1000);
+
+    mockGetConnectedAccountWithTokens.mockResolvedValue({
+      id: 'acct-1',
+      userId: 'u1',
+      platform: 'youtube',
+      accessToken: 'tok',
+      refreshToken: '',
+      tokenExpiry: '',
+      hasRefreshToken: false,
+      platformUserId: 'p1',
+      platformName: 'n',
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+
+    mockRefreshTokenIfNeeded.mockImplementation(
+      async (account: { accessToken: string; refreshToken: string; tokenExpiry: string }) => ({
+        accessToken: account.accessToken,
+        refreshToken: account.refreshToken,
+        tokenExpiry: account.tokenExpiry || new Date(Date.now() + 3600_000).toISOString(),
+      })
+    );
+
+    mockGetObjectWebStream.mockImplementation(
+      (_key: string, opts?: { signal?: AbortSignal }) =>
+        new Promise((_, reject) => {
+          const sig = opts?.signal;
+          if (!sig) {
+            reject(new Error('expected AbortSignal from distribute'));
+            return;
+          }
+          if (sig.aborted) {
+            reject(sig.reason instanceof Error ? sig.reason : new Error('Aborted'));
+            return;
+          }
+          const onAbort = () => {
+            reject(sig.reason instanceof Error ? sig.reason : new Error('Aborted'));
+          };
+          sig.addEventListener('abort', onAbort, { once: true });
+        })
+    );
+
+    mockUpdatePlatformUploadStatus.mockImplementation(
+      async (
+        id: string,
+        status: PlatformUpload['status'],
+        _pv?: string,
+        _pu?: string,
+        err?: string | null
+      ) => ({
+        id,
+        uploadJobId: 'job-1',
+        platform: 'youtube',
+        status,
+        platformVideoId: '',
+        platformUrl: '',
+        title: '',
+        description: '',
+        tags: [],
+        visibility: 'private' as const,
+        scheduledAt: null,
+        errorMessage: err ?? null,
+        $createdAt: '2000-01-01T00:00:00.000Z',
+        $updatedAt: '2000-01-01T00:00:00.000Z',
+      })
+    );
+
+    mockGetPlatformUploadsByJob.mockResolvedValue([
+      basePlatformUpload({
+        id: 'pu-youtube',
+        status: 'failed',
+        errorMessage: `youtube upload timed out after ${timeoutSeconds}s`,
+      }),
+    ]);
+
+    mockUpdateUploadJobStatus.mockResolvedValue({
+      id: 'job-1',
+      userId: 'u1',
+      draftId: 'd1',
+      r2Key: 'temp/uploads/u1/v.mp4',
+      status: 'failed',
+      errorMessage: null,
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+  }
+
+  async function runTimeoutScenario(timeoutMs: number) {
+    const { runDistributionInBackground: runDistribution } = await import('@/lib/api/distribute');
+    const pu = basePlatformUpload({ id: 'pu-youtube', platform: 'youtube' });
+    const meta = new Map<string, PlatformUploadMetadata>([['pu-youtube', baseMetadata]]);
+
+    const done = runDistribution('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
+    await vi.advanceTimersByTimeAsync(timeoutMs);
+    await done;
+
+    return Math.floor(timeoutMs / 1000);
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('uses the 3 hour default when PLATFORM_UPLOAD_TIMEOUT_MS is unset', async () => {
+    vi.stubEnv('PLATFORM_UPLOAD_TIMEOUT_MS', undefined);
+    setupUploadTimeoutMocks(DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS);
+
+    const timeoutSeconds = await runTimeoutScenario(DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS);
+
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-youtube',
+      'failed',
+      undefined,
+      undefined,
+      `youtube upload timed out after ${timeoutSeconds}s`
+    );
+  });
+
+  it('uses a custom value when PLATFORM_UPLOAD_TIMEOUT_MS is set', async () => {
+    const customTimeoutMs = 90_000;
+    vi.stubEnv('PLATFORM_UPLOAD_TIMEOUT_MS', String(customTimeoutMs));
+    setupUploadTimeoutMocks(customTimeoutMs);
+
+    const timeoutSeconds = await runTimeoutScenario(customTimeoutMs);
+
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-youtube',
+      'failed',
+      undefined,
+      undefined,
+      `youtube upload timed out after ${timeoutSeconds}s`
+    );
+  });
+
+  it('falls back to the default with console.warn when PLATFORM_UPLOAD_TIMEOUT_MS is invalid', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('PLATFORM_UPLOAD_TIMEOUT_MS', 'not-a-number');
+    setupUploadTimeoutMocks(DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS);
+
+    const timeoutSeconds = await runTimeoutScenario(DEFAULT_PLATFORM_UPLOAD_TIMEOUT_MS);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/Invalid PLATFORM_UPLOAD_TIMEOUT_MS value "not-a-number"/)
+    );
+    expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+      'pu-youtube',
+      'failed',
+      undefined,
+      undefined,
+      `youtube upload timed out after ${timeoutSeconds}s`
+    );
+
+    warnSpy.mockRestore();
   });
 });
 

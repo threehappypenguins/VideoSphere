@@ -35,6 +35,19 @@ export function rowToPlatformUpload(doc: PlatformUploadDocument): PlatformUpload
     scheduledAt: doc.scheduledAt != null && doc.scheduledAt !== '' ? String(doc.scheduledAt) : null,
     errorMessage:
       doc.errorMessage != null && doc.errorMessage !== '' ? String(doc.errorMessage) : null,
+    resumableUploadUrl:
+      doc.resumableUploadUrl != null && doc.resumableUploadUrl !== ''
+        ? String(doc.resumableUploadUrl)
+        : null,
+    resumableBytesConfirmed:
+      typeof doc.resumableBytesConfirmed === 'number' &&
+      Number.isFinite(doc.resumableBytesConfirmed)
+        ? doc.resumableBytesConfirmed
+        : null,
+    resumableUpdatedAt:
+      doc.resumableUpdatedAt != null && doc.resumableUpdatedAt !== ''
+        ? String(doc.resumableUpdatedAt)
+        : null,
     ...(String(doc.platform) === 'sermon_audio'
       ? { sermonAudioAutoPublishOnProcessed: parsed.sermonAudioAutoPublishOnProcessed === true }
       : {}),
@@ -227,6 +240,46 @@ export async function getPlatformUploadsByJob(uploadJobId: string): Promise<Plat
   return uploads;
 }
 
+const STALE_PLATFORM_UPLOAD_STATUSES: readonly PlatformUploadStatus[] = ['pending', 'uploading'];
+
+/**
+ * Lists platform uploads still in `pending` or `uploading` whose `updatedAt` is older
+ * than `updatedBefore` (e.g. after a server restart during distribution).
+ * @param updatedBefore - Cutoff instant; rows updated at or after this time are excluded.
+ * @param options - Optional paging controls.
+ * @returns Matching platform uploads, oldest first.
+ */
+export async function listStalePlatformUploads(
+  updatedBefore: Date,
+  options?: { pageSize?: number }
+): Promise<PlatformUpload[]> {
+  await connectToDatabase();
+
+  const pageSize = options?.pageSize ?? 100;
+  let offset = 0;
+  const uploads: PlatformUpload[] = [];
+
+  while (true) {
+    const docs = await PlatformUploadModel.find({
+      status: { $in: [...STALE_PLATFORM_UPLOAD_STATUSES] },
+      updatedAt: { $lt: updatedBefore },
+    })
+      .sort({ updatedAt: 1 })
+      .skip(offset)
+      .limit(pageSize)
+      .lean<PlatformUploadDocument[]>();
+
+    const pageUploads = docs.map(rowToPlatformUpload);
+    uploads.push(...pageUploads);
+
+    if (pageUploads.length < pageSize) break;
+    if (pageUploads.length === 0) break;
+    offset += pageSize;
+  }
+
+  return uploads;
+}
+
 // -----------------------------------------------------------------------------
 // Update
 // -----------------------------------------------------------------------------
@@ -255,6 +308,50 @@ export async function updatePlatformUploadStatus(
   }
   if (errorMessage !== undefined) {
     data.errorMessage = errorMessage ?? '';
+  }
+
+  const updated = await PlatformUploadModel.findByIdAndUpdate(id, data, {
+    returnDocument: 'after',
+    runValidators: true,
+  }).lean<PlatformUploadDocument | null>();
+
+  if (!updated) return null;
+  return rowToPlatformUpload(updated);
+}
+
+/**
+ * Input for persisting resumable upload session state on a platform upload row.
+ * @property resumableUploadUrl - Provider resumable session URL/URI.
+ * @property resumableBytesConfirmed - Last byte offset confirmed by the provider.
+ * @property resumableUpdatedAt - ISO timestamp of the last persisted update.
+ */
+export interface UpdatePlatformUploadResumableStateInput {
+  resumableUploadUrl?: string | null;
+  resumableBytesConfirmed?: number | null;
+  resumableUpdatedAt?: string | null;
+}
+
+/**
+ * Persists resumable upload session fields on a platform upload row.
+ * @param id - Platform upload row id.
+ * @param input - Resumable session fields to store (`null` clears a field).
+ * @returns Updated platform upload, or null when the row does not exist.
+ */
+export async function updatePlatformUploadResumableState(
+  id: string,
+  input: UpdatePlatformUploadResumableStateInput
+): Promise<PlatformUpload | null> {
+  await connectToDatabase();
+
+  const data: Partial<PlatformUploadDocument> = {};
+  if (input.resumableUploadUrl !== undefined) {
+    data.resumableUploadUrl = input.resumableUploadUrl ?? '';
+  }
+  if (input.resumableBytesConfirmed !== undefined) {
+    data.resumableBytesConfirmed = input.resumableBytesConfirmed;
+  }
+  if (input.resumableUpdatedAt !== undefined) {
+    data.resumableUpdatedAt = input.resumableUpdatedAt ?? '';
   }
 
   const updated = await PlatformUploadModel.findByIdAndUpdate(id, data, {

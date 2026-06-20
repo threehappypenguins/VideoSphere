@@ -5,6 +5,23 @@ import type {
   PlatformUploadResult,
   PlatformUploadTokens,
 } from '@/lib/platforms/types';
+import {
+  type GoogleResumablePersistedState,
+  type GoogleResumableStateUpdate,
+  isRetryableGoogleResumableUploadFailure,
+  probeGoogleResumableSession,
+  resolveGoogleResumableUploadSession,
+  uploadGoogleResumableInChunks,
+  uploadGoogleResumableSinglePut,
+} from '@/lib/platforms/google-resumable-upload';
+
+type PlatformUploadFailure = Extract<PlatformUploadResult, { ok: false }>;
+
+/** Resumable session fields loaded from a platform_upload row for cross-attempt resume. */
+export type GoogleDriveResumablePersistedState = GoogleResumablePersistedState;
+
+/** Resumable session snapshot persisted after upload progress. */
+export type GoogleDriveResumableStateUpdate = GoogleResumableStateUpdate;
 
 interface UploadToGoogleDriveInput {
   connectedAccount: ConnectedAccount;
@@ -16,6 +33,12 @@ interface UploadToGoogleDriveInput {
   yearFolderName?: string;
   tokens: PlatformUploadTokens;
   signal?: AbortSignal;
+  /** Stored resumable session from a prior attempt, when present on the platform_upload row. */
+  resumableState?: GoogleDriveResumablePersistedState;
+  /** Persists resumable progress to the platform_upload row during chunked upload. */
+  persistResumableState?: (state: GoogleDriveResumableStateUpdate) => Promise<void>;
+  /** Clears resumable fields after terminal success or non-retryable failure. */
+  clearResumableState?: () => Promise<void>;
 }
 
 interface GoogleDriveRefreshTokenResponse {
@@ -31,6 +54,87 @@ const DRIVE_FILES_LIST_URL =
   'https://www.googleapis.com/drive/v3/files?fields=files(id,name,mimeType,trashed)';
 const DRIVE_FILES_CREATE_URL = 'https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType';
 const DRIVE_FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+
+const GOOGLE_DRIVE_RESUMABLE_ERROR_CODES = {
+  aborted: 'GOOGLE_DRIVE_UPLOAD_ABORTED',
+  streamReadFailed: 'GOOGLE_DRIVE_UPLOAD_STREAM_READ_FAILED',
+  emptyChunk: 'GOOGLE_DRIVE_UPLOAD_EMPTY_CHUNK',
+  noResponse: 'GOOGLE_DRIVE_UPLOAD_NO_RESPONSE',
+  uploadFailed: 'GOOGLE_DRIVE_UPLOAD_FAILED',
+  rangeInvalid: 'GOOGLE_DRIVE_UPLOAD_RANGE_INVALID',
+  rangeMismatch: 'GOOGLE_DRIVE_UPLOAD_RANGE_MISMATCH',
+  incomplete: 'GOOGLE_DRIVE_UPLOAD_INCOMPLETE',
+} as const;
+
+const GOOGLE_DRIVE_RESUMABLE_MESSAGES = {
+  aborted: 'Google Drive upload was aborted.',
+  streamReadFailed: 'Failed to read video stream for Google Drive upload.',
+  emptyChunk: 'Google Drive resumable upload received an empty chunk.',
+  noResponse: 'Google Drive resumable upload received no response.',
+  uploadFailed: 'Google Drive video upload failed.',
+  rangeInvalid: 'Google Drive resumable upload returned an invalid byte range.',
+  rangeMismatch: 'Google Drive resumable upload byte range exceeded file size.',
+  incomplete: 'Google Drive resumable upload ended before the full file was sent.',
+} as const;
+
+const GOOGLE_DRIVE_RETRYABLE_UPLOAD_CODES = [
+  'GOOGLE_DRIVE_UPLOAD_ABORTED',
+  'GOOGLE_DRIVE_UPLOAD_STREAM_READ_FAILED',
+] as const;
+
+/**
+ * Outcome of probing a stored Google Drive resumable session (status query PUT with bytes-star-slash-total).
+ * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded.
+ * @property bytesConfirmed - Next byte offset to send when status is resume.
+ * @property fileId - Drive file id when status is complete.
+ */
+export type GoogleDriveResumableProbeResult =
+  | { status: 'resume'; bytesConfirmed: number }
+  | { status: 'complete'; fileId: string }
+  | { status: 'invalid' };
+
+/**
+ * Probes a stored resumable upload session to learn the provider-confirmed byte offset.
+ * @param input - Session URL, auth, and declared total file size.
+ * @returns Whether to resume, treat the upload as already complete, or discard the session.
+ */
+export async function probeGoogleDriveResumableSession(input: {
+  sessionUrl: string;
+  accessToken: string;
+  totalBytes: number;
+  contentType: string;
+  signal?: AbortSignal;
+}): Promise<GoogleDriveResumableProbeResult> {
+  const probe = await probeGoogleResumableSession(input);
+  if (probe.status === 'complete') {
+    return { status: 'complete', fileId: probe.resourceId };
+  }
+  return probe;
+}
+
+function buildDriveUploadSuccessResult(payload: Record<string, unknown>): PlatformUploadResult {
+  const id = typeof payload.id === 'string' ? payload.id : undefined;
+  if (!id) {
+    return toError(
+      'GOOGLE_DRIVE_FILE_ID_MISSING',
+      'Google Drive upload succeeded but no file id was returned.'
+    );
+  }
+
+  const webViewLink = typeof payload.webViewLink === 'string' ? payload.webViewLink : undefined;
+  const webContentLink =
+    typeof payload.webContentLink === 'string' ? payload.webContentLink : undefined;
+
+  return {
+    ok: true,
+    platformVideoId: id,
+    platformUrl: webViewLink || webContentLink || `https://drive.google.com/file/d/${id}/view`,
+  };
+}
+
+function isRetryableGoogleDriveUploadFailure(result: PlatformUploadFailure): boolean {
+  return isRetryableGoogleResumableUploadFailure(result, GOOGLE_DRIVE_RETRYABLE_UPLOAD_CODES);
+}
 
 class GoogleDriveApiError extends Error {
   statusCode: number;
@@ -464,84 +568,131 @@ export async function uploadToGoogleDrive(
       });
     }
 
-    const createRes = await fetch(DRIVE_RESUMABLE_CREATE_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${input.tokens.accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': contentType,
-        ...(input.contentLength ? { 'X-Upload-Content-Length': String(input.contentLength) } : {}),
+    const sessionResolution = await resolveGoogleResumableUploadSession({
+      storedSessionUrl: input.resumableState?.resumableUploadUrl,
+      accessToken: input.tokens.accessToken,
+      totalBytes: input.contentLength ?? 0,
+      contentType,
+      signal: input.signal,
+      clearResumableState: input.clearResumableState,
+      createSession: async () => {
+        const createRes = await fetch(DRIVE_RESUMABLE_CREATE_URL, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${input.tokens.accessToken}`,
+            'Content-Type': 'application/json; charset=UTF-8',
+            'X-Upload-Content-Type': contentType,
+            ...(input.contentLength
+              ? { 'X-Upload-Content-Length': String(input.contentLength) }
+              : {}),
+          },
+          body: JSON.stringify({
+            name: fileName,
+            mimeType: contentType,
+            ...(uploadParentFolderId ? { parents: [uploadParentFolderId] } : {}),
+          }),
+          ...(input.signal ? { signal: input.signal } : {}),
+        });
+
+        if (!createRes.ok) {
+          const details = await readApiErrorDetails(createRes);
+          return {
+            ok: false,
+            error: {
+              code: 'GOOGLE_DRIVE_RESUMABLE_INIT_FAILED',
+              message: 'Failed to initialize Google Drive upload.',
+              statusCode: createRes.status,
+              details,
+            },
+          };
+        }
+
+        const location = createRes.headers.get('location');
+        if (!location) {
+          return {
+            ok: false,
+            error: {
+              code: 'GOOGLE_DRIVE_UPLOAD_URL_MISSING',
+              message: 'Google Drive did not return a resumable upload URL.',
+            },
+          };
+        }
+
+        return location;
       },
-      body: JSON.stringify({
-        name: fileName,
-        mimeType: contentType,
-        ...(uploadParentFolderId ? { parents: [uploadParentFolderId] } : {}),
-      }),
-      ...(input.signal ? { signal: input.signal } : {}),
+      persistNewSession:
+        input.contentLength && input.contentLength > 0
+          ? async (sessionUrl) => {
+              await input.persistResumableState?.({
+                resumableUploadUrl: sessionUrl,
+                resumableBytesConfirmed: 0,
+                resumableUpdatedAt: new Date().toISOString(),
+              });
+            }
+          : undefined,
     });
 
-    if (!createRes.ok) {
-      const details = await readApiErrorDetails(createRes);
-      return toError(
-        'GOOGLE_DRIVE_RESUMABLE_INIT_FAILED',
-        'Failed to initialize Google Drive upload.',
-        createRes.status,
-        details
-      );
+    if (sessionResolution.kind === 'error') {
+      return sessionResolution.result;
     }
 
-    const uploadUrl = createRes.headers.get('location');
-    if (!uploadUrl) {
-      return toError(
-        'GOOGLE_DRIVE_UPLOAD_URL_MISSING',
-        'Google Drive did not return a resumable upload URL.'
-      );
+    let uploadResult: PlatformUploadResult;
+
+    if (sessionResolution.kind === 'complete') {
+      uploadResult = {
+        ok: true,
+        platformVideoId: sessionResolution.resourceId,
+        platformUrl: `https://drive.google.com/file/d/${sessionResolution.resourceId}/view`,
+      };
+    } else {
+      const { sessionUrl, startOffset } = sessionResolution.session;
+
+      if (input.contentLength && input.contentLength > 0) {
+        uploadResult = await uploadGoogleResumableInChunks({
+          sessionUrl,
+          accessToken: input.tokens.accessToken,
+          stream: input.videoStream,
+          totalBytes: input.contentLength,
+          contentType,
+          startOffset,
+          onBytesConfirmed: input.persistResumableState
+            ? async (bytesConfirmed) => {
+                await input.persistResumableState?.({
+                  resumableUploadUrl: sessionUrl,
+                  resumableBytesConfirmed: bytesConfirmed,
+                  resumableUpdatedAt: new Date().toISOString(),
+                });
+              }
+            : undefined,
+          signal: input.signal,
+          errorCodes: GOOGLE_DRIVE_RESUMABLE_ERROR_CODES,
+          messages: GOOGLE_DRIVE_RESUMABLE_MESSAGES,
+          buildSuccessResult: buildDriveUploadSuccessResult,
+        });
+      } else {
+        uploadResult = await uploadGoogleResumableSinglePut({
+          sessionUrl,
+          accessToken: input.tokens.accessToken,
+          stream: input.videoStream,
+          contentLength: input.contentLength,
+          contentType,
+          signal: input.signal,
+          uploadFailedCode: 'GOOGLE_DRIVE_UPLOAD_FAILED',
+          uploadFailedMessage: 'Google Drive video upload failed.',
+          buildSuccessResult: buildDriveUploadSuccessResult,
+        });
+      }
     }
 
-    const uploadReq: RequestInit & { duplex: 'half' } = {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${input.tokens.accessToken}`,
-        'Content-Type': contentType,
-        ...(input.contentLength ? { 'Content-Length': String(input.contentLength) } : {}),
-      },
-      body: input.videoStream,
-      duplex: 'half',
-      ...(input.signal ? { signal: input.signal } : {}),
-    };
-
-    const uploadRes = await fetch(uploadUrl, uploadReq);
-    if (!uploadRes.ok) {
-      const details = await readApiErrorDetails(uploadRes);
-      return toError(
-        'GOOGLE_DRIVE_UPLOAD_FAILED',
-        'Google Drive video upload failed.',
-        uploadRes.status,
-        details
-      );
+    if (uploadResult.ok === false) {
+      if (!isRetryableGoogleDriveUploadFailure(uploadResult)) {
+        await input.clearResumableState?.();
+      }
+      return uploadResult;
     }
 
-    const body = (await uploadRes.json().catch(() => ({}))) as {
-      id?: string;
-      webViewLink?: string;
-      webContentLink?: string;
-    };
-
-    if (!body.id) {
-      return toError(
-        'GOOGLE_DRIVE_FILE_ID_MISSING',
-        'Google Drive upload succeeded but no file id was returned.'
-      );
-    }
-
-    return {
-      ok: true,
-      platformVideoId: body.id,
-      platformUrl:
-        body.webViewLink ||
-        body.webContentLink ||
-        `https://drive.google.com/file/d/${body.id}/view`,
-    };
+    await input.clearResumableState?.();
+    return uploadResult;
   } catch (error) {
     if (error instanceof GoogleDriveApiError) {
       return toError(

@@ -533,6 +533,261 @@ describe('uploadToYouTube thumbnail path', () => {
   });
 });
 
+describe('uploadToYouTube resumable session reuse', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function makeVideoStreamOfLength(totalBytes: number): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(totalBytes).fill(7));
+        controller.close();
+      },
+    });
+  }
+
+  it('resumes from a probed byte offset without creating a new session', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const storedSession = 'https://upload.youtube.test/session/stored';
+    const persistResumableState = vi.fn().mockResolvedValue(undefined);
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+    let initPostCount = 0;
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+          initPostCount += 1;
+          return Promise.resolve(
+            new Response(null, {
+              status: 200,
+              headers: { location: 'https://upload.youtube.test/session/new' },
+            })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes */512'
+        ) {
+          return Promise.resolve(
+            new Response(null, { status: 308, headers: { Range: 'bytes 0-255' } })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes 256-511/512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'resumed-video-id' }), { status: 200 })
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await youtube.uploadToYouTube({
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      metadata: BASE_UPLOAD_METADATA,
+      tokens: { accessToken: 'tok' },
+      resumableState: {
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 128,
+        resumableUpdatedAt: '2026-06-20T10:00:00.000Z',
+      },
+      persistResumableState,
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('resumed-video-id');
+    }
+    expect(initPostCount).toBe(0);
+    expect(persistResumableState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 512,
+      })
+    );
+    expect(clearResumableState).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards an invalid stored session, clears it, and starts a fresh upload', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const storedSession = 'https://upload.youtube.test/session/expired';
+    const freshSession = 'https://upload.youtube.test/session/fresh';
+    const persistResumableState = vi.fn().mockResolvedValue(undefined);
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes */512'
+        ) {
+          return Promise.resolve(new Response('', { status: 404 }));
+        }
+
+        if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+          return Promise.resolve(
+            new Response(null, { status: 200, headers: { location: freshSession } })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === freshSession &&
+          headers['Content-Range'] === 'bytes 0-511/512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'fresh-video-id' }), { status: 200 })
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await youtube.uploadToYouTube({
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      metadata: BASE_UPLOAD_METADATA,
+      tokens: { accessToken: 'tok' },
+      resumableState: {
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 256,
+        resumableUpdatedAt: '2026-06-20T10:00:00.000Z',
+      },
+      persistResumableState,
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('fresh-video-id');
+    }
+    expect(clearResumableState).toHaveBeenCalledTimes(2);
+    expect(persistResumableState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumableUploadUrl: freshSession,
+        resumableBytesConfirmed: 0,
+      })
+    );
+  });
+
+  it('clears resumable fields after a successful upload from a new session', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const sessionUrl = 'https://upload.youtube.test/session/new-success';
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+    const persistResumableState = vi.fn().mockResolvedValue(undefined);
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+          return Promise.resolve(
+            new Response(null, { status: 200, headers: { location: sessionUrl } })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === sessionUrl &&
+          headers['Content-Range'] === 'bytes 0-511/512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'success-video-id' }), { status: 200 })
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await youtube.uploadToYouTube({
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      metadata: BASE_UPLOAD_METADATA,
+      tokens: { accessToken: 'tok' },
+      persistResumableState,
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(persistResumableState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumableUploadUrl: sessionUrl,
+        resumableBytesConfirmed: 0,
+      })
+    );
+    expect(clearResumableState).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('probeYouTubeResumableSession', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns resume offset from a 308 Range response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 308, headers: { Range: 'bytes 0-255' } }))
+    );
+
+    await expect(
+      youtube.probeYouTubeResumableSession({
+        sessionUrl: 'https://upload.youtube.test/session/probe',
+        accessToken: 'tok',
+        totalBytes: 512,
+        contentType: 'video/mp4',
+      })
+    ).resolves.toEqual({ status: 'resume', bytesConfirmed: 256 });
+  });
+
+  it('returns invalid for expired sessions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 410 }))
+    );
+
+    await expect(
+      youtube.probeYouTubeResumableSession({
+        sessionUrl: 'https://upload.youtube.test/session/gone',
+        accessToken: 'tok',
+        totalBytes: 512,
+        contentType: 'video/mp4',
+      })
+    ).resolves.toEqual({ status: 'invalid' });
+  });
+});
+
 describe('youtubeFetchPlaylistsPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();

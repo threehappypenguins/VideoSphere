@@ -11,8 +11,25 @@ import type {
   PlatformUploadResult,
   PlatformUploadTokens,
 } from '@/lib/platforms/types';
+import {
+  type GoogleResumablePersistedState,
+  type GoogleResumableStateUpdate,
+  isRetryableGoogleResumableUploadFailure,
+  nextGoogleResumableChunkSize,
+  parseGoogleResumable308RangeLastByteInclusive,
+  probeGoogleResumableSession,
+  resolveGoogleResumableUploadSession,
+  uploadGoogleResumableInChunks,
+  uploadGoogleResumableSinglePut,
+} from '@/lib/platforms/google-resumable-upload';
 
 type PlatformUploadFailure = Extract<PlatformUploadResult, { ok: false }>;
+
+/** Resumable session fields loaded from a platform_upload row for cross-attempt resume. */
+export type YouTubeResumablePersistedState = GoogleResumablePersistedState;
+
+/** Resumable session snapshot persisted after upload progress. */
+export type YouTubeResumableStateUpdate = GoogleResumableStateUpdate;
 
 interface UploadToYouTubeInput {
   videoStream: ReadableStream<Uint8Array>;
@@ -22,6 +39,12 @@ interface UploadToYouTubeInput {
   tokens: PlatformUploadTokens;
   /** When set (e.g. distribute deadline), aborts R2-backed fetches so timeouts stop real work. */
   signal?: AbortSignal;
+  /** Stored resumable session from a prior attempt, when present on the platform_upload row. */
+  resumableState?: YouTubeResumablePersistedState;
+  /** Persists resumable progress to the platform_upload row during chunked upload. */
+  persistResumableState?: (state: YouTubeResumableStateUpdate) => Promise<void>;
+  /** Clears resumable fields after terminal success or non-retryable failure. */
+  clearResumableState?: () => Promise<void>;
 }
 
 interface GoogleRefreshTokenResponse {
@@ -405,241 +428,102 @@ async function readApiErrorDetails(response: Response): Promise<string | undefin
   return raw.slice(0, 1000);
 }
 
-/** Google requires each chunk (except the last) to be a multiple of 256 KiB. */
-const YOUTUBE_CHUNK_MULTIPLE = 256 * 1024;
-const YOUTUBE_CHUNK_TARGET = 8 * 1024 * 1024;
+const YOUTUBE_RESUMABLE_ERROR_CODES = {
+  aborted: 'YOUTUBE_UPLOAD_ABORTED',
+  streamReadFailed: 'YOUTUBE_UPLOAD_STREAM_READ_FAILED',
+  emptyChunk: 'YOUTUBE_UPLOAD_EMPTY_CHUNK',
+  noResponse: 'YOUTUBE_UPLOAD_FAILED',
+  uploadFailed: 'YOUTUBE_UPLOAD_FAILED',
+  rangeInvalid: 'YOUTUBE_UPLOAD_RANGE_INVALID',
+  rangeMismatch: 'YOUTUBE_UPLOAD_RANGE_MISMATCH',
+  incomplete: 'YOUTUBE_UPLOAD_INCOMPLETE',
+} as const;
+
+const YOUTUBE_RESUMABLE_MESSAGES = {
+  aborted: 'YouTube upload was aborted.',
+  streamReadFailed: 'Failed to read video stream for upload.',
+  emptyChunk: 'Received an empty chunk while uploading to YouTube.',
+  noResponse: 'YouTube upload returned no response.',
+  uploadFailed: 'YouTube video upload failed.',
+  rangeInvalid: 'YouTube Range header is behind the current upload offset.',
+  rangeMismatch: 'YouTube upload advanced past declared file size.',
+  incomplete: 'YouTube resumable upload ended before the full file was sent.',
+} as const;
+
+const YOUTUBE_RETRYABLE_UPLOAD_CODES = [
+  'YOUTUBE_UPLOAD_ABORTED',
+  'YOUTUBE_UPLOAD_STREAM_READ_FAILED',
+] as const;
+
+/** @see nextGoogleResumableChunkSize */
+export const nextYouTubeChunkSize = nextGoogleResumableChunkSize;
+
+/** @see parseGoogleResumable308RangeLastByteInclusive */
+export const parseYouTube308RangeLastByteInclusive = parseGoogleResumable308RangeLastByteInclusive;
 
 /**
- * Executes next YouTube chunk size.
- * @param remaining - Input value for remaining.
- * @returns The computed result.
+ * Outcome of probing a stored YouTube resumable session (status query PUT with bytes-star-slash-total).
+ * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded.
+ * @property bytesConfirmed - Next byte offset to send when status is resume.
+ * @property platformVideoId - YouTube video id when status is complete.
  */
-export function nextYouTubeChunkSize(remaining: number): number {
-  if (remaining <= 0) return 0;
-  if (remaining < YOUTUBE_CHUNK_MULTIPLE) return remaining;
-  const capped = Math.min(YOUTUBE_CHUNK_TARGET, remaining);
-  const aligned = Math.floor(capped / YOUTUBE_CHUNK_MULTIPLE) * YOUTUBE_CHUNK_MULTIPLE;
-  return aligned >= YOUTUBE_CHUNK_MULTIPLE ? aligned : remaining;
-}
-
-function concatUint8Arrays(chunks: Uint8Array[]): Uint8Array {
-  let len = 0;
-  for (const c of chunks) len += c.length;
-  const out = new Uint8Array(len);
-  let o = 0;
-  for (const c of chunks) {
-    out.set(c, o);
-    o += c.length;
-  }
-  return out;
-}
-
-async function readExactFromStream(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  carry: Uint8Array,
-  need: number
-): Promise<{ data: Uint8Array; carry: Uint8Array }> {
-  if (need === 0) return { data: new Uint8Array(0), carry };
-  const chunks: Uint8Array[] = [];
-  let buf = carry;
-
-  while (need > 0) {
-    if (buf.length > 0) {
-      const take = Math.min(buf.length, need);
-      chunks.push(buf.subarray(0, take));
-      buf = buf.subarray(take);
-      need -= take;
-      continue;
-    }
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value && value.length > 0) {
-      buf = value;
-    }
-  }
-
-  if (need > 0) {
-    throw new Error(`Video stream ended ${need} byte(s) earlier than Content-Length.`);
-  }
-  return { data: concatUint8Arrays(chunks), carry: buf };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+export type YouTubeResumableProbeResult =
+  | { status: 'resume'; bytesConfirmed: number }
+  | { status: 'complete'; platformVideoId: string }
+  | { status: 'invalid' };
 
 /**
- * Parse the `Range` header on a 308 Resume Incomplete from YouTube/Google resumable upload.
- * Value is cumulative bytes stored (e.g. `bytes 0-524287` or `bytes=0-524287`).
- * Returns the last byte index received (inclusive), or `null` if missing/invalid.
- *
- * @see https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol
+ * Probes a stored resumable upload session to learn the provider-confirmed byte offset.
+ * @param input - Session URL, auth, and declared total file size.
+ * @returns Whether to resume, treat the upload as already complete, or discard the session.
  */
-export function parseYouTube308RangeLastByteInclusive(headerValue: string | null): number | null {
-  if (headerValue == null || headerValue.trim() === '') return null;
-  const s = headerValue.trim();
-  if (s.includes('*')) return null;
-  const m = /^bytes[\t ]*[= ][\t ]*(\d+)[\t ]*-[ \t]*(\d+)\s*$/i.exec(s);
-  if (!m) return null;
-  const start = Number(m[1]);
-  const end = Number(m[2]);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) return null;
-  return end;
+export async function probeYouTubeResumableSession(input: {
+  sessionUrl: string;
+  accessToken: string;
+  totalBytes: number;
+  contentType: string;
+  signal?: AbortSignal;
+}): Promise<YouTubeResumableProbeResult> {
+  const probe = await probeGoogleResumableSession(input);
+  if (probe.status === 'complete') {
+    return { status: 'complete', platformVideoId: probe.resourceId };
+  }
+  return probe;
 }
 
-/**
- * Resumable upload in 256 KiB–aligned chunks (Google's recommended protocol).
- * Avoids long single-PUT streams that often end in HTTP 408 from Google frontends.
- */
+function isRetryableYouTubeUploadFailure(result: PlatformUploadFailure): boolean {
+  return isRetryableGoogleResumableUploadFailure(result, YOUTUBE_RETRYABLE_UPLOAD_CODES);
+}
+
 async function uploadYouTubeResumableInChunks(input: {
   sessionUrl: string;
   accessToken: string;
   stream: ReadableStream<Uint8Array>;
   totalBytes: number;
   contentType: string;
+  startOffset?: number;
+  onBytesConfirmed?: (bytesConfirmed: number) => Promise<void>;
   signal?: AbortSignal;
 }): Promise<PlatformUploadResult> {
-  const reader = input.stream.getReader();
-  let carry: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
-  let offset = 0;
-  const { sessionUrl, accessToken, contentType, totalBytes: total, signal } = input;
-
-  try {
-    while (offset < total) {
-      if (signal?.aborted) {
-        const reason = signal.reason;
+  return uploadGoogleResumableInChunks({
+    ...input,
+    errorCodes: YOUTUBE_RESUMABLE_ERROR_CODES,
+    messages: YOUTUBE_RESUMABLE_MESSAGES,
+    buildSuccessResult: (payload) => {
+      const videoId = typeof payload.id === 'string' ? payload.id : undefined;
+      if (!videoId) {
         return toError(
-          'YOUTUBE_UPLOAD_ABORTED',
-          reason instanceof Error ? reason.message : 'YouTube upload was aborted.',
-          499
+          'YOUTUBE_VIDEO_ID_MISSING',
+          'YouTube upload succeeded but no video ID was returned.'
         );
       }
-      const remaining = total - offset;
-      const chunkSize = nextYouTubeChunkSize(remaining);
-      let chunk: Uint8Array<ArrayBufferLike>;
-      try {
-        const r = await readExactFromStream(reader, carry, chunkSize);
-        chunk = r.data;
-        carry = r.carry;
-      } catch (e) {
-        return toError(
-          'YOUTUBE_UPLOAD_STREAM_READ_FAILED',
-          e instanceof Error ? e.message : 'Failed to read video stream for upload.',
-          500
-        );
-      }
-
-      if (chunk.length === 0) {
-        return toError(
-          'YOUTUBE_UPLOAD_EMPTY_CHUNK',
-          'Received an empty chunk while uploading to YouTube.',
-          400
-        );
-      }
-
-      const lastByte = offset + chunk.length - 1;
-      const contentRange = `bytes ${offset}-${lastByte}/${total}`;
-
-      let res: Response | null = null;
-      for (let attempt = 1; attempt <= 4; attempt++) {
-        res = await fetch(sessionUrl, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': contentType,
-            'Content-Length': String(chunk.length),
-            'Content-Range': contentRange,
-          },
-          body: chunk as BodyInit,
-          ...(signal ? { signal } : {}),
-        });
-
-        if (res.status === 408 || (res.status >= 500 && res.status < 600)) {
-          if (attempt < 4) {
-            await sleep(2 ** (attempt - 1) * 1000);
-            continue;
-          }
-        }
-        break;
-      }
-
-      if (!res) {
-        return toError('YOUTUBE_UPLOAD_FAILED', 'YouTube upload returned no response.', 500);
-      }
-
-      if (res.status === 200 || res.status === 201) {
-        const raw = await res.text().catch(() => '');
-        let uploadPayload: { id?: string } = {};
-        if (raw) {
-          try {
-            uploadPayload = JSON.parse(raw) as { id?: string };
-          } catch {
-            /* ignore */
-          }
-        }
-        const videoId = uploadPayload.id;
-        if (!videoId) {
-          return toError(
-            'YOUTUBE_VIDEO_ID_MISSING',
-            'YouTube upload succeeded but no video ID was returned.'
-          );
-        }
-        return {
-          ok: true,
-          platformVideoId: videoId,
-          platformUrl: `https://www.youtube.com/watch?v=${videoId}`,
-        };
-      }
-
-      if (res.status === 308) {
-        const chunkStart = offset;
-        const lastReceived = parseYouTube308RangeLastByteInclusive(res.headers.get('Range'));
-        let nextAbsolute: number;
-        if (lastReceived === null) {
-          nextAbsolute = chunkStart + chunk.length;
-        } else {
-          nextAbsolute = lastReceived + 1;
-          if (nextAbsolute < chunkStart) {
-            return toError(
-              'YOUTUBE_UPLOAD_RANGE_INVALID',
-              'YouTube Range header is behind the current upload offset.',
-              502
-            );
-          }
-          if (nextAbsolute > chunkStart + chunk.length) {
-            nextAbsolute = chunkStart + chunk.length;
-          }
-        }
-
-        if (nextAbsolute > total) {
-          return toError(
-            'YOUTUBE_UPLOAD_RANGE_MISMATCH',
-            'YouTube upload advanced past declared file size.',
-            502
-          );
-        }
-
-        if (nextAbsolute < chunkStart + chunk.length) {
-          const remainder = chunk.subarray(nextAbsolute - chunkStart);
-          carry = concatUint8Arrays([remainder, carry]);
-        }
-
-        offset = nextAbsolute;
-        continue;
-      }
-
-      const details = await readApiErrorDetails(res);
-      return toError('YOUTUBE_UPLOAD_FAILED', 'YouTube video upload failed.', res.status, details);
-    }
-
-    return toError(
-      'YOUTUBE_UPLOAD_INCOMPLETE',
-      'YouTube resumable upload ended before the full file was sent.',
-      500
-    );
-  } finally {
-    reader.releaseLock();
-  }
+      return {
+        ok: true,
+        platformVideoId: videoId,
+        platformUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      };
+    },
+  });
 }
 
 async function uploadYouTubeResumableSinglePut(input: {
@@ -650,47 +534,25 @@ async function uploadYouTubeResumableSinglePut(input: {
   contentType: string;
   signal?: AbortSignal;
 }): Promise<PlatformUploadResult> {
-  const uploadRequestInit: RequestInit & { duplex: 'half' } = {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${input.accessToken}`,
-      'Content-Type': input.contentType,
-      ...(input.contentLength !== undefined
-        ? { 'Content-Length': String(input.contentLength) }
-        : {}),
+  return uploadGoogleResumableSinglePut({
+    ...input,
+    uploadFailedCode: 'YOUTUBE_UPLOAD_FAILED',
+    uploadFailedMessage: 'YouTube video upload failed.',
+    buildSuccessResult: (payload) => {
+      const videoId = typeof payload.id === 'string' ? payload.id : undefined;
+      if (!videoId) {
+        return toError(
+          'YOUTUBE_VIDEO_ID_MISSING',
+          'YouTube upload succeeded but no video ID was returned.'
+        );
+      }
+      return {
+        ok: true,
+        platformVideoId: videoId,
+        platformUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      };
     },
-    body: input.stream,
-    duplex: 'half',
-    ...(input.signal ? { signal: input.signal } : {}),
-  };
-
-  const uploadResponse = await fetch(input.sessionUrl, uploadRequestInit);
-
-  if (!uploadResponse.ok) {
-    const details = await readApiErrorDetails(uploadResponse);
-    return toError(
-      'YOUTUBE_UPLOAD_FAILED',
-      'YouTube video upload failed.',
-      uploadResponse.status,
-      details
-    );
-  }
-
-  const uploadPayload = (await uploadResponse.json().catch(() => ({}))) as { id?: string };
-  const videoId = uploadPayload.id;
-
-  if (!videoId) {
-    return toError(
-      'YOUTUBE_VIDEO_ID_MISSING',
-      'YouTube upload succeeded but no video ID was returned.'
-    );
-  }
-
-  return {
-    ok: true,
-    platformVideoId: videoId,
-    platformUrl: `https://www.youtube.com/watch?v=${videoId}`,
-  };
+  });
 }
 
 /**
@@ -844,57 +706,121 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       );
     }
 
-    const initResponse = await fetch(initUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${input.tokens.accessToken}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': videoSource.contentType,
-        ...(videoSource.contentLength
-          ? { 'X-Upload-Content-Length': String(videoSource.contentLength) }
-          : {}),
-      },
-      body: JSON.stringify(initBody),
-      ...(signal ? { signal } : {}),
-    });
+    let resumableUploadUrl: string | undefined;
+    let startOffset = 0;
+    let completedVideoId: string | undefined;
 
-    if (!initResponse.ok) {
-      const details = await readApiErrorDetails(initResponse);
-      return toError(
-        'YOUTUBE_RESUMABLE_INIT_FAILED',
-        'Failed to initiate YouTube resumable upload.',
-        initResponse.status,
-        details
-      );
+    const storedSessionUrl = input.resumableState?.resumableUploadUrl?.trim();
+    if (storedSessionUrl && videoSource.contentLength && videoSource.contentLength > 0) {
+      const probe = await probeYouTubeResumableSession({
+        sessionUrl: storedSessionUrl,
+        accessToken: input.tokens.accessToken,
+        totalBytes: videoSource.contentLength,
+        contentType: videoSource.contentType,
+        signal,
+      });
+
+      if (probe.status === 'resume') {
+        resumableUploadUrl = storedSessionUrl;
+        startOffset = probe.bytesConfirmed;
+      } else if (probe.status === 'complete') {
+        completedVideoId = probe.platformVideoId;
+        await input.clearResumableState?.();
+      } else {
+        await input.clearResumableState?.();
+      }
     }
 
-    const resumableUploadUrl = initResponse.headers.get('location');
-    if (!resumableUploadUrl) {
+    if (!resumableUploadUrl && !completedVideoId) {
+      const initResponse = await fetch(initUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${input.tokens.accessToken}`,
+          'Content-Type': 'application/json; charset=UTF-8',
+          'X-Upload-Content-Type': videoSource.contentType,
+          ...(videoSource.contentLength
+            ? { 'X-Upload-Content-Length': String(videoSource.contentLength) }
+            : {}),
+        },
+        body: JSON.stringify(initBody),
+        ...(signal ? { signal } : {}),
+      });
+
+      if (!initResponse.ok) {
+        const details = await readApiErrorDetails(initResponse);
+        return toError(
+          'YOUTUBE_RESUMABLE_INIT_FAILED',
+          'Failed to initiate YouTube resumable upload.',
+          initResponse.status,
+          details
+        );
+      }
+
+      const location = initResponse.headers.get('location');
+      if (!location) {
+        return toError('YOUTUBE_RESUMABLE_URL_MISSING', 'YouTube upload URL was not returned.');
+      }
+
+      resumableUploadUrl = location;
+      startOffset = 0;
+
+      if (videoSource.contentLength && videoSource.contentLength > 0) {
+        await input.persistResumableState?.({
+          resumableUploadUrl,
+          resumableBytesConfirmed: 0,
+          resumableUpdatedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    let uploadResult: PlatformUploadResult;
+
+    if (completedVideoId) {
+      uploadResult = {
+        ok: true,
+        platformVideoId: completedVideoId,
+        platformUrl: `https://www.youtube.com/watch?v=${completedVideoId}`,
+      };
+    } else if (!resumableUploadUrl) {
       return toError('YOUTUBE_RESUMABLE_URL_MISSING', 'YouTube upload URL was not returned.');
+    } else if (videoSource.contentLength && videoSource.contentLength > 0) {
+      uploadResult = await uploadYouTubeResumableInChunks({
+        sessionUrl: resumableUploadUrl,
+        accessToken: input.tokens.accessToken,
+        stream: videoSource.stream,
+        totalBytes: videoSource.contentLength,
+        contentType: videoSource.contentType,
+        startOffset,
+        onBytesConfirmed: input.persistResumableState
+          ? async (bytesConfirmed) => {
+              await input.persistResumableState?.({
+                resumableUploadUrl,
+                resumableBytesConfirmed: bytesConfirmed,
+                resumableUpdatedAt: new Date().toISOString(),
+              });
+            }
+          : undefined,
+        signal,
+      });
+    } else {
+      uploadResult = await uploadYouTubeResumableSinglePut({
+        sessionUrl: resumableUploadUrl,
+        accessToken: input.tokens.accessToken,
+        stream: videoSource.stream,
+        contentLength: videoSource.contentLength,
+        contentType: videoSource.contentType,
+        signal,
+      });
     }
 
-    const uploadResult =
-      videoSource.contentLength && videoSource.contentLength > 0
-        ? await uploadYouTubeResumableInChunks({
-            sessionUrl: resumableUploadUrl,
-            accessToken: input.tokens.accessToken,
-            stream: videoSource.stream,
-            totalBytes: videoSource.contentLength,
-            contentType: videoSource.contentType,
-            signal,
-          })
-        : await uploadYouTubeResumableSinglePut({
-            sessionUrl: resumableUploadUrl,
-            accessToken: input.tokens.accessToken,
-            stream: videoSource.stream,
-            contentLength: videoSource.contentLength,
-            contentType: videoSource.contentType,
-            signal,
-          });
-
-    if (!uploadResult.ok) {
+    if (uploadResult.ok === false) {
+      if (!isRetryableYouTubeUploadFailure(uploadResult)) {
+        await input.clearResumableState?.();
+      }
       return uploadResult;
     }
+
+    await input.clearResumableState?.();
 
     const videoId = uploadResult.platformVideoId;
 

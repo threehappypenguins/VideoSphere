@@ -25,8 +25,11 @@ vi.mock('@/lib/models/PlatformUpload', () => ({
 import {
   createPlatformUpload,
   getPlatformUploadsByJob,
+  rowToPlatformUpload,
+  updatePlatformUploadResumableState,
   updatePlatformUploadStatus,
 } from '@/lib/repositories/platform-uploads';
+import type { PlatformUploadDocument } from '@/lib/models/PlatformUpload';
 
 function chain<T>(value: T) {
   return {
@@ -37,7 +40,7 @@ function chain<T>(value: T) {
   };
 }
 
-const baseDoc = {
+const baseDoc: PlatformUploadDocument = {
   _id: 'pu-1',
   uploadJobId: 'job-1',
   platform: 'youtube',
@@ -52,8 +55,8 @@ const baseDoc = {
   }),
   scheduledAt: '',
   errorMessage: '',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-01-01T00:00:00.000Z'),
 };
 
 beforeEach(() => {
@@ -152,5 +155,59 @@ describe('platform-uploads repository (mongo)', () => {
       'x'
     );
     expect(missing).toBeNull();
+  });
+
+  it('persists resumable state and returns it from the read path', async () => {
+    const resumableUpdatedAt = '2026-06-20T12:00:00.000Z';
+    const updatedDoc = {
+      ...baseDoc,
+      resumableUploadUrl: 'https://upload.example.com/session/abc',
+      resumableBytesConfirmed: 1_048_576,
+      resumableUpdatedAt,
+    };
+
+    mockFindByIdAndUpdate.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(updatedDoc) });
+    const updated = await updatePlatformUploadResumableState('pu-1', {
+      resumableUploadUrl: 'https://upload.example.com/session/abc',
+      resumableBytesConfirmed: 1_048_576,
+      resumableUpdatedAt,
+    });
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
+      'pu-1',
+      {
+        resumableUploadUrl: 'https://upload.example.com/session/abc',
+        resumableBytesConfirmed: 1_048_576,
+        resumableUpdatedAt,
+      },
+      { returnDocument: 'after', runValidators: true }
+    );
+    expect(updated).toEqual(rowToPlatformUpload(updatedDoc));
+
+    mockFind.mockReturnValueOnce(chain([updatedDoc]));
+    const rows = await getPlatformUploadsByJob('job-1');
+    expect(rows[0].resumableUploadUrl).toBe('https://upload.example.com/session/abc');
+    expect(rows[0].resumableBytesConfirmed).toBe(1_048_576);
+    expect(rows[0].resumableUpdatedAt).toBe(resumableUpdatedAt);
+  });
+
+  it('returns null from updatePlatformUploadResumableState when the row is missing', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(null) });
+
+    const missing = await updatePlatformUploadResumableState('missing', {
+      resumableUploadUrl: 'https://upload.example.com/session/abc',
+      resumableBytesConfirmed: 512,
+      resumableUpdatedAt: '2026-06-20T12:00:00.000Z',
+    });
+
+    expect(missing).toBeNull();
+  });
+
+  it('maps legacy rows without resumable fields to null on read', () => {
+    expect(rowToPlatformUpload(baseDoc)).toMatchObject({
+      resumableUploadUrl: null,
+      resumableBytesConfirmed: null,
+      resumableUpdatedAt: null,
+    });
   });
 });
