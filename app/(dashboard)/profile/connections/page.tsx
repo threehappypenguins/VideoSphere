@@ -100,6 +100,10 @@ const PLATFORM_META: Record<
   },
 };
 
+/** Shown on the SMB connection card — SMB backup uploads are slower than SFTP for large files. */
+const SMB_PERFORMANCE_NOTE =
+  'For faster large backups, prefer SFTP — SMB sends video in many small pieces, so uploads take longer.';
+
 /**
  * Sorts platforms within a connections section: rows with an existing connection
  * (connected or expired) appear first in alphabetical order, followed by
@@ -479,6 +483,9 @@ function ConnectionPlatformRow({
               {status === 'expired' ? 'Was connected as ' : 'Connected as '}
               <span className="font-medium text-foreground">{account.platformName}</span>
             </p>
+          )}
+          {platform === 'smb' && (
+            <p className="mt-1 text-xs text-muted-foreground">{SMB_PERFORMANCE_NOTE}</p>
           )}
         </div>
       </div>

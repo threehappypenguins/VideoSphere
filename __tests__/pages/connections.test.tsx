@@ -226,6 +226,7 @@ describe('ConnectionsPage', () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
       expect(screen.getByText('SMB / Network Share')).toBeInTheDocument();
+      expect(screen.getByText(/For faster large backups, prefer SFTP/)).toBeInTheDocument();
     });
 
     it('shows Connect button for unconnected platforms', async () => {
