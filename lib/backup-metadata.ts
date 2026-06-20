@@ -165,6 +165,16 @@ function validateByteCount(actual: number, expected: number, label: string): voi
   }
 }
 
+function destroyNodeReadable(readable: Readable): void {
+  if (!readable.destroyed) {
+    readable.destroy();
+  }
+}
+
+async function removeWorkDir(workDir: string): Promise<void> {
+  await rm(/* turbopackIgnore: true */ workDir, { recursive: true, force: true });
+}
+
 function wrapStreamWithCleanup(
   stream: ReadableStream<Uint8Array>,
   cleanup: () => Promise<void>
@@ -272,6 +282,9 @@ async function prepareBackupMetadataArtifact(input: {
       signal: input.signal,
     });
 
+    // Drop the staged source copy as soon as ffmpeg finishes; only the output file is needed for upload.
+    await rm(/* turbopackIgnore: true */ inputPath, { force: true }).catch(() => {});
+
     const { size } = await stat(outputPath);
     if (size <= 0) {
       throw new Error('ffmpeg metadata injection produced an empty output file');
@@ -281,7 +294,12 @@ async function prepareBackupMetadataArtifact(input: {
 
     return { workDir, outputPath, contentLength: size, contentType };
   } catch (err) {
-    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+    await removeWorkDir(workDir).catch((cleanupErr) => {
+      console.error(
+        '[backup-metadata] Failed to remove temp staging directory after error:',
+        cleanupErr
+      );
+    });
     throw err;
   }
 }
@@ -383,8 +401,14 @@ export async function prepareBackupMetadataVideoForUpload(input: {
     if (cleanedUp) {
       return;
     }
-    cleanedUp = true;
-    await rm(artifact.workDir, { recursive: true, force: true }).catch(() => {});
+
+    try {
+      await removeWorkDir(artifact.workDir);
+    } catch (err) {
+      console.error('[backup-metadata] Failed to remove temp staging directory:', err);
+    } finally {
+      cleanedUp = true;
+    }
   };
 
   const nodeReadable = createReadStream(/* turbopackIgnore: true */ artifact.outputPath);
@@ -396,6 +420,7 @@ export async function prepareBackupMetadataVideoForUpload(input: {
     contentType: artifact.contentType,
     dispose: async () => {
       await webStream.cancel().catch(() => {});
+      destroyNodeReadable(nodeReadable);
       await cleanupWorkDir();
     },
   };
@@ -413,6 +438,7 @@ export type BackupMetadataSourceOpener = (
 export class SharedBackupMetadataSession {
   private artifactPromise: Promise<PreparedBackupMetadataArtifact> | null = null;
   private cleanedUp = false;
+  private readonly openReadStreams = new Set<Readable>();
 
   /**
    * @param openSource - Opens the R2 (or other) source stream; invoked at most once per session.
@@ -437,6 +463,7 @@ export class SharedBackupMetadataSession {
     const artifact = await this.ensureArtifact(signal);
 
     const nodeReadable = createReadStream(/* turbopackIgnore: true */ artifact.outputPath);
+    this.trackReadStream(nodeReadable);
     const webStream = ReadableCtor.toWeb(nodeReadable) as ReadableStream<Uint8Array>;
 
     return {
@@ -445,6 +472,8 @@ export class SharedBackupMetadataSession {
       contentType: artifact.contentType,
       dispose: async () => {
         await webStream.cancel().catch(() => {});
+        destroyNodeReadable(nodeReadable);
+        this.openReadStreams.delete(nodeReadable);
       },
     };
   }
@@ -474,21 +503,47 @@ export class SharedBackupMetadataSession {
     });
   }
 
+  private trackReadStream(nodeReadable: Readable): void {
+    this.openReadStreams.add(nodeReadable);
+    nodeReadable.once('close', () => {
+      this.openReadStreams.delete(nodeReadable);
+    });
+  }
+
+  private destroyOpenReadStreams(): void {
+    for (const nodeReadable of this.openReadStreams) {
+      destroyNodeReadable(nodeReadable);
+    }
+    this.openReadStreams.clear();
+  }
+
   private async cleanupWorkDir(): Promise<void> {
     if (this.cleanedUp) {
       return;
     }
-    this.cleanedUp = true;
 
     if (!this.artifactPromise) {
+      this.cleanedUp = true;
       return;
     }
 
+    let artifact: PreparedBackupMetadataArtifact;
     try {
-      const artifact = await this.artifactPromise;
-      await rm(artifact.workDir, { recursive: true, force: true }).catch(() => {});
+      artifact = await this.artifactPromise;
     } catch {
       // Preparation failed or was aborted; temp dir was already removed in prepareBackupMetadataArtifact.
+      this.cleanedUp = true;
+      return;
+    }
+
+    this.destroyOpenReadStreams();
+
+    try {
+      await removeWorkDir(artifact.workDir);
+    } catch (err) {
+      console.error('[backup-metadata] Failed to remove temp staging directory:', err);
+    } finally {
+      this.cleanedUp = true;
     }
   }
 }
