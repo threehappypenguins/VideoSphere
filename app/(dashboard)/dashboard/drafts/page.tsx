@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
@@ -777,13 +777,53 @@ function hasNonEmptyUsedInUploadAt(draft: Draft): boolean {
   return typeof draft.usedInUploadAt === 'string' && draft.usedInUploadAt.trim() !== '';
 }
 
+function partitionDraftsByUploadStatus(drafts: Draft[]): { unused: Draft[]; used: Draft[] } {
+  const unused: Draft[] = [];
+  const used: Draft[] = [];
+  for (const draft of drafts) {
+    if (hasNonEmptyUsedInUploadAt(draft)) {
+      used.push(draft);
+    } else {
+      unused.push(draft);
+    }
+  }
+  return { unused, used };
+}
+
 function UsedIndicator({ used }: { used: boolean }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${used ? 'border-border bg-muted text-foreground' : 'border-border bg-background text-muted-foreground'}`}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+        used
+          ? 'border-amber-500/40 bg-amber-500/15 text-amber-950 dark:text-amber-100'
+          : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100'
+      }`}
     >
-      {used ? 'Used in upload' : 'Not uploaded'}
+      {used ? 'Used in upload' : 'Ready to upload'}
     </span>
+  );
+}
+
+interface DraftSectionProps {
+  title: string;
+  description: string;
+  used?: boolean;
+  children: ReactNode;
+}
+
+function DraftSection({ title, description, used = false, children }: DraftSectionProps) {
+  return (
+    <section
+      className={`space-y-3 rounded-xl border p-4 sm:p-5 ${
+        used ? 'border-amber-500/30 bg-amber-500/5' : 'border-border bg-background'
+      }`}
+    >
+      <header className="space-y-1">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </header>
+      {children}
+    </section>
   );
 }
 
@@ -804,6 +844,55 @@ function DraftsTable({
   isDeletingId,
   isDuplicatingId,
 }: DraftCollectionProps) {
+  const { unused, used } = partitionDraftsByUploadStatus(drafts);
+
+  return (
+    <div className="space-y-6">
+      {unused.length > 0 ? (
+        <DraftSection
+          title="Ready to upload"
+          description="Drafts that have not been used for an upload yet."
+        >
+          <DraftsTableContent
+            drafts={unused}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+          />
+        </DraftSection>
+      ) : null}
+      {used.length > 0 ? (
+        <DraftSection
+          title="Used in upload"
+          description="These drafts were already used to start an upload. Duplicate one if you need to publish again."
+          used
+        >
+          <DraftsTableContent
+            drafts={used}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+            dimUsedRows
+          />
+        </DraftSection>
+      ) : null}
+    </div>
+  );
+}
+
+function DraftsTableContent({
+  drafts,
+  onEdit,
+  onDelete,
+  onDuplicate,
+  isDeletingId,
+  isDuplicatingId,
+  dimUsedRows = false,
+}: DraftCollectionProps & { dimUsedRows?: boolean }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-background">
       <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
@@ -826,10 +915,13 @@ function DraftsTable({
         <tbody>
           {drafts.map((draft) => {
             const displayTitle = draft.title.trim() || 'Untitled draft';
+            const used = hasNonEmptyUsedInUploadAt(draft);
             return (
               <tr
                 key={draft.id}
-                className="border-b border-border transition-colors hover:bg-muted/40"
+                className={`border-b border-border transition-colors hover:bg-muted/40 ${
+                  dimUsedRows ? 'bg-muted/20' : ''
+                }`}
               >
                 <td className="p-0 align-top">
                   <button
@@ -868,7 +960,7 @@ function DraftsTable({
                     aria-label={`Edit draft "${displayTitle}"`}
                     className="block w-full px-3 py-3 text-left sm:px-4"
                   >
-                    <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
+                    <UsedIndicator used={used} />
                   </button>
                 </td>
                 <td className="p-0 align-top text-right">
@@ -924,14 +1016,66 @@ function DraftCards({
   isDeletingId,
   isDuplicatingId,
 }: DraftCollectionProps) {
+  const { unused, used } = partitionDraftsByUploadStatus(drafts);
+
+  return (
+    <div className="space-y-6">
+      {unused.length > 0 ? (
+        <DraftSection
+          title="Ready to upload"
+          description="Drafts that have not been used for an upload yet."
+        >
+          <DraftCardsGrid
+            drafts={unused}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+          />
+        </DraftSection>
+      ) : null}
+      {used.length > 0 ? (
+        <DraftSection
+          title="Used in upload"
+          description="These drafts were already used to start an upload. Duplicate one if you need to publish again."
+          used
+        >
+          <DraftCardsGrid
+            drafts={used}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+            dimUsedCards
+          />
+        </DraftSection>
+      ) : null}
+    </div>
+  );
+}
+
+function DraftCardsGrid({
+  drafts,
+  onEdit,
+  onDelete,
+  onDuplicate,
+  isDeletingId,
+  isDuplicatingId,
+  dimUsedCards = false,
+}: DraftCollectionProps & { dimUsedCards?: boolean }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {drafts.map((draft) => {
         const displayTitle = draft.title.trim() || 'Untitled draft';
+        const used = hasNonEmptyUsedInUploadAt(draft);
         return (
           <div
             key={draft.id}
-            className="relative rounded-xl border border-border bg-background shadow-sm transition-colors hover:bg-muted/30"
+            className={`relative rounded-xl border shadow-sm transition-colors hover:bg-muted/30 ${
+              dimUsedCards ? 'border-amber-500/30 bg-muted/30' : 'border-border bg-background'
+            }`}
           >
             <button
               type="button"
@@ -947,7 +1091,7 @@ function DraftCards({
                 <p className="text-xs text-muted-foreground">
                   Last edited {formatLastEdited(draft.$updatedAt)}
                 </p>
-                <UsedIndicator used={hasNonEmptyUsedInUploadAt(draft)} />
+                <UsedIndicator used={used} />
               </div>
             </div>
             <div className="relative z-20 px-4 pb-4 pointer-events-none">
