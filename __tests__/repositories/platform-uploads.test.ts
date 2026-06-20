@@ -25,6 +25,7 @@ vi.mock('@/lib/models/PlatformUpload', () => ({
 import {
   createPlatformUpload,
   getPlatformUploadsByJob,
+  listStaleSermonAudioUnpublishedPlatformUploads,
   rowToPlatformUpload,
   updatePlatformUploadResumableState,
   updatePlatformUploadStatus,
@@ -209,5 +210,47 @@ describe('platform-uploads repository (mongo)', () => {
       resumableBytesConfirmed: null,
       resumableUpdatedAt: null,
     });
+  });
+
+  it('lists stale SermonAudio unpublished rows with auto-publish enabled only', async () => {
+    const updatedBefore = new Date('2026-06-20T11:00:00.000Z');
+    const autoPublishDoc: PlatformUploadDocument = {
+      ...baseDoc,
+      _id: 'pu-sa-auto',
+      platform: 'sermon_audio',
+      status: 'unpublished',
+      document: JSON.stringify({
+        title: 'Sermon',
+        description: '',
+        tags: [],
+        visibility: 'public',
+        sermonAudioAutoPublishOnProcessed: true,
+      }),
+      updatedAt: new Date('2026-06-20T10:00:00.000Z'),
+    };
+    const manualPublishDoc: PlatformUploadDocument = {
+      ...autoPublishDoc,
+      _id: 'pu-sa-manual',
+      document: JSON.stringify({
+        title: 'Sermon manual',
+        description: '',
+        tags: [],
+        visibility: 'public',
+        sermonAudioAutoPublishOnProcessed: false,
+      }),
+    };
+
+    mockFind.mockReturnValueOnce(chain([autoPublishDoc, manualPublishDoc]));
+
+    const rows = await listStaleSermonAudioUnpublishedPlatformUploads(updatedBefore);
+
+    expect(mockFind).toHaveBeenCalledWith({
+      platform: 'sermon_audio',
+      status: 'unpublished',
+      updatedAt: { $lt: updatedBefore },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe('pu-sa-auto');
+    expect(rows[0].sermonAudioAutoPublishOnProcessed).toBe(true);
   });
 });

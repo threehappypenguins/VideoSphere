@@ -141,19 +141,45 @@ export function parseGoogleResumable308RangeLastByteInclusive(
 
 /**
  * Outcome of probing a stored Google resumable session (status query PUT with bytes-star-slash-total).
- * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded.
+ * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded; unconfirmed when the probe failed transiently and the stored offset should be used.
  * @property bytesConfirmed - Next byte offset to send when status is resume.
  * @property resourceId - Provider resource id when status is complete.
  */
 export type GoogleResumableProbeResult =
   | { status: 'resume'; bytesConfirmed: number }
   | { status: 'complete'; resourceId: string }
-  | { status: 'invalid' };
+  | { status: 'invalid' }
+  | { status: 'unconfirmed' };
+
+/** HTTP statuses that mean the resumable session URI is gone and must not be reused. */
+const CONFIRMED_GONE_RESUMABLE_SESSION_STATUSES = new Set([404, 410]);
+
+function isTransientResumableProbeHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status < 600);
+}
+
+export function resumeOffsetFromStored(
+  bytesConfirmed: number | null | undefined,
+  totalBytes: number
+): number {
+  if (
+    typeof bytesConfirmed !== 'number' ||
+    !Number.isFinite(bytesConfirmed) ||
+    bytesConfirmed < 0
+  ) {
+    return 0;
+  }
+  const offset = Math.floor(bytesConfirmed);
+  if (totalBytes > 0 && offset >= totalBytes) {
+    return 0;
+  }
+  return offset;
+}
 
 /**
  * Probes a stored resumable upload session to learn the provider-confirmed byte offset.
  * @param input - Session URL, auth, and declared total file size.
- * @returns Whether to resume, treat the upload as already complete, or discard the session.
+ * @returns Whether to resume, treat the upload as already complete, discard the session, or fall back to the stored offset when the probe is inconclusive.
  */
 export async function probeGoogleResumableSession(input: {
   sessionUrl: string;
@@ -163,16 +189,36 @@ export async function probeGoogleResumableSession(input: {
   signal?: AbortSignal;
 }): Promise<GoogleResumableProbeResult> {
   try {
-    const res = await fetch(input.sessionUrl, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${input.accessToken}`,
-        'Content-Length': '0',
-        'Content-Range': `bytes */${input.totalBytes}`,
-        'Content-Type': input.contentType,
-      },
-      ...(input.signal ? { signal: input.signal } : {}),
-    });
+    let res: Response | null = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      res = await fetch(input.sessionUrl, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${input.accessToken}`,
+          'Content-Length': '0',
+          'Content-Range': `bytes */${input.totalBytes}`,
+          'Content-Type': input.contentType,
+        },
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
+
+      if (isTransientResumableProbeHttpStatus(res.status)) {
+        if (attempt < 4) {
+          await sleep(2 ** (attempt - 1) * 1000);
+          continue;
+        }
+        return { status: 'unconfirmed' };
+      }
+      break;
+    }
+
+    if (!res) {
+      return { status: 'unconfirmed' };
+    }
+
+    if (CONFIRMED_GONE_RESUMABLE_SESSION_STATUSES.has(res.status)) {
+      return { status: 'invalid' };
+    }
 
     if (res.status === 308) {
       const lastReceived = parseGoogleResumable308RangeLastByteInclusive(res.headers.get('Range'));
@@ -197,12 +243,12 @@ export async function probeGoogleResumableSession(input: {
       if (resourceId) {
         return { status: 'complete', resourceId };
       }
-      return { status: 'invalid' };
+      return { status: 'unconfirmed' };
     }
 
-    return { status: 'invalid' };
+    return { status: 'unconfirmed' };
   } catch {
-    return { status: 'invalid' };
+    return { status: 'unconfirmed' };
   }
 }
 
@@ -442,6 +488,7 @@ export interface GoogleResumableUploadSession {
  */
 export async function resolveGoogleResumableUploadSession(input: {
   storedSessionUrl?: string | null;
+  storedBytesConfirmed?: number | null;
   accessToken: string;
   totalBytes: number;
   contentType: string;
@@ -473,6 +520,15 @@ export async function resolveGoogleResumableUploadSession(input: {
     if (probe.status === 'complete') {
       await input.clearResumableState?.();
       return { kind: 'complete', resourceId: probe.resourceId };
+    }
+    if (probe.status === 'unconfirmed') {
+      return {
+        kind: 'upload',
+        session: {
+          sessionUrl: storedSessionUrl,
+          startOffset: resumeOffsetFromStored(input.storedBytesConfirmed, input.totalBytes),
+        },
+      };
     }
     await input.clearResumableState?.();
   }

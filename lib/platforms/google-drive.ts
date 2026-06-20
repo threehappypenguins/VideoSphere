@@ -84,14 +84,15 @@ const GOOGLE_DRIVE_RETRYABLE_UPLOAD_CODES = [
 
 /**
  * Outcome of probing a stored Google Drive resumable session (status query PUT with bytes-star-slash-total).
- * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded.
+ * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded; unconfirmed when the probe failed transiently and the stored offset should be used.
  * @property bytesConfirmed - Next byte offset to send when status is resume.
  * @property fileId - Drive file id when status is complete.
  */
 export type GoogleDriveResumableProbeResult =
   | { status: 'resume'; bytesConfirmed: number }
   | { status: 'complete'; fileId: string }
-  | { status: 'invalid' };
+  | { status: 'invalid' }
+  | { status: 'unconfirmed' };
 
 /**
  * Probes a stored resumable upload session to learn the provider-confirmed byte offset.
@@ -570,6 +571,7 @@ export async function uploadToGoogleDrive(
 
     const sessionResolution = await resolveGoogleResumableUploadSession({
       storedSessionUrl: input.resumableState?.resumableUploadUrl,
+      storedBytesConfirmed: input.resumableState?.resumableBytesConfirmed,
       accessToken: input.tokens.accessToken,
       totalBytes: input.contentLength ?? 0,
       contentType,

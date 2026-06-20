@@ -748,10 +748,80 @@ describe('uploadToYouTube resumable session reuse', () => {
     );
     expect(clearResumableState).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps the stored session and offset when the probe fails transiently', async () => {
+    const fetchMock = vi.mocked(global.fetch as unknown as (...args: unknown[]) => unknown);
+    const storedSession = 'https://upload.youtube.test/session/stored';
+    const persistResumableState = vi.fn().mockResolvedValue(undefined);
+    const clearResumableState = vi.fn().mockResolvedValue(undefined);
+    let initPostCount = 0;
+
+    fetchMock.mockImplementation(
+      (url: unknown, options?: { method?: string; headers?: Record<string, string> }) => {
+        const sUrl = String(url);
+        const method = options?.method;
+        const headers = options?.headers ?? {};
+
+        if (method === 'POST' && sUrl.includes('/upload/youtube/v3/videos?uploadType=resumable')) {
+          initPostCount += 1;
+          return Promise.resolve(
+            new Response(null, {
+              status: 200,
+              headers: { location: 'https://upload.youtube.test/session/new' },
+            })
+          );
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes */512'
+        ) {
+          return Promise.reject(new TypeError('probe network blip'));
+        }
+
+        if (
+          method === 'PUT' &&
+          sUrl === storedSession &&
+          headers['Content-Range'] === 'bytes 128-511/512'
+        ) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'probe-fallback-video-id' }), { status: 200 })
+          );
+        }
+
+        return Promise.resolve(new Response('', { status: 200 }));
+      }
+    );
+
+    const result = await youtube.uploadToYouTube({
+      videoStream: makeVideoStreamOfLength(512),
+      contentLength: 512,
+      contentType: 'video/mp4',
+      metadata: BASE_UPLOAD_METADATA,
+      tokens: { accessToken: 'tok' },
+      resumableState: {
+        resumableUploadUrl: storedSession,
+        resumableBytesConfirmed: 128,
+        resumableUpdatedAt: '2026-06-20T10:00:00.000Z',
+      },
+      persistResumableState,
+      clearResumableState,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.platformVideoId).toBe('probe-fallback-video-id');
+    }
+    expect(initPostCount).toBe(0);
+    expect(clearResumableState).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('probeYouTubeResumableSession', () => {
   afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -785,6 +855,59 @@ describe('probeYouTubeResumableSession', () => {
         contentType: 'video/mp4',
       })
     ).resolves.toEqual({ status: 'invalid' });
+  });
+
+  it('returns invalid for missing sessions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 404 }))
+    );
+
+    await expect(
+      youtube.probeYouTubeResumableSession({
+        sessionUrl: 'https://upload.youtube.test/session/missing',
+        accessToken: 'tok',
+        totalBytes: 512,
+        contentType: 'video/mp4',
+      })
+    ).resolves.toEqual({ status: 'invalid' });
+  });
+
+  it('returns unconfirmed when the probe request fails transiently', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      })
+    );
+
+    await expect(
+      youtube.probeYouTubeResumableSession({
+        sessionUrl: 'https://upload.youtube.test/session/flaky',
+        accessToken: 'tok',
+        totalBytes: 512,
+        contentType: 'video/mp4',
+      })
+    ).resolves.toEqual({ status: 'unconfirmed' });
+  });
+
+  it('returns unconfirmed after repeated 503 responses', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 503 }))
+    );
+
+    const probePromise = youtube.probeYouTubeResumableSession({
+      sessionUrl: 'https://upload.youtube.test/session/overloaded',
+      accessToken: 'tok',
+      totalBytes: 512,
+      contentType: 'video/mp4',
+    });
+
+    await vi.runAllTimersAsync();
+    await expect(probePromise).resolves.toEqual({ status: 'unconfirmed' });
+    vi.useRealTimers();
   });
 });
 

@@ -3,16 +3,7 @@
  * @see https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME !== 'nodejs') {
-    return;
-  }
-
-  const { reconcileStaleUploadDistribution } =
-    await import('@/lib/uploads/reconcile-stale-distribution');
-
-  try {
-    await reconcileStaleUploadDistribution();
-  } catch (error) {
-    console.error('[reconcile] Failed to reconcile stale upload distribution on startup:', error);
-  }
+  // Startup tasks that touch MongoDB (e.g. stale upload reconciliation) run from
+  // connectToDatabase() so instrumentation stays free of mongoose/crypto imports
+  // that break webpack dev compilation of this entry.
 }

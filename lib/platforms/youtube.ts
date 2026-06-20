@@ -19,6 +19,7 @@ import {
   parseGoogleResumable308RangeLastByteInclusive,
   probeGoogleResumableSession,
   resolveGoogleResumableUploadSession,
+  resumeOffsetFromStored,
   uploadGoogleResumableInChunks,
   uploadGoogleResumableSinglePut,
 } from '@/lib/platforms/google-resumable-upload';
@@ -463,14 +464,15 @@ export const parseYouTube308RangeLastByteInclusive = parseGoogleResumable308Rang
 
 /**
  * Outcome of probing a stored YouTube resumable session (status query PUT with bytes-star-slash-total).
- * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded.
+ * @property status - resume when bytes remain; complete when the session already finished; invalid when the session must be discarded; unconfirmed when the probe failed transiently and the stored offset should be used.
  * @property bytesConfirmed - Next byte offset to send when status is resume.
  * @property platformVideoId - YouTube video id when status is complete.
  */
 export type YouTubeResumableProbeResult =
   | { status: 'resume'; bytesConfirmed: number }
   | { status: 'complete'; platformVideoId: string }
-  | { status: 'invalid' };
+  | { status: 'invalid' }
+  | { status: 'unconfirmed' };
 
 /**
  * Probes a stored resumable upload session to learn the provider-confirmed byte offset.
@@ -726,6 +728,12 @@ export async function uploadToYouTube(input: UploadToYouTubeInput): Promise<Plat
       } else if (probe.status === 'complete') {
         completedVideoId = probe.platformVideoId;
         await input.clearResumableState?.();
+      } else if (probe.status === 'unconfirmed') {
+        resumableUploadUrl = storedSessionUrl;
+        startOffset = resumeOffsetFromStored(
+          input.resumableState?.resumableBytesConfirmed,
+          videoSource.contentLength
+        );
       } else {
         await input.clearResumableState?.();
       }

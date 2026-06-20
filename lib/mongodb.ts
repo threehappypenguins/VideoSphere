@@ -13,6 +13,7 @@ if (!cached) {
 }
 
 let setupBootstrapStarted = false;
+let staleUploadReconcileStarted = false;
 
 /**
  * Ensures first-run setup token bootstrap runs once per process after DB connects.
@@ -29,12 +30,27 @@ function scheduleFirstRunSetupBootstrap(): void {
 }
 
 /**
+ * Marks stale in-progress upload rows failed once per process after the first DB connect.
+ */
+function scheduleStaleUploadReconciliation(): void {
+  if (staleUploadReconcileStarted) return;
+  staleUploadReconcileStarted = true;
+
+  void import('@/lib/uploads/reconcile-stale-distribution')
+    .then((mod) => mod.reconcileStaleUploadDistribution())
+    .catch((error) => {
+      console.error('[reconcile] Failed to reconcile stale upload distribution on startup:', error);
+    });
+}
+
+/**
  * Establishes and caches the shared MongoDB connection for the current process.
  * @returns The connected Mongoose instance.
  */
 export async function connectToDatabase() {
   if (cached!.conn) {
     scheduleFirstRunSetupBootstrap();
+    scheduleStaleUploadReconciliation();
     return cached!.conn;
   }
   if (!cached!.promise) {
@@ -47,6 +63,7 @@ export async function connectToDatabase() {
   try {
     cached!.conn = await cached!.promise;
     scheduleFirstRunSetupBootstrap();
+    scheduleStaleUploadReconciliation();
   } catch (error) {
     cached!.promise = null;
     throw error;

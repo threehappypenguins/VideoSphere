@@ -8,7 +8,6 @@
 // Uses Mongoose for the platform_uploads collection.
 // =============================================================================
 
-import { randomUUID } from 'crypto';
 import type { PlatformUpload, ConnectedAccountPlatform, PlatformUploadStatus } from '@/types';
 import { connectToDatabase } from '@/lib/mongodb';
 import { PlatformUploadModel, type PlatformUploadDocument } from '@/lib/models/PlatformUpload';
@@ -80,7 +79,7 @@ export async function createPlatformUpload(
 
   try {
     const created = await PlatformUploadModel.create({
-      _id: randomUUID(),
+      _id: crypto.randomUUID(),
       uploadJobId: data.uploadJobId,
       platform: data.platform,
       status: 'pending',
@@ -274,6 +273,48 @@ export async function listStalePlatformUploads(
 
     if (pageUploads.length < pageSize) break;
     if (pageUploads.length === 0) break;
+    offset += pageSize;
+  }
+
+  return uploads;
+}
+
+/**
+ * Lists SermonAudio platform uploads stuck in `unpublished` with auto-publish enabled
+ * whose `updatedAt` is older than `updatedBefore` (e.g. detached poll/publish lost on restart).
+ * Rows without `sermonAudioAutoPublishOnProcessed` are excluded — those are terminal success.
+ * @param updatedBefore - Cutoff instant; rows updated at or after this time are excluded.
+ * @param options - Optional paging controls.
+ * @returns Matching platform uploads, oldest first.
+ */
+export async function listStaleSermonAudioUnpublishedPlatformUploads(
+  updatedBefore: Date,
+  options?: { pageSize?: number }
+): Promise<PlatformUpload[]> {
+  await connectToDatabase();
+
+  const pageSize = options?.pageSize ?? 100;
+  let offset = 0;
+  const uploads: PlatformUpload[] = [];
+
+  while (true) {
+    const docs = await PlatformUploadModel.find({
+      platform: 'sermon_audio',
+      status: 'unpublished',
+      updatedAt: { $lt: updatedBefore },
+    })
+      .sort({ updatedAt: 1 })
+      .skip(offset)
+      .limit(pageSize)
+      .lean<PlatformUploadDocument[]>();
+
+    const pageUploads = docs
+      .map(rowToPlatformUpload)
+      .filter((upload) => upload.sermonAudioAutoPublishOnProcessed === true);
+    uploads.push(...pageUploads);
+
+    if (docs.length < pageSize) break;
+    if (docs.length === 0) break;
     offset += pageSize;
   }
 

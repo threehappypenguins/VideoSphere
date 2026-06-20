@@ -46,6 +46,7 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/r2')>();
   return {
     ...actual,
+    completeMultipartUpload: vi.fn(async () => undefined),
     headObject: vi.fn(async () => 1024),
     deleteObject: vi.fn(async () => undefined),
   };
@@ -121,12 +122,21 @@ vi.mock('next/server', async (importOriginal) => {
 
 import { POST } from '@/app/api/uploads/[jobId]/complete/route';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
-import { headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
+import { completeMultipartUpload, headObject, deleteObject, R2ObjectNotFoundError } from '@/lib/r2';
 import { getDraftById } from '@/lib/repositories/drafts';
 
 const SESSION_COOKIE = 'videosphere_session';
 
-function createRequest(jobId: string, cookies: Record<string, string> = {}): NextRequest {
+const validMultipartBody = {
+  uploadId: 'multipart-upload-id-abc',
+  parts: [{ partNumber: 1, eTag: '"etag-part-1"' }],
+};
+
+function createRequest(
+  jobId: string,
+  cookies: Record<string, string> = {},
+  body: unknown = validMultipartBody
+): NextRequest {
   const url = new URL(`http://localhost:3000/api/uploads/${jobId}/complete`);
 
   const cookieHeader = Object.entries(cookies)
@@ -135,7 +145,11 @@ function createRequest(jobId: string, cookies: Record<string, string> = {}): Nex
 
   const init: RequestInit = {
     method: 'POST',
-    headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    headers: {
+      'Content-Type': 'application/json',
+      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+    },
+    body: JSON.stringify(body),
   };
 
   return new NextRequest(url, init);
@@ -150,6 +164,7 @@ describe('POST /api/uploads/[jobId]/complete', () => {
     vi.clearAllMocks();
     mockGetAuthenticatedUserId.mockResolvedValue('user-123');
 
+    vi.mocked(completeMultipartUpload).mockResolvedValue(undefined);
     vi.mocked(headObject).mockResolvedValue(1024);
     vi.mocked(deleteObject).mockResolvedValue(undefined);
     vi.mocked(getUploadJobById).mockResolvedValue({
@@ -171,6 +186,113 @@ describe('POST /api/uploads/[jobId]/complete', () => {
       errorMessage: null,
       $createdAt: '2000-01-01T00:00:00.000Z',
       $updatedAt: '2000-01-01T00:00:00.000Z',
+    });
+  });
+
+  describe('Multipart completion body', () => {
+    it('returns 400 when uploadId is missing', async () => {
+      const response = await POST(
+        createRequest(
+          'job-123',
+          { videosphere_session: 'token' },
+          { parts: [{ partNumber: 1, eTag: '"etag-1"' }] }
+        ),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('uploadId');
+      expect(vi.mocked(completeMultipartUpload)).not.toHaveBeenCalled();
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when parts is empty', async () => {
+      const response = await POST(
+        createRequest(
+          'job-123',
+          { videosphere_session: 'token' },
+          { uploadId: 'multipart-upload-id-abc', parts: [] }
+        ),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('parts');
+      expect(vi.mocked(completeMultipartUpload)).not.toHaveBeenCalled();
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when a part has an invalid eTag', async () => {
+      const response = await POST(
+        createRequest(
+          'job-123',
+          { videosphere_session: 'token' },
+          {
+            uploadId: 'multipart-upload-id-abc',
+            parts: [{ partNumber: 1, eTag: '' }],
+          }
+        ),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('eTag');
+      expect(vi.mocked(completeMultipartUpload)).not.toHaveBeenCalled();
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
+    it('marks the job failed and skips headObject when multipart completion fails', async () => {
+      vi.mocked(completeMultipartUpload).mockRejectedValueOnce(
+        new Error(
+          'Failed to complete multipart upload for key "temp/uploads/user-123/1234567890/test.mp4": InvalidPart'
+        )
+      );
+
+      const response = await POST(
+        createRequest('job-123', { videosphere_session: 'token' }),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('Multipart upload completion failed');
+      expect(vi.mocked(completeMultipartUpload)).toHaveBeenCalledWith(
+        'temp/uploads/user-123/1234567890/test.mp4',
+        'multipart-upload-id-abc',
+        [{ partNumber: 1, eTag: '"etag-part-1"' }]
+      );
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
+        'job-123',
+        'failed',
+        expect.stringContaining('Multipart upload completion failed')
+      );
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 and marks the job failed on storage errors during multipart completion', async () => {
+      vi.mocked(completeMultipartUpload).mockRejectedValueOnce(
+        new Error(
+          'Failed to complete multipart upload for key "temp/uploads/user-123/1234567890/test.mp4": ServiceUnavailable'
+        )
+      );
+
+      const response = await POST(
+        createRequest('job-123', { videosphere_session: 'token' }),
+        makeParams('job-123')
+      );
+
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toContain('storage error');
+      expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
+        'job-123',
+        'failed',
+        expect.stringContaining('storage error')
+      );
+      expect(vi.mocked(headObject)).not.toHaveBeenCalled();
     });
   });
 
@@ -405,6 +527,11 @@ describe('POST /api/uploads/[jobId]/complete', () => {
     it('should advance status to distributing and auto-distribute when draft has targets', async () => {
       await POST(createRequest('job-123', { videosphere_session: 'token' }), makeParams('job-123'));
 
+      expect(vi.mocked(completeMultipartUpload)).toHaveBeenCalledWith(
+        'temp/uploads/user-123/1234567890/test.mp4',
+        'multipart-upload-id-abc',
+        [{ partNumber: 1, eTag: '"etag-part-1"' }]
+      );
       expect(vi.mocked(updateUploadJobStatus)).toHaveBeenCalledWith(
         'job-123',
         'distributing',

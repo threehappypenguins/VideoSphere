@@ -1,6 +1,7 @@
 import { listStaleUploadJobs, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import {
   listStalePlatformUploads,
+  listStaleSermonAudioUnpublishedPlatformUploads,
   updatePlatformUploadStatus,
 } from '@/lib/repositories/platform-uploads';
 
@@ -13,6 +14,22 @@ export const STALE_UPLOAD_JOB_INTERRUPTED_MESSAGE =
   'Upload interrupted by a server restart; please retry.';
 
 const DEFAULT_UPLOAD_STALE_RECONCILE_MS = 30 * 60 * 1000;
+
+/**
+ * Mirror of {@link SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS} in `lib/platforms/sermon-audio.ts`.
+ * Duplicated here so startup reconciliation stays off the sermon-audio import graph (R2/streams).
+ */
+const SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Mirror of {@link SERMONAUDIO_PROCESSING_MAX_ATTEMPTS} in `lib/platforms/sermon-audio.ts`.
+ * Duplicated here so startup reconciliation stays off the sermon-audio import graph (R2/streams).
+ */
+const SERMONAUDIO_PROCESSING_MAX_ATTEMPTS = 120;
+
+/** Poll budget (~1h) plus buffer so healthy auto-publish runs are not marked failed at 30m. */
+const DEFAULT_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS =
+  SERMONAUDIO_PROCESSING_MAX_ATTEMPTS * SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS + 30 * 60 * 1000;
 
 /**
  * Resolves the staleness threshold for upload distribution reconciliation from
@@ -30,6 +47,26 @@ export function resolveUploadStaleReconcileMs(): number {
       `[reconcile] Invalid UPLOAD_STALE_RECONCILE_MS value "${raw}"; using default ${DEFAULT_UPLOAD_STALE_RECONCILE_MS}ms.`
     );
     return DEFAULT_UPLOAD_STALE_RECONCILE_MS;
+  }
+  return parsed;
+}
+
+/**
+ * Resolves the staleness threshold for SermonAudio `unpublished` auto-publish reconciliation from
+ * `UPLOAD_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS`, falling back to ~90 minutes when unset or invalid.
+ * @returns Staleness threshold in milliseconds.
+ */
+export function resolveSermonAudioUnpublishedStaleReconcileMs(): number {
+  const raw = process.env.UPLOAD_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS?.trim();
+  if (!raw) {
+    return DEFAULT_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `[reconcile] Invalid UPLOAD_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS value "${raw}"; using default ${DEFAULT_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS}ms.`
+    );
+    return DEFAULT_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS;
   }
   return parsed;
 }
@@ -54,15 +91,25 @@ export interface ReconcileStaleUploadDistributionResult {
 export async function reconcileStaleUploadDistribution(options?: {
   now?: Date;
   staleThresholdMs?: number;
+  sermonAudioUnpublishedStaleThresholdMs?: number;
 }): Promise<ReconcileStaleUploadDistributionResult> {
   const now = options?.now ?? new Date();
   const staleThresholdMs = options?.staleThresholdMs ?? resolveUploadStaleReconcileMs();
+  const sermonAudioUnpublishedStaleThresholdMs =
+    options?.sermonAudioUnpublishedStaleThresholdMs ??
+    resolveSermonAudioUnpublishedStaleReconcileMs();
   const updatedBefore = new Date(now.getTime() - staleThresholdMs);
+  const sermonAudioUnpublishedUpdatedBefore = new Date(
+    now.getTime() - sermonAudioUnpublishedStaleThresholdMs
+  );
 
   const stalePlatformUploads = await listStalePlatformUploads(updatedBefore);
+  const staleSermonAudioUnpublished = await listStaleSermonAudioUnpublishedPlatformUploads(
+    sermonAudioUnpublishedUpdatedBefore
+  );
   let platformUploadsFailed = 0;
 
-  for (const upload of stalePlatformUploads) {
+  for (const upload of [...stalePlatformUploads, ...staleSermonAudioUnpublished]) {
     const updated = await updatePlatformUploadStatus(
       upload.id,
       'failed',
