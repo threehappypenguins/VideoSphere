@@ -3,6 +3,7 @@ import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
+import { MIN_YOUTUBE_TAG_LENGTH } from '@/lib/youtube-metadata-limits';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
@@ -169,7 +170,7 @@ function clipTagToMaxYouTubeTagChars(tag: string, maxContentChars: number): stri
  * Order is preserved; oversized tails are dropped or truncated so the API does not reject the upload.
  */
 export function normalizeYouTubeSnippetTags(raw: readonly string[]): string[] {
-  const trimmed = raw.map((t) => t.trim()).filter((t) => t.length > 0);
+  const trimmed = raw.map((t) => t.trim()).filter((t) => t.length >= MIN_YOUTUBE_TAG_LENGTH);
   const out: string[] = [];
 
   for (const tag of trimmed) {

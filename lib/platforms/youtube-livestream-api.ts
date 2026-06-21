@@ -1,9 +1,213 @@
+import { normalizeYouTubeSnippetTags } from '@/lib/platforms/youtube';
+
 const YOUTUBE_LIVE_BROADCASTS_URL = 'https://www.googleapis.com/youtube/v3/liveBroadcasts';
 const YOUTUBE_LIVE_STREAMS_URL = 'https://www.googleapis.com/youtube/v3/liveStreams';
 const YOUTUBE_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
-const YOUTUBE_CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels';
-const YOUTUBE_PLAYLIST_ITEMS_URL = 'https://www.googleapis.com/youtube/v3/playlistItems';
 const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
+
+/** Fallback when a live video snippet has no category yet (`People & Blogs`). */
+const DEFAULT_YOUTUBE_VIDEO_CATEGORY_ID = '22';
+
+type YouTubeVideoSnippetRecord = Record<string, unknown>;
+
+/**
+ * Patch for writable `videos.snippet` fields on a live broadcast's underlying video.
+ * @property categoryId - YouTube category id.
+ * @property tags - Normalized tag list to store on the video.
+ * @property defaultAudioLanguage - BCP-47 stream language (`snippet.defaultAudioLanguage`).
+ */
+export interface YouTubeBroadcastSnippetPatch {
+  categoryId?: string;
+  tags?: readonly string[];
+  defaultAudioLanguage?: string;
+}
+
+/**
+ * Result of applying snippet metadata, including tags YouTube omitted after update.
+ * @property droppedTags - Tags we sent that were not returned by YouTube on read-back.
+ */
+export type YouTubeBroadcastSnippetUpdateResult =
+  | { ok: true; droppedTags: string[] }
+  | { ok: false; details: string };
+
+async function fetchYouTubeVideoSnippet(
+  accessToken: string,
+  videoId: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; snippet: YouTubeVideoSnippetRecord } | { ok: false; details: string }> {
+  const authHeaders = youtubeAuthHeaders(accessToken);
+  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
+
+  const listUrl = new URL(YOUTUBE_VIDEOS_URL);
+  listUrl.searchParams.set('part', 'snippet');
+  listUrl.searchParams.set('id', videoId);
+
+  const listRes = await fetch(listUrl.toString(), fetchInit);
+  if (!listRes.ok) {
+    return { ok: false, details: await readYouTubeApiErrorDetails(listRes) };
+  }
+
+  const listBody = (await listRes.json().catch(() => ({}))) as {
+    items?: Array<{ snippet?: YouTubeVideoSnippetRecord }>;
+  };
+  const snippet = listBody.items?.[0]?.snippet;
+  if (!snippet) {
+    return { ok: false, details: `YouTube video ${videoId} was not found.` };
+  }
+
+  return { ok: true, snippet };
+}
+
+/**
+ * Builds the writable subset of `videos.snippet` required for `videos.update`.
+ * Read-only fields from `videos.list` (thumbnails, channelId, etc.) are omitted so
+ * YouTube does not reject or partially apply the update.
+ * @param existing - Snippet returned by `videos.list`.
+ * @param patch - Fields to set on this update.
+ * @returns Writable snippet body for `videos.update`.
+ */
+export function buildWritableYouTubeVideoSnippet(
+  existing: YouTubeVideoSnippetRecord,
+  patch: YouTubeBroadcastSnippetPatch
+): YouTubeVideoSnippetRecord {
+  const title = typeof existing.title === 'string' ? existing.title.trim() : '';
+  const categoryId =
+    patch.categoryId?.trim() ||
+    (typeof existing.categoryId === 'string' ? existing.categoryId.trim() : '') ||
+    DEFAULT_YOUTUBE_VIDEO_CATEGORY_ID;
+
+  const snippet: YouTubeVideoSnippetRecord = {
+    title,
+    categoryId,
+  };
+
+  if (typeof existing.description === 'string') {
+    snippet.description = existing.description;
+  }
+  if (patch.defaultAudioLanguage?.trim()) {
+    snippet.defaultAudioLanguage = patch.defaultAudioLanguage.trim();
+  } else if (
+    typeof existing.defaultAudioLanguage === 'string' &&
+    existing.defaultAudioLanguage.trim() !== ''
+  ) {
+    snippet.defaultAudioLanguage = existing.defaultAudioLanguage.trim();
+  }
+  if (typeof existing.defaultLanguage === 'string' && existing.defaultLanguage.trim() !== '') {
+    snippet.defaultLanguage = existing.defaultLanguage.trim();
+  }
+
+  if (patch.tags !== undefined) {
+    snippet.tags = normalizeYouTubeSnippetTags(patch.tags);
+  } else if (Array.isArray(existing.tags)) {
+    snippet.tags = existing.tags.filter((tag): tag is string => typeof tag === 'string');
+  }
+
+  return snippet;
+}
+
+function youtubeTagsMissingAfterUpdate(
+  sent: readonly string[],
+  stored: readonly string[]
+): string[] {
+  const storedLower = new Set(stored.map((tag) => tag.trim().toLowerCase()).filter(Boolean));
+  return sent.filter((tag) => !storedLower.has(tag.trim().toLowerCase()));
+}
+
+async function updateYouTubeBroadcastVideoSnippet(
+  accessToken: string,
+  videoId: string,
+  patch: YouTubeBroadcastSnippetPatch,
+  signal?: AbortSignal
+): Promise<YouTubeBroadcastSnippetUpdateResult> {
+  const fetched = await fetchYouTubeVideoSnippet(accessToken, videoId, signal);
+  if (fetched.ok === false) {
+    return fetched;
+  }
+
+  const sentTags = patch.tags !== undefined ? normalizeYouTubeSnippetTags(patch.tags) : undefined;
+  const hasSnippetPatch =
+    patch.categoryId?.trim() ||
+    patch.defaultAudioLanguage?.trim() ||
+    (sentTags !== undefined && sentTags.length > 0);
+  if (!hasSnippetPatch) {
+    return { ok: true, droppedTags: [] };
+  }
+
+  const authHeaders = youtubeAuthHeaders(accessToken);
+  const updateUrl = new URL(YOUTUBE_VIDEOS_URL);
+  updateUrl.searchParams.set('part', 'snippet');
+
+  const updateRes = await fetch(updateUrl.toString(), {
+    method: 'PUT',
+    headers: {
+      ...authHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      id: videoId,
+      snippet: buildWritableYouTubeVideoSnippet(fetched.snippet, {
+        ...patch,
+        ...(sentTags !== undefined ? { tags: sentTags } : {}),
+      }),
+    }),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!updateRes.ok) {
+    return { ok: false, details: await readYouTubeApiErrorDetails(updateRes) };
+  }
+
+  if (!sentTags || sentTags.length === 0) {
+    return { ok: true, droppedTags: [] };
+  }
+
+  const verified = await fetchYouTubeVideoSnippet(accessToken, videoId, signal);
+  if (verified.ok === false) {
+    return { ok: true, droppedTags: [] };
+  }
+
+  const storedTags = Array.isArray(verified.snippet.tags)
+    ? verified.snippet.tags.filter((tag): tag is string => typeof tag === 'string')
+    : [];
+
+  return { ok: true, droppedTags: youtubeTagsMissingAfterUpdate(sentTags, storedTags) };
+}
+
+/**
+ * Applies category, stream language, and/or tag updates on a live broadcast video in one `videos.update` call.
+ * @param accessToken - OAuth access token with YouTube write scope.
+ * @param videoId - Underlying video id for the live broadcast.
+ * @param patch - Snippet fields to update.
+ * @param signal - Optional abort signal.
+ * @returns Success with any tags YouTube omitted, or upstream error details.
+ */
+export async function setYouTubeBroadcastSnippetMetadata(
+  accessToken: string,
+  videoId: string,
+  patch: YouTubeBroadcastSnippetPatch,
+  signal?: AbortSignal
+): Promise<YouTubeBroadcastSnippetUpdateResult> {
+  const normalizedTags =
+    patch.tags !== undefined ? normalizeYouTubeSnippetTags(patch.tags) : undefined;
+  const hasCategory = Boolean(patch.categoryId?.trim());
+  const hasTags = normalizedTags !== undefined && normalizedTags.length > 0;
+  const defaultAudioLanguage = patch.defaultAudioLanguage?.trim() ?? '';
+
+  if (!hasCategory && !hasTags && !defaultAudioLanguage) {
+    return { ok: true, droppedTags: [] };
+  }
+
+  return updateYouTubeBroadcastVideoSnippet(
+    accessToken,
+    videoId,
+    {
+      ...(hasCategory ? { categoryId: patch.categoryId!.trim() } : {}),
+      ...(hasTags ? { tags: normalizedTags } : {}),
+      ...(defaultAudioLanguage ? { defaultAudioLanguage } : {}),
+    },
+    signal
+  );
+}
 
 /** Maximum live stream resources returned by a single `liveStreams.list` page. */
 const YOUTUBE_LIVE_STREAMS_LIST_MAX_RESULTS = 50;
@@ -225,11 +429,63 @@ export async function setYouTubeBroadcastCategory(
   categoryId: string,
   signal?: AbortSignal
 ): Promise<{ ok: true } | { ok: false; details: string }> {
+  const result = await setYouTubeBroadcastSnippetMetadata(
+    accessToken,
+    videoId,
+    { categoryId },
+    signal
+  );
+  if (result.ok === false) {
+    return result;
+  }
+  return { ok: true };
+}
+
+/**
+ * Sets `videos.snippet.tags` on a live broadcast's underlying video resource.
+ * @param accessToken - OAuth access token with YouTube write scope.
+ * @param videoId - Underlying video id for the live broadcast.
+ * @param tags - Tag list from the livestream document.
+ * @param signal - Optional abort signal.
+ * @returns Success, or upstream error details.
+ */
+export async function setYouTubeBroadcastTags(
+  accessToken: string,
+  videoId: string,
+  tags: readonly string[],
+  signal?: AbortSignal
+): Promise<{ ok: true } | { ok: false; details: string }> {
+  const result = await setYouTubeBroadcastSnippetMetadata(accessToken, videoId, { tags }, signal);
+  if (result.ok === false) {
+    return result;
+  }
+  return { ok: true };
+}
+
+/**
+ * Writable `videos.status` fields for a live broadcast's underlying video.
+ * @property license - Standard YouTube license vs Creative Commons.
+ * @property privacyStatus - Video privacy; included on update so YouTube accepts other status fields.
+ * @property embeddable - When false, the video cannot be embedded on other sites.
+ */
+export interface YouTubeBroadcastStatusPatch {
+  license?: 'youtube' | 'creativeCommon';
+  privacyStatus?: 'public' | 'unlisted' | 'private';
+  embeddable?: boolean;
+}
+
+type YouTubeVideoStatusRecord = Record<string, unknown>;
+
+async function fetchYouTubeVideoStatus(
+  accessToken: string,
+  videoId: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; status: YouTubeVideoStatusRecord } | { ok: false; details: string }> {
   const authHeaders = youtubeAuthHeaders(accessToken);
   const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
 
   const listUrl = new URL(YOUTUBE_VIDEOS_URL);
-  listUrl.searchParams.set('part', 'snippet');
+  listUrl.searchParams.set('part', 'status');
   listUrl.searchParams.set('id', videoId);
 
   const listRes = await fetch(listUrl.toString(), fetchInit);
@@ -238,53 +494,94 @@ export async function setYouTubeBroadcastCategory(
   }
 
   const listBody = (await listRes.json().catch(() => ({}))) as {
-    items?: Array<{ id?: string; snippet?: Record<string, unknown> }>;
+    items?: Array<{ status?: YouTubeVideoStatusRecord }>;
   };
-  const existing = listBody.items?.[0];
-  if (!existing?.snippet) {
+  const status = listBody.items?.[0]?.status;
+  if (!status) {
     return { ok: false, details: `YouTube video ${videoId} was not found.` };
   }
 
-  const updateUrl = new URL(YOUTUBE_VIDEOS_URL);
-  updateUrl.searchParams.set('part', 'snippet');
-
-  const updateRes = await fetch(updateUrl.toString(), {
-    method: 'PUT',
-    headers: {
-      ...authHeaders,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      id: videoId,
-      snippet: {
-        ...existing.snippet,
-        categoryId,
-      },
-    }),
-    ...(signal ? { signal } : {}),
-  });
-
-  if (!updateRes.ok) {
-    return { ok: false, details: await readYouTubeApiErrorDetails(updateRes) };
-  }
-
-  return { ok: true };
+  return { ok: true, status };
 }
 
 /**
- * Sets `videos.status.publicStatsViewable` on a live broadcast's underlying video resource.
+ * Builds the writable subset of `videos.status` required for `videos.update`.
+ * @param existing - Status returned by `videos.list`.
+ * @param patch - Fields to set on this update.
+ * @returns Writable status body for `videos.update`.
+ */
+export function buildWritableYouTubeVideoStatus(
+  existing: YouTubeVideoStatusRecord,
+  patch: YouTubeBroadcastStatusPatch
+): YouTubeVideoStatusRecord {
+  const status: YouTubeVideoStatusRecord = {};
+
+  const privacyStatus =
+    patch.privacyStatus ??
+    (existing.privacyStatus === 'public' ||
+    existing.privacyStatus === 'unlisted' ||
+    existing.privacyStatus === 'private'
+      ? existing.privacyStatus
+      : undefined);
+  if (privacyStatus) {
+    status.privacyStatus = privacyStatus;
+  }
+
+  if (patch.license === 'youtube' || patch.license === 'creativeCommon') {
+    status.license = patch.license;
+  } else if (existing.license === 'youtube' || existing.license === 'creativeCommon') {
+    status.license = existing.license;
+  }
+
+  if (typeof patch.embeddable === 'boolean') {
+    status.embeddable = patch.embeddable;
+  } else if (typeof existing.embeddable === 'boolean') {
+    status.embeddable = existing.embeddable;
+  }
+
+  if (typeof existing.publicStatsViewable === 'boolean') {
+    status.publicStatsViewable = existing.publicStatsViewable;
+  }
+
+  return status;
+}
+
+/**
+ * Updates writable `videos.status` fields on a live broadcast's underlying video resource.
  * @param accessToken - OAuth access token with YouTube write scope.
  * @param videoId - Underlying video id for the live broadcast.
- * @param publicStatsViewable - When false, public like counts are hidden on the watch page.
+ * @param patch - Status fields to update.
  * @param signal - Optional abort signal.
  * @returns Success, or upstream error details.
  */
-export async function setYouTubeVideoPublicStatsViewable(
+export async function setYouTubeBroadcastVideoStatus(
   accessToken: string,
   videoId: string,
-  publicStatsViewable: boolean,
+  patch: YouTubeBroadcastStatusPatch,
   signal?: AbortSignal
 ): Promise<{ ok: true } | { ok: false; details: string }> {
+  const hasPatch =
+    patch.license === 'youtube' ||
+    patch.license === 'creativeCommon' ||
+    typeof patch.embeddable === 'boolean' ||
+    patch.privacyStatus === 'public' ||
+    patch.privacyStatus === 'unlisted' ||
+    patch.privacyStatus === 'private';
+
+  if (!hasPatch) {
+    return { ok: true };
+  }
+
+  const fetched = await fetchYouTubeVideoStatus(accessToken, videoId, signal);
+  if (fetched.ok === false) {
+    return fetched;
+  }
+
+  const status = buildWritableYouTubeVideoStatus(fetched.status, patch);
+  if (Object.keys(status).length === 0) {
+    return { ok: true };
+  }
+
   const url = new URL(YOUTUBE_VIDEOS_URL);
   url.searchParams.set('part', 'status');
 
@@ -296,7 +593,7 @@ export async function setYouTubeVideoPublicStatsViewable(
     },
     body: JSON.stringify({
       id: videoId,
-      status: { publicStatsViewable },
+      status,
     }),
     ...(signal ? { signal } : {}),
   });
@@ -393,156 +690,4 @@ export async function getYouTubeBroadcastLifecycleStatus(
   const lifeCycleStatus = body.items?.[0]?.status?.lifeCycleStatus?.trim() ?? null;
 
   return { ok: true, lifeCycleStatus };
-}
-
-/**
- * Ratings defaults retrievable from YouTube for livestream seeding.
- * @property showViewerLikeCount - Maps to `videos.status.publicStatsViewable` when read from YouTube.
- */
-export interface YouTubeLiveCommentDefaults {
-  showViewerLikeCount?: boolean;
-}
-
-function readPublicStatsViewableFromVideoStatus(
-  items: Array<{ status?: { publicStatsViewable?: boolean } }> | undefined
-): boolean | undefined {
-  for (const item of items ?? []) {
-    if (typeof item.status?.publicStatsViewable === 'boolean') {
-      return item.status.publicStatsViewable;
-    }
-  }
-  return undefined;
-}
-
-function sortBroadcastsByScheduledStartDesc(
-  items: Array<{ id?: string; snippet?: { scheduledStartTime?: string } }>
-): string[] {
-  return [...items]
-    .sort((a, b) => {
-      const aTime = Date.parse(String(a.snippet?.scheduledStartTime ?? ''));
-      const bTime = Date.parse(String(b.snippet?.scheduledStartTime ?? ''));
-      const aMs = Number.isNaN(aTime) ? 0 : aTime;
-      const bMs = Number.isNaN(bTime) ? 0 : bTime;
-      return bMs - aMs;
-    })
-    .map((item) => item.id?.trim() ?? '')
-    .filter((id) => id.length > 0);
-}
-
-/**
- * Reads the public like-count visibility default from the connected channel's recent live broadcast or latest upload.
- * Only `showViewerLikeCount` (`videos.status.publicStatsViewable`) is API-controllable today.
- * See docs/youtube-live-comments-ratings.md.
- * @param accessToken - OAuth access token with YouTube read scope.
- * @param signal - Optional abort signal.
- * @returns Defaults or upstream error details.
- */
-export async function fetchYouTubeLiveCommentDefaults(
-  accessToken: string,
-  signal?: AbortSignal
-): Promise<{ ok: true; defaults: YouTubeLiveCommentDefaults } | { ok: false; details: string }> {
-  const authHeaders = youtubeAuthHeaders(accessToken);
-  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
-  const defaults: YouTubeLiveCommentDefaults = {};
-
-  const broadcastsUrl = new URL(YOUTUBE_LIVE_BROADCASTS_URL);
-  broadcastsUrl.searchParams.set('part', 'snippet');
-  broadcastsUrl.searchParams.set('mine', 'true');
-  broadcastsUrl.searchParams.set('maxResults', '5');
-  broadcastsUrl.searchParams.set('broadcastStatus', 'all');
-
-  const broadcastsRes = await fetch(broadcastsUrl.toString(), fetchInit);
-  if (!broadcastsRes.ok) {
-    return { ok: false, details: await readYouTubeApiErrorDetails(broadcastsRes) };
-  }
-
-  const broadcastsBody = (await broadcastsRes.json().catch(() => ({}))) as {
-    items?: Array<{ id?: string; snippet?: { scheduledStartTime?: string } }>;
-  };
-  const broadcastVideoIds = sortBroadcastsByScheduledStartDesc(broadcastsBody.items ?? []);
-
-  if (broadcastVideoIds.length > 0) {
-    const videosUrl = new URL(YOUTUBE_VIDEOS_URL);
-    videosUrl.searchParams.set('part', 'status');
-    videosUrl.searchParams.set('id', broadcastVideoIds.slice(0, 5).join(','));
-
-    const videosRes = await fetch(videosUrl.toString(), fetchInit);
-    if (!videosRes.ok) {
-      return { ok: false, details: await readYouTubeApiErrorDetails(videosRes) };
-    }
-
-    const videosBody = (await videosRes.json().catch(() => ({}))) as {
-      items?: Array<{ id?: string; status?: { publicStatsViewable?: boolean } }>;
-    };
-    const byId = new Map(
-      (videosBody.items ?? [])
-        .map((item) => [item.id?.trim() ?? '', item] as const)
-        .filter(([id]) => id.length > 0)
-    );
-    for (const videoId of broadcastVideoIds) {
-      const publicStatsViewable = readPublicStatsViewableFromVideoStatus([byId.get(videoId) ?? {}]);
-      if (publicStatsViewable !== undefined) {
-        defaults.showViewerLikeCount = publicStatsViewable;
-        return { ok: true, defaults };
-      }
-    }
-  }
-
-  const channelUrl = new URL(YOUTUBE_CHANNELS_URL);
-  channelUrl.searchParams.set('part', 'contentDetails');
-  channelUrl.searchParams.set('mine', 'true');
-
-  const channelRes = await fetch(channelUrl.toString(), fetchInit);
-  if (!channelRes.ok) {
-    return { ok: false, details: await readYouTubeApiErrorDetails(channelRes) };
-  }
-
-  const channelBody = (await channelRes.json().catch(() => ({}))) as {
-    items?: Array<{ contentDetails?: { relatedPlaylists?: { uploads?: string } } }>;
-  };
-  const uploadsPlaylistId =
-    channelBody.items?.[0]?.contentDetails?.relatedPlaylists?.uploads?.trim();
-  if (!uploadsPlaylistId) {
-    return { ok: true, defaults };
-  }
-
-  const playlistItemsUrl = new URL(YOUTUBE_PLAYLIST_ITEMS_URL);
-  playlistItemsUrl.searchParams.set('part', 'contentDetails');
-  playlistItemsUrl.searchParams.set('playlistId', uploadsPlaylistId);
-  playlistItemsUrl.searchParams.set('maxResults', '5');
-
-  const playlistItemsRes = await fetch(playlistItemsUrl.toString(), fetchInit);
-  if (!playlistItemsRes.ok) {
-    return { ok: true, defaults };
-  }
-
-  const playlistItemsBody = (await playlistItemsRes.json().catch(() => ({}))) as {
-    items?: Array<{ contentDetails?: { videoId?: string } }>;
-  };
-  const latestVideoIds = (playlistItemsBody.items ?? [])
-    .map((item) => item.contentDetails?.videoId?.trim())
-    .filter((videoId): videoId is string => Boolean(videoId));
-
-  if (latestVideoIds.length === 0) {
-    return { ok: true, defaults };
-  }
-
-  const latestVideosUrl = new URL(YOUTUBE_VIDEOS_URL);
-  latestVideosUrl.searchParams.set('part', 'status');
-  latestVideosUrl.searchParams.set('id', latestVideoIds.slice(0, 5).join(','));
-
-  const latestVideosRes = await fetch(latestVideosUrl.toString(), fetchInit);
-  if (!latestVideosRes.ok) {
-    return { ok: true, defaults };
-  }
-
-  const latestVideosBody = (await latestVideosRes.json().catch(() => ({}))) as {
-    items?: Array<{ status?: { publicStatsViewable?: boolean } }>;
-  };
-  const publicStatsViewable = readPublicStatsViewableFromVideoStatus(latestVideosBody.items);
-  if (publicStatsViewable !== undefined) {
-    defaults.showViewerLikeCount = publicStatsViewable;
-  }
-
-  return { ok: true, defaults };
 }

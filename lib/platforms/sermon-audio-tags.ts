@@ -1,3 +1,5 @@
+import { MIN_YOUTUBE_TAG_LENGTH } from '@/lib/youtube-metadata-limits';
+
 /**
  * Normalizes a user-entered tag or hashtag for storage (trim, strip leading `#`).
  * @param tag - Raw tag text from the draft editor.
@@ -5,6 +7,51 @@
  */
 export function normalizeTagForStorage(tag: string): string {
   return tag.trim().replace(/^#+/, '').trim();
+}
+
+/**
+ * Returns whether a normalized shared tag meets YouTube's minimum tag length.
+ * @param tag - Raw or normalized tag text.
+ * @returns True when the tag has at least {@link MIN_YOUTUBE_TAG_LENGTH} characters after normalization.
+ */
+export function isYouTubeCompatibleTagLength(tag: string): boolean {
+  return normalizeTagForStorage(tag).length >= MIN_YOUTUBE_TAG_LENGTH;
+}
+
+/**
+ * Splits parsed shared tags into accepted and too-short lists for YouTube-compatible targets.
+ * @param tags - Parsed tag strings.
+ * @returns Tags that meet the minimum length and tags rejected for being too short.
+ */
+export function partitionYouTubeCompatibleTags(tags: readonly string[]): {
+  accepted: string[];
+  tooShort: string[];
+} {
+  const accepted: string[] = [];
+  const tooShort: string[] = [];
+  for (const tag of tags) {
+    const normalized = normalizeTagForStorage(tag);
+    if (!normalized) continue;
+    if (normalized.length < MIN_YOUTUBE_TAG_LENGTH) {
+      tooShort.push(normalized);
+    } else {
+      accepted.push(normalized);
+    }
+  }
+  return { accepted, tooShort };
+}
+
+/**
+ * Builds a user-facing message when one or more tags were too short to add.
+ * @param tooShort - Rejected tag strings.
+ * @returns Sentence explaining the minimum length rule.
+ */
+export function formatTooShortYouTubeTagMessage(tooShort: readonly string[]): string {
+  const quoted = tooShort.map((tag) => `"${tag}"`).join(', ');
+  if (tooShort.length === 1) {
+    return `Tags must be at least ${MIN_YOUTUBE_TAG_LENGTH} characters. ${quoted} was not added.`;
+  }
+  return `Tags must be at least ${MIN_YOUTUBE_TAG_LENGTH} characters. ${quoted} were not added.`;
 }
 
 /**

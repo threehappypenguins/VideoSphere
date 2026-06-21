@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildYouTubeAccountDefaultsSeedPatch } from '@/lib/platforms/youtube-account-defaults';
+import {
+  buildYouTubeAccountDefaultsSeedPatch,
+  resolveYouTubeOptionalFieldValue,
+} from '@/lib/platforms/youtube-account-defaults';
 import type { YouTubeDraftFields } from '@/types';
 
 describe('buildYouTubeAccountDefaultsSeedPatch', () => {
@@ -38,5 +41,30 @@ describe('buildYouTubeAccountDefaultsSeedPatch', () => {
     };
 
     expect(buildYouTubeAccountDefaultsSeedPatch(draft, defaults)).toEqual({});
+  });
+
+  it('does not seed defaultAudioLanguage when the user explicitly cleared it', () => {
+    const draft: YouTubeDraftFields = {
+      defaultAudioLanguage: null,
+    };
+
+    expect(buildYouTubeAccountDefaultsSeedPatch(draft, defaults)).toEqual({
+      madeForKids: true,
+      categoryId: '22',
+      license: 'creativeCommon',
+      embeddable: false,
+    });
+  });
+});
+
+describe('resolveYouTubeOptionalFieldValue', () => {
+  it('falls back to account defaults when the field is absent', () => {
+    expect(resolveYouTubeOptionalFieldValue(undefined, 'defaultAudioLanguage', 'en')).toBe('en');
+  });
+
+  it('returns undefined when the field was explicitly cleared', () => {
+    expect(
+      resolveYouTubeOptionalFieldValue({ defaultAudioLanguage: null }, 'defaultAudioLanguage', 'en')
+    ).toBeUndefined();
   });
 });

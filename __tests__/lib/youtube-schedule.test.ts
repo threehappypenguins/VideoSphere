@@ -18,6 +18,14 @@ describe('zonedDateTimeToUtcIso', () => {
     expect(parts).toEqual({ dateStr: '2026-06-10', timeStr: '23:30' });
   });
 
+  it('preserves wall-clock time in the timezone used for scheduling', () => {
+    const iso = zonedDateTimeToUtcIso('2026-06-10', '16:00', 'America/Toronto');
+    const toronto = utcIsoToZonedScheduleParts(iso, 'America/Toronto');
+    expect(toronto?.timeStr).toBe('16:00');
+    const halifax = utcIsoToZonedScheduleParts(iso, 'America/Halifax');
+    expect(halifax?.timeStr).toBe('17:00');
+  });
+
   it('throws when the wall-clock time does not exist in the timezone (DST gap)', () => {
     expect(() => zonedDateTimeToUtcIso('2026-03-08', '02:30', 'America/New_York')).toThrow(
       /invalid youtube schedule date or time for the selected timezone/i

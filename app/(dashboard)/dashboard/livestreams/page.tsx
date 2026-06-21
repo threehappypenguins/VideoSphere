@@ -253,6 +253,7 @@ export default function LivestreamsPage() {
             targets: snapshot.targets,
             platforms: snapshot.platforms,
             scheduledStartTime: snapshot.scheduledStartTime ?? null,
+            scheduledStartTimeZone: snapshot.scheduledStartTimeZone ?? null,
           }),
         });
         if (!response.ok) {

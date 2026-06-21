@@ -47,6 +47,33 @@ export function parseScheduledStartTimeFromRequestBody(
   return { ok: true, value: new Date(parsedMs).toISOString() };
 }
 
+/**
+ * Validates optional `scheduledStartTimeZone` from POST/PATCH JSON.
+ * `null` or empty string clears the stored value; omitted fields are handled by callers.
+ * @param value - Raw `scheduledStartTimeZone` from a request body.
+ * @returns Normalized IANA timezone, `null` to clear, or a validation error message.
+ */
+export function parseScheduledStartTimeZoneFromRequestBody(
+  value: unknown
+): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value === null || value === undefined || value === '') {
+    return { ok: true, value: null };
+  }
+  if (typeof value !== 'string') {
+    return { ok: false, error: 'scheduledStartTimeZone must be a string or null' };
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return { ok: true, value: null };
+  }
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: trimmed });
+    return { ok: true, value: trimmed };
+  } catch {
+    return { ok: false, error: 'scheduledStartTimeZone must be a valid IANA timezone name' };
+  }
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -92,9 +119,6 @@ function normalizeYouTubeLivestreamFields(y: Record<string, unknown>): YouTubeLi
     playlistTitles = titles.length > 0 ? uniqueTrimmedPlaylistTitles(titles) : undefined;
   }
 
-  const showViewerLikeCount =
-    typeof y.showViewerLikeCount === 'boolean' ? y.showViewerLikeCount : undefined;
-
   return {
     ...(categoryId !== undefined ? { categoryId } : {}),
     ...(madeForKids !== undefined ? { madeForKids } : {}),
@@ -104,7 +128,6 @@ function normalizeYouTubeLivestreamFields(y: Record<string, unknown>): YouTubeLi
     ...(notifySubscribers !== undefined ? { notifySubscribers } : {}),
     ...(playlistIds !== undefined ? { playlistIds } : {}),
     ...(playlistTitles !== undefined ? { playlistTitles } : {}),
-    ...(showViewerLikeCount !== undefined ? { showViewerLikeCount } : {}),
   };
 }
 
@@ -280,10 +303,6 @@ export function mergeLivestreamPlatformsPatch(
       } else {
         yb.playlistTitles = undefined;
       }
-    }
-    if ('showViewerLikeCount' in p) {
-      yb.showViewerLikeCount =
-        typeof p.showViewerLikeCount === 'boolean' ? p.showViewerLikeCount : undefined;
     }
 
     next.youtube = yb;

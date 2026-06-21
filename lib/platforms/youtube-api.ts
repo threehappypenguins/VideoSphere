@@ -4,18 +4,20 @@ import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-acco
 import {
   type YouTubeAccountDefaults,
   buildYouTubeAccountDefaultsSeedPatch,
+  mergeYouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-account-defaults';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import type { ApiError } from '@/types';
 
 export type { YouTubeAccountDefaults };
-export { buildYouTubeAccountDefaultsSeedPatch };
+export { buildYouTubeAccountDefaultsSeedPatch, mergeYouTubeAccountDefaults };
 
 const YOUTUBE_VIDEO_CATEGORIES_URL = 'https://www.googleapis.com/youtube/v3/videoCategories';
 const YOUTUBE_I18N_LANGUAGES_URL = 'https://www.googleapis.com/youtube/v3/i18nLanguages';
 const YOUTUBE_CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels';
 const YOUTUBE_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 const YOUTUBE_PLAYLIST_ITEMS_URL = 'https://www.googleapis.com/youtube/v3/playlistItems';
+const YOUTUBE_LIVE_BROADCASTS_URL = 'https://www.googleapis.com/youtube/v3/liveBroadcasts';
 
 type YouTubeConnectionResult =
   | { ok: true; accessToken: string }
@@ -191,8 +193,153 @@ export async function fetchYouTubeI18nLanguages(
   return { ok: true, items };
 }
 
+type YouTubeUploadDefaultsVideo = {
+  snippet?: {
+    defaultLanguage?: string;
+    defaultAudioLanguage?: string;
+    categoryId?: string;
+    liveBroadcastContent?: string;
+  };
+  status?: {
+    license?: string;
+    embeddable?: boolean;
+  };
+  liveStreamingDetails?: {
+    actualStartTime?: string;
+  };
+};
+
 /**
- * Reads upload defaults from the authenticated user's YouTube channel and most recent upload.
+ * Returns true when a video resource is a completed livestream archive.
+ * Scheduled (`live_upcoming`) and in-progress broadcasts are not treated as archives.
+ * @param video - `videos.list` item used for upload-default inference.
+ * @returns Whether the item should be skipped when inferring language from uploads.
+ */
+export function isYouTubeCompletedLiveArchiveVideo(video: YouTubeUploadDefaultsVideo): boolean {
+  const liveBroadcastContent = video.snippet?.liveBroadcastContent?.trim().toLowerCase();
+  if (liveBroadcastContent === 'live') {
+    return Boolean(video.liveStreamingDetails?.actualStartTime?.trim());
+  }
+  return false;
+}
+
+/**
+ * Picks a recent upload to infer language fallbacks, skipping completed livestream archives.
+ * @param videos - Recent uploads playlist items resolved via `videos.list`.
+ * @returns A usable upload when available, otherwise undefined.
+ */
+export function pickYouTubeUploadLanguageSourceVideo(
+  videos: YouTubeUploadDefaultsVideo[]
+): YouTubeUploadDefaultsVideo | undefined {
+  return videos.find((video) => !isYouTubeCompletedLiveArchiveVideo(video));
+}
+
+function sortUpcomingBroadcastVideoIds(
+  items: Array<{ id?: string; snippet?: { scheduledStartTime?: string } }>
+): string[] {
+  return [...items]
+    .sort((a, b) => {
+      const aTime = Date.parse(String(a.snippet?.scheduledStartTime ?? ''));
+      const bTime = Date.parse(String(b.snippet?.scheduledStartTime ?? ''));
+      const aMs = Number.isNaN(aTime) ? 0 : aTime;
+      const bMs = Number.isNaN(bTime) ? 0 : bTime;
+      return bMs - aMs;
+    })
+    .map((item) => item.id?.trim() ?? '')
+    .filter((id) => id.length > 0);
+}
+
+async function fetchUpcomingLiveBroadcastDefaults(
+  accessToken: string,
+  signal?: AbortSignal
+): Promise<Pick<YouTubeAccountDefaults, 'categoryId' | 'license' | 'embeddable'>> {
+  const authHeaders = { Authorization: `Bearer ${accessToken}` };
+  const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
+
+  const broadcastsUrl = new URL(YOUTUBE_LIVE_BROADCASTS_URL);
+  broadcastsUrl.searchParams.set('part', 'snippet');
+  broadcastsUrl.searchParams.set('mine', 'true');
+  broadcastsUrl.searchParams.set('broadcastStatus', 'upcoming');
+  broadcastsUrl.searchParams.set('maxResults', '5');
+
+  const broadcastsRes = await fetch(broadcastsUrl.toString(), fetchInit);
+  if (!broadcastsRes.ok) {
+    return {};
+  }
+
+  const broadcastsBody = (await broadcastsRes.json().catch(() => ({}))) as {
+    items?: Array<{ id?: string; snippet?: { scheduledStartTime?: string } }>;
+  };
+  const broadcastVideoIds = sortUpcomingBroadcastVideoIds(broadcastsBody.items ?? []);
+  if (broadcastVideoIds.length === 0) {
+    return {};
+  }
+
+  const videosUrl = new URL(YOUTUBE_VIDEOS_URL);
+  videosUrl.searchParams.set('part', 'snippet,status');
+  videosUrl.searchParams.set('id', broadcastVideoIds.slice(0, 5).join(','));
+
+  const videosRes = await fetch(videosUrl.toString(), fetchInit);
+  if (!videosRes.ok) {
+    return {};
+  }
+
+  const videosBody = (await videosRes.json().catch(() => ({}))) as {
+    items?: Array<{
+      id?: string;
+      snippet?: { categoryId?: string };
+      status?: { license?: string; embeddable?: boolean };
+    }>;
+  };
+  const byId = new Map(
+    (videosBody.items ?? [])
+      .map((item) => [item.id?.trim() ?? '', item] as const)
+      .filter(([id]) => id.length > 0)
+  );
+
+  for (const videoId of broadcastVideoIds) {
+    const video = byId.get(videoId);
+    if (!video) {
+      continue;
+    }
+
+    const patch: Pick<YouTubeAccountDefaults, 'categoryId' | 'license' | 'embeddable'> = {};
+    const categoryId = video.snippet?.categoryId?.trim() ?? '';
+    if (categoryId !== '') {
+      patch.categoryId = categoryId;
+    }
+
+    const license = video.status?.license;
+    if (license === 'youtube' || license === 'creativeCommon') {
+      patch.license = license;
+    }
+
+    if (typeof video.status?.embeddable === 'boolean') {
+      patch.embeddable = video.status.embeddable;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      return patch;
+    }
+  }
+
+  return {};
+}
+
+async function finalizeYouTubeAccountDefaults(
+  accessToken: string,
+  defaults: YouTubeAccountDefaults,
+  signal?: AbortSignal
+): Promise<{ ok: true; defaults: YouTubeAccountDefaults }> {
+  const upcomingDefaults = await fetchUpcomingLiveBroadcastDefaults(accessToken, signal);
+  Object.assign(defaults, upcomingDefaults);
+  return { ok: true, defaults };
+}
+
+/**
+ * Reads upload defaults from the authenticated user's YouTube channel, upcoming live broadcasts,
+ * and recent uploads (language fallback only). Category is never inferred from old uploads because
+ * that reflects past videos, not Studio upload defaults.
  * @param accessToken - OAuth access token with YouTube read scope.
  * @param signal - Optional abort signal.
  * @returns Account defaults sourced only from YouTube Data API responses.
@@ -242,7 +389,7 @@ export async function fetchYouTubeAccountDefaults(
 
   const uploadsPlaylistId = channel?.contentDetails?.relatedPlaylists?.uploads?.trim();
   if (!uploadsPlaylistId) {
-    return { ok: true, defaults };
+    return finalizeYouTubeAccountDefaults(accessToken, defaults, signal);
   }
 
   const playlistItemsUrl = new URL(YOUTUBE_PLAYLIST_ITEMS_URL);
@@ -252,7 +399,7 @@ export async function fetchYouTubeAccountDefaults(
 
   const playlistItemsRes = await fetch(playlistItemsUrl.toString(), fetchInit);
   if (!playlistItemsRes.ok) {
-    return { ok: true, defaults };
+    return finalizeYouTubeAccountDefaults(accessToken, defaults, signal);
   }
 
   const playlistItemsBody = (await playlistItemsRes.json().catch(() => ({}))) as {
@@ -264,61 +411,40 @@ export async function fetchYouTubeAccountDefaults(
     .filter((videoId): videoId is string => Boolean(videoId));
 
   if (latestVideoIds.length === 0) {
-    return { ok: true, defaults };
+    return finalizeYouTubeAccountDefaults(accessToken, defaults, signal);
   }
 
   const latestVideoUrl = new URL(YOUTUBE_VIDEOS_URL);
-  latestVideoUrl.searchParams.set('part', 'snippet,status');
+  latestVideoUrl.searchParams.set('part', 'snippet,status,liveStreamingDetails');
   latestVideoUrl.searchParams.set('id', latestVideoIds.slice(0, 5).join(','));
 
   const latestVideoRes = await fetch(latestVideoUrl.toString(), fetchInit);
   if (!latestVideoRes.ok) {
-    return { ok: true, defaults };
+    return finalizeYouTubeAccountDefaults(accessToken, defaults, signal);
   }
 
   const latestVideoBody = (await latestVideoRes.json().catch(() => ({}))) as {
-    items?: Array<{
-      snippet?: {
-        defaultLanguage?: string;
-        defaultAudioLanguage?: string;
-        categoryId?: string;
-      };
-      status?: {
-        license?: string;
-        embeddable?: boolean;
-      };
-    }>;
+    items?: YouTubeUploadDefaultsVideo[];
   };
 
   const latestVideos = latestVideoBody.items ?? [];
-  const latestVideo =
+  const languageSource =
+    pickYouTubeUploadLanguageSourceVideo(latestVideos) ??
     latestVideos.find((video) => video.snippet?.defaultAudioLanguage?.trim()) ??
     latestVideos.find((video) => video.snippet?.defaultLanguage?.trim()) ??
     latestVideos[0];
 
-  const uploadAudioLanguage = latestVideo?.snippet?.defaultAudioLanguage?.trim() ?? '';
-  if (uploadAudioLanguage !== '') {
-    defaults.defaultAudioLanguage = uploadAudioLanguage;
-  } else {
-    const uploadTitleLanguage = latestVideo?.snippet?.defaultLanguage?.trim() ?? '';
-    if (uploadTitleLanguage !== '') {
-      defaults.defaultAudioLanguage = uploadTitleLanguage;
+  if (defaults.defaultAudioLanguage === undefined) {
+    const uploadAudioLanguage = languageSource?.snippet?.defaultAudioLanguage?.trim() ?? '';
+    if (uploadAudioLanguage !== '') {
+      defaults.defaultAudioLanguage = uploadAudioLanguage;
+    } else {
+      const uploadTitleLanguage = languageSource?.snippet?.defaultLanguage?.trim() ?? '';
+      if (uploadTitleLanguage !== '') {
+        defaults.defaultAudioLanguage = uploadTitleLanguage;
+      }
     }
   }
 
-  const categoryId = latestVideo?.snippet?.categoryId?.trim() ?? '';
-  if (categoryId !== '') {
-    defaults.categoryId = categoryId;
-  }
-
-  const license = latestVideo?.status?.license;
-  if (license === 'youtube' || license === 'creativeCommon') {
-    defaults.license = license;
-  }
-
-  if (typeof latestVideo?.status?.embeddable === 'boolean') {
-    defaults.embeddable = latestVideo.status.embeddable;
-  }
-
-  return { ok: true, defaults };
+  return finalizeYouTubeAccountDefaults(accessToken, defaults, signal);
 }

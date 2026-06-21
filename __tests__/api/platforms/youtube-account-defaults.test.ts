@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 const mockGetAuthenticatedUserId = vi.fn();
 const mockGetConnectedAccountWithTokens = vi.fn();
 const mockRefreshTokenIfNeeded = vi.fn();
+const mockGetUserById = vi.fn();
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
@@ -11,6 +12,10 @@ vi.mock('@/lib/api/auth', () => ({
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   getConnectedAccountWithTokens: (...args: unknown[]) => mockGetConnectedAccountWithTokens(...args),
+}));
+
+vi.mock('@/lib/repositories/users', () => ({
+  getUserById: (...args: unknown[]) => mockGetUserById(...args),
 }));
 
 vi.mock('@/lib/platforms/token-refresh', () => ({
@@ -48,6 +53,7 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
       refreshToken: 'stored-refresh-token',
       tokenExpiry: YOUTUBE_ACCOUNT.tokenExpiry,
     });
+    mockGetUserById.mockResolvedValue(null);
     vi.stubGlobal('fetch', vi.fn());
   });
 
@@ -96,6 +102,10 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
             },
           ],
         }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [] }),
       } as Response);
 
     const res = await GET(makeRequest());
@@ -105,9 +115,6 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
       data: {
         defaultAudioLanguage: 'en',
         madeForKids: false,
-        categoryId: '22',
-        license: 'youtube',
-        embeddable: true,
       },
     });
 
@@ -124,6 +131,63 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
     const videoCall = vi.mocked(global.fetch).mock.calls[2];
     expect(String(videoCall?.[0])).toContain('/youtube/v3/videos');
     expect(String(videoCall?.[0])).toContain('id=video-123');
+    expect(String(videoCall?.[0])).toContain('part=snippet%2Cstatus%2CliveStreamingDetails');
+  });
+
+  it('merges saved profile defaults over YouTube-inferred defaults', async () => {
+    mockGetUserById.mockResolvedValueOnce({
+      id: 'user-123',
+      platformDefaults: {
+        youtube: {
+          categoryId: '10',
+          defaultAudioLanguage: 'de',
+        },
+      },
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              snippet: { defaultLanguage: 'en' },
+              status: { selfDeclaredMadeForKids: false },
+              contentDetails: { relatedPlaylists: { uploads: 'UU-uploads' } },
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [{ contentDetails: { videoId: 'video-123' } }],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              snippet: { categoryId: '22' },
+              status: { license: 'youtube', embeddable: true },
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [] }),
+      } as Response);
+
+    const res = await GET(makeRequest());
+    expect(await res.json()).toEqual({
+      data: {
+        defaultAudioLanguage: 'de',
+        madeForKids: false,
+        categoryId: '10',
+      },
+    });
   });
 
   it('uses latest upload audio language when the channel has no defaultLanguage', async () => {
@@ -151,13 +215,16 @@ describe('GET /api/platforms/youtube/account-defaults', () => {
         json: async () => ({
           items: [{ snippet: { defaultAudioLanguage: 'fr', categoryId: '10' }, status: {} }],
         }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ items: [] }),
       } as Response);
 
     const res = await GET(makeRequest());
     expect(await res.json()).toEqual({
       data: {
         defaultAudioLanguage: 'fr',
-        categoryId: '10',
       },
     });
   });

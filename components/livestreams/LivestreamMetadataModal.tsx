@@ -43,12 +43,17 @@ import {
   toLivestreamConnectionSnapshots,
 } from '@/lib/livestreams/schedulable-platforms';
 import { DRAFT_VISIBILITY_OPTIONS } from '@/lib/platforms/vimeo-membership';
-import { mergeUniqueTags, parseSharedTagInput } from '@/lib/platforms/sermon-audio-tags';
+import {
+  formatTooShortYouTubeTagMessage,
+  mergeUniqueTags,
+  parseSharedTagInput,
+  partitionYouTubeCompatibleTags,
+} from '@/lib/platforms/sermon-audio-tags';
 import {
   buildYouTubeAccountDefaultsSeedPatch,
+  resolveYouTubeOptionalFieldValue,
   type YouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-account-defaults';
-import { type YouTubeLiveCommentDefaults } from '@/lib/platforms/youtube-livestream-api';
 import { cn } from '@/lib/utils';
 import {
   getLocalTimeZone,
@@ -141,6 +146,8 @@ export interface LivestreamEditorValues {
   platforms: LivestreamPlatforms;
   /** Intended UTC start time pre-filled before scheduling on YouTube. */
   scheduledStartTime?: string;
+  /** IANA timezone for the scheduled start picker wall clock. */
+  scheduledStartTimeZone?: string;
   /** R2 key for the shared thumbnail image. */
   thumbnailR2Key?: string;
   /** MIME type of the shared thumbnail. */
@@ -226,16 +233,11 @@ export function LivestreamMetadataModal({
   const [youtubeAccountDefaults, setYoutubeAccountDefaults] = useState<
     YouTubeAccountDefaults | undefined
   >(undefined);
-  const [liveCommentOptions, setLiveCommentOptions] = useState<
-    YouTubeLiveCommentDefaults | undefined
-  >(undefined);
   const youtubeMetadataLoadedRef = useRef<YouTubeMetadataLoadedState>({
     ...EMPTY_YOUTUBE_METADATA_LOADED,
   });
   const youtubeMetadataRequestIdRef = useRef(0);
   const youtubeDefaultsSeededRef = useRef<string | null>(null);
-  const liveCommentDefaultsSeededRef = useRef<string | null>(null);
-  const liveCommentOptionsRequestIdRef = useRef(0);
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState(0);
   const [thumbnailFileName, setThumbnailFileName] = useState<string | null>(null);
@@ -341,16 +343,12 @@ export function LivestreamMetadataModal({
   }, [livestreamId]);
 
   useEffect(() => {
-    if (!value) {
-      setScheduleDate('');
-      setScheduleTime('');
-      setScheduleTimeZone('');
-      return;
-    }
+    const scheduledStartTime = value?.scheduledStartTime;
+    const scheduledStartTimeZone = value?.scheduledStartTimeZone;
 
-    if (value.scheduledStartTime) {
-      const tz = getLocalTimeZone();
-      const parts = utcIsoToZonedScheduleParts(value.scheduledStartTime, tz);
+    if (scheduledStartTime) {
+      const tz = scheduledStartTimeZone || getLocalTimeZone();
+      const parts = utcIsoToZonedScheduleParts(scheduledStartTime, tz);
       if (parts) {
         setScheduleDate(parts.dateStr);
         setScheduleTime(parts.timeStr);
@@ -361,67 +359,28 @@ export function LivestreamMetadataModal({
       setScheduleTime('');
       setScheduleTimeZone(getLocalTimeZone());
     }
-  }, [livestreamId, value?.id, value?.scheduledStartTime]);
+  }, [livestreamId, value?.scheduledStartTime, value?.scheduledStartTimeZone]);
 
   useEffect(() => {
     if (!livestreamId) {
       setYoutubeLanguages([]);
       setYoutubeCategories([]);
       setYoutubeAccountDefaults(undefined);
-      setLiveCommentOptions(undefined);
       youtubeMetadataLoadedRef.current = { ...EMPTY_YOUTUBE_METADATA_LOADED };
       youtubeDefaultsSeededRef.current = null;
-      liveCommentDefaultsSeededRef.current = null;
       return;
     }
 
     youtubeDefaultsSeededRef.current = null;
-    liveCommentDefaultsSeededRef.current = null;
     youtubeMetadataLoadedRef.current = { ...EMPTY_YOUTUBE_METADATA_LOADED };
     setYoutubeAccountDefaults(undefined);
-    setLiveCommentOptions(undefined);
   }, [livestreamId]);
 
   useEffect(() => {
     if (!youtubeTargetActive) {
       youtubeDefaultsSeededRef.current = null;
-      liveCommentDefaultsSeededRef.current = null;
     }
   }, [youtubeTargetActive]);
-
-  useEffect(() => {
-    if (!youtubeTargetActive || !livestreamId) {
-      return;
-    }
-
-    const requestId = ++liveCommentOptionsRequestIdRef.current;
-
-    const loadLiveCommentOptions = async () => {
-      try {
-        const response = await fetch('/api/platforms/youtube/live-comment-options', {
-          cache: 'no-store',
-        });
-        if (requestId !== liveCommentOptionsRequestIdRef.current) {
-          return;
-        }
-        if (!response.ok) {
-          return;
-        }
-        const payload = (await response.json()) as ApiResponse<YouTubeLiveCommentDefaults>;
-        if (payload.data) {
-          setLiveCommentOptions(payload.data);
-        }
-      } catch {
-        // Comment defaults are optional for editing.
-      }
-    };
-
-    void loadLiveCommentOptions();
-
-    return () => {
-      liveCommentOptionsRequestIdRef.current += 1;
-    };
-  }, [livestreamId, youtubeTargetActive]);
 
   useEffect(() => {
     if (!youtubeTargetActive || !livestreamId) {
@@ -503,14 +462,15 @@ export function LivestreamMetadataModal({
           current[key] = fieldValue;
         }
       }
-      onChange({
+      const next: LivestreamEditorValues = {
         ...value,
         platforms: {
           ...value.platforms,
           youtube:
             Object.keys(current).length > 0 ? (current as YouTubeLivestreamFields) : undefined,
         },
-      });
+      };
+      onChange(next);
     },
     [onChange, value]
   );
@@ -535,30 +495,15 @@ export function LivestreamMetadataModal({
     }
   }, [livestreamId, updateYouTubeFields, value, youtubeAccountDefaults]);
 
-  useEffect(() => {
-    if (!value?.targets.includes('youtube') || !liveCommentOptions) {
-      return;
-    }
-
-    const seedKey = `${livestreamId}:${JSON.stringify(liveCommentOptions)}`;
-    if (liveCommentDefaultsSeededRef.current === seedKey) {
-      return;
-    }
-
-    liveCommentDefaultsSeededRef.current = seedKey;
-    if (
-      value.platforms.youtube?.showViewerLikeCount === undefined &&
-      liveCommentOptions.showViewerLikeCount !== undefined
-    ) {
-      updateYouTubeFields({ showViewerLikeCount: liveCommentOptions.showViewerLikeCount });
-    }
-  }, [livestreamId, liveCommentOptions, updateYouTubeFields, value]);
-
   const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
-  const youtubeDefaultAudioLanguageValue = youtubeFields?.defaultAudioLanguage;
+  const youtubeDefaultAudioLanguageValue = resolveYouTubeOptionalFieldValue(
+    youtubeFields,
+    'defaultAudioLanguage',
+    youtubeAccountDefaults?.defaultAudioLanguage
+  );
   const youtubeLicenseValue = youtubeFields?.license ?? youtubeAccountDefaults?.license;
   const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
-  const youtubeCategoryIdValue = youtubeFields?.categoryId;
+  const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
   const youtubePlaylistId = youtubeFields?.playlistIds?.[0];
   const youtubePlaylistTitle = youtubeFields?.playlistTitles?.[0];
   const youtubeLanguageOptions = useMemo(
@@ -569,67 +514,53 @@ export function LivestreamMetadataModal({
     () => youtubeCategories.map((category) => ({ value: category.id, label: category.title })),
     [youtubeCategories]
   );
-  const youtubeShowViewerLikeCountValue =
-    youtubeFields?.showViewerLikeCount ?? liveCommentOptions?.showViewerLikeCount ?? true;
 
   const effectiveScheduleTimeZone = scheduleTimeZone || getLocalTimeZone();
 
-  const buildPersistableValue = useCallback((): LivestreamEditorValues | null => {
-    if (!value) return null;
+  const resolvePersistableTags = useCallback((): string[] => {
+    const current = latestValueRef.current ?? value;
+    if (!current) return [];
+    const parsed = parseSharedTagInput(tagInput);
+    const { accepted } = partitionYouTubeCompatibleTags(parsed);
+    return accepted.length > 0 ? mergeUniqueTags(current.tags, accepted) : [...current.tags];
+  }, [tagInput, value]);
 
-    let next: LivestreamEditorValues = { ...value };
+  const buildPersistableValue = useCallback(
+    (tagsOverride?: string[]): LivestreamEditorValues | null => {
+      if (!value) return null;
 
-    const parsedTags = parseSharedTagInput(tagInput);
-    if (parsedTags.length > 0) {
-      next = { ...next, tags: mergeUniqueTags(next.tags, parsedTags) };
-    }
+      const tags = tagsOverride ?? resolvePersistableTags();
+      let next: LivestreamEditorValues = { ...value, tags };
 
-    if (scheduleDate && scheduleTime) {
-      try {
-        const iso = zonedDateTimeToUtcIso(scheduleDate, scheduleTime, effectiveScheduleTimeZone);
-        next = { ...next, scheduledStartTime: iso };
-      } catch {
-        // Keep the last stored value when the wall-clock trio is invalid.
-      }
-    } else {
-      next = { ...next, scheduledStartTime: undefined };
-    }
-
-    if (next.targets.length === 0 && schedulablePlatforms.length > 0) {
-      next = { ...next, targets: [...schedulablePlatforms] };
-    }
-
-    return next;
-  }, [
-    effectiveScheduleTimeZone,
-    scheduleDate,
-    scheduleTime,
-    schedulablePlatforms,
-    tagInput,
-    value,
-  ]);
-
-  const applyScheduleToValue = useCallback(
-    (date: string, time: string, timeZone: string) => {
-      if (!value || !isEditable) return;
-      const tz = timeZone || getLocalTimeZone();
-      if (!date || !time) {
-        if (value.scheduledStartTime !== undefined) {
-          onChange({ ...value, scheduledStartTime: undefined });
+      if (scheduleDate && scheduleTime) {
+        try {
+          const iso = zonedDateTimeToUtcIso(scheduleDate, scheduleTime, effectiveScheduleTimeZone);
+          next = {
+            ...next,
+            scheduledStartTime: iso,
+            scheduledStartTimeZone: effectiveScheduleTimeZone,
+          };
+        } catch {
+          // Keep the last stored value when the wall-clock trio is invalid.
         }
-        return;
+      } else {
+        next = { ...next, scheduledStartTime: undefined, scheduledStartTimeZone: undefined };
       }
 
-      try {
-        const iso = zonedDateTimeToUtcIso(date, time, tz);
-        if (value.scheduledStartTime !== iso) {
-          onChange({ ...value, scheduledStartTime: iso });
-        }
-      } catch {
-        // Ignore invalid wall-clock combinations until the user completes the trio.
+      if (next.targets.length === 0 && schedulablePlatforms.length > 0) {
+        next = { ...next, targets: [...schedulablePlatforms] };
       }
+
+      return next;
     },
-    [isEditable, onChange, value]
+    [
+      effectiveScheduleTimeZone,
+      resolvePersistableTags,
+      scheduleDate,
+      scheduleTime,
+      schedulablePlatforms,
+      value,
+    ]
   );
 
   const fieldBorderClass = useCallback(
@@ -684,22 +615,43 @@ export function LivestreamMetadataModal({
   };
 
   const commitTagsFromInput = useCallback(() => {
-    if (!value) return;
+    const current = latestValueRef.current ?? value;
+    if (!current) return;
     const parsed = parseSharedTagInput(tagInput);
     if (parsed.length === 0) return;
-    onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
+
+    const { accepted, tooShort } = partitionYouTubeCompatibleTags(parsed);
+    if (tooShort.length > 0) {
+      toast.error(formatTooShortYouTubeTagMessage(tooShort));
+    }
+    if (accepted.length > 0) {
+      onChange({ ...current, tags: mergeUniqueTags(current.tags, accepted) });
+    }
     setTagInput('');
   }, [onChange, tagInput, value]);
 
-  const commitTagsBeforeSave = useCallback(() => {
-    flushSync(() => {
-      commitTagsFromInput();
-    });
-  }, [commitTagsFromInput]);
+  const commitTagsBeforeSave = useCallback((): string[] => {
+    const merged = resolvePersistableTags();
+    const current = latestValueRef.current ?? value;
+    if (!current) return merged;
 
-  const validateBeforeSave = useCallback((): boolean => {
-    if (!value) return false;
-    commitTagsBeforeSave();
+    const parsed = parseSharedTagInput(tagInput);
+    if (parsed.length > 0) {
+      const { tooShort } = partitionYouTubeCompatibleTags(parsed);
+      if (tooShort.length > 0) {
+        toast.error(formatTooShortYouTubeTagMessage(tooShort));
+      }
+      flushSync(() => {
+        onChange({ ...current, tags: merged });
+        setTagInput('');
+      });
+    }
+    return merged;
+  }, [onChange, resolvePersistableTags, tagInput, value]);
+
+  const validateBeforeSave = useCallback((): { ok: true; tags: string[] } | { ok: false } => {
+    if (!value) return { ok: false };
+    const tags = commitTagsBeforeSave();
     const errors = new Set<string>();
     if (value.title.trim() === '') {
       errors.add('title');
@@ -707,23 +659,31 @@ export function LivestreamMetadataModal({
     if (errors.size > 0) {
       setFieldErrors(errors);
       toast.error('Title is required.');
-      return false;
+      return { ok: false };
     }
     setFieldErrors(new Set());
-    return true;
+    return { ok: true, tags };
   }, [commitTagsBeforeSave, value]);
 
   const clearSchedule = () => {
     setScheduleDate('');
     setScheduleTime('');
     setScheduleTimeZone(getLocalTimeZone());
-    if (value) {
-      onChange({ ...value, scheduledStartTime: undefined });
-    }
   };
 
+  const resolvedScheduledStartTimeIso = useMemo((): string | null => {
+    if (scheduleDate && scheduleTime) {
+      try {
+        return zonedDateTimeToUtcIso(scheduleDate, scheduleTime, effectiveScheduleTimeZone);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [effectiveScheduleTimeZone, scheduleDate, scheduleTime]);
+
   const schedulePastWarning =
-    value?.scheduledStartTime && isPublishAtInPast(value.scheduledStartTime);
+    resolvedScheduledStartTimeIso !== null && isPublishAtInPast(resolvedScheduledStartTimeIso);
 
   const handleThumbnailFile = async (file: File) => {
     if (!value || !livestreamId || !isEditable) return;
@@ -912,25 +872,19 @@ export function LivestreamMetadataModal({
   };
 
   const resolveScheduledStartTimeIso = useCallback((): string | null => {
-    if (scheduleDate && scheduleTime) {
-      try {
-        return zonedDateTimeToUtcIso(scheduleDate, scheduleTime, effectiveScheduleTimeZone);
-      } catch {
-        return value?.scheduledStartTime ?? null;
-      }
-    }
-    return value?.scheduledStartTime ?? null;
-  }, [effectiveScheduleTimeZone, scheduleDate, scheduleTime, value?.scheduledStartTime]);
+    return resolvedScheduledStartTimeIso ?? value?.scheduledStartTime ?? null;
+  }, [resolvedScheduledStartTimeIso, value?.scheduledStartTime]);
 
   const handleScheduleLivestream = useCallback(async () => {
     if (!value || !isDraft) return;
 
-    const persistable = buildPersistableValue();
-    if (!persistable) return;
-
-    if (!validateBeforeSave()) {
+    const validation = validateBeforeSave();
+    if (!validation.ok) {
       return;
     }
+
+    const persistable = buildPersistableValue(validation.tags);
+    if (!persistable) return;
 
     const scheduledStartTime = persistable.scheduledStartTime ?? null;
     if (!scheduledStartTime) {
@@ -985,7 +939,12 @@ export function LivestreamMetadataModal({
         return;
       }
 
-      toast.success('Livestream scheduled on YouTube');
+      const payload = (await response.json()) as ApiResponse<Livestream>;
+      if (payload.message?.includes('YouTube did not keep these tags')) {
+        toast.warning(payload.message);
+      } else {
+        toast.success('Livestream scheduled on YouTube');
+      }
       await onScheduled?.();
       onClose();
     } catch (error) {
@@ -1229,7 +1188,8 @@ export function LivestreamMetadataModal({
                   />
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Press Enter or comma to add tags.
+                  Press Enter or comma to add tags. Each tag must be at least 2 characters (YouTube
+                  does not accept single-letter tags).
                 </p>
               </div>
 
@@ -1275,8 +1235,8 @@ export function LivestreamMetadataModal({
               <div>
                 <p className="text-sm font-medium text-foreground">Scheduled start</p>
                 <p className="text-xs text-muted-foreground">
-                  Pre-fill your intended broadcast start time. Scheduling on YouTube is a separate
-                  step.
+                  Pre-fill your intended broadcast start time. Date and time are in the selected
+                  timezone. Scheduling on YouTube is a separate step.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -1292,16 +1252,7 @@ export function LivestreamMetadataModal({
                     type="date"
                     value={scheduleDate}
                     onChange={(event) => {
-                      const nextDate = event.target.value;
-                      if (!scheduleTimeZone) {
-                        setScheduleTimeZone(getLocalTimeZone());
-                      }
-                      setScheduleDate(nextDate);
-                      applyScheduleToValue(
-                        nextDate,
-                        scheduleTime,
-                        scheduleTimeZone || getLocalTimeZone()
-                      );
+                      setScheduleDate(event.target.value);
                     }}
                     className={cn(
                       fieldBorderClass('scheduledStartTime'),
@@ -1319,15 +1270,7 @@ export function LivestreamMetadataModal({
                   <Select
                     value={scheduleTime}
                     onValueChange={(next) => {
-                      if (!scheduleTimeZone) {
-                        setScheduleTimeZone(getLocalTimeZone());
-                      }
                       setScheduleTime(next);
-                      applyScheduleToValue(
-                        scheduleDate,
-                        next,
-                        scheduleTimeZone || getLocalTimeZone()
-                      );
                     }}
                   >
                     <SelectTrigger
@@ -1361,7 +1304,6 @@ export function LivestreamMetadataModal({
                     options={supportedTimeZones}
                     onValueChange={(next) => {
                       setScheduleTimeZone(next);
-                      applyScheduleToValue(scheduleDate, scheduleTime, next);
                     }}
                     className={cn(
                       fieldBorderClass('scheduledStartTime'),
@@ -1482,7 +1424,7 @@ export function LivestreamMetadataModal({
                           options={youtubeLanguageOptions}
                           onValueChange={(next) =>
                             updateYouTubeFields({
-                              defaultAudioLanguage: next,
+                              defaultAudioLanguage: next ?? null,
                             })
                           }
                           className={fieldBorderClass('youtube.defaultAudioLanguage')}
@@ -1525,18 +1467,6 @@ export function LivestreamMetadataModal({
                             }
                           />
                           <span>Allow embedding</span>
-                        </label>
-                        <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                          <input
-                            type="checkbox"
-                            checked={youtubeShowViewerLikeCountValue}
-                            onChange={(event) =>
-                              updateYouTubeFields({
-                                showViewerLikeCount: event.target.checked,
-                              })
-                            }
-                          />
-                          <span>Show how many viewers like this stream</span>
                         </label>
                       </div>
                     </fieldset>
@@ -1643,8 +1573,9 @@ export function LivestreamMetadataModal({
               type="button"
               onClick={() => {
                 setScheduleError(null);
-                if (!validateBeforeSave()) return;
-                const persistable = buildPersistableValue();
+                const validation = validateBeforeSave();
+                if (!validation.ok) return;
+                const persistable = buildPersistableValue(validation.tags);
                 if (!persistable) return;
                 void (async () => {
                   try {
@@ -1698,6 +1629,9 @@ export function createLivestreamEditorValues(livestream: Livestream): Livestream
     targets: [...livestream.targets],
     platforms: livestream.platforms ?? {},
     ...(livestream.scheduledStartTime ? { scheduledStartTime: livestream.scheduledStartTime } : {}),
+    ...(livestream.scheduledStartTimeZone
+      ? { scheduledStartTimeZone: livestream.scheduledStartTimeZone }
+      : {}),
     ...(livestream.thumbnailR2Key ? { thumbnailR2Key: livestream.thumbnailR2Key } : {}),
     ...(livestream.thumbnailContentType
       ? { thumbnailContentType: livestream.thumbnailContentType }

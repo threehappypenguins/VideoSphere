@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   bindYouTubeBroadcastToStream,
-  fetchYouTubeLiveCommentDefaults,
+  buildWritableYouTubeVideoSnippet,
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
   matchYouTubeLiveStreamIdByKey,
   scheduleYouTubeLiveBroadcast,
   setYouTubeBroadcastCategory,
+  setYouTubeBroadcastSnippetMetadata,
+  setYouTubeBroadcastVideoStatus,
+  setYouTubeBroadcastTags,
+  buildWritableYouTubeVideoStatus,
   uploadYouTubeLivestreamThumbnail,
 } from '@/lib/platforms/youtube-livestream-api';
 
@@ -192,6 +196,48 @@ describe('bindYouTubeBroadcastToStream', () => {
   });
 });
 
+describe('buildWritableYouTubeVideoSnippet', () => {
+  it('keeps only writable snippet fields and preserves tag order', () => {
+    const snippet = buildWritableYouTubeVideoSnippet(
+      {
+        title: 'Live Event',
+        description: 'Desc',
+        categoryId: '22',
+        channelId: 'UC123',
+        publishedAt: '2026-01-01T00:00:00Z',
+        thumbnails: { default: { url: 'https://example.com/thumb.jpg' } },
+      },
+      { tags: ['this is', 'tag'] }
+    );
+
+    expect(snippet).toEqual({
+      title: 'Live Event',
+      description: 'Desc',
+      categoryId: '22',
+      tags: ['this is', 'tag'],
+    });
+  });
+
+  it('applies defaultAudioLanguage from the patch', () => {
+    const snippet = buildWritableYouTubeVideoSnippet(
+      {
+        title: 'Live Event',
+        description: 'Desc',
+        categoryId: '22',
+        defaultAudioLanguage: 'en',
+      },
+      { defaultAudioLanguage: 'fr' }
+    );
+
+    expect(snippet.defaultAudioLanguage).toBe('fr');
+  });
+});
+
+function parseFetchJsonBody(call: unknown): unknown {
+  const init = (call as [string, RequestInit] | undefined)?.[1];
+  return init?.body ? JSON.parse(String(init.body)) : null;
+}
+
 describe('setYouTubeBroadcastCategory', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
@@ -222,21 +268,281 @@ describe('setYouTubeBroadcastCategory', () => {
     const result = await setYouTubeBroadcastCategory(ACCESS_TOKEN, 'video-1', '27');
 
     expect(result).toEqual({ ok: true });
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      2,
-      expect.stringContaining('https://www.googleapis.com/youtube/v3/videos?part=snippet'),
-      expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({
-          id: 'video-1',
-          snippet: {
-            title: 'Live Event',
-            description: 'Desc',
-            categoryId: '27',
-          },
-        }),
-      })
+    const updateBody = parseFetchJsonBody(vi.mocked(global.fetch).mock.calls[1]);
+    expect(updateBody).toEqual({
+      id: 'video-1',
+      snippet: {
+        title: 'Live Event',
+        description: 'Desc',
+        categoryId: '27',
+      },
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('setYouTubeBroadcastTags', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('lists the video snippet and updates tags in entry order', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                description: 'Desc',
+                categoryId: '22',
+                tags: ['old'],
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(mockFetchJson({ id: 'video-1' }))
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                tags: ['this is', 'tag'],
+              },
+            },
+          ],
+        })
+      );
+
+    const result = await setYouTubeBroadcastTags(ACCESS_TOKEN, 'video-1', ['this is', 'a', 'tag']);
+
+    expect(result).toEqual({ ok: true });
+    const updateBody = parseFetchJsonBody(vi.mocked(global.fetch).mock.calls[1]);
+    expect(updateBody).toEqual({
+      id: 'video-1',
+      snippet: {
+        title: 'Live Event',
+        description: 'Desc',
+        categoryId: '22',
+        tags: ['this is', 'tag'],
+      },
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('lists the video snippet and updates tags', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                description: 'Desc',
+                categoryId: '22',
+                tags: ['old'],
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(mockFetchJson({ id: 'video-1' }))
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                tags: ['church', 'worship'],
+              },
+            },
+          ],
+        })
+      );
+
+    const result = await setYouTubeBroadcastTags(ACCESS_TOKEN, 'video-1', ['church', 'worship']);
+
+    expect(result).toEqual({ ok: true });
+    const updateBody = parseFetchJsonBody(vi.mocked(global.fetch).mock.calls[1]);
+    expect(updateBody).toEqual({
+      id: 'video-1',
+      snippet: {
+        title: 'Live Event',
+        description: 'Desc',
+        categoryId: '22',
+        tags: ['church', 'worship'],
+      },
+    });
+  });
+
+  it('returns ok without calling YouTube when tags normalize to empty', async () => {
+    const result = await setYouTubeBroadcastTags(ACCESS_TOKEN, 'video-1', ['', '   ']);
+
+    expect(result).toEqual({ ok: true });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('setYouTubeBroadcastSnippetMetadata', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reports tags YouTube omitted on read-back', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                categoryId: '22',
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(mockFetchJson({ id: 'video-1' }))
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                tags: ['tag', 'this is'],
+              },
+            },
+          ],
+        })
+      );
+
+    const result = await setYouTubeBroadcastSnippetMetadata(ACCESS_TOKEN, 'video-1', {
+      tags: ['this is', 'tag'],
+    });
+
+    expect(result).toEqual({ ok: true, droppedTags: [] });
+  });
+
+  it('updates stream language without category or tags', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                categoryId: '22',
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(mockFetchJson({ id: 'video-1' }));
+
+    const result = await setYouTubeBroadcastSnippetMetadata(ACCESS_TOKEN, 'video-1', {
+      defaultAudioLanguage: 'fr',
+    });
+
+    expect(result).toEqual({ ok: true, droppedTags: [] });
+    const updateBody = parseFetchJsonBody(vi.mocked(global.fetch).mock.calls[1]);
+    expect(updateBody).toEqual({
+      id: 'video-1',
+      snippet: {
+        title: 'Live Event',
+        categoryId: '22',
+        defaultAudioLanguage: 'fr',
+      },
+    });
+  });
+});
+
+describe('buildWritableYouTubeVideoStatus', () => {
+  it('merges patch values with existing status and keeps privacyStatus', () => {
+    const status = buildWritableYouTubeVideoStatus(
+      {
+        privacyStatus: 'public',
+        license: 'youtube',
+        publicStatsViewable: true,
+      },
+      {
+        license: 'creativeCommon',
+      }
     );
+
+    expect(status).toEqual({
+      privacyStatus: 'public',
+      license: 'creativeCommon',
+      publicStatsViewable: true,
+    });
+  });
+});
+
+describe('setYouTubeBroadcastVideoStatus', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('updates license in one videos.update call', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              status: {
+                privacyStatus: 'public',
+                license: 'youtube',
+                publicStatsViewable: true,
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(mockFetchJson({ id: 'video-1' }));
+
+    const result = await setYouTubeBroadcastVideoStatus(ACCESS_TOKEN, 'video-1', {
+      license: 'creativeCommon',
+      privacyStatus: 'public',
+    });
+
+    expect(result).toEqual({ ok: true });
+    const updateBody = parseFetchJsonBody(vi.mocked(global.fetch).mock.calls[1]);
+    expect(updateBody).toEqual({
+      id: 'video-1',
+      status: {
+        privacyStatus: 'public',
+        license: 'creativeCommon',
+        publicStatsViewable: true,
+      },
+    });
+  });
+
+  it('returns ok without calling YouTube when the patch is empty', async () => {
+    const result = await setYouTubeBroadcastVideoStatus(ACCESS_TOKEN, 'video-1', {});
+
+    expect(result).toEqual({ ok: true });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -319,84 +625,5 @@ describe('getYouTubeBroadcastLifecycleStatus', () => {
     const result = await getYouTubeBroadcastLifecycleStatus(ACCESS_TOKEN, 'missing');
 
     expect(result).toEqual({ ok: true, lifeCycleStatus: null });
-  });
-});
-
-describe('fetchYouTubeLiveCommentDefaults', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('reads showViewerLikeCount from the most recent live broadcast video', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(
-        mockFetchJson({
-          items: [
-            {
-              id: 'broadcast-old',
-              snippet: { scheduledStartTime: '2026-01-01T12:00:00.000Z' },
-            },
-            {
-              id: 'broadcast-new',
-              snippet: { scheduledStartTime: '2026-06-01T12:00:00.000Z' },
-            },
-          ],
-        })
-      )
-      .mockResolvedValueOnce(
-        mockFetchJson({
-          items: [
-            { id: 'broadcast-old', status: { publicStatsViewable: true } },
-            { id: 'broadcast-new', status: { publicStatsViewable: false } },
-          ],
-        })
-      );
-
-    const result = await fetchYouTubeLiveCommentDefaults(ACCESS_TOKEN);
-
-    expect(result).toEqual({
-      ok: true,
-      defaults: {
-        showViewerLikeCount: false,
-      },
-    });
-    expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toContain(
-      '/youtube/v3/liveBroadcasts'
-    );
-    expect(String(vi.mocked(global.fetch).mock.calls[1]?.[0])).toContain('id=broadcast-new');
-  });
-
-  it('falls back to the latest upload when the channel has no live broadcasts', async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce(mockFetchJson({ items: [] }))
-      .mockResolvedValueOnce(
-        mockFetchJson({
-          items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-uploads' } } }],
-        })
-      )
-      .mockResolvedValueOnce(
-        mockFetchJson({
-          items: [{ contentDetails: { videoId: 'upload-1' } }],
-        })
-      )
-      .mockResolvedValueOnce(
-        mockFetchJson({
-          items: [{ status: { publicStatsViewable: true } }],
-        })
-      );
-
-    const result = await fetchYouTubeLiveCommentDefaults(ACCESS_TOKEN);
-
-    expect(result).toEqual({
-      ok: true,
-      defaults: {
-        showViewerLikeCount: true,
-      },
-    });
-    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(4);
   });
 });

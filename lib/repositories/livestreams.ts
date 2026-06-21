@@ -47,6 +47,7 @@ interface StoredLivestreamDocument {
   targets: ConnectedAccountPlatform[];
   platforms: LivestreamPlatforms;
   scheduledStartTime?: string;
+  scheduledStartTimeZone?: string;
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
   youtubeBroadcastId?: string;
@@ -98,6 +99,10 @@ function parseStoredLivestreamDocument(raw: string): StoredLivestreamDocument {
     ...(typeof parsed.scheduledStartTime === 'string' && parsed.scheduledStartTime.trim() !== ''
       ? { scheduledStartTime: parsed.scheduledStartTime.trim() }
       : {}),
+    ...(typeof parsed.scheduledStartTimeZone === 'string' &&
+    parsed.scheduledStartTimeZone.trim() !== ''
+      ? { scheduledStartTimeZone: parsed.scheduledStartTimeZone.trim() }
+      : {}),
     ...(typeof parsed.thumbnailR2Key === 'string' && parsed.thumbnailR2Key.trim() !== ''
       ? { thumbnailR2Key: parsed.thumbnailR2Key.trim() }
       : {}),
@@ -135,6 +140,9 @@ function storedDocumentFromLivestream(livestream: Livestream): StoredLivestreamD
     targets: [...livestream.targets],
     platforms: livestream.platforms,
     ...(livestream.scheduledStartTime ? { scheduledStartTime: livestream.scheduledStartTime } : {}),
+    ...(livestream.scheduledStartTimeZone
+      ? { scheduledStartTimeZone: livestream.scheduledStartTimeZone }
+      : {}),
     ...(livestream.thumbnailR2Key ? { thumbnailR2Key: livestream.thumbnailR2Key } : {}),
     ...(livestream.thumbnailContentType
       ? { thumbnailContentType: livestream.thumbnailContentType }
@@ -165,6 +173,9 @@ function mongoDocToLivestream(doc: LivestreamDocument): Livestream {
     targets: parsed.targets,
     platforms: parsed.platforms,
     ...(parsed.scheduledStartTime ? { scheduledStartTime: parsed.scheduledStartTime } : {}),
+    ...(parsed.scheduledStartTimeZone
+      ? { scheduledStartTimeZone: parsed.scheduledStartTimeZone }
+      : {}),
     ...(parsed.thumbnailR2Key ? { thumbnailR2Key: parsed.thumbnailR2Key } : {}),
     ...(parsed.thumbnailContentType ? { thumbnailContentType: parsed.thumbnailContentType } : {}),
     ...(parsed.youtubeBroadcastId ? { youtubeBroadcastId: parsed.youtubeBroadcastId } : {}),
@@ -216,6 +227,7 @@ export interface CreateLivestreamFields {
   targets: ConnectedAccountPlatform[];
   platforms?: LivestreamPlatforms;
   scheduledStartTime?: string;
+  scheduledStartTimeZone?: string;
   thumbnailR2Key?: string;
   thumbnailContentType?: string;
 }
@@ -239,6 +251,9 @@ export async function createLivestream(
     targets: fields.targets,
     platforms: fields.platforms ?? {},
     ...(fields.scheduledStartTime ? { scheduledStartTime: fields.scheduledStartTime } : {}),
+    ...(fields.scheduledStartTimeZone
+      ? { scheduledStartTimeZone: fields.scheduledStartTimeZone }
+      : {}),
     ...(fields.thumbnailR2Key ? { thumbnailR2Key: fields.thumbnailR2Key } : {}),
     ...(fields.thumbnailContentType ? { thumbnailContentType: fields.thumbnailContentType } : {}),
   });
@@ -358,6 +373,7 @@ export interface UpdateLivestreamPatch {
   /** Partial platforms merge (PATCH bodies); merged via {@link mergeLivestreamPlatformsPatch}. */
   platformsPatch?: unknown;
   scheduledStartTime?: string | null;
+  scheduledStartTimeZone?: string | null;
   thumbnailR2Key?: string | null;
   thumbnailContentType?: string | null;
   youtubeBroadcastId?: string | null;
@@ -409,6 +425,10 @@ export async function updateLivestream(
     scheduledStartTime: applyNullableStringPatch(
       current.scheduledStartTime,
       patch.scheduledStartTime
+    ),
+    scheduledStartTimeZone: applyNullableStringPatch(
+      current.scheduledStartTimeZone,
+      patch.scheduledStartTimeZone
     ),
     thumbnailR2Key: applyNullableStringPatch(current.thumbnailR2Key, patch.thumbnailR2Key),
     thumbnailContentType: applyNullableStringPatch(

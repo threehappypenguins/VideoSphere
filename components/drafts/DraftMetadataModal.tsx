@@ -37,9 +37,11 @@ import type { VimeoLicenseOption } from '@/lib/platforms/vimeo-licenses';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
 import {
+  formatTooShortYouTubeTagMessage,
   mergeUniqueTags,
   parseSermonAudioHashtagInput,
   parseSharedTagInput,
+  partitionYouTubeCompatibleTags,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
 import {
@@ -128,6 +130,7 @@ import { platformLabel } from '@/lib/ui/platform-label';
 import { isPlatformUploadRowActive } from '@/lib/uploads/status';
 import {
   buildYouTubeAccountDefaultsSeedPatch,
+  resolveYouTubeOptionalFieldValue,
   type YouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-account-defaults';
 import {
@@ -2003,8 +2006,22 @@ export function DraftMetadataModal({
     const parsed =
       platform === 'sermon_audio' ? parseSermonAudioHashtagInput(raw) : parseSharedTagInput(raw);
     if (parsed.length === 0) return;
+
+    let accepted = parsed;
+    if (platform !== 'sermon_audio') {
+      const partitioned = partitionYouTubeCompatibleTags(parsed);
+      accepted = partitioned.accepted;
+      if (partitioned.tooShort.length > 0) {
+        toast.error(formatTooShortYouTubeTagMessage(partitioned.tooShort));
+      }
+      if (accepted.length === 0) {
+        setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
+        return;
+      }
+    }
+
     const current = value.platforms[platform]?.tagsOverride ?? value.tags;
-    updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
+    updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, accepted) });
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
   };
 
@@ -2196,12 +2213,16 @@ export function DraftMetadataModal({
   }, [draftId, value, vimeoAccountDefaults, updateVimeoFields]);
 
   const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
-  const youtubeDefaultAudioLanguageValue = youtubeFields?.defaultAudioLanguage;
+  const youtubeDefaultAudioLanguageValue = resolveYouTubeOptionalFieldValue(
+    youtubeFields,
+    'defaultAudioLanguage',
+    youtubeAccountDefaults?.defaultAudioLanguage
+  );
   const youtubeRecordingDateValue = youtubeFields?.recordingDate ?? '';
   const youtubeLicenseValue = youtubeFields?.license ?? youtubeAccountDefaults?.license;
   const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
   const youtubeNotifySubscribersValue = youtubeFields?.notifySubscribers !== false;
-  const youtubeCategoryIdValue = youtubeFields?.categoryId;
+  const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
   const youtubeLanguageOptions = useMemo(
     () => youtubeLanguages.map((language) => ({ value: language.id, label: language.name })),
     [youtubeLanguages]
@@ -2432,11 +2453,23 @@ export function DraftMetadataModal({
 
   const commitTagsFromInput = useCallback(() => {
     if (!value) return;
-    const parsed = sermonAudioOnlySharedTagInput
-      ? parseSermonAudioHashtagInput(tagInput)
-      : parseSharedTagInput(tagInput);
+    if (sermonAudioOnlySharedTagInput) {
+      const parsed = parseSermonAudioHashtagInput(tagInput);
+      if (parsed.length === 0) return;
+      onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
+      setTagInput('');
+      return;
+    }
+
+    const parsed = parseSharedTagInput(tagInput);
     if (parsed.length === 0) return;
-    onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
+    const { accepted, tooShort } = partitionYouTubeCompatibleTags(parsed);
+    if (tooShort.length > 0) {
+      toast.error(formatTooShortYouTubeTagMessage(tooShort));
+    }
+    if (accepted.length > 0) {
+      onChange({ ...value, tags: mergeUniqueTags(value.tags, accepted) });
+    }
     setTagInput('');
   }, [onChange, sermonAudioOnlySharedTagInput, tagInput, value]);
 
@@ -3590,7 +3623,7 @@ export function DraftMetadataModal({
                 options={youtubeLanguageOptions}
                 onValueChange={(next) =>
                   updateYouTubeFields({
-                    defaultAudioLanguage: next,
+                    defaultAudioLanguage: next ?? null,
                   })
                 }
                 className={fieldBorderClass('youtube.defaultAudioLanguage')}
@@ -5346,13 +5379,13 @@ export function DraftMetadataModal({
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
                     {showPerPlatformTags
-                      ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
+                      ? 'YouTube and Vimeo tags may include spaces; each tag must be at least 2 characters for YouTube. SermonAudio hashtags are one word each; leading `#` is removed.'
                       : sermonAudioOnlySharedTagInput
                         ? 'SermonAudio hashtags are one word each; press Enter, comma, or space to add. Leading `#` is removed.'
                         : `Press Enter or comma to add tags${
                             showSermonAudioFields
                               ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
-                              : ''
+                              : '. Each tag must be at least 2 characters for YouTube'
                           }.`}
                   </p>
                 </div>

@@ -14,8 +14,10 @@ import {
   parseLivestreamPlatformsFromRequestBody,
   parseLivestreamTargetsAllowEmpty,
   parseScheduledStartTimeFromRequestBody,
+  parseScheduledStartTimeZoneFromRequestBody,
   parseTagsFromRequestBody,
 } from '@/lib/livestream-upload-metadata';
+import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
 import {
   createLivestream,
   listLivestreamsByUser,
@@ -85,7 +87,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(scheduleFieldError, { status: 400 });
   }
 
-  const { title, description, visibility, targets, platforms, tags, scheduledStartTime } = bodyObj;
+  const {
+    title,
+    description,
+    visibility,
+    targets,
+    platforms,
+    tags,
+    scheduledStartTime,
+    scheduledStartTimeZone,
+  } = bodyObj;
 
   const targetsParse = parseLivestreamTargetsAllowEmpty(targets ?? []);
   if (targetsParse.ok === false) {
@@ -160,6 +171,20 @@ export async function POST(req: NextRequest) {
     parsedScheduledStartTime = startParse.value ?? undefined;
   }
 
+  let parsedScheduledStartTimeZone: string | undefined;
+  if (scheduledStartTimeZone !== undefined) {
+    const tzParse = parseScheduledStartTimeZoneFromRequestBody(scheduledStartTimeZone);
+    if (tzParse.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: tzParse.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+    parsedScheduledStartTimeZone = tzParse.value ?? undefined;
+  }
+
   try {
     const livestream = await createLivestream(userId, {
       targets: targetsParse.value,
@@ -169,7 +194,12 @@ export async function POST(req: NextRequest) {
       ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
       platforms: platformsParse.value,
       ...(parsedScheduledStartTime ? { scheduledStartTime: parsedScheduledStartTime } : {}),
+      ...(parsedScheduledStartTimeZone
+        ? { scheduledStartTimeZone: parsedScheduledStartTimeZone }
+        : {}),
     });
+
+    await persistUserYouTubePlatformDefaults(userId, livestream.platforms.youtube);
 
     const response: ApiResponse<Livestream> = { data: livestream, message: 'Livestream created' };
     return NextResponse.json(response, { status: 201 });

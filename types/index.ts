@@ -185,8 +185,8 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
   madeForKids?: boolean;
   /** `snippet.defaultLanguage` (BCP-47, e.g. "en"). */
   defaultLanguage?: string;
-  /** `snippet.defaultAudioLanguage` (BCP-47). */
-  defaultAudioLanguage?: string;
+  /** `snippet.defaultAudioLanguage` (BCP-47). `null` means explicitly cleared (no language). */
+  defaultAudioLanguage?: string | null;
   /** `status.embeddable`. */
   embeddable?: boolean;
   /** `status.license`: standard YouTube license vs Creative Commons. */
@@ -224,8 +224,8 @@ export interface YouTubeDraftFields extends PerPlatformOverrides {
 /**
  * User-saved default values for YouTube upload fields on the profile.
  * Persisted under `platformDefaults.youtube` and updated via GET/PATCH `/api/auth/profile`.
- * The draft editor seeds `platforms.youtube` from connected-channel account defaults
- * (`/api/platforms/youtube/account-defaults`), not from this object.
+ * The draft and livestream editors seed `platforms.youtube` from `/api/platforms/youtube/account-defaults`,
+ * which merges these profile defaults on top of values read from YouTube.
  */
 export interface YouTubeUserDefaults {
   madeForKids?: boolean;
@@ -490,8 +490,8 @@ export interface YouTubeLivestreamFields {
   categoryId?: string;
   /** Maps to `status.selfDeclaredMadeForKids` on the live broadcast. */
   madeForKids?: boolean;
-  /** `snippet.defaultAudioLanguage` (BCP-47) on the live broadcast. */
-  defaultAudioLanguage?: string;
+  /** `snippet.defaultAudioLanguage` (BCP-47) on the live broadcast. `null` means explicitly cleared. */
+  defaultAudioLanguage?: string | null;
   /** `status.embeddable` on the live broadcast. */
   embeddable?: boolean;
   /** `status.license` on the live broadcast: standard YouTube license vs Creative Commons. */
@@ -511,12 +511,6 @@ export interface YouTubeLivestreamFields {
    * Stored on the live broadcast, not the video draft.
    */
   playlistTitles?: string[];
-  /**
-   * Studio "Show how many viewers like this stream".
-   * Maps to `videos.status.publicStatsViewable` on the underlying broadcast video when sent to YouTube.
-   * See docs/youtube-live-comments-ratings.md and `videos.update` (`part=status`).
-   */
-  showViewerLikeCount?: boolean;
 }
 
 /**
@@ -550,6 +544,8 @@ export interface Livestream {
   platforms: LivestreamPlatforms;
   /** ISO 8601 scheduled start time; undefined while still a draft. */
   scheduledStartTime?: string;
+  /** IANA timezone for interpreting {@link scheduledStartTime} in the schedule picker (e.g. `America/Toronto`). */
+  scheduledStartTimeZone?: string;
   /** R2 object key for a custom thumbnail image (JPG or PNG), or undefined if none. */
   thumbnailR2Key?: string;
   /** MIME type of the thumbnail object (for platform upload and preview). */

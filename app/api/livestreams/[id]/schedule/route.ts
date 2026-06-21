@@ -21,8 +21,8 @@ import {
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
   scheduleYouTubeLiveBroadcast,
-  setYouTubeBroadcastCategory,
-  setYouTubeVideoPublicStatsViewable,
+  setYouTubeBroadcastSnippetMetadata,
+  setYouTubeBroadcastVideoStatus,
   uploadYouTubeLivestreamThumbnail,
 } from '@/lib/platforms/youtube-livestream-api';
 import { addYouTubeVideoToPlaylists } from '@/lib/platforms/youtube';
@@ -34,6 +34,7 @@ import {
   updateLivestream,
   type UpdateLivestreamPatch,
 } from '@/lib/repositories/livestreams';
+import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
 import type {
   ApiError,
   ApiResponse,
@@ -198,6 +199,7 @@ export async function POST(
 
   let broadcastId = livestream.youtubeBroadcastId?.trim() ?? '';
   let boundStreamId = livestream.youtubeBoundStreamId?.trim() ?? '';
+  let youtubeDroppedTags: string[] = [];
 
   if (!broadcastId) {
     const scheduled = await scheduleYouTubeLiveBroadcast(accessToken, {
@@ -238,15 +240,39 @@ export async function POST(
     });
   }
 
-  const categoryId = livestream.platforms.youtube?.categoryId?.trim();
-  if (categoryId) {
-    const categoryResult = await setYouTubeBroadcastCategory(accessToken, broadcastId, categoryId);
-    if (categoryResult.ok === false) {
+  const ytPlatforms = livestream.platforms.youtube ?? {};
+  const categoryId = ytPlatforms.categoryId?.trim();
+  const defaultAudioLanguage = ytPlatforms.defaultAudioLanguage?.trim();
+  const license =
+    ytPlatforms.license === 'youtube' || ytPlatforms.license === 'creativeCommon'
+      ? ytPlatforms.license
+      : undefined;
+
+  // Video status (privacy, license, embeddable) must be set before snippet metadata.
+  const statusResult = await setYouTubeBroadcastVideoStatus(accessToken, broadcastId, {
+    privacyStatus: toYouTubePrivacy(livestream.visibility),
+    ...(license ? { license } : {}),
+    ...(typeof ytPlatforms.embeddable === 'boolean' ? { embeddable: ytPlatforms.embeddable } : {}),
+  });
+  if (statusResult.ok === false) {
+    await persistScheduleProgress(livestreamId, {
+      youtubeBroadcastId: broadcastId,
+      youtubeBoundStreamId: boundStreamId,
+    });
+    return youtubeUpstreamErrorResponse(statusResult.details);
+  }
+
+  if (defaultAudioLanguage || categoryId) {
+    const snippetResult = await setYouTubeBroadcastSnippetMetadata(accessToken, broadcastId, {
+      ...(defaultAudioLanguage ? { defaultAudioLanguage } : {}),
+      ...(categoryId ? { categoryId } : {}),
+    });
+    if (snippetResult.ok === false) {
       await persistScheduleProgress(livestreamId, {
         youtubeBroadcastId: broadcastId,
         youtubeBoundStreamId: boundStreamId,
       });
-      return youtubeUpstreamErrorResponse(categoryResult.details);
+      return youtubeUpstreamErrorResponse(snippetResult.details);
     }
   }
 
@@ -322,13 +348,13 @@ export async function POST(
     }
   }
 
-  const ytPlatforms = livestream.platforms.youtube;
-  const hasPlaylistIds = (ytPlatforms?.playlistIds?.length ?? 0) > 0;
-  const hasPlaylistTitles = (ytPlatforms?.playlistTitles?.length ?? 0) > 0;
+  const ytPlatformsForPlaylists = livestream.platforms.youtube;
+  const hasPlaylistIds = (ytPlatformsForPlaylists?.playlistIds?.length ?? 0) > 0;
+  const hasPlaylistTitles = (ytPlatformsForPlaylists?.playlistTitles?.length ?? 0) > 0;
   if (hasPlaylistIds || hasPlaylistTitles) {
     const playlistResult = await addYouTubeVideoToPlaylists(accessToken, broadcastId, {
-      playlistIds: ytPlatforms?.playlistIds,
-      playlistTitles: ytPlatforms?.playlistTitles,
+      playlistIds: ytPlatformsForPlaylists?.playlistIds,
+      playlistTitles: ytPlatformsForPlaylists?.playlistTitles,
       visibility: livestream.visibility,
     });
     if (playlistResult.ok === false) {
@@ -345,19 +371,25 @@ export async function POST(
     }
   }
 
-  const showViewerLikeCount = ytPlatforms?.showViewerLikeCount;
-  if (typeof showViewerLikeCount === 'boolean') {
-    const statsResult = await setYouTubeVideoPublicStatsViewable(
-      accessToken,
-      broadcastId,
-      showViewerLikeCount
-    );
-    if (statsResult.ok === false) {
+  // Tags must be applied last: earlier snippet updates (category, language) re-fetch the
+  // video without tags and would clear them if we sent tags before those updates.
+  if (livestream.tags.length > 0) {
+    const tagsResult = await setYouTubeBroadcastSnippetMetadata(accessToken, broadcastId, {
+      tags: livestream.tags,
+    });
+    if (tagsResult.ok === false) {
       await persistScheduleProgress(livestreamId, {
         youtubeBroadcastId: broadcastId,
         youtubeBoundStreamId: boundStreamId,
       });
-      return youtubeUpstreamErrorResponse(statsResult.details);
+      return youtubeUpstreamErrorResponse(tagsResult.details);
+    }
+    if (tagsResult.droppedTags.length > 0) {
+      youtubeDroppedTags = tagsResult.droppedTags;
+      console.warn(
+        '[POST /api/livestreams/:id/schedule] YouTube omitted tags after update:',
+        tagsResult.droppedTags
+      );
     }
   }
 
@@ -384,9 +416,14 @@ export async function POST(
       return NextResponse.json(errRes, { status: 404 });
     }
 
+    await persistUserYouTubePlatformDefaults(userId, livestream.platforms.youtube);
+
     const response: ApiResponse<Livestream> = {
       data: updated,
-      message: 'Livestream scheduled',
+      message:
+        youtubeDroppedTags.length > 0
+          ? `Livestream scheduled. YouTube did not keep these tags: ${youtubeDroppedTags.join(', ')}`
+          : 'Livestream scheduled',
     };
     return NextResponse.json(response);
   } catch (err) {

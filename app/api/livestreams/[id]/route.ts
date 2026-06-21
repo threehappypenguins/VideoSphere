@@ -17,9 +17,11 @@ import {
   parseLivestreamTargetsAllowEmpty,
   parseLivestreamTargetsFromRequestBody,
   parseScheduledStartTimeFromRequestBody,
+  parseScheduledStartTimeZoneFromRequestBody,
   parseTagsFromRequestBody,
 } from '@/lib/livestream-upload-metadata';
 import { getObjectUrl, isLivestreamThumbnailFinalKeyForUser } from '@/lib/r2';
+import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
 import {
   deleteLivestream,
   getLivestreamById,
@@ -204,7 +206,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(scheduleFieldError, { status: 400 });
   }
 
-  const { title, description, visibility, targets, platforms, tags, scheduledStartTime } = bodyObj;
+  const {
+    title,
+    description,
+    visibility,
+    targets,
+    platforms,
+    tags,
+    scheduledStartTime,
+    scheduledStartTimeZone,
+  } = bodyObj;
 
   if (
     title === undefined &&
@@ -213,12 +224,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     targets === undefined &&
     platforms === undefined &&
     tags === undefined &&
-    scheduledStartTime === undefined
+    scheduledStartTime === undefined &&
+    scheduledStartTimeZone === undefined
   ) {
     const errRes: ApiError = {
       error: 'Bad Request',
       message:
-        'At least one field (title, description, visibility, targets, tags, platforms, scheduledStartTime) must be provided',
+        'At least one field (title, description, visibility, targets, tags, platforms, scheduledStartTime, scheduledStartTimeZone) must be provided',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -324,6 +336,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     parsedScheduledStartTime = startParse.value;
   }
 
+  let parsedScheduledStartTimeZone: string | null | undefined;
+  if (scheduledStartTimeZone !== undefined) {
+    const tzParse = parseScheduledStartTimeZoneFromRequestBody(scheduledStartTimeZone);
+    if (tzParse.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: tzParse.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+    parsedScheduledStartTimeZone = tzParse.value;
+  }
+
   try {
     const updated = await updateLivestream(id, {
       ...(title !== undefined && { title: (title as string).trim() }),
@@ -335,6 +361,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(parsedScheduledStartTime !== undefined
         ? { scheduledStartTime: parsedScheduledStartTime }
         : {}),
+      ...(parsedScheduledStartTimeZone !== undefined
+        ? { scheduledStartTimeZone: parsedScheduledStartTimeZone }
+        : {}),
     });
 
     if (!updated) {
@@ -345,6 +374,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       };
       return NextResponse.json(errRes, { status: 404 });
     }
+
+    await persistUserYouTubePlatformDefaults(userId, updated.platforms.youtube);
 
     const data = await livestreamResponseWithThumbnailPreview(updated, userId, id);
     const response: ApiResponse<Livestream> = {

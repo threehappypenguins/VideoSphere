@@ -7,8 +7,9 @@ import {
 } from '@/lib/platforms/youtube';
 
 describe('normalizeYouTubeSnippetTags', () => {
-  it('trims tags and removes whitespace-only entries', () => {
-    expect(normalizeYouTubeSnippetTags(['  a  ', ' b', '\t', ''])).toEqual(['a', 'b']);
+  it('trims tags, removes whitespace-only entries, and drops single-character tags', () => {
+    expect(normalizeYouTubeSnippetTags(['  a  ', ' b', '\t', ''])).toEqual([]);
+    expect(normalizeYouTubeSnippetTags(['  ab  ', ' cd', '\t', ''])).toEqual(['ab', 'cd']);
   });
 
   it('matches YouTube docs: spaced tag counts as quoted (+2) for length', () => {
