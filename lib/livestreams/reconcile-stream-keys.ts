@@ -6,9 +6,17 @@ import {
   updateLivestream,
 } from '@/lib/repositories/livestreams';
 import {
+  resolveAutoPromoteToMainKeyEnabled,
+  resolveAutoPromoteToMainKeyMinutes,
+} from '@/lib/livestreams/auto-promote-main-key';
+import {
+  classifyMainSlotForPromotion,
+  isWithinTempPromotionWindow,
+  releaseStaleMainSlot,
+} from '@/lib/livestreams/stale-main-slot';
+import {
   pickNextTempCandidateForPromotion,
   requireYouTubeStreamKeyForSlot,
-  shouldPromoteTempToMain,
 } from '@/lib/livestreams/key-assignment';
 import { localStatusForYouTubeLifecycle } from '@/lib/livestreams/youtube-lifecycle';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
@@ -25,10 +33,12 @@ const DEFAULT_LIVESTREAM_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
  * Summary of work performed by {@link reconcileLivestreamKeysAndStatus}.
  * @property lifecycleUpdates - Livestream rows whose lifecycle or status changed.
  * @property promotions - Temp-slot livestreams promoted to main in this pass.
+ * @property staleReleases - Main-slot livestreams released as stale in this pass.
  */
 export interface ReconcileLivestreamKeysAndStatusResult {
   lifecycleUpdates: number;
   promotions: number;
+  staleReleases: number;
 }
 
 /**
@@ -68,14 +78,16 @@ async function resolveYouTubeAccessTokenForUser(userId: string): Promise<string 
  * Polls YouTube lifecycle status for armed livestreams, ends completed broadcasts, and
  * promotes at most one temp-slot candidate per user to the main stream key when eligible.
  *
- * Runs in-process on a timer started from {@link connectToDatabase}. It will not run
- * reliably if multiple app instances are deployed behind a load balancer without leader
- * election — fine for this self-hosted single-instance setup, but worth revisiting before
- * horizontal scaling.
+ * Runs in-process on a timer started from {@link connectToDatabase}. Promotion eligibility
+ * is derived from persisted livestream fields (`scheduledStartTime`, `autoPromoteToMainKey`,
+ * `autoPromoteToMainKeyMinutes`), so work survives server restarts once the process reconnects
+ * to MongoDB and the timer restarts. It will not run reliably if multiple app instances are
+ * deployed behind a load balancer without leader election — fine for this self-hosted
+ * single-instance setup, but worth revisiting before horizontal scaling.
  *
  * The temp-slot queue has no cap; this function intentionally promotes at most one
  * candidate per user per pass. A long queue simply waits for later passes — promotion
- * only needs to happen within ~30 minutes of each livestream's scheduled start anyway.
+ * only needs to happen within each livestream's configured lead time before start.
  * @param options - Optional clock override for tests.
  * @returns Counts of lifecycle updates and main-key promotions performed.
  */
@@ -87,6 +99,7 @@ export async function reconcileLivestreamKeysAndStatus(options?: {
 
   let lifecycleUpdates = 0;
   let promotions = 0;
+  let staleReleases = 0;
 
   for (const [userId, armedLivestreams] of armedByUser) {
     const mainSlotIdBeforePass =
@@ -148,28 +161,110 @@ export async function reconcileLivestreamKeysAndStatus(options?: {
       }
     }
 
-    let currentMainSlotStream: { youtubeLifecycleStatus?: string } | null;
+    let currentMainSlotStream: Livestream | null;
     if (mainEndedThisPass) {
       currentMainSlotStream = null;
     } else {
-      const mainSlot = await getArmedMainSlotLivestreamForUser(userId);
-      currentMainSlotStream = mainSlot;
+      currentMainSlotStream = await getArmedMainSlotLivestreamForUser(userId);
     }
 
     const tempSlotStreams = await listArmedTempSlotLivestreamsForUser(userId);
+    const eligibleTempStreams = tempSlotStreams.filter(
+      (stream) =>
+        typeof stream.scheduledStartTime === 'string' &&
+        stream.scheduledStartTime.trim() !== '' &&
+        resolveAutoPromoteToMainKeyEnabled(stream)
+    );
     const tempCandidate = pickNextTempCandidateForPromotion(
-      tempSlotStreams.filter(
-        (stream): stream is typeof stream & { scheduledStartTime: string } =>
-          typeof stream.scheduledStartTime === 'string' && stream.scheduledStartTime.trim() !== ''
-      )
+      eligibleTempStreams.map((stream) => ({
+        id: stream.id,
+        scheduledStartTime: stream.scheduledStartTime!,
+      }))
     );
     if (!tempCandidate) continue;
 
-    if (!shouldPromoteTempToMain({ tempCandidate, currentMainSlotStream }, now)) {
+    const candidateRow =
+      eligibleTempStreams.find((stream) => stream.id === tempCandidate.id) ?? null;
+    const promotionWindowMs = resolveAutoPromoteToMainKeyMinutes(candidateRow ?? {}) * 60 * 1000;
+
+    if (!isWithinTempPromotionWindow(tempCandidate, now, promotionWindowMs)) {
       continue;
     }
 
-    const candidateRow = tempSlotStreams.find((stream) => stream.id === tempCandidate.id) ?? null;
+    if (currentMainSlotStream?.youtubeBroadcastId?.trim()) {
+      try {
+        const lifecycleResult = await getYouTubeBroadcastLifecycleStatus(
+          accessToken,
+          currentMainSlotStream.youtubeBroadcastId.trim()
+        );
+        if (lifecycleResult.ok === true) {
+          const nextLifecycle = lifecycleResult.lifeCycleStatus ?? null;
+          const nextStatus = localStatusForYouTubeLifecycle(nextLifecycle);
+          const lifecycleChanged =
+            nextLifecycle !== (currentMainSlotStream.youtubeLifecycleStatus ?? null);
+          const statusChanged =
+            nextStatus !== undefined && nextStatus !== currentMainSlotStream.status;
+
+          if (lifecycleChanged || statusChanged) {
+            const refreshed = await updateLivestream(currentMainSlotStream.id, {
+              ...(lifecycleChanged && nextLifecycle != null
+                ? { youtubeLifecycleStatus: nextLifecycle }
+                : lifecycleChanged
+                  ? { youtubeLifecycleStatus: null }
+                  : {}),
+              ...(statusChanged ? { status: nextStatus } : {}),
+            });
+            if (refreshed) {
+              lifecycleUpdates += 1;
+              currentMainSlotStream = refreshed;
+              if (nextStatus === 'live' || nextStatus === 'ended') {
+                if (nextStatus === 'ended') {
+                  currentMainSlotStream = null;
+                }
+              }
+            } else if (lifecycleChanged) {
+              currentMainSlotStream = {
+                ...currentMainSlotStream,
+                youtubeLifecycleStatus: nextLifecycle ?? undefined,
+              };
+            }
+          }
+        }
+      } catch (err) {
+        console.error(
+          `[reconcile] Main-slot lifecycle poll error for livestream ${currentMainSlotStream.id} (user ${userId})`,
+          err
+        );
+      }
+    }
+
+    const mainSlotState = classifyMainSlotForPromotion(currentMainSlotStream, now);
+    if (mainSlotState === 'blocked') {
+      continue;
+    }
+
+    if (mainSlotState === 'stale' && currentMainSlotStream) {
+      const account = await getConnectedAccountWithTokens(userId, 'youtube');
+      if (!account) continue;
+
+      const releaseResult = await releaseStaleMainSlot(
+        accessToken,
+        account,
+        currentMainSlotStream,
+        now
+      );
+      if (releaseResult.ok === false) {
+        console.warn(
+          `[reconcile] Stale main-slot release failed for livestream ${currentMainSlotStream.id}: ${releaseResult.details}`
+        );
+        continue;
+      }
+
+      staleReleases += 1;
+      lifecycleUpdates += 1;
+      currentMainSlotStream = null;
+    }
+
     const broadcastId = candidateRow?.youtubeBroadcastId?.trim();
     if (!candidateRow || !broadcastId) {
       console.warn(
@@ -224,11 +319,11 @@ export async function reconcileLivestreamKeysAndStatus(options?: {
     }
   }
 
-  if (lifecycleUpdates > 0 || promotions > 0) {
+  if (lifecycleUpdates > 0 || promotions > 0 || staleReleases > 0) {
     console.log(
-      `[reconcile] Updated ${lifecycleUpdates} livestream lifecycle status(es) and promoted ${promotions} temp-slot livestream(s) to main.`
+      `[reconcile] Updated ${lifecycleUpdates} livestream lifecycle status(es), released ${staleReleases} stale main-slot livestream(s), and promoted ${promotions} temp-slot livestream(s) to main.`
     );
   }
 
-  return { lifecycleUpdates, promotions };
+  return { lifecycleUpdates, promotions, staleReleases };
 }

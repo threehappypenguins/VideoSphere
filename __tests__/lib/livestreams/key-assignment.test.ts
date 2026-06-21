@@ -143,12 +143,41 @@ describe('shouldPromoteTempToMain', () => {
     ).toBe(false);
   });
 
+  it('honors a custom promotion window', () => {
+    expect(
+      shouldPromoteTempToMain(
+        {
+          tempCandidate: { scheduledStartTime: atOffsetMinutes(20) },
+          currentMainSlotStream: null,
+          promotionWindowMs: 15 * 60_000,
+        },
+        now
+      )
+    ).toBe(false);
+
+    expect(
+      shouldPromoteTempToMain(
+        {
+          tempCandidate: { scheduledStartTime: atOffsetMinutes(10) },
+          currentMainSlotStream: null,
+          promotionWindowMs: 15 * 60_000,
+        },
+        now
+      )
+    ).toBe(true);
+  });
+
   it('promotes when main lifecycle is complete and start time is within the window', () => {
     expect(
       shouldPromoteTempToMain(
         {
           tempCandidate: { scheduledStartTime: atOffsetMinutes(5) },
-          currentMainSlotStream: { youtubeLifecycleStatus: 'complete' },
+          currentMainSlotStream: {
+            keySlot: 'main',
+            status: 'scheduled',
+            scheduledStartTime: atOffsetMinutes(-60),
+            youtubeLifecycleStatus: 'complete',
+          },
         },
         now
       )
@@ -160,7 +189,12 @@ describe('shouldPromoteTempToMain', () => {
       shouldPromoteTempToMain(
         {
           tempCandidate: { scheduledStartTime: atOffsetMinutes(45) },
-          currentMainSlotStream: { youtubeLifecycleStatus: 'complete' },
+          currentMainSlotStream: {
+            keySlot: 'main',
+            status: 'scheduled',
+            scheduledStartTime: atOffsetMinutes(-60),
+            youtubeLifecycleStatus: 'complete',
+          },
         },
         now
       )
@@ -172,7 +206,12 @@ describe('shouldPromoteTempToMain', () => {
       shouldPromoteTempToMain(
         {
           tempCandidate: { scheduledStartTime: atOffsetMinutes(5) },
-          currentMainSlotStream: { youtubeLifecycleStatus: 'ready' },
+          currentMainSlotStream: {
+            keySlot: 'main',
+            status: 'scheduled',
+            scheduledStartTime: atOffsetMinutes(60),
+            youtubeLifecycleStatus: 'ready',
+          },
         },
         now
       )
@@ -184,7 +223,12 @@ describe('shouldPromoteTempToMain', () => {
       shouldPromoteTempToMain(
         {
           tempCandidate: { scheduledStartTime: atOffsetMinutes(5) },
-          currentMainSlotStream: { youtubeLifecycleStatus: 'testing' },
+          currentMainSlotStream: {
+            keySlot: 'main',
+            status: 'live',
+            scheduledStartTime: atOffsetMinutes(-30),
+            youtubeLifecycleStatus: 'testing',
+          },
         },
         now
       )

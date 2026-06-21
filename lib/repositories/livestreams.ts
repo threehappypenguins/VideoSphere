@@ -16,6 +16,7 @@ import type {
   LivestreamStatus,
   PlatformUploadVisibility,
 } from '@/types';
+import { normalizeAutoPromoteToMainKeyMinutes } from '@/lib/livestreams/auto-promote-main-key';
 import { mergeLivestreamPlatformsPatch } from '@/lib/livestream-upload-metadata';
 import { connectToDatabase } from '@/lib/mongodb';
 import { LivestreamModel, type LivestreamDocument } from '@/lib/models/Livestream';
@@ -54,6 +55,9 @@ interface StoredLivestreamDocument {
   youtubeBoundStreamId?: string;
   keySlot?: LivestreamKeySlot;
   keySwapPromotedAt?: string;
+  keySlotStaleAt?: string;
+  autoPromoteToMainKey?: boolean;
+  autoPromoteToMainKeyMinutes?: number;
   youtubeLifecycleStatus?: string;
 }
 
@@ -119,6 +123,19 @@ function parseStoredLivestreamDocument(raw: string): StoredLivestreamDocument {
     ...(typeof parsed.keySwapPromotedAt === 'string' && parsed.keySwapPromotedAt.trim() !== ''
       ? { keySwapPromotedAt: parsed.keySwapPromotedAt.trim() }
       : {}),
+    ...(typeof parsed.keySlotStaleAt === 'string' && parsed.keySlotStaleAt.trim() !== ''
+      ? { keySlotStaleAt: parsed.keySlotStaleAt.trim() }
+      : {}),
+    ...(parsed.autoPromoteToMainKey === true || parsed.autoPromoteToMainKey === false
+      ? { autoPromoteToMainKey: parsed.autoPromoteToMainKey }
+      : {}),
+    ...(typeof parsed.autoPromoteToMainKeyMinutes === 'number'
+      ? {
+          autoPromoteToMainKeyMinutes: normalizeAutoPromoteToMainKeyMinutes(
+            parsed.autoPromoteToMainKeyMinutes
+          ),
+        }
+      : {}),
     ...(typeof parsed.youtubeLifecycleStatus === 'string' &&
     parsed.youtubeLifecycleStatus.trim() !== ''
       ? { youtubeLifecycleStatus: parsed.youtubeLifecycleStatus.trim() }
@@ -153,6 +170,17 @@ function storedDocumentFromLivestream(livestream: Livestream): StoredLivestreamD
       : {}),
     ...(livestream.keySlot ? { keySlot: livestream.keySlot } : {}),
     ...(livestream.keySwapPromotedAt ? { keySwapPromotedAt: livestream.keySwapPromotedAt } : {}),
+    ...(livestream.keySlotStaleAt ? { keySlotStaleAt: livestream.keySlotStaleAt } : {}),
+    ...(livestream.autoPromoteToMainKey === true || livestream.autoPromoteToMainKey === false
+      ? { autoPromoteToMainKey: livestream.autoPromoteToMainKey }
+      : {}),
+    ...(livestream.autoPromoteToMainKeyMinutes != null
+      ? {
+          autoPromoteToMainKeyMinutes: normalizeAutoPromoteToMainKeyMinutes(
+            livestream.autoPromoteToMainKeyMinutes
+          ),
+        }
+      : {}),
     ...(livestream.youtubeLifecycleStatus
       ? { youtubeLifecycleStatus: livestream.youtubeLifecycleStatus }
       : {}),
@@ -182,6 +210,13 @@ function mongoDocToLivestream(doc: LivestreamDocument): Livestream {
     ...(parsed.youtubeBoundStreamId ? { youtubeBoundStreamId: parsed.youtubeBoundStreamId } : {}),
     ...(parsed.keySlot ? { keySlot: parsed.keySlot } : {}),
     ...(parsed.keySwapPromotedAt ? { keySwapPromotedAt: parsed.keySwapPromotedAt } : {}),
+    ...(parsed.keySlotStaleAt ? { keySlotStaleAt: parsed.keySlotStaleAt } : {}),
+    ...(parsed.autoPromoteToMainKey === true || parsed.autoPromoteToMainKey === false
+      ? { autoPromoteToMainKey: parsed.autoPromoteToMainKey }
+      : {}),
+    ...(parsed.autoPromoteToMainKeyMinutes != null
+      ? { autoPromoteToMainKeyMinutes: parsed.autoPromoteToMainKeyMinutes }
+      : {}),
     ...(parsed.youtubeLifecycleStatus
       ? { youtubeLifecycleStatus: parsed.youtubeLifecycleStatus }
       : {}),
@@ -380,6 +415,9 @@ export interface UpdateLivestreamPatch {
   youtubeBoundStreamId?: string | null;
   keySlot?: LivestreamKeySlot | null;
   keySwapPromotedAt?: string | null;
+  keySlotStaleAt?: string | null;
+  autoPromoteToMainKey?: boolean | null;
+  autoPromoteToMainKeyMinutes?: number | null;
   youtubeLifecycleStatus?: string | null;
 }
 
@@ -450,6 +488,19 @@ export async function updateLivestream(
           ? undefined
           : patch.keySlot,
     keySwapPromotedAt: applyNullableStringPatch(current.keySwapPromotedAt, patch.keySwapPromotedAt),
+    keySlotStaleAt: applyNullableStringPatch(current.keySlotStaleAt, patch.keySlotStaleAt),
+    autoPromoteToMainKey:
+      patch.autoPromoteToMainKey === undefined
+        ? current.autoPromoteToMainKey
+        : patch.autoPromoteToMainKey === null
+          ? undefined
+          : patch.autoPromoteToMainKey,
+    autoPromoteToMainKeyMinutes:
+      patch.autoPromoteToMainKeyMinutes === undefined
+        ? current.autoPromoteToMainKeyMinutes
+        : patch.autoPromoteToMainKeyMinutes === null
+          ? undefined
+          : normalizeAutoPromoteToMainKeyMinutes(patch.autoPromoteToMainKeyMinutes),
     youtubeLifecycleStatus: applyNullableStringPatch(
       current.youtubeLifecycleStatus,
       patch.youtubeLifecycleStatus

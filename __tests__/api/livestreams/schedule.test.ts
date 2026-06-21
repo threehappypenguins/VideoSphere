@@ -264,6 +264,20 @@ describe('POST /api/livestreams/[id]/schedule', () => {
     );
   });
 
+  it('persists auto-promote defaults when scheduling onto the temp key', async () => {
+    vi.mocked(listArmedYouTubeLivestreamsForUser).mockResolvedValue([
+      makeArmedLivestream(0, 'main'),
+    ]);
+
+    const res = await POST(makeScheduleRequest(), makeParams());
+    expect(res.status).toBe(200);
+
+    const finalUpdate = vi.mocked(updateLivestream).mock.calls.at(-1)?.[1];
+    expect(finalUpdate?.keySlot).toBe('temp');
+    expect(finalUpdate?.autoPromoteToMainKey).toBe(true);
+    expect(finalUpdate?.autoPromoteToMainKeyMinutes).toBe(30);
+  });
+
   it('returns 502 when YouTube metadata sync fails after binding', async () => {
     vi.mocked(listArmedYouTubeLivestreamsForUser).mockResolvedValue([]);
     vi.mocked(syncLivestreamMetadataToYouTube).mockResolvedValue({

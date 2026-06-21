@@ -573,6 +573,18 @@ export interface Livestream {
   keySlot?: LivestreamKeySlot;
   /** ISO timestamp when a `temp` key slot was promoted to `main` during reconciliation. */
   keySwapPromotedAt?: string;
+  /**
+   * ISO timestamp when a main-slot livestream never went live and was moved to temp / ended
+   * so a queued livestream could take the main key.
+   */
+  keySlotStaleAt?: string;
+  /**
+   * When true on a temp-slot livestream, a background job promotes it to the main key
+   * before start. Defaults to enabled for temp-slot rows when unset.
+   */
+  autoPromoteToMainKey?: boolean;
+  /** Minutes before scheduled start to auto-promote temp → main (5–60, step 5; default 30). */
+  autoPromoteToMainKeyMinutes?: number;
   /** Raw YouTube `liveBroadcasts.status.lifeCycleStatus` value (polled later). */
   youtubeLifecycleStatus?: string;
   /** Persistence system attribute (ISO string). */

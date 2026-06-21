@@ -10,6 +10,11 @@ import {
 } from '@/lib/livestreams/key-assignment';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import {
+  parseAutoPromoteToMainKeyFromRequestBody,
+  parseAutoPromoteToMainKeyMinutesFromRequestBody,
+  resolveAutoPromoteToMainKeyMinutes,
+} from '@/lib/livestreams/auto-promote-main-key';
+import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
 } from '@/lib/platforms/youtube-api';
@@ -264,6 +269,12 @@ export async function POST(
       youtubeBroadcastId: broadcastId,
       youtubeBoundStreamId: boundStreamId,
       youtubeLifecycleStatus,
+      ...(keySlot === 'temp'
+        ? {
+            autoPromoteToMainKey: livestream.autoPromoteToMainKey !== false,
+            autoPromoteToMainKeyMinutes: resolveAutoPromoteToMainKeyMinutes(livestream),
+          }
+        : {}),
     });
 
     if (!updated) {
@@ -279,10 +290,7 @@ export async function POST(
 
     const response: ApiResponse<Livestream> = {
       data: updated,
-      message:
-        youtubeDroppedTags.length > 0
-          ? `Livestream scheduled. YouTube did not keep these tags: ${youtubeDroppedTags.join(', ')}`
-          : 'Livestream scheduled',
+      message: 'Livestream scheduled',
     };
     return NextResponse.json(response);
   } catch (err) {

@@ -46,6 +46,15 @@ import {
 } from '@/lib/draft-thumbnail';
 import { MAX_DRAFT_TITLE_LENGTH } from '@/lib/youtube-metadata-limits';
 import {
+  findLivestreamKeySlotConflict,
+  livestreamKeySlotConflictWarning,
+} from '@/lib/livestreams/key-slot-conflict';
+import {
+  AUTO_PROMOTE_TO_MAIN_KEY_MINUTE_OPTIONS,
+  DEFAULT_AUTO_PROMOTE_TO_MAIN_KEY_MINUTES,
+  formatAutoPromoteToMainKeyMinutesLabel,
+} from '@/lib/livestreams/auto-promote-main-key';
+import {
   getSchedulableLivestreamPlatforms,
   getYouTubeLivestreamConnection,
   type LivestreamConnectionSnapshot,
@@ -78,6 +87,7 @@ import type {
   ConnectedAccountPlatform,
   ConnectedAccountPublic,
   Livestream,
+  LivestreamKeySlot,
   LivestreamPlatforms,
   LivestreamStatus,
   PlatformUploadVisibility,
@@ -186,6 +196,14 @@ export interface LivestreamEditorValues {
   thumbnailContentType?: string;
   /** Ephemeral presigned preview URL for the shared thumbnail. */
   thumbnailPreviewUrl?: string;
+  /** Assigned YouTube stream key slot after scheduling. */
+  keySlot?: LivestreamKeySlot;
+  /** ISO timestamp when temp was auto-promoted to main. */
+  keySwapPromotedAt?: string;
+  /** Auto-promote temp → main before start (defaults to true for queued temp streams). */
+  autoPromoteToMainKey?: boolean;
+  /** Minutes before start to auto-promote temp → main (5–60, step 5). */
+  autoPromoteToMainKeyMinutes?: number;
 }
 
 /**
@@ -219,6 +237,10 @@ export interface LivestreamMetadataModalProps {
   }) => Promise<{ saved: boolean; livestreamId?: string; message?: string }>;
   /** Called whenever a field changes in the modal. */
   onChange: (value: LivestreamEditorValues) => void;
+  /** Armed livestreams for stream-key conflict warnings when changing key slots. */
+  armedLivestreamsForKeySlot?: Pick<Livestream, 'id' | 'title' | 'keySlot' | 'status'>[];
+  /** Called after the stream key slot changes successfully. */
+  onKeySlotChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -236,10 +258,13 @@ export function LivestreamMetadataModal({
   onClose,
   onSave,
   onChange,
+  armedLivestreamsForKeySlot = [],
+  onKeySlotChanged,
 }: LivestreamMetadataModalProps) {
   const router = useRouter();
   const livestreamId = value?.id ?? null;
   const isDraft = value?.status === 'draft';
+  const isScheduled = value?.status === 'scheduled';
   const isEditable = value?.status === 'draft' || value?.status === 'scheduled';
   const youtubeTargetActive = value?.targets.includes('youtube') ?? false;
   const youtubeFields = value?.platforms.youtube;
@@ -275,6 +300,8 @@ export function LivestreamMetadataModal({
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [thumbnailUploadProgress, setThumbnailUploadProgress] = useState(0);
   const [thumbnailFileName, setThumbnailFileName] = useState<string | null>(null);
+  const [keySlotChanging, setKeySlotChanging] = useState(false);
+  const [keySlotConflictWarning, setKeySlotConflictWarning] = useState<string | null>(null);
   const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
   const thumbnailRequestAbortRef = useRef<AbortController | null>(null);
   const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -292,6 +319,115 @@ export function LivestreamMetadataModal({
     () => getYouTubeLivestreamConnection(connectionSnapshots),
     [connectionSnapshots]
   );
+
+  const willUseTempStreamKey = useMemo(() => {
+    if (!value) return false;
+    if (isScheduled && value.keySlot === 'temp' && !value.keySwapPromotedAt) {
+      return true;
+    }
+    return isDraft && armedLivestreamsForKeySlot.length > 0;
+  }, [armedLivestreamsForKeySlot.length, isDraft, isScheduled, value]);
+
+  const autoPromoteEnabled = value?.autoPromoteToMainKey !== false;
+  const autoPromoteMinutes =
+    value?.autoPromoteToMainKeyMinutes ?? DEFAULT_AUTO_PROMOTE_TO_MAIN_KEY_MINUTES;
+
+  const updateAutoPromoteSettings = useCallback(
+    (
+      patch: Pick<LivestreamEditorValues, 'autoPromoteToMainKey' | 'autoPromoteToMainKeyMinutes'>
+    ) => {
+      if (!value) return;
+      onChange({ ...value, ...patch });
+    },
+    [onChange, value]
+  );
+
+  const handleKeySlotChange = useCallback(
+    async (nextSlot: LivestreamKeySlot) => {
+      if (!value || !livestreamId || !isScheduled || !value.keySlot) {
+        return;
+      }
+      if (value.keySlot === nextSlot) {
+        return;
+      }
+
+      const localConflict = findLivestreamKeySlotConflict(
+        armedLivestreamsForKeySlot,
+        nextSlot,
+        livestreamId
+      );
+      if (localConflict) {
+        setKeySlotConflictWarning(livestreamKeySlotConflictWarning(localConflict));
+      }
+
+      setKeySlotChanging(true);
+      try {
+        const response = await fetch(`/api/livestreams/${livestreamId}/key-slot`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keySlot: nextSlot }),
+        });
+        if (!response.ok) {
+          const err = (await response.json().catch(() => null)) as { message?: string } | null;
+          toast.error(err?.message ?? 'Failed to change stream key');
+          const currentConflict = findLivestreamKeySlotConflict(
+            armedLivestreamsForKeySlot,
+            value.keySlot,
+            livestreamId
+          );
+          setKeySlotConflictWarning(
+            currentConflict ? livestreamKeySlotConflictWarning(currentConflict) : null
+          );
+          return;
+        }
+
+        const payload = (await response.json()) as ApiResponse<Livestream> & {
+          meta?: { keySlotConflictWarning?: string };
+        };
+        const updated = payload.data;
+        if (!updated) {
+          toast.error('Failed to change stream key');
+          return;
+        }
+
+        const warning =
+          payload.meta?.keySlotConflictWarning ??
+          (localConflict ? livestreamKeySlotConflictWarning(localConflict) : null);
+        setKeySlotConflictWarning(warning);
+        if (warning) {
+          toast.warning(warning);
+        } else {
+          toast.success('Stream key updated');
+        }
+
+        onChange({
+          ...value,
+          keySlot: updated.keySlot,
+        });
+        await onKeySlotChanged?.();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to change stream key');
+      } finally {
+        setKeySlotChanging(false);
+      }
+    },
+    [armedLivestreamsForKeySlot, isScheduled, livestreamId, onChange, onKeySlotChanged, value]
+  );
+
+  useEffect(() => {
+    if (!isScheduled || !value?.keySlot || !livestreamId) {
+      setKeySlotConflictWarning(null);
+      return;
+    }
+
+    const conflict = findLivestreamKeySlotConflict(
+      armedLivestreamsForKeySlot,
+      value.keySlot,
+      livestreamId
+    );
+    setKeySlotConflictWarning(conflict ? livestreamKeySlotConflictWarning(conflict) : null);
+  }, [armedLivestreamsForKeySlot, isScheduled, livestreamId, value?.keySlot]);
+
   const connectionsResolvedSuccessfully = hasLoadedConnections;
   const displayPlatforms = useMemo(() => schedulablePlatforms, [schedulablePlatforms]);
 
@@ -1059,11 +1195,7 @@ export function LivestreamMetadataModal({
       }
 
       const payload = (await response.json()) as ApiResponse<Livestream>;
-      if (payload.message?.includes('YouTube did not keep these tags')) {
-        toast.warning(payload.message);
-      } else {
-        toast.success('Livestream scheduled on YouTube');
-      }
+      toast.success('Livestream scheduled on YouTube');
       await onScheduled?.();
       onClose();
     } catch (error) {
@@ -1176,6 +1308,117 @@ export function LivestreamMetadataModal({
 
         {value ? (
           <div className="flex-1 space-y-6 overflow-y-auto px-6 pb-4">
+            {isScheduled && value.keySlot ? (
+              <section className="space-y-2">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="livestream-key-slot"
+                      className="text-sm font-semibold text-foreground"
+                    >
+                      Stream key
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Switch between your main and temporary YouTube stream keys.
+                    </p>
+                  </div>
+                  <Select
+                    value={value.keySlot}
+                    onValueChange={(next) => void handleKeySlotChange(next as LivestreamKeySlot)}
+                    disabled={keySlotChanging}
+                  >
+                    <SelectTrigger id="livestream-key-slot" className="w-[200px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="main">Main stream key</SelectItem>
+                      <SelectItem
+                        value="temp"
+                        disabled={youtubeConnection?.hasYoutubeTempStreamKey !== true}
+                      >
+                        Temporary stream key
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {keySlotChanging ? (
+                  <p className="text-xs text-muted-foreground">Updating stream key…</p>
+                ) : null}
+                {keySlotConflictWarning ? (
+                  <p
+                    className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                    role="status"
+                  >
+                    {keySlotConflictWarning}
+                  </p>
+                ) : null}
+                {youtubeConnection?.hasYoutubeTempStreamKey !== true ? (
+                  <p className="text-xs text-muted-foreground">
+                    Add a temporary stream key on{' '}
+                    <Link href="/profile/connections" className="underline underline-offset-2">
+                      Connections
+                    </Link>{' '}
+                    to use the temporary key slot.
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+            {willUseTempStreamKey ? (
+              <section className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Automatic stream key switch
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {isDraft
+                      ? 'This livestream will use the temporary stream key until the main key is free.'
+                      : 'Switch to the main stream key before your broadcast starts.'}
+                  </p>
+                </div>
+                <label className="flex items-start gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={autoPromoteEnabled}
+                    disabled={!isEditable}
+                    onChange={(event) =>
+                      updateAutoPromoteSettings({ autoPromoteToMainKey: event.target.checked })
+                    }
+                  />
+                  <span>Automatically switch to the main stream key before start</span>
+                </label>
+                {autoPromoteEnabled ? (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label
+                      htmlFor="livestream-auto-promote-minutes"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Switch timing
+                    </label>
+                    <Select
+                      value={String(autoPromoteMinutes)}
+                      onValueChange={(next) =>
+                        updateAutoPromoteSettings({
+                          autoPromoteToMainKeyMinutes: Number.parseInt(next, 10),
+                        })
+                      }
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger id="livestream-auto-promote-minutes" className="w-[240px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AUTO_PROMOTE_TO_MAIN_KEY_MINUTE_OPTIONS.map((minutes) => (
+                          <SelectItem key={minutes} value={String(minutes)}>
+                            {formatAutoPromoteToMainKeyMinutesLabel(minutes)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
             {connectionsResolvedSuccessfully && schedulablePlatforms.length === 0 ? (
               <div
                 className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900/60 dark:bg-red-950/30"
@@ -1824,6 +2067,14 @@ export function createLivestreamEditorValues(livestream: Livestream): Livestream
       : {}),
     ...(livestream.thumbnailPreviewUrl
       ? { thumbnailPreviewUrl: livestream.thumbnailPreviewUrl }
+      : {}),
+    ...(livestream.keySlot ? { keySlot: livestream.keySlot } : {}),
+    ...(livestream.keySwapPromotedAt ? { keySwapPromotedAt: livestream.keySwapPromotedAt } : {}),
+    ...(livestream.autoPromoteToMainKey === true || livestream.autoPromoteToMainKey === false
+      ? { autoPromoteToMainKey: livestream.autoPromoteToMainKey }
+      : {}),
+    ...(livestream.autoPromoteToMainKeyMinutes != null
+      ? { autoPromoteToMainKeyMinutes: livestream.autoPromoteToMainKeyMinutes }
       : {}),
   };
 }

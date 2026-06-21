@@ -138,6 +138,70 @@ function youtubeTagsMissingAfterUpdate(
   return sent.filter((tag) => !storedLower.has(tag.trim().toLowerCase()));
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function readStoredYouTubeVideoTags(
+  accessToken: string,
+  videoId: string,
+  signal?: AbortSignal
+): Promise<string[] | null> {
+  const verified = await fetchYouTubeVideoSnippet(accessToken, videoId, signal);
+  if (verified.ok === false) {
+    return null;
+  }
+
+  return Array.isArray(verified.snippet.tags)
+    ? verified.snippet.tags.filter((tag): tag is string => typeof tag === 'string')
+    : [];
+}
+
+/**
+ * Polls `videos.list` briefly after a tag update — YouTube often omits tags on the first read-back.
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param videoId - Underlying video id for the live broadcast.
+ * @param sentTags - Normalized tags that were written in the preceding update.
+ * @param signal - Optional abort signal.
+ * @returns Tags still missing after retries, or an empty array when all were stored.
+ */
+async function verifyYouTubeBroadcastTagsStored(
+  accessToken: string,
+  videoId: string,
+  sentTags: readonly string[],
+  signal?: AbortSignal
+): Promise<string[]> {
+  const normalizedSent = normalizeYouTubeSnippetTags(sentTags);
+  if (normalizedSent.length === 0) {
+    return [];
+  }
+
+  const attempts = 6;
+  const delayMs = 400;
+  let lastStored: string[] = [];
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) {
+      await sleep(delayMs);
+    }
+
+    const stored = await readStoredYouTubeVideoTags(accessToken, videoId, signal);
+    if (stored === null) {
+      continue;
+    }
+
+    lastStored = stored;
+    const missing = youtubeTagsMissingAfterUpdate(normalizedSent, stored);
+    if (missing.length === 0) {
+      return [];
+    }
+  }
+
+  return youtubeTagsMissingAfterUpdate(normalizedSent, lastStored);
+}
+
 async function updateYouTubeBroadcastVideoSnippet(
   accessToken: string,
   videoId: string,
@@ -186,16 +250,14 @@ async function updateYouTubeBroadcastVideoSnippet(
     return { ok: true, droppedTags: [] };
   }
 
-  const verified = await fetchYouTubeVideoSnippet(accessToken, videoId, signal);
-  if (verified.ok === false) {
-    return { ok: true, droppedTags: [] };
-  }
+  const droppedTags = await verifyYouTubeBroadcastTagsStored(
+    accessToken,
+    videoId,
+    sentTags,
+    signal
+  );
 
-  const storedTags = Array.isArray(verified.snippet.tags)
-    ? verified.snippet.tags.filter((tag): tag is string => typeof tag === 'string')
-    : [];
-
-  return { ok: true, droppedTags: youtubeTagsMissingAfterUpdate(sentTags, storedTags) };
+  return { ok: true, droppedTags };
 }
 
 /**

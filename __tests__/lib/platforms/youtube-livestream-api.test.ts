@@ -442,6 +442,49 @@ describe('setYouTubeBroadcastSnippetMetadata', () => {
     expect(result).toEqual({ ok: true, droppedTags: [] });
   });
 
+  it('waits for YouTube tag read-back when the first videos.list response is empty', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                categoryId: '22',
+              },
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(mockFetchJson({ id: 'video-1' }))
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [{ id: 'video-1', snippet: { title: 'Live Event', categoryId: '22' } }],
+        })
+      )
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [
+            {
+              id: 'video-1',
+              snippet: {
+                title: 'Live Event',
+                categoryId: '22',
+                tags: ['these are', 'tags'],
+              },
+            },
+          ],
+        })
+      );
+
+    const result = await setYouTubeBroadcastSnippetMetadata(ACCESS_TOKEN, 'video-1', {
+      tags: ['these are', 'tags'],
+    });
+
+    expect(result).toEqual({ ok: true, droppedTags: [] });
+  });
+
   it('updates stream language without category or tags', async () => {
     vi.mocked(global.fetch)
       .mockResolvedValueOnce(

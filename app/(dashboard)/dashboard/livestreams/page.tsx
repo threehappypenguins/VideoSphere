@@ -98,6 +98,9 @@ function statusBadgeLabel(status: LivestreamStatus): string {
 }
 
 function formatKeySwapNote(livestream: Livestream): string | null {
+  if (livestream.keySlotStaleAt) {
+    return `Key: main → stale (never went live) at ${formatScheduledDateTime(livestream.keySlotStaleAt)}`;
+  }
   if (livestream.keySwapPromotedAt) {
     return `Key: temp → promoted to main at ${formatScheduledDateTime(livestream.keySwapPromotedAt)}`;
   }
@@ -231,6 +234,21 @@ export default function LivestreamsPage() {
     [livestreams]
   );
 
+  const armedLivestreamsForKeySlot = useMemo(
+    () =>
+      livestreams.filter(
+        (row) =>
+          (row.status === 'scheduled' || row.status === 'live') &&
+          row.keySlot &&
+          row.targets.includes('youtube')
+      ),
+    [livestreams]
+  );
+
+  const handleKeySlotChanged = useCallback(async () => {
+    await loadLivestreams(undefined, { quiet: true });
+  }, [loadLivestreams]);
+
   const hasLivestreams = livestreams.length > 0;
   const headingDescription = useMemo(
     () =>
@@ -314,6 +332,12 @@ export default function LivestreamsPage() {
             platforms: snapshot.platforms,
             scheduledStartTime: snapshot.scheduledStartTime ?? null,
             scheduledStartTimeZone: snapshot.scheduledStartTimeZone ?? null,
+            ...(snapshot.autoPromoteToMainKey !== undefined
+              ? { autoPromoteToMainKey: snapshot.autoPromoteToMainKey }
+              : {}),
+            ...(snapshot.autoPromoteToMainKeyMinutes != null
+              ? { autoPromoteToMainKeyMinutes: snapshot.autoPromoteToMainKeyMinutes }
+              : {}),
           }),
         });
         if (!response.ok) {
@@ -647,6 +671,8 @@ export default function LivestreamsPage() {
         onSave={handleSaveEdit}
         onScheduled={handleScheduled}
         onChange={setEditingLivestream}
+        armedLivestreamsForKeySlot={armedLivestreamsForKeySlot}
+        onKeySlotChanged={handleKeySlotChanged}
       />
     </div>
   );

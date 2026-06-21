@@ -21,6 +21,10 @@ import {
   parseTagsFromRequestBody,
 } from '@/lib/livestream-upload-metadata';
 import { reconcileLivestreamFromYouTubeById } from '@/lib/livestreams/reconcile-user-lifecycle';
+import {
+  parseAutoPromoteToMainKeyFromRequestBody,
+  parseAutoPromoteToMainKeyMinutesFromRequestBody,
+} from '@/lib/livestreams/auto-promote-main-key';
 import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import {
@@ -43,6 +47,7 @@ const SCHEDULE_ONLY_FIELDS = [
   'youtubeBroadcastId',
   'youtubeBoundStreamId',
   'keySwapPromotedAt',
+  'keySlotStaleAt',
   'youtubeLifecycleStatus',
 ] as const;
 
@@ -200,6 +205,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     tags,
     scheduledStartTime,
     scheduledStartTimeZone,
+    autoPromoteToMainKey,
+    autoPromoteToMainKeyMinutes,
   } = bodyObj;
 
   if (
@@ -210,12 +217,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     platforms === undefined &&
     tags === undefined &&
     scheduledStartTime === undefined &&
-    scheduledStartTimeZone === undefined
+    scheduledStartTimeZone === undefined &&
+    autoPromoteToMainKey === undefined &&
+    autoPromoteToMainKeyMinutes === undefined
   ) {
     const errRes: ApiError = {
       error: 'Bad Request',
       message:
-        'At least one field (title, description, visibility, targets, tags, platforms, scheduledStartTime, scheduledStartTimeZone) must be provided',
+        'At least one field (title, description, visibility, targets, tags, platforms, scheduledStartTime, scheduledStartTimeZone, autoPromoteToMainKey, autoPromoteToMainKeyMinutes) must be provided',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -335,6 +344,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     parsedScheduledStartTimeZone = tzParse.value;
   }
 
+  let parsedAutoPromoteToMainKey: boolean | undefined;
+  if (autoPromoteToMainKey !== undefined) {
+    const autoPromoteParse = parseAutoPromoteToMainKeyFromRequestBody(autoPromoteToMainKey);
+    if (autoPromoteParse.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: autoPromoteParse.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+    parsedAutoPromoteToMainKey = autoPromoteParse.value;
+  }
+
+  let parsedAutoPromoteToMainKeyMinutes: number | undefined;
+  if (autoPromoteToMainKeyMinutes !== undefined) {
+    const minutesParse = parseAutoPromoteToMainKeyMinutesFromRequestBody(
+      autoPromoteToMainKeyMinutes
+    );
+    if (minutesParse.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: minutesParse.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+    parsedAutoPromoteToMainKeyMinutes = minutesParse.value;
+  }
+
   try {
     const updated = await updateLivestream(id, {
       ...(title !== undefined && { title: (title as string).trim() }),
@@ -348,6 +387,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         : {}),
       ...(parsedScheduledStartTimeZone !== undefined
         ? { scheduledStartTimeZone: parsedScheduledStartTimeZone }
+        : {}),
+      ...(parsedAutoPromoteToMainKey !== undefined
+        ? { autoPromoteToMainKey: parsedAutoPromoteToMainKey }
+        : {}),
+      ...(parsedAutoPromoteToMainKeyMinutes !== undefined
+        ? { autoPromoteToMainKeyMinutes: parsedAutoPromoteToMainKeyMinutes }
         : {}),
     });
 

@@ -1,7 +1,10 @@
-import type { ConnectedAccount, LivestreamKeySlot } from '@/types';
+import type { ConnectedAccount, LivestreamKeySlot, Livestream } from '@/types';
+import { classifyMainSlotForPromotion } from '@/lib/livestreams/stale-main-slot';
+import { DEFAULT_AUTO_PROMOTE_TO_MAIN_KEY_MINUTES } from '@/lib/livestreams/auto-promote-main-key';
 
-/** Minutes before scheduled start when a temp-slot livestream may be promoted to main. */
-export const TEMP_TO_MAIN_PROMOTION_WINDOW_MS = 30 * 60 * 1000;
+/** Default promotion window in milliseconds (see {@link DEFAULT_AUTO_PROMOTE_TO_MAIN_KEY_MINUTES}). */
+export const TEMP_TO_MAIN_PROMOTION_WINDOW_MS =
+  DEFAULT_AUTO_PROMOTE_TO_MAIN_KEY_MINUTES * 60 * 1000;
 
 /**
  * Only one livestream is ever actually being streamed to at a time. The very first scheduled
@@ -51,27 +54,30 @@ export function pickNextTempCandidateForPromotion(
 
 /**
  * Returns whether a temp-slot livestream should be promoted to the main key slot now.
- * @param input - Next temp candidate and the current main-slot holder (if any).
+ * @param input - Next temp candidate, the current main-slot holder (if any), and optional lead time.
  * @param now - Current time (injected for testability).
  * @returns True when the main slot is free and the candidate start is within the promotion window.
  */
 export function shouldPromoteTempToMain(
   input: {
     tempCandidate: { scheduledStartTime: string };
-    currentMainSlotStream: { youtubeLifecycleStatus?: string } | null;
+    currentMainSlotStream: Pick<
+      Livestream,
+      'status' | 'scheduledStartTime' | 'youtubeLifecycleStatus' | 'keySlot'
+    > | null;
+    promotionWindowMs?: number;
   },
   now: Date
 ): boolean {
-  const mainIsFree =
-    input.currentMainSlotStream == null ||
-    input.currentMainSlotStream.youtubeLifecycleStatus?.trim() === 'complete';
-
-  if (!mainIsFree) return false;
+  if (classifyMainSlotForPromotion(input.currentMainSlotStream, now) !== 'free') {
+    return false;
+  }
 
   const startMs = Date.parse(input.tempCandidate.scheduledStartTime);
   if (Number.isNaN(startMs)) return false;
 
-  return startMs - now.getTime() <= TEMP_TO_MAIN_PROMOTION_WINDOW_MS;
+  const promotionWindowMs = input.promotionWindowMs ?? TEMP_TO_MAIN_PROMOTION_WINDOW_MS;
+  return startMs - now.getTime() <= promotionWindowMs;
 }
 
 /**
