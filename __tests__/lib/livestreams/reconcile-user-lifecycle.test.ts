@@ -76,8 +76,6 @@ describe('reconcileLivestreamsFromYouTubeForUser', () => {
         tags: [],
         privacyStatus: 'public',
         lifeCycleStatus: 'ready',
-        playlistIds: [],
-        playlistTitles: [],
       },
     });
     vi.mocked(updateLivestream).mockResolvedValue({
@@ -145,8 +143,6 @@ describe('reconcileLivestreamFromYouTubeById', () => {
         tags: [],
         privacyStatus: 'public',
         lifeCycleStatus: 'ready',
-        playlistIds: ['PL1'],
-        playlistTitles: ['My Playlist'],
       },
     });
     vi.mocked(updateLivestream).mockResolvedValue({

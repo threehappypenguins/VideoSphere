@@ -148,7 +148,7 @@ export async function syncLivestreamMetadataToYouTube(
 
   const hasPlaylistIds = (ytPlatforms.playlistIds?.length ?? 0) > 0;
   const hasPlaylistTitles = (ytPlatforms.playlistTitles?.length ?? 0) > 0;
-  if (hasPlaylistIds || hasPlaylistTitles) {
+  if (livestream.status === 'draft' && (hasPlaylistIds || hasPlaylistTitles)) {
     const playlistResult = await addYouTubeVideoToPlaylists(accessToken, broadcastId, {
       playlistIds: ytPlatforms.playlistIds,
       playlistTitles: ytPlatforms.playlistTitles,

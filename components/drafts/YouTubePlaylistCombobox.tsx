@@ -407,7 +407,8 @@ export function YouTubePlaylistCombobox({
         </PopoverContent>
       </Popover>
       <p className="mt-1 text-xs text-muted-foreground">
-        Optional. Choose an existing playlist or create a new one by name at upload time.
+        Optional. Choose an existing playlist or create a new one by name. Playlist can only be set
+        now. After scheduling, change it in YouTube Studio.
       </p>
     </div>
   );

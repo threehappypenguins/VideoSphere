@@ -10,15 +10,6 @@ function tagsEqual(a: readonly string[], b: readonly string[]): boolean {
   return a.every((tag, index) => tag === b[index]);
 }
 
-function playlistMembershipEqual(
-  currentIds: readonly string[] | undefined,
-  currentTitles: readonly string[] | undefined,
-  nextIds: readonly string[],
-  nextTitles: readonly string[]
-): boolean {
-  return tagsEqual(currentIds ?? [], nextIds) && tagsEqual(currentTitles ?? [], nextTitles);
-}
-
 /**
  * Builds a partial livestream update from metadata fetched on YouTube.
  * YouTube is treated as the source of truth on pull — only changed fields are included.
@@ -109,21 +100,6 @@ export function buildLivestreamPatchFromYouTubeMetadata(
     metadata.embeddable !== currentYoutube.embeddable
   ) {
     youtubePatch.embeddable = metadata.embeddable;
-    hasChanges = true;
-  }
-
-  if (
-    metadata.playlistIds !== undefined &&
-    metadata.playlistTitles !== undefined &&
-    !playlistMembershipEqual(
-      currentYoutube.playlistIds,
-      currentYoutube.playlistTitles,
-      metadata.playlistIds,
-      metadata.playlistTitles
-    )
-  ) {
-    youtubePatch.playlistIds = [...metadata.playlistIds];
-    youtubePatch.playlistTitles = [...metadata.playlistTitles];
     hasChanges = true;
   }
 

@@ -34,8 +34,6 @@ describe('buildLivestreamPatchFromYouTubeMetadata', () => {
       lifeCycleStatus: 'live',
       categoryId: '22',
       madeForKids: true,
-      playlistIds: ['PLnew'],
-      playlistTitles: ['Sunday Services'],
     });
 
     expect(patch).toEqual({
@@ -50,21 +48,19 @@ describe('buildLivestreamPatchFromYouTubeMetadata', () => {
         youtube: {
           categoryId: '22',
           madeForKids: true,
-          playlistIds: ['PLnew'],
-          playlistTitles: ['Sunday Services'],
         },
       },
     });
   });
 
-  it('clears local playlist fields when YouTube membership is empty', () => {
+  it('does not overwrite local playlist fields from YouTube pull metadata', () => {
     const patch = buildLivestreamPatchFromYouTubeMetadata(
       makeLivestream({
         platforms: {
           youtube: {
             categoryId: '24',
-            playlistIds: ['PLold'],
-            playlistTitles: ['Old Playlist'],
+            playlistIds: ['PLlocal'],
+            playlistTitles: ['Sunday Services'],
           },
         },
       }),
@@ -76,19 +72,10 @@ describe('buildLivestreamPatchFromYouTubeMetadata', () => {
         scheduledStartTime: '2026-07-01T18:00:00.000Z',
         lifeCycleStatus: 'ready',
         categoryId: '24',
-        playlistIds: [],
-        playlistTitles: [],
       }
     );
 
-    expect(patch).toEqual({
-      platformsPatch: {
-        youtube: {
-          playlistIds: [],
-          playlistTitles: [],
-        },
-      },
-    });
+    expect(patch).toBeNull();
   });
 
   it('returns null when the local row already matches YouTube', () => {

@@ -1,8 +1,4 @@
-import {
-  fetchYouTubePlaylistMembershipForVideo,
-  normalizeYouTubeSnippetTags,
-  type YouTubeVideoPlaylistMembership,
-} from '@/lib/platforms/youtube';
+import { normalizeYouTubeSnippetTags } from '@/lib/platforms/youtube';
 
 const YOUTUBE_LIVE_BROADCASTS_URL = 'https://www.googleapis.com/youtube/v3/liveBroadcasts';
 const YOUTUBE_LIVE_STREAMS_URL = 'https://www.googleapis.com/youtube/v3/liveStreams';
@@ -897,8 +893,6 @@ export async function getYouTubeBroadcastLifecycleStatus(
  * @property defaultAudioLanguage - Underlying video stream language.
  * @property license - Underlying video license when recognized.
  * @property embeddable - Underlying video embeddable flag when present.
- * @property playlistIds - User playlist ids containing the broadcast video when membership was fetched.
- * @property playlistTitles - Playlist titles aligned with {@link playlistIds}.
  * @property thumbnailUrl - Best available YouTube thumbnail URL for the underlying video.
  */
 export interface YouTubeLiveBroadcastPullMetadata {
@@ -913,8 +907,6 @@ export interface YouTubeLiveBroadcastPullMetadata {
   defaultAudioLanguage?: string;
   license?: 'youtube' | 'creativeCommon';
   embeddable?: boolean;
-  playlistIds?: string[];
-  playlistTitles?: string[];
   thumbnailUrl?: string;
 }
 
@@ -1019,20 +1011,6 @@ export async function getYouTubeLiveBroadcastMetadata(
       : undefined;
   const thumbnailUrl = pickBestYouTubeThumbnailUrl(videoSnippet.thumbnails);
 
-  let playlistMembership: YouTubeVideoPlaylistMembership | undefined;
-  const playlistResult = await fetchYouTubePlaylistMembershipForVideo(
-    accessToken,
-    broadcastId,
-    signal
-  );
-  if (playlistResult.ok === true) {
-    playlistMembership = playlistResult.membership;
-  } else {
-    console.warn(
-      `[getYouTubeLiveBroadcastMetadata] Playlist membership pull failed for ${broadcastId}: ${playlistResult.error.message}`
-    );
-  }
-
   return {
     ok: true,
     metadata: {
@@ -1054,12 +1032,6 @@ export async function getYouTubeLiveBroadcastMetadata(
         ? { embeddable: videoStatus.embeddable }
         : {}),
       ...(thumbnailUrl ? { thumbnailUrl } : {}),
-      ...(playlistMembership
-        ? {
-            playlistIds: playlistMembership.playlistIds,
-            playlistTitles: playlistMembership.playlistTitles,
-          }
-        : {}),
     },
   };
 }

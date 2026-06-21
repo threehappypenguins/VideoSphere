@@ -15,6 +15,7 @@ import { uniqueTrimmedPlaylistTitles } from '@/lib/platforms/youtube';
 import type {
   ConnectedAccountPlatform,
   LivestreamPlatforms,
+  LivestreamStatus,
   YouTubeLivestreamFields,
 } from '@/types';
 import { LIVESTREAM_PLATFORMS } from '@/types';
@@ -250,6 +251,32 @@ export function stripServerManagedLivestreamPlatformsPatch(patch: unknown): unkn
 
   return {
     ...patch,
+    youtube,
+  };
+}
+
+/**
+ * Removes playlist fields from a client PATCH when the livestream is no longer a draft.
+ * Playlist is set at schedule time and must be changed in YouTube Studio afterward.
+ * @param patch - Raw partial `platforms` object from a PATCH body.
+ * @param status - Current livestream lifecycle status.
+ * @returns Sanitized patch safe to merge into stored platforms.
+ */
+export function stripLockedLivestreamPlatformsPatchForStatus(
+  patch: unknown,
+  status: LivestreamStatus
+): unknown {
+  const sanitized = stripServerManagedLivestreamPlatformsPatch(patch);
+  if (status === 'draft' || !isPlainObject(sanitized) || !isPlainObject(sanitized.youtube)) {
+    return sanitized;
+  }
+
+  const youtube = { ...sanitized.youtube };
+  delete youtube.playlistIds;
+  delete youtube.playlistTitles;
+
+  return {
+    ...sanitized,
     youtube,
   };
 }

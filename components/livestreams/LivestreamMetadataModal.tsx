@@ -1585,8 +1585,7 @@ export function LivestreamMetadataModal({
                   />
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Press Enter or comma to add tags. Each tag must be at least 2 characters (YouTube
-                  does not accept single-letter tags).
+                  Press Enter or comma to add tags. Each tag must be at least 2 characters.
                 </p>
               </div>
 
@@ -1633,10 +1632,6 @@ export function LivestreamMetadataModal({
                 <p className="text-sm font-medium text-foreground">
                   Scheduled start
                   <RequiredFieldMarker />
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Pre-fill your intended broadcast start time. Date and time are in the selected
-                  timezone. Scheduling on YouTube is a separate step.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -1796,24 +1791,33 @@ export function LivestreamMetadataModal({
                       </div>
 
                       <div>
-                        <label
-                          htmlFor="livestream-youtube-playlist"
-                          className="text-sm font-medium text-foreground"
-                        >
-                          Playlist
-                        </label>
-                        <YouTubePlaylistCombobox
-                          id="livestream-youtube-playlist"
-                          playlistId={youtubePlaylistId}
-                          playlistTitle={youtubePlaylistTitle}
-                          onPlaylistChange={(next) => {
-                            updateYouTubeFields({
-                              playlistIds: next.playlistId ? [next.playlistId] : [],
-                              playlistTitles: next.playlistTitle ? [next.playlistTitle] : [],
-                            });
-                          }}
-                          className={fieldBorderClass('youtube.playlistIds')}
-                        />
+                        {isDraft ? (
+                          <>
+                            <label
+                              htmlFor="livestream-youtube-playlist"
+                              className="text-sm font-medium text-foreground"
+                            >
+                              Playlist
+                            </label>
+                            <YouTubePlaylistCombobox
+                              id="livestream-youtube-playlist"
+                              playlistId={youtubePlaylistId}
+                              playlistTitle={youtubePlaylistTitle}
+                              onPlaylistChange={(next) => {
+                                updateYouTubeFields({
+                                  playlistIds: next.playlistId ? [next.playlistId] : [],
+                                  playlistTitles: next.playlistTitle ? [next.playlistTitle] : [],
+                                });
+                              }}
+                              className={fieldBorderClass('youtube.playlistIds')}
+                            />
+                          </>
+                        ) : isScheduled || value?.status === 'live' ? (
+                          <p className="text-xs text-muted-foreground">
+                            Playlist can only be set before scheduling. After that, change it in
+                            YouTube Studio.
+                          </p>
+                        ) : null}
                       </div>
 
                       <fieldset className="space-y-2">

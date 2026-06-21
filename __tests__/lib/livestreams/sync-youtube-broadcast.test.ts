@@ -39,6 +39,7 @@ import {
   updateYouTubeLiveBroadcast,
   uploadYouTubeLivestreamThumbnail,
 } from '@/lib/platforms/youtube-livestream-api';
+import { addYouTubeVideoToPlaylists } from '@/lib/platforms/youtube';
 
 const USER_ID = 'user-1';
 const LIVESTREAM_ID = 'ls-1';
@@ -127,5 +128,64 @@ describe('syncLivestreamMetadataToYouTube thumbnail cleanup', () => {
       ok: false,
       details: 'Failed to persist YouTube thumbnail URL after upload.',
     });
+  });
+});
+
+describe('syncLivestreamMetadataToYouTube playlist sync', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(updateYouTubeLiveBroadcast).mockResolvedValue({ ok: true });
+    vi.mocked(setYouTubeBroadcastVideoStatus).mockResolvedValue({ ok: true });
+    vi.mocked(setYouTubeBroadcastSnippetMetadata).mockResolvedValue({ ok: true, droppedTags: [] });
+    vi.mocked(addYouTubeVideoToPlaylists).mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('adds the broadcast to playlists only while the livestream is still a draft', async () => {
+    await syncLivestreamMetadataToYouTube(
+      'yt-token',
+      USER_ID,
+      LIVESTREAM_ID,
+      makeLivestream({
+        status: 'draft',
+        youtubeBroadcastId: 'broadcast-1',
+        thumbnailR2Key: undefined,
+        platforms: {
+          youtube: {
+            playlistIds: ['PL123'],
+            playlistTitles: ['Sunday Services'],
+          },
+        },
+      })
+    );
+
+    expect(addYouTubeVideoToPlaylists).toHaveBeenCalledWith('yt-token', 'broadcast-1', {
+      playlistIds: ['PL123'],
+      playlistTitles: ['Sunday Services'],
+      visibility: 'public',
+    });
+  });
+
+  it('does not push playlist changes after scheduling', async () => {
+    await syncLivestreamMetadataToYouTube(
+      'yt-token',
+      USER_ID,
+      LIVESTREAM_ID,
+      makeLivestream({
+        status: 'scheduled',
+        thumbnailR2Key: undefined,
+        platforms: {
+          youtube: {
+            playlistIds: ['PL123'],
+            playlistTitles: ['Sunday Services'],
+          },
+        },
+      })
+    );
+
+    expect(addYouTubeVideoToPlaylists).not.toHaveBeenCalled();
   });
 });

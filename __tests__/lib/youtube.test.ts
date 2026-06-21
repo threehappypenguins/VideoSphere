@@ -1056,4 +1056,17 @@ describe('fetchYouTubePlaylistMembershipForVideo', () => {
       membership: { playlistIds: [], playlistTitles: [] },
     });
   });
+
+  it('returns empty membership when YouTube reports videoNotFound', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { message: 'video not found' } }), { status: 404 })
+    );
+
+    const result = await youtube.fetchYouTubePlaylistMembershipForVideo('tok', 'video-123');
+
+    expect(result).toEqual({
+      ok: true,
+      membership: { playlistIds: [], playlistTitles: [] },
+    });
+  });
 });

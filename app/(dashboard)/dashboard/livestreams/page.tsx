@@ -15,10 +15,6 @@ import type {
   Livestream,
   LivestreamStatus,
 } from '@/types';
-import {
-  LIVESTREAM_LIST_POLL_INTERVAL_MS,
-  shouldPollLivestreamsForReconciliation,
-} from '@/lib/livestreams/near-term-polling';
 import { partitionLivestreams } from '@/lib/livestreams/partition-livestreams';
 import {
   getSchedulableLivestreamPlatforms,
@@ -207,27 +203,6 @@ export default function LivestreamsPage() {
     void loadLivestreams(controller.signal);
     return () => controller.abort();
   }, [loadLivestreams]);
-
-  const shouldPollForReconciliation = useMemo(
-    () => shouldPollLivestreamsForReconciliation(livestreams),
-    [livestreams]
-  );
-
-  useEffect(() => {
-    if (!shouldPollForReconciliation) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const intervalId = window.setInterval(() => {
-      void loadLivestreams(controller.signal, { quiet: true });
-    }, LIVESTREAM_LIST_POLL_INTERVAL_MS);
-
-    return () => {
-      controller.abort();
-      window.clearInterval(intervalId);
-    };
-  }, [loadLivestreams, shouldPollForReconciliation]);
 
   const { drafts, scheduled, live, streamed } = useMemo(
     () => partitionLivestreams(livestreams),

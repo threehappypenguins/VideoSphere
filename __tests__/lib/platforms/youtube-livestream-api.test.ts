@@ -6,6 +6,7 @@ import {
   deleteYouTubeLiveBroadcast,
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
+  getYouTubeLiveBroadcastMetadata,
   matchYouTubeLiveStreamIdByKey,
   pickBestYouTubeThumbnailUrl,
   scheduleYouTubeLiveBroadcast,
@@ -765,5 +766,55 @@ describe('pickBestYouTubeThumbnailUrl', () => {
   it('returns undefined when no usable thumbnail URLs are present', () => {
     expect(pickBestYouTubeThumbnailUrl({})).toBeUndefined();
     expect(pickBestYouTubeThumbnailUrl(null)).toBeUndefined();
+  });
+});
+
+describe('getYouTubeLiveBroadcastMetadata', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('does not call playlistItems.list for scheduled ready broadcasts', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/liveBroadcasts?')) {
+        return mockFetchJson({
+          items: [
+            {
+              snippet: {
+                title: 'Service',
+                description: 'Desc',
+                scheduledStartTime: '2026-07-01T18:00:00Z',
+              },
+              status: { privacyStatus: 'public', lifeCycleStatus: 'ready' },
+            },
+          ],
+        });
+      }
+      if (url.includes('/videos?') && url.includes('part=snippet')) {
+        return mockFetchJson({ items: [{ snippet: { tags: ['church'] } }] });
+      }
+      if (url.includes('/videos?') && url.includes('part=status')) {
+        return mockFetchJson({ items: [{ status: { license: 'youtube' } }] });
+      }
+      if (url.includes('/playlistItems?')) {
+        throw new Error('playlistItems.list should not be called for ready broadcasts');
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await getYouTubeLiveBroadcastMetadata(ACCESS_TOKEN, 'broadcast-ready');
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.metadata) return;
+    expect(result.metadata.lifeCycleStatus).toBe('ready');
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/playlistItems?'),
+      expect.anything()
+    );
   });
 });

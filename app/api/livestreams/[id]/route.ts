@@ -19,6 +19,7 @@ import {
   parseScheduledStartTimeFromRequestBody,
   parseScheduledStartTimeZoneFromRequestBody,
   parseTagsFromRequestBody,
+  stripLockedLivestreamPlatformsPatchForStatus,
 } from '@/lib/livestream-upload-metadata';
 import { reconcileLivestreamFromYouTubeById } from '@/lib/livestreams/reconcile-user-lifecycle';
 import {
@@ -306,6 +307,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   let platformsPatchParse: ReturnType<typeof parseLivestreamPlatformsPatchBody> | undefined;
   if (platforms !== undefined) {
     platformsPatchParse = parseLivestreamPlatformsPatchBody(platforms);
+    if (platformsPatchParse.ok === true && existing.status !== 'draft') {
+      platformsPatchParse = {
+        ok: true,
+        value: stripLockedLivestreamPlatformsPatchForStatus(
+          platformsPatchParse.value,
+          existing.status
+        ),
+      };
+    }
     if (platformsPatchParse.ok === false) {
       const errRes: ApiError = {
         error: 'Bad Request',

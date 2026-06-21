@@ -351,6 +351,9 @@ export async function fetchYouTubePlaylistMembershipForVideo(
       ...(signal ? { signal } : {}),
     });
     if (!res.ok) {
+      if (res.status === 404) {
+        return { ok: true, membership: { playlistIds: [], playlistTitles: [] } };
+      }
       const details = await readApiErrorDetails(res);
       return toError(
         'YOUTUBE_PLAYLIST_ITEMS_LIST_FAILED',
