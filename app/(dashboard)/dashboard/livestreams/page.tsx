@@ -8,15 +8,62 @@ import {
   LivestreamMetadataModal,
   type LivestreamEditorValues,
 } from '@/components/livestreams/LivestreamMetadataModal';
-import type { ApiResponse, ConnectedAccountPublic, Livestream, LivestreamStatus } from '@/types';
+import type {
+  ApiResponse,
+  ConnectedAccountPlatform,
+  ConnectedAccountPublic,
+  Livestream,
+  LivestreamStatus,
+} from '@/types';
 import {
   LIVESTREAM_LIST_POLL_INTERVAL_MS,
   shouldPollLivestreamsForReconciliation,
 } from '@/lib/livestreams/near-term-polling';
 import {
+  getSchedulableLivestreamPlatforms,
   type LivestreamConnectionSnapshot,
   toLivestreamConnectionSnapshots,
 } from '@/lib/livestreams/schedulable-platforms';
+
+function livestreamTargetsEqual(
+  a: readonly ConnectedAccountPlatform[],
+  b: readonly ConnectedAccountPlatform[]
+): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
+}
+
+function isMinimalCreateLivestream(livestream: Livestream): boolean {
+  return (
+    livestream.title.trim() === '' &&
+    livestream.description.trim() === '' &&
+    livestream.tags.length === 0 &&
+    livestream.targets.length === 0 &&
+    !livestream.thumbnailR2Key &&
+    !livestream.thumbnailPreviewUrl &&
+    !livestream.scheduledStartTime &&
+    Object.keys(livestream.platforms ?? {}).length === 0
+  );
+}
+
+function livestreamEditorHasMeaningfulChanges(
+  snapshot: LivestreamEditorValues,
+  baselineTargets: readonly ConnectedAccountPlatform[] | null
+): boolean {
+  const hasTargetsChanged =
+    baselineTargets !== null && !livestreamTargetsEqual(snapshot.targets, baselineTargets);
+
+  return (
+    snapshot.title.trim() !== '' ||
+    snapshot.description.trim() !== '' ||
+    snapshot.tags.length > 0 ||
+    Boolean(snapshot.thumbnailR2Key || snapshot.thumbnailPreviewUrl) ||
+    Boolean(snapshot.scheduledStartTime) ||
+    hasTargetsChanged
+  );
+}
 
 function formatScheduledDateTime(iso: string | undefined): string {
   if (!iso) return '—';
@@ -102,6 +149,14 @@ export default function LivestreamsPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingLivestream, setEditingLivestream] = useState<LivestreamEditorValues | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  /** True after the user successfully saves a newly created livestream in this session. */
+  const [createLivestreamSaved, setCreateLivestreamSaved] = useState(false);
+  /** True only when closing the create session should delete the backing livestream row. */
+  const shouldDeleteCreateLivestreamOnCancelRef = useRef(false);
+  /** True when the modal was opened via New livestream (not from the list). */
+  const [isCreateSession, setIsCreateSession] = useState(false);
+  /** Baseline targets when minimal create opened (updated when auto-fill adds platforms). */
+  const createModalBaselineTargetsRef = useRef<ConnectedAccountPlatform[] | null>(null);
   const duplicatingLivestreamIdRef = useRef<string | null>(null);
 
   const loadLivestreams = useCallback(
@@ -210,20 +265,50 @@ export default function LivestreamsPage() {
     [hasLivestreams, livestreams.length]
   );
 
-  const openEditLivestream = useCallback(async (livestream: Livestream) => {
-    try {
-      const response = await fetch(`/api/livestreams/${livestream.id}`, { cache: 'no-store' });
-      if (!response.ok) {
-        const err = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(err?.message ?? 'Failed to load livestream');
+  const openEditLivestream = useCallback(
+    async (livestream: Livestream, options?: { createSession?: boolean }) => {
+      try {
+        const response = await fetch(`/api/livestreams/${livestream.id}`, { cache: 'no-store' });
+        if (!response.ok) {
+          const err = (await response.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(err?.message ?? 'Failed to load livestream');
+        }
+        const payload = (await response.json()) as ApiResponse<Livestream>;
+        const detail = payload.data ?? livestream;
+
+        if (options?.createSession) {
+          const minimal = isMinimalCreateLivestream(detail);
+          setIsCreateSession(true);
+          shouldDeleteCreateLivestreamOnCancelRef.current = minimal;
+          setCreateLivestreamSaved(!minimal);
+          const schedulable = getSchedulableLivestreamPlatforms(connectionSnapshots);
+          createModalBaselineTargetsRef.current =
+            detail.targets.length > 0 ? [...detail.targets] : [...schedulable];
+        } else {
+          setIsCreateSession(false);
+          shouldDeleteCreateLivestreamOnCancelRef.current = false;
+          setCreateLivestreamSaved(false);
+          createModalBaselineTargetsRef.current = null;
+        }
+
+        setEditingLivestream(createLivestreamEditorValues(detail));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to load livestream');
       }
-      const payload = (await response.json()) as ApiResponse<Livestream>;
-      const detail = payload.data ?? livestream;
-      setEditingLivestream(createLivestreamEditorValues(detail));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to load livestream');
+    },
+    [connectionSnapshots]
+  );
+
+  useEffect(() => {
+    if (!isCreateSession || !editingLivestream) return;
+    if (createModalBaselineTargetsRef.current === null) return;
+    if (
+      editingLivestream.targets.length > 0 &&
+      createModalBaselineTargetsRef.current.length === 0
+    ) {
+      createModalBaselineTargetsRef.current = [...editingLivestream.targets];
     }
-  }, []);
+  }, [editingLivestream, isCreateSession]);
 
   const handleSaveEdit = useCallback(
     async (options?: {
@@ -271,9 +356,17 @@ export default function LivestreamsPage() {
           );
         }
 
+        if (isCreateSession) {
+          setCreateLivestreamSaved(true);
+        }
+
         if (options?.closeAfterSave !== true) {
           setEditingLivestream(createLivestreamEditorValues(savedLivestream));
         } else {
+          setIsCreateSession(false);
+          shouldDeleteCreateLivestreamOnCancelRef.current = false;
+          createModalBaselineTargetsRef.current = null;
+          setCreateLivestreamSaved(false);
           setEditingLivestream(null);
         }
         await loadLivestreams(undefined, { quiet: options?.suppressErrorToast === true });
@@ -291,13 +384,57 @@ export default function LivestreamsPage() {
         setIsSavingEdit(false);
       }
     },
-    [editingLivestream, loadLivestreams]
+    [editingLivestream, isCreateSession, loadLivestreams]
   );
 
   const handleScheduled = useCallback(async () => {
     await loadLivestreams(undefined, { quiet: true });
+    setIsCreateSession(false);
+    shouldDeleteCreateLivestreamOnCancelRef.current = false;
+    createModalBaselineTargetsRef.current = null;
+    setCreateLivestreamSaved(false);
     setEditingLivestream(null);
   }, [loadLivestreams]);
+
+  const handleCloseLivestreamModal = useCallback(async () => {
+    if (
+      isCreateSession &&
+      editingLivestream?.id &&
+      !createLivestreamSaved &&
+      shouldDeleteCreateLivestreamOnCancelRef.current
+    ) {
+      const hasMeaningful = livestreamEditorHasMeaningfulChanges(
+        editingLivestream,
+        createModalBaselineTargetsRef.current
+      );
+      if (hasMeaningful) {
+        const ok = window.confirm(
+          'Discard livestream? Unsaved changes will be lost and this livestream will be deleted.'
+        );
+        if (!ok) return;
+      }
+      try {
+        const response = await fetch(`/api/livestreams/${editingLivestream.id}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) {
+          const err = (await response.json().catch(() => null)) as { message?: string } | null;
+          toast.error(err?.message ?? 'Failed to discard livestream');
+          return;
+        }
+        await loadLivestreams();
+      } catch {
+        toast.error('Failed to discard livestream');
+        return;
+      }
+    }
+
+    setIsCreateSession(false);
+    shouldDeleteCreateLivestreamOnCancelRef.current = false;
+    createModalBaselineTargetsRef.current = null;
+    setCreateLivestreamSaved(false);
+    setEditingLivestream(null);
+  }, [createLivestreamSaved, editingLivestream, isCreateSession, loadLivestreams]);
 
   const handleDeleteLivestream = useCallback(
     async (livestream: Livestream) => {
@@ -389,7 +526,7 @@ export default function LivestreamsPage() {
         throw new Error('Failed to create livestream');
       }
       await loadLivestreams();
-      void openEditLivestream(created);
+      void openEditLivestream(created, { createSession: true });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to create livestream');
     } finally {
@@ -504,12 +641,14 @@ export default function LivestreamsPage() {
       </div>
 
       <LivestreamMetadataModal
-        mode="edit"
+        mode={isCreateSession && !createLivestreamSaved ? 'create' : 'edit'}
         value={editingLivestream}
         initialConnectionSnapshots={connectionSnapshots}
         initialConnectionsResolved={hasLoadedConnections}
         isSaving={isSavingEdit}
-        onClose={() => setEditingLivestream(null)}
+        onClose={() => {
+          void handleCloseLivestreamModal();
+        }}
         onSave={handleSaveEdit}
         onScheduled={handleScheduled}
         onChange={setEditingLivestream}

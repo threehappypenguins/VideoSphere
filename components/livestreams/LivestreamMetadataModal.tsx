@@ -3,7 +3,15 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { RequiredFieldMarker } from '@/components/ui/required-field-marker';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
@@ -56,6 +65,7 @@ import {
 } from '@/lib/platforms/youtube-account-defaults';
 import { cn } from '@/lib/utils';
 import {
+  getDefaultScheduleDate,
   getLocalTimeZone,
   getSupportedTimeZones,
   isPublishAtInPast,
@@ -122,6 +132,20 @@ function LivestreamScheduleInlineError({ message }: { message: string }) {
 
 function isYouTubeMetadataFullyLoaded(state: YouTubeMetadataLoadedState): boolean {
   return state.languages && state.categories && state.accountDefaults;
+}
+
+const LIVESTREAM_SCHEDULE_FIELD_ORDER = ['title', 'scheduledStartTime', 'targets'] as const;
+
+/**
+ * Maps livestream validation field keys to focusable element ids in the modal.
+ * @param field - Validation field key from {@link LivestreamMetadataModal} schedule checks.
+ * @returns DOM id for scroll/focus, or null when unknown.
+ */
+function livestreamFieldFocusId(field: string): string | null {
+  if (field === 'title') return 'livestream-title';
+  if (field === 'scheduledStartTime') return 'livestream-schedule-date';
+  if (field === 'targets') return 'livestream-platforms';
+  return null;
 }
 
 /**
@@ -222,7 +246,9 @@ export function LivestreamMetadataModal({
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [isScheduling, setIsScheduling] = useState(false);
-  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleDate, setScheduleDate] = useState(() =>
+    getDefaultScheduleDate(getLocalTimeZone())
+  );
   const [scheduleTime, setScheduleTime] = useState('');
   const [scheduleTimeZone, setScheduleTimeZone] = useState('');
   const [showMoreExpanded, setShowMoreExpanded] = useState(false);
@@ -355,9 +381,10 @@ export function LivestreamMetadataModal({
         setScheduleTimeZone(tz);
       }
     } else {
-      setScheduleDate('');
+      const tz = getLocalTimeZone();
+      setScheduleDate(getDefaultScheduleDate(tz));
       setScheduleTime('');
-      setScheduleTimeZone(getLocalTimeZone());
+      setScheduleTimeZone(tz);
     }
   }, [livestreamId, value?.scheduledStartTime, value?.scheduledStartTimeZone]);
 
@@ -659,6 +686,13 @@ export function LivestreamMetadataModal({
     if (errors.size > 0) {
       setFieldErrors(errors);
       toast.error('Title is required.');
+      const focusId = livestreamFieldFocusId('title');
+      if (focusId) {
+        requestAnimationFrame(() => {
+          document.getElementById(focusId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          document.getElementById(focusId)?.focus();
+        });
+      }
       return { ok: false };
     }
     setFieldErrors(new Set());
@@ -666,9 +700,11 @@ export function LivestreamMetadataModal({
   }, [commitTagsBeforeSave, value]);
 
   const clearSchedule = () => {
-    setScheduleDate('');
+    clearFieldError('scheduledStartTime');
+    const tz = getLocalTimeZone();
+    setScheduleDate(getDefaultScheduleDate(tz));
     setScheduleTime('');
-    setScheduleTimeZone(getLocalTimeZone());
+    setScheduleTimeZone(tz);
   };
 
   const resolvedScheduledStartTimeIso = useMemo((): string | null => {
@@ -684,6 +720,57 @@ export function LivestreamMetadataModal({
 
   const schedulePastWarning =
     resolvedScheduledStartTimeIso !== null && isPublishAtInPast(resolvedScheduledStartTimeIso);
+
+  const validateBeforeSchedule = useCallback((): { ok: true; tags: string[] } | { ok: false } => {
+    if (!value) return { ok: false };
+    const tags = commitTagsBeforeSave();
+    const errors = new Set<string>();
+
+    if (value.title.trim() === '') {
+      errors.add('title');
+    }
+
+    if (!resolvedScheduledStartTimeIso) {
+      errors.add('scheduledStartTime');
+    }
+
+    const hasYouTubeTarget =
+      value.targets.includes('youtube') ||
+      (value.targets.length === 0 && schedulablePlatforms.includes('youtube'));
+    if (schedulablePlatforms.includes('youtube') && !hasYouTubeTarget) {
+      errors.add('targets');
+    }
+
+    if (errors.size > 0) {
+      setFieldErrors(errors);
+      if (errors.has('title') && errors.size === 1) {
+        toast.error('Title is required.');
+      } else if (errors.has('scheduledStartTime') && errors.size === 1) {
+        toast.error('Choose a scheduled start date and time before scheduling.');
+      } else if (errors.has('targets') && errors.size === 1) {
+        toast.error('Select YouTube before scheduling.');
+      } else {
+        toast.error('Fill in required fields before scheduling.');
+      }
+
+      const firstField = LIVESTREAM_SCHEDULE_FIELD_ORDER.find((field) => errors.has(field));
+      if (firstField) {
+        const focusId = livestreamFieldFocusId(firstField);
+        if (focusId) {
+          requestAnimationFrame(() => {
+            document
+              .getElementById(focusId)
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            document.getElementById(focusId)?.focus();
+          });
+        }
+      }
+      return { ok: false };
+    }
+
+    setFieldErrors(new Set());
+    return { ok: true, tags };
+  }, [commitTagsBeforeSave, resolvedScheduledStartTimeIso, schedulablePlatforms, value]);
 
   const handleThumbnailFile = async (file: File) => {
     if (!value || !livestreamId || !isEditable) return;
@@ -871,14 +958,11 @@ export function LivestreamMetadataModal({
     }
   };
 
-  const resolveScheduledStartTimeIso = useCallback((): string | null => {
-    return resolvedScheduledStartTimeIso ?? value?.scheduledStartTime ?? null;
-  }, [resolvedScheduledStartTimeIso, value?.scheduledStartTime]);
-
   const handleScheduleLivestream = useCallback(async () => {
     if (!value || !isDraft) return;
 
-    const validation = validateBeforeSave();
+    setScheduleError(null);
+    const validation = validateBeforeSchedule();
     if (!validation.ok) {
       return;
     }
@@ -888,7 +972,6 @@ export function LivestreamMetadataModal({
 
     const scheduledStartTime = persistable.scheduledStartTime ?? null;
     if (!scheduledStartTime) {
-      setScheduleError('Choose a scheduled start date, time, and timezone before scheduling.');
       return;
     }
 
@@ -901,13 +984,6 @@ export function LivestreamMetadataModal({
       return;
     }
 
-    if (!persistable.targets.includes('youtube')) {
-      setFieldErrors(new Set(['targets']));
-      setScheduleError('Select YouTube as a target platform before scheduling.');
-      return;
-    }
-
-    setScheduleError(null);
     setIsScheduling(true);
 
     try {
@@ -962,10 +1038,55 @@ export function LivestreamMetadataModal({
     onSave,
     onScheduled,
     schedulablePlatforms,
-    validateBeforeSave,
+    validateBeforeSchedule,
     value,
     youtubeConnection,
   ]);
+
+  const handleConnectNavigation = useCallback(async () => {
+    if (!value || thumbnailUploading || isScheduling) return;
+
+    const isCreateLivestreamEmptyForConnect =
+      mode === 'create' &&
+      value.title.trim() === '' &&
+      value.description.trim() === '' &&
+      value.tags.length === 0 &&
+      tagInput.trim() === '' &&
+      !(value.thumbnailR2Key || value.thumbnailPreviewUrl) &&
+      !value.scheduledStartTime;
+
+    commitTagsBeforeSave();
+
+    if (isCreateLivestreamEmptyForConnect) {
+      onClose();
+      router.push('/profile/connections');
+      return;
+    }
+
+    const persistable = buildPersistableValue();
+    if (!persistable) return;
+
+    const result = await onSave({ closeAfterSave: false, values: persistable });
+    if (result.saved) {
+      router.push('/profile/connections');
+    }
+  }, [
+    buildPersistableValue,
+    commitTagsBeforeSave,
+    isScheduling,
+    mode,
+    onClose,
+    onSave,
+    router,
+    tagInput,
+    thumbnailUploading,
+    value,
+  ]);
+
+  const handleConnectClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    void handleConnectNavigation();
+  };
 
   const handleClose = () => {
     if (thumbnailUploading || isScheduling) return;
@@ -978,21 +1099,6 @@ export function LivestreamMetadataModal({
     isEditable &&
     value.title.trim() !== '' &&
     !thumbnailUploading &&
-    !isScheduling;
-
-  const hasYouTubeTarget =
-    Boolean(value?.targets.includes('youtube')) ||
-    (Boolean(value) && value.targets.length === 0 && schedulablePlatforms.includes('youtube'));
-
-  const canSchedule =
-    Boolean(value) &&
-    isDraft &&
-    value.title.trim() !== '' &&
-    Boolean(resolveScheduledStartTimeIso()) &&
-    schedulablePlatforms.includes('youtube') &&
-    hasYouTubeTarget &&
-    !thumbnailUploading &&
-    !isSaving &&
     !isScheduling;
 
   const sharedThumbnailSelectionLabel =
@@ -1053,7 +1159,7 @@ export function LivestreamMetadataModal({
                 </p>
               </div>
             ) : null}
-            <section className="space-y-2">
+            <section id="livestream-platforms" tabIndex={-1} className="space-y-2 outline-none">
               <h3 className="text-sm font-semibold text-foreground">Platforms</h3>
               {displayPlatforms.length > 0 ? (
                 <LivestreamPlatformToggles
@@ -1063,7 +1169,7 @@ export function LivestreamMetadataModal({
                   connectionsResolved={connectionsResolvedSuccessfully}
                   onToggle={handleTogglePlatform}
                   onConnectClick={() => {
-                    router.push('/profile/connections');
+                    void handleConnectNavigation();
                   }}
                 />
               ) : connectionsResolvedSuccessfully ? (
@@ -1081,7 +1187,11 @@ export function LivestreamMetadataModal({
               {schedulablePlatforms.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
                   Don&apos;t see a specific platform?{' '}
-                  <Link href="/profile/connections" className="underline underline-offset-2">
+                  <Link
+                    href="/profile/connections"
+                    className="underline underline-offset-2"
+                    onClick={handleConnectClick}
+                  >
                     Manage connections
                   </Link>
                 </p>
@@ -1092,6 +1202,7 @@ export function LivestreamMetadataModal({
               <div>
                 <label htmlFor="livestream-title" className="text-sm font-medium text-foreground">
                   Title
+                  <RequiredFieldMarker />
                 </label>
                 <input
                   id="livestream-title"
@@ -1233,7 +1344,10 @@ export function LivestreamMetadataModal({
               className="space-y-3 rounded-lg border border-border bg-background p-4"
             >
               <div>
-                <p className="text-sm font-medium text-foreground">Scheduled start</p>
+                <p className="text-sm font-medium text-foreground">
+                  Scheduled start
+                  <RequiredFieldMarker />
+                </p>
                 <p className="text-xs text-muted-foreground">
                   Pre-fill your intended broadcast start time. Date and time are in the selected
                   timezone. Scheduling on YouTube is a separate step.
@@ -1251,7 +1365,9 @@ export function LivestreamMetadataModal({
                     id="livestream-schedule-date"
                     type="date"
                     value={scheduleDate}
+                    aria-invalid={fieldErrors.has('scheduledStartTime')}
                     onChange={(event) => {
+                      clearFieldError('scheduledStartTime');
                       setScheduleDate(event.target.value);
                     }}
                     className={cn(
@@ -1270,11 +1386,13 @@ export function LivestreamMetadataModal({
                   <Select
                     value={scheduleTime}
                     onValueChange={(next) => {
+                      clearFieldError('scheduledStartTime');
                       setScheduleTime(next);
                     }}
                   >
                     <SelectTrigger
                       id="livestream-schedule-time"
+                      aria-invalid={fieldErrors.has('scheduledStartTime')}
                       className={cn(
                         fieldBorderClass('scheduledStartTime'),
                         'mt-1 flex h-10 items-center justify-between text-left'
@@ -1303,6 +1421,7 @@ export function LivestreamMetadataModal({
                     value={effectiveScheduleTimeZone}
                     options={supportedTimeZones}
                     onValueChange={(next) => {
+                      clearFieldError('scheduledStartTime');
                       setScheduleTimeZone(next);
                     }}
                     className={cn(
@@ -1312,6 +1431,11 @@ export function LivestreamMetadataModal({
                   />
                 </div>
               </div>
+              {fieldErrors.has('scheduledStartTime') ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Choose a scheduled start date and time.
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-3">
                 {isEditable ? (
                   <button
@@ -1601,7 +1725,7 @@ export function LivestreamMetadataModal({
               onClick={() => {
                 void handleScheduleLivestream();
               }}
-              disabled={!canSchedule}
+              disabled={thumbnailUploading || isSaving || isScheduling}
               className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
             >
               {isScheduling ? 'Scheduling…' : 'Schedule livestream'}
