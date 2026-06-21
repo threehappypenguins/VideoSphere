@@ -1,4 +1,8 @@
-import { normalizeYouTubeSnippetTags } from '@/lib/platforms/youtube';
+import {
+  fetchYouTubePlaylistMembershipForVideo,
+  normalizeYouTubeSnippetTags,
+  type YouTubeVideoPlaylistMembership,
+} from '@/lib/platforms/youtube';
 
 const YOUTUBE_LIVE_BROADCASTS_URL = 'https://www.googleapis.com/youtube/v3/liveBroadcasts';
 const YOUTUBE_LIVE_STREAMS_URL = 'https://www.googleapis.com/youtube/v3/liveStreams';
@@ -9,6 +13,27 @@ const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3
 export const DEFAULT_YOUTUBE_VIDEO_CATEGORY_ID = '22';
 
 type YouTubeVideoSnippetRecord = Record<string, unknown>;
+
+/**
+ * Picks the largest available thumbnail URL from a YouTube `snippet.thumbnails` object.
+ * @param thumbnails - Raw thumbnails map from `videos.list` or `thumbnails.set`.
+ * @returns HTTPS thumbnail URL when present.
+ */
+export function pickBestYouTubeThumbnailUrl(thumbnails: unknown): string | undefined {
+  if (!thumbnails || typeof thumbnails !== 'object') {
+    return undefined;
+  }
+
+  const record = thumbnails as Record<string, { url?: string }>;
+  for (const size of ['maxres', 'standard', 'high', 'medium', 'default'] as const) {
+    const url = record[size]?.url?.trim();
+    if (url) {
+      return url;
+    }
+  }
+
+  return undefined;
+}
 
 /**
  * Patch for writable `videos.snippet` fields on a live broadcast's underlying video.
@@ -751,13 +776,13 @@ export async function uploadYouTubeLivestreamThumbnail(
   }
 
   const responseBody = (await res.json().catch(() => ({}))) as {
-    items?: Array<{ default?: { url?: string } }>;
+    items?: Array<Record<string, { url?: string }>>;
   };
-  const thumbnailUrl = responseBody.items?.[0]?.default?.url?.trim() ?? '';
+  const thumbnailUrl = pickBestYouTubeThumbnailUrl(responseBody.items?.[0]);
   if (!thumbnailUrl) {
     return {
       ok: false,
-      details: 'YouTube thumbnails.set succeeded but did not return a default thumbnail URL.',
+      details: 'YouTube thumbnails.set succeeded but did not return a thumbnail URL.',
     };
   }
 
@@ -795,4 +820,184 @@ export async function getYouTubeBroadcastLifecycleStatus(
   const lifeCycleStatus = body.items?.[0]?.status?.lifeCycleStatus?.trim() ?? null;
 
   return { ok: true, lifeCycleStatus };
+}
+
+/**
+ * Metadata read from YouTube for a linked live broadcast and its underlying video.
+ * @property title - Broadcast title.
+ * @property description - Broadcast description.
+ * @property scheduledStartTime - ISO 8601 scheduled start when set on YouTube.
+ * @property privacyStatus - Broadcast privacy mapped to VideoSphere visibility.
+ * @property lifeCycleStatus - Raw `liveBroadcasts.status.lifeCycleStatus`.
+ * @property madeForKids - When set, from `status.selfDeclaredMadeForKids`.
+ * @property categoryId - Underlying video category id.
+ * @property tags - Underlying video tags.
+ * @property defaultAudioLanguage - Underlying video stream language.
+ * @property license - Underlying video license when recognized.
+ * @property embeddable - Underlying video embeddable flag when present.
+ * @property playlistIds - User playlist ids containing the broadcast video when membership was fetched.
+ * @property playlistTitles - Playlist titles aligned with {@link playlistIds}.
+ * @property thumbnailUrl - Best available YouTube thumbnail URL for the underlying video.
+ */
+export interface YouTubeLiveBroadcastPullMetadata {
+  title: string;
+  description: string;
+  scheduledStartTime?: string;
+  privacyStatus: 'public' | 'unlisted' | 'private';
+  lifeCycleStatus: string | null;
+  madeForKids?: boolean;
+  categoryId?: string;
+  tags: string[];
+  defaultAudioLanguage?: string;
+  license?: 'youtube' | 'creativeCommon';
+  embeddable?: boolean;
+  playlistIds?: string[];
+  playlistTitles?: string[];
+  thumbnailUrl?: string;
+}
+
+function privacyStatusFromYouTube(
+  value: string | undefined
+): YouTubeLiveBroadcastPullMetadata['privacyStatus'] {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'private') return 'private';
+  if (normalized === 'unlisted') return 'unlisted';
+  return 'public';
+}
+
+/**
+ * Reads editable livestream metadata from a YouTube live broadcast and its underlying video.
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param broadcastId - Live broadcast resource id (same as the underlying video id).
+ * @param signal - Optional abort signal.
+ * @returns Parsed metadata, `null` when the broadcast no longer exists, or upstream error details.
+ */
+export async function getYouTubeLiveBroadcastMetadata(
+  accessToken: string,
+  broadcastId: string,
+  signal?: AbortSignal
+): Promise<
+  { ok: true; metadata: YouTubeLiveBroadcastPullMetadata | null } | { ok: false; details: string }
+> {
+  const broadcastUrl = new URL(YOUTUBE_LIVE_BROADCASTS_URL);
+  broadcastUrl.searchParams.set('part', 'snippet,status');
+  broadcastUrl.searchParams.set('id', broadcastId);
+
+  const broadcastRes = await fetch(broadcastUrl.toString(), {
+    headers: youtubeAuthHeaders(accessToken),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!broadcastRes.ok) {
+    return { ok: false, details: await readYouTubeApiErrorDetails(broadcastRes) };
+  }
+
+  const broadcastBody = (await broadcastRes.json().catch(() => ({}))) as {
+    items?: Array<{
+      snippet?: {
+        title?: string;
+        description?: string;
+        scheduledStartTime?: string;
+      };
+      status?: {
+        privacyStatus?: string;
+        lifeCycleStatus?: string;
+        selfDeclaredMadeForKids?: boolean;
+      };
+    }>;
+  };
+
+  const broadcast = broadcastBody.items?.[0];
+  if (!broadcast) {
+    return { ok: true, metadata: null };
+  }
+
+  const videoFetched = await fetchYouTubeVideoSnippet(accessToken, broadcastId, signal);
+  let videoSnippet: YouTubeVideoSnippetRecord = {};
+  let videoStatus: { license?: string; embeddable?: boolean } = {};
+
+  if (videoFetched.ok === true) {
+    videoSnippet = videoFetched.snippet;
+    const videoStatusUrl = new URL(YOUTUBE_VIDEOS_URL);
+    videoStatusUrl.searchParams.set('part', 'status');
+    videoStatusUrl.searchParams.set('id', broadcastId);
+    const videoStatusRes = await fetch(videoStatusUrl.toString(), {
+      headers: youtubeAuthHeaders(accessToken),
+      ...(signal ? { signal } : {}),
+    });
+    if (videoStatusRes.ok) {
+      const videoStatusBody = (await videoStatusRes.json().catch(() => ({}))) as {
+        items?: Array<{ status?: { license?: string; embeddable?: boolean } }>;
+      };
+      videoStatus = videoStatusBody.items?.[0]?.status ?? {};
+    }
+  }
+
+  const scheduledStartTime = broadcast.snippet?.scheduledStartTime?.trim();
+  const parsedStartMs = scheduledStartTime ? Date.parse(scheduledStartTime) : Number.NaN;
+
+  const rawTags = videoSnippet.tags;
+  const tags = Array.isArray(rawTags)
+    ? rawTags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '')
+    : [];
+
+  const rawLicense = videoStatus.license?.trim().toLowerCase();
+  const license =
+    rawLicense === 'creativecommon' || rawLicense === 'creative_common'
+      ? 'creativeCommon'
+      : rawLicense === 'youtube'
+        ? 'youtube'
+        : undefined;
+
+  const categoryId =
+    typeof videoSnippet.categoryId === 'string' ? videoSnippet.categoryId.trim() : undefined;
+  const defaultAudioLanguage =
+    typeof videoSnippet.defaultAudioLanguage === 'string'
+      ? videoSnippet.defaultAudioLanguage.trim()
+      : undefined;
+  const thumbnailUrl = pickBestYouTubeThumbnailUrl(videoSnippet.thumbnails);
+
+  let playlistMembership: YouTubeVideoPlaylistMembership | undefined;
+  const playlistResult = await fetchYouTubePlaylistMembershipForVideo(
+    accessToken,
+    broadcastId,
+    signal
+  );
+  if (playlistResult.ok === true) {
+    playlistMembership = playlistResult.membership;
+  } else {
+    console.warn(
+      `[getYouTubeLiveBroadcastMetadata] Playlist membership pull failed for ${broadcastId}: ${playlistResult.error.message}`
+    );
+  }
+
+  return {
+    ok: true,
+    metadata: {
+      title: broadcast.snippet?.title?.trim() ?? '',
+      description: broadcast.snippet?.description ?? '',
+      ...(Number.isFinite(parsedStartMs)
+        ? { scheduledStartTime: new Date(parsedStartMs).toISOString() }
+        : {}),
+      privacyStatus: privacyStatusFromYouTube(broadcast.status?.privacyStatus),
+      lifeCycleStatus: broadcast.status?.lifeCycleStatus?.trim() ?? null,
+      ...(typeof broadcast.status?.selfDeclaredMadeForKids === 'boolean'
+        ? { madeForKids: broadcast.status.selfDeclaredMadeForKids }
+        : {}),
+      ...(categoryId ? { categoryId } : {}),
+      tags,
+      ...(defaultAudioLanguage ? { defaultAudioLanguage } : {}),
+      ...(license ? { license } : {}),
+      ...(typeof videoStatus.embeddable === 'boolean'
+        ? { embeddable: videoStatus.embeddable }
+        : {}),
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      ...(playlistMembership
+        ? {
+            playlistIds: playlistMembership.playlistIds,
+            playlistTitles: playlistMembership.playlistTitles,
+          }
+        : {}),
+    },
+  };
 }

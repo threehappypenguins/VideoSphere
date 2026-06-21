@@ -511,6 +511,16 @@ export interface YouTubeLivestreamFields {
    * Stored on the live broadcast, not the video draft.
    */
   playlistTitles?: string[];
+  /**
+   * Default thumbnail URL on YouTube after upload (`thumbnails.set` / `videos.list`).
+   * Server-managed — not accepted from client PATCH bodies.
+   */
+  thumbnailUrl?: string;
+  /**
+   * ISO timestamp of the last YouTube thumbnail upload from VideoSphere.
+   * Used to bust CDN caches when building preview URLs.
+   */
+  thumbnailUpdatedAt?: string;
 }
 
 /**

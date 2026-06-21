@@ -20,8 +20,9 @@ import {
   parseScheduledStartTimeZoneFromRequestBody,
   parseTagsFromRequestBody,
 } from '@/lib/livestream-upload-metadata';
+import { reconcileLivestreamFromYouTubeById } from '@/lib/livestreams/reconcile-user-lifecycle';
+import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
-import { getObjectUrl, isLivestreamThumbnailFinalKeyForUser } from '@/lib/r2';
 import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
@@ -46,29 +47,6 @@ const SCHEDULE_ONLY_FIELDS = [
 ] as const;
 
 const EDITABLE_STATUSES = new Set<Livestream['status']>(['draft', 'scheduled']);
-
-async function livestreamResponseWithThumbnailPreview(
-  livestream: Livestream,
-  userId: string,
-  livestreamId: string
-): Promise<Livestream> {
-  const key = livestream.thumbnailR2Key;
-  if (!key || !isLivestreamThumbnailFinalKeyForUser(key, userId, livestreamId)) {
-    return livestream;
-  }
-
-  let thumbnailPreviewUrl: string | undefined;
-  try {
-    thumbnailPreviewUrl = await getObjectUrl(key);
-  } catch {
-    thumbnailPreviewUrl = undefined;
-  }
-
-  return {
-    ...livestream,
-    ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
-  };
-}
 
 function rejectScheduleOnlyFields(body: Record<string, unknown>): ApiError | null {
   for (const field of SCHEDULE_ONLY_FIELDS) {
@@ -107,7 +85,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
 
   try {
-    const livestream = await getLivestreamById(id);
+    const livestream =
+      (await reconcileLivestreamFromYouTubeById(userId, id)) ?? (await getLivestreamById(id));
     if (!livestream || livestream.userId !== userId) {
       const errRes: ApiError = {
         error: 'Not Found',
@@ -117,7 +96,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    const data = await livestreamResponseWithThumbnailPreview(livestream, userId, id);
+    const data = await livestreamWithThumbnailPreview(livestream, userId, id);
     const response: ApiResponse<Livestream> = { data };
     return NextResponse.json(response);
   } catch (err) {
@@ -405,9 +384,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           syncResult.droppedTags
         );
       }
+
+      const synced = await getLivestreamById(id);
+      const data = await livestreamWithThumbnailPreview(synced ?? updated, userId, id);
+      const response: ApiResponse<Livestream> = {
+        data,
+        message: 'Livestream updated',
+      };
+      return NextResponse.json(response);
     }
 
-    const data = await livestreamResponseWithThumbnailPreview(updated, userId, id);
+    const data = await livestreamWithThumbnailPreview(updated, userId, id);
     const response: ApiResponse<Livestream> = {
       data,
       message: 'Livestream updated',

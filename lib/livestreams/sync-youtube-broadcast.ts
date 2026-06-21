@@ -3,6 +3,7 @@ import {
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { resolveYouTubeCategoryIdForLivestreamSync } from '@/lib/livestreams/resolve-youtube-livestream-sync-fields';
+import { cleanupLivestreamThumbnailAfterYouTubeSync } from '@/lib/livestreams/cleanup-livestream-thumbnail-after-youtube-sync';
 import {
   setYouTubeBroadcastSnippetMetadata,
   setYouTubeBroadcastVideoStatus,
@@ -131,6 +132,17 @@ export async function syncLivestreamMetadataToYouTube(
     );
     if (thumbResult.ok === false) {
       return thumbResult;
+    }
+
+    const cleanupError = await cleanupLivestreamThumbnailAfterYouTubeSync(
+      userId,
+      livestreamId,
+      thumbKey,
+      thumbResult.thumbnailUrl,
+      new Date().toISOString()
+    );
+    if (cleanupError) {
+      return { ok: false, details: cleanupError };
     }
   }
 

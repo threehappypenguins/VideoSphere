@@ -8,7 +8,7 @@ import {
 } from '@/lib/repositories/livestreams';
 
 /**
- * DELETE /api/livestreams/[id]/thumbnail — remove custom thumbnail from livestream and delete R2 object.
+ * DELETE /api/livestreams/[id]/thumbnail — remove a draft thumbnail from R2 before scheduling.
  */
 export async function DELETE(
   req: NextRequest,
@@ -32,13 +32,28 @@ export async function DELETE(
     );
   }
 
+  if (livestream.status !== 'draft') {
+    return NextResponse.json(
+      {
+        error: 'Conflict',
+        message: 'Cannot remove a thumbnail after the livestream has been scheduled on YouTube.',
+        statusCode: 409,
+      },
+      { status: 409 }
+    );
+  }
+
   const key =
     livestream.thumbnailR2Key &&
     isLivestreamThumbnailFinalKeyForUser(livestream.thumbnailR2Key, userId, livestreamId)
       ? livestream.thumbnailR2Key
       : null;
 
-  // Clear the livestream fields first. If updateLivestream fails the R2 object is still intact and the
+  if (!key && !livestream.thumbnailR2Key) {
+    return NextResponse.json({ data: livestream, message: 'Thumbnail removed' });
+  }
+
+  // Clear stored thumbnail fields first. If updateLivestream fails the R2 object is still intact and the
   // client can retry. The reverse ordering (R2 delete first) is worse: a successful R2 delete
   // followed by a failed updateLivestream leaves the livestream referencing a now-deleted object.
   try {

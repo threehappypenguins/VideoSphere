@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { reconcileLivestreamLifecycleForUser } from '@/lib/livestreams/reconcile-user-lifecycle';
+import {
+  reconcileLivestreamFromYouTubeById,
+  reconcileLivestreamsFromYouTubeForUser,
+} from '@/lib/livestreams/reconcile-user-lifecycle';
 import type { Livestream } from '@/types';
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
@@ -9,7 +12,9 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
 
 vi.mock('@/lib/repositories/livestreams', () => ({
   listLivestreamsByUser: vi.fn(),
+  getLivestreamById: vi.fn(),
   updateLivestream: vi.fn(),
+  deleteLivestream: vi.fn(),
 }));
 
 vi.mock('@/lib/platforms/token-refresh', () => ({
@@ -17,13 +22,18 @@ vi.mock('@/lib/platforms/token-refresh', () => ({
 }));
 
 vi.mock('@/lib/platforms/youtube-livestream-api', () => ({
-  getYouTubeBroadcastLifecycleStatus: vi.fn(),
+  getYouTubeLiveBroadcastMetadata: vi.fn(),
 }));
 
+import {
+  listLivestreamsByUser,
+  getLivestreamById,
+  updateLivestream,
+  deleteLivestream,
+} from '@/lib/repositories/livestreams';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
-import { listLivestreamsByUser, updateLivestream } from '@/lib/repositories/livestreams';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
-import { getYouTubeBroadcastLifecycleStatus } from '@/lib/platforms/youtube-livestream-api';
+import { getYouTubeLiveBroadcastMetadata } from '@/lib/platforms/youtube-livestream-api';
 
 const USER_ID = 'user-1';
 
@@ -44,7 +54,7 @@ function makeLivestream(overrides: Partial<Livestream> & { id: string }): Livest
   };
 }
 
-describe('reconcileLivestreamLifecycleForUser', () => {
+describe('reconcileLivestreamsFromYouTubeForUser', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(getConnectedAccountWithTokens).mockResolvedValue({ id: 'acct-1' } as never);
@@ -55,37 +65,113 @@ describe('reconcileLivestreamLifecycleForUser', () => {
     vi.resetAllMocks();
   });
 
-  it('updates scheduled livestreams to live when YouTube reports testing', async () => {
-    const row = makeLivestream({ id: 'ls-1', status: 'scheduled' });
+  it('updates scheduled livestreams from YouTube metadata on list refresh', async () => {
+    const row = makeLivestream({ id: 'ls-1', title: 'Old title' });
     vi.mocked(listLivestreamsByUser).mockResolvedValue([row]);
-    vi.mocked(getYouTubeBroadcastLifecycleStatus).mockResolvedValue({
+    vi.mocked(getYouTubeLiveBroadcastMetadata).mockResolvedValue({
       ok: true,
-      lifeCycleStatus: 'testing',
+      metadata: {
+        title: 'Updated in YouTube Studio',
+        description: 'New description',
+        tags: [],
+        privacyStatus: 'public',
+        lifeCycleStatus: 'ready',
+        playlistIds: [],
+        playlistTitles: [],
+      },
     });
     vi.mocked(updateLivestream).mockResolvedValue({
       ...row,
-      status: 'live',
-      youtubeLifecycleStatus: 'testing',
+      title: 'Updated in YouTube Studio',
+      description: 'New description',
+      $updatedAt: '2026-01-02T00:00:00.000Z',
     });
 
-    const updates = await reconcileLivestreamLifecycleForUser(USER_ID);
+    const updates = await reconcileLivestreamsFromYouTubeForUser(USER_ID);
 
     expect(updates).toBe(1);
-    expect(updateLivestream).toHaveBeenCalledWith('ls-1', {
-      youtubeLifecycleStatus: 'testing',
-      status: 'live',
-    });
+    expect(updateLivestream).toHaveBeenCalledWith(
+      'ls-1',
+      expect.objectContaining({
+        title: 'Updated in YouTube Studio',
+        description: 'New description',
+      })
+    );
   });
 
-  it('skips rows without a broadcast id or ended status', async () => {
+  it('skips rows without a broadcast id or failed status', async () => {
     vi.mocked(listLivestreamsByUser).mockResolvedValue([
       makeLivestream({ id: 'draft', status: 'draft', youtubeBroadcastId: undefined }),
-      makeLivestream({ id: 'ended', status: 'ended' }),
+      makeLivestream({ id: 'failed', status: 'failed' }),
     ]);
 
-    const updates = await reconcileLivestreamLifecycleForUser(USER_ID);
+    const updates = await reconcileLivestreamsFromYouTubeForUser(USER_ID);
 
     expect(updates).toBe(0);
-    expect(getYouTubeBroadcastLifecycleStatus).not.toHaveBeenCalled();
+    expect(getYouTubeLiveBroadcastMetadata).not.toHaveBeenCalled();
+  });
+
+  it('deletes local rows when YouTube no longer has the linked broadcast', async () => {
+    const row = makeLivestream({ id: 'ls-deleted', title: 'Gone on YouTube' });
+    vi.mocked(listLivestreamsByUser).mockResolvedValue([row]);
+    vi.mocked(getYouTubeLiveBroadcastMetadata).mockResolvedValue({
+      ok: true,
+      metadata: null,
+    });
+
+    const updates = await reconcileLivestreamsFromYouTubeForUser(USER_ID);
+
+    expect(updates).toBe(1);
+    expect(deleteLivestream).toHaveBeenCalledWith('ls-deleted');
+    expect(updateLivestream).not.toHaveBeenCalled();
+  });
+});
+
+describe('reconcileLivestreamFromYouTubeById', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(getConnectedAccountWithTokens).mockResolvedValue({ id: 'acct-1' } as never);
+    vi.mocked(refreshTokenIfNeeded).mockResolvedValue({ accessToken: 'yt-token' } as never);
+  });
+
+  it('pulls YouTube metadata when opening a linked livestream', async () => {
+    const row = makeLivestream({ id: 'ls-1', title: 'Before open' });
+    vi.mocked(getLivestreamById).mockResolvedValue(row);
+    vi.mocked(getYouTubeLiveBroadcastMetadata).mockResolvedValue({
+      ok: true,
+      metadata: {
+        title: 'After open',
+        description: '',
+        tags: [],
+        privacyStatus: 'public',
+        lifeCycleStatus: 'ready',
+        playlistIds: ['PL1'],
+        playlistTitles: ['My Playlist'],
+      },
+    });
+    vi.mocked(updateLivestream).mockResolvedValue({
+      ...row,
+      title: 'After open',
+      $updatedAt: '2026-01-02T00:00:00.000Z',
+    });
+
+    const result = await reconcileLivestreamFromYouTubeById(USER_ID, 'ls-1');
+
+    expect(result?.title).toBe('After open');
+    expect(getYouTubeLiveBroadcastMetadata).toHaveBeenCalledWith('yt-token', 'broadcast-ls-1');
+  });
+
+  it('returns null when YouTube deleted the linked broadcast', async () => {
+    const row = makeLivestream({ id: 'ls-1', title: 'Before open' });
+    vi.mocked(getLivestreamById).mockResolvedValue(row);
+    vi.mocked(getYouTubeLiveBroadcastMetadata).mockResolvedValue({
+      ok: true,
+      metadata: null,
+    });
+
+    const result = await reconcileLivestreamFromYouTubeById(USER_ID, 'ls-1');
+
+    expect(result).toBeNull();
+    expect(deleteLivestream).toHaveBeenCalledWith('ls-1');
   });
 });

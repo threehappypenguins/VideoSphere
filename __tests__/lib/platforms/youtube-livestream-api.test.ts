@@ -7,6 +7,7 @@ import {
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
   matchYouTubeLiveStreamIdByKey,
+  pickBestYouTubeThumbnailUrl,
   scheduleYouTubeLiveBroadcast,
   setYouTubeBroadcastCategory,
   setYouTubeBroadcastSnippetMetadata,
@@ -557,10 +558,15 @@ describe('uploadYouTubeLivestreamThumbnail', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uploads thumbnail bytes and returns the default thumbnail URL', async () => {
+  it('uploads thumbnail bytes and returns the best available thumbnail URL', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       mockFetchJson({
-        items: [{ default: { url: 'https://i.ytimg.com/vi/video-1/default.jpg' } }],
+        items: [
+          {
+            default: { url: 'https://i.ytimg.com/vi/video-1/default.jpg' },
+            high: { url: 'https://i.ytimg.com/vi/video-1/hqdefault.jpg' },
+          },
+        ],
       })
     );
 
@@ -574,7 +580,7 @@ describe('uploadYouTubeLivestreamThumbnail', () => {
 
     expect(result).toEqual({
       ok: true,
-      thumbnailUrl: 'https://i.ytimg.com/vi/video-1/default.jpg',
+      thumbnailUrl: 'https://i.ytimg.com/vi/video-1/hqdefault.jpg',
     });
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -699,5 +705,22 @@ describe('deleteYouTubeLiveBroadcast', () => {
         method: 'DELETE',
       })
     );
+  });
+});
+
+describe('pickBestYouTubeThumbnailUrl', () => {
+  it('prefers the largest available thumbnail size', () => {
+    expect(
+      pickBestYouTubeThumbnailUrl({
+        default: { url: 'https://i.ytimg.com/default.jpg' },
+        high: { url: 'https://i.ytimg.com/high.jpg' },
+        maxres: { url: 'https://i.ytimg.com/maxres.jpg' },
+      })
+    ).toBe('https://i.ytimg.com/maxres.jpg');
+  });
+
+  it('returns undefined when no usable thumbnail URLs are present', () => {
+    expect(pickBestYouTubeThumbnailUrl({})).toBeUndefined();
+    expect(pickBestYouTubeThumbnailUrl(null)).toBeUndefined();
   });
 });

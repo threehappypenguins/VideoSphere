@@ -304,6 +304,127 @@ export async function fetchAllYouTubePlaylists(
   return { ok: true, items };
 }
 
+const YOUTUBE_PLAYLIST_ITEMS_URL = 'https://www.googleapis.com/youtube/v3/playlistItems';
+
+/**
+ * Playlist membership for a video on the authenticated user's YouTube channel.
+ * @property playlistIds - Playlist ids containing the video, in YouTube list order.
+ * @property playlistTitles - Titles aligned with {@link playlistIds}.
+ */
+export interface YouTubeVideoPlaylistMembership {
+  playlistIds: string[];
+  playlistTitles: string[];
+}
+
+/**
+ * Reads playlist ids and titles that contain a video on the connected account (`playlistItems.list` by `videoId`).
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param videoId - YouTube video or live broadcast id.
+ * @param signal - Optional abort signal.
+ * @returns Membership rows, or a structured platform failure.
+ */
+export async function fetchYouTubePlaylistMembershipForVideo(
+  accessToken: string,
+  videoId: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; membership: YouTubeVideoPlaylistMembership } | PlatformUploadFailure> {
+  const trimmedVideoId = videoId.trim();
+  if (!trimmedVideoId) {
+    return { ok: true, membership: { playlistIds: [], playlistTitles: [] } };
+  }
+
+  const playlistIds: string[] = [];
+  const seenPlaylistIds = new Set<string>();
+  let pageToken: string | undefined;
+
+  for (;;) {
+    const url = new URL(YOUTUBE_PLAYLIST_ITEMS_URL);
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('videoId', trimmedVideoId);
+    url.searchParams.set('maxResults', '50');
+    if (pageToken) {
+      url.searchParams.set('pageToken', pageToken);
+    }
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) {
+      const details = await readApiErrorDetails(res);
+      return toError(
+        'YOUTUBE_PLAYLIST_ITEMS_LIST_FAILED',
+        'Failed to list YouTube playlist items for the video (playlistItems.list).',
+        res.status,
+        details
+      );
+    }
+
+    const body = (await res.json().catch(() => ({}))) as {
+      items?: Array<{ snippet?: { playlistId?: string } }>;
+      nextPageToken?: string;
+    };
+
+    for (const item of body.items ?? []) {
+      const playlistId = item.snippet?.playlistId?.trim();
+      if (!playlistId || seenPlaylistIds.has(playlistId)) {
+        continue;
+      }
+      seenPlaylistIds.add(playlistId);
+      playlistIds.push(playlistId);
+    }
+
+    if (!body.nextPageToken) {
+      break;
+    }
+    pageToken = body.nextPageToken;
+  }
+
+  if (playlistIds.length === 0) {
+    return { ok: true, membership: { playlistIds: [], playlistTitles: [] } };
+  }
+
+  const titleById = new Map<string, string>();
+  for (let offset = 0; offset < playlistIds.length; offset += 50) {
+    const batch = playlistIds.slice(offset, offset + 50);
+    const listUrl = new URL(YOUTUBE_PLAYLISTS_URL);
+    listUrl.searchParams.set('part', 'snippet');
+    listUrl.searchParams.set('id', batch.join(','));
+
+    const listRes = await fetch(listUrl.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      ...(signal ? { signal } : {}),
+    });
+    if (!listRes.ok) {
+      const details = await readApiErrorDetails(listRes);
+      return toError(
+        'YOUTUBE_PLAYLIST_LIST_FAILED',
+        'Failed to resolve YouTube playlist titles (playlists.list).',
+        listRes.status,
+        details
+      );
+    }
+
+    const listBody = (await listRes.json().catch(() => ({}))) as {
+      items?: Array<{ id?: string; snippet?: { title?: string } }>;
+    };
+    for (const item of listBody.items ?? []) {
+      const id = item.id?.trim();
+      const title = item.snippet?.title?.trim();
+      if (id && title) {
+        titleById.set(id, title);
+      }
+    }
+  }
+
+  const playlistTitles = playlistIds.map((id) => titleById.get(id) ?? '');
+
+  return {
+    ok: true,
+    membership: { playlistIds, playlistTitles },
+  };
+}
+
 async function findYouTubePlaylistIdByTitle(
   accessToken: string,
   wantedTitle: string,

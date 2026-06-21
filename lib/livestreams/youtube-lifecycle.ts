@@ -19,6 +19,21 @@ export function localStatusForYouTubeLifecycle(
 }
 
 /**
+ * Returns whether a livestream row should be pulled from YouTube on list load or detail fetch.
+ * @param livestream - Livestream row with status and optional broadcast id.
+ * @returns True when a YouTube metadata pull may update the local row.
+ */
+export function livestreamNeedsYouTubePull(livestream: {
+  status: LivestreamStatus;
+  youtubeBroadcastId?: string;
+}): boolean {
+  if (livestream.status === 'failed') {
+    return false;
+  }
+  return Boolean(livestream.youtubeBroadcastId?.trim());
+}
+
+/**
  * Returns whether a livestream row should be checked against YouTube lifecycle on list load.
  * @param livestream - Livestream row with status and optional broadcast id.
  * @returns True when a lifecycle poll may change local status.

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   livestreamNeedsLifecycleReconcile,
+  livestreamNeedsYouTubePull,
   localStatusForYouTubeLifecycle,
 } from '@/lib/livestreams/youtube-lifecycle';
 
@@ -33,15 +34,37 @@ describe('livestreamNeedsLifecycleReconcile', () => {
     ).toBe(true);
   });
 
-  it('returns false without a broadcast id or for terminal statuses', () => {
-    expect(
-      livestreamNeedsLifecycleReconcile({
-        status: 'scheduled',
-      })
-    ).toBe(false);
+  it('returns false for terminal failed status', () => {
     expect(
       livestreamNeedsLifecycleReconcile({
         status: 'ended',
+        youtubeBroadcastId: 'broadcast-1',
+      })
+    ).toBe(false);
+  });
+});
+
+describe('livestreamNeedsYouTubePull', () => {
+  it('returns true for linked rows except failed', () => {
+    expect(
+      livestreamNeedsYouTubePull({
+        status: 'scheduled',
+        youtubeBroadcastId: 'broadcast-1',
+      })
+    ).toBe(true);
+    expect(
+      livestreamNeedsYouTubePull({
+        status: 'ended',
+        youtubeBroadcastId: 'broadcast-1',
+      })
+    ).toBe(true);
+  });
+
+  it('returns false without a broadcast id or for failed rows', () => {
+    expect(livestreamNeedsYouTubePull({ status: 'scheduled' })).toBe(false);
+    expect(
+      livestreamNeedsYouTubePull({
+        status: 'failed',
         youtubeBroadcastId: 'broadcast-1',
       })
     ).toBe(false);

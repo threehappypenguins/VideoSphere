@@ -6,11 +6,16 @@ import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
+import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
+import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
+import {
+  requireYouTubeConnection,
+  youtubeUpstreamErrorResponse,
+} from '@/lib/platforms/youtube-api';
 import {
   buildLivestreamThumbnailFinalKey,
   copyObjectInBucket,
   deleteObject,
-  getObjectUrl,
   headObjectMetadata,
   isLivestreamThumbnailPendingKeyForUser,
   R2ObjectNotFoundError,
@@ -73,6 +78,17 @@ export async function POST(
     return NextResponse.json(
       { error: 'Not Found', message: 'Livestream not found', statusCode: 404 },
       { status: 404 }
+    );
+  }
+
+  if (livestream.status !== 'draft' && livestream.status !== 'scheduled') {
+    return NextResponse.json(
+      {
+        error: 'Conflict',
+        message: 'Cannot change the thumbnail after the livestream has started.',
+        statusCode: 409,
+      },
+      { status: 409 }
     );
   }
 
@@ -178,19 +194,32 @@ export async function POST(
       });
     }
 
-    let thumbnailPreviewUrl: string | undefined;
-    try {
-      thumbnailPreviewUrl = await getObjectUrl(finalKey);
-    } catch {
-      thumbnailPreviewUrl = undefined;
+    let responseLivestream = updated;
+
+    if (updated.status === 'scheduled' && updated.youtubeBroadcastId?.trim()) {
+      const youtubeConnection = await requireYouTubeConnection(req);
+      if (youtubeConnection.ok === false) {
+        return youtubeConnection.response;
+      }
+
+      const syncResult = await syncLivestreamMetadataToYouTube(
+        youtubeConnection.accessToken,
+        userId,
+        livestreamId,
+        updated
+      );
+      if (syncResult.ok === false) {
+        return youtubeUpstreamErrorResponse(syncResult.details);
+      }
+
+      responseLivestream = (await getLivestreamById(livestreamId)) ?? updated;
     }
 
+    const data = await livestreamWithThumbnailPreview(responseLivestream, userId, livestreamId);
+
     return NextResponse.json({
-      data: {
-        ...updated,
-        ...(thumbnailPreviewUrl ? { thumbnailPreviewUrl } : {}),
-      },
-      message: 'Thumbnail saved',
+      data,
+      message: updated.status === 'scheduled' ? 'Thumbnail updated on YouTube' : 'Thumbnail saved',
     });
   } catch (err) {
     await deleteObject(finalKey).catch(() => undefined);

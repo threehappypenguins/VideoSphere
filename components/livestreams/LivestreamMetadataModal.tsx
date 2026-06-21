@@ -946,8 +946,9 @@ export function LivestreamMetadataModal({
         thumbnailR2Key: updated?.thumbnailR2Key,
         thumbnailContentType: updated?.thumbnailContentType,
         thumbnailPreviewUrl: updated?.thumbnailPreviewUrl ?? latest.thumbnailPreviewUrl,
+        platforms: updated?.platforms ?? latest.platforms,
       });
-      toast.success('Thumbnail uploaded');
+      toast.success(isDraft ? 'Thumbnail uploaded' : 'Thumbnail updated on YouTube');
     } catch (error) {
       if (
         error instanceof Error &&
@@ -970,7 +971,7 @@ export function LivestreamMetadataModal({
   };
 
   const handleRemoveThumbnail = async () => {
-    if (!value || !livestreamId || !isEditable) return;
+    if (!value || !livestreamId || !isDraft) return;
     setThumbnailUploading(true);
     try {
       const response = await fetch(`/api/livestreams/${livestreamId}/thumbnail`, {
@@ -1660,7 +1661,11 @@ export function LivestreamMetadataModal({
               <div>
                 <p className="text-sm font-medium text-foreground">Thumbnail</p>
                 <p className="text-xs text-muted-foreground">
-                  JPG or PNG, up to {MAX_DRAFT_THUMBNAIL_BYTES / (1024 * 1024)} MB.
+                  {isDraft
+                    ? `JPG or PNG, up to ${MAX_DRAFT_THUMBNAIL_BYTES / (1024 * 1024)} MB.`
+                    : isEditable
+                      ? 'Upload a new image to replace the YouTube thumbnail. JPG or PNG only.'
+                      : 'Thumbnail is managed on YouTube after the broadcast has started.'}
                 </p>
               </div>
               {value.thumbnailPreviewUrl ? (
@@ -1701,12 +1706,12 @@ export function LivestreamMetadataModal({
                       onClick={() => thumbnailInputRef.current?.click()}
                       className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                     >
-                      Choose file
+                      {isDraft ? 'Choose file' : 'Change thumbnail'}
                     </button>
                     <span className="max-w-full truncate text-xs text-muted-foreground">
                       {sharedThumbnailSelectionLabel}
                     </span>
-                    {value.thumbnailR2Key || value.thumbnailPreviewUrl ? (
+                    {isDraft && (value.thumbnailR2Key || value.thumbnailPreviewUrl) ? (
                       <button
                         type="button"
                         disabled={thumbnailUploading}

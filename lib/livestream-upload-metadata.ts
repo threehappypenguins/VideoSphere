@@ -226,6 +226,35 @@ export function parseLivestreamPlatformsFromRequestBody(
 }
 
 /**
+ * YouTube fields managed by the server (thumbnail sync) that client PATCH bodies must not overwrite.
+ */
+const SERVER_MANAGED_YOUTUBE_LIVESTREAM_PATCH_KEYS = new Set([
+  'thumbnailUrl',
+  'thumbnailUpdatedAt',
+]);
+
+/**
+ * Removes server-managed YouTube livestream fields from a client PATCH `platforms` object.
+ * @param patch - Raw partial `platforms` object from a PATCH body.
+ * @returns Sanitized patch safe to merge into stored platforms.
+ */
+export function stripServerManagedLivestreamPlatformsPatch(patch: unknown): unknown {
+  if (!isPlainObject(patch) || !isPlainObject(patch.youtube)) {
+    return patch;
+  }
+
+  const youtube = { ...patch.youtube };
+  for (const key of SERVER_MANAGED_YOUTUBE_LIVESTREAM_PATCH_KEYS) {
+    delete youtube[key];
+  }
+
+  return {
+    ...patch,
+    youtube,
+  };
+}
+
+/**
  * Validate `platforms` on **PATCH** bodies: must be a plain object or `null` (treated as `{}`).
  * Returns the raw value so merge semantics match {@link mergeLivestreamPlatformsPatch}.
  * @param value - Raw `platforms` value from a PATCH body.
@@ -240,7 +269,7 @@ export function parseLivestreamPlatformsPatchBody(
   if (!isPlainObject(value)) {
     return { ok: false, error: 'platforms must be a JSON object' };
   }
-  return { ok: true, value };
+  return { ok: true, value: stripServerManagedLivestreamPlatformsPatch(value) };
 }
 
 /**
@@ -303,6 +332,15 @@ export function mergeLivestreamPlatformsPatch(
       } else {
         yb.playlistTitles = undefined;
       }
+    }
+    if ('thumbnailUrl' in p) {
+      const url = p.thumbnailUrl;
+      yb.thumbnailUrl = typeof url === 'string' && url.trim() !== '' ? url.trim() : undefined;
+    }
+    if ('thumbnailUpdatedAt' in p) {
+      const updatedAt = p.thumbnailUpdatedAt;
+      yb.thumbnailUpdatedAt =
+        typeof updatedAt === 'string' && updatedAt.trim() !== '' ? updatedAt.trim() : undefined;
     }
 
     next.youtube = yb;
