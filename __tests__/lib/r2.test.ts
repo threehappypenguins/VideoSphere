@@ -12,6 +12,10 @@ import {
   buildDraftThumbnailFinalKey,
   isDraftThumbnailPendingKeyForUser,
   isDraftThumbnailFinalKeyForUser,
+  buildLivestreamThumbnailPendingKey,
+  buildLivestreamThumbnailFinalKey,
+  isLivestreamThumbnailPendingKeyForUser,
+  isLivestreamThumbnailFinalKeyForUser,
 } from '../../lib/r2';
 
 /**
@@ -333,6 +337,71 @@ describe('R2 Storage - Validation & Utilities', () => {
       ).toBe(false);
       expect(
         isDraftThumbnailFinalKeyForUser('draft-thumbnails/u1/d1/uuid\\x.jpg', 'u1', 'd1')
+      ).toBe(false);
+    });
+  });
+
+  describe('buildLivestreamThumbnailPendingKey / buildLivestreamThumbnailFinalKey', () => {
+    it('builds keys that pass isLivestreamThumbnail* when inputs are valid', () => {
+      const pending = buildLivestreamThumbnailPendingKey('u1', 'ls1', 'uuid', 'jpg');
+      expect(pending).toBe('temp/livestreams/thumbnail-pending/u1/ls1/uuid.jpg');
+      expect(isLivestreamThumbnailPendingKeyForUser(pending, 'u1', 'ls1')).toBe(true);
+
+      const finalKey = buildLivestreamThumbnailFinalKey('u1', 'ls1', 'uuid', '.png');
+      expect(finalKey).toBe('livestreams/thumbnails/u1/ls1/uuid.png');
+      expect(isLivestreamThumbnailFinalKeyForUser(finalKey, 'u1', 'ls1')).toBe(true);
+    });
+
+    it('throws when userId or livestreamId contain path metacharacters', () => {
+      expect(() => buildLivestreamThumbnailPendingKey('a/b', 'ls1', 'u', 'jpg')).toThrow(
+        /userId or livestreamId/i
+      );
+      expect(() => buildLivestreamThumbnailFinalKey('u1', '..', 'u', 'jpg')).toThrow(
+        /userId or livestreamId/i
+      );
+    });
+
+    it('throws when uniqueId is unsafe', () => {
+      expect(() => buildLivestreamThumbnailPendingKey('u1', 'ls1', '../x', 'jpg')).toThrow(
+        /unique id/i
+      );
+    });
+
+    it('throws when extension is unsafe', () => {
+      expect(() => buildLivestreamThumbnailPendingKey('u1', 'ls1', 'u', 'jp/g')).toThrow(
+        /extension/i
+      );
+    });
+
+    it('rejects pending/final keys containing path metacharacters', () => {
+      expect(
+        isLivestreamThumbnailPendingKeyForUser(
+          'temp/livestreams/thumbnail-pending/u1/ls1/../uuid.jpg',
+          'u1',
+          'ls1'
+        )
+      ).toBe(false);
+      expect(
+        isLivestreamThumbnailPendingKeyForUser(
+          'temp/livestreams/thumbnail-pending/u1/ls1/uuid\\x.jpg',
+          'u1',
+          'ls1'
+        )
+      ).toBe(false);
+
+      expect(
+        isLivestreamThumbnailFinalKeyForUser(
+          'livestreams/thumbnails/u1/ls1/../uuid.jpg',
+          'u1',
+          'ls1'
+        )
+      ).toBe(false);
+      expect(
+        isLivestreamThumbnailFinalKeyForUser(
+          'livestreams/thumbnails/u1/ls1/uuid\\x.jpg',
+          'u1',
+          'ls1'
+        )
       ).toBe(false);
     });
   });

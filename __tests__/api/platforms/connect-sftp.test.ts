@@ -59,6 +59,8 @@ function mockExistingPublicSftpAccount(overrides: Record<string, unknown> = {}) 
     platform: 'sftp',
     tokenExpiry: '2099-01-01T00:00:00.000Z',
     hasRefreshToken: false,
+    hasYoutubeMainStreamKey: false,
+    hasYoutubeTempStreamKey: false,
     platformUserId: 'backup-user',
     platformName: 'My Home Server',
     sftpHost: 'sftp.example.com',

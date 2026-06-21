@@ -70,6 +70,10 @@ export interface ConnectedAccountDocument {
   googleDriveBackupFolderPath?: string;
   facebookTargetType?: 'page' | 'profile';
   facebookPageId?: string;
+  /** AES-256-GCM ciphertext for the YouTube main stream key (`encryptToken`). */
+  youtubeMainStreamKey?: string;
+  /** AES-256-GCM ciphertext for the YouTube temp stream key (`encryptToken`). */
+  youtubeTempStreamKey?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -116,6 +120,8 @@ const ConnectedAccountSchema = new Schema<ConnectedAccountDocument>(
     googleDriveBackupFolderPath: { type: String, trim: true },
     facebookTargetType: { type: String, enum: ['page', 'profile'] },
     facebookPageId: { type: String, trim: true },
+    youtubeMainStreamKey: { type: String, trim: true },
+    youtubeTempStreamKey: { type: String, trim: true },
   },
   { timestamps: true }
 );

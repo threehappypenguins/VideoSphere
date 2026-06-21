@@ -387,6 +387,65 @@ async function resolveYouTubePlaylistNameToId(
   return { ok: true, id: found.id };
 }
 
+/**
+ * Adds a YouTube video (including a live broadcast's underlying video id) to playlists
+ * by explicit id and/or by resolving/creating playlists from titles.
+ * @param accessToken - OAuth access token with YouTube playlist scopes.
+ * @param videoId - YouTube video resource id.
+ * @param input - Playlist ids/titles and visibility for created playlists.
+ * @param signal - Optional abort signal.
+ * @returns Success, or a structured platform upload failure.
+ */
+export async function addYouTubeVideoToPlaylists(
+  accessToken: string,
+  videoId: string,
+  input: {
+    playlistIds?: string[];
+    playlistTitles?: string[];
+    visibility: PlatformUploadVisibility;
+  },
+  signal?: AbortSignal
+): Promise<{ ok: true } | PlatformUploadFailure> {
+  const videoPrivacy = visibilityToYouTubePrivacy(input.visibility);
+  const explicitIds = uniqueTrimmedPlaylistIds(input.playlistIds ?? []);
+  const nameList = uniqueTrimmedPlaylistTitles(input.playlistTitles ?? []);
+  const playlistTargets: string[] = [...explicitIds];
+  for (const name of nameList) {
+    const resolved = await resolveYouTubePlaylistNameToId(accessToken, name, videoPrivacy, signal);
+    if (resolved.ok === false) return resolved;
+    playlistTargets.push(resolved.id);
+  }
+  const uniquePlaylistIds = uniqueTrimmedPlaylistIds(playlistTargets);
+
+  for (const playlistId of uniquePlaylistIds) {
+    const plRes = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        snippet: {
+          playlistId,
+          resourceId: { kind: 'youtube#video', videoId },
+        },
+      }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!plRes.ok) {
+      const details = await readApiErrorDetails(plRes);
+      return toError(
+        'YOUTUBE_PLAYLIST_ITEM_FAILED',
+        `Video uploaded but adding it to playlist "${playlistId}" failed.`,
+        plRes.status,
+        details
+      );
+    }
+  }
+
+  return { ok: true };
+}
+
 function visibilityToYouTubePrivacy(
   visibility: PlatformUploadVisibility
 ): 'public' | 'unlisted' | 'private' {

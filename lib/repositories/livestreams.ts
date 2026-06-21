@@ -1,0 +1,463 @@
+// =============================================================================
+// LIVESTREAM REPOSITORY
+// =============================================================================
+// All livestream (scheduled broadcast metadata) data access goes through this
+// module. API routes and Server Components should call these functions only.
+//
+// Uses Mongoose for the livestreams collection.
+// =============================================================================
+
+import { randomUUID } from 'crypto';
+import type {
+  ConnectedAccountPlatform,
+  Livestream,
+  LivestreamKeySlot,
+  LivestreamPlatforms,
+  LivestreamStatus,
+  PlatformUploadVisibility,
+} from '@/types';
+import { mergeLivestreamPlatformsPatch } from '@/lib/livestream-upload-metadata';
+import { connectToDatabase } from '@/lib/mongodb';
+import { LivestreamModel, type LivestreamDocument } from '@/lib/models/Livestream';
+
+/** Default visibility for new livestreams when omitted at creation. */
+export const DEFAULT_LIVESTREAM_VISIBILITY: PlatformUploadVisibility = 'public';
+
+/** String column max; entire `document` must serialize under this. */
+export const MAX_LIVESTREAM_DOCUMENT_CHARS = 16_383;
+
+const ARMED_LIVESTREAM_STATUSES = new Set<LivestreamStatus>(['scheduled', 'live']);
+
+/**
+ * JSON payload stored in the livestreams `document` column.
+ * @property status - Livestream lifecycle status.
+ * @property title - Shared title for distribution targets.
+ * @property description - Shared description for distribution targets.
+ * @property tags - Shared tag list for distribution targets.
+ * @property visibility - Shared visibility for distribution targets.
+ * @property targets - Platform toggles for this livestream.
+ * @property platforms - Per-platform-only metadata.
+ */
+interface StoredLivestreamDocument {
+  status: LivestreamStatus;
+  title: string;
+  description: string;
+  tags: string[];
+  visibility: PlatformUploadVisibility;
+  targets: ConnectedAccountPlatform[];
+  platforms: LivestreamPlatforms;
+  scheduledStartTime?: string;
+  thumbnailR2Key?: string;
+  thumbnailContentType?: string;
+  youtubeBroadcastId?: string;
+  youtubeBoundStreamId?: string;
+  keySlot?: LivestreamKeySlot;
+  keySwapPromotedAt?: string;
+  youtubeLifecycleStatus?: string;
+}
+
+/**
+ * Throws when serialized livestream JSON exceeds the Mongo column limit.
+ */
+export class LivestreamDocumentTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LivestreamDocumentTooLargeError';
+  }
+}
+
+function assertLivestreamDocumentJsonWithinLimit(json: string): void {
+  if (json.length > MAX_LIVESTREAM_DOCUMENT_CHARS) {
+    throw new LivestreamDocumentTooLargeError(
+      `Livestream document JSON is ${json.length} characters; storage allows at most ${MAX_LIVESTREAM_DOCUMENT_CHARS} in the document column.`
+    );
+  }
+}
+
+function parseStoredLivestreamDocument(raw: string): StoredLivestreamDocument {
+  const parsed = JSON.parse(raw) as Partial<StoredLivestreamDocument>;
+  return {
+    status: parsed.status ?? 'draft',
+    title: typeof parsed.title === 'string' ? parsed.title : '',
+    description: typeof parsed.description === 'string' ? parsed.description : '',
+    tags: Array.isArray(parsed.tags)
+      ? parsed.tags.filter((tag): tag is string => typeof tag === 'string')
+      : [],
+    visibility:
+      parsed.visibility === 'public' ||
+      parsed.visibility === 'unlisted' ||
+      parsed.visibility === 'private'
+        ? parsed.visibility
+        : DEFAULT_LIVESTREAM_VISIBILITY,
+    targets: Array.isArray(parsed.targets)
+      ? parsed.targets.filter(
+          (target): target is ConnectedAccountPlatform => typeof target === 'string'
+        )
+      : [],
+    platforms: parsed.platforms && typeof parsed.platforms === 'object' ? parsed.platforms : {},
+    ...(typeof parsed.scheduledStartTime === 'string' && parsed.scheduledStartTime.trim() !== ''
+      ? { scheduledStartTime: parsed.scheduledStartTime.trim() }
+      : {}),
+    ...(typeof parsed.thumbnailR2Key === 'string' && parsed.thumbnailR2Key.trim() !== ''
+      ? { thumbnailR2Key: parsed.thumbnailR2Key.trim() }
+      : {}),
+    ...(typeof parsed.thumbnailContentType === 'string' && parsed.thumbnailContentType.trim() !== ''
+      ? { thumbnailContentType: parsed.thumbnailContentType.trim() }
+      : {}),
+    ...(typeof parsed.youtubeBroadcastId === 'string' && parsed.youtubeBroadcastId.trim() !== ''
+      ? { youtubeBroadcastId: parsed.youtubeBroadcastId.trim() }
+      : {}),
+    ...(typeof parsed.youtubeBoundStreamId === 'string' && parsed.youtubeBoundStreamId.trim() !== ''
+      ? { youtubeBoundStreamId: parsed.youtubeBoundStreamId.trim() }
+      : {}),
+    ...(parsed.keySlot === 'main' || parsed.keySlot === 'temp' ? { keySlot: parsed.keySlot } : {}),
+    ...(typeof parsed.keySwapPromotedAt === 'string' && parsed.keySwapPromotedAt.trim() !== ''
+      ? { keySwapPromotedAt: parsed.keySwapPromotedAt.trim() }
+      : {}),
+    ...(typeof parsed.youtubeLifecycleStatus === 'string' &&
+    parsed.youtubeLifecycleStatus.trim() !== ''
+      ? { youtubeLifecycleStatus: parsed.youtubeLifecycleStatus.trim() }
+      : {}),
+  };
+}
+
+function stringifyLivestreamDocumentForStorage(doc: StoredLivestreamDocument): string {
+  return JSON.stringify(doc);
+}
+
+function storedDocumentFromLivestream(livestream: Livestream): StoredLivestreamDocument {
+  return {
+    status: livestream.status,
+    title: livestream.title,
+    description: livestream.description,
+    tags: livestream.tags,
+    visibility: livestream.visibility,
+    targets: [...livestream.targets],
+    platforms: livestream.platforms,
+    ...(livestream.scheduledStartTime ? { scheduledStartTime: livestream.scheduledStartTime } : {}),
+    ...(livestream.thumbnailR2Key ? { thumbnailR2Key: livestream.thumbnailR2Key } : {}),
+    ...(livestream.thumbnailContentType
+      ? { thumbnailContentType: livestream.thumbnailContentType }
+      : {}),
+    ...(livestream.youtubeBroadcastId ? { youtubeBroadcastId: livestream.youtubeBroadcastId } : {}),
+    ...(livestream.youtubeBoundStreamId
+      ? { youtubeBoundStreamId: livestream.youtubeBoundStreamId }
+      : {}),
+    ...(livestream.keySlot ? { keySlot: livestream.keySlot } : {}),
+    ...(livestream.keySwapPromotedAt ? { keySwapPromotedAt: livestream.keySwapPromotedAt } : {}),
+    ...(livestream.youtubeLifecycleStatus
+      ? { youtubeLifecycleStatus: livestream.youtubeLifecycleStatus }
+      : {}),
+  };
+}
+
+/** Map a MongoDB document to the shared Livestream type. */
+function mongoDocToLivestream(doc: LivestreamDocument): Livestream {
+  const parsed = parseStoredLivestreamDocument(doc.document);
+  return {
+    id: String(doc._id),
+    userId: String(doc.userId),
+    status: parsed.status,
+    title: parsed.title,
+    description: parsed.description,
+    tags: parsed.tags,
+    visibility: parsed.visibility,
+    targets: parsed.targets,
+    platforms: parsed.platforms,
+    ...(parsed.scheduledStartTime ? { scheduledStartTime: parsed.scheduledStartTime } : {}),
+    ...(parsed.thumbnailR2Key ? { thumbnailR2Key: parsed.thumbnailR2Key } : {}),
+    ...(parsed.thumbnailContentType ? { thumbnailContentType: parsed.thumbnailContentType } : {}),
+    ...(parsed.youtubeBroadcastId ? { youtubeBroadcastId: parsed.youtubeBroadcastId } : {}),
+    ...(parsed.youtubeBoundStreamId ? { youtubeBoundStreamId: parsed.youtubeBoundStreamId } : {}),
+    ...(parsed.keySlot ? { keySlot: parsed.keySlot } : {}),
+    ...(parsed.keySwapPromotedAt ? { keySwapPromotedAt: parsed.keySwapPromotedAt } : {}),
+    ...(parsed.youtubeLifecycleStatus
+      ? { youtubeLifecycleStatus: parsed.youtubeLifecycleStatus }
+      : {}),
+    $createdAt: new Date(doc.createdAt).toISOString(),
+    $updatedAt: new Date(doc.updatedAt).toISOString(),
+  };
+}
+
+function isArmedYouTubeLivestream(livestream: Livestream): boolean {
+  return (
+    livestream.targets.includes('youtube') &&
+    ARMED_LIVESTREAM_STATUSES.has(livestream.status) &&
+    livestream.keySlot != null
+  );
+}
+
+function compareScheduledStartAsc(a: Livestream, b: Livestream): number {
+  const aMs = Date.parse(a.scheduledStartTime ?? '');
+  const bMs = Date.parse(b.scheduledStartTime ?? '');
+  const aTime = Number.isNaN(aMs) ? Number.POSITIVE_INFINITY : aMs;
+  const bTime = Number.isNaN(bMs) ? Number.POSITIVE_INFINITY : bMs;
+  return aTime - bTime;
+}
+
+async function listLivestreamsForUser(userId: string): Promise<Livestream[]> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({ userId }).lean<LivestreamDocument[]>();
+  return docs.map(mongoDocToLivestream);
+}
+
+// -----------------------------------------------------------------------------
+// Create
+// -----------------------------------------------------------------------------
+
+/**
+ * Fields for creating a new livestream draft row.
+ */
+export interface CreateLivestreamFields {
+  title: string;
+  description: string;
+  tags?: string[];
+  visibility?: PlatformUploadVisibility;
+  targets: ConnectedAccountPlatform[];
+  platforms?: LivestreamPlatforms;
+  scheduledStartTime?: string;
+  thumbnailR2Key?: string;
+  thumbnailContentType?: string;
+}
+
+/**
+ * Creates a new livestream in `draft` status without a schedule time or key slot.
+ * @param userId - Owner user id.
+ * @param fields - Initial livestream metadata.
+ * @returns Persisted livestream row.
+ */
+export async function createLivestream(
+  userId: string,
+  fields: CreateLivestreamFields
+): Promise<Livestream> {
+  const documentJson = stringifyLivestreamDocumentForStorage({
+    status: 'draft',
+    title: fields.title,
+    description: fields.description,
+    tags: fields.tags ?? [],
+    visibility: fields.visibility ?? DEFAULT_LIVESTREAM_VISIBILITY,
+    targets: fields.targets,
+    platforms: fields.platforms ?? {},
+    ...(fields.scheduledStartTime ? { scheduledStartTime: fields.scheduledStartTime } : {}),
+    ...(fields.thumbnailR2Key ? { thumbnailR2Key: fields.thumbnailR2Key } : {}),
+    ...(fields.thumbnailContentType ? { thumbnailContentType: fields.thumbnailContentType } : {}),
+  });
+  assertLivestreamDocumentJsonWithinLimit(documentJson);
+
+  await connectToDatabase();
+  const created = await LivestreamModel.create({
+    _id: randomUUID(),
+    userId,
+    document: documentJson,
+  });
+  return mongoDocToLivestream(created.toObject());
+}
+
+// -----------------------------------------------------------------------------
+// Read
+// -----------------------------------------------------------------------------
+
+/**
+ * Fetch a livestream by ID. Returns null if not found.
+ * @param id - Livestream row id.
+ * @returns Livestream row, or null when missing.
+ */
+export async function getLivestreamById(id: string): Promise<Livestream | null> {
+  await connectToDatabase();
+  const doc = await LivestreamModel.findById(id).lean<LivestreamDocument | null>();
+  if (!doc) return null;
+  return mongoDocToLivestream(doc);
+}
+
+/**
+ * Lists livestreams for a user, sorted by most recently updated first.
+ * @param userId - Owner user id.
+ * @returns Livestream rows for the user.
+ */
+export async function listLivestreamsByUser(userId: string): Promise<Livestream[]> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({ userId })
+    .sort({ updatedAt: -1 })
+    .lean<LivestreamDocument[]>();
+  return docs.map(mongoDocToLivestream);
+}
+
+/**
+ * Returns armed YouTube livestreams for a user (holding a key slot, scheduled or live).
+ * @param userId - Owner user id.
+ * @returns Armed livestreams ordered by scheduled start time ascending.
+ */
+export async function listArmedYouTubeLivestreamsForUser(userId: string): Promise<Livestream[]> {
+  const livestreams = await listLivestreamsForUser(userId);
+  return livestreams.filter(isArmedYouTubeLivestream).sort(compareScheduledStartAsc);
+}
+
+/**
+ * Returns the armed livestream currently holding the main key slot, if any.
+ * @param userId - Owner user id.
+ * @returns Main-slot livestream, or null when none is armed.
+ */
+export async function getArmedMainSlotLivestreamForUser(
+  userId: string
+): Promise<Livestream | null> {
+  const armed = await listArmedYouTubeLivestreamsForUser(userId);
+  return armed.find((livestream) => livestream.keySlot === 'main') ?? null;
+}
+
+/**
+ * Returns armed temp-slot livestreams for a user, ordered by scheduled start ascending.
+ * @param userId - Owner user id.
+ * @returns Temp-slot livestreams queued for promotion.
+ */
+export async function listArmedTempSlotLivestreamsForUser(userId: string): Promise<Livestream[]> {
+  const armed = await listArmedYouTubeLivestreamsForUser(userId);
+  return armed.filter((livestream) => livestream.keySlot === 'temp');
+}
+
+/**
+ * Returns all armed YouTube livestreams across every user, grouped by owner id.
+ * Each user's list is ordered by scheduled start time ascending.
+ * @returns Map of user id to armed livestream rows for that user.
+ */
+export async function listAllArmedYouTubeLivestreams(): Promise<Map<string, Livestream[]>> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({}).lean<LivestreamDocument[]>();
+  const grouped = new Map<string, Livestream[]>();
+
+  for (const doc of docs) {
+    const livestream = mongoDocToLivestream(doc);
+    if (!isArmedYouTubeLivestream(livestream)) continue;
+    const existing = grouped.get(livestream.userId) ?? [];
+    existing.push(livestream);
+    grouped.set(livestream.userId, existing);
+  }
+
+  for (const [userId, livestreams] of grouped) {
+    livestreams.sort(compareScheduledStartAsc);
+    grouped.set(userId, livestreams);
+  }
+
+  return grouped;
+}
+
+// -----------------------------------------------------------------------------
+// Update
+// -----------------------------------------------------------------------------
+
+/**
+ * Partial update payload for an existing livestream document.
+ */
+export interface UpdateLivestreamPatch {
+  status?: LivestreamStatus;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  visibility?: PlatformUploadVisibility;
+  targets?: ConnectedAccountPlatform[];
+  platforms?: LivestreamPlatforms;
+  /** Partial platforms merge (PATCH bodies); merged via {@link mergeLivestreamPlatformsPatch}. */
+  platformsPatch?: unknown;
+  scheduledStartTime?: string | null;
+  thumbnailR2Key?: string | null;
+  thumbnailContentType?: string | null;
+  youtubeBroadcastId?: string | null;
+  youtubeBoundStreamId?: string | null;
+  keySlot?: LivestreamKeySlot | null;
+  keySwapPromotedAt?: string | null;
+  youtubeLifecycleStatus?: string | null;
+}
+
+function applyNullableStringPatch(
+  current: string | undefined,
+  patch: string | null | undefined
+): string | undefined {
+  if (patch === undefined) return current;
+  if (patch === null) return undefined;
+  const trimmed = patch.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+/**
+ * Updates an existing livestream. Only provided patch fields are changed.
+ * @param id - Livestream row id.
+ * @param patch - Partial document update.
+ * @returns Updated livestream, or null when the row does not exist.
+ */
+export async function updateLivestream(
+  id: string,
+  patch: UpdateLivestreamPatch
+): Promise<Livestream | null> {
+  const current = await getLivestreamById(id);
+  if (!current) return null;
+
+  const mergedPlatforms =
+    patch.platformsPatch !== undefined
+      ? mergeLivestreamPlatformsPatch(current.platforms, patch.platformsPatch)
+      : patch.platforms !== undefined
+        ? patch.platforms
+        : current.platforms;
+
+  const next: Livestream = {
+    ...current,
+    ...(patch.status !== undefined ? { status: patch.status } : {}),
+    ...(patch.title !== undefined ? { title: patch.title } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+    ...(patch.visibility !== undefined ? { visibility: patch.visibility } : {}),
+    ...(patch.targets !== undefined ? { targets: patch.targets } : {}),
+    platforms: mergedPlatforms,
+    scheduledStartTime: applyNullableStringPatch(
+      current.scheduledStartTime,
+      patch.scheduledStartTime
+    ),
+    thumbnailR2Key: applyNullableStringPatch(current.thumbnailR2Key, patch.thumbnailR2Key),
+    thumbnailContentType: applyNullableStringPatch(
+      current.thumbnailContentType,
+      patch.thumbnailContentType
+    ),
+    youtubeBroadcastId: applyNullableStringPatch(
+      current.youtubeBroadcastId,
+      patch.youtubeBroadcastId
+    ),
+    youtubeBoundStreamId: applyNullableStringPatch(
+      current.youtubeBoundStreamId,
+      patch.youtubeBoundStreamId
+    ),
+    keySlot:
+      patch.keySlot === undefined
+        ? current.keySlot
+        : patch.keySlot === null
+          ? undefined
+          : patch.keySlot,
+    keySwapPromotedAt: applyNullableStringPatch(current.keySwapPromotedAt, patch.keySwapPromotedAt),
+    youtubeLifecycleStatus: applyNullableStringPatch(
+      current.youtubeLifecycleStatus,
+      patch.youtubeLifecycleStatus
+    ),
+  };
+
+  const documentJson = stringifyLivestreamDocumentForStorage(storedDocumentFromLivestream(next));
+  assertLivestreamDocumentJsonWithinLimit(documentJson);
+
+  await connectToDatabase();
+  const updated = await LivestreamModel.findByIdAndUpdate(
+    id,
+    { document: documentJson },
+    { returnDocument: 'after', runValidators: true }
+  ).lean<LivestreamDocument | null>();
+  if (!updated) return null;
+  return mongoDocToLivestream(updated);
+}
+
+// -----------------------------------------------------------------------------
+// Delete
+// -----------------------------------------------------------------------------
+
+/**
+ * Removes a livestream document by ID.
+ * @param id - Livestream row id.
+ */
+export async function deleteLivestream(id: string): Promise<void> {
+  await connectToDatabase();
+  await LivestreamModel.deleteOne({ _id: id });
+}

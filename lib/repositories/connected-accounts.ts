@@ -21,9 +21,44 @@ import {
   ConnectedAccountModel,
   type ConnectedAccountDocument,
 } from '@/lib/models/ConnectedAccount';
-import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
+import { decryptToken, encryptToken, isTokenDecryptError } from '@/lib/crypto/token-encryption';
 
 /** Map row to full type (includes tokens). Use only for server-side token retrieval. */
+function hasStoredEncryptedField(value: string | undefined): boolean {
+  return String(value ?? '').trim().length > 0;
+}
+
+/**
+ * Decrypts a stored ciphertext field when present; returns undefined when empty or undecryptable.
+ * @param ciphertext - Encrypted value from MongoDB.
+ * @param fieldLabel - Field name for log messages.
+ * @param rowId - Connected account row id.
+ * @param platform - Connected account platform.
+ * @returns Decrypted plaintext, or undefined when absent or decryption fails.
+ */
+function tryDecryptStoredTokenField(
+  ciphertext: string | undefined,
+  fieldLabel: string,
+  rowId: string,
+  platform: string
+): string | undefined {
+  const raw = String(ciphertext ?? '').trim();
+  if (!raw) return undefined;
+  try {
+    return decryptToken(raw);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isTokenDecryptError(error)) {
+      console.warn(
+        `[connected-accounts] Could not decrypt ${fieldLabel} for row ${rowId} (${platform}); treating as unavailable:`,
+        message
+      );
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount {
   const refresh = String(doc.refreshToken ?? '');
   return {
@@ -34,6 +69,8 @@ function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount 
     refreshToken: refresh,
     tokenExpiry: String(doc.tokenExpiry),
     hasRefreshToken: refresh.trim().length > 0,
+    hasYoutubeMainStreamKey: hasStoredEncryptedField(doc.youtubeMainStreamKey),
+    hasYoutubeTempStreamKey: hasStoredEncryptedField(doc.youtubeTempStreamKey),
     platformUserId: String(doc.platformUserId),
     platformName: String(doc.platformName),
     ...(doc.sftpHost != null ? { sftpHost: String(doc.sftpHost) } : {}),
@@ -83,6 +120,8 @@ function rowToConnectedAccountPublic(doc: ConnectedAccountDocument): ConnectedAc
     platform: doc.platform as ConnectedAccountPlatform,
     tokenExpiry: String(doc.tokenExpiry),
     hasRefreshToken: hasRefreshTokenFromStoredRow(doc),
+    hasYoutubeMainStreamKey: hasStoredEncryptedField(doc.youtubeMainStreamKey),
+    hasYoutubeTempStreamKey: hasStoredEncryptedField(doc.youtubeTempStreamKey),
     platformUserId: String(doc.platformUserId),
     platformName: String(doc.platformName),
     ...(doc.sftpHost != null ? { sftpHost: String(doc.sftpHost) } : {}),
@@ -246,12 +285,31 @@ export async function getConnectedAccountWithTokens(
     platform,
   }).lean<ConnectedAccountDocument | null>();
   if (!doc) return null;
+  const rowId = String(doc._id);
+  const platformLabel = String(doc.platform);
   const decrypted: ConnectedAccountDocument = {
     ...doc,
     accessToken: decryptToken(String(doc.accessToken)),
     refreshToken: decryptToken(String(doc.refreshToken)),
   };
-  return rowToConnectedAccount(decrypted);
+  const account = rowToConnectedAccount(decrypted);
+  const youtubeMainStreamKey = tryDecryptStoredTokenField(
+    doc.youtubeMainStreamKey,
+    'youtubeMainStreamKey',
+    rowId,
+    platformLabel
+  );
+  const youtubeTempStreamKey = tryDecryptStoredTokenField(
+    doc.youtubeTempStreamKey,
+    'youtubeTempStreamKey',
+    rowId,
+    platformLabel
+  );
+  return {
+    ...account,
+    ...(youtubeMainStreamKey != null ? { youtubeMainStreamKey } : {}),
+    ...(youtubeTempStreamKey != null ? { youtubeTempStreamKey } : {}),
+  };
 }
 
 /**
@@ -394,6 +452,49 @@ export async function updateGoogleDriveBackupFolder(
     },
     { returnDocument: 'after', runValidators: true }
   ).lean<ConnectedAccountDocument | null>();
+
+  if (!updated) return null;
+  return rowToConnectedAccountPublic(updated);
+}
+
+/**
+ * Updates encrypted YouTube stream keys on the user's existing YouTube connection.
+ * @param userId - VideoSphere user id.
+ * @param fields - Plaintext keys to store; omit a field to leave the stored value unchanged, or pass `''` to clear it.
+ * @returns Updated public account row, or null when no YouTube connection exists.
+ */
+export async function updateYouTubeStreamKeys(
+  userId: string,
+  fields: { mainStreamKey?: string; tempStreamKey?: string }
+): Promise<ConnectedAccountPublic | null> {
+  await connectToDatabase();
+  const existing = await ConnectedAccountModel.findOne({
+    userId,
+    platform: 'youtube',
+  }).lean<ConnectedAccountDocument | null>();
+  if (!existing) return null;
+
+  const update: Partial<
+    Pick<ConnectedAccountDocument, 'youtubeMainStreamKey' | 'youtubeTempStreamKey'>
+  > = {};
+
+  if (fields.mainStreamKey !== undefined) {
+    update.youtubeMainStreamKey =
+      fields.mainStreamKey === '' ? '' : encryptToken(fields.mainStreamKey);
+  }
+  if (fields.tempStreamKey !== undefined) {
+    update.youtubeTempStreamKey =
+      fields.tempStreamKey === '' ? '' : encryptToken(fields.tempStreamKey);
+  }
+
+  if (Object.keys(update).length === 0) {
+    return rowToConnectedAccountPublic(existing);
+  }
+
+  const updated = await ConnectedAccountModel.findByIdAndUpdate(existing._id, update, {
+    returnDocument: 'after',
+    runValidators: true,
+  }).lean<ConnectedAccountDocument | null>();
 
   if (!updated) return null;
   return rowToConnectedAccountPublic(updated);

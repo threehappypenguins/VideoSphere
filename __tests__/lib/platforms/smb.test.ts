@@ -55,6 +55,8 @@ function makeSmbAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAcc
     userId: 'user-1',
     platform: 'smb',
     hasRefreshToken: false,
+    hasYoutubeMainStreamKey: false,
+    hasYoutubeTempStreamKey: false,
     platformName: 'My NAS',
     platformUserId: 'backup-user',
     accessToken: 'secret-password',

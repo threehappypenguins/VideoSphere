@@ -2298,8 +2298,7 @@ export function DraftMetadataModal({
   const youtubeSchedulePastWarning =
     youtubePublishAtValue !== undefined && isPublishAtInPast(youtubePublishAtValue);
   const youtubePlaylistId = youtubeFields?.playlistIds?.[0];
-  const youtubePlaylistTitle =
-    youtubePlaylistId === undefined ? youtubeFields?.playlistTitles?.[0] : undefined;
+  const youtubePlaylistTitle = youtubeFields?.playlistTitles?.[0];
 
   const facebookVideoState = facebookFields?.videoState ?? 'PUBLISHED';
   const facebookScheduleValidationMessage =

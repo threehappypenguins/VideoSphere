@@ -63,6 +63,11 @@ export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = 
   'facebook',
 ];
 
+/** Livestream distribution platforms (extend as you add backends). */
+export const LIVESTREAM_PLATFORMS = [
+  'youtube',
+] as const satisfies readonly ConnectedAccountPlatform[];
+
 /** SFTP authentication method stored on a connected account. */
 export type SftpAuthMethod = 'key' | 'password';
 
@@ -465,6 +470,111 @@ export interface Draft {
   $updatedAt: string;
 }
 
+/** Lifecycle status for a scheduled livestream. */
+export type LivestreamStatus = 'draft' | 'scheduled' | 'live' | 'ended' | 'failed';
+
+/**
+ * Which YouTube stream key slot is bound to a livestream.
+ * Absent/`undefined` means no key is assigned yet (not a third enum value).
+ */
+export type LivestreamKeySlot = 'main' | 'temp';
+
+/**
+ * YouTube-only fields inside the livestream `document.platforms` JSON.
+ * Shared copy (title, description, tags) lives at the document root.
+ *
+ * Field names align with YouTube Data API v3 live broadcast settings where applicable.
+ */
+export interface YouTubeLivestreamFields {
+  /** YouTube Data API `snippet.categoryId` on the live broadcast (numeric string, e.g. "22"). */
+  categoryId?: string;
+  /** Maps to `status.selfDeclaredMadeForKids` on the live broadcast. */
+  madeForKids?: boolean;
+  /** `snippet.defaultAudioLanguage` (BCP-47) on the live broadcast. */
+  defaultAudioLanguage?: string;
+  /** `status.embeddable` on the live broadcast. */
+  embeddable?: boolean;
+  /** `status.license` on the live broadcast: standard YouTube license vs Creative Commons. */
+  license?: 'youtube' | 'creativeCommon';
+  /**
+   * Notify subscribers when the live broadcast goes live (`notifySubscribers` on the live broadcast).
+   * Omitted/`true` matches YouTube default (notify).
+   */
+  notifySubscribers?: boolean;
+  /**
+   * After the broadcast ends, append the archived video via `playlistItems.insert` (one call per id).
+   * Playlist ids on the live broadcast, not the video draft.
+   */
+  playlistIds?: string[];
+  /**
+   * Playlist titles on the live broadcast (`snippet.title`). Same resolution flow as video drafts.
+   * Stored on the live broadcast, not the video draft.
+   */
+  playlistTitles?: string[];
+  /**
+   * Studio "Show how many viewers like this stream".
+   * Maps to `videos.status.publicStatsViewable` on the underlying broadcast video when sent to YouTube.
+   * See docs/youtube-live-comments-ratings.md and `videos.update` (`part=status`).
+   */
+  showViewerLikeCount?: boolean;
+}
+
+/**
+ * Per-platform metadata on a livestream (inside `document` JSON).
+ * Publish targets use `platforms.youtube` (only YouTube for now).
+ */
+export interface LivestreamPlatforms {
+  youtube?: YouTubeLivestreamFields;
+}
+
+/**
+ * Scheduled livestream document stored in the `livestreams` collection.
+ *
+ * **Key-slot lifecycle:** A new livestream starts as a `draft` with no `scheduledStartTime`
+ * or `keySlot`. When the user schedules it, the server assigns either the `main` or `temp`
+ * YouTube stream key from the connected account. If the main key is already in use, scheduling
+ * uses `temp` instead. A background reconciliation job may later promote `temp` → `main` when
+ * the main slot frees up (`keySwapPromotedAt` records when that promotion occurred).
+ */
+export interface Livestream {
+  id: string;
+  userId: string;
+  status: LivestreamStatus;
+  title: string;
+  description: string;
+  tags: string[];
+  visibility: PlatformUploadVisibility;
+  /** Platforms this livestream is configured to broadcast to (UI toggles). */
+  targets: ConnectedAccountPlatform[];
+  /** Per-platform-only options (e.g. YouTube categoryId, live comment settings). */
+  platforms: LivestreamPlatforms;
+  /** ISO 8601 scheduled start time; undefined while still a draft. */
+  scheduledStartTime?: string;
+  /** R2 object key for a custom thumbnail image (JPG or PNG), or undefined if none. */
+  thumbnailR2Key?: string;
+  /** MIME type of the thumbnail object (for platform upload and preview). */
+  thumbnailContentType?: string;
+  /**
+   * Ephemeral presigned GET URL for the livestream form preview.
+   * Not stored in persistent storage.
+   */
+  thumbnailPreviewUrl?: string;
+  /** YouTube `liveBroadcasts` resource id after the broadcast is created. */
+  youtubeBroadcastId?: string;
+  /** YouTube `liveStreams` resource id bound to this broadcast. */
+  youtubeBoundStreamId?: string;
+  /** Which connected-account stream key slot is assigned (`main` or `temp`). */
+  keySlot?: LivestreamKeySlot;
+  /** ISO timestamp when a `temp` key slot was promoted to `main` during reconciliation. */
+  keySwapPromotedAt?: string;
+  /** Raw YouTube `liveBroadcasts.status.lifeCycleStatus` value (polled later). */
+  youtubeLifecycleStatus?: string;
+  /** Persistence system attribute (ISO string). */
+  $createdAt: string;
+  /** Persistence system attribute (ISO string). */
+  $updatedAt: string;
+}
+
 /**
  * Defines the UploadJobStatus type.
  */
@@ -564,6 +674,10 @@ export interface ConnectedAccountPublic {
   facebookTargetType?: 'page' | 'profile';
   /** Facebook Page ID when `facebookTargetType` is `page` (Facebook accounts only). */
   facebookPageId?: string;
+  /** True when a non-empty YouTube main stream key is stored (encrypted at rest). */
+  hasYoutubeMainStreamKey: boolean;
+  /** True when a non-empty YouTube temp stream key is stored (encrypted at rest). */
+  hasYoutubeTempStreamKey: boolean;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */
@@ -577,6 +691,10 @@ export interface ConnectedAccountPublic {
 export interface ConnectedAccount extends ConnectedAccountPublic {
   accessToken: string;
   refreshToken: string;
+  /** Decrypted YouTube main stream key (server-only; never sent to the client). */
+  youtubeMainStreamKey?: string;
+  /** Decrypted YouTube temp stream key (server-only; never sent to the client). */
+  youtubeTempStreamKey?: string;
 }
 
 // =============================================================================

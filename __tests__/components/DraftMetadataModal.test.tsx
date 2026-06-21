@@ -917,7 +917,7 @@ describe('DraftMetadataModal YouTube fields', () => {
         platforms: expect.objectContaining({
           youtube: expect.objectContaining({
             playlistIds: ['PL1'],
-            playlistTitles: [],
+            playlistTitles: ['Sunday Sermons'],
           }),
         }),
       })

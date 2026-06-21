@@ -54,6 +54,35 @@ function responseIndicatesInsufficientScope(status: number, message: string): bo
   return message.toLowerCase().includes('insufficient');
 }
 
+type FetchRecentYouTubePlaylistsResult =
+  | { ok: true; playlists: YouTubePlaylistOption[] }
+  | { ok: false; scopeWarning: boolean; loadFailed: true };
+
+async function fetchRecentYouTubePlaylists(
+  signal?: AbortSignal
+): Promise<FetchRecentYouTubePlaylistsResult> {
+  const response = await fetch('/api/platforms/youtube/playlists/recent', {
+    cache: 'no-store',
+    ...(signal ? { signal } : {}),
+  });
+  const payload = (await response.json().catch(() => ({}))) as
+    | ApiResponse<YouTubePlaylistOption[]>
+    | ApiError;
+  const message =
+    typeof (payload as ApiError).message === 'string' ? (payload as ApiError).message : '';
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      scopeWarning: responseIndicatesInsufficientScope(response.status, message),
+      loadFailed: true,
+    };
+  }
+
+  const data = (payload as ApiResponse<YouTubePlaylistOption[]>).data;
+  return { ok: true, playlists: Array.isArray(data) ? data : [] };
+}
+
 /**
  * YouTube playlist picker with client-side filtering and optional custom playlist creation.
  * @param props - Picker configuration and callbacks.
@@ -80,52 +109,48 @@ export function YouTubePlaylistCombobox({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   const selectedTitle = useMemo(() => {
-    const customTitle = playlistTitle?.trim();
-    if (customTitle) return customTitle;
+    const storedTitle = playlistTitle?.trim();
+    if (storedTitle) return storedTitle;
     if (playlistId) {
       const match = playlists.find((playlist) => playlist.id === playlistId);
-      return match?.title ?? playlistId;
+      if (match?.title) return match.title;
+      if (loading) return 'Loading playlist…';
+      return playlistId;
     }
     return '';
-  }, [playlistId, playlistTitle, playlists]);
+  }, [loading, playlistId, playlistTitle, playlists]);
 
   useEffect(() => {
-    if (!open) return;
+    const needsPreload = Boolean(playlistId?.trim()) && !playlistTitle?.trim();
+    if (!open && !needsPreload) return;
 
-    let cancelled = false;
+    const controller = new AbortController();
 
     const loadPlaylists = async () => {
       setLoading(true);
       setLoadFailed(false);
       setScopeWarning(false);
       try {
-        const response = await fetch('/api/platforms/youtube/playlists/recent', {
-          cache: 'no-store',
-        });
-        const payload = (await response.json().catch(() => ({}))) as
-          | ApiResponse<YouTubePlaylistOption[]>
-          | ApiError;
-        const message =
-          typeof (payload as ApiError).message === 'string' ? (payload as ApiError).message : '';
+        const result = await fetchRecentYouTubePlaylists(controller.signal);
+        if (controller.signal.aborted) return;
 
-        if (!response.ok) {
-          if (responseIndicatesInsufficientScope(response.status, message)) {
-            if (!cancelled) setScopeWarning(true);
+        if (result.ok === false) {
+          if (result.scopeWarning) {
+            setScopeWarning(true);
           }
-          throw new Error(message || 'Failed to load YouTube playlists');
+          setPlaylists([]);
+          setLoadFailed(true);
+          return;
         }
 
-        if (!cancelled) {
-          const data = (payload as ApiResponse<YouTubePlaylistOption[]>).data;
-          setPlaylists(Array.isArray(data) ? data : []);
-        }
+        setPlaylists(result.playlists);
       } catch {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setPlaylists([]);
           setLoadFailed(true);
         }
       } finally {
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setLoading(false);
         }
       }
@@ -133,9 +158,9 @@ export function YouTubePlaylistCombobox({
 
     void loadPlaylists();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [open]);
+  }, [open, playlistId, playlistTitle]);
 
   const trimmedQuery = panelQuery.trim();
   const visiblePlaylists = useMemo(() => {
@@ -190,7 +215,7 @@ export function YouTubePlaylistCombobox({
   };
 
   const selectPlaylist = (playlist: YouTubePlaylistOption) => {
-    onPlaylistChange({ playlistId: playlist.id });
+    onPlaylistChange({ playlistId: playlist.id, playlistTitle: playlist.title });
     setOpen(false);
   };
 
@@ -348,7 +373,7 @@ export function YouTubePlaylistCombobox({
                   id={getPlaylistOptionId(playlist)}
                   type="button"
                   role="option"
-                  aria-selected={playlistId === playlist.id && !playlistTitle}
+                  aria-selected={playlistId === playlist.id}
                   className={cn(
                     'flex w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground',
                     optionIndex === highlightedIndex && 'bg-accent text-accent-foreground'

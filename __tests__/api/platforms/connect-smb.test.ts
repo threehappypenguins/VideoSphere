@@ -224,6 +224,8 @@ describe('POST /api/platforms/connect/smb', () => {
       platform: 'smb',
       tokenExpiry: '2099-01-01T00:00:00.000Z',
       hasRefreshToken: false,
+      hasYoutubeMainStreamKey: false,
+      hasYoutubeTempStreamKey: false,
       platformUserId: 'backup-user',
       platformName: 'My NAS',
       smbHost: '192.168.1.10',

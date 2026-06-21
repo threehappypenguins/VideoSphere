@@ -14,6 +14,7 @@ if (!cached) {
 
 let setupBootstrapStarted = false;
 let staleUploadReconcileStarted = false;
+let livestreamKeyReconcileStarted = false;
 
 /**
  * Ensures first-run setup token bootstrap runs once per process after DB connects.
@@ -44,6 +45,29 @@ function scheduleStaleUploadReconciliation(): void {
 }
 
 /**
+ * Starts periodic livestream key-slot reconciliation once per process after the first DB connect.
+ */
+function scheduleLivestreamKeyReconciliation(): void {
+  if (livestreamKeyReconcileStarted) return;
+  livestreamKeyReconcileStarted = true;
+
+  void import('@/lib/livestreams/reconcile-stream-keys')
+    .then((mod) => {
+      const intervalMs = mod.resolveLivestreamReconcileIntervalMs();
+      const run = () => {
+        void mod.reconcileLivestreamKeysAndStatus().catch((error) => {
+          console.error('[reconcile] Failed to reconcile livestream keys and status:', error);
+        });
+      };
+      run();
+      setInterval(run, intervalMs);
+    })
+    .catch((error) => {
+      console.error('[reconcile] Failed to start livestream key reconciliation:', error);
+    });
+}
+
+/**
  * Establishes and caches the shared MongoDB connection for the current process.
  * @returns The connected Mongoose instance.
  */
@@ -51,6 +75,7 @@ export async function connectToDatabase() {
   if (cached!.conn) {
     scheduleFirstRunSetupBootstrap();
     scheduleStaleUploadReconciliation();
+    scheduleLivestreamKeyReconciliation();
     return cached!.conn;
   }
   if (!cached!.promise) {
@@ -64,6 +89,7 @@ export async function connectToDatabase() {
     cached!.conn = await cached!.promise;
     scheduleFirstRunSetupBootstrap();
     scheduleStaleUploadReconciliation();
+    scheduleLivestreamKeyReconciliation();
   } catch (error) {
     cached!.promise = null;
     throw error;

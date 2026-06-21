@@ -12,6 +12,7 @@ const NAV_ITEMS = [
     tourIdDesktop: 'drafts-nav-link-desktop',
     tourIdMobile: 'drafts-nav-link-mobile',
   },
+  { label: 'Livestreams', href: '/dashboard/livestreams', exact: false },
   { label: 'History', href: '/dashboard/history', exact: false },
 ] as const;
 

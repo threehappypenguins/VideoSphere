@@ -29,6 +29,8 @@ function makeConnectedAccount(platformUserId: string): ConnectedAccount {
     userId: 'user-1',
     platform: 'google_drive',
     hasRefreshToken: true,
+    hasYoutubeMainStreamKey: false,
+    hasYoutubeTempStreamKey: false,
     platformName: 'google_drive',
     platformUserId,
     accessToken: 'encrypted-access',

@@ -14,18 +14,24 @@ export interface YouTubeAccountDefaults {
   embeddable?: boolean;
 }
 
+/** Platform YouTube fields that account defaults may seed when still unset. */
+export type YouTubeAccountDefaultsSeedTarget = Pick<
+  YouTubeDraftFields,
+  'madeForKids' | 'defaultAudioLanguage' | 'license' | 'embeddable' | 'categoryId'
+>;
+
 /**
- * Builds a partial YouTube draft patch from account defaults for fields not already set on the draft.
- * @param draftFields - Current `platforms.youtube` values on the draft.
+ * Builds a partial YouTube platform patch from account defaults for fields not already set.
+ * @param platformFields - Current `platforms.youtube` values on the draft or livestream.
  * @param defaults - Account defaults from YouTube Data API.
- * @returns Patch to merge onto the draft, or an empty object when nothing to seed.
+ * @returns Patch to merge onto the row, or an empty object when nothing to seed.
  */
 export function buildYouTubeAccountDefaultsSeedPatch(
-  draftFields: YouTubeDraftFields | undefined,
+  platformFields: YouTubeAccountDefaultsSeedTarget | undefined,
   defaults: YouTubeAccountDefaults
-): Partial<YouTubeDraftFields> {
-  const yt = draftFields ?? {};
-  const patch: Partial<YouTubeDraftFields> = {};
+): Partial<YouTubeAccountDefaultsSeedTarget> {
+  const yt = platformFields ?? {};
+  const patch: Partial<YouTubeAccountDefaultsSeedTarget> = {};
 
   if (yt.madeForKids === undefined && defaults.madeForKids !== undefined) {
     patch.madeForKids = defaults.madeForKids;

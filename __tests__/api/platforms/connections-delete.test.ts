@@ -60,6 +60,8 @@ const MOCK_ACCOUNT = {
   platformName: 'Test Channel',
   tokenExpiry: new Date(Date.now() + 1_000_000).toISOString(),
   hasRefreshToken: true,
+  hasYoutubeMainStreamKey: false,
+  hasYoutubeTempStreamKey: false,
 };
 
 // ---------------------------------------------------------------------------

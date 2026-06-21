@@ -37,8 +37,7 @@ import {
  */
 export const DEFAULT_DRAFT_VISIBILITY: PlatformUploadVisibility = 'public';
 
-/** Matches YouTube Data API `videos.snippet.title` maximum length. */
-export const MAX_DRAFT_TITLE_LENGTH = 100;
+export { MAX_DRAFT_TITLE_LENGTH } from '@/lib/youtube-metadata-limits';
 
 export {
   DRAFT_TITLE_OVERRIDE_PLATFORM_ORDER,

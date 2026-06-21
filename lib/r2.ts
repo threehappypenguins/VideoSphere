@@ -796,6 +796,129 @@ export function isDraftThumbnailFinalKeyForUser(
   return key.startsWith(prefix) && key.length > prefix.length;
 }
 
+/** Staging prefix for livestream thumbnail PUTs before `complete` attaches them (lifecycle may expire orphans). */
+const LIVESTREAM_THUMBNAIL_PENDING_PREFIX = 'temp/livestreams/thumbnail-pending/';
+
+/** Final prefix for thumbnails bound to a livestream document. */
+const LIVESTREAM_THUMBNAIL_FINAL_PREFIX = 'livestreams/thumbnails/';
+
+function safeUserLivestreamSegments(userId: string, livestreamId: string): boolean {
+  if (!userId || !livestreamId) return false;
+  if (
+    userId.includes('/') ||
+    userId.includes('\\') ||
+    userId.includes('..') ||
+    livestreamId.includes('/') ||
+    livestreamId.includes('\\') ||
+    livestreamId.includes('..')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Same rules as {@link safeUserLivestreamSegments} plus safe filename suffix segments, so
+ * generated keys always satisfy {@link isLivestreamThumbnailPendingKeyForUser} /
+ * {@link isLivestreamThumbnailFinalKeyForUser}.
+ */
+function assertLivestreamThumbnailKeyInputs(
+  userId: string,
+  livestreamId: string,
+  uniqueId: string,
+  extension: string
+): void {
+  if (!safeUserLivestreamSegments(userId, livestreamId)) {
+    throw new Error(
+      'Invalid userId or livestreamId for livestream thumbnail key (must not be empty or contain /, \\, or ..)'
+    );
+  }
+  if (!uniqueId || uniqueId.includes('/') || uniqueId.includes('\\') || uniqueId.includes('..')) {
+    throw new Error(
+      'Invalid unique id for livestream thumbnail key (must not contain /, \\, or ..)'
+    );
+  }
+  const rawExt = extension.startsWith('.') ? extension.slice(1) : extension;
+  if (!rawExt || !/^[a-z0-9]+$/i.test(rawExt) || rawExt.length > 16) {
+    throw new Error('Invalid file extension for livestream thumbnail key');
+  }
+}
+
+/**
+ * Pending livestream thumbnail key after presign (before complete). Use bucket lifecycle rules on
+ * `temp/livestreams/thumbnail-pending/` to prune abandoned uploads.
+ * @param userId - Owner user id.
+ * @param livestreamId - Livestream row id.
+ * @param uniqueId - Unique filename segment (e.g. UUID).
+ * @param extension - File extension without leading dot (e.g. `jpg`, `png`).
+ * @returns R2 object key for the pending upload.
+ */
+export function buildLivestreamThumbnailPendingKey(
+  userId: string,
+  livestreamId: string,
+  uniqueId: string,
+  extension: string
+): string {
+  assertLivestreamThumbnailKeyInputs(userId, livestreamId, uniqueId, extension);
+  const ext = extension.startsWith('.') ? extension : `.${extension}`;
+  return `${LIVESTREAM_THUMBNAIL_PENDING_PREFIX}${userId}/${livestreamId}/${uniqueId}${ext}`;
+}
+
+/**
+ * Final livestream thumbnail key after `complete` copies pending → final.
+ * @param userId - Owner user id.
+ * @param livestreamId - Livestream row id.
+ * @param uniqueId - Unique filename segment (e.g. UUID).
+ * @param extension - File extension without leading dot (e.g. `jpg`, `png`).
+ * @returns R2 object key for the bound thumbnail.
+ */
+export function buildLivestreamThumbnailFinalKey(
+  userId: string,
+  livestreamId: string,
+  uniqueId: string,
+  extension: string
+): string {
+  assertLivestreamThumbnailKeyInputs(userId, livestreamId, uniqueId, extension);
+  const ext = extension.startsWith('.') ? extension : `.${extension}`;
+  return `${LIVESTREAM_THUMBNAIL_FINAL_PREFIX}${userId}/${livestreamId}/${uniqueId}${ext}`;
+}
+
+/**
+ * Returns whether `key` is a pending livestream thumbnail for the given user and livestream.
+ * @param key - R2 object key to validate.
+ * @param userId - Expected owner user id.
+ * @param livestreamId - Expected livestream row id.
+ * @returns True when the key is under the user's pending prefix for this livestream.
+ */
+export function isLivestreamThumbnailPendingKeyForUser(
+  key: string,
+  userId: string,
+  livestreamId: string
+): boolean {
+  if (!safeUserLivestreamSegments(userId, livestreamId)) return false;
+  if (key.includes('..') || key.includes('\\')) return false;
+  const prefix = `${LIVESTREAM_THUMBNAIL_PENDING_PREFIX}${userId}/${livestreamId}/`;
+  return key.startsWith(prefix) && key.length > prefix.length;
+}
+
+/**
+ * Returns whether `key` is a final livestream thumbnail for the given user and livestream.
+ * @param key - R2 object key to validate.
+ * @param userId - Expected owner user id.
+ * @param livestreamId - Expected livestream row id.
+ * @returns True when the key is under the user's final prefix for this livestream.
+ */
+export function isLivestreamThumbnailFinalKeyForUser(
+  key: string,
+  userId: string,
+  livestreamId: string
+): boolean {
+  if (!safeUserLivestreamSegments(userId, livestreamId)) return false;
+  if (key.includes('..') || key.includes('\\')) return false;
+  const prefix = `${LIVESTREAM_THUMBNAIL_FINAL_PREFIX}${userId}/${livestreamId}/`;
+  return key.startsWith(prefix) && key.length > prefix.length;
+}
+
 /**
  * Server-side copy within the same bucket (pending → final thumbnail key).
  */

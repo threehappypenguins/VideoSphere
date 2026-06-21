@@ -13,7 +13,19 @@ describe('YouTubePlaylistCombobox', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows playlist id when the playlist list has not loaded yet', () => {
+  it('preloads playlists to resolve a saved playlist id to its title', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [
+            { id: 'PL99', title: 'Sunday Sermons' },
+            { id: 'PL1', title: 'Youth Group' },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
+
     render(
       <YouTubePlaylistCombobox
         id="yt-playlist"
@@ -23,15 +35,34 @@ describe('YouTubePlaylistCombobox', () => {
       />
     );
 
-    const combobox = screen.getByRole('combobox');
-    expect(combobox).toHaveTextContent('PL99');
-    expect(combobox).not.toHaveTextContent('None');
+    expect(global.fetch).toHaveBeenCalledWith('/api/platforms/youtube/playlists/recent', {
+      cache: 'no-store',
+      signal: expect.any(AbortSignal),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox')).toHaveTextContent('Sunday Sermons');
+    });
+  });
+
+  it('shows a stored playlist title without fetching when the title is already saved', () => {
+    render(
+      <YouTubePlaylistCombobox
+        id="yt-playlist"
+        playlistId="PL99"
+        playlistTitle="Sunday Sermons"
+        onPlaylistChange={vi.fn()}
+        className="border"
+      />
+    );
+
+    expect(screen.getByRole('combobox')).toHaveTextContent('Sunday Sermons');
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('selects None and clears playlist values', async () => {
     const onPlaylistChange = vi.fn();
-    vi.mocked(global.fetch).mockResolvedValueOnce(
+    vi.mocked(global.fetch).mockResolvedValue(
       new Response(JSON.stringify({ data: [{ id: 'PL1', title: 'Sunday Sermons' }] }), {
         status: 200,
       })
@@ -41,6 +72,7 @@ describe('YouTubePlaylistCombobox', () => {
       <YouTubePlaylistCombobox
         id="yt-playlist"
         playlistId="PL1"
+        playlistTitle="Sunday Sermons"
         onPlaylistChange={onPlaylistChange}
         className="border"
       />
@@ -77,7 +109,10 @@ describe('YouTubePlaylistCombobox', () => {
     });
     await userEvent.click(screen.getByRole('option', { name: 'Sunday Sermons' }));
 
-    expect(onPlaylistChange).toHaveBeenCalledWith({ playlistId: 'PL1' });
+    expect(onPlaylistChange).toHaveBeenCalledWith({
+      playlistId: 'PL1',
+      playlistTitle: 'Sunday Sermons',
+    });
   });
 
   it('selects Create for a custom playlist title', async () => {

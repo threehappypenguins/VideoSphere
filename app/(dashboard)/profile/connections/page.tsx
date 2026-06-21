@@ -35,6 +35,10 @@ import {
   type GoogleDriveExistingConnection,
 } from './GoogleDriveConnectButton';
 import {
+  YouTubeStreamKeysButton,
+  type YouTubeStreamKeysExistingConnection,
+} from './YouTubeStreamKeysButton';
+import {
   SermonAudioConnectButton,
   type SermonAudioExistingConnection,
 } from './SermonAudioConnectButton';
@@ -221,6 +225,20 @@ function toGoogleDriveExistingConnection(
   return {
     backupFolderPath: account.googleDriveBackupFolderPath ?? '',
     label: account.platformName,
+  };
+}
+
+/** Build YouTube stream key presence flags from a connected account row (no plaintext keys). */
+function toYouTubeStreamKeysExistingConnection(
+  account: ConnectedAccountPublic
+): YouTubeStreamKeysExistingConnection | undefined {
+  if (account.platform !== 'youtube') {
+    return undefined;
+  }
+
+  return {
+    hasMainStreamKey: account.hasYoutubeMainStreamKey,
+    hasTempStreamKey: account.hasYoutubeTempStreamKey,
   };
 }
 
@@ -459,6 +477,16 @@ function ConnectionPlatformRow({
     account?.platform === 'facebook' ? toFacebookExistingConnection(account) : undefined;
   const googleDriveExistingConnection =
     account?.platform === 'google_drive' ? toGoogleDriveExistingConnection(account) : undefined;
+  const youtubeStreamKeysExistingConnection =
+    account?.platform === 'youtube' ? toYouTubeStreamKeysExistingConnection(account) : undefined;
+  const youtubeStreamKeysEditButton =
+    youtubeStreamKeysExistingConnection != null ? (
+      <YouTubeStreamKeysButton
+        label="Edit"
+        existingConnection={youtubeStreamKeysExistingConnection}
+        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+      />
+    ) : null;
 
   return (
     <div
@@ -552,6 +580,14 @@ function ConnectionPlatformRow({
               platformLabel={meta.label}
             />
           </div>
+        ) : platform === 'youtube' && youtubeStreamKeysExistingConnection ? (
+          <div className="flex items-center gap-2">
+            {youtubeStreamKeysEditButton}
+            <DisconnectButton
+              action={disconnectPlatform.bind(null, account.id)}
+              platformLabel={meta.label}
+            />
+          </div>
         ) : (
           <DisconnectButton
             action={disconnectPlatform.bind(null, account.id)}
@@ -561,7 +597,10 @@ function ConnectionPlatformRow({
       ) : status === 'expired' && account ? (
         <div className="flex items-center gap-2">
           {meta.connectHref ? (
-            <ConnectButton href={meta.connectHref} label="Reconnect" />
+            <>
+              <ConnectButton href={meta.connectHref} label="Reconnect" />
+              {youtubeStreamKeysEditButton}
+            </>
           ) : platform === 'sftp' ? (
             <SftpConnectButton label="Reconnect" existingConnection={sftpExistingConnection} />
           ) : platform === 'smb' ? (
