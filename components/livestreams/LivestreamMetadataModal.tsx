@@ -134,7 +134,13 @@ function isYouTubeMetadataFullyLoaded(state: YouTubeMetadataLoadedState): boolea
   return state.languages && state.categories && state.accountDefaults;
 }
 
-const LIVESTREAM_SCHEDULE_FIELD_ORDER = ['title', 'scheduledStartTime', 'targets'] as const;
+const LIVESTREAM_SCHEDULE_FIELD_ORDER = [
+  'title',
+  'scheduleTime',
+  'scheduleDate',
+  'scheduledStartTime',
+  'targets',
+] as const;
 
 /**
  * Maps livestream validation field keys to focusable element ids in the modal.
@@ -143,6 +149,8 @@ const LIVESTREAM_SCHEDULE_FIELD_ORDER = ['title', 'scheduledStartTime', 'targets
  */
 function livestreamFieldFocusId(field: string): string | null {
   if (field === 'title') return 'livestream-title';
+  if (field === 'scheduleTime') return 'livestream-schedule-time';
+  if (field === 'scheduleDate') return 'livestream-schedule-date';
   if (field === 'scheduledStartTime') return 'livestream-schedule-date';
   if (field === 'targets') return 'livestream-platforms';
   return null;
@@ -578,6 +586,22 @@ export function LivestreamMetadataModal({
         next = { ...next, targets: [...schedulablePlatforms] };
       }
 
+      if (youtubeAccountDefaults && next.targets.includes('youtube')) {
+        const seedPatch = buildYouTubeAccountDefaultsSeedPatch(
+          next.platforms.youtube,
+          youtubeAccountDefaults
+        );
+        if (Object.keys(seedPatch).length > 0) {
+          next = {
+            ...next,
+            platforms: {
+              ...next.platforms,
+              youtube: { ...next.platforms.youtube, ...seedPatch },
+            },
+          };
+        }
+      }
+
       return next;
     },
     [
@@ -587,6 +611,7 @@ export function LivestreamMetadataModal({
       scheduleTime,
       schedulablePlatforms,
       value,
+      youtubeAccountDefaults,
     ]
   );
 
@@ -700,6 +725,8 @@ export function LivestreamMetadataModal({
   }, [commitTagsBeforeSave, value]);
 
   const clearSchedule = () => {
+    clearFieldError('scheduleTime');
+    clearFieldError('scheduleDate');
     clearFieldError('scheduledStartTime');
     const tz = getLocalTimeZone();
     setScheduleDate(getDefaultScheduleDate(tz));
@@ -730,7 +757,11 @@ export function LivestreamMetadataModal({
       errors.add('title');
     }
 
-    if (!resolvedScheduledStartTimeIso) {
+    if (!scheduleTime.trim()) {
+      errors.add('scheduleTime');
+    } else if (!scheduleDate.trim()) {
+      errors.add('scheduleDate');
+    } else if (!resolvedScheduledStartTimeIso) {
       errors.add('scheduledStartTime');
     }
 
@@ -745,8 +776,12 @@ export function LivestreamMetadataModal({
       setFieldErrors(errors);
       if (errors.has('title') && errors.size === 1) {
         toast.error('Title is required.');
+      } else if (errors.has('scheduleTime') && errors.size === 1) {
+        toast.error('Choose a scheduled start time before scheduling.');
+      } else if (errors.has('scheduleDate') && errors.size === 1) {
+        toast.error('Choose a scheduled start date before scheduling.');
       } else if (errors.has('scheduledStartTime') && errors.size === 1) {
-        toast.error('Choose a scheduled start date and time before scheduling.');
+        toast.error('Choose a valid scheduled start date and time.');
       } else if (errors.has('targets') && errors.size === 1) {
         toast.error('Select YouTube before scheduling.');
       } else {
@@ -770,7 +805,14 @@ export function LivestreamMetadataModal({
 
     setFieldErrors(new Set());
     return { ok: true, tags };
-  }, [commitTagsBeforeSave, resolvedScheduledStartTimeIso, schedulablePlatforms, value]);
+  }, [
+    commitTagsBeforeSave,
+    resolvedScheduledStartTimeIso,
+    scheduleDate,
+    scheduleTime,
+    schedulablePlatforms,
+    value,
+  ]);
 
   const handleThumbnailFile = async (file: File) => {
     if (!value || !livestreamId || !isEditable) return;
@@ -1365,14 +1407,19 @@ export function LivestreamMetadataModal({
                     id="livestream-schedule-date"
                     type="date"
                     value={scheduleDate}
-                    aria-invalid={fieldErrors.has('scheduledStartTime')}
+                    aria-invalid={
+                      fieldErrors.has('scheduleDate') || fieldErrors.has('scheduledStartTime')
+                    }
                     onChange={(event) => {
+                      clearFieldError('scheduleDate');
                       clearFieldError('scheduledStartTime');
                       setScheduleDate(event.target.value);
                     }}
                     className={cn(
-                      fieldBorderClass('scheduledStartTime'),
-                      'flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
+                      'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground',
+                      fieldErrors.has('scheduleDate') || fieldErrors.has('scheduledStartTime')
+                        ? 'border-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 dark:border-red-500'
+                        : 'border-border'
                     )}
                   />
                 </div>
@@ -1386,16 +1433,21 @@ export function LivestreamMetadataModal({
                   <Select
                     value={scheduleTime}
                     onValueChange={(next) => {
+                      clearFieldError('scheduleTime');
                       clearFieldError('scheduledStartTime');
                       setScheduleTime(next);
                     }}
                   >
                     <SelectTrigger
                       id="livestream-schedule-time"
-                      aria-invalid={fieldErrors.has('scheduledStartTime')}
+                      aria-invalid={
+                        fieldErrors.has('scheduleTime') || fieldErrors.has('scheduledStartTime')
+                      }
                       className={cn(
-                        fieldBorderClass('scheduledStartTime'),
-                        'mt-1 flex h-10 items-center justify-between text-left'
+                        'mt-1 flex h-10 items-center justify-between text-left rounded-md border bg-background',
+                        fieldErrors.has('scheduleTime') || fieldErrors.has('scheduledStartTime')
+                          ? 'border-red-600 focus-visible:ring-red-600 dark:border-red-500'
+                          : 'border-border'
                       )}
                     >
                       <SelectValue placeholder="Select time" />
@@ -1424,16 +1476,21 @@ export function LivestreamMetadataModal({
                       clearFieldError('scheduledStartTime');
                       setScheduleTimeZone(next);
                     }}
-                    className={cn(
-                      fieldBorderClass('scheduledStartTime'),
-                      'mt-1 w-full rounded-md border bg-background px-3'
-                    )}
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3"
                   />
                 </div>
               </div>
-              {fieldErrors.has('scheduledStartTime') ? (
+              {fieldErrors.has('scheduleTime') ? (
                 <p className="text-xs text-red-600 dark:text-red-400">
-                  Choose a scheduled start date and time.
+                  Choose a scheduled start time.
+                </p>
+              ) : fieldErrors.has('scheduleDate') ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Choose a scheduled start date.
+                </p>
+              ) : fieldErrors.has('scheduledStartTime') ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Choose a valid scheduled start date and time.
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-3">

@@ -460,6 +460,15 @@ describe('ConnectionsPage', () => {
       expect(screen.getByRole('alert').textContent).toMatch(/failed to connect/i);
     });
 
+    it('renders a specific flash when ?error=youtube_no_channel is present', async () => {
+      const page = await ConnectionsPage({
+        searchParams: makeSearchParams({ error: 'youtube_no_channel' }),
+      });
+      render(page);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alert').textContent).toMatch(/does not have a youtube channel/i);
+    });
+
     it('renders success flash when ?success=google_drive is present', async () => {
       const page = await ConnectionsPage({
         searchParams: makeSearchParams({ success: 'google_drive' }),

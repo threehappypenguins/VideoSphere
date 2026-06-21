@@ -19,6 +19,7 @@ import {
   LIVESTREAM_LIST_POLL_INTERVAL_MS,
   shouldPollLivestreamsForReconciliation,
 } from '@/lib/livestreams/near-term-polling';
+import { partitionLivestreams } from '@/lib/livestreams/partition-livestreams';
 import {
   getSchedulableLivestreamPlatforms,
   type LivestreamConnectionSnapshot,
@@ -106,34 +107,8 @@ function formatKeySwapNote(livestream: Livestream): string | null {
   return null;
 }
 
-function partitionLivestreams(livestreams: Livestream[]): {
-  drafts: Livestream[];
-  scheduled: Livestream[];
-  streamed: Livestream[];
-} {
-  const drafts: Livestream[] = [];
-  const scheduled: Livestream[] = [];
-  const streamed: Livestream[] = [];
-
-  for (const livestream of livestreams) {
-    if (livestream.status === 'draft') {
-      drafts.push(livestream);
-    } else if (livestream.status === 'scheduled') {
-      scheduled.push(livestream);
-    } else if (
-      livestream.status === 'live' ||
-      livestream.status === 'ended' ||
-      livestream.status === 'failed'
-    ) {
-      streamed.push(livestream);
-    }
-  }
-
-  return { drafts, scheduled, streamed };
-}
-
 /**
- * Livestreams dashboard list page: drafts, scheduled, and streamed sections.
+ * Livestreams dashboard list page: drafts, scheduled, live, and streamed sections.
  * @returns The rendered livestreams list UI.
  */
 export default function LivestreamsPage() {
@@ -251,7 +226,7 @@ export default function LivestreamsPage() {
     };
   }, [loadLivestreams, shouldPollForReconciliation]);
 
-  const { drafts, scheduled, streamed } = useMemo(
+  const { drafts, scheduled, live, streamed } = useMemo(
     () => partitionLivestreams(livestreams),
     [livestreams]
   );
@@ -260,7 +235,7 @@ export default function LivestreamsPage() {
   const headingDescription = useMemo(
     () =>
       hasLivestreams
-        ? `You have ${livestreams.length} livestream${livestreams.length === 1 ? '' : 's'} across drafts, scheduled, and streamed.`
+        ? `You have ${livestreams.length} livestream${livestreams.length === 1 ? '' : 's'} across drafts, scheduled, live, and streamed.`
         : 'Plan live broadcasts, schedule them, and track when they go live.',
     [hasLivestreams, livestreams.length]
   );
@@ -617,8 +592,28 @@ export default function LivestreamsPage() {
             </LivestreamSection>
 
             <LivestreamSection
+              title="Live"
+              description="Broadcasts currently live on YouTube."
+              live
+            >
+              {live.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No live broadcasts right now.</p>
+              ) : (
+                <LivestreamsTableContent
+                  livestreams={live}
+                  showScheduledColumn
+                  onEdit={openEditLivestream}
+                  onDelete={handleDeleteLivestream}
+                  onDuplicate={handleDuplicateLivestream}
+                  isDeletingId={isDeletingId}
+                  isDuplicatingId={isDuplicatingId}
+                />
+              )}
+            </LivestreamSection>
+
+            <LivestreamSection
               title="Streamed"
-              description="Livestreams that have gone live or ended on YouTube."
+              description="Past broadcasts that have ended on YouTube."
               streamed
             >
               {streamed.length === 0 ? (
@@ -726,6 +721,7 @@ function StatusBadge({ status }: { status: LivestreamStatus }) {
 interface LivestreamSectionProps {
   title: string;
   description: string;
+  live?: boolean;
   streamed?: boolean;
   children: ReactNode;
 }
@@ -733,15 +729,18 @@ interface LivestreamSectionProps {
 function LivestreamSection({
   title,
   description,
+  live = false,
   streamed = false,
   children,
 }: LivestreamSectionProps) {
+  const sectionClassName = live
+    ? 'border-amber-500/40 bg-amber-500/10'
+    : streamed
+      ? 'border-muted-foreground/30 bg-muted/20'
+      : 'border-border bg-background';
+
   return (
-    <section
-      className={`space-y-3 rounded-xl border p-4 sm:p-5 ${
-        streamed ? 'border-amber-500/30 bg-amber-500/5' : 'border-border bg-background'
-      }`}
-    >
+    <section className={`space-y-3 rounded-xl border p-4 sm:p-5 ${sectionClassName}`}>
       <header className="space-y-1">
         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         <p className="text-xs text-muted-foreground">{description}</p>

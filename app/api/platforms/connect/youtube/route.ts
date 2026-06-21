@@ -66,7 +66,8 @@ export async function GET(req: NextRequest) {
     response_type: 'code',
     scope: YOUTUBE_SCOPES,
     access_type: 'offline',
-    prompt: 'consent',
+    // consent — refresh token on reconnect; select_account — pick a different Google account
+    prompt: 'consent select_account',
     state: csrfNonce,
   });
 

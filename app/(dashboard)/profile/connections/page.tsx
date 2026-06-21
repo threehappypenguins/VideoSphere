@@ -24,6 +24,7 @@ import {
   getConnectedAccountWithTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
+import { clearDraftLivestreamYouTubeBroadcastLinksForUser } from '@/lib/repositories/livestreams';
 import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
 import { revokeFacebookAppAuthorization } from '@/lib/platforms/facebook-oauth';
 import type { ConnectedAccountPublic } from '@/types';
@@ -446,6 +447,20 @@ async function disconnectPlatform(accountId: string) {
   }
 
   await deleteConnectedAccount(accountId);
+
+  if (canonicalPlatform === 'youtube') {
+    try {
+      const cleared = await clearDraftLivestreamYouTubeBroadcastLinksForUser(userId);
+      if (cleared > 0) {
+        console.log(
+          `[disconnectPlatform] Cleared stale YouTube broadcast links from ${cleared} draft livestream(s).`
+        );
+      }
+    } catch (err) {
+      console.error('[disconnectPlatform] Failed to clear draft YouTube broadcast links:', err);
+    }
+  }
+
   revalidatePath('/profile/connections');
 }
 
@@ -681,6 +696,12 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
           <FlashMessage
             type="error"
             message="✗ Failed to connect YouTube account. Please try again."
+          />
+        )}
+        {error === 'youtube_no_channel' && (
+          <FlashMessage
+            type="error"
+            message="✗ That Google account does not have a YouTube channel. Create one at youtube.com (profile → Create a channel), or choose a different Google account when connecting."
           />
         )}
         {success === 'vimeo' && (

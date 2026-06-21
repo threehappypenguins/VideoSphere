@@ -20,7 +20,13 @@ import {
   parseScheduledStartTimeZoneFromRequestBody,
   parseTagsFromRequestBody,
 } from '@/lib/livestream-upload-metadata';
+import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import { getObjectUrl, isLivestreamThumbnailFinalKeyForUser } from '@/lib/r2';
+import {
+  requireYouTubeConnection,
+  youtubeUpstreamErrorResponse,
+} from '@/lib/platforms/youtube-api';
+import { deleteYouTubeLiveBroadcast } from '@/lib/platforms/youtube-livestream-api';
 import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
 import {
   deleteLivestream,
@@ -377,6 +383,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await persistUserYouTubePlatformDefaults(userId, updated.platforms.youtube);
 
+    if (updated.status === 'scheduled' && updated.youtubeBroadcastId?.trim()) {
+      const youtubeConnection = await requireYouTubeConnection(req);
+      if (youtubeConnection.ok === false) {
+        return youtubeConnection.response;
+      }
+
+      const syncResult = await syncLivestreamMetadataToYouTube(
+        youtubeConnection.accessToken,
+        userId,
+        id,
+        updated
+      );
+      if (syncResult.ok === false) {
+        return youtubeUpstreamErrorResponse(syncResult.details);
+      }
+
+      if (syncResult.droppedTags.length > 0) {
+        console.warn(
+          '[PATCH /api/livestreams/:id] YouTube omitted tags after update:',
+          syncResult.droppedTags
+        );
+      }
+    }
+
     const data = await livestreamResponseWithThumbnailPreview(updated, userId, id);
     const response: ApiResponse<Livestream> = {
       data,
@@ -449,6 +479,26 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   if (existing.keySlot != null) {
     // TODO(prompt 10): Promote the next pending livestream into this key slot after delete.
+  }
+
+  const broadcastId = existing.youtubeBroadcastId?.trim();
+  if (broadcastId) {
+    const youtubeConnection = await requireYouTubeConnection(req);
+    if (youtubeConnection.ok === true) {
+      const deleteResult = await deleteYouTubeLiveBroadcast(
+        youtubeConnection.accessToken,
+        broadcastId
+      );
+      if (deleteResult.ok === false) {
+        console.warn(
+          `[DELETE /api/livestreams/:id] YouTube broadcast delete failed for ${broadcastId}: ${deleteResult.details}`
+        );
+      }
+    } else {
+      console.warn(
+        `[DELETE /api/livestreams/:id] Skipping YouTube broadcast delete for ${broadcastId}: YouTube not connected or token unavailable`
+      );
+    }
   }
 
   try {

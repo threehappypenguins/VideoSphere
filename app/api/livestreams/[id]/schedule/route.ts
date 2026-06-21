@@ -5,13 +5,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
-  isAllowedDraftThumbnailContentType,
-  MAX_DRAFT_THUMBNAIL_BYTES,
-} from '@/lib/draft-thumbnail';
-import {
   decideKeySlotForNewSchedule,
   requireYouTubeStreamKeyForSlot,
 } from '@/lib/livestreams/key-assignment';
+import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
@@ -21,12 +18,7 @@ import {
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
   scheduleYouTubeLiveBroadcast,
-  setYouTubeBroadcastSnippetMetadata,
-  setYouTubeBroadcastVideoStatus,
-  uploadYouTubeLivestreamThumbnail,
 } from '@/lib/platforms/youtube-livestream-api';
-import { addYouTubeVideoToPlaylists } from '@/lib/platforms/youtube';
-import { getObjectWebStream, isLivestreamThumbnailFinalKeyForUser } from '@/lib/r2';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import {
   getLivestreamById,
@@ -199,7 +191,6 @@ export async function POST(
 
   let broadcastId = livestream.youtubeBroadcastId?.trim() ?? '';
   let boundStreamId = livestream.youtubeBoundStreamId?.trim() ?? '';
-  let youtubeDroppedTags: string[] = [];
 
   if (!broadcastId) {
     const scheduled = await scheduleYouTubeLiveBroadcast(accessToken, {
@@ -240,157 +231,25 @@ export async function POST(
     });
   }
 
-  const ytPlatforms = livestream.platforms.youtube ?? {};
-  const categoryId = ytPlatforms.categoryId?.trim();
-  const defaultAudioLanguage = ytPlatforms.defaultAudioLanguage?.trim();
-  const license =
-    ytPlatforms.license === 'youtube' || ytPlatforms.license === 'creativeCommon'
-      ? ytPlatforms.license
-      : undefined;
-
-  // Video status (privacy, license, embeddable) must be set before snippet metadata.
-  const statusResult = await setYouTubeBroadcastVideoStatus(accessToken, broadcastId, {
-    privacyStatus: toYouTubePrivacy(livestream.visibility),
-    ...(license ? { license } : {}),
-    ...(typeof ytPlatforms.embeddable === 'boolean' ? { embeddable: ytPlatforms.embeddable } : {}),
+  const syncResult = await syncLivestreamMetadataToYouTube(accessToken, userId, livestreamId, {
+    ...livestream,
+    youtubeBroadcastId: broadcastId,
+    ...(boundStreamId ? { youtubeBoundStreamId: boundStreamId } : {}),
   });
-  if (statusResult.ok === false) {
+  if (syncResult.ok === false) {
     await persistScheduleProgress(livestreamId, {
       youtubeBroadcastId: broadcastId,
       youtubeBoundStreamId: boundStreamId,
     });
-    return youtubeUpstreamErrorResponse(statusResult.details);
+    return youtubeUpstreamErrorResponse(syncResult.details);
   }
 
-  if (defaultAudioLanguage || categoryId) {
-    const snippetResult = await setYouTubeBroadcastSnippetMetadata(accessToken, broadcastId, {
-      ...(defaultAudioLanguage ? { defaultAudioLanguage } : {}),
-      ...(categoryId ? { categoryId } : {}),
-    });
-    if (snippetResult.ok === false) {
-      await persistScheduleProgress(livestreamId, {
-        youtubeBroadcastId: broadcastId,
-        youtubeBoundStreamId: boundStreamId,
-      });
-      return youtubeUpstreamErrorResponse(snippetResult.details);
-    }
-  }
-
-  const thumbKey = livestream.thumbnailR2Key?.trim();
-  if (thumbKey && isLivestreamThumbnailFinalKeyForUser(thumbKey, userId, livestreamId)) {
-    const draftCt = livestream.thumbnailContentType?.trim().toLowerCase();
-    if (draftCt && !isAllowedDraftThumbnailContentType(draftCt)) {
-      await persistScheduleProgress(livestreamId, {
-        youtubeBroadcastId: broadcastId,
-        youtubeBoundStreamId: boundStreamId,
-      });
-      const errRes: ApiError = {
-        error: 'Bad Request',
-        message: 'YouTube custom thumbnails must be JPEG or PNG.',
-        statusCode: 400,
-      };
-      return NextResponse.json(errRes, { status: 400 });
-    }
-
-    let thumbStream: ReadableStream<Uint8Array>;
-    let thumbLen: number;
-    let thumbR2Ct: string;
-    try {
-      const opened = await getObjectWebStream(thumbKey);
-      thumbStream = opened.stream;
-      thumbLen = opened.contentLength;
-      thumbR2Ct = opened.contentType?.trim().toLowerCase() ?? '';
-    } catch (err) {
-      console.error('[POST /api/livestreams/:id/schedule] thumbnail R2 read', err);
-      await persistScheduleProgress(livestreamId, {
-        youtubeBroadcastId: broadcastId,
-        youtubeBoundStreamId: boundStreamId,
-      });
-      const errRes: ApiError = {
-        error: 'Internal Server Error',
-        message: 'Could not read thumbnail from storage for YouTube.',
-        statusCode: 500,
-      };
-      return NextResponse.json(errRes, { status: 500 });
-    }
-
-    const resolvedCt =
-      (draftCt && isAllowedDraftThumbnailContentType(draftCt) ? draftCt : null) ??
-      (isAllowedDraftThumbnailContentType(thumbR2Ct) ? thumbR2Ct : 'image/jpeg');
-
-    if (thumbLen <= 0 || thumbLen > MAX_DRAFT_THUMBNAIL_BYTES) {
-      await thumbStream.cancel().catch(() => undefined);
-      await persistScheduleProgress(livestreamId, {
-        youtubeBroadcastId: broadcastId,
-        youtubeBoundStreamId: boundStreamId,
-      });
-      const errRes: ApiError = {
-        error: 'Bad Request',
-        message: `Thumbnail must be between 1 and ${MAX_DRAFT_THUMBNAIL_BYTES} bytes`,
-        statusCode: 400,
-      };
-      return NextResponse.json(errRes, { status: 400 });
-    }
-
-    const thumbBody = Buffer.from(await new Response(thumbStream).arrayBuffer());
-    const thumbResult = await uploadYouTubeLivestreamThumbnail(
-      accessToken,
-      broadcastId,
-      thumbBody,
-      resolvedCt
+  const youtubeDroppedTags = syncResult.droppedTags;
+  if (youtubeDroppedTags.length > 0) {
+    console.warn(
+      '[POST /api/livestreams/:id/schedule] YouTube omitted tags after update:',
+      youtubeDroppedTags
     );
-    if (thumbResult.ok === false) {
-      await persistScheduleProgress(livestreamId, {
-        youtubeBroadcastId: broadcastId,
-        youtubeBoundStreamId: boundStreamId,
-      });
-      return youtubeUpstreamErrorResponse(thumbResult.details);
-    }
-  }
-
-  const ytPlatformsForPlaylists = livestream.platforms.youtube;
-  const hasPlaylistIds = (ytPlatformsForPlaylists?.playlistIds?.length ?? 0) > 0;
-  const hasPlaylistTitles = (ytPlatformsForPlaylists?.playlistTitles?.length ?? 0) > 0;
-  if (hasPlaylistIds || hasPlaylistTitles) {
-    const playlistResult = await addYouTubeVideoToPlaylists(accessToken, broadcastId, {
-      playlistIds: ytPlatformsForPlaylists?.playlistIds,
-      playlistTitles: ytPlatformsForPlaylists?.playlistTitles,
-      visibility: livestream.visibility,
-    });
-    if (playlistResult.ok === false) {
-      await persistScheduleProgress(livestreamId, {
-        youtubeBroadcastId: broadcastId,
-        youtubeBoundStreamId: boundStreamId,
-      });
-      const errRes: ApiError = {
-        error: 'Bad Gateway',
-        message: playlistResult.error.message,
-        statusCode: 502,
-      };
-      return NextResponse.json(errRes, { status: 502 });
-    }
-  }
-
-  // Tags must be applied last: earlier snippet updates (category, language) re-fetch the
-  // video without tags and would clear them if we sent tags before those updates.
-  if (livestream.tags.length > 0) {
-    const tagsResult = await setYouTubeBroadcastSnippetMetadata(accessToken, broadcastId, {
-      tags: livestream.tags,
-    });
-    if (tagsResult.ok === false) {
-      await persistScheduleProgress(livestreamId, {
-        youtubeBroadcastId: broadcastId,
-        youtubeBoundStreamId: boundStreamId,
-      });
-      return youtubeUpstreamErrorResponse(tagsResult.details);
-    }
-    if (tagsResult.droppedTags.length > 0) {
-      youtubeDroppedTags = tagsResult.droppedTags;
-      console.warn(
-        '[POST /api/livestreams/:id/schedule] YouTube omitted tags after update:',
-        tagsResult.droppedTags
-      );
-    }
   }
 
   const lifecycleResult = await getYouTubeBroadcastLifecycleStatus(accessToken, broadcastId);

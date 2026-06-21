@@ -469,6 +469,46 @@ export async function updateLivestream(
   return mongoDocToLivestream(updated);
 }
 
+/**
+ * Clears YouTube broadcast linkage fields from draft livestreams for a user.
+ * Used after YouTube disconnect or channel change so drafts do not reuse stale broadcast ids.
+ * @param userId - Owner user id.
+ * @returns Number of draft rows updated.
+ */
+export async function clearDraftLivestreamYouTubeBroadcastLinksForUser(
+  userId: string
+): Promise<number> {
+  const livestreams = await listLivestreamsByUser(userId);
+  let cleared = 0;
+
+  for (const livestream of livestreams) {
+    if (livestream.status !== 'draft') {
+      continue;
+    }
+
+    const hasBroadcastLink =
+      Boolean(livestream.youtubeBroadcastId?.trim()) ||
+      Boolean(livestream.youtubeBoundStreamId?.trim()) ||
+      Boolean(livestream.youtubeLifecycleStatus?.trim());
+
+    if (!hasBroadcastLink) {
+      continue;
+    }
+
+    const updated = await updateLivestream(livestream.id, {
+      youtubeBroadcastId: null,
+      youtubeBoundStreamId: null,
+      youtubeLifecycleStatus: null,
+    });
+
+    if (updated) {
+      cleared += 1;
+    }
+  }
+
+  return cleared;
+}
+
 // -----------------------------------------------------------------------------
 // Delete
 // -----------------------------------------------------------------------------

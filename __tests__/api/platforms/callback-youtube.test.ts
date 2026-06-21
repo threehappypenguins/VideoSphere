@@ -224,12 +224,12 @@ describe('GET /api/platforms/callback/youtube', () => {
       expect(await res.text()).toContain('error=youtube');
     });
 
-    it('returns HTML that navigates to ?error=youtube when channel list is empty', async () => {
+    it('returns HTML that navigates to ?error=youtube_no_channel when channel list is empty', async () => {
       mockFetchSequence(200, TOKEN_RESPONSE, 200, { items: [] });
       const req = makeRequest(VALID_PARAMS, validCookies());
       const res = await GET(req);
       expect(res.status).toBe(200);
-      expect(await res.text()).toContain('error=youtube');
+      expect(await res.text()).toContain('error=youtube_no_channel');
     });
   });
 

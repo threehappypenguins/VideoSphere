@@ -10,13 +10,14 @@ import {
   requireYouTubeStreamKeyForSlot,
   shouldPromoteTempToMain,
 } from '@/lib/livestreams/key-assignment';
+import { localStatusForYouTubeLifecycle } from '@/lib/livestreams/youtube-lifecycle';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import {
   bindYouTubeBroadcastToStream,
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
 } from '@/lib/platforms/youtube-livestream-api';
-import type { Livestream, LivestreamStatus } from '@/types';
+import type { Livestream } from '@/types';
 
 const DEFAULT_LIVESTREAM_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -48,19 +49,6 @@ export function resolveLivestreamReconcileIntervalMs(): number {
     return DEFAULT_LIVESTREAM_RECONCILE_INTERVAL_MS;
   }
   return parsed;
-}
-
-function localStatusForYouTubeLifecycle(
-  lifeCycleStatus: string | null
-): LivestreamStatus | undefined {
-  const normalized = lifeCycleStatus?.trim().toLowerCase();
-  if (normalized === 'testing' || normalized === 'live') {
-    return 'live';
-  }
-  if (normalized === 'complete') {
-    return 'ended';
-  }
-  return undefined;
 }
 
 async function resolveYouTubeAccessTokenForUser(userId: string): Promise<string | null> {

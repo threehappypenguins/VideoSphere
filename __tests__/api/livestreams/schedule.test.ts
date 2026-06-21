@@ -29,28 +29,18 @@ vi.mock('@/lib/platforms/youtube-api', () => ({
   ),
 }));
 
+vi.mock('@/lib/livestreams/sync-youtube-broadcast', () => ({
+  syncLivestreamMetadataToYouTube: vi.fn(),
+}));
+
 vi.mock('@/lib/platforms/youtube-livestream-api', () => ({
   scheduleYouTubeLiveBroadcast: vi.fn(),
   findYouTubeLiveStreamIdByKey: vi.fn(),
   bindYouTubeBroadcastToStream: vi.fn(),
-  setYouTubeBroadcastSnippetMetadata: vi.fn(),
-  setYouTubeBroadcastVideoStatus: vi.fn(),
-  uploadYouTubeLivestreamThumbnail: vi.fn(),
   getYouTubeBroadcastLifecycleStatus: vi.fn(),
 }));
 
-vi.mock('@/lib/platforms/youtube', () => ({
-  addYouTubeVideoToPlaylists: vi.fn(),
-}));
-
-vi.mock('@/lib/r2', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/r2')>();
-  return {
-    ...actual,
-    getObjectWebStream: vi.fn(),
-  };
-});
-
+import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import { POST } from '@/app/api/livestreams/[id]/schedule/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
@@ -65,8 +55,6 @@ import {
   findYouTubeLiveStreamIdByKey,
   bindYouTubeBroadcastToStream,
   getYouTubeBroadcastLifecycleStatus,
-  setYouTubeBroadcastSnippetMetadata,
-  setYouTubeBroadcastVideoStatus,
 } from '@/lib/platforms/youtube-livestream-api';
 import type { ConnectedAccount, Livestream } from '@/types';
 
@@ -165,8 +153,7 @@ function mockYouTubeScheduleSuccess(): void {
     ok: true,
     lifeCycleStatus: 'ready',
   });
-  vi.mocked(setYouTubeBroadcastSnippetMetadata).mockResolvedValue({ ok: true, droppedTags: [] });
-  vi.mocked(setYouTubeBroadcastVideoStatus).mockResolvedValue({ ok: true });
+  vi.mocked(syncLivestreamMetadataToYouTube).mockResolvedValue({ ok: true, droppedTags: [] });
 }
 
 describe('POST /api/livestreams/[id]/schedule', () => {
@@ -263,106 +250,29 @@ describe('POST /api/livestreams/[id]/schedule', () => {
     expect((await res.json()).message).toBe('This livestream has already been scheduled.');
   });
 
-  it('sends tags to YouTube as the last snippet update when the livestream has tags', async () => {
+  it('syncs livestream metadata to YouTube after binding the broadcast', async () => {
     vi.mocked(listArmedYouTubeLivestreamsForUser).mockResolvedValue([]);
 
     const res = await POST(makeScheduleRequest(), makeParams());
     expect(res.status).toBe(200);
 
-    expect(setYouTubeBroadcastSnippetMetadata).toHaveBeenCalledWith(
+    expect(syncLivestreamMetadataToYouTube).toHaveBeenCalledWith(
       'yt-access-token',
-      'broadcast-1',
-      { tags: ['church'] }
-    );
-    expect(
-      vi.mocked(setYouTubeBroadcastSnippetMetadata).mock.invocationCallOrder.at(-1)
-    ).toBeGreaterThan(vi.mocked(setYouTubeBroadcastVideoStatus).mock.invocationCallOrder[0] ?? -1);
-  });
-
-  it('skips YouTube snippet metadata update when the livestream has no tags, category, or stream language', async () => {
-    vi.mocked(listArmedYouTubeLivestreamsForUser).mockResolvedValue([]);
-    vi.mocked(getLivestreamById).mockResolvedValue({
-      ...baseDraftLivestream(),
-      tags: [],
-    });
-
-    const res = await POST(makeScheduleRequest(), makeParams());
-    expect(res.status).toBe(200);
-
-    expect(setYouTubeBroadcastSnippetMetadata).not.toHaveBeenCalled();
-  });
-
-  it('sends stream language to YouTube after scheduling when defaultAudioLanguage is set', async () => {
-    vi.mocked(listArmedYouTubeLivestreamsForUser).mockResolvedValue([]);
-    vi.mocked(getLivestreamById).mockResolvedValue({
-      ...baseDraftLivestream(),
-      tags: [],
-      platforms: {
-        youtube: {
-          defaultAudioLanguage: 'fr',
-        },
-      },
-    });
-
-    const res = await POST(makeScheduleRequest(), makeParams());
-    expect(res.status).toBe(200);
-
-    expect(setYouTubeBroadcastSnippetMetadata).toHaveBeenCalledWith(
-      'yt-access-token',
-      'broadcast-1',
-      { defaultAudioLanguage: 'fr' }
+      USER_ID,
+      LIVESTREAM_ID,
+      expect.objectContaining({ youtubeBroadcastId: 'broadcast-1' })
     );
   });
 
-  it('sends license to YouTube after scheduling when license is set', async () => {
+  it('returns 502 when YouTube metadata sync fails after binding', async () => {
     vi.mocked(listArmedYouTubeLivestreamsForUser).mockResolvedValue([]);
-    vi.mocked(getLivestreamById).mockResolvedValue({
-      ...baseDraftLivestream(),
-      tags: [],
-      platforms: {
-        youtube: {
-          license: 'creativeCommon',
-        },
-      },
+    vi.mocked(syncLivestreamMetadataToYouTube).mockResolvedValue({
+      ok: false,
+      details: 'quota exceeded',
     });
 
     const res = await POST(makeScheduleRequest(), makeParams());
-    expect(res.status).toBe(200);
-
-    expect(setYouTubeBroadcastVideoStatus).toHaveBeenCalledWith('yt-access-token', 'broadcast-1', {
-      license: 'creativeCommon',
-      privacyStatus: 'public',
-    });
-  });
-
-  it('sends category to YouTube after video status is set and before tags', async () => {
-    vi.mocked(listArmedYouTubeLivestreamsForUser).mockResolvedValue([]);
-    vi.mocked(getLivestreamById).mockResolvedValue({
-      ...baseDraftLivestream(),
-      tags: ['church'],
-      platforms: {
-        youtube: {
-          categoryId: '2',
-        },
-      },
-    });
-
-    const res = await POST(makeScheduleRequest(), makeParams());
-    expect(res.status).toBe(200);
-
-    expect(setYouTubeBroadcastVideoStatus).toHaveBeenCalled();
-    expect(setYouTubeBroadcastSnippetMetadata).toHaveBeenCalledWith(
-      'yt-access-token',
-      'broadcast-1',
-      { categoryId: '2' }
-    );
-    expect(setYouTubeBroadcastSnippetMetadata).toHaveBeenCalledWith(
-      'yt-access-token',
-      'broadcast-1',
-      { tags: ['church'] }
-    );
-    expect(vi.mocked(setYouTubeBroadcastSnippetMetadata).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(setYouTubeBroadcastSnippetMetadata).mock.invocationCallOrder[1] ?? 0
-    );
+    expect(res.status).toBe(502);
+    expect((await res.json()).message).toBe('quota exceeded');
   });
 });

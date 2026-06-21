@@ -18,6 +18,7 @@ import {
   parseTagsFromRequestBody,
 } from '@/lib/livestream-upload-metadata';
 import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
+import { reconcileLivestreamLifecycleForUser } from '@/lib/livestreams/reconcile-user-lifecycle';
 import {
   createLivestream,
   listLivestreamsByUser,
@@ -243,6 +244,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    await reconcileLivestreamLifecycleForUser(userId);
     const livestreams = await listLivestreamsByUser(userId);
     const response: ApiResponse<Livestream[]> = { data: livestreams };
     return NextResponse.json(response);

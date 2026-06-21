@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bindYouTubeBroadcastToStream,
   buildWritableYouTubeVideoSnippet,
+  deleteYouTubeLiveBroadcast,
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
   matchYouTubeLiveStreamIdByKey,
@@ -12,6 +13,7 @@ import {
   setYouTubeBroadcastVideoStatus,
   setYouTubeBroadcastTags,
   buildWritableYouTubeVideoStatus,
+  updateYouTubeLiveBroadcast,
   uploadYouTubeLivestreamThumbnail,
 } from '@/lib/platforms/youtube-livestream-api';
 
@@ -625,5 +627,77 @@ describe('getYouTubeBroadcastLifecycleStatus', () => {
     const result = await getYouTubeBroadcastLifecycleStatus(ACCESS_TOKEN, 'missing');
 
     expect(result).toEqual({ ok: true, lifeCycleStatus: null });
+  });
+});
+
+describe('updateYouTubeLiveBroadcast', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('PUTs snippet and status to liveBroadcasts.update', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(mockFetchJson({ id: 'broadcast-1' }));
+
+    const result = await updateYouTubeLiveBroadcast(ACCESS_TOKEN, 'broadcast-1', {
+      title: 'Sunday Service',
+      description: 'Weekly worship',
+      scheduledStartTime: '2026-07-01T18:00:00.000Z',
+      privacyStatus: 'public',
+      madeForKids: false,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('https://www.googleapis.com/youtube/v3/liveBroadcasts'),
+      expect.objectContaining({
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: 'broadcast-1',
+          snippet: {
+            title: 'Sunday Service',
+            description: 'Weekly worship',
+            scheduledStartTime: '2026-07-01T18:00:00.000Z',
+          },
+          status: {
+            privacyStatus: 'public',
+            selfDeclaredMadeForKids: false,
+          },
+        }),
+      })
+    );
+  });
+});
+
+describe('deleteYouTubeLiveBroadcast', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('DELETEs the broadcast by id', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const result = await deleteYouTubeLiveBroadcast(ACCESS_TOKEN, 'broadcast-1');
+
+    expect(result).toEqual({ ok: true });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'https://www.googleapis.com/youtube/v3/liveBroadcasts?id=broadcast-1'
+      ),
+      expect.objectContaining({
+        method: 'DELETE',
+      })
+    );
   });
 });

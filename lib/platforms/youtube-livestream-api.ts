@@ -6,7 +6,7 @@ const YOUTUBE_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 const YOUTUBE_THUMBNAILS_SET_URL = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 
 /** Fallback when a live video snippet has no category yet (`People & Blogs`). */
-const DEFAULT_YOUTUBE_VIDEO_CATEGORY_ID = '22';
+export const DEFAULT_YOUTUBE_VIDEO_CATEGORY_ID = '22';
 
 type YouTubeVideoSnippetRecord = Record<string, unknown>;
 
@@ -333,6 +333,111 @@ export async function scheduleYouTubeLiveBroadcast(
   }
 
   return { ok: true, broadcastId };
+}
+
+/**
+ * Input for updating an existing YouTube live broadcast via `liveBroadcasts.update`.
+ * @property title - Broadcast title (`snippet.title`).
+ * @property description - Broadcast description (`snippet.description`).
+ * @property scheduledStartTime - ISO 8601 scheduled start (`snippet.scheduledStartTime`).
+ * @property privacyStatus - Broadcast privacy (`status.privacyStatus`).
+ * @property madeForKids - When set, maps to `status.selfDeclaredMadeForKids`.
+ */
+export interface UpdateYouTubeLiveBroadcastInput {
+  title: string;
+  description?: string;
+  scheduledStartTime?: string;
+  privacyStatus: 'public' | 'unlisted' | 'private';
+  madeForKids?: boolean;
+}
+
+/**
+ * Updates an existing YouTube live broadcast snippet and status.
+ * @param accessToken - OAuth access token with YouTube live streaming scopes.
+ * @param broadcastId - Live broadcast resource id.
+ * @param input - Fields to write on the broadcast resource.
+ * @param signal - Optional abort signal.
+ * @returns Success, or upstream error details.
+ */
+export async function updateYouTubeLiveBroadcast(
+  accessToken: string,
+  broadcastId: string,
+  input: UpdateYouTubeLiveBroadcastInput,
+  signal?: AbortSignal
+): Promise<{ ok: true } | { ok: false; details: string }> {
+  const url = new URL(YOUTUBE_LIVE_BROADCASTS_URL);
+  url.searchParams.set('part', 'snippet,status');
+
+  const status: {
+    privacyStatus: UpdateYouTubeLiveBroadcastInput['privacyStatus'];
+    selfDeclaredMadeForKids?: boolean;
+  } = {
+    privacyStatus: input.privacyStatus,
+  };
+  if (typeof input.madeForKids === 'boolean') {
+    status.selfDeclaredMadeForKids = input.madeForKids;
+  }
+
+  const snippet: {
+    title: string;
+    description: string;
+    scheduledStartTime?: string;
+  } = {
+    title: input.title,
+    description: input.description ?? '',
+  };
+  const scheduledStartTime = input.scheduledStartTime?.trim();
+  if (scheduledStartTime) {
+    snippet.scheduledStartTime = scheduledStartTime;
+  }
+
+  const res = await fetch(url.toString(), {
+    method: 'PUT',
+    headers: {
+      ...youtubeAuthHeaders(accessToken),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      id: broadcastId,
+      snippet,
+      status,
+    }),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!res.ok) {
+    return { ok: false, details: await readYouTubeApiErrorDetails(res) };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Deletes a YouTube live broadcast via `liveBroadcasts.delete`.
+ * @param accessToken - OAuth access token with YouTube live streaming scopes.
+ * @param broadcastId - Live broadcast resource id.
+ * @param signal - Optional abort signal.
+ * @returns Success, or upstream error details.
+ */
+export async function deleteYouTubeLiveBroadcast(
+  accessToken: string,
+  broadcastId: string,
+  signal?: AbortSignal
+): Promise<{ ok: true } | { ok: false; details: string }> {
+  const url = new URL(YOUTUBE_LIVE_BROADCASTS_URL);
+  url.searchParams.set('id', broadcastId);
+
+  const res = await fetch(url.toString(), {
+    method: 'DELETE',
+    headers: youtubeAuthHeaders(accessToken),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!res.ok) {
+    return { ok: false, details: await readYouTubeApiErrorDetails(res) };
+  }
+
+  return { ok: true };
 }
 
 /**
