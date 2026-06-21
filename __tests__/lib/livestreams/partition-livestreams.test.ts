@@ -37,4 +37,44 @@ describe('partitionLivestreams', () => {
       streamed: [livestreams[3], livestreams[4]],
     });
   });
+
+  it('orders scheduled livestreams by scheduled start time ascending', () => {
+    const later = makeLivestream({
+      id: 'scheduled-later',
+      status: 'scheduled',
+      keySlot: 'temp',
+      scheduledStartTime: '2026-07-10T18:00:00.000Z',
+      $updatedAt: '2026-07-09T12:00:00.000Z',
+    });
+    const sooner = makeLivestream({
+      id: 'scheduled-sooner',
+      status: 'scheduled',
+      keySlot: 'main',
+      scheduledStartTime: '2026-07-01T18:00:00.000Z',
+      $updatedAt: '2026-07-08T12:00:00.000Z',
+    });
+
+    const { scheduled } = partitionLivestreams([later, sooner]);
+
+    expect(scheduled.map((row) => row.id)).toEqual(['scheduled-sooner', 'scheduled-later']);
+  });
+
+  it('orders streamed livestreams by most recently updated first', () => {
+    const older = makeLivestream({
+      id: 'ended-older',
+      status: 'ended',
+      scheduledStartTime: '2026-06-01T18:00:00.000Z',
+      $updatedAt: '2026-06-01T20:00:00.000Z',
+    });
+    const newer = makeLivestream({
+      id: 'ended-newer',
+      status: 'ended',
+      scheduledStartTime: '2026-06-15T18:00:00.000Z',
+      $updatedAt: '2026-06-15T20:00:00.000Z',
+    });
+
+    const { streamed } = partitionLivestreams([older, newer]);
+
+    expect(streamed.map((row) => row.id)).toEqual(['ended-newer', 'ended-older']);
+  });
 });

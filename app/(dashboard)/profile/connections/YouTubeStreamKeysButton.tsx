@@ -117,8 +117,9 @@ export function YouTubeStreamKeysButton({
           <DialogHeader>
             <DialogTitle>YouTube stream keys</DialogTitle>
             <DialogDescription>
-              The first scheduled livestream uses your main key. Every livestream after that uses
-              the temporary key until the previous one ends.
+              Optional — only needed if you livestream to YouTube. Uploading videos does not require
+              stream keys. The first scheduled livestream uses your main key. Every livestream after
+              that uses the temporary key until the previous one ends.
             </DialogDescription>
           </DialogHeader>
 
