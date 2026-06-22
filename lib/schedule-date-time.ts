@@ -152,19 +152,28 @@ export function to24HourFrom12(hour12: number, period: 'AM' | 'PM'): number {
 }
 
 /**
+ * Parses a non-negative integer digit string.
+ * @param value - Raw input from a schedule picker field.
+ * @returns Parsed integer, or null when empty or not digits-only.
+ */
+function parseScheduleIntegerInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed === '' || !/^\d+$/.test(trimmed)) {
+    return null;
+  }
+
+  return parseInt(trimmed, 10);
+}
+
+/**
  * Parses and clamps a typed hour for schedule picker columns.
  * @param value - Raw digits from the hour input.
  * @param use12Hour - When true, accepts `1`–`12`; otherwise `0`–`23`.
  * @returns Clamped hour, or null when empty or non-numeric.
  */
 export function parseScheduleHourInput(value: string, use12Hour: boolean): number | null {
-  const trimmed = value.trim();
-  if (trimmed === '') {
-    return null;
-  }
-
-  const num = Number(trimmed);
-  if (!Number.isFinite(num)) {
+  const num = parseScheduleIntegerInput(value);
+  if (num === null) {
     return null;
   }
 
@@ -179,13 +188,8 @@ export function parseScheduleHourInput(value: string, use12Hour: boolean): numbe
  * @returns Clamped minute (`0`–`59`), or null when empty or non-numeric.
  */
 export function parseScheduleMinuteInput(value: string): number | null {
-  const trimmed = value.trim();
-  if (trimmed === '') {
-    return null;
-  }
-
-  const num = Number(trimmed);
-  if (!Number.isFinite(num)) {
+  const num = parseScheduleIntegerInput(value);
+  if (num === null) {
     return null;
   }
 

@@ -7,6 +7,8 @@ import type { UserClockFormat, UserPreferences } from '@/types';
 
 let cachedClockFormat: UserClockFormat | null = null;
 let inflight: Promise<UserClockFormat> | null = null;
+/** Bumped on invalidation so stale in-flight session fetches cannot repopulate the cache. */
+let cacheVersion = 0;
 
 /**
  * Clears the in-memory clock-format cache after profile preference updates.
@@ -14,6 +16,7 @@ let inflight: Promise<UserClockFormat> | null = null;
 export function invalidateUserClockFormatCache(): void {
   cachedClockFormat = null;
   inflight = null;
+  cacheVersion += 1;
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('videosphere:clock-format-changed'));
   }
@@ -25,6 +28,7 @@ async function fetchUserClockFormat(): Promise<UserClockFormat> {
   }
 
   if (!inflight) {
+    const requestVersion = cacheVersion;
     inflight = fetch('/api/auth/session', { credentials: 'include' })
       .then(async (response) => {
         if (!response.ok) {
@@ -35,18 +39,24 @@ async function fetchUserClockFormat(): Promise<UserClockFormat> {
           preferences?: UserPreferences;
           clockFormat?: UserClockFormat;
         };
-        const clockFormat = resolveUserClockFormat(
+        return resolveUserClockFormat(
           payload.preferences ??
             (payload.clockFormat === '24' || payload.clockFormat === '12'
               ? { clockFormat: payload.clockFormat }
               : undefined)
         );
-        cachedClockFormat = clockFormat;
-        return clockFormat;
       })
       .catch(() => DEFAULT_USER_CLOCK_FORMAT)
+      .then((clockFormat) => {
+        if (requestVersion === cacheVersion) {
+          cachedClockFormat = clockFormat;
+        }
+        return clockFormat;
+      })
       .finally(() => {
-        inflight = null;
+        if (requestVersion === cacheVersion) {
+          inflight = null;
+        }
       });
   }
 
@@ -64,7 +74,12 @@ export function useUserClockFormat(): UserClockFormat {
 
   useEffect(() => {
     const refresh = () => {
-      void fetchUserClockFormat().then(setClockFormat);
+      const requestVersion = cacheVersion;
+      void fetchUserClockFormat().then((clockFormat) => {
+        if (requestVersion === cacheVersion) {
+          setClockFormat(clockFormat);
+        }
+      });
     };
 
     refresh();

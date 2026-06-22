@@ -221,7 +221,7 @@ function MeridiemToggle({ selected, onSelect, className }: MeridiemToggleProps) 
 }
 
 /**
- * Scroll-column time picker with locale-aware 12h or 24h hour labels.
+ * Scroll-column time picker using the signed-in user's saved 12h or 24h preference.
  * Hour and minute columns support both scrolling/clicking and direct numeric entry.
  * @param props - Trigger id, value, change handler, and styling.
  * @returns Popover time picker trigger and panel.
