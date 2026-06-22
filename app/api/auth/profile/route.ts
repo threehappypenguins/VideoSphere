@@ -7,7 +7,7 @@
 // GET still uses getAuthenticatedSessionUserId plus one getUserById lookup.
 //
 // GET response: full User object
-// PATCH body: { name?: string, email?: string, platformDefaults?: PlatformDefaults }
+// PATCH body: { name?: string, email?: string, platformDefaults?: PlatformDefaults, preferences?: UserPreferences }
 // PATCH response: updated User object
 // Errors:   400 (invalid body/validation), 401, 403 (Google email change),
 //           404, 409 (email in use), 500
@@ -16,9 +16,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
 import { parsePlatformDefaultsPatch } from '@/lib/auth/platform-defaults-validation';
+import { parseUserPreferencesPatch } from '@/lib/auth/user-preferences-validation';
 import { isValidEmail, normalizeEmail } from '@/lib/auth/email';
 import { getUserByEmail, getUserById, updateUser } from '@/lib/repositories/users';
-import type { YouTubeUserDefaults } from '@/types';
+import type { UserPreferences, YouTubeUserDefaults } from '@/types';
 
 /**
  * Handles GET requests for this route.
@@ -71,15 +72,19 @@ export async function PATCH(req: NextRequest) {
       name: rawName,
       email: rawEmail,
       platformDefaults: rawPlatformDefaults,
+      preferences: rawPreferences,
     } = body as Record<string, unknown>;
 
     const hasName = rawName !== undefined;
     const hasEmail = rawEmail !== undefined;
     const hasPlatformDefaults = rawPlatformDefaults !== undefined;
+    const hasPreferences = rawPreferences !== undefined;
 
-    if (!hasName && !hasEmail && !hasPlatformDefaults) {
+    if (!hasName && !hasEmail && !hasPlatformDefaults && !hasPreferences) {
       return NextResponse.json(
-        { error: 'At least one of name, email, or platformDefaults must be provided.' },
+        {
+          error: 'At least one of name, email, platformDefaults, or preferences must be provided.',
+        },
         { status: 400 }
       );
     }
@@ -89,15 +94,27 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: platformDefaultsResult.error }, { status: 400 });
     }
 
+    const preferencesResult = parseUserPreferencesPatch(rawPreferences);
+    if (preferencesResult.ok === false) {
+      return NextResponse.json({ error: preferencesResult.error }, { status: 400 });
+    }
+
     const updateData: {
       name?: string;
       email?: string;
       platformDefaultsYoutube?: Partial<YouTubeUserDefaults>;
+      preferences?: Partial<UserPreferences>;
     } = {};
 
     if (platformDefaultsResult.youtube !== undefined) {
       if (Object.keys(platformDefaultsResult.youtube).length > 0) {
         updateData.platformDefaultsYoutube = platformDefaultsResult.youtube;
+      }
+    }
+
+    if (preferencesResult.preferences !== undefined) {
+      if (Object.keys(preferencesResult.preferences).length > 0) {
+        updateData.preferences = preferencesResult.preferences;
       }
     }
 
@@ -157,7 +174,8 @@ export async function PATCH(req: NextRequest) {
       updateData.name !== undefined ||
       updateData.email !== undefined ||
       (updateData.platformDefaultsYoutube !== undefined &&
-        Object.keys(updateData.platformDefaultsYoutube).length > 0);
+        Object.keys(updateData.platformDefaultsYoutube).length > 0) ||
+      (updateData.preferences !== undefined && Object.keys(updateData.preferences).length > 0);
 
     if (!hasUpdatableFields) {
       return NextResponse.json(

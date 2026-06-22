@@ -200,12 +200,12 @@ describe('PATCH /api/auth/profile', () => {
     expect(getUserByIdMock).not.toHaveBeenCalled();
   });
 
-  it('returns 400 when neither name, email, nor platformDefaults is provided', async () => {
+  it('returns 400 when neither name, email, platformDefaults, nor preferences is provided', async () => {
     const res = await PATCH(makePatchRequest({}));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: 'At least one of name, email, or platformDefaults must be provided.',
+      error: 'At least one of name, email, platformDefaults, or preferences must be provided.',
     });
     expect(getUserByIdMock).not.toHaveBeenCalled();
   });
@@ -371,6 +371,22 @@ describe('PATCH /api/auth/profile', () => {
       error: 'platformDefaults.youtube.categoryId must be a string.',
     });
     expect(updateUserMock).not.toHaveBeenCalled();
+  });
+
+  it('saves and returns valid preferences.clockFormat', async () => {
+    const updatedUser = {
+      ...BASE_USER,
+      preferences: { clockFormat: '24' as const },
+    };
+    updateUserMock.mockResolvedValueOnce(updatedUser);
+
+    const res = await PATCH(makePatchRequest({ preferences: { clockFormat: '24' } }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(updatedUser);
+    expect(updateUserMock).toHaveBeenCalledWith('user_123', {
+      preferences: { clockFormat: '24' },
+    });
   });
 
   it('leaves platformDefaults unchanged when PATCH omits platformDefaults', async () => {

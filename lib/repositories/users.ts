@@ -7,9 +7,16 @@
 // Uses Mongoose for the user_profiles collection.
 // =============================================================================
 
-import type { User, UserAuthProvider, UserRole, YouTubeUserDefaults } from '@/types';
+import type {
+  User,
+  UserAuthProvider,
+  UserPreferences,
+  UserRole,
+  YouTubeUserDefaults,
+} from '@/types';
 import { userSupportsPasswordReset } from '@/lib/auth/password';
 import { normalizeStoredPlatformDefaults } from '@/lib/auth/platform-defaults-validation';
+import { normalizeStoredUserPreferences } from '@/lib/user-preferences';
 import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
@@ -35,7 +42,7 @@ type ListUserProfileLean = Pick<
 
 /** Fields loaded for authenticated session responses (excludes secrets). */
 const SESSION_USER_SELECT =
-  'userId email name hasCompletedOnboarding role authProvider totpEnabled createdAt updatedAt';
+  'userId email name hasCompletedOnboarding role authProvider totpEnabled preferences createdAt updatedAt';
 
 type SessionUserProfileLean = Pick<
   UserProfileDocument,
@@ -46,6 +53,7 @@ type SessionUserProfileLean = Pick<
   | 'role'
   | 'authProvider'
   | 'totpEnabled'
+  | 'preferences'
   | 'createdAt'
   | 'updatedAt'
 >;
@@ -60,6 +68,7 @@ export interface SessionUser extends User {
 /** Map a MongoDB document to the shared User type. */
 function mongoDocToUser(doc: UserProfileDocument): User {
   const platformDefaults = normalizeStoredPlatformDefaults(doc.platformDefaults);
+  const preferences = normalizeStoredUserPreferences(doc.preferences);
 
   return {
     userId: String(doc.userId),
@@ -71,6 +80,7 @@ function mongoDocToUser(doc: UserProfileDocument): User {
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
     ...(platformDefaults !== undefined ? { platformDefaults } : {}),
+    ...(preferences !== undefined ? { preferences } : {}),
   };
 }
 
@@ -334,6 +344,8 @@ export interface UpdateUserData {
   email?: string;
   /** Fields shallow-merged into stored `platformDefaults.youtube` via dot-notation update. */
   platformDefaultsYoutube?: Partial<YouTubeUserDefaults>;
+  /** Partial merge into stored `preferences`. */
+  preferences?: Partial<UserPreferences>;
 }
 
 /**
@@ -382,6 +394,14 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
     for (const [key, value] of Object.entries(data.platformDefaultsYoutube)) {
       if (value !== undefined) {
         payload[`platformDefaults.youtube.${key}`] = value;
+      }
+    }
+  }
+
+  if (data.preferences !== undefined) {
+    for (const [key, value] of Object.entries(data.preferences)) {
+      if (value !== undefined) {
+        payload[`preferences.${key}`] = value;
       }
     }
   }

@@ -40,6 +40,19 @@ export interface User {
   $updatedAt: string;
   /** Per-platform upload defaults stored on the profile (`platformDefaults`; profile GET/PATCH today). */
   platformDefaults?: PlatformDefaults;
+  /** Cross-device UI preferences (profile GET/PATCH). */
+  preferences?: UserPreferences;
+}
+
+/** User-selectable clock format for schedule time pickers and labels. */
+export type UserClockFormat = '12' | '24';
+
+/**
+ * User preferences stored on the profile and synced across devices.
+ * @property clockFormat - Schedule/time display format. Defaults to `'12'`.
+ */
+export interface UserPreferences {
+  clockFormat?: UserClockFormat;
 }
 
 /** Platform identifier; shared with ConnectedAccount and PlatformUpload. */

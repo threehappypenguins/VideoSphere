@@ -42,6 +42,7 @@ describe('GET /api/auth/session', () => {
       name: 'Ada Lovelace',
       authProvider: 'password',
       totpEnabled: false,
+      clockFormat: '12',
     });
   });
 
