@@ -18,6 +18,18 @@ describe('schedule-date-time helpers', () => {
     expect(scheduleDateToDateStr(date!)).toBe('2026-06-09');
   });
 
+  it('parses calendar date strings as local midnight', () => {
+    const date = scheduleDateStrToDate('2026-06-09');
+    expect(date).toEqual(new Date(2026, 5, 9));
+    expect(date?.getHours()).toBe(0);
+    expect(date?.getMinutes()).toBe(0);
+  });
+
+  it('rejects invalid calendar dates', () => {
+    expect(scheduleDateStrToDate('2026-02-30')).toBeUndefined();
+    expect(scheduleDateStrToDate('not-a-date')).toBeUndefined();
+  });
+
   it('normalizes time values to HH:MM', () => {
     expect(normalizeScheduleTimeStr('9:05')).toBe('09:05');
     expect(normalizeScheduleTimeStr('09:05:00')).toBe('09:05');

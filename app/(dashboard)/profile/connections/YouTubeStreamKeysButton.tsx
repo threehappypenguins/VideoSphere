@@ -40,10 +40,14 @@ export function YouTubeStreamKeysButton({
   const [error, setError] = useState<string | null>(null);
   const [mainStreamKey, setMainStreamKey] = useState('');
   const [tempStreamKey, setTempStreamKey] = useState('');
+  const [clearMainStreamKey, setClearMainStreamKey] = useState(false);
+  const [clearTempStreamKey, setClearTempStreamKey] = useState(false);
 
   const resetForm = () => {
     setMainStreamKey('');
     setTempStreamKey('');
+    setClearMainStreamKey(false);
+    setClearTempStreamKey(false);
     setError(null);
   };
 
@@ -71,9 +75,20 @@ export function YouTubeStreamKeysButton({
 
     if (trimmedMain !== '') {
       body.mainStreamKey = trimmedMain;
+    } else if (clearMainStreamKey) {
+      body.mainStreamKey = '';
     }
+
     if (trimmedTemp !== '') {
       body.tempStreamKey = trimmedTemp;
+    } else if (clearTempStreamKey) {
+      body.tempStreamKey = '';
+    }
+
+    if (!('mainStreamKey' in body) && !('tempStreamKey' in body)) {
+      setError('Enter a new key or clear a stored key before saving.');
+      setSubmitting(false);
+      return;
     }
 
     try {
@@ -106,6 +121,12 @@ export function YouTubeStreamKeysButton({
     }
   };
 
+  const hasPendingChanges =
+    mainStreamKey.trim() !== '' ||
+    tempStreamKey.trim() !== '' ||
+    clearMainStreamKey ||
+    clearTempStreamKey;
+
   return (
     <>
       <button type="button" onClick={handleOpen} className={className}>
@@ -125,47 +146,119 @@ export function YouTubeStreamKeysButton({
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label
-                htmlFor="youtube-main-stream-key"
-                className="text-sm font-medium text-foreground"
-              >
-                Main stream key
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label
+                  htmlFor="youtube-main-stream-key"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Main stream key
+                </label>
+                {existingConnection.hasMainStreamKey && !clearMainStreamKey ? (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => {
+                      setClearMainStreamKey(true);
+                      setMainStreamKey('');
+                    }}
+                    className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+                  >
+                    Clear stored key
+                  </button>
+                ) : null}
+              </div>
               <input
                 id="youtube-main-stream-key"
                 type="password"
                 value={mainStreamKey}
                 autoComplete="off"
+                disabled={submitting}
                 placeholder={
-                  existingConnection.hasMainStreamKey
-                    ? 'Leave blank to keep the stored key'
-                    : 'Enter your main stream key'
+                  clearMainStreamKey
+                    ? 'Stored key will be removed on save'
+                    : existingConnection.hasMainStreamKey
+                      ? 'Leave blank to keep the stored key'
+                      : 'Enter your main stream key'
                 }
-                onChange={(event) => setMainStreamKey(event.target.value)}
-                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                onChange={(event) => {
+                  setMainStreamKey(event.target.value);
+                  if (event.target.value.trim() !== '') {
+                    setClearMainStreamKey(false);
+                  }
+                }}
+                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-60"
               />
+              {clearMainStreamKey ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The stored main key will be removed when you save.{' '}
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => setClearMainStreamKey(false)}
+                    className="font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                  >
+                    Undo
+                  </button>
+                </p>
+              ) : null}
             </div>
 
             <div>
-              <label
-                htmlFor="youtube-temp-stream-key"
-                className="text-sm font-medium text-foreground"
-              >
-                Temporary stream key
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label
+                  htmlFor="youtube-temp-stream-key"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Temporary stream key
+                </label>
+                {existingConnection.hasTempStreamKey && !clearTempStreamKey ? (
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => {
+                      setClearTempStreamKey(true);
+                      setTempStreamKey('');
+                    }}
+                    className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+                  >
+                    Clear stored key
+                  </button>
+                ) : null}
+              </div>
               <input
                 id="youtube-temp-stream-key"
                 type="password"
                 value={tempStreamKey}
                 autoComplete="off"
+                disabled={submitting}
                 placeholder={
-                  existingConnection.hasTempStreamKey
-                    ? 'Leave blank to keep the stored key'
-                    : 'Enter your temporary stream key'
+                  clearTempStreamKey
+                    ? 'Stored key will be removed on save'
+                    : existingConnection.hasTempStreamKey
+                      ? 'Leave blank to keep the stored key'
+                      : 'Enter your temporary stream key'
                 }
-                onChange={(event) => setTempStreamKey(event.target.value)}
-                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                onChange={(event) => {
+                  setTempStreamKey(event.target.value);
+                  if (event.target.value.trim() !== '') {
+                    setClearTempStreamKey(false);
+                  }
+                }}
+                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-60"
               />
+              {clearTempStreamKey ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The stored temporary key will be removed when you save.{' '}
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => setClearTempStreamKey(false)}
+                    className="font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                  >
+                    Undo
+                  </button>
+                </p>
+              ) : null}
             </div>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -181,7 +274,7 @@ export function YouTubeStreamKeysButton({
               </button>
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || !hasPendingChanges}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 {submitting ? 'Saving…' : 'Save'}

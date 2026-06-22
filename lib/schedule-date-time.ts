@@ -1,4 +1,4 @@
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 
 /**
  * Parses a wall-clock schedule date string into a local calendar `Date` for pickers.
@@ -11,12 +11,17 @@ export function scheduleDateStrToDate(dateStr: string): Date | undefined {
     return undefined;
   }
 
-  const parsed = parseISO(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
+  const [year, month, day] = trimmed.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
     return undefined;
   }
 
-  return parsed;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return undefined;
+  }
+
+  return date;
 }
 
 /**
