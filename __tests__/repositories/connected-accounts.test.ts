@@ -33,13 +33,16 @@ vi.mock('@/lib/models/ConnectedAccount', () => ({
   },
 }));
 
+import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import {
   createConnectedAccount,
   deleteConnectedAccount,
   getConnectedAccount,
   getConnectedAccountsByUser,
   getConnectedAccountForUser,
+  getConnectedAccountWithTokens,
   updateTokens,
+  updateYouTubeStreamKeys,
 } from '@/lib/repositories/connected-accounts';
 
 function chain<T>(value: T) {
@@ -118,5 +121,113 @@ describe('connected-accounts repository (mongo)', () => {
 
     expect(updated?.id).toBe('conn-1');
     expect(mockDeleteOne).toHaveBeenCalledWith({ _id: 'conn-1' });
+  });
+
+  it('returns null from updateYouTubeStreamKeys when YouTube is not connected', async () => {
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(null) });
+
+    const result = await updateYouTubeStreamKeys('user-1', { mainStreamKey: 'key-main' });
+
+    expect(result).toBeNull();
+    expect(mockFindByIdAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('encrypts and stores YouTube stream keys on update', async () => {
+    const encryptedMain = encryptToken('main-key-value');
+    const updatedDoc = {
+      ...baseDoc,
+      youtubeMainStreamKey: encryptedMain,
+    };
+
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(baseDoc) });
+    mockFindByIdAndUpdate.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(updatedDoc) });
+
+    const result = await updateYouTubeStreamKeys('user-1', { mainStreamKey: 'main-key-value' });
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledTimes(1);
+    const [rowId, updatePayload, options] = mockFindByIdAndUpdate.mock.calls[0] as [
+      string,
+      { youtubeMainStreamKey: string },
+      { returnDocument: 'after'; runValidators: boolean },
+    ];
+    expect(rowId).toBe('conn-1');
+    expect(decryptToken(updatePayload.youtubeMainStreamKey)).toBe('main-key-value');
+    expect(options).toEqual({ returnDocument: 'after', runValidators: true });
+    expect(result?.hasYoutubeMainStreamKey).toBe(true);
+    expect(result?.hasYoutubeTempStreamKey).toBe(false);
+  });
+
+  it('clears a YouTube stream key when an empty string is provided', async () => {
+    const existingDoc = {
+      ...baseDoc,
+      youtubeTempStreamKey: encryptToken('temp-key'),
+    };
+    const clearedDoc = { ...existingDoc, youtubeTempStreamKey: '' };
+
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(existingDoc) });
+    mockFindByIdAndUpdate.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(clearedDoc) });
+
+    const result = await updateYouTubeStreamKeys('user-1', { tempStreamKey: '' });
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
+      'conn-1',
+      { youtubeTempStreamKey: '' },
+      { returnDocument: 'after', runValidators: true }
+    );
+    expect(result?.hasYoutubeTempStreamKey).toBe(false);
+  });
+
+  it('leaves stored YouTube stream keys unchanged when fields are omitted', async () => {
+    const existingDoc = {
+      ...baseDoc,
+      youtubeMainStreamKey: encryptToken('main-key'),
+    };
+
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(existingDoc) });
+
+    const result = await updateYouTubeStreamKeys('user-1', {});
+
+    expect(mockFindByIdAndUpdate).not.toHaveBeenCalled();
+    expect(result?.hasYoutubeMainStreamKey).toBe(true);
+  });
+
+  it('decrypts YouTube stream keys in getConnectedAccountWithTokens', async () => {
+    const encryptedAccess = encryptToken('access-plain');
+    const encryptedRefresh = encryptToken('refresh-plain');
+    const encryptedMain = encryptToken('main-stream-key');
+    const doc = {
+      ...baseDoc,
+      accessToken: encryptedAccess,
+      refreshToken: encryptedRefresh,
+      youtubeMainStreamKey: encryptedMain,
+    };
+
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(doc) });
+
+    const account = await getConnectedAccountWithTokens('user-1', 'youtube');
+
+    expect(account?.accessToken).toBe('access-plain');
+    expect(account?.youtubeMainStreamKey).toBe('main-stream-key');
+    expect(account?.hasYoutubeMainStreamKey).toBe(true);
+    expect(account?.hasYoutubeTempStreamKey).toBe(false);
+  });
+
+  it('omits undecryptable YouTube stream keys without throwing', async () => {
+    const encryptedAccess = encryptToken('access-plain');
+    const encryptedRefresh = encryptToken('refresh-plain');
+    const doc = {
+      ...baseDoc,
+      accessToken: encryptedAccess,
+      refreshToken: encryptedRefresh,
+      youtubeMainStreamKey: 'not-valid-ciphertext',
+    };
+
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(doc) });
+
+    const account = await getConnectedAccountWithTokens('user-1', 'youtube');
+
+    expect(account?.accessToken).toBe('access-plain');
+    expect(account).not.toHaveProperty('youtubeMainStreamKey');
+    expect(account?.hasYoutubeMainStreamKey).toBe(true);
   });
 });

@@ -86,6 +86,8 @@ function makeSftpAccount(overrides: Partial<ConnectedAccount> = {}): ConnectedAc
     userId: 'user-1',
     platform: 'sftp',
     hasRefreshToken: false,
+    hasYoutubeMainStreamKey: false,
+    hasYoutubeTempStreamKey: false,
     platformName: 'My Home Server',
     platformUserId: 'backup-user',
     accessToken: 'secret-password',

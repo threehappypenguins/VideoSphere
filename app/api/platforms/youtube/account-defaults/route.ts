@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
   fetchYouTubeAccountDefaults,
+  mergeYouTubeAccountDefaults,
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
   type YouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-api';
+import { getUserById } from '@/lib/repositories/users';
 import type { ApiError, ApiResponse } from '@/types';
 
 /**
- * Returns upload defaults read from the authenticated user's YouTube channel and latest upload.
+ * Returns upload defaults for the authenticated user's YouTube channel, recent non-live uploads,
+ * and any saved profile defaults (`platformDefaults.youtube`).
  * @param req - Incoming GET request.
  * @returns JSON account defaults, or a structured error.
  */
@@ -24,11 +28,15 @@ export async function GET(req: NextRequest) {
       return youtubeUpstreamErrorResponse(result.details);
     }
 
-    const res: ApiResponse<YouTubeAccountDefaults> = { data: result.defaults };
+    const userId = await getAuthenticatedUserId(req);
+    const user = userId ? await getUserById(userId) : null;
+    const defaults = mergeYouTubeAccountDefaults(result.defaults, user?.platformDefaults?.youtube);
+
+    const res: ApiResponse<YouTubeAccountDefaults> = { data: defaults };
     return NextResponse.json(res, {
       status: 200,
       headers: {
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, no-store',
       },
     });
   } catch (err) {

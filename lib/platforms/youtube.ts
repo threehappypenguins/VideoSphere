@@ -3,6 +3,7 @@ import {
   isAllowedDraftThumbnailContentType,
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
+import { MIN_YOUTUBE_TAG_LENGTH } from '@/lib/youtube-metadata-limits';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
@@ -169,7 +170,7 @@ function clipTagToMaxYouTubeTagChars(tag: string, maxContentChars: number): stri
  * Order is preserved; oversized tails are dropped or truncated so the API does not reject the upload.
  */
 export function normalizeYouTubeSnippetTags(raw: readonly string[]): string[] {
-  const trimmed = raw.map((t) => t.trim()).filter((t) => t.length > 0);
+  const trimmed = raw.map((t) => t.trim()).filter((t) => t.length >= MIN_YOUTUBE_TAG_LENGTH);
   const out: string[] = [];
 
   for (const tag of trimmed) {
@@ -303,6 +304,130 @@ export async function fetchAllYouTubePlaylists(
   return { ok: true, items };
 }
 
+const YOUTUBE_PLAYLIST_ITEMS_URL = 'https://www.googleapis.com/youtube/v3/playlistItems';
+
+/**
+ * Playlist membership for a video on the authenticated user's YouTube channel.
+ * @property playlistIds - Playlist ids containing the video, in YouTube list order.
+ * @property playlistTitles - Titles aligned with {@link playlistIds}.
+ */
+export interface YouTubeVideoPlaylistMembership {
+  playlistIds: string[];
+  playlistTitles: string[];
+}
+
+/**
+ * Reads playlist ids and titles that contain a video on the connected account (`playlistItems.list` by `videoId`).
+ * @param accessToken - OAuth access token with YouTube read scope.
+ * @param videoId - YouTube video or live broadcast id.
+ * @param signal - Optional abort signal.
+ * @returns Membership rows, or a structured platform failure.
+ */
+export async function fetchYouTubePlaylistMembershipForVideo(
+  accessToken: string,
+  videoId: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; membership: YouTubeVideoPlaylistMembership } | PlatformUploadFailure> {
+  const trimmedVideoId = videoId.trim();
+  if (!trimmedVideoId) {
+    return { ok: true, membership: { playlistIds: [], playlistTitles: [] } };
+  }
+
+  const playlistIds: string[] = [];
+  const seenPlaylistIds = new Set<string>();
+  let pageToken: string | undefined;
+
+  for (;;) {
+    const url = new URL(YOUTUBE_PLAYLIST_ITEMS_URL);
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('videoId', trimmedVideoId);
+    url.searchParams.set('maxResults', '50');
+    if (pageToken) {
+      url.searchParams.set('pageToken', pageToken);
+    }
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) {
+      if (res.status === 404) {
+        return { ok: true, membership: { playlistIds: [], playlistTitles: [] } };
+      }
+      const details = await readApiErrorDetails(res);
+      return toError(
+        'YOUTUBE_PLAYLIST_ITEMS_LIST_FAILED',
+        'Failed to list YouTube playlist items for the video (playlistItems.list).',
+        res.status,
+        details
+      );
+    }
+
+    const body = (await res.json().catch(() => ({}))) as {
+      items?: Array<{ snippet?: { playlistId?: string } }>;
+      nextPageToken?: string;
+    };
+
+    for (const item of body.items ?? []) {
+      const playlistId = item.snippet?.playlistId?.trim();
+      if (!playlistId || seenPlaylistIds.has(playlistId)) {
+        continue;
+      }
+      seenPlaylistIds.add(playlistId);
+      playlistIds.push(playlistId);
+    }
+
+    if (!body.nextPageToken) {
+      break;
+    }
+    pageToken = body.nextPageToken;
+  }
+
+  if (playlistIds.length === 0) {
+    return { ok: true, membership: { playlistIds: [], playlistTitles: [] } };
+  }
+
+  const titleById = new Map<string, string>();
+  for (let offset = 0; offset < playlistIds.length; offset += 50) {
+    const batch = playlistIds.slice(offset, offset + 50);
+    const listUrl = new URL(YOUTUBE_PLAYLISTS_URL);
+    listUrl.searchParams.set('part', 'snippet');
+    listUrl.searchParams.set('id', batch.join(','));
+
+    const listRes = await fetch(listUrl.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      ...(signal ? { signal } : {}),
+    });
+    if (!listRes.ok) {
+      const details = await readApiErrorDetails(listRes);
+      return toError(
+        'YOUTUBE_PLAYLIST_LIST_FAILED',
+        'Failed to resolve YouTube playlist titles (playlists.list).',
+        listRes.status,
+        details
+      );
+    }
+
+    const listBody = (await listRes.json().catch(() => ({}))) as {
+      items?: Array<{ id?: string; snippet?: { title?: string } }>;
+    };
+    for (const item of listBody.items ?? []) {
+      const id = item.id?.trim();
+      const title = item.snippet?.title?.trim();
+      if (id && title) {
+        titleById.set(id, title);
+      }
+    }
+  }
+
+  const playlistTitles = playlistIds.map((id) => titleById.get(id) ?? '');
+
+  return {
+    ok: true,
+    membership: { playlistIds, playlistTitles },
+  };
+}
+
 async function findYouTubePlaylistIdByTitle(
   accessToken: string,
   wantedTitle: string,
@@ -385,6 +510,65 @@ async function resolveYouTubePlaylistNameToId(
     return createYouTubePlaylist(accessToken, trimmed, privacyStatus, signal);
   }
   return { ok: true, id: found.id };
+}
+
+/**
+ * Adds a YouTube video (including a live broadcast's underlying video id) to playlists
+ * by explicit id and/or by resolving/creating playlists from titles.
+ * @param accessToken - OAuth access token with YouTube playlist scopes.
+ * @param videoId - YouTube video resource id.
+ * @param input - Playlist ids/titles and visibility for created playlists.
+ * @param signal - Optional abort signal.
+ * @returns Success, or a structured platform upload failure.
+ */
+export async function addYouTubeVideoToPlaylists(
+  accessToken: string,
+  videoId: string,
+  input: {
+    playlistIds?: string[];
+    playlistTitles?: string[];
+    visibility: PlatformUploadVisibility;
+  },
+  signal?: AbortSignal
+): Promise<{ ok: true } | PlatformUploadFailure> {
+  const videoPrivacy = visibilityToYouTubePrivacy(input.visibility);
+  const explicitIds = uniqueTrimmedPlaylistIds(input.playlistIds ?? []);
+  const nameList = uniqueTrimmedPlaylistTitles(input.playlistTitles ?? []);
+  const playlistTargets: string[] = [...explicitIds];
+  for (const name of nameList) {
+    const resolved = await resolveYouTubePlaylistNameToId(accessToken, name, videoPrivacy, signal);
+    if (resolved.ok === false) return resolved;
+    playlistTargets.push(resolved.id);
+  }
+  const uniquePlaylistIds = uniqueTrimmedPlaylistIds(playlistTargets);
+
+  for (const playlistId of uniquePlaylistIds) {
+    const plRes = await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        snippet: {
+          playlistId,
+          resourceId: { kind: 'youtube#video', videoId },
+        },
+      }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!plRes.ok) {
+      const details = await readApiErrorDetails(plRes);
+      return toError(
+        'YOUTUBE_PLAYLIST_ITEM_FAILED',
+        `Video uploaded but adding it to playlist "${playlistId}" failed.`,
+        plRes.status,
+        details
+      );
+    }
+  }
+
+  return { ok: true };
 }
 
 function visibilityToYouTubePrivacy(

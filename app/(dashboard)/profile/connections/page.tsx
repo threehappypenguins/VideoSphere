@@ -24,6 +24,7 @@ import {
   getConnectedAccountWithTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
+import { clearDraftLivestreamYouTubeBroadcastLinksForUser } from '@/lib/repositories/livestreams';
 import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
 import { revokeFacebookAppAuthorization } from '@/lib/platforms/facebook-oauth';
 import type { ConnectedAccountPublic } from '@/types';
@@ -34,6 +35,10 @@ import {
   GoogleDriveConnectButton,
   type GoogleDriveExistingConnection,
 } from './GoogleDriveConnectButton';
+import {
+  YouTubeStreamKeysButton,
+  type YouTubeStreamKeysExistingConnection,
+} from './YouTubeStreamKeysButton';
 import {
   SermonAudioConnectButton,
   type SermonAudioExistingConnection,
@@ -221,6 +226,20 @@ function toGoogleDriveExistingConnection(
   return {
     backupFolderPath: account.googleDriveBackupFolderPath ?? '',
     label: account.platformName,
+  };
+}
+
+/** Build YouTube stream key presence flags from a connected account row (no plaintext keys). */
+function toYouTubeStreamKeysExistingConnection(
+  account: ConnectedAccountPublic
+): YouTubeStreamKeysExistingConnection | undefined {
+  if (account.platform !== 'youtube') {
+    return undefined;
+  }
+
+  return {
+    hasMainStreamKey: account.hasYoutubeMainStreamKey,
+    hasTempStreamKey: account.hasYoutubeTempStreamKey,
   };
 }
 
@@ -428,6 +447,20 @@ async function disconnectPlatform(accountId: string) {
   }
 
   await deleteConnectedAccount(accountId);
+
+  if (canonicalPlatform === 'youtube') {
+    try {
+      const cleared = await clearDraftLivestreamYouTubeBroadcastLinksForUser(userId);
+      if (cleared > 0) {
+        console.log(
+          `[disconnectPlatform] Cleared stale YouTube broadcast links from ${cleared} draft livestream(s).`
+        );
+      }
+    } catch (err) {
+      console.error('[disconnectPlatform] Failed to clear draft YouTube broadcast links:', err);
+    }
+  }
+
   revalidatePath('/profile/connections');
 }
 
@@ -459,6 +492,16 @@ function ConnectionPlatformRow({
     account?.platform === 'facebook' ? toFacebookExistingConnection(account) : undefined;
   const googleDriveExistingConnection =
     account?.platform === 'google_drive' ? toGoogleDriveExistingConnection(account) : undefined;
+  const youtubeStreamKeysExistingConnection =
+    account?.platform === 'youtube' ? toYouTubeStreamKeysExistingConnection(account) : undefined;
+  const youtubeStreamKeysEditButton =
+    youtubeStreamKeysExistingConnection != null ? (
+      <YouTubeStreamKeysButton
+        label="Edit"
+        existingConnection={youtubeStreamKeysExistingConnection}
+        className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+      />
+    ) : null;
 
   return (
     <div
@@ -552,6 +595,14 @@ function ConnectionPlatformRow({
               platformLabel={meta.label}
             />
           </div>
+        ) : platform === 'youtube' && youtubeStreamKeysExistingConnection ? (
+          <div className="flex items-center gap-2">
+            {youtubeStreamKeysEditButton}
+            <DisconnectButton
+              action={disconnectPlatform.bind(null, account.id)}
+              platformLabel={meta.label}
+            />
+          </div>
         ) : (
           <DisconnectButton
             action={disconnectPlatform.bind(null, account.id)}
@@ -561,7 +612,10 @@ function ConnectionPlatformRow({
       ) : status === 'expired' && account ? (
         <div className="flex items-center gap-2">
           {meta.connectHref ? (
-            <ConnectButton href={meta.connectHref} label="Reconnect" />
+            <>
+              <ConnectButton href={meta.connectHref} label="Reconnect" />
+              {youtubeStreamKeysEditButton}
+            </>
           ) : platform === 'sftp' ? (
             <SftpConnectButton label="Reconnect" existingConnection={sftpExistingConnection} />
           ) : platform === 'smb' ? (
@@ -642,6 +696,12 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
           <FlashMessage
             type="error"
             message="✗ Failed to connect YouTube account. Please try again."
+          />
+        )}
+        {error === 'youtube_no_channel' && (
+          <FlashMessage
+            type="error"
+            message="✗ That Google account does not have a YouTube channel. Create one at youtube.com (profile → Create a channel), or choose a different Google account when connecting."
           />
         )}
         {success === 'vimeo' && (

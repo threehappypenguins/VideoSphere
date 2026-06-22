@@ -38,6 +38,8 @@ const mockAccount = {
   platform: 'sermon_audio',
   tokenExpiry: '9999-12-31T00:00:00.000Z',
   hasRefreshToken: false,
+  hasYoutubeMainStreamKey: false,
+  hasYoutubeTempStreamKey: false,
   platformUserId: 'broadcaster-123',
   platformName: 'My Church',
   $createdAt: new Date().toISOString(),

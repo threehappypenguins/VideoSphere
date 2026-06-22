@@ -51,6 +51,8 @@ const MOCK_ACCOUNT = {
   platformName: 'Test Channel',
   tokenExpiry: new Date(Date.now() + 1_000_000).toISOString(),
   hasRefreshToken: true,
+  hasYoutubeMainStreamKey: false,
+  hasYoutubeTempStreamKey: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -136,6 +138,8 @@ describe('GET /api/platforms/connections', () => {
         platformUserId: 'broadcaster-99',
         platformName: 'My Church',
         hasRefreshToken: false,
+        hasYoutubeMainStreamKey: false,
+        hasYoutubeTempStreamKey: false,
       };
       vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([sermonAudioAccount as never]);
       const res = await GET(makeRequest({ [SESSION_COOKIE]: 'valid-session' }));

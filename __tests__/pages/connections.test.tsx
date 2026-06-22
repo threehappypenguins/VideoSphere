@@ -145,6 +145,8 @@ describe('ConnectionsPage', () => {
           platform: 'youtube',
           tokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(),
           hasRefreshToken: true,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'UCtest123',
           platformName: 'My Test Channel',
           $createdAt: new Date().toISOString(),
@@ -156,6 +158,8 @@ describe('ConnectionsPage', () => {
           platform: 'facebook',
           tokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(),
           hasRefreshToken: true,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'fb-user',
           platformName: 'My Page',
           facebookTargetType: 'page',
@@ -182,6 +186,8 @@ describe('ConnectionsPage', () => {
           platform: 'sftp',
           tokenExpiry: '2099-01-01T00:00:00.000Z',
           hasRefreshToken: false,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'backup-user',
           platformName: 'My Home Server',
           sftpHost: 'sftp.example.com',
@@ -255,6 +261,8 @@ describe('ConnectionsPage', () => {
           platform: 'youtube',
           tokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(),
           hasRefreshToken: true,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'UCtest123',
           platformName: 'My Test Channel',
           $createdAt: new Date().toISOString(),
@@ -275,6 +283,8 @@ describe('ConnectionsPage', () => {
           platform: 'youtube',
           tokenExpiry: new Date(Date.now() - 1000).toISOString(),
           hasRefreshToken: true,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'UCtest123',
           platformName: 'My Test Channel',
           $createdAt: new Date().toISOString(),
@@ -295,6 +305,8 @@ describe('ConnectionsPage', () => {
           platform: 'sftp',
           tokenExpiry: '2099-01-01T00:00:00.000Z',
           hasRefreshToken: false,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'backup-user',
           platformName: 'My Home Server',
           sftpHost: 'sftp.example.com',
@@ -321,6 +333,8 @@ describe('ConnectionsPage', () => {
           platform: 'sftp',
           tokenExpiry: '2099-01-01T00:00:00.000Z',
           hasRefreshToken: false,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'backup-user',
           platformName: 'My Home Server',
           $createdAt: new Date().toISOString(),
@@ -342,6 +356,8 @@ describe('ConnectionsPage', () => {
           platform: 'sftp',
           tokenExpiry: '2099-01-01T00:00:00.000Z',
           hasRefreshToken: false,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'backup-user',
           platformName: 'My Home Server',
           sftpHost: 'sftp.example.com',
@@ -367,6 +383,8 @@ describe('ConnectionsPage', () => {
           platform: 'sftp',
           tokenExpiry: '2099-01-01T00:00:00.000Z',
           hasRefreshToken: false,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'backup-user',
           platformName: 'My Home Server',
           sftpHost: 'sftp.example.com',
@@ -394,6 +412,8 @@ describe('ConnectionsPage', () => {
           platform: 'sftp',
           tokenExpiry: '2099-01-01T00:00:00.000Z',
           hasRefreshToken: false,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'backup-user',
           platformName: 'My Home Server',
           sftpHost: 'sftp.example.com',
@@ -440,6 +460,15 @@ describe('ConnectionsPage', () => {
       expect(screen.getByRole('alert').textContent).toMatch(/failed to connect/i);
     });
 
+    it('renders a specific flash when ?error=youtube_no_channel is present', async () => {
+      const page = await ConnectionsPage({
+        searchParams: makeSearchParams({ error: 'youtube_no_channel' }),
+      });
+      render(page);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByRole('alert').textContent).toMatch(/does not have a youtube channel/i);
+    });
+
     it('renders success flash when ?success=google_drive is present', async () => {
       const page = await ConnectionsPage({
         searchParams: makeSearchParams({ success: 'google_drive' }),
@@ -457,6 +486,8 @@ describe('ConnectionsPage', () => {
           platform: 'google_drive',
           tokenExpiry: new Date(Date.now() + 3600_000).toISOString(),
           hasRefreshToken: true,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
           platformUserId: 'perm-1',
           platformName: 'My Drive',
           $createdAt: new Date().toISOString(),

@@ -50,6 +50,11 @@ function findMatchingOption(
   const exact = options.find((option) => option.value === value);
   if (exact) return exact;
 
+  // BCP-47 language tags (e.g. en-US): allow base-language fallback. Numeric ids (categories) are exact-only.
+  if (/^\d+$/.test(value.trim())) {
+    return undefined;
+  }
+
   const base = value.split('-')[0]?.toLowerCase();
   if (!base) return undefined;
 

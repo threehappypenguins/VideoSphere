@@ -23,6 +23,7 @@ import {
   getConnectedAccountWithTokens,
   updateConnection,
 } from '@/lib/repositories/connected-accounts';
+import { clearDraftLivestreamYouTubeBroadcastLinksForUser } from '@/lib/repositories/livestreams';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const YOUTUBE_CHANNELS_URL =
@@ -149,8 +150,13 @@ export async function GET(req: NextRequest) {
     const channel = channelData.items?.[0];
 
     if (!channel) {
-      console.error('[GET /api/platforms/callback/youtube] No YouTube channel found for user');
-      return htmlRedirect(failureUrl);
+      console.error(
+        '[GET /api/platforms/callback/youtube] No YouTube channel found for user',
+        JSON.stringify({
+          pageInfo: (channelData as { pageInfo?: { totalResults?: number } }).pageInfo,
+        })
+      );
+      return htmlRedirect(`${origin}/profile/connections?error=youtube_no_channel`);
     }
 
     const platformUserId = channel.id;
@@ -164,6 +170,7 @@ export async function GET(req: NextRequest) {
     // channel is reflected immediately on reconnect.
     let existingId: string | null = null;
     let existingRefreshToken = '';
+    let previousPlatformUserId: string | null = null;
 
     // Best-effort: old rows may be encrypted with a different key version.
     // If token decryption fails, still proceed with reconnect using account id.
@@ -172,6 +179,7 @@ export async function GET(req: NextRequest) {
       if (existingWithTokens) {
         existingId = existingWithTokens.id;
         existingRefreshToken = existingWithTokens.refreshToken;
+        previousPlatformUserId = existingWithTokens.platformUserId?.trim() || null;
       }
     } catch (err) {
       if (!isTokenDecryptError(err)) {
@@ -187,6 +195,7 @@ export async function GET(req: NextRequest) {
       // Use minimal row lookup (no token decryption) to avoid noisy error logs
       const existing = await getConnectedAccountRowId(userId, 'youtube');
       existingId = existing?.id ?? null;
+      previousPlatformUserId = existing?.platformUserId?.trim() || null;
     }
 
     const refreshTokenToStore = tokens.refresh_token ?? existingRefreshToken;
@@ -209,6 +218,22 @@ export async function GET(req: NextRequest) {
         platformUserId,
         platformName,
       });
+    }
+
+    if (previousPlatformUserId && previousPlatformUserId !== platformUserId) {
+      try {
+        const cleared = await clearDraftLivestreamYouTubeBroadcastLinksForUser(userId);
+        if (cleared > 0) {
+          console.log(
+            `[GET /api/platforms/callback/youtube] Cleared stale YouTube broadcast links from ${cleared} draft livestream(s) after channel change.`
+          );
+        }
+      } catch (err) {
+        console.error(
+          '[GET /api/platforms/callback/youtube] Failed to clear draft YouTube broadcast links after channel change:',
+          err
+        );
+      }
     }
 
     // Clear the CSRF nonce cookie and break the cross-site redirect chain.

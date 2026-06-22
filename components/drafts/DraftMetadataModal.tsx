@@ -22,6 +22,7 @@ import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-up
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import type { SermonAudioLanguageOption } from '@/lib/platforms/sermon-audio-languages';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
+import { validateSchedulePublishAtIso, getScheduleMaxLeadLabel } from '@/lib/schedule-bounds';
 import {
   buildBackupFileName,
   buildBackupRemoteRelativePath,
@@ -37,9 +38,11 @@ import type { VimeoLicenseOption } from '@/lib/platforms/vimeo-licenses';
 import { SERMON_AUDIO_MAX_BIBLE_REFERENCES } from '@/lib/platforms/sermon-audio-bible-books';
 import { parseBibleReferences } from '@/lib/platforms/sermon-audio-bible-references';
 import {
+  formatTooShortYouTubeTagMessage,
   mergeUniqueTags,
   parseSermonAudioHashtagInput,
   parseSharedTagInput,
+  partitionYouTubeCompatibleTags,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
 import {
@@ -128,6 +131,7 @@ import { platformLabel } from '@/lib/ui/platform-label';
 import { isPlatformUploadRowActive } from '@/lib/uploads/status';
 import {
   buildYouTubeAccountDefaultsSeedPatch,
+  resolveYouTubeOptionalFieldValue,
   type YouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-account-defaults';
 import {
@@ -154,9 +158,9 @@ import {
   getSupportedTimeZones,
   isPublishAtInPast,
   utcIsoToZonedScheduleParts,
-  YOUTUBE_SCHEDULE_TIME_OPTIONS,
   zonedDateTimeToUtcIso,
 } from '@/lib/youtube-schedule';
+import { ScheduleDateTimeFields } from '@/components/scheduling/ScheduleDateTimeFields';
 
 const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
@@ -2003,8 +2007,22 @@ export function DraftMetadataModal({
     const parsed =
       platform === 'sermon_audio' ? parseSermonAudioHashtagInput(raw) : parseSharedTagInput(raw);
     if (parsed.length === 0) return;
+
+    let accepted = parsed;
+    if (platform !== 'sermon_audio') {
+      const partitioned = partitionYouTubeCompatibleTags(parsed);
+      accepted = partitioned.accepted;
+      if (partitioned.tooShort.length > 0) {
+        toast.error(formatTooShortYouTubeTagMessage(partitioned.tooShort));
+      }
+      if (accepted.length === 0) {
+        setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
+        return;
+      }
+    }
+
     const current = value.platforms[platform]?.tagsOverride ?? value.tags;
-    updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, parsed) });
+    updateTagOverridePlatformFields(platform, { tagsOverride: mergeUniqueTags(current, accepted) });
     setPlatformOverrideTagInput((prev) => ({ ...prev, [platform]: '' }));
   };
 
@@ -2196,12 +2214,16 @@ export function DraftMetadataModal({
   }, [draftId, value, vimeoAccountDefaults, updateVimeoFields]);
 
   const youtubeMadeForKidsValue = youtubeFields?.madeForKids ?? youtubeAccountDefaults?.madeForKids;
-  const youtubeDefaultAudioLanguageValue = youtubeFields?.defaultAudioLanguage;
+  const youtubeDefaultAudioLanguageValue = resolveYouTubeOptionalFieldValue(
+    youtubeFields,
+    'defaultAudioLanguage',
+    youtubeAccountDefaults?.defaultAudioLanguage
+  );
   const youtubeRecordingDateValue = youtubeFields?.recordingDate ?? '';
   const youtubeLicenseValue = youtubeFields?.license ?? youtubeAccountDefaults?.license;
   const youtubeEmbeddableValue = youtubeFields?.embeddable ?? youtubeAccountDefaults?.embeddable;
   const youtubeNotifySubscribersValue = youtubeFields?.notifySubscribers !== false;
-  const youtubeCategoryIdValue = youtubeFields?.categoryId;
+  const youtubeCategoryIdValue = youtubeFields?.categoryId ?? youtubeAccountDefaults?.categoryId;
   const youtubeLanguageOptions = useMemo(
     () => youtubeLanguages.map((language) => ({ value: language.id, label: language.name })),
     [youtubeLanguages]
@@ -2297,9 +2319,12 @@ export function DraftMetadataModal({
   const youtubePublishAtValue = youtubeFields?.publishAt;
   const youtubeSchedulePastWarning =
     youtubePublishAtValue !== undefined && isPublishAtInPast(youtubePublishAtValue);
+  const youtubeScheduleValidationMessage =
+    youtubePublishAtValue !== undefined
+      ? validateSchedulePublishAtIso(youtubePublishAtValue)
+      : undefined;
   const youtubePlaylistId = youtubeFields?.playlistIds?.[0];
-  const youtubePlaylistTitle =
-    youtubePlaylistId === undefined ? youtubeFields?.playlistTitles?.[0] : undefined;
+  const youtubePlaylistTitle = youtubeFields?.playlistTitles?.[0];
 
   const facebookVideoState = facebookFields?.videoState ?? 'PUBLISHED';
   const facebookScheduleValidationMessage =
@@ -2433,11 +2458,23 @@ export function DraftMetadataModal({
 
   const commitTagsFromInput = useCallback(() => {
     if (!value) return;
-    const parsed = sermonAudioOnlySharedTagInput
-      ? parseSermonAudioHashtagInput(tagInput)
-      : parseSharedTagInput(tagInput);
+    if (sermonAudioOnlySharedTagInput) {
+      const parsed = parseSermonAudioHashtagInput(tagInput);
+      if (parsed.length === 0) return;
+      onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
+      setTagInput('');
+      return;
+    }
+
+    const parsed = parseSharedTagInput(tagInput);
     if (parsed.length === 0) return;
-    onChange({ ...value, tags: mergeUniqueTags(value.tags, parsed) });
+    const { accepted, tooShort } = partitionYouTubeCompatibleTags(parsed);
+    if (tooShort.length > 0) {
+      toast.error(formatTooShortYouTubeTagMessage(tooShort));
+    }
+    if (accepted.length > 0) {
+      onChange({ ...value, tags: mergeUniqueTags(value.tags, accepted) });
+    }
     setTagInput('');
   }, [onChange, sermonAudioOnlySharedTagInput, tagInput, value]);
 
@@ -3591,7 +3628,7 @@ export function DraftMetadataModal({
                 options={youtubeLanguageOptions}
                 onValueChange={(next) =>
                   updateYouTubeFields({
-                    defaultAudioLanguage: next,
+                    defaultAudioLanguage: next ?? null,
                   })
                 }
                 className={fieldBorderClass('youtube.defaultAudioLanguage')}
@@ -3709,58 +3746,24 @@ export function DraftMetadataModal({
                     <p className="text-sm font-medium text-foreground">Schedule</p>
                     <p className="text-xs text-muted-foreground">Schedule as public</p>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                    <div className="min-w-0 flex-1">
-                      <label
-                        htmlFor="draft-youtube-schedule-date"
-                        className="text-xs font-medium text-muted-foreground"
-                      >
-                        Date
-                      </label>
-                      <input
-                        id="draft-youtube-schedule-date"
-                        type="date"
-                        value={scheduleDate}
-                        onChange={(event) => {
-                          const nextDate = event.target.value;
-                          setScheduleDate(nextDate);
-                          if (!nextDate) {
-                            updateYouTubeFields({ publishAt: undefined });
-                          }
-                        }}
-                        className={cn(
-                          fieldBorderClass('youtube.publishAt'),
-                          'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
-                        )}
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <label
-                        htmlFor="draft-youtube-schedule-time"
-                        className="text-xs font-medium text-muted-foreground"
-                      >
-                        Time
-                      </label>
-                      <Select value={scheduleTime} onValueChange={(next) => setScheduleTime(next)}>
-                        <SelectTrigger
-                          id="draft-youtube-schedule-time"
-                          className={cn(
-                            fieldBorderClass('youtube.publishAt'),
-                            'mt-1 flex h-10 items-center justify-between text-left'
-                          )}
-                        >
-                          <SelectValue placeholder="Select time" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
-                            <SelectItem key={timeOption} value={timeOption}>
-                              {timeOption}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="min-w-0 flex-1">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+                    <ScheduleDateTimeFields
+                      platform="youtube"
+                      dateId="draft-youtube-schedule-date"
+                      timeId="draft-youtube-schedule-time"
+                      dateStr={scheduleDate}
+                      timeStr={scheduleTime}
+                      dateClassName={fieldBorderClass('youtube.publishAt')}
+                      timeClassName={fieldBorderClass('youtube.publishAt')}
+                      onDateChange={(nextDate) => {
+                        setScheduleDate(nextDate);
+                        if (!nextDate) {
+                          updateYouTubeFields({ publishAt: undefined });
+                        }
+                      }}
+                      onTimeChange={setScheduleTime}
+                    />
+                    <div className="min-w-0">
                       <label
                         htmlFor="draft-youtube-schedule-timezone"
                         className="text-xs font-medium text-muted-foreground"
@@ -3787,11 +3790,20 @@ export function DraftMetadataModal({
                     >
                       Clear schedule
                     </button>
-                    {youtubeSchedulePastWarning ? (
+                    {youtubeScheduleValidationMessage ? (
+                      <p className="text-sm text-red-600 dark:text-red-400">
+                        {youtubeScheduleValidationMessage}
+                      </p>
+                    ) : youtubeSchedulePastWarning ? (
                       <p className="text-sm text-amber-600 dark:text-amber-400">
                         Scheduled time is in the past. The video may publish immediately.
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Must be at least 10 minutes and at most {getScheduleMaxLeadLabel('youtube')}{' '}
+                        from now.
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -3996,52 +4008,19 @@ export function DraftMetadataModal({
       {facebookVideoState === 'SCHEDULED' ? (
         <div className="space-y-3 rounded-lg border border-border bg-background p-3">
           <p className="text-sm font-medium text-foreground">Scheduled publish time</p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <div className="min-w-0 flex-1">
-              <label
-                htmlFor="draft-facebook-schedule-date"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                Date
-              </label>
-              <input
-                id="draft-facebook-schedule-date"
-                type="date"
-                value={fbScheduleDate}
-                onChange={(event) => setFbScheduleDate(event.target.value)}
-                className={cn(
-                  fieldBorderClass('facebook.scheduledPublishTime'),
-                  'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
-                )}
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <label
-                htmlFor="draft-facebook-schedule-time"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                Time
-              </label>
-              <Select value={fbScheduleTime} onValueChange={(next) => setFbScheduleTime(next)}>
-                <SelectTrigger
-                  id="draft-facebook-schedule-time"
-                  className={cn(
-                    fieldBorderClass('facebook.scheduledPublishTime'),
-                    'mt-1 flex h-10 items-center justify-between text-left'
-                  )}
-                >
-                  <SelectValue placeholder="Select time" />
-                </SelectTrigger>
-                <SelectContent>
-                  {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
-                    <SelectItem key={timeOption} value={timeOption}>
-                      {timeOption}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="min-w-0 flex-1">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+            <ScheduleDateTimeFields
+              platform="facebook"
+              dateId="draft-facebook-schedule-date"
+              timeId="draft-facebook-schedule-time"
+              dateStr={fbScheduleDate}
+              timeStr={fbScheduleTime}
+              dateClassName={fieldBorderClass('facebook.scheduledPublishTime')}
+              timeClassName={fieldBorderClass('facebook.scheduledPublishTime')}
+              onDateChange={setFbScheduleDate}
+              onTimeChange={setFbScheduleTime}
+            />
+            <div className="min-w-0">
               <label
                 htmlFor="draft-facebook-schedule-timezone"
                 className="text-xs font-medium text-muted-foreground"
@@ -4066,7 +4045,8 @@ export function DraftMetadataModal({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Must be at least 10 minutes and at most 6 months from now.
+              Must be at least 10 minutes and at most {getScheduleMaxLeadLabel('facebook')} from
+              now.
             </p>
           )}
         </div>
@@ -5347,13 +5327,13 @@ export function DraftMetadataModal({
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
                     {showPerPlatformTags
-                      ? 'YouTube and Vimeo tags may include spaces. SermonAudio hashtags are one word each; leading `#` is removed.'
+                      ? 'YouTube and Vimeo tags may include spaces; each tag must be at least 2 characters for YouTube. SermonAudio hashtags are one word each; leading `#` is removed.'
                       : sermonAudioOnlySharedTagInput
                         ? 'SermonAudio hashtags are one word each; press Enter, comma, or space to add. Leading `#` is removed.'
                         : `Press Enter or comma to add tags${
                             showSermonAudioFields
                               ? '. SermonAudio hashtags omit spaces and `#` when uploaded'
-                              : ''
+                              : '. Each tag must be at least 2 characters for YouTube'
                           }.`}
                   </p>
                 </div>

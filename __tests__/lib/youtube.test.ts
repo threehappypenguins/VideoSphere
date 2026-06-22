@@ -1006,3 +1006,67 @@ describe('youtubeFetchPlaylistsPage', () => {
     });
   });
 });
+
+describe('fetchYouTubePlaylistMembershipForVideo', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns playlist ids and titles containing the video', async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/playlistItems?')) {
+        return Response.json({
+          items: [{ snippet: { playlistId: 'PL1' } }, { snippet: { playlistId: 'PL2' } }],
+        });
+      }
+      if (url.includes('/playlists?')) {
+        return Response.json({
+          items: [
+            { id: 'PL1', snippet: { title: 'Sunday Services' } },
+            { id: 'PL2', snippet: { title: 'Live Archives' } },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const result = await youtube.fetchYouTubePlaylistMembershipForVideo('tok', 'video-123');
+
+    expect(result).toEqual({
+      ok: true,
+      membership: {
+        playlistIds: ['PL1', 'PL2'],
+        playlistTitles: ['Sunday Services', 'Live Archives'],
+      },
+    });
+  });
+
+  it('returns empty membership when the video is not in any playlist', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ items: [] }));
+
+    const result = await youtube.fetchYouTubePlaylistMembershipForVideo('tok', 'video-123');
+
+    expect(result).toEqual({
+      ok: true,
+      membership: { playlistIds: [], playlistTitles: [] },
+    });
+  });
+
+  it('returns empty membership when YouTube reports videoNotFound', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { message: 'video not found' } }), { status: 404 })
+    );
+
+    const result = await youtube.fetchYouTubePlaylistMembershipForVideo('tok', 'video-123');
+
+    expect(result).toEqual({
+      ok: true,
+      membership: { playlistIds: [], playlistTitles: [] },
+    });
+  });
+});

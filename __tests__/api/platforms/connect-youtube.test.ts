@@ -143,5 +143,12 @@ describe('GET /api/platforms/connect/youtube', () => {
       const location = new URL(res.headers.get('location')!);
       expect(location.searchParams.get('access_type')).toBe('offline');
     });
+
+    it('prompts for consent and account selection so users can switch Google accounts', async () => {
+      const req = makeRequest({ [SESSION_COOKIE]: 'valid-session' });
+      const res = await GET(req);
+      const location = new URL(res.headers.get('location')!);
+      expect(location.searchParams.get('prompt')).toBe('consent select_account');
+    });
   });
 });
