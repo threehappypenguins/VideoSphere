@@ -6,33 +6,65 @@ import { listAllArmedYouTubeLivestreams } from '@/lib/repositories/livestreams';
 import type { Livestream } from '@/types';
 
 /** Maximum delay supported by a single `setTimeout` in Node (~24.8 days). */
-const MAX_SET_TIMEOUT_MS = 2_147_483_647;
+export const PROMOTION_SCHEDULE_MAX_HOP_MS = 2_147_483_647;
+
+type PromotionScheduleEntry = {
+  timer: ReturnType<typeof setTimeout>;
+  token: symbol;
+};
 
 type GlobalWithPromotionScheduler = typeof globalThis & {
-  _tempToMainPromotionTimers?: Map<string, ReturnType<typeof setTimeout>>;
+  _tempToMainPromotionSchedules?: Map<string, PromotionScheduleEntry>;
   _tempToMainPromotionBootstrapStarted?: boolean;
 };
 
 const globalWithScheduler = globalThis as GlobalWithPromotionScheduler;
 
-function promotionTimers(): Map<string, ReturnType<typeof setTimeout>> {
-  if (!globalWithScheduler._tempToMainPromotionTimers) {
-    globalWithScheduler._tempToMainPromotionTimers = new Map();
+function promotionSchedules(): Map<string, PromotionScheduleEntry> {
+  if (!globalWithScheduler._tempToMainPromotionSchedules) {
+    globalWithScheduler._tempToMainPromotionSchedules = new Map();
   }
-  return globalWithScheduler._tempToMainPromotionTimers;
+  return globalWithScheduler._tempToMainPromotionSchedules;
 }
 
-function scheduleAt(targetMs: number, onFire: () => void): ReturnType<typeof setTimeout> {
+function schedulePromotionAt(
+  livestreamId: string,
+  targetMs: number,
+  token: symbol,
+  onFire: () => void
+): void {
+  const schedules = promotionSchedules();
   const delay = targetMs - Date.now();
+
   if (delay <= 0) {
-    return setTimeout(onFire, 0);
+    const timer = setTimeout(() => {
+      if (schedules.get(livestreamId)?.token !== token) {
+        return;
+      }
+      schedules.delete(livestreamId);
+      onFire();
+    }, 0);
+    schedules.set(livestreamId, { timer, token });
+    return;
   }
-  if (delay > MAX_SET_TIMEOUT_MS) {
-    return setTimeout(() => {
-      scheduleAt(targetMs, onFire);
-    }, MAX_SET_TIMEOUT_MS);
-  }
-  return setTimeout(onFire, delay);
+
+  const timer = setTimeout(
+    () => {
+      if (schedules.get(livestreamId)?.token !== token) {
+        return;
+      }
+      const remainingDelay = targetMs - Date.now();
+      if (remainingDelay <= 0) {
+        schedules.delete(livestreamId);
+        onFire();
+        return;
+      }
+      schedulePromotionAt(livestreamId, targetMs, token, onFire);
+    },
+    Math.min(delay, PROMOTION_SCHEDULE_MAX_HOP_MS)
+  );
+
+  schedules.set(livestreamId, { timer, token });
 }
 
 /**
@@ -40,11 +72,11 @@ function scheduleAt(targetMs: number, onFire: () => void): ReturnType<typeof set
  * @param livestreamId - Livestream row id.
  */
 export function cancelTempToMainPromotionSchedule(livestreamId: string): void {
-  const timers = promotionTimers();
-  const existing = timers.get(livestreamId);
+  const schedules = promotionSchedules();
+  const existing = schedules.get(livestreamId);
   if (existing) {
-    clearTimeout(existing);
-    timers.delete(livestreamId);
+    clearTimeout(existing.timer);
+    schedules.delete(livestreamId);
   }
 }
 
@@ -91,11 +123,10 @@ export function syncTempToMainPromotionSchedule(
     return;
   }
 
-  const targetMs = promotionAt.getTime();
-  const timer = scheduleAt(targetMs, () => {
+  const token = Symbol(`promotion:${livestream.id}`);
+  schedulePromotionAt(livestream.id, promotionAt.getTime(), token, () => {
     void runScheduledPromotion(livestream.id);
   });
-  promotionTimers().set(livestream.id, timer);
 }
 
 /**

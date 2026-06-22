@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   cancelTempToMainPromotionSchedule,
+  PROMOTION_SCHEDULE_MAX_HOP_MS,
   syncTempToMainPromotionSchedule,
 } from '@/lib/livestreams/temp-to-main-promotion-scheduler';
 import type { Livestream } from '@/types';
@@ -77,6 +78,30 @@ describe('syncTempToMainPromotionSchedule', () => {
     cancelTempToMainPromotionSchedule('temp-1');
 
     await vi.runAllTimersAsync();
+    expect(attemptPromoteTempLivestreamToMain).not.toHaveBeenCalled();
+  });
+
+  it('cancels a chained long-range promotion after the first hop', async () => {
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+    const promotionLeadMs = 5 * 60_000;
+    const farFutureStart = new Date(
+      Date.now() + PROMOTION_SCHEDULE_MAX_HOP_MS + 60_000 + promotionLeadMs
+    ).toISOString();
+
+    syncTempToMainPromotionSchedule(
+      makeLivestream({
+        id: 'temp-1',
+        scheduledStartTime: farFutureStart,
+        autoPromoteToMainKeyMinutes: 5,
+      })
+    );
+
+    await vi.advanceTimersByTimeAsync(PROMOTION_SCHEDULE_MAX_HOP_MS);
+    expect(attemptPromoteTempLivestreamToMain).not.toHaveBeenCalled();
+
+    cancelTempToMainPromotionSchedule('temp-1');
+
+    await vi.advanceTimersByTimeAsync(PROMOTION_SCHEDULE_MAX_HOP_MS + 60_000);
     expect(attemptPromoteTempLivestreamToMain).not.toHaveBeenCalled();
   });
 });
