@@ -1057,8 +1057,10 @@ describe('DraftMetadataModal YouTube fields', () => {
       await user.click(screen.getByRole('button', { name: /^Schedule$/i }));
 
       const tz = getLocalTimeZone();
-      expect(screen.getByLabelText('Date')).toHaveValue(getDefaultScheduleDate(tz, frozenNow));
-      expect(document.getElementById('draft-youtube-schedule-time')).toHaveTextContent(
+      const defaultDate = getDefaultScheduleDate(tz, frozenNow);
+      expect(screen.getByLabelText('Date')).toHaveAttribute('data-date', defaultDate);
+      expect(document.getElementById('draft-youtube-schedule-time')).toHaveAttribute(
+        'data-time',
         getDefaultScheduleTime(tz, frozenNow)
       );
     } finally {
@@ -1095,53 +1097,60 @@ describe('DraftMetadataModal YouTube fields', () => {
   });
 
   it('updates platforms.youtube.publishAt when schedule date, time, or timezone changes', async () => {
+    const frozenNow = new Date('2025-06-08T15:30:00.000Z');
+    vi.setSystemTime(frozenNow);
+
     const onChange = vi.fn();
-    render(
-      <DraftMetadataModal
-        mode="edit"
-        value={youtubeDraftValue}
-        initialConnectedPlatforms={['youtube']}
-        initialConnectionsResolved
-        isSaving={false}
-        onClose={vi.fn()}
-        onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
-        onChange={onChange}
-      />
-    );
-
-    await screen.findByRole('dialog');
-    await expandShowMore();
-    await expandSchedule();
-
-    const tz = getLocalTimeZone();
-    const dateStr = getDefaultScheduleDate(tz);
-    const timeStr = getDefaultScheduleTime(tz);
-    const expectedIso = zonedDateTimeToUtcIso(dateStr, timeStr, tz);
-
-    await waitFor(() => {
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          platforms: expect.objectContaining({
-            youtube: expect.objectContaining({ publishAt: expectedIso }),
-          }),
-        })
+    try {
+      render(
+        <DraftMetadataModal
+          mode="edit"
+          value={youtubeDraftValue}
+          initialConnectedPlatforms={['youtube']}
+          initialConnectionsResolved
+          isSaving={false}
+          onClose={vi.fn()}
+          onSave={vi.fn().mockResolvedValue({ saved: true, draftId: youtubeDraftValue.id })}
+          onChange={onChange}
+        />
       );
-    });
 
-    onChange.mockClear();
-    await userEvent.clear(screen.getByLabelText('Date'));
-    await userEvent.type(screen.getByLabelText('Date'), '2026-06-09');
+      await screen.findByRole('dialog');
+      await expandShowMore();
+      await expandSchedule();
 
-    const nextIso = zonedDateTimeToUtcIso('2026-06-09', timeStr, tz);
-    await waitFor(() => {
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({
-          platforms: expect.objectContaining({
-            youtube: expect.objectContaining({ publishAt: nextIso }),
-          }),
-        })
-      );
-    });
+      const tz = getLocalTimeZone();
+      const dateStr = getDefaultScheduleDate(tz, frozenNow);
+      const timeStr = getDefaultScheduleTime(tz, frozenNow);
+      const expectedIso = zonedDateTimeToUtcIso(dateStr, timeStr, tz);
+
+      await waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(
+          expect.objectContaining({
+            platforms: expect.objectContaining({
+              youtube: expect.objectContaining({ publishAt: expectedIso }),
+            }),
+          })
+        );
+      });
+
+      onChange.mockClear();
+      await userEvent.click(screen.getByLabelText('Date'));
+      await userEvent.click(await screen.findByRole('button', { name: /June 15th, 2025/i }));
+
+      const nextIso = zonedDateTimeToUtcIso('2025-06-15', timeStr, tz);
+      await waitFor(() => {
+        expect(onChange).toHaveBeenCalledWith(
+          expect.objectContaining({
+            platforms: expect.objectContaining({
+              youtube: expect.objectContaining({ publishAt: nextIso }),
+            }),
+          })
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('clears publishAt when the schedule card is collapsed or cleared', async () => {
@@ -1715,7 +1724,7 @@ describe('DraftMetadataModal Facebook fields', () => {
     await userEvent.click(await screen.findByRole('option', { name: /^Schedule$/i }));
   }
 
-  it('clears scheduledPublishTime when schedule date, time, or timezone inputs are incomplete', async () => {
+  it('clears scheduledPublishTime when leaving scheduled publish state', async () => {
     let latestValue = facebookDraftValue;
     render(
       <TrackingFacebookModal
@@ -1732,8 +1741,8 @@ describe('DraftMetadataModal Facebook fields', () => {
       expect(latestValue.platforms.facebook?.scheduledPublishTime).toEqual(expect.any(Number));
     });
 
-    const dateInput = document.getElementById('draft-facebook-schedule-date') as HTMLInputElement;
-    await userEvent.clear(dateInput);
+    await userEvent.click(document.getElementById('draft-facebook-video-state')!);
+    await userEvent.click(await screen.findByRole('option', { name: /Publish immediately/i }));
 
     await waitFor(() => {
       expect(latestValue.platforms.facebook?.scheduledPublishTime).toBeUndefined();
@@ -1770,7 +1779,10 @@ describe('DraftMetadataModal Facebook fields', () => {
     const parts = utcIsoToZonedScheduleParts(new Date(storedTimestamp * 1000).toISOString(), tz);
 
     await waitFor(() => {
-      expect(document.getElementById('draft-facebook-schedule-date')).toHaveValue(parts?.dateStr);
+      expect(document.getElementById('draft-facebook-schedule-date')).toHaveAttribute(
+        'data-date',
+        parts?.dateStr
+      );
       expect(document.getElementById('draft-facebook-schedule-timezone')).toHaveTextContent(tz);
     });
 

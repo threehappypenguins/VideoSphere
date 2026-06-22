@@ -1,13 +1,3 @@
-/** Half-hour time slots from 00:00 through 23:30 for YouTube schedule pickers. */
-export const YOUTUBE_SCHEDULE_TIME_OPTIONS: readonly string[] = Array.from(
-  { length: 48 },
-  (_, index) => {
-    const hours = Math.floor(index / 2);
-    const minutes = (index % 2) * 30;
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-  }
-);
-
 /**
  * Returns the browser's resolved IANA timezone name.
  * @returns IANA timezone identifier (e.g. `America/Halifax`), or `UTC` when unavailable.

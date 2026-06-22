@@ -316,7 +316,7 @@ export interface FacebookDraftFields
   /**
    * Unix timestamp (seconds) for scheduled publish.
    * Required when `videoState` is `SCHEDULED`.
-   * Must be between 10 minutes and 6 months from now.
+   * Must be between 10 minutes and 75 days from now (Facebook scheduling limit).
    */
   scheduledPublishTime?: number;
 }

@@ -79,9 +79,10 @@ import {
   getSupportedTimeZones,
   isPublishAtInPast,
   utcIsoToZonedScheduleParts,
-  YOUTUBE_SCHEDULE_TIME_OPTIONS,
   zonedDateTimeToUtcIso,
 } from '@/lib/youtube-schedule';
+import { validateSchedulePublishAtIso, getScheduleMaxLeadLabel } from '@/lib/schedule-bounds';
+import { ScheduleDateTimeFields } from '@/components/scheduling/ScheduleDateTimeFields';
 import type {
   ApiResponse,
   ConnectedAccountPlatform,
@@ -883,6 +884,10 @@ export function LivestreamMetadataModal({
 
   const schedulePastWarning =
     resolvedScheduledStartTimeIso !== null && isPublishAtInPast(resolvedScheduledStartTimeIso);
+  const scheduleValidationMessage =
+    resolvedScheduledStartTimeIso !== null
+      ? validateSchedulePublishAtIso(resolvedScheduledStartTimeIso)
+      : undefined;
 
   const validateBeforeSchedule = useCallback((): { ok: true; tags: string[] } | { ok: false } => {
     if (!value) return { ok: false };
@@ -898,6 +903,8 @@ export function LivestreamMetadataModal({
     } else if (!scheduleDate.trim()) {
       errors.add('scheduleDate');
     } else if (!resolvedScheduledStartTimeIso) {
+      errors.add('scheduledStartTime');
+    } else if (scheduleValidationMessage) {
       errors.add('scheduledStartTime');
     }
 
@@ -917,7 +924,7 @@ export function LivestreamMetadataModal({
       } else if (errors.has('scheduleDate') && errors.size === 1) {
         toast.error('Choose a scheduled start date before scheduling.');
       } else if (errors.has('scheduledStartTime') && errors.size === 1) {
-        toast.error('Choose a valid scheduled start date and time.');
+        toast.error(scheduleValidationMessage ?? 'Choose a valid scheduled start date and time.');
       } else if (errors.has('targets') && errors.size === 1) {
         toast.error('Select YouTube before scheduling.');
       } else {
@@ -946,6 +953,7 @@ export function LivestreamMetadataModal({
     resolvedScheduledStartTimeIso,
     scheduleDate,
     scheduleTime,
+    scheduleValidationMessage,
     schedulablePlatforms,
     value,
   ]);
@@ -1634,73 +1642,42 @@ export function LivestreamMetadataModal({
                   <RequiredFieldMarker />
                 </p>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <div className="min-w-0 flex-1">
-                  <label
-                    htmlFor="livestream-schedule-date"
-                    className="text-xs font-medium text-muted-foreground"
-                  >
-                    Date
-                  </label>
-                  <input
-                    id="livestream-schedule-date"
-                    type="date"
-                    value={scheduleDate}
-                    aria-invalid={
-                      fieldErrors.has('scheduleDate') || fieldErrors.has('scheduledStartTime')
-                    }
-                    onChange={(event) => {
-                      clearFieldError('scheduleDate');
-                      clearFieldError('scheduledStartTime');
-                      setScheduleDate(event.target.value);
-                    }}
-                    className={cn(
-                      'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground',
-                      fieldErrors.has('scheduleDate') || fieldErrors.has('scheduledStartTime')
-                        ? 'border-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 dark:border-red-500'
-                        : 'border-border'
-                    )}
-                  />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <label
-                    htmlFor="livestream-schedule-time"
-                    className="text-xs font-medium text-muted-foreground"
-                  >
-                    Time
-                  </label>
-                  <Select
-                    value={scheduleTime}
-                    onValueChange={(next) => {
-                      clearFieldError('scheduleTime');
-                      clearFieldError('scheduledStartTime');
-                      setScheduleTime(next);
-                    }}
-                  >
-                    <SelectTrigger
-                      id="livestream-schedule-time"
-                      aria-invalid={
-                        fieldErrors.has('scheduleTime') || fieldErrors.has('scheduledStartTime')
-                      }
-                      className={cn(
-                        'mt-1 flex h-10 items-center justify-between text-left rounded-md border bg-background',
-                        fieldErrors.has('scheduleTime') || fieldErrors.has('scheduledStartTime')
-                          ? 'border-red-600 focus-visible:ring-red-600 dark:border-red-500'
-                          : 'border-border'
-                      )}
-                    >
-                      <SelectValue placeholder="Select time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
-                        <SelectItem key={timeOption} value={timeOption}>
-                          {timeOption}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="min-w-0 flex-1">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+                <ScheduleDateTimeFields
+                  platform="youtube"
+                  dateId="livestream-schedule-date"
+                  timeId="livestream-schedule-time"
+                  dateStr={scheduleDate}
+                  timeStr={scheduleTime}
+                  disabled={!isEditable}
+                  dateInvalid={
+                    fieldErrors.has('scheduleDate') || fieldErrors.has('scheduledStartTime')
+                  }
+                  timeInvalid={
+                    fieldErrors.has('scheduleTime') || fieldErrors.has('scheduledStartTime')
+                  }
+                  dateClassName={
+                    fieldErrors.has('scheduleDate') || fieldErrors.has('scheduledStartTime')
+                      ? 'border-red-600 focus-visible:ring-red-600 dark:border-red-500'
+                      : undefined
+                  }
+                  timeClassName={
+                    fieldErrors.has('scheduleTime') || fieldErrors.has('scheduledStartTime')
+                      ? 'border-red-600 focus-visible:ring-red-600 dark:border-red-500'
+                      : undefined
+                  }
+                  onDateChange={(nextDate) => {
+                    clearFieldError('scheduleDate');
+                    clearFieldError('scheduledStartTime');
+                    setScheduleDate(nextDate);
+                  }}
+                  onTimeChange={(nextTime) => {
+                    clearFieldError('scheduleTime');
+                    clearFieldError('scheduledStartTime');
+                    setScheduleTime(nextTime);
+                  }}
+                />
+                <div className="min-w-0">
                   <label
                     htmlFor="livestream-schedule-timezone"
                     className="text-xs font-medium text-muted-foreground"
@@ -1742,11 +1719,20 @@ export function LivestreamMetadataModal({
                     Clear schedule
                   </button>
                 ) : null}
-                {schedulePastWarning ? (
+                {scheduleValidationMessage ? (
+                  <p className="text-sm text-red-600 dark:text-red-400">
+                    {scheduleValidationMessage}
+                  </p>
+                ) : schedulePastWarning ? (
                   <p className="text-sm text-amber-600 dark:text-amber-400">
                     Scheduled time is in the past.
                   </p>
-                ) : null}
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Must be at least 10 minutes and at most {getScheduleMaxLeadLabel('youtube')}{' '}
+                    from now.
+                  </p>
+                )}
               </div>
             </fieldset>
 

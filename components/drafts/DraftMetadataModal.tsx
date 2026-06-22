@@ -22,6 +22,7 @@ import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-up
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import type { SermonAudioLanguageOption } from '@/lib/platforms/sermon-audio-languages';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
+import { validateSchedulePublishAtIso, getScheduleMaxLeadLabel } from '@/lib/schedule-bounds';
 import {
   buildBackupFileName,
   buildBackupRemoteRelativePath,
@@ -157,9 +158,9 @@ import {
   getSupportedTimeZones,
   isPublishAtInPast,
   utcIsoToZonedScheduleParts,
-  YOUTUBE_SCHEDULE_TIME_OPTIONS,
   zonedDateTimeToUtcIso,
 } from '@/lib/youtube-schedule';
+import { ScheduleDateTimeFields } from '@/components/scheduling/ScheduleDateTimeFields';
 
 const DRAFT_THUMBNAIL_INPUT_ACCEPT = draftThumbnailFileInputAccept();
 
@@ -2318,6 +2319,10 @@ export function DraftMetadataModal({
   const youtubePublishAtValue = youtubeFields?.publishAt;
   const youtubeSchedulePastWarning =
     youtubePublishAtValue !== undefined && isPublishAtInPast(youtubePublishAtValue);
+  const youtubeScheduleValidationMessage =
+    youtubePublishAtValue !== undefined
+      ? validateSchedulePublishAtIso(youtubePublishAtValue)
+      : undefined;
   const youtubePlaylistId = youtubeFields?.playlistIds?.[0];
   const youtubePlaylistTitle = youtubeFields?.playlistTitles?.[0];
 
@@ -3741,58 +3746,24 @@ export function DraftMetadataModal({
                     <p className="text-sm font-medium text-foreground">Schedule</p>
                     <p className="text-xs text-muted-foreground">Schedule as public</p>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                    <div className="min-w-0 flex-1">
-                      <label
-                        htmlFor="draft-youtube-schedule-date"
-                        className="text-xs font-medium text-muted-foreground"
-                      >
-                        Date
-                      </label>
-                      <input
-                        id="draft-youtube-schedule-date"
-                        type="date"
-                        value={scheduleDate}
-                        onChange={(event) => {
-                          const nextDate = event.target.value;
-                          setScheduleDate(nextDate);
-                          if (!nextDate) {
-                            updateYouTubeFields({ publishAt: undefined });
-                          }
-                        }}
-                        className={cn(
-                          fieldBorderClass('youtube.publishAt'),
-                          'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
-                        )}
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <label
-                        htmlFor="draft-youtube-schedule-time"
-                        className="text-xs font-medium text-muted-foreground"
-                      >
-                        Time
-                      </label>
-                      <Select value={scheduleTime} onValueChange={(next) => setScheduleTime(next)}>
-                        <SelectTrigger
-                          id="draft-youtube-schedule-time"
-                          className={cn(
-                            fieldBorderClass('youtube.publishAt'),
-                            'mt-1 flex h-10 items-center justify-between text-left'
-                          )}
-                        >
-                          <SelectValue placeholder="Select time" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
-                            <SelectItem key={timeOption} value={timeOption}>
-                              {timeOption}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="min-w-0 flex-1">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+                    <ScheduleDateTimeFields
+                      platform="youtube"
+                      dateId="draft-youtube-schedule-date"
+                      timeId="draft-youtube-schedule-time"
+                      dateStr={scheduleDate}
+                      timeStr={scheduleTime}
+                      dateClassName={fieldBorderClass('youtube.publishAt')}
+                      timeClassName={fieldBorderClass('youtube.publishAt')}
+                      onDateChange={(nextDate) => {
+                        setScheduleDate(nextDate);
+                        if (!nextDate) {
+                          updateYouTubeFields({ publishAt: undefined });
+                        }
+                      }}
+                      onTimeChange={setScheduleTime}
+                    />
+                    <div className="min-w-0">
                       <label
                         htmlFor="draft-youtube-schedule-timezone"
                         className="text-xs font-medium text-muted-foreground"
@@ -3819,11 +3790,20 @@ export function DraftMetadataModal({
                     >
                       Clear schedule
                     </button>
-                    {youtubeSchedulePastWarning ? (
+                    {youtubeScheduleValidationMessage ? (
+                      <p className="text-sm text-red-600 dark:text-red-400">
+                        {youtubeScheduleValidationMessage}
+                      </p>
+                    ) : youtubeSchedulePastWarning ? (
                       <p className="text-sm text-amber-600 dark:text-amber-400">
                         Scheduled time is in the past. The video may publish immediately.
                       </p>
-                    ) : null}
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Must be at least 10 minutes and at most {getScheduleMaxLeadLabel('youtube')}{' '}
+                        from now.
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -4028,52 +4008,19 @@ export function DraftMetadataModal({
       {facebookVideoState === 'SCHEDULED' ? (
         <div className="space-y-3 rounded-lg border border-border bg-background p-3">
           <p className="text-sm font-medium text-foreground">Scheduled publish time</p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <div className="min-w-0 flex-1">
-              <label
-                htmlFor="draft-facebook-schedule-date"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                Date
-              </label>
-              <input
-                id="draft-facebook-schedule-date"
-                type="date"
-                value={fbScheduleDate}
-                onChange={(event) => setFbScheduleDate(event.target.value)}
-                className={cn(
-                  fieldBorderClass('facebook.scheduledPublishTime'),
-                  'mt-1 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm'
-                )}
-              />
-            </div>
-            <div className="min-w-0 flex-1">
-              <label
-                htmlFor="draft-facebook-schedule-time"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                Time
-              </label>
-              <Select value={fbScheduleTime} onValueChange={(next) => setFbScheduleTime(next)}>
-                <SelectTrigger
-                  id="draft-facebook-schedule-time"
-                  className={cn(
-                    fieldBorderClass('facebook.scheduledPublishTime'),
-                    'mt-1 flex h-10 items-center justify-between text-left'
-                  )}
-                >
-                  <SelectValue placeholder="Select time" />
-                </SelectTrigger>
-                <SelectContent>
-                  {YOUTUBE_SCHEDULE_TIME_OPTIONS.map((timeOption) => (
-                    <SelectItem key={timeOption} value={timeOption}>
-                      {timeOption}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="min-w-0 flex-1">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+            <ScheduleDateTimeFields
+              platform="facebook"
+              dateId="draft-facebook-schedule-date"
+              timeId="draft-facebook-schedule-time"
+              dateStr={fbScheduleDate}
+              timeStr={fbScheduleTime}
+              dateClassName={fieldBorderClass('facebook.scheduledPublishTime')}
+              timeClassName={fieldBorderClass('facebook.scheduledPublishTime')}
+              onDateChange={setFbScheduleDate}
+              onTimeChange={setFbScheduleTime}
+            />
+            <div className="min-w-0">
               <label
                 htmlFor="draft-facebook-schedule-timezone"
                 className="text-xs font-medium text-muted-foreground"
@@ -4098,7 +4045,8 @@ export function DraftMetadataModal({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Must be at least 10 minutes and at most 6 months from now.
+              Must be at least 10 minutes and at most {getScheduleMaxLeadLabel('facebook')} from
+              now.
             </p>
           )}
         </div>
