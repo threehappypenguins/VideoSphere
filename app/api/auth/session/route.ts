@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedSessionUser } from '@/lib/api/auth';
+import { resolveUserClockFormat } from '@/lib/user-preferences';
 
 /**
  * Handles GET requests for this route.
@@ -25,6 +26,8 @@ export async function GET(req: NextRequest) {
       name: user.name,
       authProvider: user.authProvider,
       totpEnabled: user.totpEnabled,
+      preferences: user.preferences,
+      clockFormat: resolveUserClockFormat(user.preferences),
     });
   } catch (err) {
     console.error('[GET /api/auth/session]', err);

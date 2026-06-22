@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ProfileAuthSection } from './ProfileAuthSection';
 import { ProfileInformationSection } from './ProfileInformationSection';
+import { ProfilePreferencesSection } from './ProfilePreferencesSection';
 import { ProfileSecuritySection } from './ProfileSecuritySection';
 import { ProfileOAuthFlash } from './ProfileOAuthFlash';
 import type { UserAuthProvider } from '@/types';
@@ -119,6 +120,8 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
             setSessionUser((prev) => (prev ? { ...prev, ...updates } : prev));
           }}
         />
+
+        <ProfilePreferencesSection />
 
         <ProfileAuthSection authProvider={authProvider} onAuthProviderChange={setAuthProvider} />
 

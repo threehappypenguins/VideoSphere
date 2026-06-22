@@ -4,6 +4,8 @@ import {
   buildScheduleTimeStr,
   formatScheduleTimeLabel,
   normalizeScheduleTimeStr,
+  parseScheduleHourInput,
+  parseScheduleMinuteInput,
   parseScheduleTimeParts,
   scheduleDateStrToDate,
   scheduleDateToDateStr,
@@ -38,6 +40,8 @@ describe('schedule-date-time helpers', () => {
 
   it('formats schedule times for labels', () => {
     expect(formatScheduleTimeLabel('16:00')).toMatch(/4:00|16:00/);
+    expect(formatScheduleTimeLabel('16:00', { hour12: true })).toMatch(/pm/i);
+    expect(formatScheduleTimeLabel('16:00', { hour12: false })).toMatch(/16:00/);
   });
 
   it('converts between 12-hour and 24-hour parts', () => {
@@ -46,5 +50,18 @@ describe('schedule-date-time helpers', () => {
     expect(to24HourFrom12(1, 'PM')).toBe(13);
     expect(buildScheduleTimeStr(13, 5)).toBe('13:05');
     expect(parseScheduleTimeParts('13:05')).toEqual({ hour: 13, minute: 5 });
+  });
+
+  it('parses and clamps typed hour and minute inputs', () => {
+    expect(parseScheduleHourInput('9', false)).toBe(9);
+    expect(parseScheduleHourInput('25', false)).toBe(23);
+    expect(parseScheduleHourInput('0', false)).toBe(0);
+    expect(parseScheduleHourInput('13', true)).toBe(12);
+    expect(parseScheduleHourInput('0', true)).toBe(1);
+    expect(parseScheduleHourInput('', false)).toBeNull();
+
+    expect(parseScheduleMinuteInput('5')).toBe(5);
+    expect(parseScheduleMinuteInput('99')).toBe(59);
+    expect(parseScheduleMinuteInput('')).toBeNull();
   });
 });

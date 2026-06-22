@@ -1,5 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
-import type { PlatformDefaults, UserAuthProvider, UserRole } from '@/types';
+import type { PlatformDefaults, UserAuthProvider, UserPreferences, UserRole } from '@/types';
 
 /**
  * Raw MongoDB document shape for the `user_profiles` collection.
@@ -22,6 +22,8 @@ export interface UserProfileDocument {
   totpEnabled: boolean;
   /** Per-platform upload default settings for new drafts. */
   platformDefaults?: PlatformDefaults;
+  /** Cross-device UI preferences. */
+  preferences?: UserPreferences;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +47,7 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
     totpSecret: { type: String, required: false },
     totpEnabled: { type: Boolean, default: false },
     platformDefaults: { type: Schema.Types.Mixed, default: {} },
+    preferences: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );

@@ -1,5 +1,32 @@
 import { format } from 'date-fns';
 
+/** Options shared by schedule time labels. */
+const SCHEDULE_TIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  hour: 'numeric',
+  minute: '2-digit',
+};
+
+/**
+ * Formats a schedule time for screen-reader labels when the native control hides 24h values.
+ * @param timeStr - Stored schedule time (`HH:MM`).
+ * @param options - Display options.
+ * @param options.hour12 - When true, formats with AM/PM; otherwise 24-hour.
+ * @returns Locale-aware time label.
+ */
+export function formatScheduleTimeLabel(timeStr: string, options?: { hour12?: boolean }): string {
+  const normalized = normalizeScheduleTimeStr(timeStr);
+  if (!normalized) {
+    return '';
+  }
+
+  const [hour, minute] = normalized.split(':').map(Number);
+  const date = new Date(2000, 0, 1, hour, minute, 0);
+  return new Intl.DateTimeFormat(undefined, {
+    ...SCHEDULE_TIME_FORMAT_OPTIONS,
+    hour12: options?.hour12 ?? true,
+  }).format(date);
+}
+
 /**
  * Parses a wall-clock schedule date string into a local calendar `Date` for pickers.
  * @param dateStr - Calendar date (`YYYY-MM-DD`).
@@ -66,44 +93,6 @@ export function normalizeScheduleTimeStr(value: string): string {
 }
 
 /**
- * Formats a schedule time for screen-reader labels when the native control hides 24h values.
- * @param timeStr - Stored schedule time (`HH:MM`).
- * @returns Locale-aware time label.
- */
-export function formatScheduleTimeLabel(timeStr: string): string {
-  const normalized = normalizeScheduleTimeStr(timeStr);
-  if (!normalized) {
-    return '';
-  }
-
-  const [hour, minute] = normalized.split(':').map(Number);
-  const date = new Date(2000, 0, 1, hour, minute, 0);
-  return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date);
-}
-
-/**
- * Whether the current locale prefers 12-hour clock labels.
- * @returns True when hours should be shown with AM/PM.
- */
-export function uses12HourClock(): boolean {
-  try {
-    const { hour12 } = new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions();
-    if (typeof hour12 === 'boolean') {
-      return hour12;
-    }
-  } catch {
-    // Fall through to sample formatting below.
-  }
-
-  return /am|pm/i.test(
-    new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(new Date(2020, 0, 1, 13, 0))
-  );
-}
-
-/**
  * Parsed 24-hour wall-clock parts for schedule pickers.
  * @property hour - Hour in 24-hour form (`0`–`23`).
  * @property minute - Minute (`0`–`59`).
@@ -160,6 +149,47 @@ export function to24HourFrom12(hour12: number, period: 'AM' | 'PM'): number {
     return hour12 === 12 ? 0 : hour12;
   }
   return hour12 === 12 ? 12 : hour12 + 12;
+}
+
+/**
+ * Parses and clamps a typed hour for schedule picker columns.
+ * @param value - Raw digits from the hour input.
+ * @param use12Hour - When true, accepts `1`–`12`; otherwise `0`–`23`.
+ * @returns Clamped hour, or null when empty or non-numeric.
+ */
+export function parseScheduleHourInput(value: string, use12Hour: boolean): number | null {
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return null;
+  }
+
+  const num = Number(trimmed);
+  if (!Number.isFinite(num)) {
+    return null;
+  }
+
+  const min = use12Hour ? 1 : 0;
+  const max = use12Hour ? 12 : 23;
+  return Math.min(max, Math.max(min, num));
+}
+
+/**
+ * Parses and clamps a typed minute for schedule picker columns.
+ * @param value - Raw digits from the minute input.
+ * @returns Clamped minute (`0`–`59`), or null when empty or non-numeric.
+ */
+export function parseScheduleMinuteInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return null;
+  }
+
+  const num = Number(trimmed);
+  if (!Number.isFinite(num)) {
+    return null;
+  }
+
+  return Math.min(59, Math.max(0, num));
 }
 
 /** Minute options (`00`–`59`) for scroll pickers. */
