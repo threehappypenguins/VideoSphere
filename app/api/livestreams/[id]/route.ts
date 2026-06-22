@@ -1,6 +1,6 @@
 // =============================================================================
 // GET    /api/livestreams/[id]  — fetch a specific livestream
-// PATCH  /api/livestreams/[id]  — partial update (draft or scheduled only)
+// PATCH  /api/livestreams/[id]  — partial update (draft, scheduled, or live metadata)
 // DELETE /api/livestreams/[id]  — delete a specific livestream
 // =============================================================================
 // Auth: reads the httpOnly session cookie and verifies the authenticated user id.
@@ -27,6 +27,11 @@ import {
   parseAutoPromoteToMainKeyMinutesFromRequestBody,
 } from '@/lib/livestreams/auto-promote-main-key';
 import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
+import {
+  canEditLivestreamMetadata,
+  rejectLivestreamPatchFieldsWhenLive,
+  shouldSyncLivestreamMetadataToYouTube,
+} from '@/lib/livestreams/livestream-edit-policy';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import {
   requireYouTubeConnection,
@@ -51,8 +56,6 @@ const SCHEDULE_ONLY_FIELDS = [
   'keySlotStaleAt',
   'youtubeLifecycleStatus',
 ] as const;
-
-const EDITABLE_STATUSES = new Set<Livestream['status']>(['draft', 'scheduled']);
 
 function rejectScheduleOnlyFields(body: Record<string, unknown>): ApiError | null {
   for (const field of SCHEDULE_ONLY_FIELDS) {
@@ -161,10 +164,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 404 });
   }
 
-  if (!EDITABLE_STATUSES.has(existing.status)) {
+  if (!canEditLivestreamMetadata(existing.status)) {
     const errRes: ApiError = {
       error: 'Conflict',
-      message: 'Cannot edit a livestream after it has started.',
+      message: 'Cannot edit a livestream after it has ended.',
       statusCode: 409,
     };
     return NextResponse.json(errRes, { status: 409 });
@@ -195,6 +198,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const scheduleFieldError = rejectScheduleOnlyFields(bodyObj);
   if (scheduleFieldError) {
     return NextResponse.json(scheduleFieldError, { status: 400 });
+  }
+
+  const liveFieldError = rejectLivestreamPatchFieldsWhenLive(bodyObj, existing.status);
+  if (liveFieldError) {
+    return NextResponse.json(liveFieldError, { status: liveFieldError.statusCode });
   }
 
   const {
@@ -417,7 +425,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await persistUserYouTubePlatformDefaults(userId, updated.platforms.youtube);
 
-    if (updated.status === 'scheduled' && updated.youtubeBroadcastId?.trim()) {
+    if (shouldSyncLivestreamMetadataToYouTube(updated)) {
       const youtubeConnection = await requireYouTubeConnection(req);
       if (youtubeConnection.ok === false) {
         return youtubeConnection.response;

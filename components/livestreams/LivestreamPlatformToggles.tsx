@@ -14,6 +14,8 @@ interface LivestreamPlatformTogglesProps {
   connectedPlatforms: ConnectedAccountPlatform[];
   /** True once the connections request has settled (success or failure). */
   connectionsResolved: boolean;
+  /** When true, platform targets cannot be toggled (e.g. while live). */
+  targetsLocked?: boolean;
   /** Called when the user toggles a platform on or off. */
   onToggle: (platform: ConnectedAccountPlatform) => void;
   /** Called when the user clicks Connect on a disconnected platform row. */
@@ -30,6 +32,7 @@ export function LivestreamPlatformToggles({
   selectedPlatforms,
   connectedPlatforms,
   connectionsResolved,
+  targetsLocked = false,
   onToggle,
   onConnectClick,
 }: LivestreamPlatformTogglesProps) {
@@ -41,7 +44,7 @@ export function LivestreamPlatformToggles({
       {availablePlatforms.map((platform) => {
         const isConnected = !connectionsResolved || connectedSet.has(platform);
         const isSelected = selectedPlatforms.includes(platform);
-        const canToggle = isConnected || isSelected;
+        const canToggle = !targetsLocked && (isConnected || isSelected);
         const switchId = `${instanceId}-livestream-platform-toggle-${platform}`;
 
         return (

@@ -50,6 +50,10 @@ import {
   livestreamKeySlotConflictWarning,
 } from '@/lib/livestreams/key-slot-conflict';
 import {
+  canEditLivestreamMetadata,
+  canEditLivestreamSchedule,
+} from '@/lib/livestreams/livestream-edit-policy';
+import {
   AUTO_PROMOTE_TO_MAIN_KEY_MINUTE_OPTIONS,
   DEFAULT_AUTO_PROMOTE_TO_MAIN_KEY_MINUTES,
   formatAutoPromoteToMainKeyMinutesLabel,
@@ -266,7 +270,9 @@ export function LivestreamMetadataModal({
   const livestreamId = value?.id ?? null;
   const isDraft = value?.status === 'draft';
   const isScheduled = value?.status === 'scheduled';
-  const isEditable = value?.status === 'draft' || value?.status === 'scheduled';
+  const isLive = value?.status === 'live';
+  const isMetadataEditable = canEditLivestreamMetadata(value?.status ?? 'ended');
+  const isScheduleEditable = canEditLivestreamSchedule(value?.status ?? 'ended');
   const youtubeTargetActive = value?.targets.includes('youtube') ?? false;
   const youtubeFields = value?.platforms.youtube;
 
@@ -704,19 +710,25 @@ export function LivestreamMetadataModal({
       const tags = tagsOverride ?? resolvePersistableTags();
       let next: LivestreamEditorValues = { ...value, tags };
 
-      if (scheduleDate && scheduleTime) {
-        try {
-          const iso = zonedDateTimeToUtcIso(scheduleDate, scheduleTime, effectiveScheduleTimeZone);
-          next = {
-            ...next,
-            scheduledStartTime: iso,
-            scheduledStartTimeZone: effectiveScheduleTimeZone,
-          };
-        } catch {
-          // Keep the last stored value when the wall-clock trio is invalid.
+      if (canEditLivestreamSchedule(value.status)) {
+        if (scheduleDate && scheduleTime) {
+          try {
+            const iso = zonedDateTimeToUtcIso(
+              scheduleDate,
+              scheduleTime,
+              effectiveScheduleTimeZone
+            );
+            next = {
+              ...next,
+              scheduledStartTime: iso,
+              scheduledStartTimeZone: effectiveScheduleTimeZone,
+            };
+          } catch {
+            // Keep the last stored value when the wall-clock trio is invalid.
+          }
+        } else {
+          next = { ...next, scheduledStartTime: undefined, scheduledStartTimeZone: undefined };
         }
-      } else {
-        next = { ...next, scheduledStartTime: undefined, scheduledStartTimeZone: undefined };
       }
 
       if (next.targets.length === 0 && schedulablePlatforms.length > 0) {
@@ -883,9 +895,11 @@ export function LivestreamMetadataModal({
   }, [effectiveScheduleTimeZone, scheduleDate, scheduleTime]);
 
   const schedulePastWarning =
-    resolvedScheduledStartTimeIso !== null && isPublishAtInPast(resolvedScheduledStartTimeIso);
+    isScheduleEditable &&
+    resolvedScheduledStartTimeIso !== null &&
+    isPublishAtInPast(resolvedScheduledStartTimeIso);
   const scheduleValidationMessage =
-    resolvedScheduledStartTimeIso !== null
+    isScheduleEditable && resolvedScheduledStartTimeIso !== null
       ? validateSchedulePublishAtIso(resolvedScheduledStartTimeIso)
       : undefined;
 
@@ -959,7 +973,7 @@ export function LivestreamMetadataModal({
   ]);
 
   const handleThumbnailFile = async (file: File) => {
-    if (!value || !livestreamId || !isEditable) return;
+    if (!value || !livestreamId || !isMetadataEditable) return;
     const requestLivestreamId = livestreamId;
     const ac = new AbortController();
     abortThumbnailUploadFlow();
@@ -1279,7 +1293,7 @@ export function LivestreamMetadataModal({
 
   const canSave =
     Boolean(value) &&
-    isEditable &&
+    isMetadataEditable &&
     value.title.trim() !== '' &&
     !thumbnailUploading &&
     !isScheduling;
@@ -1308,9 +1322,11 @@ export function LivestreamMetadataModal({
         <DialogHeader className="px-6 pt-6">
           <DialogTitle>{mode === 'edit' ? 'Edit livestream' : 'Livestream details'}</DialogTitle>
           <DialogDescription>
-            {isEditable
-              ? 'Configure metadata and your intended start time before scheduling on YouTube.'
-              : 'This livestream has already started or ended; fields are read-only.'}
+            {isMetadataEditable
+              ? isLive
+                ? 'Update metadata while you are live. Schedule, stream key, and platform targets are locked.'
+                : 'Configure metadata and your intended start time before scheduling on YouTube.'
+              : 'This livestream has ended; fields are read-only.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -1388,7 +1404,7 @@ export function LivestreamMetadataModal({
                     type="checkbox"
                     className="mt-0.5"
                     checked={autoPromoteEnabled}
-                    disabled={!isEditable}
+                    disabled={!isScheduleEditable}
                     onChange={(event) =>
                       updateAutoPromoteSettings({ autoPromoteToMainKey: event.target.checked })
                     }
@@ -1410,7 +1426,7 @@ export function LivestreamMetadataModal({
                           autoPromoteToMainKeyMinutes: Number.parseInt(next, 10),
                         })
                       }
-                      disabled={!isEditable}
+                      disabled={!isScheduleEditable}
                     >
                       <SelectTrigger id="livestream-auto-promote-minutes" className="w-[240px]">
                         <SelectValue />
@@ -1461,6 +1477,7 @@ export function LivestreamMetadataModal({
                   selectedPlatforms={value.targets}
                   connectedPlatforms={schedulablePlatforms}
                   connectionsResolved={connectionsResolvedSuccessfully}
+                  targetsLocked={!isScheduleEditable}
                   onToggle={handleTogglePlatform}
                   onConnectClick={() => {
                     void handleConnectNavigation();
@@ -1502,7 +1519,7 @@ export function LivestreamMetadataModal({
                   id="livestream-title"
                   value={value.title}
                   required
-                  disabled={!isEditable}
+                  disabled={!isMetadataEditable}
                   maxLength={MAX_DRAFT_TITLE_LENGTH}
                   onChange={(event) => {
                     clearFieldError('title');
@@ -1523,7 +1540,7 @@ export function LivestreamMetadataModal({
                 <Textarea
                   id="livestream-description"
                   value={value.description}
-                  disabled={!isEditable}
+                  disabled={!isMetadataEditable}
                   rows={4}
                   onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
                     onChange({ ...value, description: event.target.value });
@@ -1549,7 +1566,7 @@ export function LivestreamMetadataModal({
                         className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
                       >
                         {tag}
-                        {isEditable ? (
+                        {isMetadataEditable ? (
                           <button
                             type="button"
                             onClick={() =>
@@ -1570,7 +1587,7 @@ export function LivestreamMetadataModal({
                   <input
                     id="livestream-tags"
                     value={tagInput}
-                    disabled={!isEditable}
+                    disabled={!isMetadataEditable}
                     onChange={(event) => setTagInput(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ',') {
@@ -1606,7 +1623,7 @@ export function LivestreamMetadataModal({
                 </label>
                 <Select
                   value={value.visibility}
-                  disabled={!isEditable}
+                  disabled={!isMetadataEditable}
                   onValueChange={(next) => {
                     onChange({ ...value, visibility: next as PlatformUploadVisibility });
                   }}
@@ -1633,7 +1650,7 @@ export function LivestreamMetadataModal({
             </section>
 
             <fieldset
-              disabled={!isEditable}
+              disabled={!isScheduleEditable}
               className="space-y-3 rounded-lg border border-border bg-background p-4"
             >
               <div>
@@ -1649,7 +1666,7 @@ export function LivestreamMetadataModal({
                   timeId="livestream-schedule-time"
                   dateStr={scheduleDate}
                   timeStr={scheduleTime}
-                  disabled={!isEditable}
+                  disabled={!isScheduleEditable}
                   dateInvalid={
                     fieldErrors.has('scheduleDate') || fieldErrors.has('scheduledStartTime')
                   }
@@ -1710,7 +1727,7 @@ export function LivestreamMetadataModal({
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-3">
-                {isEditable ? (
+                {isScheduleEditable ? (
                   <button
                     type="button"
                     onClick={clearSchedule}
@@ -1719,20 +1736,26 @@ export function LivestreamMetadataModal({
                     Clear schedule
                   </button>
                 ) : null}
-                {scheduleValidationMessage ? (
-                  <p className="text-sm text-red-600 dark:text-red-400">
-                    {scheduleValidationMessage}
-                  </p>
-                ) : schedulePastWarning ? (
-                  <p className="text-sm text-amber-600 dark:text-amber-400">
-                    Scheduled time is in the past.
-                  </p>
-                ) : (
+                {isScheduleEditable ? (
+                  scheduleValidationMessage ? (
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      {scheduleValidationMessage}
+                    </p>
+                  ) : schedulePastWarning ? (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      Scheduled time is in the past.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Must be at least 10 minutes and at most {getScheduleMaxLeadLabel('youtube')}{' '}
+                      from now.
+                    </p>
+                  )
+                ) : isLive ? (
                   <p className="text-xs text-muted-foreground">
-                    Must be at least 10 minutes and at most {getScheduleMaxLeadLabel('youtube')}{' '}
-                    from now.
+                    Scheduled start cannot be changed during a live broadcast.
                   </p>
-                )}
+                ) : null}
               </div>
             </fieldset>
 
@@ -1754,7 +1777,7 @@ export function LivestreamMetadataModal({
                   </button>
                   {showMoreExpanded ? (
                     <fieldset
-                      disabled={!isEditable}
+                      disabled={!isMetadataEditable}
                       className="space-y-6 rounded-lg border border-border bg-muted/20 p-3"
                     >
                       <div>
@@ -1896,9 +1919,9 @@ export function LivestreamMetadataModal({
                 <p className="text-xs text-muted-foreground">
                   {isDraft
                     ? `JPG or PNG, up to ${MAX_DRAFT_THUMBNAIL_BYTES / (1024 * 1024)} MB.`
-                    : isEditable
+                    : isMetadataEditable
                       ? 'Upload a new image to replace the YouTube thumbnail. JPG or PNG only.'
-                      : 'Thumbnail is managed on YouTube after the broadcast has started.'}
+                      : 'Thumbnail is managed on YouTube after the broadcast has ended.'}
                 </p>
               </div>
               {value.thumbnailPreviewUrl ? (
@@ -1923,7 +1946,7 @@ export function LivestreamMetadataModal({
                   type="file"
                   accept={DRAFT_THUMBNAIL_INPUT_ACCEPT}
                   className="hidden"
-                  disabled={!isEditable || thumbnailUploading}
+                  disabled={!isMetadataEditable || thumbnailUploading}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) {
@@ -1931,7 +1954,7 @@ export function LivestreamMetadataModal({
                     }
                   }}
                 />
-                {isEditable ? (
+                {isMetadataEditable ? (
                   <>
                     <button
                       type="button"
@@ -1987,7 +2010,7 @@ export function LivestreamMetadataModal({
           >
             Cancel
           </button>
-          {isEditable ? (
+          {isMetadataEditable ? (
             <button
               type="button"
               onClick={() => {

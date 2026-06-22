@@ -7,6 +7,7 @@ import {
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
+import { shouldSyncLivestreamMetadataToYouTube } from '@/lib/livestreams/livestream-edit-policy';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import {
   requireYouTubeConnection,
@@ -81,11 +82,15 @@ export async function POST(
     );
   }
 
-  if (livestream.status !== 'draft' && livestream.status !== 'scheduled') {
+  if (
+    livestream.status !== 'draft' &&
+    livestream.status !== 'scheduled' &&
+    livestream.status !== 'live'
+  ) {
     return NextResponse.json(
       {
         error: 'Conflict',
-        message: 'Cannot change the thumbnail after the livestream has started.',
+        message: 'Cannot change the thumbnail after the livestream has ended.',
         statusCode: 409,
       },
       { status: 409 }
@@ -196,7 +201,7 @@ export async function POST(
 
     let responseLivestream = updated;
 
-    if (updated.status === 'scheduled' && updated.youtubeBroadcastId?.trim()) {
+    if (shouldSyncLivestreamMetadataToYouTube(updated)) {
       const youtubeConnection = await requireYouTubeConnection(req);
       if (youtubeConnection.ok === false) {
         return youtubeConnection.response;
@@ -219,7 +224,10 @@ export async function POST(
 
     return NextResponse.json({
       data,
-      message: updated.status === 'scheduled' ? 'Thumbnail updated on YouTube' : 'Thumbnail saved',
+      message:
+        updated.status === 'scheduled' || updated.status === 'live'
+          ? 'Thumbnail updated on YouTube'
+          : 'Thumbnail saved',
     });
   } catch (err) {
     await deleteObject(finalKey).catch(() => undefined);

@@ -97,7 +97,7 @@ function formatKeySwapNote(livestream: Livestream): string | null {
   if (livestream.keySlotStaleAt) {
     return `Key: main → stale (never went live) at ${formatScheduledDateTime(livestream.keySlotStaleAt)}`;
   }
-  if (livestream.keySwapPromotedAt) {
+  if (livestream.keySwapPromotedAt && livestream.status === 'scheduled') {
     return `Key: temp → promoted to main at ${formatScheduledDateTime(livestream.keySwapPromotedAt)}`;
   }
   if (livestream.keySlot === 'temp' && livestream.status === 'scheduled') {
@@ -316,16 +316,20 @@ export default function LivestreamsPage() {
             description: snapshot.description,
             tags: snapshot.tags,
             visibility: snapshot.visibility,
-            targets: snapshot.targets,
             platforms: snapshot.platforms,
-            scheduledStartTime: snapshot.scheduledStartTime ?? null,
-            scheduledStartTimeZone: snapshot.scheduledStartTimeZone ?? null,
-            ...(snapshot.autoPromoteToMainKey !== undefined
-              ? { autoPromoteToMainKey: snapshot.autoPromoteToMainKey }
-              : {}),
-            ...(snapshot.autoPromoteToMainKeyMinutes != null
-              ? { autoPromoteToMainKeyMinutes: snapshot.autoPromoteToMainKeyMinutes }
-              : {}),
+            ...(snapshot.status === 'live'
+              ? {}
+              : {
+                  targets: snapshot.targets,
+                  scheduledStartTime: snapshot.scheduledStartTime ?? null,
+                  scheduledStartTimeZone: snapshot.scheduledStartTimeZone ?? null,
+                  ...(snapshot.autoPromoteToMainKey !== undefined
+                    ? { autoPromoteToMainKey: snapshot.autoPromoteToMainKey }
+                    : {}),
+                  ...(snapshot.autoPromoteToMainKeyMinutes != null
+                    ? { autoPromoteToMainKeyMinutes: snapshot.autoPromoteToMainKeyMinutes }
+                    : {}),
+                }),
           }),
         });
         if (!response.ok) {
