@@ -6,7 +6,7 @@ import type { YouTubeLivestreamFields, YouTubeUserDefaults } from '@/types';
  * @param youtube - `platforms.youtube` from a saved or scheduled livestream.
  * @returns Profile patch fields, or undefined when nothing should be persisted.
  */
-export function youTubeLivestreamFieldsToUserDefaults(
+export function youtubeLivestreamFieldsToUserDefaults(
   youtube: YouTubeLivestreamFields | undefined
 ): Partial<YouTubeUserDefaults> | undefined {
   if (!youtube) {
@@ -50,7 +50,7 @@ export async function persistUserYouTubePlatformDefaults(
   userId: string,
   youtube: YouTubeLivestreamFields | undefined
 ): Promise<void> {
-  const patch = youTubeLivestreamFieldsToUserDefaults(youtube);
+  const patch = youtubeLivestreamFieldsToUserDefaults(youtube);
   if (!patch) {
     return;
   }

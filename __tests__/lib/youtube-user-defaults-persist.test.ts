@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { youTubeLivestreamFieldsToUserDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
+import { youtubeLivestreamFieldsToUserDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
 
-describe('youTubeLivestreamFieldsToUserDefaults', () => {
+describe('youtubeLivestreamFieldsToUserDefaults', () => {
   it('maps explicit YouTube livestream fields to profile defaults', () => {
     expect(
-      youTubeLivestreamFieldsToUserDefaults({
+      youtubeLivestreamFieldsToUserDefaults({
         categoryId: '22',
         defaultAudioLanguage: 'en',
         madeForKids: false,
@@ -22,7 +22,7 @@ describe('youTubeLivestreamFieldsToUserDefaults', () => {
   });
 
   it('returns undefined when no persistable fields are present', () => {
-    expect(youTubeLivestreamFieldsToUserDefaults({})).toBeUndefined();
-    expect(youTubeLivestreamFieldsToUserDefaults(undefined)).toBeUndefined();
+    expect(youtubeLivestreamFieldsToUserDefaults({})).toBeUndefined();
+    expect(youtubeLivestreamFieldsToUserDefaults(undefined)).toBeUndefined();
   });
 });

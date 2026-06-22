@@ -34,6 +34,10 @@ import {
 } from '@/lib/livestreams/livestream-edit-policy';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import {
+  cancelTempToMainPromotionSchedule,
+  syncTempToMainPromotionSchedule,
+} from '@/lib/livestreams/temp-to-main-promotion-scheduler';
+import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
 } from '@/lib/platforms/youtube-api';
@@ -430,6 +434,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     await persistUserYouTubePlatformDefaults(userId, updated.platforms.youtube);
 
+    syncTempToMainPromotionSchedule(updated);
+
     if (shouldSyncLivestreamMetadataToYouTube(updated)) {
       const youtubeConnection = await requireYouTubeConnection(req);
       if (youtubeConnection.ok === false) {
@@ -533,6 +539,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   if (existing.keySlot != null) {
+    cancelTempToMainPromotionSchedule(id);
     // TODO(prompt 10): Promote the next pending livestream into this key slot after delete.
   }
 

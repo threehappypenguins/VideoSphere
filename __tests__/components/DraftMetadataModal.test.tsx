@@ -1136,7 +1136,7 @@ describe('DraftMetadataModal YouTube fields', () => {
 
       onChange.mockClear();
       await userEvent.click(screen.getByLabelText('Date'));
-      await userEvent.click(await screen.findByRole('button', { name: /June 15th, 2025/i }));
+      await userEvent.click(await screen.findByRole('button', { name: /June 15.*2025/i }));
 
       const nextIso = zonedDateTimeToUtcIso('2025-06-15', timeStr, tz);
       await waitFor(() => {

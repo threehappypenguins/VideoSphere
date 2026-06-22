@@ -46,4 +46,19 @@ describe('schedule bounds', () => {
       Math.floor(now.getTime() / 1000) + (FACEBOOK_MAX_SCHEDULE_LEAD_DAYS + 1) * 24 * 60 * 60;
     expect(validateFacebookScheduledPublishTime(tooFarSec, now.getTime())).toMatch(/75 days/);
   });
+
+  it('rejects timezone-less ISO schedule timestamps', () => {
+    expect(validateSchedulePublishAtIso('2026-06-09T15:30:00', now)).toBe(
+      'Scheduled time must be a valid date and time.'
+    );
+  });
+
+  it('accepts UTC ISO timestamps with Z or numeric offset suffixes', () => {
+    const isoZ = new Date(now.getTime() + 60 * 60_000).toISOString();
+    const isoOffset = isoZ.replace('Z', '+00:00');
+
+    expect(validateSchedulePublishAtIso(isoZ, now)).toBeUndefined();
+    expect(validateSchedulePublishAtIso(isoOffset, now)).toBeUndefined();
+    expect(validateSchedulePublishAtIso(`  ${isoZ}  `, now)).toBeUndefined();
+  });
 });

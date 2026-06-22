@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/platforms/youtube-livestream-api', () => ({
-  findYouTubeLiveStreamIdByKey: vi.fn(),
-  bindYouTubeBroadcastToStream: vi.fn(),
+  ensureYouTubeBroadcastBoundToStreamKey: vi.fn(),
 }));
 
 vi.mock('@/lib/repositories/livestreams', () => ({
@@ -10,10 +9,7 @@ vi.mock('@/lib/repositories/livestreams', () => ({
 }));
 
 import { changeLivestreamKeySlot } from '@/lib/livestreams/change-livestream-key-slot';
-import {
-  bindYouTubeBroadcastToStream,
-  findYouTubeLiveStreamIdByKey,
-} from '@/lib/platforms/youtube-livestream-api';
+import { ensureYouTubeBroadcastBoundToStreamKey } from '@/lib/platforms/youtube-livestream-api';
 import { updateLivestream } from '@/lib/repositories/livestreams';
 import type { ConnectedAccount, Livestream } from '@/types';
 
@@ -118,11 +114,11 @@ describe('changeLivestreamKeySlot', () => {
     const livestream = scheduledLivestream({ keySlot: 'main' });
     const armed = [scheduledLivestream({ id: 'other', keySlot: 'main', title: 'Other stream' })];
 
-    vi.mocked(findYouTubeLiveStreamIdByKey).mockResolvedValueOnce({
+    vi.mocked(ensureYouTubeBroadcastBoundToStreamKey).mockResolvedValueOnce({
       ok: true,
       streamId: 'yt-stream-temp',
+      rebound: true,
     });
-    vi.mocked(bindYouTubeBroadcastToStream).mockResolvedValueOnce({ ok: true });
     vi.mocked(updateLivestream).mockResolvedValueOnce({
       ...livestream,
       keySlot: 'temp',
@@ -141,11 +137,11 @@ describe('changeLivestreamKeySlot', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(findYouTubeLiveStreamIdByKey).toHaveBeenCalledWith('token', 'temp-key');
-    expect(bindYouTubeBroadcastToStream).toHaveBeenCalledWith(
+    expect(ensureYouTubeBroadcastBoundToStreamKey).toHaveBeenCalledWith(
       'token',
       'broadcast-1',
-      'yt-stream-temp'
+      'temp-key',
+      { preferredStreamId: undefined }
     );
     expect(updateLivestream).toHaveBeenCalledWith('stream-1', {
       keySlot: 'temp',
@@ -160,11 +156,11 @@ describe('changeLivestreamKeySlot', () => {
     const livestream = scheduledLivestream({ keySlot: 'temp' });
     const armed = [scheduledLivestream({ id: 'other', keySlot: 'main', title: 'Main slot taken' })];
 
-    vi.mocked(findYouTubeLiveStreamIdByKey).mockResolvedValueOnce({
+    vi.mocked(ensureYouTubeBroadcastBoundToStreamKey).mockResolvedValueOnce({
       ok: true,
       streamId: 'yt-stream-main',
+      rebound: true,
     });
-    vi.mocked(bindYouTubeBroadcastToStream).mockResolvedValueOnce({ ok: true });
     vi.mocked(updateLivestream).mockResolvedValueOnce({
       ...livestream,
       keySlot: 'main',

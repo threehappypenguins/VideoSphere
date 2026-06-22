@@ -3,10 +3,8 @@ import {
   type LivestreamKeySlotConflict,
 } from '@/lib/livestreams/key-slot-conflict';
 import { requireYouTubeStreamKeyForSlot } from '@/lib/livestreams/key-assignment';
-import {
-  bindYouTubeBroadcastToStream,
-  findYouTubeLiveStreamIdByKey,
-} from '@/lib/platforms/youtube-livestream-api';
+import { syncTempToMainPromotionSchedule } from '@/lib/livestreams/temp-to-main-promotion-scheduler';
+import { ensureYouTubeBroadcastBoundToStreamKey } from '@/lib/platforms/youtube-livestream-api';
 import { updateLivestream } from '@/lib/repositories/livestreams';
 import type { ConnectedAccount, Livestream, LivestreamKeySlot } from '@/types';
 
@@ -68,14 +66,6 @@ export async function changeLivestreamKeySlot(
   }
 
   const currentSlot = livestream.keySlot;
-  if (currentSlot === nextSlot) {
-    return {
-      ok: true,
-      livestream,
-      conflict: findLivestreamKeySlotConflict(armedLivestreams, nextSlot, livestream.id),
-    };
-  }
-
   const streamKeyResult = requireYouTubeStreamKeyForSlot(account, nextSlot);
   if (streamKeyResult.ok === false) {
     return { ok: false, details: streamKeyResult.reason, statusCode: 400 };
@@ -83,29 +73,34 @@ export async function changeLivestreamKeySlot(
 
   const conflict = findLivestreamKeySlotConflict(armedLivestreams, nextSlot, livestream.id);
 
-  const streamLookup = await findYouTubeLiveStreamIdByKey(accessToken, streamKeyResult.key);
-  if (streamLookup.ok === false) {
-    return { ok: false, details: streamLookup.details, statusCode: 502 };
-  }
-
-  const bindResult = await bindYouTubeBroadcastToStream(
+  const ensureResult = await ensureYouTubeBroadcastBoundToStreamKey(
     accessToken,
     broadcastId,
-    streamLookup.streamId
+    streamKeyResult.key,
+    { preferredStreamId: livestream.youtubeBoundStreamId }
   );
-  if (bindResult.ok === false) {
-    return { ok: false, details: bindResult.details, statusCode: 502 };
+  if (ensureResult.ok === false) {
+    return { ok: false, details: ensureResult.details, statusCode: 502 };
+  }
+
+  if (currentSlot === nextSlot && !ensureResult.rebound) {
+    return {
+      ok: true,
+      livestream,
+      conflict,
+    };
   }
 
   const updated = await updateLivestream(livestream.id, {
-    keySlot: nextSlot,
-    youtubeBoundStreamId: streamLookup.streamId,
-    keySwapPromotedAt: null,
+    ...(currentSlot !== nextSlot ? { keySlot: nextSlot, keySwapPromotedAt: null } : {}),
+    youtubeBoundStreamId: ensureResult.streamId,
   });
 
   if (!updated) {
     return { ok: false, details: 'Livestream not found.', statusCode: 404 };
   }
+
+  syncTempToMainPromotionSchedule(updated);
 
   return { ok: true, livestream: updated, conflict };
 }

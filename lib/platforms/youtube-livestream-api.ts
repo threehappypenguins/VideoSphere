@@ -334,27 +334,75 @@ export interface ScheduleYouTubeLiveBroadcastInput {
 }
 
 /**
+ * Options for resolving a YouTube live stream id from a stream key.
+ * @property preferredStreamId - Existing bound stream id to prefer when multiple resources match.
+ */
+export interface YouTubeLiveStreamLookupOptions {
+  preferredStreamId?: string;
+  signal?: AbortSignal;
+}
+
+const YOUTUBE_STREAM_STATUS_PRIORITY: Record<string, number> = {
+  active: 0,
+  ready: 1,
+  created: 2,
+  inactive: 3,
+  error: 4,
+};
+
+function streamStatusPriority(streamStatus: string | undefined): number {
+  if (!streamStatus) {
+    return 5;
+  }
+  return YOUTUBE_STREAM_STATUS_PRIORITY[streamStatus.trim().toLowerCase()] ?? 5;
+}
+
+/**
  * Finds a YouTube live stream id whose ingestion stream name matches `streamKey`.
  * @param items - `liveStreams.list` response items.
  * @param streamKey - Plaintext stream key to match against `cdn.ingestionInfo.streamName`.
+ * @param options - Optional preferred stream id when multiple resources share the key.
  * @returns Matching stream id, or null when no item matches.
  */
 export function matchYouTubeLiveStreamIdByKey(
-  items: Array<{ id?: string; cdn?: { ingestionInfo?: { streamName?: string } } }>,
-  streamKey: string
+  items: Array<{
+    id?: string;
+    cdn?: { ingestionInfo?: { streamName?: string } };
+    status?: { streamStatus?: string };
+  }>,
+  streamKey: string,
+  options?: Pick<YouTubeLiveStreamLookupOptions, 'preferredStreamId'>
 ): string | null {
   const normalizedKey = streamKey.trim();
   if (!normalizedKey) return null;
 
+  const matches: Array<{ id: string; streamStatus?: string }> = [];
   for (const item of items) {
     const streamName = item.cdn?.ingestionInfo?.streamName?.trim();
-    if (streamName === normalizedKey) {
-      const id = item.id?.trim();
-      if (id) return id;
+    const id = item.id?.trim();
+    if (streamName === normalizedKey && id) {
+      matches.push({ id, streamStatus: item.status?.streamStatus });
     }
   }
 
-  return null;
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const preferredStreamId = options?.preferredStreamId?.trim();
+  if (preferredStreamId && matches.some((match) => match.id === preferredStreamId)) {
+    return preferredStreamId;
+  }
+
+  if (matches.length === 1) {
+    return matches[0]!.id;
+  }
+
+  const ranked = [...matches].sort(
+    (left, right) =>
+      streamStatusPriority(left.streamStatus) - streamStatusPriority(right.streamStatus)
+  );
+  return ranked[0]?.id ?? null;
 }
 
 /**
@@ -533,7 +581,7 @@ export async function deleteYouTubeLiveBroadcast(
 export async function findYouTubeLiveStreamIdByKey(
   accessToken: string,
   streamKey: string,
-  signal?: AbortSignal
+  options?: YouTubeLiveStreamLookupOptions
 ): Promise<{ ok: true; streamId: string } | { ok: false; details: string }> {
   const normalizedKey = streamKey.trim();
   if (!normalizedKey) {
@@ -541,10 +589,56 @@ export async function findYouTubeLiveStreamIdByKey(
   }
 
   const url = new URL(YOUTUBE_LIVE_STREAMS_URL);
-  url.searchParams.set('part', 'id,cdn');
+  url.searchParams.set('part', 'id,cdn,status');
   url.searchParams.set('mine', 'true');
-  url.searchParams.set('fields', 'items(id,cdn/ingestionInfo/streamName)');
+  url.searchParams.set('fields', 'items(id,cdn/ingestionInfo/streamName,status/streamStatus)');
   url.searchParams.set('maxResults', String(YOUTUBE_LIVE_STREAMS_LIST_MAX_RESULTS));
+
+  const res = await fetch(url.toString(), {
+    headers: youtubeAuthHeaders(accessToken),
+    ...(options?.signal ? { signal: options.signal } : {}),
+  });
+
+  if (!res.ok) {
+    return { ok: false, details: await readYouTubeApiErrorDetails(res) };
+  }
+
+  const body = (await res.json().catch(() => ({}))) as {
+    items?: Array<{
+      id?: string;
+      cdn?: { ingestionInfo?: { streamName?: string } };
+      status?: { streamStatus?: string };
+    }>;
+  };
+
+  // Accounts with more than 50 live stream resources would need pagination; out of scope for now.
+  const streamId = matchYouTubeLiveStreamIdByKey(body.items ?? [], normalizedKey, options);
+  if (!streamId) {
+    return {
+      ok: false,
+      details: 'No YouTube live stream matched the provided stream key.',
+    };
+  }
+
+  return { ok: true, streamId };
+}
+
+/**
+ * Reads the live stream id currently bound to a YouTube broadcast.
+ * @param accessToken - OAuth access token with YouTube live streaming scopes.
+ * @param broadcastId - Live broadcast resource id.
+ * @param signal - Optional abort signal.
+ * @returns Bound stream id, `null` when unset, or upstream error details.
+ */
+export async function getYouTubeBroadcastBoundStreamId(
+  accessToken: string,
+  broadcastId: string,
+  signal?: AbortSignal
+): Promise<{ ok: true; streamId: string | null } | { ok: false; details: string }> {
+  const url = new URL(YOUTUBE_LIVE_BROADCASTS_URL);
+  url.searchParams.set('part', 'contentDetails');
+  url.searchParams.set('id', broadcastId);
+  url.searchParams.set('fields', 'items(contentDetails/boundStreamId)');
 
   const res = await fetch(url.toString(), {
     headers: youtubeAuthHeaders(accessToken),
@@ -556,19 +650,64 @@ export async function findYouTubeLiveStreamIdByKey(
   }
 
   const body = (await res.json().catch(() => ({}))) as {
-    items?: Array<{ id?: string; cdn?: { ingestionInfo?: { streamName?: string } } }>;
+    items?: Array<{ contentDetails?: { boundStreamId?: string } }>;
   };
+  const streamId = body.items?.[0]?.contentDetails?.boundStreamId?.trim() ?? null;
 
-  // Accounts with more than 50 live stream resources would need pagination; out of scope for now.
-  const streamId = matchYouTubeLiveStreamIdByKey(body.items ?? [], normalizedKey);
-  if (!streamId) {
+  return { ok: true, streamId };
+}
+
+/**
+ * Ensures a broadcast is bound to the live stream resource for `streamKey`.
+ * Re-binds when YouTube's current binding does not match the resolved stream id.
+ * @param accessToken - OAuth access token with YouTube live streaming scopes.
+ * @param broadcastId - Live broadcast resource id.
+ * @param streamKey - Plaintext ingestion stream name to match.
+ * @param options - Optional preferred stream id and abort signal.
+ * @returns Resolved stream id and whether a new bind was performed.
+ */
+export async function ensureYouTubeBroadcastBoundToStreamKey(
+  accessToken: string,
+  broadcastId: string,
+  streamKey: string,
+  options?: YouTubeLiveStreamLookupOptions
+): Promise<{ ok: true; streamId: string; rebound: boolean } | { ok: false; details: string }> {
+  const streamLookup = await findYouTubeLiveStreamIdByKey(accessToken, streamKey, options);
+  if (streamLookup.ok === false) {
+    return streamLookup;
+  }
+
+  const bound = await getYouTubeBroadcastBoundStreamId(accessToken, broadcastId, options?.signal);
+  if (bound.ok === false) {
+    return bound;
+  }
+
+  if (bound.streamId === streamLookup.streamId) {
+    return { ok: true, streamId: streamLookup.streamId, rebound: false };
+  }
+
+  const bindResult = await bindYouTubeBroadcastToStream(
+    accessToken,
+    broadcastId,
+    streamLookup.streamId,
+    options?.signal
+  );
+  if (bindResult.ok === false) {
+    return bindResult;
+  }
+
+  const verify = await getYouTubeBroadcastBoundStreamId(accessToken, broadcastId, options?.signal);
+  if (verify.ok === false) {
+    return verify;
+  }
+  if (verify.streamId !== streamLookup.streamId) {
     return {
       ok: false,
-      details: 'No YouTube live stream matched the provided stream key.',
+      details: `YouTube did not bind broadcast ${broadcastId} to stream ${streamLookup.streamId}.`,
     };
   }
 
-  return { ok: true, streamId };
+  return { ok: true, streamId: streamLookup.streamId, rebound: true };
 }
 
 /**

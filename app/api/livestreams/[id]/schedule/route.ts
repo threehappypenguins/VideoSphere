@@ -31,6 +31,7 @@ import {
   updateLivestream,
   type UpdateLivestreamPatch,
 } from '@/lib/repositories/livestreams';
+import { syncTempToMainPromotionSchedule } from '@/lib/livestreams/temp-to-main-promotion-scheduler';
 import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
 import type {
   ApiError,
@@ -287,6 +288,8 @@ export async function POST(
     }
 
     await persistUserYouTubePlatformDefaults(userId, livestream.platforms.youtube);
+
+    syncTempToMainPromotionSchedule(updated);
 
     const response: ApiResponse<Livestream> = {
       data: updated,

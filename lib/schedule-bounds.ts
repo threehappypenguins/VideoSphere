@@ -62,13 +62,23 @@ export function getScheduleMaxLeadLabel(platform: SchedulePlatform): string {
     : `${FACEBOOK_MAX_SCHEDULE_LEAD_DAYS} days`;
 }
 
+function parseUtcIsoScheduleTimestamp(iso: string): number | null {
+  const trimmed = iso.trim();
+  if (!/(Z|[+-]\d{2}:\d{2})$/.test(trimmed)) {
+    return null;
+  }
+
+  const parsedMs = Date.parse(trimmed);
+  return Number.isNaN(parsedMs) ? null : parsedMs;
+}
+
 function validateSchedulePublishAtIsoForPlatform(
   iso: string,
   platform: SchedulePlatform,
   now: Date = new Date()
 ): string | undefined {
-  const parsedMs = Date.parse(iso);
-  if (Number.isNaN(parsedMs)) {
+  const parsedMs = parseUtcIsoScheduleTimestamp(iso);
+  if (parsedMs === null) {
     return 'Scheduled time must be a valid date and time.';
   }
 

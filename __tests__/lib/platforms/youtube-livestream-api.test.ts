@@ -4,6 +4,7 @@ import {
   bindYouTubeBroadcastToStream,
   buildWritableYouTubeVideoSnippet,
   deleteYouTubeLiveBroadcast,
+  ensureYouTubeBroadcastBoundToStreamKey,
   findYouTubeLiveStreamIdByKey,
   getYouTubeBroadcastLifecycleStatus,
   getYouTubeLiveBroadcastMetadata,
@@ -67,6 +68,26 @@ describe('matchYouTubeLiveStreamIdByKey', () => {
       )
     ).toBeNull();
   });
+
+  it('prefers the active stream when multiple resources share a key', () => {
+    expect(
+      matchYouTubeLiveStreamIdByKey(
+        [
+          {
+            id: 'stream-inactive',
+            cdn: { ingestionInfo: { streamName: 'main-key-123' } },
+            status: { streamStatus: 'inactive' },
+          },
+          {
+            id: 'stream-active',
+            cdn: { ingestionInfo: { streamName: 'main-key-123' } },
+            status: { streamStatus: 'active' },
+          },
+        ],
+        'main-key-123'
+      )
+    ).toBe('stream-active');
+  });
 });
 
 describe('findYouTubeLiveStreamIdByKey', () => {
@@ -98,9 +119,11 @@ describe('findYouTubeLiveStreamIdByKey', () => {
       })
     );
     const calledUrl = String(vi.mocked(global.fetch).mock.calls[0]?.[0]);
-    expect(calledUrl).toContain('part=id%2Ccdn');
+    expect(calledUrl).toContain('part=id%2Ccdn%2Cstatus');
     expect(calledUrl).toContain('mine=true');
-    expect(calledUrl).toContain('fields=items%28id%2Ccdn%2FingestionInfo%2FstreamName%29');
+    expect(calledUrl).toContain(
+      'fields=items%28id%2Ccdn%2FingestionInfo%2FstreamName%2Cstatus%2FstreamStatus%29'
+    );
     expect(calledUrl).toContain('maxResults=50');
   });
 
@@ -117,6 +140,68 @@ describe('findYouTubeLiveStreamIdByKey', () => {
       ok: false,
       details: 'No YouTube live stream matched the provided stream key.',
     });
+  });
+});
+
+describe('ensureYouTubeBroadcastBoundToStreamKey', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('skips bind when YouTube already has the expected stream bound', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [{ id: 'stream-b', cdn: { ingestionInfo: { streamName: 'lookup-key' } } }],
+        })
+      )
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [{ contentDetails: { boundStreamId: 'stream-b' } }],
+        })
+      );
+
+    const result = await ensureYouTubeBroadcastBoundToStreamKey(
+      ACCESS_TOKEN,
+      'broadcast-123',
+      'lookup-key'
+    );
+
+    expect(result).toEqual({ ok: true, streamId: 'stream-b', rebound: false });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('binds and verifies when YouTube is bound to a different stream', async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [{ id: 'stream-b', cdn: { ingestionInfo: { streamName: 'lookup-key' } } }],
+        })
+      )
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [{ contentDetails: { boundStreamId: 'stream-old' } }],
+        })
+      )
+      .mockResolvedValueOnce(mockFetchJson({ id: 'broadcast-123' }))
+      .mockResolvedValueOnce(
+        mockFetchJson({
+          items: [{ contentDetails: { boundStreamId: 'stream-b' } }],
+        })
+      );
+
+    const result = await ensureYouTubeBroadcastBoundToStreamKey(
+      ACCESS_TOKEN,
+      'broadcast-123',
+      'lookup-key'
+    );
+
+    expect(result).toEqual({ ok: true, streamId: 'stream-b', rebound: true });
+    expect(global.fetch).toHaveBeenCalledTimes(4);
   });
 });
 

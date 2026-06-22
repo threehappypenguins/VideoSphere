@@ -4,22 +4,10 @@ import {
   reconcileLivestreamKeysAndStatus,
   resolveLivestreamReconcileIntervalMs,
 } from '@/lib/livestreams/reconcile-stream-keys';
-import { releaseStaleMainSlot } from '@/lib/livestreams/stale-main-slot';
-import { TEMP_TO_MAIN_PROMOTION_WINDOW_MS } from '@/lib/livestreams/key-assignment';
 import type { ConnectedAccount, Livestream } from '@/types';
-
-vi.mock('@/lib/livestreams/stale-main-slot', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/livestreams/stale-main-slot')>();
-  return {
-    ...actual,
-    releaseStaleMainSlot: vi.fn(),
-  };
-});
 
 vi.mock('@/lib/repositories/livestreams', () => ({
   listAllArmedYouTubeLivestreams: vi.fn(),
-  getArmedMainSlotLivestreamForUser: vi.fn(),
-  listArmedTempSlotLivestreamsForUser: vi.fn(),
   updateLivestream: vi.fn(),
 }));
 
@@ -33,27 +21,19 @@ vi.mock('@/lib/platforms/token-refresh', () => ({
 
 vi.mock('@/lib/platforms/youtube-livestream-api', () => ({
   getYouTubeBroadcastLifecycleStatus: vi.fn(),
-  findYouTubeLiveStreamIdByKey: vi.fn(),
-  bindYouTubeBroadcastToStream: vi.fn(),
+  ensureYouTubeBroadcastBoundToStreamKey: vi.fn(),
 }));
 
-import {
-  listAllArmedYouTubeLivestreams,
-  getArmedMainSlotLivestreamForUser,
-  listArmedTempSlotLivestreamsForUser,
-  updateLivestream,
-} from '@/lib/repositories/livestreams';
+import { listAllArmedYouTubeLivestreams, updateLivestream } from '@/lib/repositories/livestreams';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import {
   getYouTubeBroadcastLifecycleStatus,
-  findYouTubeLiveStreamIdByKey,
-  bindYouTubeBroadcastToStream,
+  ensureYouTubeBroadcastBoundToStreamKey,
 } from '@/lib/platforms/youtube-livestream-api';
 
 const USER_ID = 'user-1';
 const NOW = new Date('2026-07-01T17:45:00.000Z');
-const mergedLivestreamRows = new Map<string, Livestream>();
 
 function makeLivestream(overrides: Partial<Livestream> & { id: string }): Livestream {
   return {
@@ -125,7 +105,6 @@ describe('resolveLivestreamReconcileIntervalMs', () => {
 
 describe('reconcileLivestreamKeysAndStatus', () => {
   beforeEach(() => {
-    mergedLivestreamRows.clear();
     vi.resetAllMocks();
     vi.mocked(getConnectedAccountWithTokens).mockResolvedValue(makeAccount());
     vi.mocked(refreshTokenIfNeeded).mockResolvedValue({
@@ -133,107 +112,18 @@ describe('reconcileLivestreamKeysAndStatus', () => {
       refreshToken: 'refresh',
       tokenExpiry: '2099-01-01T00:00:00.000Z',
     });
-    vi.mocked(findYouTubeLiveStreamIdByKey).mockResolvedValue({
+    vi.mocked(ensureYouTubeBroadcastBoundToStreamKey).mockResolvedValue({
       ok: true,
-      streamId: 'main-stream-id',
+      streamId: 'bound-stream-temp',
+      rebound: false,
     });
-    vi.mocked(bindYouTubeBroadcastToStream).mockResolvedValue({ ok: true });
-    vi.mocked(updateLivestream).mockImplementation(async (id, patch) => {
-      let current = mergedLivestreamRows.get(id);
-      if (!current) {
-        const armedByUser = vi.mocked(listAllArmedYouTubeLivestreams).mock.results.at(-1)?.value;
-        if (armedByUser instanceof Map) {
-          for (const rows of armedByUser.values()) {
-            current = rows.find((row) => row.id === id);
-            if (current) break;
-          }
-        }
-      }
-      const next = makeLivestream({ ...(current ?? { id }), ...patch, id });
-      mergedLivestreamRows.set(id, next);
-      return next;
-    });
+    vi.mocked(updateLivestream).mockImplementation(async (id, patch) =>
+      makeLivestream({ id, ...patch })
+    );
   });
 
   afterEach(() => {
     vi.resetAllMocks();
-  });
-
-  it('promotes only the earliest temp candidate when main slot just completed and three are queued', async () => {
-    const main = makeLivestream({
-      id: 'main-1',
-      keySlot: 'main',
-      scheduledStartTime: '2026-07-01T12:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-main',
-    });
-    const tempEarliest = makeLivestream({
-      id: 'temp-earliest',
-      keySlot: 'temp',
-      scheduledStartTime: '2026-07-01T18:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-temp-earliest',
-    });
-    const tempMiddle = makeLivestream({
-      id: 'temp-middle',
-      keySlot: 'temp',
-      scheduledStartTime: '2026-07-01T19:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-temp-middle',
-    });
-    const tempLatest = makeLivestream({
-      id: 'temp-latest',
-      keySlot: 'temp',
-      scheduledStartTime: '2026-07-01T20:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-temp-latest',
-    });
-
-    vi.mocked(listAllArmedYouTubeLivestreams).mockResolvedValue(
-      new Map([[USER_ID, [main, tempEarliest, tempMiddle, tempLatest]]])
-    );
-
-    vi.mocked(getYouTubeBroadcastLifecycleStatus).mockImplementation(
-      async (_token, broadcastId) => {
-        if (broadcastId === 'broadcast-main') {
-          return { ok: true, lifeCycleStatus: 'complete' };
-        }
-        return { ok: true, lifeCycleStatus: 'ready' };
-      }
-    );
-
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([
-      tempEarliest,
-      tempMiddle,
-      tempLatest,
-    ]);
-
-    const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
-
-    expect(result.lifecycleUpdates).toBe(1);
-    expect(result.promotions).toBe(1);
-
-    expect(getArmedMainSlotLivestreamForUser).not.toHaveBeenCalled();
-
-    expect(bindYouTubeBroadcastToStream).toHaveBeenCalledTimes(1);
-    expect(bindYouTubeBroadcastToStream).toHaveBeenCalledWith(
-      'yt-access-token',
-      'broadcast-temp-earliest',
-      'main-stream-id'
-    );
-
-    expect(updateLivestream).toHaveBeenCalledWith('main-1', {
-      youtubeLifecycleStatus: 'complete',
-      status: 'ended',
-    });
-
-    expect(updateLivestream).toHaveBeenCalledWith('temp-earliest', {
-      keySlot: 'main',
-      keySwapPromotedAt: NOW.toISOString(),
-      youtubeBoundStreamId: 'main-stream-id',
-    });
-
-    const promotedIds = vi
-      .mocked(updateLivestream)
-      .mock.calls.filter(([, patch]) => patch.keySlot === 'main')
-      .map(([id]) => id);
-    expect(promotedIds).toEqual(['temp-earliest']);
   });
 
   it('updates local status to live when YouTube reports testing or live', async () => {
@@ -249,8 +139,6 @@ describe('reconcileLivestreamKeysAndStatus', () => {
       ok: true,
       lifeCycleStatus: 'live',
     });
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(scheduled);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([]);
 
     const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
 
@@ -262,44 +150,10 @@ describe('reconcileLivestreamKeysAndStatus', () => {
     });
   });
 
-  it('does not promote when main slot is still occupied', async () => {
-    const main = makeLivestream({
-      id: 'main-active',
-      keySlot: 'main',
-      status: 'live',
-      youtubeLifecycleStatus: 'live',
-      scheduledStartTime: '2026-07-01T12:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-main-active',
-    });
+  it('does not promote temp livestreams (promotion uses scheduled timers)', async () => {
     const temp = makeLivestream({
       id: 'temp-waiting',
-      keySlot: 'temp',
       scheduledStartTime: '2026-07-01T18:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-temp-waiting',
-    });
-
-    vi.mocked(listAllArmedYouTubeLivestreams).mockResolvedValue(new Map([[USER_ID, [main, temp]]]));
-    vi.mocked(getYouTubeBroadcastLifecycleStatus).mockResolvedValue({
-      ok: true,
-      lifeCycleStatus: 'live',
-    });
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(main);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([temp]);
-
-    const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
-
-    expect(result.promotions).toBe(0);
-    expect(bindYouTubeBroadcastToStream).not.toHaveBeenCalled();
-  });
-
-  it('does not promote when the next temp start is outside the 30-minute window', async () => {
-    const temp = makeLivestream({
-      id: 'temp-future',
-      keySlot: 'temp',
-      scheduledStartTime: new Date(
-        NOW.getTime() + TEMP_TO_MAIN_PROMOTION_WINDOW_MS + 60_000
-      ).toISOString(),
-      youtubeBroadcastId: 'broadcast-temp-future',
     });
 
     vi.mocked(listAllArmedYouTubeLivestreams).mockResolvedValue(new Map([[USER_ID, [temp]]]));
@@ -307,132 +161,15 @@ describe('reconcileLivestreamKeysAndStatus', () => {
       ok: true,
       lifeCycleStatus: 'ready',
     });
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(null);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([temp]);
 
     const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
 
     expect(result.promotions).toBe(0);
-    expect(bindYouTubeBroadcastToStream).not.toHaveBeenCalled();
-  });
-
-  it('does not promote temp livestreams with auto-promote disabled', async () => {
-    const temp = makeLivestream({
-      id: 'temp-manual',
-      keySlot: 'temp',
-      autoPromoteToMainKey: false,
-      scheduledStartTime: '2026-07-01T18:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-temp-manual',
-    });
-
-    vi.mocked(listAllArmedYouTubeLivestreams).mockResolvedValue(new Map([[USER_ID, [temp]]]));
-    vi.mocked(getYouTubeBroadcastLifecycleStatus).mockResolvedValue({
-      ok: true,
-      lifeCycleStatus: 'ready',
-    });
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(null);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([temp]);
-
-    const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
-
-    expect(result.promotions).toBe(0);
-    expect(bindYouTubeBroadcastToStream).not.toHaveBeenCalled();
-  });
-
-  it('promotes using a custom lead time when configured', async () => {
-    const temp = makeLivestream({
-      id: 'temp-custom',
-      keySlot: 'temp',
-      autoPromoteToMainKeyMinutes: 45,
-      scheduledStartTime: new Date(NOW.getTime() + 40 * 60_000).toISOString(),
-      youtubeBroadcastId: 'broadcast-temp-custom',
-    });
-
-    vi.mocked(listAllArmedYouTubeLivestreams).mockResolvedValue(new Map([[USER_ID, [temp]]]));
-    vi.mocked(getYouTubeBroadcastLifecycleStatus).mockResolvedValue({
-      ok: true,
-      lifeCycleStatus: 'ready',
-    });
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(null);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([temp]);
-
-    const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
-
-    expect(result.promotions).toBe(1);
-    expect(bindYouTubeBroadcastToStream).toHaveBeenCalledWith(
-      'yt-access-token',
-      'broadcast-temp-custom',
-      'main-stream-id'
-    );
-  });
-
-  it('does not promote with a custom lead time when still too early', async () => {
-    const temp = makeLivestream({
-      id: 'temp-custom-future',
-      keySlot: 'temp',
-      autoPromoteToMainKeyMinutes: 15,
-      scheduledStartTime: new Date(NOW.getTime() + 20 * 60_000).toISOString(),
-      youtubeBroadcastId: 'broadcast-temp-custom-future',
-    });
-
-    vi.mocked(listAllArmedYouTubeLivestreams).mockResolvedValue(new Map([[USER_ID, [temp]]]));
-    vi.mocked(getYouTubeBroadcastLifecycleStatus).mockResolvedValue({
-      ok: true,
-      lifeCycleStatus: 'ready',
-    });
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(null);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([temp]);
-
-    const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
-
-    expect(result.promotions).toBe(0);
-    expect(bindYouTubeBroadcastToStream).not.toHaveBeenCalled();
-  });
-
-  it('releases a stale main-slot livestream and promotes the temp candidate in one pass', async () => {
-    const staleMain = makeLivestream({
-      id: 'main-stale',
-      keySlot: 'main',
-      status: 'scheduled',
-      scheduledStartTime: '2026-07-01T17:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-stale-main',
-      youtubeLifecycleStatus: 'ready',
-    });
-    const temp = makeLivestream({
-      id: 'temp-next',
-      keySlot: 'temp',
-      scheduledStartTime: '2026-07-01T18:00:00.000Z',
-      youtubeBroadcastId: 'broadcast-temp-next',
-    });
-
-    vi.mocked(listAllArmedYouTubeLivestreams).mockResolvedValue(
-      new Map([[USER_ID, [staleMain, temp]]])
-    );
-    vi.mocked(getYouTubeBroadcastLifecycleStatus).mockResolvedValue({
-      ok: true,
-      lifeCycleStatus: 'ready',
-    });
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(staleMain);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([temp]);
-    vi.mocked(releaseStaleMainSlot).mockResolvedValueOnce({
-      ok: true,
-      livestream: {
-        ...staleMain,
-        status: 'ended',
-        keySlot: 'temp',
-        keySlotStaleAt: NOW.toISOString(),
-      },
-    });
-
-    const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
-
-    expect(result.staleReleases).toBe(1);
-    expect(result.promotions).toBe(1);
-    expect(releaseStaleMainSlot).toHaveBeenCalledTimes(1);
-    expect(bindYouTubeBroadcastToStream).toHaveBeenCalledWith(
-      'yt-access-token',
-      'broadcast-temp-next',
-      'main-stream-id'
+    expect(ensureYouTubeBroadcastBoundToStreamKey).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      'main-ingest-key',
+      expect.anything()
     );
   });
 
@@ -459,13 +196,11 @@ describe('reconcileLivestreamKeysAndStatus', () => {
         return { ok: true, lifeCycleStatus: 'ready' };
       }
     );
-    vi.mocked(getArmedMainSlotLivestreamForUser).mockResolvedValue(failing);
-    vi.mocked(listArmedTempSlotLivestreamsForUser).mockResolvedValue([succeeding]);
 
     const result = await reconcileLivestreamKeysAndStatus({ now: NOW });
 
     expect(result.lifecycleUpdates).toBe(0);
-    expect(getYouTubeBroadcastLifecycleStatus).toHaveBeenCalledTimes(3);
+    expect(getYouTubeBroadcastLifecycleStatus).toHaveBeenCalledTimes(2);
     expect(result.promotions).toBe(0);
   });
 });

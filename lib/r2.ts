@@ -850,7 +850,7 @@ function assertLivestreamThumbnailKeyInputs(
  * @param userId - Owner user id.
  * @param livestreamId - Livestream row id.
  * @param uniqueId - Unique filename segment (e.g. UUID).
- * @param extension - File extension without leading dot (e.g. `jpg`, `png`).
+ * @param extension - File extension with or without a leading dot (e.g. `jpg`, `.png`).
  * @returns R2 object key for the pending upload.
  */
 export function buildLivestreamThumbnailPendingKey(
@@ -869,7 +869,7 @@ export function buildLivestreamThumbnailPendingKey(
  * @param userId - Owner user id.
  * @param livestreamId - Livestream row id.
  * @param uniqueId - Unique filename segment (e.g. UUID).
- * @param extension - File extension without leading dot (e.g. `jpg`, `png`).
+ * @param extension - File extension with or without a leading dot (e.g. `jpg`, `.png`).
  * @returns R2 object key for the bound thumbnail.
  */
 export function buildLivestreamThumbnailFinalKey(
