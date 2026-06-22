@@ -37,7 +37,10 @@ import {
   listArmedYouTubeLivestreamsForUser,
 } from '@/lib/repositories/livestreams';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
-import { requireYouTubeConnection } from '@/lib/platforms/youtube-api';
+import {
+  requireYouTubeConnection,
+  youtubeUpstreamErrorResponse,
+} from '@/lib/platforms/youtube-api';
 import type { ConnectedAccount, Livestream } from '@/types';
 
 const USER_ID = 'user-123';
@@ -135,6 +138,42 @@ describe('PATCH /api/livestreams/[id]/key-slot', () => {
     expect(body.data.keySlot).toBe('temp');
     expect(body.meta?.keySlotConflictWarning).toBe(
       '"Youth Night" is already scheduled with the temporary stream key. YouTube may detect multiple streams using the same stream key.'
+    );
+  });
+
+  it('returns 409 for client-side key-slot conflicts instead of 502', async () => {
+    vi.mocked(getLivestreamById).mockResolvedValueOnce(scheduledLivestream());
+    vi.mocked(changeLivestreamKeySlot).mockResolvedValueOnce({
+      ok: false,
+      details: 'Only scheduled livestreams can change stream keys.',
+      statusCode: 409,
+    });
+
+    const res = await PATCH(makeRequest({ keySlot: 'temp' }), {
+      params: Promise.resolve({ id: LIVESTREAM_ID }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(youtubeUpstreamErrorResponse).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body.error).toBe('Conflict');
+  });
+
+  it('returns 502 for YouTube upstream failures', async () => {
+    vi.mocked(getLivestreamById).mockResolvedValueOnce(scheduledLivestream());
+    vi.mocked(changeLivestreamKeySlot).mockResolvedValueOnce({
+      ok: false,
+      details: 'YouTube API error (503): unavailable',
+      statusCode: 502,
+    });
+
+    const res = await PATCH(makeRequest({ keySlot: 'temp' }), {
+      params: Promise.resolve({ id: LIVESTREAM_ID }),
+    });
+
+    expect(res.status).toBe(502);
+    expect(youtubeUpstreamErrorResponse).toHaveBeenCalledWith(
+      'YouTube API error (503): unavailable'
     );
   });
 });

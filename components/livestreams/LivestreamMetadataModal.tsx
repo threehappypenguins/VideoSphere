@@ -1322,11 +1322,9 @@ export function LivestreamMetadataModal({
         <DialogHeader className="px-6 pt-6">
           <DialogTitle>{mode === 'edit' ? 'Edit livestream' : 'Livestream details'}</DialogTitle>
           <DialogDescription>
-            {isMetadataEditable
-              ? isLive
-                ? 'Update metadata while you are live. Schedule, stream key, and platform targets are locked.'
-                : 'Configure metadata and your intended start time before scheduling on YouTube.'
-              : 'This livestream has ended; fields are read-only.'}
+            {isScheduleEditable
+              ? 'Configure metadata and your intended start time before scheduling on YouTube.'
+              : 'Update metadata and thumbnail. Schedule, stream key, and platform targets are locked.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -1751,9 +1749,9 @@ export function LivestreamMetadataModal({
                       from now.
                     </p>
                   )
-                ) : isLive ? (
+                ) : !isScheduleEditable ? (
                   <p className="text-xs text-muted-foreground">
-                    Scheduled start cannot be changed during a live broadcast.
+                    Scheduled start cannot be changed after the broadcast has started.
                   </p>
                 ) : null}
               </div>

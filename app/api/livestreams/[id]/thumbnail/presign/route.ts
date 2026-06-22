@@ -7,6 +7,7 @@ import {
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { getLivestreamById } from '@/lib/repositories/livestreams';
+import { canChangeLivestreamThumbnail } from '@/lib/livestreams/livestream-edit-policy';
 import { buildLivestreamThumbnailPendingKey, getPresignedUploadUrl } from '@/lib/r2';
 
 interface PresignBody {
@@ -75,6 +76,17 @@ export async function POST(
     return NextResponse.json(
       { error: 'Not Found', message: 'Livestream not found', statusCode: 404 },
       { status: 404 }
+    );
+  }
+
+  if (!canChangeLivestreamThumbnail(livestream.status)) {
+    return NextResponse.json(
+      {
+        error: 'Conflict',
+        message: 'Cannot change the thumbnail for this livestream.',
+        statusCode: 409,
+      },
+      { status: 409 }
     );
   }
 

@@ -67,4 +67,25 @@ describe('resolveYouTubeOptionalFieldValue', () => {
       resolveYouTubeOptionalFieldValue({ defaultAudioLanguage: null }, 'defaultAudioLanguage', 'en')
     ).toBeUndefined();
   });
+
+  it('trims stored values and treats whitespace-only strings as unset', () => {
+    expect(
+      resolveYouTubeOptionalFieldValue(
+        { defaultAudioLanguage: '  en  ' },
+        'defaultAudioLanguage',
+        'de'
+      )
+    ).toBe('en');
+    expect(
+      resolveYouTubeOptionalFieldValue(
+        { defaultAudioLanguage: '   ' },
+        'defaultAudioLanguage',
+        'en'
+      )
+    ).toBeUndefined();
+  });
+
+  it('trims account default fallbacks', () => {
+    expect(resolveYouTubeOptionalFieldValue(undefined, 'categoryId', '  22  ')).toBe('22');
+  });
 });

@@ -106,12 +106,29 @@ describe('PATCH /api/livestreams/[id]', () => {
     expect(updateLivestream).not.toHaveBeenCalled();
   });
 
-  it('rejects edits after the livestream has ended', async () => {
-    vi.mocked(getLivestreamById).mockResolvedValue(makeLivestream({ status: 'ended' }));
+  it('allows metadata edits after the livestream has ended', async () => {
+    vi.mocked(getLivestreamById).mockResolvedValue(
+      makeLivestream({ status: 'ended', youtubeBroadcastId: 'broadcast-1' })
+    );
+    vi.mocked(updateLivestream).mockResolvedValue(
+      makeLivestream({ status: 'ended', title: 'Updated title' })
+    );
 
-    const response = await PATCH(makePatchRequest({ title: 'Too late' }), {
+    const response = await PATCH(makePatchRequest({ title: 'Updated title' }), {
       params: Promise.resolve({ id: LIVESTREAM_ID }),
     });
+
+    expect(response.status).toBe(200);
+    expect(updateLivestream).toHaveBeenCalled();
+  });
+
+  it('rejects schedule changes after the livestream has ended', async () => {
+    vi.mocked(getLivestreamById).mockResolvedValue(makeLivestream({ status: 'ended' }));
+
+    const response = await PATCH(
+      makePatchRequest({ scheduledStartTime: '2026-06-21T03:00:00.000Z' }),
+      { params: Promise.resolve({ id: LIVESTREAM_ID }) }
+    );
 
     expect(response.status).toBe(409);
     expect(updateLivestream).not.toHaveBeenCalled();

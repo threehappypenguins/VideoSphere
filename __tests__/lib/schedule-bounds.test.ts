@@ -1,9 +1,10 @@
-import { addMonths } from 'date-fns';
+import { addMonths, endOfDay } from 'date-fns';
 import { describe, expect, it } from 'vitest';
 
 import {
   FACEBOOK_MAX_SCHEDULE_LEAD_DAYS,
   getScheduleMaxDate,
+  getScheduleMaxDateTimeMs,
   getScheduleMinDate,
   validateFacebookScheduledPublishTime,
   validateSchedulePublishAtIso,
@@ -21,6 +22,13 @@ describe('schedule bounds', () => {
   it('limits Facebook dates to today through 75 days ahead', () => {
     expect(getScheduleMinDate(now).toISOString().slice(0, 10)).toBe('2025-06-08');
     expect(getScheduleMaxDate('facebook', now).toISOString().slice(0, 10)).toBe('2025-08-22');
+  });
+
+  it('ends the max schedule day at local end-of-day (DST-safe)', () => {
+    for (const platform of ['youtube', 'facebook'] as const) {
+      const maxDay = getScheduleMaxDate(platform, now);
+      expect(getScheduleMaxDateTimeMs(platform, now)).toBe(endOfDay(maxDay).getTime());
+    }
   });
 
   it('accepts YouTube publish times within the 12-month window', () => {

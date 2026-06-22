@@ -75,6 +75,42 @@ describe('changeLivestreamKeySlot', () => {
     expect(result).toEqual({
       ok: false,
       details: 'Only scheduled livestreams can change stream keys.',
+      statusCode: 409,
+    });
+  });
+
+  it('rejects livestreams without a YouTube broadcast id', async () => {
+    const result = await changeLivestreamKeySlot(
+      'token',
+      connectedAccount(),
+      scheduledLivestream({ youtubeBroadcastId: undefined }),
+      [],
+      'temp'
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      details: 'Livestream is not linked to a YouTube broadcast.',
+      statusCode: 409,
+    });
+  });
+
+  it('rejects missing configured stream keys with 400', async () => {
+    const account = connectedAccount();
+    account.youtubeTempStreamKey = '';
+
+    const result = await changeLivestreamKeySlot(
+      'token',
+      account,
+      scheduledLivestream({ keySlot: 'main' }),
+      [],
+      'temp'
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      statusCode: 400,
+      details: expect.stringContaining('temporary stream key'),
     });
   });
 

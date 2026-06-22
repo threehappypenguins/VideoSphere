@@ -53,6 +53,19 @@ export function buildYouTubeAccountDefaultsSeedPatch(
 }
 
 /**
+ * Normalizes an optional string for YouTube field display.
+ * @param value - Raw string or nullish value.
+ * @returns Trimmed non-empty string, or `undefined` when unset/cleared.
+ */
+function normalizeYouTubeOptionalString(value: string | null | undefined): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+/**
  * Resolves an optional YouTube string field for UI display.
  * Account defaults apply only when the field is absent from stored platform JSON;
  * an explicit `null` (user chose None) shows as unset without falling back.
@@ -67,10 +80,9 @@ export function resolveYouTubeOptionalFieldValue(
   accountDefault: string | undefined
 ): string | undefined {
   if (platformFields != null && field in platformFields) {
-    const value = platformFields[field];
-    return typeof value === 'string' ? value : undefined;
+    return normalizeYouTubeOptionalString(platformFields[field]);
   }
-  return accountDefault;
+  return normalizeYouTubeOptionalString(accountDefault);
 }
 
 /**

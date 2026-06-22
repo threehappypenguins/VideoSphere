@@ -5,6 +5,8 @@ export const LIVESTREAM_METADATA_EDITABLE_STATUSES = new Set<LivestreamStatus>([
   'draft',
   'scheduled',
   'live',
+  'ended',
+  'failed',
 ]);
 
 /** Statuses where schedule time, stream key, and auto-promote settings may be edited. */
@@ -13,7 +15,7 @@ export const LIVESTREAM_SCHEDULE_EDITABLE_STATUSES = new Set<LivestreamStatus>([
   'scheduled',
 ]);
 
-const LIVESTREAM_PATCH_BLOCKED_WHEN_LIVE = [
+const LIVESTREAM_PATCH_SCHEDULE_LOCKED_FIELDS = [
   'scheduledStartTime',
   'scheduledStartTimeZone',
   'autoPromoteToMainKey',
@@ -40,6 +42,15 @@ export function canEditLivestreamSchedule(status: LivestreamStatus): boolean {
 }
 
 /**
+ * Returns whether the livestream thumbnail may be replaced via upload.
+ * @param status - Current livestream lifecycle status.
+ * @returns True when presign/complete thumbnail upload is allowed.
+ */
+export function canChangeLivestreamThumbnail(status: LivestreamStatus): boolean {
+  return canEditLivestreamMetadata(status);
+}
+
+/**
  * Returns whether a saved livestream should push metadata changes to YouTube.
  * @param livestream - Livestream row after save.
  * @returns True when a YouTube broadcast sync should run.
@@ -47,31 +58,28 @@ export function canEditLivestreamSchedule(status: LivestreamStatus): boolean {
 export function shouldSyncLivestreamMetadataToYouTube(
   livestream: Pick<Livestream, 'status' | 'youtubeBroadcastId'>
 ): boolean {
-  return (
-    (livestream.status === 'scheduled' || livestream.status === 'live') &&
-    Boolean(livestream.youtubeBroadcastId?.trim())
-  );
+  return livestream.status !== 'draft' && Boolean(livestream.youtubeBroadcastId?.trim());
 }
 
 /**
- * Rejects PATCH body fields that cannot change while a livestream is live.
+ * Rejects PATCH body fields that cannot change once scheduling is locked.
  * @param body - Parsed PATCH JSON body.
  * @param status - Current livestream lifecycle status.
  * @returns API error when a blocked field is present, otherwise null.
  */
-export function rejectLivestreamPatchFieldsWhenLive(
+export function rejectLivestreamPatchLockedScheduleFields(
   body: Record<string, unknown>,
   status: LivestreamStatus
 ): ApiError | null {
-  if (status !== 'live') {
+  if (canEditLivestreamSchedule(status)) {
     return null;
   }
 
-  for (const field of LIVESTREAM_PATCH_BLOCKED_WHEN_LIVE) {
+  for (const field of LIVESTREAM_PATCH_SCHEDULE_LOCKED_FIELDS) {
     if (field in body) {
       return {
         error: 'Conflict',
-        message: `${field} cannot be changed while the livestream is live.`,
+        message: `${field} cannot be changed after the livestream has started.`,
         statusCode: 409,
       };
     }

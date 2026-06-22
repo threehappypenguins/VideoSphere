@@ -1,4 +1,4 @@
-import { addDays, addMonths, startOfDay } from 'date-fns';
+import { addDays, addMonths, endOfDay, startOfDay } from 'date-fns';
 
 /** Minimum lead time before a scheduled publish/start time. */
 export const SCHEDULE_MIN_LEAD_MINUTES = 10;
@@ -48,8 +48,7 @@ export function getScheduleMaxDateTimeMs(
   platform: SchedulePlatform,
   now: Date = new Date()
 ): number {
-  const maxDay = getScheduleMaxDate(platform, now);
-  return maxDay.getTime() + 24 * 60 * 60 * 1000 - 1;
+  return endOfDay(getScheduleMaxDate(platform, now)).getTime();
 }
 
 /**

@@ -11,6 +11,17 @@ import { updateLivestream } from '@/lib/repositories/livestreams';
 import type { ConnectedAccount, Livestream, LivestreamKeySlot } from '@/types';
 
 /**
+ * Failure result when a key-slot change cannot complete.
+ * @property details - Human-readable failure reason.
+ * @property statusCode - HTTP status for API routes (`502` indicates a YouTube upstream error).
+ */
+export type ChangeLivestreamKeySlotFailure = {
+  ok: false;
+  details: string;
+  statusCode: 400 | 404 | 409 | 502;
+};
+
+/**
  * Result of changing a scheduled livestream's YouTube key slot.
  * @property livestream - Updated livestream row.
  * @property conflict - Another armed livestream already using the target slot, if any.
@@ -21,7 +32,7 @@ export type ChangeLivestreamKeySlotResult =
       livestream: Livestream;
       conflict: LivestreamKeySlotConflict | null;
     }
-  | { ok: false; details: string };
+  | ChangeLivestreamKeySlotFailure;
 
 /**
  * Switches a scheduled livestream between the main and temporary YouTube stream keys and rebinds YouTube.
@@ -40,12 +51,20 @@ export async function changeLivestreamKeySlot(
   nextSlot: LivestreamKeySlot
 ): Promise<ChangeLivestreamKeySlotResult> {
   if (livestream.status !== 'scheduled') {
-    return { ok: false, details: 'Only scheduled livestreams can change stream keys.' };
+    return {
+      ok: false,
+      details: 'Only scheduled livestreams can change stream keys.',
+      statusCode: 409,
+    };
   }
 
   const broadcastId = livestream.youtubeBroadcastId?.trim();
   if (!broadcastId) {
-    return { ok: false, details: 'Livestream is not linked to a YouTube broadcast.' };
+    return {
+      ok: false,
+      details: 'Livestream is not linked to a YouTube broadcast.',
+      statusCode: 409,
+    };
   }
 
   const currentSlot = livestream.keySlot;
@@ -59,14 +78,14 @@ export async function changeLivestreamKeySlot(
 
   const streamKeyResult = requireYouTubeStreamKeyForSlot(account, nextSlot);
   if (streamKeyResult.ok === false) {
-    return { ok: false, details: streamKeyResult.reason };
+    return { ok: false, details: streamKeyResult.reason, statusCode: 400 };
   }
 
   const conflict = findLivestreamKeySlotConflict(armedLivestreams, nextSlot, livestream.id);
 
   const streamLookup = await findYouTubeLiveStreamIdByKey(accessToken, streamKeyResult.key);
   if (streamLookup.ok === false) {
-    return { ok: false, details: streamLookup.details };
+    return { ok: false, details: streamLookup.details, statusCode: 502 };
   }
 
   const bindResult = await bindYouTubeBroadcastToStream(
@@ -75,7 +94,7 @@ export async function changeLivestreamKeySlot(
     streamLookup.streamId
   );
   if (bindResult.ok === false) {
-    return { ok: false, details: bindResult.details };
+    return { ok: false, details: bindResult.details, statusCode: 502 };
   }
 
   const updated = await updateLivestream(livestream.id, {
@@ -85,7 +104,7 @@ export async function changeLivestreamKeySlot(
   });
 
   if (!updated) {
-    return { ok: false, details: 'Livestream not found.' };
+    return { ok: false, details: 'Livestream not found.', statusCode: 404 };
   }
 
   return { ok: true, livestream: updated, conflict };

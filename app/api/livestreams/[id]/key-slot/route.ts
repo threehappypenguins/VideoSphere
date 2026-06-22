@@ -28,6 +28,16 @@ function parseKeySlot(value: unknown): LivestreamKeySlot | null {
   return null;
 }
 
+function keySlotClientErrorResponse(details: string, statusCode: 400 | 404 | 409): NextResponse {
+  const error = statusCode === 404 ? 'Not Found' : statusCode === 409 ? 'Conflict' : 'Bad Request';
+  const errRes: ApiError = {
+    error,
+    message: details,
+    statusCode,
+  };
+  return NextResponse.json(errRes, { status: statusCode });
+}
+
 /**
  * Handles PATCH requests for this route.
  * @param req - The incoming request object.
@@ -107,7 +117,10 @@ export async function PATCH(
   );
 
   if (result.ok === false) {
-    return youtubeUpstreamErrorResponse(result.details);
+    if (result.statusCode === 502) {
+      return youtubeUpstreamErrorResponse(result.details);
+    }
+    return keySlotClientErrorResponse(result.details, result.statusCode);
   }
 
   const response: ApiResponse<Livestream> & {

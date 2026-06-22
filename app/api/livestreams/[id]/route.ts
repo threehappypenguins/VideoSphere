@@ -29,7 +29,7 @@ import {
 import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
 import {
   canEditLivestreamMetadata,
-  rejectLivestreamPatchFieldsWhenLive,
+  rejectLivestreamPatchLockedScheduleFields,
   shouldSyncLivestreamMetadataToYouTube,
 } from '@/lib/livestreams/livestream-edit-policy';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
@@ -167,7 +167,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!canEditLivestreamMetadata(existing.status)) {
     const errRes: ApiError = {
       error: 'Conflict',
-      message: 'Cannot edit a livestream after it has ended.',
+      message: 'This livestream cannot be edited.',
       statusCode: 409,
     };
     return NextResponse.json(errRes, { status: 409 });
@@ -200,9 +200,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(scheduleFieldError, { status: 400 });
   }
 
-  const liveFieldError = rejectLivestreamPatchFieldsWhenLive(bodyObj, existing.status);
-  if (liveFieldError) {
-    return NextResponse.json(liveFieldError, { status: liveFieldError.statusCode });
+  const lockedScheduleFieldError = rejectLivestreamPatchLockedScheduleFields(
+    bodyObj,
+    existing.status
+  );
+  if (lockedScheduleFieldError) {
+    return NextResponse.json(lockedScheduleFieldError, {
+      status: lockedScheduleFieldError.statusCode,
+    });
   }
 
   const {

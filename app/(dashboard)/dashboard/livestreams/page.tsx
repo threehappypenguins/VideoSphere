@@ -15,6 +15,7 @@ import type {
   Livestream,
   LivestreamStatus,
 } from '@/types';
+import { canEditLivestreamSchedule } from '@/lib/livestreams/livestream-edit-policy';
 import { partitionLivestreams } from '@/lib/livestreams/partition-livestreams';
 import {
   getSchedulableLivestreamPlatforms,
@@ -317,9 +318,8 @@ export default function LivestreamsPage() {
             tags: snapshot.tags,
             visibility: snapshot.visibility,
             platforms: snapshot.platforms,
-            ...(snapshot.status === 'live'
-              ? {}
-              : {
+            ...(canEditLivestreamSchedule(snapshot.status)
+              ? {
                   targets: snapshot.targets,
                   scheduledStartTime: snapshot.scheduledStartTime ?? null,
                   scheduledStartTimeZone: snapshot.scheduledStartTimeZone ?? null,
@@ -329,7 +329,8 @@ export default function LivestreamsPage() {
                   ...(snapshot.autoPromoteToMainKeyMinutes != null
                     ? { autoPromoteToMainKeyMinutes: snapshot.autoPromoteToMainKeyMinutes }
                     : {}),
-                }),
+                }
+              : {}),
           }),
         });
         if (!response.ok) {

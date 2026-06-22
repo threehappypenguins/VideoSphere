@@ -7,7 +7,10 @@ import {
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
-import { shouldSyncLivestreamMetadataToYouTube } from '@/lib/livestreams/livestream-edit-policy';
+import {
+  canChangeLivestreamThumbnail,
+  shouldSyncLivestreamMetadataToYouTube,
+} from '@/lib/livestreams/livestream-edit-policy';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
 import {
   requireYouTubeConnection,
@@ -82,15 +85,11 @@ export async function POST(
     );
   }
 
-  if (
-    livestream.status !== 'draft' &&
-    livestream.status !== 'scheduled' &&
-    livestream.status !== 'live'
-  ) {
+  if (!canChangeLivestreamThumbnail(livestream.status)) {
     return NextResponse.json(
       {
         error: 'Conflict',
-        message: 'Cannot change the thumbnail after the livestream has ended.',
+        message: 'Cannot change the thumbnail for this livestream.',
         statusCode: 409,
       },
       { status: 409 }
