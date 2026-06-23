@@ -1,0 +1,98 @@
+# =============================================================================
+# VideoSphere — Portainer Stack (copy/paste)
+# =============================================================================
+#
+# 1. Portainer → Stacks → Add stack
+# 2. Paste this entire file into the "Web editor"
+# 3. Under "Environment variables", add at least the REQUIRED keys below
+# 4. Deploy the stack
+#
+# REQUIRED stack environment variables:
+#   MONGO_ROOT_PASSWORD   strong password (used by Mongo + app connection string)
+#   NEXT_PUBLIC_APP_URL   URL you use in the browser, e.g. http://192.168.1.38:9624
+#   JWT_SECRET            node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+#   TOKEN_ENCRYPTION_KEY  node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+#   R2_ACCOUNT_ID         Cloudflare R2 staging storage (uploads do not work without R2)
+#   R2_ACCESS_KEY_ID
+#   R2_SECRET_ACCESS_KEY
+#   R2_BUCKET_NAME        defaults to videosphere-uploads if omitted
+#
+# Optional — Sign in with Google (email/password login works without these):
+#   GOOGLE_CLIENT_ID
+#   GOOGLE_CLIENT_SECRET
+#
+# Optional — platform distribution (each platform is independent; YouTube ≠ Google login):
+#   YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET
+#   VIMEO_CLIENT_ID / VIMEO_CLIENT_SECRET
+#   FACEBOOK_APP_ID / FACEBOOK_APP_SECRET
+#   GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET
+#   OPENROUTER_API_KEY (AI metadata)
+#
+# Add optional keys as stack environment variables only when you use that feature.
+#
+# GHCR private images: log the Portainer host into ghcr.io first (Registries).
+# =============================================================================
+
+services:
+  app:
+    image: ghcr.io/threehappypenguins/videosphere:latest
+    container_name: videosphere
+    restart: unless-stopped
+    ports:
+      - '9624:9624'
+    # For SMB backup to LAN NAS/Windows shares (TCP 445) on Linux, uncomment:
+    # network_mode: host
+    # With network_mode: host, published ports are ignored — the app listens on :9624 on the host.
+    environment:
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?set NEXT_PUBLIC_APP_URL to your browser URL}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-VideoSphere}
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongo:27017/videosphere?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      JWT_SESSION_COOKIE_NAME: ${JWT_SESSION_COOKIE_NAME:-videosphere_session}
+      JWT_SESSION_MAX_AGE_SECONDS: ${JWT_SESSION_MAX_AGE_SECONDS:-604800}
+      TOTP_TRUST_COOKIE_NAME: ${TOTP_TRUST_COOKIE_NAME:-videosphere_totp_trust}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?set TOKEN_ENCRYPTION_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:?set R2_ACCOUNT_ID}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?set R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?set R2_SECRET_ACCESS_KEY}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-videosphere-uploads}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      VIMEO_CLIENT_ID: ${VIMEO_CLIENT_ID:-}
+      VIMEO_CLIENT_SECRET: ${VIMEO_CLIENT_SECRET:-}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      GOOGLE_DRIVE_CLIENT_ID: ${GOOGLE_DRIVE_CLIENT_ID:-}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${GOOGLE_DRIVE_CLIENT_SECRET:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      OPENROUTER_FETCH_TIMEOUT_MS: ${OPENROUTER_FETCH_TIMEOUT_MS:-}
+      PLATFORM_UPLOAD_TIMEOUT_MS: ${PLATFORM_UPLOAD_TIMEOUT_MS:-}
+      UPLOAD_STALE_RECONCILE_MS: ${UPLOAD_STALE_RECONCILE_MS:-}
+      UPLOAD_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS: ${UPLOAD_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:8
+    container_name: videosphere-mongo
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:27017:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: videosphere
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo-data:

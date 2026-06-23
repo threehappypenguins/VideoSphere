@@ -18,7 +18,6 @@ FROM node:${NODE_VERSION}-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-# Copy only what's needed to build; .dockerignore excludes .env.local, etc.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* .npmrc* ./
 COPY next.config.* tsconfig.json postcss.config.* ./
 COPY public ./public
@@ -28,7 +27,7 @@ COPY hooks ./hooks
 COPY lib ./lib
 COPY types ./types
 COPY proxy.ts instrumentation.ts ./
-# Build-time env (only NEXT_PUBLIC_* and vars needed at build)
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 

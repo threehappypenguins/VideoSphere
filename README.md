@@ -160,7 +160,9 @@ After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
 
 ## Docker
 
-- **Run the app in a container:** `docker build -t videosphere .` then `docker run --name videosphere -p 9624:9624 --env-file .env.local videosphere`.
+- **Local development (build from source):** `docker compose --env-file .env.local up -d --build`
+- **Portainer / homelab (pull published image):** copy [portainer-stack.yml](portainer-stack.yml) into a Portainer Stack and set the environment variables listed in that file.
+- **Run a single container:** `docker build -t videosphere .` then `docker run --name videosphere -p 9624:9624 --env-file .env.local videosphere`.
 - **SMB backup from Docker (Linux):** add `--network host` so the container can reach NAS/Windows shares on your LAN (see [SETUP.md](SETUP.md#smb-backup-docker--lan-reachability)). Published port mappings such as `-p 9624:9624` are ignored in host networking mode—the app listens on the host’s port 9624 directly. On macOS/Windows Docker Desktop, host networking does not expose the physical LAN the same way.
 - **Password recovery (no SMTP):** see [docs/password-recovery.md](docs/password-recovery.md) for CLI password reset, log-based forgot-password, and admin reset links.
 
