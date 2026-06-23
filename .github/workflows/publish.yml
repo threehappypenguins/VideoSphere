@@ -2,6 +2,12 @@ name: Publish container image
 
 # One build per push to main: tags the image with :latest, :<package.json version>, and :<sha>.
 # Git tags (v0.1.0) are optional for GitHub Releases only — they do not trigger this workflow.
+#
+# Skip the container build for a push: include [skip publish] anywhere in the commit message.
+# Example: git commit -m "docs: note HC4 requirement [skip publish]"
+#
+# Verify both platforms locally before push:
+#   docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile .
 on:
   push:
     branches:
@@ -21,9 +27,9 @@ env:
 jobs:
   publish:
     name: Build and push image
+    if: ${{ !contains(github.event.head_commit.message, '[skip publish]') }}
     runs-on: ubuntu-latest
-    # arm/v7 builds run under QEMU and are much slower than amd64/arm64.
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -97,7 +103,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm/v7,linux/arm64
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.meta_ghcr.outputs.tags }}
             ${{ steps.meta_dockerhub.outputs.tags }}

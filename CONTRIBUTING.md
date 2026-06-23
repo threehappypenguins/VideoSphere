@@ -95,6 +95,16 @@ type: description
 - No period at the end
 - Keep the description concise but meaningful
 
+### Skipping container image publish
+
+Every push to `main` runs [publish.yml](.github/workflows/publish.yml) and rebuilds the multi-arch Docker image on GHCR (and Docker Hub when configured). To push changes **without** triggering that build, include `[skip publish]` anywhere in the commit message:
+
+```bash
+git commit -m "docs: update portainer notes [skip publish]"
+```
+
+Omit `[skip publish]` when `Dockerfile`, app code, or anything that should ship a new image has changed.
+
 ## Pull Request Process
 
 1. **Fill out the PR template** — it's provided automatically when you open a PR

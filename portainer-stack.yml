@@ -32,8 +32,8 @@
 #
 # GHCR private images: log the Portainer host into ghcr.io first (Registries).
 #
-# Multi-arch image: linux/amd64, linux/arm64 (Odroid HC4), linux/arm/v7 (HC2).
-# Docker pulls the variant that matches your host automatically.
+# Multi-arch image: linux/amd64, linux/arm64 (Odroid HC4 and similar).
+# Docker pulls the variant that matches your host. 32-bit ARM (e.g. HC2) is not supported.
 # =============================================================================
 
 services:
