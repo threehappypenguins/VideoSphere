@@ -5,9 +5,9 @@
 # Build: docker build -t videosphere .
 # Run:   docker run --name videosphere -p 9624:9624 --env-file .env.local videosphere
 #
-# Multi-arch homelab targets (Odroid HC4 = arm64, HC2 = arm/v7, etc.):
-#   linux/amd64, linux/arm64  → Node 24 (official alpine images)
-#   linux/arm/v6, linux/arm/v7 → Node 22 LTS (Node 24 dropped 32-bit ARM)
+# Multi-arch homelab targets (Odroid HC4 = arm64, HC2 = arm/v7):
+#   linux/amd64, linux/arm64 → Node 24 (official alpine images)
+#   linux/arm/v7             → Node 22 LTS + Webpack (Node 24 / Turbopack lack 32-bit ARM)
 # =============================================================================
 
 ARG NODE_VERSION=24.16.0
@@ -25,7 +25,7 @@ FROM base AS deps
 RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* .npmrc* ./
-# arm/v6 and arm/v7 images use Node 22; relax engines only for those builds.
+# arm/v7 images use Node 22; relax engines only for those builds.
 RUN echo "engine-strict=false" >> .npmrc \
     && pnpm install --frozen-lockfile
 
@@ -45,7 +45,13 @@ COPY types ./types
 COPY proxy.ts instrumentation.ts ./
 
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm build
+# Turbopack (default in Next 16) has no native bindings on linux/arm; Webpack works.
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm" ]; then \
+      pnpm exec next build --webpack; \
+    else \
+      pnpm build; \
+    fi
 
 # Stage 3: production runtime
 FROM base AS runner
