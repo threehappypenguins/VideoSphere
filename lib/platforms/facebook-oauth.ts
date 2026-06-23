@@ -28,7 +28,7 @@ function facebookGraphApiVersionPath(): string {
  */
 export const FACEBOOK_RUPLOAD_PATH_PREFIX = `/video-upload${facebookGraphApiVersionPath()}`;
 
-/** Scopes required for Page video publishing via the Video API. */
+/** Scopes required for Page publishing and Live Video API read/write. */
 export const FACEBOOK_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',

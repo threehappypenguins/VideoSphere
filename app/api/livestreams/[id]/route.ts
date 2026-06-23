@@ -37,12 +37,17 @@ import {
   cancelTempToMainPromotionSchedule,
   syncTempToMainPromotionSchedule,
 } from '@/lib/livestreams/temp-to-main-promotion-scheduler';
+import { cancelFacebookDeferredArmSchedule } from '@/lib/livestreams/facebook-deferred-arm-scheduler';
 import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
 } from '@/lib/platforms/youtube-api';
+import { deleteFacebookLiveVideo } from '@/lib/platforms/facebook-livestream-api';
+import { resolveFacebookPageId } from '@/lib/platforms/facebook-oauth';
+import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import { deleteYouTubeLiveBroadcast } from '@/lib/platforms/youtube-livestream-api';
 import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user-defaults-persist';
+import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import {
   deleteLivestream,
   getLivestreamById,
@@ -543,6 +548,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     // TODO(prompt 10): Promote the next pending livestream into this key slot after delete.
   }
 
+  if (existing.targets.includes('facebook')) {
+    cancelFacebookDeferredArmSchedule(id);
+  }
+
   const broadcastId = existing.youtubeBroadcastId?.trim();
   if (broadcastId) {
     const youtubeConnection = await requireYouTubeConnection(req);
@@ -559,6 +568,34 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     } else {
       console.warn(
         `[DELETE /api/livestreams/:id] Skipping YouTube broadcast delete for ${broadcastId}: YouTube not connected or token unavailable`
+      );
+    }
+  }
+
+  const facebookLiveVideoId = existing.facebookLiveVideoId?.trim();
+  if (facebookLiveVideoId) {
+    const facebookAccount = await getConnectedAccountWithTokens(userId, 'facebook');
+    if (facebookAccount && resolveFacebookPageId(facebookAccount)) {
+      try {
+        const tokens = await refreshTokenIfNeeded(facebookAccount);
+        const pageAccessToken = tokens.accessToken.trim();
+        if (pageAccessToken.length > 0) {
+          const deleteResult = await deleteFacebookLiveVideo(pageAccessToken, facebookLiveVideoId);
+          if (deleteResult.ok === false) {
+            console.warn(
+              `[DELETE /api/livestreams/:id] Facebook LiveVideo delete failed for ${facebookLiveVideoId}: ${deleteResult.details}`
+            );
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `[DELETE /api/livestreams/:id] Skipping Facebook LiveVideo delete for ${facebookLiveVideoId}: token refresh failed`,
+          err
+        );
+      }
+    } else {
+      console.warn(
+        `[DELETE /api/livestreams/:id] Skipping Facebook LiveVideo delete for ${facebookLiveVideoId}: Facebook Page not connected or token unavailable`
       );
     }
   }

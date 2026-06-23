@@ -85,6 +85,14 @@ function scheduleLivestreamKeyReconciliation(): void {
         void mod.reconcileLivestreamKeysAndStatus().catch((error) => {
           console.error('[reconcile] Failed to reconcile livestream keys and status:', error);
         });
+        void import('@/lib/livestreams/reconcile-facebook-livestreams')
+          .then((fbMod) => fbMod.reconcileFacebookLivestreamStatus())
+          .catch((error) => {
+            console.error(
+              '[reconcile-facebook] Failed to reconcile Facebook livestream status:',
+              error
+            );
+          });
       };
       run();
       bootstrap.livestreamKeyReconcileIntervalId = setInterval(run, intervalMs);
@@ -98,6 +106,12 @@ function scheduleLivestreamKeyReconciliation(): void {
     .then((mod) => mod.ensureTempToMainPromotionSchedulesBootstrapped())
     .catch((error) => {
       console.error('[promote] Failed to start temp→main promotion scheduler:', error);
+    });
+
+  void import('@/lib/livestreams/facebook-deferred-arm-scheduler')
+    .then((mod) => mod.ensureFacebookDeferredArmSchedulesBootstrapped())
+    .catch((error) => {
+      console.error('[facebook-arm] Failed to start deferred arm scheduler:', error);
     });
 }
 

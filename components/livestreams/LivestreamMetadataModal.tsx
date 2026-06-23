@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
 import { SearchableSelect } from '@/components/drafts/SearchableSelect';
 import { LivestreamPlatformToggles } from '@/components/livestreams/LivestreamPlatformToggles';
+import { FacebookStreamKeyButton } from '@/components/livestreams/FacebookStreamKeyButton';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
 import {
   Dialog,
@@ -59,8 +60,19 @@ import {
   formatAutoPromoteToMainKeyMinutesLabel,
 } from '@/lib/livestreams/auto-promote-main-key';
 import {
+  facebookDeferredArmDisabledMessage,
+  isFacebookDeferredArmPending,
+} from '@/lib/livestreams/facebook-arm-assignment';
+import {
+  isFacebookLivestreamSchedulingEnabled,
+  preserveDisabledLivestreamTargets,
+} from '@/lib/livestreams/facebook-livestream-feature';
+import {
+  getFacebookLivestreamConnection,
   getSchedulableLivestreamPlatforms,
   getYouTubeLivestreamConnection,
+  isFacebookLivestreamSchedulable,
+  isYouTubeLivestreamSchedulable,
   type LivestreamConnectionSnapshot,
   toLivestreamConnectionSnapshots,
 } from '@/lib/livestreams/schedulable-platforms';
@@ -209,6 +221,10 @@ export interface LivestreamEditorValues {
   autoPromoteToMainKey?: boolean;
   /** Minutes before start to auto-promote temp → main (5–60, step 5). */
   autoPromoteToMainKeyMinutes?: number;
+  /** Facebook `LiveVideo` id after arming for RTMPS ingest. */
+  facebookLiveVideoId?: string;
+  /** Stored RTMPS ingest URL from the arm response. */
+  facebookStreamUrl?: string;
 }
 
 /**
@@ -244,8 +260,12 @@ export interface LivestreamMetadataModalProps {
   onChange: (value: LivestreamEditorValues) => void;
   /** Armed livestreams for stream-key conflict warnings when changing key slots. */
   armedLivestreamsForKeySlot?: Pick<Livestream, 'id' | 'title' | 'keySlot' | 'status'>[];
+  /** Scheduled or live Facebook livestreams used to detect queued Facebook preparation. */
+  scheduledFacebookLivestreams?: Pick<Livestream, 'id' | 'title' | 'status'>[];
   /** Called after the stream key slot changes successfully. */
   onKeySlotChanged?: () => void | Promise<void>;
+  /** Called after Facebook arm/end succeeds so the list can refresh. */
+  onFacebookChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -264,7 +284,9 @@ export function LivestreamMetadataModal({
   onSave,
   onChange,
   armedLivestreamsForKeySlot = [],
+  scheduledFacebookLivestreams = [],
   onKeySlotChanged,
+  onFacebookChanged,
 }: LivestreamMetadataModalProps) {
   const router = useRouter();
   const livestreamId = value?.id ?? null;
@@ -274,6 +296,7 @@ export function LivestreamMetadataModal({
   const isMetadataEditable = canEditLivestreamMetadata(value?.status ?? 'ended');
   const isScheduleEditable = canEditLivestreamSchedule(value?.status ?? 'ended');
   const youtubeTargetActive = value?.targets.includes('youtube') ?? false;
+  const facebookTargetActive = value?.targets.includes('facebook') ?? false;
   const youtubeFields = value?.platforms.youtube;
 
   const [connectionSnapshots, setConnectionSnapshots] = useState<LivestreamConnectionSnapshot[]>(
@@ -326,6 +349,10 @@ export function LivestreamMetadataModal({
     () => getYouTubeLivestreamConnection(connectionSnapshots),
     [connectionSnapshots]
   );
+  const facebookConnection = useMemo(
+    () => getFacebookLivestreamConnection(connectionSnapshots),
+    [connectionSnapshots]
+  );
 
   const willUseTempStreamKey = useMemo(() => {
     if (!value) return false;
@@ -334,6 +361,24 @@ export function LivestreamMetadataModal({
     }
     return isDraft && armedLivestreamsForKeySlot.length > 0;
   }, [armedLivestreamsForKeySlot.length, isDraft, isScheduled, value]);
+
+  const otherScheduledFacebookLivestreams = useMemo(
+    () =>
+      scheduledFacebookLivestreams.filter(
+        (row) => row.id !== livestreamId && row.status !== 'ended'
+      ),
+    [livestreamId, scheduledFacebookLivestreams]
+  );
+
+  const willUseDeferredFacebookArm = useMemo(() => {
+    if (!value || !facebookTargetActive) return false;
+    if (isScheduled && isFacebookDeferredArmPending(value)) {
+      return true;
+    }
+    return isDraft && otherScheduledFacebookLivestreams.length > 0;
+  }, [facebookTargetActive, isDraft, isScheduled, otherScheduledFacebookLivestreams.length, value]);
+
+  const showAutoStreamPreparationSection = willUseTempStreamKey || willUseDeferredFacebookArm;
 
   const autoPromoteEnabled = value?.autoPromoteToMainKey !== false;
   const autoPromoteMinutes =
@@ -435,6 +480,28 @@ export function LivestreamMetadataModal({
     setKeySlotConflictWarning(conflict ? livestreamKeySlotConflictWarning(conflict) : null);
   }, [armedLivestreamsForKeySlot, isScheduled, livestreamId, value?.keySlot]);
 
+  const handleFacebookLivestreamUpdated = useCallback(
+    (livestream: Livestream) => {
+      if (!value) return;
+      onChange({
+        ...value,
+        status: livestream.status,
+        facebookLiveVideoId: livestream.facebookLiveVideoId,
+        facebookStreamUrl: livestream.facebookStreamUrl,
+      });
+      void onFacebookChanged?.();
+    },
+    [onChange, onFacebookChanged, value]
+  );
+
+  const showYouTubeStreamKeyControls =
+    isScheduled && Boolean(value?.keySlot) && youtubeTargetActive;
+  const showFacebookStreamKeyControls =
+    facebookTargetActive &&
+    (isScheduled ||
+      isLive ||
+      (Boolean(value?.facebookLiveVideoId?.trim()) && value?.status === 'ended'));
+
   const connectionsResolvedSuccessfully = hasLoadedConnections;
   const displayPlatforms = useMemo(() => schedulablePlatforms, [schedulablePlatforms]);
 
@@ -501,7 +568,10 @@ export function LivestreamMetadataModal({
     if (!value || !connectionsResolvedSuccessfully) return;
 
     const schedulableSet = new Set(schedulablePlatforms);
-    const nextTargets = value.targets.filter((platform) => schedulableSet.has(platform));
+    const preservedTargets = new Set(preserveDisabledLivestreamTargets(value.targets));
+    const nextTargets = value.targets.filter(
+      (platform) => schedulableSet.has(platform) || preservedTargets.has(platform)
+    );
     if (nextTargets.length === value.targets.length) return;
 
     onChange({
@@ -922,11 +992,21 @@ export function LivestreamMetadataModal({
       errors.add('scheduledStartTime');
     }
 
-    const hasYouTubeTarget =
-      value.targets.includes('youtube') ||
-      (value.targets.length === 0 && schedulablePlatforms.includes('youtube'));
-    if (schedulablePlatforms.includes('youtube') && !hasYouTubeTarget) {
+    const effectiveTargets =
+      value.targets.length > 0
+        ? value.targets
+        : schedulablePlatforms.length > 0
+          ? [...schedulablePlatforms]
+          : [];
+    const hasSchedulableTarget = effectiveTargets.some((platform) =>
+      schedulablePlatforms.includes(platform)
+    );
+    if (schedulablePlatforms.length > 0 && !hasSchedulableTarget) {
       errors.add('targets');
+    }
+
+    if (willUseDeferredFacebookArm && !autoPromoteEnabled) {
+      errors.add('autoPromoteToMainKey');
     }
 
     if (errors.size > 0) {
@@ -940,7 +1020,9 @@ export function LivestreamMetadataModal({
       } else if (errors.has('scheduledStartTime') && errors.size === 1) {
         toast.error(scheduleValidationMessage ?? 'Choose a valid scheduled start date and time.');
       } else if (errors.has('targets') && errors.size === 1) {
-        toast.error('Select YouTube before scheduling.');
+        toast.error('Select at least one connected platform before scheduling.');
+      } else if (errors.has('autoPromoteToMainKey') && errors.size === 1) {
+        toast.error(facebookDeferredArmDisabledMessage());
       } else {
         toast.error('Fill in required fields before scheduling.');
       }
@@ -963,6 +1045,7 @@ export function LivestreamMetadataModal({
     setFieldErrors(new Set());
     return { ok: true, tags };
   }, [
+    autoPromoteEnabled,
     commitTagsBeforeSave,
     resolvedScheduledStartTimeIso,
     scheduleDate,
@@ -970,6 +1053,7 @@ export function LivestreamMetadataModal({
     scheduleValidationMessage,
     schedulablePlatforms,
     value,
+    willUseDeferredFacebookArm,
   ]);
 
   const handleThumbnailFile = async (file: File) => {
@@ -1178,9 +1262,15 @@ export function LivestreamMetadataModal({
 
     if (schedulablePlatforms.length === 0) {
       setScheduleError(
-        youtubeConnection
+        youtubeConnection && !isFacebookLivestreamSchedulable(facebookConnection)
           ? 'Add a YouTube stream key on the Connections page before scheduling.'
-          : 'Connect YouTube on the Connections page before scheduling.'
+          : isFacebookLivestreamSchedulingEnabled() &&
+              facebookConnection &&
+              !isYouTubeLivestreamSchedulable(youtubeConnection)
+            ? 'Connect a Facebook Page on the Connections page before scheduling.'
+            : isFacebookLivestreamSchedulingEnabled()
+              ? 'Connect YouTube or Facebook on the Connections page before scheduling.'
+              : 'Connect YouTube on the Connections page before scheduling.'
       );
       return;
     }
@@ -1194,13 +1284,13 @@ export function LivestreamMetadataModal({
         values: persistable,
       });
       if (!saveResult.saved) {
-        setScheduleError('Save your changes before scheduling on YouTube.');
+        setScheduleError('Save your changes before scheduling this livestream.');
         return;
       }
 
       const targetId = saveResult.livestreamId ?? value.id;
       if (!targetId) {
-        setScheduleError('Save your changes before scheduling on YouTube.');
+        setScheduleError('Save your changes before scheduling this livestream.');
         return;
       }
 
@@ -1212,19 +1302,17 @@ export function LivestreamMetadataModal({
 
       if (!response.ok) {
         const err = (await response.json().catch(() => null)) as { message?: string } | null;
-        setScheduleError(err?.message ?? 'Failed to schedule livestream on YouTube.');
+        setScheduleError(err?.message ?? 'Failed to schedule livestream.');
         return;
       }
 
       const payload = (await response.json()) as ApiResponse<Livestream>;
-      toast.success('Livestream scheduled on YouTube');
+      toast.success('Livestream scheduled');
       await onScheduled?.();
       onClose();
     } catch (error) {
       console.error('Failed to schedule livestream.', error);
-      setScheduleError(
-        error instanceof Error ? error.message : 'Failed to schedule livestream on YouTube.'
-      );
+      setScheduleError(error instanceof Error ? error.message : 'Failed to schedule livestream.');
     } finally {
       setIsScheduling(false);
     }
@@ -1238,6 +1326,7 @@ export function LivestreamMetadataModal({
     validateBeforeSchedule,
     value,
     youtubeConnection,
+    facebookConnection,
   ]);
 
   const handleConnectNavigation = useCallback(async () => {
@@ -1330,71 +1419,98 @@ export function LivestreamMetadataModal({
 
         {value ? (
           <div className="flex-1 space-y-6 overflow-y-auto px-6 pb-4">
-            {isScheduled && value.keySlot ? (
-              <section className="space-y-2">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div className="space-y-1">
-                    <label
-                      htmlFor="livestream-key-slot"
-                      className="text-sm font-semibold text-foreground"
-                    >
-                      Stream key
-                    </label>
-                    <p className="text-xs text-muted-foreground">
-                      Switch between your main and temporary YouTube stream keys.
-                    </p>
-                  </div>
-                  <Select
-                    value={value.keySlot}
-                    onValueChange={(next) => void handleKeySlotChange(next as LivestreamKeySlot)}
-                    disabled={keySlotChanging}
-                  >
-                    <SelectTrigger id="livestream-key-slot" className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="main">Main stream key</SelectItem>
-                      <SelectItem
-                        value="temp"
-                        disabled={youtubeConnection?.hasYoutubeTempStreamKey !== true}
+            {showYouTubeStreamKeyControls || showFacebookStreamKeyControls ? (
+              <section
+                className={`grid gap-4 ${showYouTubeStreamKeyControls && showFacebookStreamKeyControls ? 'lg:grid-cols-2' : 'grid-cols-1'}`}
+              >
+                {showYouTubeStreamKeyControls ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="livestream-key-slot"
+                          className="text-sm font-semibold text-foreground"
+                        >
+                          YouTube stream key
+                        </label>
+                        <p className="text-xs text-muted-foreground">
+                          Switch between your main and temporary YouTube stream keys.
+                        </p>
+                      </div>
+                      <Select
+                        value={value.keySlot}
+                        onValueChange={(next) =>
+                          void handleKeySlotChange(next as LivestreamKeySlot)
+                        }
+                        disabled={keySlotChanging}
                       >
-                        Temporary stream key
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {keySlotChanging ? (
-                  <p className="text-xs text-muted-foreground">Updating stream key…</p>
+                        <SelectTrigger id="livestream-key-slot" className="w-[200px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="main">Main stream key</SelectItem>
+                          <SelectItem
+                            value="temp"
+                            disabled={youtubeConnection?.hasYoutubeTempStreamKey !== true}
+                          >
+                            Temporary stream key
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {keySlotChanging ? (
+                      <p className="text-xs text-muted-foreground">Updating stream key…</p>
+                    ) : null}
+                    {keySlotConflictWarning ? (
+                      <p
+                        className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                        role="status"
+                      >
+                        {keySlotConflictWarning}
+                      </p>
+                    ) : null}
+                    {youtubeConnection?.hasYoutubeTempStreamKey !== true ? (
+                      <p className="text-xs text-muted-foreground">
+                        Add a temporary stream key on{' '}
+                        <Link href="/profile/connections" className="underline underline-offset-2">
+                          Connections
+                        </Link>{' '}
+                        to use the temporary key slot.
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
-                {keySlotConflictWarning ? (
-                  <p
-                    className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
-                    role="status"
-                  >
-                    {keySlotConflictWarning}
-                  </p>
-                ) : null}
-                {youtubeConnection?.hasYoutubeTempStreamKey !== true ? (
-                  <p className="text-xs text-muted-foreground">
-                    Add a temporary stream key on{' '}
-                    <Link href="/profile/connections" className="underline underline-offset-2">
-                      Connections
-                    </Link>{' '}
-                    to use the temporary key slot.
-                  </p>
+                {showFacebookStreamKeyControls && livestreamId ? (
+                  <FacebookStreamKeyButton
+                    livestreamId={livestreamId}
+                    status={value.status}
+                    facebookLiveVideoId={value.facebookLiveVideoId}
+                    facebookStreamUrl={value.facebookStreamUrl}
+                    isDeferredPending={isFacebookDeferredArmPending(value)}
+                    preparationMinutes={autoPromoteMinutes}
+                    onLivestreamUpdated={handleFacebookLivestreamUpdated}
+                  />
                 ) : null}
               </section>
             ) : null}
-            {willUseTempStreamKey ? (
+            {showAutoStreamPreparationSection ? (
               <section className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
                 <div className="space-y-1">
                   <h3 className="text-sm font-semibold text-foreground">
-                    Automatic stream key switch
+                    Automatic stream preparation
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    {isDraft
-                      ? 'This livestream will use the temporary stream key until the main key is free.'
-                      : 'Switch to the main stream key before your broadcast starts.'}
+                    {willUseTempStreamKey && willUseDeferredFacebookArm
+                      ? isDraft
+                        ? 'This livestream will use the temporary YouTube stream key and wait to create its Facebook stream key until the active streams finish.'
+                        : 'Prepare the active YouTube and Facebook streams before your broadcast starts.'
+                      : willUseDeferredFacebookArm
+                        ? isDraft
+                          ? 'Another Facebook livestream is already scheduled. This one will receive its stream key automatically before start, after the earlier stream ends.'
+                          : 'Your Facebook stream key will be created automatically before start, after the earlier scheduled Facebook livestream ends.'
+                        : isDraft
+                          ? 'This livestream will use the temporary YouTube stream key until the main key is free.'
+                          : 'Switch to the main YouTube stream key before your broadcast starts.'}
                   </p>
                 </div>
                 <label className="flex items-start gap-2 text-sm text-foreground">
@@ -1407,7 +1523,13 @@ export function LivestreamMetadataModal({
                       updateAutoPromoteSettings({ autoPromoteToMainKey: event.target.checked })
                     }
                   />
-                  <span>Automatically switch to the main stream key before start</span>
+                  <span>
+                    {willUseTempStreamKey && willUseDeferredFacebookArm
+                      ? 'Automatically prepare the active stream before start'
+                      : willUseDeferredFacebookArm
+                        ? 'Automatically create the Facebook stream key before start'
+                        : 'Automatically switch to the main YouTube stream key before start'}
+                  </span>
                 </label>
                 {autoPromoteEnabled ? (
                   <div className="flex flex-wrap items-center gap-3">
@@ -1415,7 +1537,7 @@ export function LivestreamMetadataModal({
                       htmlFor="livestream-auto-promote-minutes"
                       className="text-sm text-muted-foreground"
                     >
-                      Switch timing
+                      Preparation timing
                     </label>
                     <Select
                       value={String(autoPromoteMinutes)}
@@ -1438,6 +1560,15 @@ export function LivestreamMetadataModal({
                       </SelectContent>
                     </Select>
                   </div>
+                ) : willUseDeferredFacebookArm ? (
+                  <p
+                    className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                    role="status"
+                  >
+                    Do not schedule this Facebook livestream while automatic preparation is off.
+                    Only one Facebook stream can be prepared at a time; without automatic
+                    preparation, additional Facebook livestreams will never receive a stream key.
+                  </p>
                 ) : null}
               </section>
             ) : null}
@@ -1447,7 +1578,7 @@ export function LivestreamMetadataModal({
                 role="status"
               >
                 <p className="text-sm text-red-600 dark:text-red-400">
-                  {youtubeConnection ? (
+                  {youtubeConnection && isYouTubeLivestreamSchedulable(youtubeConnection) ? (
                     <>
                       Add a YouTube stream key on the{' '}
                       <Link href="/profile/connections" className="underline underline-offset-2">
@@ -1455,13 +1586,22 @@ export function LivestreamMetadataModal({
                       </Link>{' '}
                       page before you can schedule a livestream.
                     </>
+                  ) : isFacebookLivestreamSchedulingEnabled() && facebookConnection ? (
+                    <>
+                      Connect a Facebook Page on the{' '}
+                      <Link href="/profile/connections" className="underline underline-offset-2">
+                        Connections
+                      </Link>{' '}
+                      page before you can schedule a Facebook livestream.
+                    </>
                   ) : (
                     <>
                       No connected platforms found.{' '}
                       <Link href="/profile/connections" className="underline underline-offset-2">
                         Go to Connections
                       </Link>{' '}
-                      to connect YouTube and add stream keys.
+                      to connect YouTube
+                      {isFacebookLivestreamSchedulingEnabled() ? ' or Facebook' : ''}.
                     </>
                   )}
                 </p>
@@ -1483,7 +1623,9 @@ export function LivestreamMetadataModal({
                 />
               ) : connectionsResolvedSuccessfully ? (
                 <p className="text-xs text-muted-foreground">
-                  Platforms appear here after YouTube is connected with a stream key.
+                  Platforms appear here after YouTube
+                  {isFacebookLivestreamSchedulingEnabled() ? ' or Facebook' : ''} is connected and
+                  ready to schedule.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">Loading connected platforms…</p>
@@ -2087,5 +2229,9 @@ export function createLivestreamEditorValues(livestream: Livestream): Livestream
     ...(livestream.autoPromoteToMainKeyMinutes != null
       ? { autoPromoteToMainKeyMinutes: livestream.autoPromoteToMainKeyMinutes }
       : {}),
+    ...(livestream.facebookLiveVideoId
+      ? { facebookLiveVideoId: livestream.facebookLiveVideoId }
+      : {}),
+    ...(livestream.facebookStreamUrl ? { facebookStreamUrl: livestream.facebookStreamUrl } : {}),
   };
 }

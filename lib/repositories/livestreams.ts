@@ -17,6 +17,10 @@ import type {
   PlatformUploadVisibility,
 } from '@/types';
 import { normalizeAutoPromoteToMainKeyMinutes } from '@/lib/livestreams/auto-promote-main-key';
+import {
+  encryptFacebookStreamUrlForStorage,
+  readFacebookStreamUrlFromStorage,
+} from '@/lib/livestreams/facebook-stream-url-storage';
 import { mergeLivestreamPlatformsPatch } from '@/lib/livestream-upload-metadata';
 import { connectToDatabase } from '@/lib/mongodb';
 import { LivestreamModel, type LivestreamDocument } from '@/lib/models/Livestream';
@@ -59,6 +63,11 @@ interface StoredLivestreamDocument {
   autoPromoteToMainKey?: boolean;
   autoPromoteToMainKeyMinutes?: number;
   youtubeLifecycleStatus?: string;
+  facebookLiveVideoId?: string;
+  /** Encrypted Facebook RTMPS ingest URL at rest (see {@link encryptFacebookStreamUrlForStorage}). */
+  facebookStreamUrl?: string;
+  facebookArmedAt?: string;
+  facebookLifecycleStatus?: string;
 }
 
 /**
@@ -79,8 +88,15 @@ function assertLivestreamDocumentJsonWithinLimit(json: string): void {
   }
 }
 
-function parseStoredLivestreamDocument(raw: string): StoredLivestreamDocument {
+function parseStoredLivestreamDocument(
+  raw: string,
+  livestreamId = 'unknown'
+): StoredLivestreamDocument {
   const parsed = JSON.parse(raw) as Partial<StoredLivestreamDocument>;
+  const facebookStreamUrl =
+    typeof parsed.facebookStreamUrl === 'string' && parsed.facebookStreamUrl.trim() !== ''
+      ? readFacebookStreamUrlFromStorage(parsed.facebookStreamUrl, livestreamId)
+      : undefined;
   return {
     status: parsed.status ?? 'draft',
     title: typeof parsed.title === 'string' ? parsed.title : '',
@@ -140,6 +156,17 @@ function parseStoredLivestreamDocument(raw: string): StoredLivestreamDocument {
     parsed.youtubeLifecycleStatus.trim() !== ''
       ? { youtubeLifecycleStatus: parsed.youtubeLifecycleStatus.trim() }
       : {}),
+    ...(typeof parsed.facebookLiveVideoId === 'string' && parsed.facebookLiveVideoId.trim() !== ''
+      ? { facebookLiveVideoId: parsed.facebookLiveVideoId.trim() }
+      : {}),
+    ...(facebookStreamUrl ? { facebookStreamUrl } : {}),
+    ...(typeof parsed.facebookArmedAt === 'string' && parsed.facebookArmedAt.trim() !== ''
+      ? { facebookArmedAt: parsed.facebookArmedAt.trim() }
+      : {}),
+    ...(typeof parsed.facebookLifecycleStatus === 'string' &&
+    parsed.facebookLifecycleStatus.trim() !== ''
+      ? { facebookLifecycleStatus: parsed.facebookLifecycleStatus.trim() }
+      : {}),
   };
 }
 
@@ -184,12 +211,22 @@ function storedDocumentFromLivestream(livestream: Livestream): StoredLivestreamD
     ...(livestream.youtubeLifecycleStatus
       ? { youtubeLifecycleStatus: livestream.youtubeLifecycleStatus }
       : {}),
+    ...(livestream.facebookLiveVideoId
+      ? { facebookLiveVideoId: livestream.facebookLiveVideoId }
+      : {}),
+    ...(livestream.facebookStreamUrl
+      ? { facebookStreamUrl: encryptFacebookStreamUrlForStorage(livestream.facebookStreamUrl) }
+      : {}),
+    ...(livestream.facebookArmedAt ? { facebookArmedAt: livestream.facebookArmedAt } : {}),
+    ...(livestream.facebookLifecycleStatus
+      ? { facebookLifecycleStatus: livestream.facebookLifecycleStatus }
+      : {}),
   };
 }
 
 /** Map a MongoDB document to the shared Livestream type. */
 function mongoDocToLivestream(doc: LivestreamDocument): Livestream {
-  const parsed = parseStoredLivestreamDocument(doc.document);
+  const parsed = parseStoredLivestreamDocument(doc.document, String(doc._id));
   return {
     id: String(doc._id),
     userId: String(doc.userId),
@@ -220,6 +257,12 @@ function mongoDocToLivestream(doc: LivestreamDocument): Livestream {
     ...(parsed.youtubeLifecycleStatus
       ? { youtubeLifecycleStatus: parsed.youtubeLifecycleStatus }
       : {}),
+    ...(parsed.facebookLiveVideoId ? { facebookLiveVideoId: parsed.facebookLiveVideoId } : {}),
+    ...(parsed.facebookStreamUrl ? { facebookStreamUrl: parsed.facebookStreamUrl } : {}),
+    ...(parsed.facebookArmedAt ? { facebookArmedAt: parsed.facebookArmedAt } : {}),
+    ...(parsed.facebookLifecycleStatus
+      ? { facebookLifecycleStatus: parsed.facebookLifecycleStatus }
+      : {}),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -233,12 +276,47 @@ function isArmedYouTubeLivestream(livestream: Livestream): boolean {
   );
 }
 
+function isArmedFacebookLivestream(livestream: Livestream): boolean {
+  return (
+    livestream.targets.includes('facebook') &&
+    ARMED_LIVESTREAM_STATUSES.has(livestream.status) &&
+    Boolean(livestream.facebookLiveVideoId?.trim())
+  );
+}
+
+function isScheduledOrLiveFacebookLivestream(livestream: Livestream): boolean {
+  return (
+    livestream.targets.includes('facebook') && ARMED_LIVESTREAM_STATUSES.has(livestream.status)
+  );
+}
+
+function isPendingFacebookDeferredArm(livestream: Livestream): boolean {
+  if (livestream.status !== 'scheduled' || !livestream.targets.includes('facebook')) {
+    return false;
+  }
+  if (livestream.facebookLiveVideoId?.trim()) {
+    return false;
+  }
+  if (livestream.autoPromoteToMainKey === false) {
+    return false;
+  }
+  return livestream.autoPromoteToMainKey === true || livestream.autoPromoteToMainKeyMinutes != null;
+}
+
 function compareScheduledStartAsc(a: Livestream, b: Livestream): number {
   const aMs = Date.parse(a.scheduledStartTime ?? '');
   const bMs = Date.parse(b.scheduledStartTime ?? '');
   const aTime = Number.isNaN(aMs) ? Number.POSITIVE_INFINITY : aMs;
   const bTime = Number.isNaN(bMs) ? Number.POSITIVE_INFINITY : bMs;
   return aTime - bTime;
+}
+
+function compareFacebookArmedAtDesc(a: Livestream, b: Livestream): number {
+  const aMs = Date.parse(a.facebookArmedAt ?? '');
+  const bMs = Date.parse(b.facebookArmedAt ?? '');
+  const aTime = Number.isNaN(aMs) ? Number.NEGATIVE_INFINITY : aMs;
+  const bTime = Number.isNaN(bMs) ? Number.NEGATIVE_INFINITY : bMs;
+  return bTime - aTime;
 }
 
 async function listLivestreamsForUser(userId: string): Promise<Livestream[]> {
@@ -355,6 +433,81 @@ export async function getArmedMainSlotLivestreamForUser(
 }
 
 /**
+ * Returns the armed Facebook livestream for a user, if any.
+ * At most one row should exist; when multiple match, returns the most recently armed.
+ * @param userId - Owner user id.
+ * @returns Armed Facebook livestream, or null when none is armed.
+ */
+export async function getArmedFacebookLivestreamForUser(
+  userId: string
+): Promise<Livestream | null> {
+  const livestreams = await listLivestreamsForUser(userId);
+  const armed = livestreams.filter(isArmedFacebookLivestream);
+  if (armed.length === 0) {
+    return null;
+  }
+  if (armed.length === 1) {
+    return armed[0]!;
+  }
+  return [...armed].sort(compareFacebookArmedAtDesc)[0] ?? null;
+}
+
+/**
+ * Returns scheduled or live Facebook-targeted livestreams for a user.
+ * @param userId - Owner user id.
+ * @param excludeLivestreamId - Optional livestream id to omit (for new schedule decisions).
+ * @returns Rows ordered by scheduled start time ascending.
+ */
+export async function listScheduledOrLiveFacebookLivestreamsForUser(
+  userId: string,
+  excludeLivestreamId?: string
+): Promise<Livestream[]> {
+  const livestreams = await listLivestreamsForUser(userId);
+  return livestreams
+    .filter(isScheduledOrLiveFacebookLivestream)
+    .filter((livestream) => livestream.id !== excludeLivestreamId)
+    .sort(compareScheduledStartAsc);
+}
+
+/**
+ * Returns scheduled Facebook livestreams waiting for deferred LiveVideo creation.
+ * @param userId - Owner user id.
+ * @returns Pending rows ordered by scheduled start time ascending.
+ */
+export async function listPendingFacebookDeferredArmsForUser(
+  userId: string
+): Promise<Livestream[]> {
+  const livestreams = await listLivestreamsForUser(userId);
+  return livestreams.filter(isPendingFacebookDeferredArm).sort(compareScheduledStartAsc);
+}
+
+/**
+ * Returns all queued Facebook livestreams awaiting deferred arm, grouped by owner id.
+ * Each user's list is ordered by scheduled start time ascending.
+ * @returns Map of user id to pending deferred-arm rows for that user.
+ */
+export async function listAllPendingFacebookDeferredArms(): Promise<Map<string, Livestream[]>> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({}).lean<LivestreamDocument[]>();
+  const grouped = new Map<string, Livestream[]>();
+
+  for (const doc of docs) {
+    const livestream = mongoDocToLivestream(doc);
+    if (!isPendingFacebookDeferredArm(livestream)) continue;
+    const existing = grouped.get(livestream.userId) ?? [];
+    existing.push(livestream);
+    grouped.set(livestream.userId, existing);
+  }
+
+  for (const [userId, livestreams] of grouped) {
+    livestreams.sort(compareScheduledStartAsc);
+    grouped.set(userId, livestreams);
+  }
+
+  return grouped;
+}
+
+/**
  * Returns armed temp-slot livestreams for a user, ordered by scheduled start ascending.
  * @param userId - Owner user id.
  * @returns Temp-slot livestreams queued for promotion.
@@ -377,6 +530,32 @@ export async function listAllArmedYouTubeLivestreams(): Promise<Map<string, Live
   for (const doc of docs) {
     const livestream = mongoDocToLivestream(doc);
     if (!isArmedYouTubeLivestream(livestream)) continue;
+    const existing = grouped.get(livestream.userId) ?? [];
+    existing.push(livestream);
+    grouped.set(livestream.userId, existing);
+  }
+
+  for (const [userId, livestreams] of grouped) {
+    livestreams.sort(compareScheduledStartAsc);
+    grouped.set(userId, livestreams);
+  }
+
+  return grouped;
+}
+
+/**
+ * Returns all armed Facebook livestreams across every user, grouped by owner id.
+ * Each user's list is ordered by scheduled start time ascending.
+ * @returns Map of user id to armed Facebook livestream rows for that user.
+ */
+export async function listAllArmedFacebookLivestreams(): Promise<Map<string, Livestream[]>> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({}).lean<LivestreamDocument[]>();
+  const grouped = new Map<string, Livestream[]>();
+
+  for (const doc of docs) {
+    const livestream = mongoDocToLivestream(doc);
+    if (!isArmedFacebookLivestream(livestream)) continue;
     const existing = grouped.get(livestream.userId) ?? [];
     existing.push(livestream);
     grouped.set(livestream.userId, existing);
@@ -419,6 +598,10 @@ export interface UpdateLivestreamPatch {
   autoPromoteToMainKey?: boolean | null;
   autoPromoteToMainKeyMinutes?: number | null;
   youtubeLifecycleStatus?: string | null;
+  facebookLiveVideoId?: string | null;
+  facebookStreamUrl?: string | null;
+  facebookArmedAt?: string | null;
+  facebookLifecycleStatus?: string | null;
 }
 
 function applyNullableStringPatch(
@@ -504,6 +687,16 @@ export async function updateLivestream(
     youtubeLifecycleStatus: applyNullableStringPatch(
       current.youtubeLifecycleStatus,
       patch.youtubeLifecycleStatus
+    ),
+    facebookLiveVideoId: applyNullableStringPatch(
+      current.facebookLiveVideoId,
+      patch.facebookLiveVideoId
+    ),
+    facebookStreamUrl: applyNullableStringPatch(current.facebookStreamUrl, patch.facebookStreamUrl),
+    facebookArmedAt: applyNullableStringPatch(current.facebookArmedAt, patch.facebookArmedAt),
+    facebookLifecycleStatus: applyNullableStringPatch(
+      current.facebookLifecycleStatus,
+      patch.facebookLifecycleStatus
     ),
   };
 

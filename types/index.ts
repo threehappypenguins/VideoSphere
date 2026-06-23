@@ -79,6 +79,7 @@ export const CONNECTED_ACCOUNT_PLATFORMS: readonly ConnectedAccountPlatform[] = 
 /** Livestream distribution platforms (extend as you add backends). */
 export const LIVESTREAM_PLATFORMS = [
   'youtube',
+  'facebook',
 ] as const satisfies readonly ConnectedAccountPlatform[];
 
 /** SFTP authentication method stored on a connected account. */
@@ -537,21 +538,35 @@ export interface YouTubeLivestreamFields {
 }
 
 /**
+ * Facebook-only fields inside the livestream `document.platforms` JSON.
+ * Reserved for future per-stream Facebook options.
+ */
+export interface FacebookLivestreamFields {}
+
+/**
  * Per-platform metadata on a livestream (inside `document` JSON).
- * Publish targets use `platforms.youtube` (only YouTube for now).
+ * Publish targets use `platforms.youtube` and `platforms.facebook`.
  */
 export interface LivestreamPlatforms {
   youtube?: YouTubeLivestreamFields;
+  facebook?: FacebookLivestreamFields;
 }
 
 /**
  * Scheduled livestream document stored in the `livestreams` collection.
  *
- * **Key-slot lifecycle:** A new livestream starts as a `draft` with no `scheduledStartTime`
+ * **YouTube key-slot lifecycle:** A new livestream starts as a `draft` with no `scheduledStartTime`
  * or `keySlot`. When the user schedules it, the server assigns either the `main` or `temp`
  * YouTube stream key from the connected account. If the main key is already in use, scheduling
  * uses `temp` instead. A background reconciliation job may later promote `temp` → `main` when
  * the main slot frees up (`keySwapPromotedAt` records when that promotion occurred).
+ * `keySlot` and related fields are YouTube-only; Facebook livestreams never use them.
+ *
+ * **Facebook arm lifecycle:** Facebook has no main/temp stream-key concept. Only one Facebook
+ * livestream per user may be "armed" (have a real `facebookLiveVideoId`) at a time. The first
+ * scheduled Facebook livestream creates its `LiveVideo` immediately; additional queued rows
+ * create theirs automatically at the auto-preparation window before start (`autoPromoteToMainKey`
+ * / `autoPromoteToMainKeyMinutes`, shared with YouTube temp→main promotion timing).
  */
 export interface Livestream {
   id: string;
@@ -600,6 +615,18 @@ export interface Livestream {
   autoPromoteToMainKeyMinutes?: number;
   /** Raw YouTube `liveBroadcasts.status.lifeCycleStatus` value (polled later). */
   youtubeLifecycleStatus?: string;
+  /** Facebook `LiveVideo` object id; created at arm time, not at schedule time. */
+  facebookLiveVideoId?: string;
+  /**
+   * RTMPS ingest URL returned when the Facebook `LiveVideo` is created
+   * (`rtmps://live-api-s.facebook.com:443/rtmp/FB-<id>-0-<token>`). Single-use per object;
+   * there is no reusable/persistent equivalent. Encrypted at rest in the livestream document JSON.
+   */
+  facebookStreamUrl?: string;
+  /** ISO timestamp when the Facebook `LiveVideo` object was created (arm time). */
+  facebookArmedAt?: string;
+  /** Raw Facebook `LiveVideo.status` value (`UNPUBLISHED`, `LIVE_NOW`, `VOD`; polled later). */
+  facebookLifecycleStatus?: string;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */
