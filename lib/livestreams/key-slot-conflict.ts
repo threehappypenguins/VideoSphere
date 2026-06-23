@@ -1,14 +1,22 @@
 import type { Livestream, LivestreamKeySlot } from '@/types';
 
 /**
+ * Summary of another armed livestream blocking a single-platform arm slot.
+ * @property id - Conflicting livestream row id.
+ * @property title - Display title for warnings.
+ */
+export interface LivestreamArmConflict {
+  id: string;
+  title: string;
+}
+
+/**
  * Summary of another armed livestream already using a key slot.
  * @property id - Conflicting livestream row id.
  * @property title - Display title for warnings.
  * @property keySlot - Slot already in use (`main` or `temp`).
  */
-export interface LivestreamKeySlotConflict {
-  id: string;
-  title: string;
+export interface LivestreamKeySlotConflict extends LivestreamArmConflict {
   keySlot: LivestreamKeySlot;
 }
 
@@ -44,6 +52,35 @@ export function findLivestreamKeySlotConflict(
     title: displayTitle(conflict),
     keySlot: slot,
   };
+}
+
+/**
+ * Returns conflict metadata when another Facebook livestream is already armed for this user.
+ * @param armedFacebookLivestream - Currently armed Facebook livestream, if any.
+ * @param excludeLivestreamId - Livestream being armed.
+ * @returns Conflict summary when another row is armed, otherwise `null`.
+ */
+export function findFacebookLivestreamArmConflict(
+  armedFacebookLivestream: Pick<Livestream, 'id' | 'title'> | null,
+  excludeLivestreamId: string
+): LivestreamArmConflict | null {
+  if (!armedFacebookLivestream || armedFacebookLivestream.id === excludeLivestreamId) {
+    return null;
+  }
+
+  return {
+    id: armedFacebookLivestream.id,
+    title: displayTitle(armedFacebookLivestream),
+  };
+}
+
+/**
+ * User-facing warning when arming Facebook while another livestream is already armed.
+ * @param conflict - Conflicting livestream summary.
+ * @returns Warning copy shown before applying the arm anyway.
+ */
+export function livestreamFacebookArmConflictWarning(conflict: LivestreamArmConflict): string {
+  return `"${conflict.title}" is already armed for Facebook livestreaming. Only one Facebook stream can be armed at a time.`;
 }
 
 /**

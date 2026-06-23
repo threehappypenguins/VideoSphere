@@ -221,6 +221,15 @@ export default function LivestreamsPage() {
     [livestreams]
   );
 
+  const scheduledFacebookLivestreams = useMemo(
+    () =>
+      livestreams.filter(
+        (row) =>
+          (row.status === 'scheduled' || row.status === 'live') && row.targets.includes('facebook')
+      ),
+    [livestreams]
+  );
+
   const handleKeySlotChanged = useCallback(async () => {
     await loadLivestreams(undefined, { quiet: true });
   }, [loadLivestreams]);
@@ -669,7 +678,9 @@ export default function LivestreamsPage() {
         onScheduled={handleScheduled}
         onChange={setEditingLivestream}
         armedLivestreamsForKeySlot={armedLivestreamsForKeySlot}
+        scheduledFacebookLivestreams={scheduledFacebookLivestreams}
         onKeySlotChanged={handleKeySlotChanged}
+        onFacebookChanged={handleKeySlotChanged}
       />
     </div>
   );

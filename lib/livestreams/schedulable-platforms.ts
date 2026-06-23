@@ -1,9 +1,14 @@
+import { isFacebookLivestreamSchedulingEnabled } from '@/lib/livestreams/facebook-livestream-feature';
 import type { ConnectedAccountPlatform, ConnectedAccountPublic } from '@/types';
 
-/** Connection fields required to decide whether a livestream can be scheduled to YouTube. */
+/** Connection fields required to decide whether a livestream can be scheduled to a platform. */
 export type LivestreamConnectionSnapshot = Pick<
   ConnectedAccountPublic,
-  'platform' | 'hasYoutubeMainStreamKey' | 'hasYoutubeTempStreamKey'
+  | 'platform'
+  | 'hasYoutubeMainStreamKey'
+  | 'hasYoutubeTempStreamKey'
+  | 'facebookTargetType'
+  | 'facebookPageId'
 >;
 
 /**
@@ -15,6 +20,17 @@ export function getYouTubeLivestreamConnection(
   connections: LivestreamConnectionSnapshot[]
 ): LivestreamConnectionSnapshot | undefined {
   return connections.find((connection) => connection.platform === 'youtube');
+}
+
+/**
+ * Returns the user's Facebook connection row, if present.
+ * @param connections - Public connection snapshots from `/api/platforms/connections`.
+ * @returns Facebook snapshot or `undefined` when Facebook is not connected.
+ */
+export function getFacebookLivestreamConnection(
+  connections: LivestreamConnectionSnapshot[]
+): LivestreamConnectionSnapshot | undefined {
+  return connections.find((connection) => connection.platform === 'facebook');
 }
 
 /**
@@ -30,6 +46,26 @@ export function isYouTubeLivestreamSchedulable(
 }
 
 /**
+ * True when Facebook is connected to a Page with a configured Page ID.
+ * @param facebook - Facebook connection snapshot.
+ * @returns Whether Facebook livestreams can be scheduled for this account.
+ */
+export function isFacebookLivestreamSchedulable(
+  facebook: LivestreamConnectionSnapshot | undefined
+): boolean {
+  if (!isFacebookLivestreamSchedulingEnabled()) {
+    return false;
+  }
+  if (!facebook || facebook.platform !== 'facebook') {
+    return false;
+  }
+  if (facebook.facebookTargetType !== 'page') {
+    return false;
+  }
+  return Boolean(facebook.facebookPageId?.trim());
+}
+
+/**
  * Platforms the user can schedule livestreams to right now.
  * @param connections - Public connection snapshots from `/api/platforms/connections`.
  * @returns Connected platforms that meet livestream scheduling requirements.
@@ -37,9 +73,14 @@ export function isYouTubeLivestreamSchedulable(
 export function getSchedulableLivestreamPlatforms(
   connections: LivestreamConnectionSnapshot[]
 ): ConnectedAccountPlatform[] {
-  return isYouTubeLivestreamSchedulable(getYouTubeLivestreamConnection(connections))
-    ? ['youtube']
-    : [];
+  const platforms: ConnectedAccountPlatform[] = [];
+  if (isYouTubeLivestreamSchedulable(getYouTubeLivestreamConnection(connections))) {
+    platforms.push('youtube');
+  }
+  if (isFacebookLivestreamSchedulable(getFacebookLivestreamConnection(connections))) {
+    platforms.push('facebook');
+  }
+  return platforms;
 }
 
 /**
@@ -50,9 +91,19 @@ export function getSchedulableLivestreamPlatforms(
 export function toLivestreamConnectionSnapshots(
   connections: ConnectedAccountPublic[]
 ): LivestreamConnectionSnapshot[] {
-  return connections.map(({ platform, hasYoutubeMainStreamKey, hasYoutubeTempStreamKey }) => ({
-    platform,
-    hasYoutubeMainStreamKey,
-    hasYoutubeTempStreamKey,
-  }));
+  return connections.map(
+    ({
+      platform,
+      hasYoutubeMainStreamKey,
+      hasYoutubeTempStreamKey,
+      facebookTargetType,
+      facebookPageId,
+    }) => ({
+      platform,
+      hasYoutubeMainStreamKey,
+      hasYoutubeTempStreamKey,
+      ...(facebookTargetType != null ? { facebookTargetType } : {}),
+      ...(facebookPageId != null ? { facebookPageId } : {}),
+    })
+  );
 }

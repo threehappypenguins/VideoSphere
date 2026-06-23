@@ -1,5 +1,5 @@
 // =============================================================================
-// POST /api/livestreams/[id]/schedule — schedule a draft livestream on YouTube
+// POST /api/livestreams/[id]/schedule — schedule a draft livestream locally and on YouTube
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,11 +9,14 @@ import {
   requireYouTubeStreamKeyForSlot,
 } from '@/lib/livestreams/key-assignment';
 import { syncLivestreamMetadataToYouTube } from '@/lib/livestreams/sync-youtube-broadcast';
+import { resolveAutoPromoteToMainKeyMinutes } from '@/lib/livestreams/auto-promote-main-key';
+import { armFacebookLivestream } from '@/lib/livestreams/arm-facebook-livestream';
 import {
-  parseAutoPromoteToMainKeyFromRequestBody,
-  parseAutoPromoteToMainKeyMinutesFromRequestBody,
-  resolveAutoPromoteToMainKeyMinutes,
-} from '@/lib/livestreams/auto-promote-main-key';
+  decideFacebookArmForNewSchedule,
+  facebookDeferredArmDisabledMessage,
+} from '@/lib/livestreams/facebook-arm-assignment';
+import { syncFacebookDeferredArmSchedule } from '@/lib/livestreams/facebook-deferred-arm-scheduler';
+import { isFacebookLivestreamSchedulingEnabled } from '@/lib/livestreams/facebook-livestream-feature';
 import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
@@ -24,10 +27,14 @@ import {
   getYouTubeBroadcastLifecycleStatus,
   scheduleYouTubeLiveBroadcast,
 } from '@/lib/platforms/youtube-livestream-api';
+import { resolveFacebookPageId } from '@/lib/platforms/facebook-oauth';
+import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import {
+  getArmedFacebookLivestreamForUser,
   getLivestreamById,
   listArmedYouTubeLivestreamsForUser,
+  listScheduledOrLiveFacebookLivestreamsForUser,
   updateLivestream,
   type UpdateLivestreamPatch,
 } from '@/lib/repositories/livestreams';
@@ -151,132 +158,180 @@ export async function POST(
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  if (!livestream.targets.includes('youtube')) {
+  if (!livestream.targets.includes('youtube') && !livestream.targets.includes('facebook')) {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: 'Livestream targets must include youtube to schedule on YouTube',
+      message: 'Livestream targets must include youtube or facebook to schedule',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const youtubeConnection = await requireYouTubeConnection(req);
-  if (youtubeConnection.ok === false) {
-    return youtubeConnection.response;
-  }
-  const accessToken = youtubeConnection.accessToken;
+  const targetsYouTube = livestream.targets.includes('youtube');
+  const targetsFacebook = livestream.targets.includes('facebook');
 
-  const account = await getConnectedAccountWithTokens(userId, 'youtube');
-  if (!account) {
-    const errRes: ApiError = {
-      error: 'Unauthorized',
-      message: 'YouTube is not connected',
-      statusCode: 401,
-    };
-    return NextResponse.json(errRes, { status: 401 });
-  }
-
-  const armed = await listArmedYouTubeLivestreamsForUser(userId);
-  const slotDecision = decideKeySlotForNewSchedule(
-    armed.filter(
-      (stream): stream is Livestream & { keySlot: LivestreamKeySlot } => stream.keySlot != null
-    )
-  );
-  const keySlot = slotDecision.keySlot;
-
-  const streamKeyResult = requireYouTubeStreamKeyForSlot(account, keySlot);
-  if (streamKeyResult.ok === false) {
+  if (targetsFacebook && !isFacebookLivestreamSchedulingEnabled()) {
     const errRes: ApiError = {
       error: 'Bad Request',
-      message: streamKeyResult.reason,
+      message: 'Facebook livestreaming is temporarily unavailable.',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
   }
-  const streamKey = streamKeyResult.key;
 
-  let broadcastId = livestream.youtubeBroadcastId?.trim() ?? '';
-  let boundStreamId = livestream.youtubeBoundStreamId?.trim() ?? '';
-
-  if (!broadcastId) {
-    const scheduled = await scheduleYouTubeLiveBroadcast(accessToken, {
-      title: livestream.title,
-      description: livestream.description,
-      scheduledStartTime: startParse.iso,
-      privacyStatus: toYouTubePrivacy(livestream.visibility),
-      madeForKids: livestream.platforms.youtube?.madeForKids,
-    });
-    if (scheduled.ok === false) {
-      return youtubeUpstreamErrorResponse(scheduled.details);
-    }
-    broadcastId = scheduled.broadcastId;
-    await persistScheduleProgress(livestreamId, { youtubeBroadcastId: broadcastId });
-  }
-
-  if (!boundStreamId) {
-    const streamLookup = await findYouTubeLiveStreamIdByKey(accessToken, streamKey);
-    if (streamLookup.ok === false) {
-      await persistScheduleProgress(livestreamId, { youtubeBroadcastId: broadcastId });
-      return youtubeUpstreamErrorResponse(streamLookup.details);
-    }
-
-    const bindResult = await bindYouTubeBroadcastToStream(
-      accessToken,
-      broadcastId,
-      streamLookup.streamId
+  let facebookArmDecision: ReturnType<typeof decideFacebookArmForNewSchedule> | null = null;
+  if (targetsFacebook) {
+    const otherFacebookLivestreams = await listScheduledOrLiveFacebookLivestreamsForUser(
+      userId,
+      livestreamId
     );
-    if (bindResult.ok === false) {
-      await persistScheduleProgress(livestreamId, { youtubeBroadcastId: broadcastId });
-      return youtubeUpstreamErrorResponse(bindResult.details);
+    facebookArmDecision = decideFacebookArmForNewSchedule(otherFacebookLivestreams);
+    if (facebookArmDecision.kind === 'deferred' && livestream.autoPromoteToMainKey === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: facebookDeferredArmDisabledMessage(),
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+  }
+
+  let keySlot: LivestreamKeySlot | undefined;
+  let broadcastId = '';
+  let boundStreamId = '';
+  let youtubeLifecycleStatus: string | undefined;
+
+  if (targetsYouTube) {
+    const youtubeConnection = await requireYouTubeConnection(req);
+    if (youtubeConnection.ok === false) {
+      return youtubeConnection.response;
+    }
+    const accessToken = youtubeConnection.accessToken;
+
+    const account = await getConnectedAccountWithTokens(userId, 'youtube');
+    if (!account) {
+      const errRes: ApiError = {
+        error: 'Unauthorized',
+        message: 'YouTube is not connected',
+        statusCode: 401,
+      };
+      return NextResponse.json(errRes, { status: 401 });
     }
 
-    boundStreamId = streamLookup.streamId;
-    await persistScheduleProgress(livestreamId, {
-      youtubeBroadcastId: broadcastId,
-      youtubeBoundStreamId: boundStreamId,
-    });
-  }
-
-  const syncResult = await syncLivestreamMetadataToYouTube(accessToken, userId, livestreamId, {
-    ...livestream,
-    youtubeBroadcastId: broadcastId,
-    ...(boundStreamId ? { youtubeBoundStreamId: boundStreamId } : {}),
-  });
-  if (syncResult.ok === false) {
-    await persistScheduleProgress(livestreamId, {
-      youtubeBroadcastId: broadcastId,
-      youtubeBoundStreamId: boundStreamId,
-    });
-    return youtubeUpstreamErrorResponse(syncResult.details);
-  }
-
-  const youtubeDroppedTags = syncResult.droppedTags;
-  if (youtubeDroppedTags.length > 0) {
-    console.warn(
-      '[POST /api/livestreams/:id/schedule] YouTube omitted tags after update:',
-      youtubeDroppedTags
+    const armed = await listArmedYouTubeLivestreamsForUser(userId);
+    const slotDecision = decideKeySlotForNewSchedule(
+      armed.filter(
+        (stream): stream is Livestream & { keySlot: LivestreamKeySlot } => stream.keySlot != null
+      )
     );
-  }
+    keySlot = slotDecision.keySlot;
 
-  const lifecycleResult = await getYouTubeBroadcastLifecycleStatus(accessToken, broadcastId);
-  const youtubeLifecycleStatus =
-    lifecycleResult.ok === true ? (lifecycleResult.lifeCycleStatus ?? 'ready') : 'ready';
+    const streamKeyResult = requireYouTubeStreamKeyForSlot(account, keySlot);
+    if (streamKeyResult.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: streamKeyResult.reason,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+    const streamKey = streamKeyResult.key;
+
+    broadcastId = livestream.youtubeBroadcastId?.trim() ?? '';
+    boundStreamId = livestream.youtubeBoundStreamId?.trim() ?? '';
+
+    if (!broadcastId) {
+      const scheduled = await scheduleYouTubeLiveBroadcast(accessToken, {
+        title: livestream.title,
+        description: livestream.description,
+        scheduledStartTime: startParse.iso,
+        privacyStatus: toYouTubePrivacy(livestream.visibility),
+        madeForKids: livestream.platforms.youtube?.madeForKids,
+      });
+      if (scheduled.ok === false) {
+        return youtubeUpstreamErrorResponse(scheduled.details);
+      }
+      broadcastId = scheduled.broadcastId;
+      await persistScheduleProgress(livestreamId, { youtubeBroadcastId: broadcastId });
+    }
+
+    if (!boundStreamId) {
+      const streamLookup = await findYouTubeLiveStreamIdByKey(accessToken, streamKey);
+      if (streamLookup.ok === false) {
+        await persistScheduleProgress(livestreamId, { youtubeBroadcastId: broadcastId });
+        return youtubeUpstreamErrorResponse(streamLookup.details);
+      }
+
+      const bindResult = await bindYouTubeBroadcastToStream(
+        accessToken,
+        broadcastId,
+        streamLookup.streamId
+      );
+      if (bindResult.ok === false) {
+        await persistScheduleProgress(livestreamId, { youtubeBroadcastId: broadcastId });
+        return youtubeUpstreamErrorResponse(bindResult.details);
+      }
+
+      boundStreamId = streamLookup.streamId;
+      await persistScheduleProgress(livestreamId, {
+        youtubeBroadcastId: broadcastId,
+        youtubeBoundStreamId: boundStreamId,
+      });
+    }
+
+    const syncResult = await syncLivestreamMetadataToYouTube(accessToken, userId, livestreamId, {
+      ...livestream,
+      youtubeBroadcastId: broadcastId,
+      ...(boundStreamId ? { youtubeBoundStreamId: boundStreamId } : {}),
+    });
+    if (syncResult.ok === false) {
+      await persistScheduleProgress(livestreamId, {
+        youtubeBroadcastId: broadcastId,
+        youtubeBoundStreamId: boundStreamId,
+      });
+      return youtubeUpstreamErrorResponse(syncResult.details);
+    }
+
+    const youtubeDroppedTags = syncResult.droppedTags;
+    if (youtubeDroppedTags.length > 0) {
+      console.warn(
+        '[POST /api/livestreams/:id/schedule] YouTube omitted tags after update:',
+        youtubeDroppedTags
+      );
+    }
+
+    const lifecycleResult = await getYouTubeBroadcastLifecycleStatus(accessToken, broadcastId);
+    youtubeLifecycleStatus =
+      lifecycleResult.ok === true ? (lifecycleResult.lifeCycleStatus ?? 'ready') : 'ready';
+  }
 
   try {
-    const updated = await updateLivestream(livestreamId, {
+    const schedulePatch: UpdateLivestreamPatch = {
       status: 'scheduled',
       scheduledStartTime: startParse.iso,
-      keySlot,
-      youtubeBroadcastId: broadcastId,
-      youtubeBoundStreamId: boundStreamId,
-      youtubeLifecycleStatus,
-      ...(keySlot === 'temp'
+      ...(targetsYouTube
+        ? {
+            keySlot,
+            youtubeBroadcastId: broadcastId,
+            youtubeBoundStreamId: boundStreamId,
+            youtubeLifecycleStatus,
+            ...(keySlot === 'temp'
+              ? {
+                  autoPromoteToMainKey: livestream.autoPromoteToMainKey !== false,
+                  autoPromoteToMainKeyMinutes: resolveAutoPromoteToMainKeyMinutes(livestream),
+                }
+              : {}),
+          }
+        : {}),
+      ...(targetsFacebook && facebookArmDecision?.kind === 'deferred'
         ? {
             autoPromoteToMainKey: livestream.autoPromoteToMainKey !== false,
             autoPromoteToMainKeyMinutes: resolveAutoPromoteToMainKeyMinutes(livestream),
           }
         : {}),
-    });
+    };
+
+    let updated = await updateLivestream(livestreamId, schedulePatch);
 
     if (!updated) {
       const errRes: ApiError = {
@@ -287,9 +342,76 @@ export async function POST(
       return NextResponse.json(errRes, { status: 404 });
     }
 
-    await persistUserYouTubePlatformDefaults(userId, livestream.platforms.youtube);
+    if (targetsYouTube) {
+      await persistUserYouTubePlatformDefaults(userId, livestream.platforms.youtube);
+      syncTempToMainPromotionSchedule(updated);
+    }
 
-    syncTempToMainPromotionSchedule(updated);
+    if (targetsFacebook && facebookArmDecision) {
+      if (facebookArmDecision.kind === 'immediate') {
+        const facebookAccount = await getConnectedAccountWithTokens(userId, 'facebook');
+        if (!facebookAccount) {
+          const errRes: ApiError = {
+            error: 'Unauthorized',
+            message: 'Facebook is not connected',
+            statusCode: 401,
+          };
+          return NextResponse.json(errRes, { status: 401 });
+        }
+
+        let pageAccessToken: string;
+        try {
+          const tokens = await refreshTokenIfNeeded(facebookAccount);
+          pageAccessToken = tokens.accessToken.trim();
+        } catch (err) {
+          console.error('[POST /api/livestreams/:id/schedule] Facebook token refresh failed', err);
+          const errRes: ApiError = {
+            error: 'Unauthorized',
+            message: 'Facebook access token expired. Reconnect Facebook in Settings → Connections.',
+            statusCode: 401,
+          };
+          return NextResponse.json(errRes, { status: 401 });
+        }
+
+        const pageId = resolveFacebookPageId(facebookAccount);
+        if (!pageId) {
+          const errRes: ApiError = {
+            error: 'Bad Request',
+            message:
+              'Facebook livestreaming requires a connected Facebook Page. Reconnect and select a Page in Settings → Connections.',
+            statusCode: 400,
+          };
+          return NextResponse.json(errRes, { status: 400 });
+        }
+
+        const armedFacebookLivestream = await getArmedFacebookLivestreamForUser(userId);
+        const armResult = await armFacebookLivestream(
+          pageAccessToken,
+          pageId,
+          updated,
+          armedFacebookLivestream
+        );
+        if (armResult.ok === false) {
+          if (armResult.statusCode === 502) {
+            const errRes: ApiError = {
+              error: 'Bad Gateway',
+              message: armResult.details,
+              statusCode: 502,
+            };
+            return NextResponse.json(errRes, { status: 502 });
+          }
+          const errRes: ApiError = {
+            error: armResult.statusCode === 409 ? 'Conflict' : 'Bad Request',
+            message: armResult.details,
+            statusCode: armResult.statusCode,
+          };
+          return NextResponse.json(errRes, { status: armResult.statusCode });
+        }
+        updated = armResult.livestream;
+      } else {
+        syncFacebookDeferredArmSchedule(updated);
+      }
+    }
 
     const response: ApiResponse<Livestream> = {
       data: updated,
