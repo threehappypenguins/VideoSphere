@@ -31,6 +31,9 @@
 # Add optional keys as stack environment variables only when you use that feature.
 #
 # GHCR private images: log the Portainer host into ghcr.io first (Registries).
+#
+# Multi-arch image: linux/amd64, linux/arm64 (Odroid HC4), linux/arm/v7 (HC2),
+# linux/arm/v6. Docker pulls the variant that matches your host automatically.
 # =============================================================================
 
 services:

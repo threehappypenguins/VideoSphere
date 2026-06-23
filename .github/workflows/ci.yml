@@ -31,7 +31,7 @@ jobs:
     steps:
       - name: Resolve PR head SHA
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: pr } = await github.rest.pulls.get({
@@ -43,7 +43,7 @@ jobs:
 
       - name: Start PR check
         id: check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           HEAD_SHA: ${{ steps.pr.outputs.sha }}
           CHECK_NAME: ${{ env.CHECK_NAME }}
@@ -103,7 +103,7 @@ jobs:
 
       - name: Complete PR check
         if: always() && steps.check.outputs.id != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           CHECK_RUN_ID: ${{ steps.check.outputs.id }}
           CHECK_NAME: ${{ env.CHECK_NAME }}
