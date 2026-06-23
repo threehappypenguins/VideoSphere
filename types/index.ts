@@ -620,7 +620,7 @@ export interface Livestream {
   /**
    * RTMPS ingest URL returned when the Facebook `LiveVideo` is created
    * (`rtmps://live-api-s.facebook.com:443/rtmp/FB-<id>-0-<token>`). Single-use per object;
-   * there is no reusable/persistent equivalent.
+   * there is no reusable/persistent equivalent. Encrypted at rest in the livestream document JSON.
    */
   facebookStreamUrl?: string;
   /** ISO timestamp when the Facebook `LiveVideo` object was created (arm time). */

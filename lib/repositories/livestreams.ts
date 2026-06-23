@@ -17,6 +17,10 @@ import type {
   PlatformUploadVisibility,
 } from '@/types';
 import { normalizeAutoPromoteToMainKeyMinutes } from '@/lib/livestreams/auto-promote-main-key';
+import {
+  encryptFacebookStreamUrlForStorage,
+  readFacebookStreamUrlFromStorage,
+} from '@/lib/livestreams/facebook-stream-url-storage';
 import { mergeLivestreamPlatformsPatch } from '@/lib/livestream-upload-metadata';
 import { connectToDatabase } from '@/lib/mongodb';
 import { LivestreamModel, type LivestreamDocument } from '@/lib/models/Livestream';
@@ -60,6 +64,7 @@ interface StoredLivestreamDocument {
   autoPromoteToMainKeyMinutes?: number;
   youtubeLifecycleStatus?: string;
   facebookLiveVideoId?: string;
+  /** Encrypted Facebook RTMPS ingest URL at rest (see {@link encryptFacebookStreamUrlForStorage}). */
   facebookStreamUrl?: string;
   facebookArmedAt?: string;
   facebookLifecycleStatus?: string;
@@ -83,8 +88,15 @@ function assertLivestreamDocumentJsonWithinLimit(json: string): void {
   }
 }
 
-function parseStoredLivestreamDocument(raw: string): StoredLivestreamDocument {
+function parseStoredLivestreamDocument(
+  raw: string,
+  livestreamId = 'unknown'
+): StoredLivestreamDocument {
   const parsed = JSON.parse(raw) as Partial<StoredLivestreamDocument>;
+  const facebookStreamUrl =
+    typeof parsed.facebookStreamUrl === 'string' && parsed.facebookStreamUrl.trim() !== ''
+      ? readFacebookStreamUrlFromStorage(parsed.facebookStreamUrl, livestreamId)
+      : undefined;
   return {
     status: parsed.status ?? 'draft',
     title: typeof parsed.title === 'string' ? parsed.title : '',
@@ -147,9 +159,7 @@ function parseStoredLivestreamDocument(raw: string): StoredLivestreamDocument {
     ...(typeof parsed.facebookLiveVideoId === 'string' && parsed.facebookLiveVideoId.trim() !== ''
       ? { facebookLiveVideoId: parsed.facebookLiveVideoId.trim() }
       : {}),
-    ...(typeof parsed.facebookStreamUrl === 'string' && parsed.facebookStreamUrl.trim() !== ''
-      ? { facebookStreamUrl: parsed.facebookStreamUrl.trim() }
-      : {}),
+    ...(facebookStreamUrl ? { facebookStreamUrl } : {}),
     ...(typeof parsed.facebookArmedAt === 'string' && parsed.facebookArmedAt.trim() !== ''
       ? { facebookArmedAt: parsed.facebookArmedAt.trim() }
       : {}),
@@ -204,7 +214,9 @@ function storedDocumentFromLivestream(livestream: Livestream): StoredLivestreamD
     ...(livestream.facebookLiveVideoId
       ? { facebookLiveVideoId: livestream.facebookLiveVideoId }
       : {}),
-    ...(livestream.facebookStreamUrl ? { facebookStreamUrl: livestream.facebookStreamUrl } : {}),
+    ...(livestream.facebookStreamUrl
+      ? { facebookStreamUrl: encryptFacebookStreamUrlForStorage(livestream.facebookStreamUrl) }
+      : {}),
     ...(livestream.facebookArmedAt ? { facebookArmedAt: livestream.facebookArmedAt } : {}),
     ...(livestream.facebookLifecycleStatus
       ? { facebookLifecycleStatus: livestream.facebookLifecycleStatus }
@@ -214,7 +226,7 @@ function storedDocumentFromLivestream(livestream: Livestream): StoredLivestreamD
 
 /** Map a MongoDB document to the shared Livestream type. */
 function mongoDocToLivestream(doc: LivestreamDocument): Livestream {
-  const parsed = parseStoredLivestreamDocument(doc.document);
+  const parsed = parseStoredLivestreamDocument(doc.document, String(doc._id));
   return {
     id: String(doc._id),
     userId: String(doc.userId),

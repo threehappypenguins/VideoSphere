@@ -83,6 +83,17 @@ async function persistScheduleProgress(
   }
 }
 
+async function rollbackScheduleToDraft(livestreamId: string): Promise<void> {
+  try {
+    await updateLivestream(livestreamId, { status: 'draft' });
+  } catch (err) {
+    console.error(
+      '[POST /api/livestreams/:id/schedule] failed to roll back livestream to draft after Facebook arm failure',
+      err
+    );
+  }
+}
+
 /**
  * Handles POST requests for this route.
  * @param req - The incoming request object.
@@ -305,6 +316,46 @@ export async function POST(
       lifecycleResult.ok === true ? (lifecycleResult.lifeCycleStatus ?? 'ready') : 'ready';
   }
 
+  let facebookImmediateArm: { pageAccessToken: string; pageId: string } | null = null;
+  if (targetsFacebook && facebookArmDecision?.kind === 'immediate') {
+    const facebookAccount = await getConnectedAccountWithTokens(userId, 'facebook');
+    if (!facebookAccount) {
+      const errRes: ApiError = {
+        error: 'Unauthorized',
+        message: 'Facebook is not connected',
+        statusCode: 401,
+      };
+      return NextResponse.json(errRes, { status: 401 });
+    }
+
+    let pageAccessToken: string;
+    try {
+      const tokens = await refreshTokenIfNeeded(facebookAccount);
+      pageAccessToken = tokens.accessToken.trim();
+    } catch (err) {
+      console.error('[POST /api/livestreams/:id/schedule] Facebook token refresh failed', err);
+      const errRes: ApiError = {
+        error: 'Unauthorized',
+        message: 'Facebook access token expired. Reconnect Facebook in Settings → Connections.',
+        statusCode: 401,
+      };
+      return NextResponse.json(errRes, { status: 401 });
+    }
+
+    const pageId = resolveFacebookPageId(facebookAccount);
+    if (!pageId) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message:
+          'Facebook livestreaming requires a connected Facebook Page. Reconnect and select a Page in Settings → Connections.',
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+
+    facebookImmediateArm = { pageAccessToken, pageId };
+  }
+
   try {
     const schedulePatch: UpdateLivestreamPatch = {
       status: 'scheduled',
@@ -348,50 +399,16 @@ export async function POST(
     }
 
     if (targetsFacebook && facebookArmDecision) {
-      if (facebookArmDecision.kind === 'immediate') {
-        const facebookAccount = await getConnectedAccountWithTokens(userId, 'facebook');
-        if (!facebookAccount) {
-          const errRes: ApiError = {
-            error: 'Unauthorized',
-            message: 'Facebook is not connected',
-            statusCode: 401,
-          };
-          return NextResponse.json(errRes, { status: 401 });
-        }
-
-        let pageAccessToken: string;
-        try {
-          const tokens = await refreshTokenIfNeeded(facebookAccount);
-          pageAccessToken = tokens.accessToken.trim();
-        } catch (err) {
-          console.error('[POST /api/livestreams/:id/schedule] Facebook token refresh failed', err);
-          const errRes: ApiError = {
-            error: 'Unauthorized',
-            message: 'Facebook access token expired. Reconnect Facebook in Settings → Connections.',
-            statusCode: 401,
-          };
-          return NextResponse.json(errRes, { status: 401 });
-        }
-
-        const pageId = resolveFacebookPageId(facebookAccount);
-        if (!pageId) {
-          const errRes: ApiError = {
-            error: 'Bad Request',
-            message:
-              'Facebook livestreaming requires a connected Facebook Page. Reconnect and select a Page in Settings → Connections.',
-            statusCode: 400,
-          };
-          return NextResponse.json(errRes, { status: 400 });
-        }
-
+      if (facebookImmediateArm) {
         const armedFacebookLivestream = await getArmedFacebookLivestreamForUser(userId);
         const armResult = await armFacebookLivestream(
-          pageAccessToken,
-          pageId,
+          facebookImmediateArm.pageAccessToken,
+          facebookImmediateArm.pageId,
           updated,
           armedFacebookLivestream
         );
         if (armResult.ok === false) {
+          await rollbackScheduleToDraft(livestreamId);
           if (armResult.statusCode === 502) {
             const errRes: ApiError = {
               error: 'Bad Gateway',

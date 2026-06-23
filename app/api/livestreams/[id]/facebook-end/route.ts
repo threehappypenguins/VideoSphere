@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { endFacebookLiveVideo } from '@/lib/platforms/facebook-livestream-api';
 import { resolveFacebookPageId } from '@/lib/platforms/facebook-oauth';
+import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import { getConnectedAccountWithTokens } from '@/lib/repositories/connected-accounts';
 import { getLivestreamById, updateLivestream } from '@/lib/repositories/livestreams';
 import type { ApiError, ApiResponse, Livestream } from '@/types';
@@ -56,11 +57,22 @@ export async function POST(
   if (account) {
     const pageId = resolveFacebookPageId(account);
     if (pageId) {
-      const endResult = await endFacebookLiveVideo(account.accessToken, facebookLiveVideoId);
-      if (endResult.ok === false) {
+      try {
+        const tokens = await refreshTokenIfNeeded(account);
+        const pageAccessToken = tokens.accessToken.trim();
+        if (pageAccessToken.length > 0) {
+          const endResult = await endFacebookLiveVideo(pageAccessToken, facebookLiveVideoId);
+          if (endResult.ok === false) {
+            console.warn(
+              '[POST /api/livestreams/:id/facebook-end] Facebook end_live_video failed:',
+              endResult.details
+            );
+          }
+        }
+      } catch (err) {
         console.warn(
-          '[POST /api/livestreams/:id/facebook-end] Facebook end_live_video failed:',
-          endResult.details
+          '[POST /api/livestreams/:id/facebook-end] Skipping Facebook end_live_video after token refresh failed:',
+          err
         );
       }
     }

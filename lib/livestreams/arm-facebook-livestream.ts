@@ -76,7 +76,7 @@ export async function armFacebookLivestream(
 
   const updated = await updateLivestream(livestream.id, {
     facebookLiveVideoId: created.id,
-    facebookStreamUrl: created.streamUrl,
+    facebookStreamUrl: created.secureStreamUrl,
     facebookArmedAt: new Date().toISOString(),
     facebookLifecycleStatus: 'LIVE_NOW',
   });

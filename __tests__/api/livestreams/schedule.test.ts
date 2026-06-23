@@ -38,6 +38,13 @@ vi.mock('@/lib/repositories/connected-accounts', () => ({
   getConnectedAccountWithTokens: vi.fn(),
 }));
 
+vi.mock('@/lib/platforms/token-refresh', () => ({
+  refreshTokenIfNeeded: vi.fn(async (account: { accessToken: string }) => ({
+    accessToken: account.accessToken,
+    refreshToken: 'refresh',
+  })),
+}));
+
 vi.mock('@/lib/platforms/youtube-api', () => ({
   requireYouTubeConnection: vi.fn(),
   youtubeUpstreamErrorResponse: vi.fn((details: string) =>
@@ -425,5 +432,58 @@ describe('POST /api/livestreams/[id]/schedule', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).message).toContain('automatic stream preparation');
     expect(updateLivestream).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 before scheduling when facebook is not connected', async () => {
+    vi.mocked(getLivestreamById).mockResolvedValue({
+      ...baseDraftLivestream(),
+      targets: ['facebook'],
+    });
+    vi.mocked(getConnectedAccountWithTokens).mockResolvedValue(null);
+
+    const res = await POST(makeScheduleRequest(), makeParams());
+    expect(res.status).toBe(401);
+    expect((await res.json()).message).toBe('Facebook is not connected');
+    expect(updateLivestream).not.toHaveBeenCalled();
+    expect(armFacebookLivestream).not.toHaveBeenCalled();
+  });
+
+  it('rolls back to draft when immediate facebook arm fails after scheduling', async () => {
+    vi.mocked(getLivestreamById).mockResolvedValue({
+      ...baseDraftLivestream(),
+      targets: ['facebook'],
+    });
+    vi.mocked(getConnectedAccountWithTokens).mockImplementation(async (_userId, platform) => {
+      if (platform === 'facebook') {
+        return {
+          ...makeConnectedAccount(),
+          platform: 'facebook',
+          accessToken: 'page-token',
+          facebookTargetType: 'page',
+          facebookPageId: 'page-123',
+        };
+      }
+      return makeConnectedAccount();
+    });
+    vi.mocked(updateLivestream).mockImplementation(async (_id, patch) => ({
+      ...baseDraftLivestream(),
+      targets: ['facebook'],
+      ...patch,
+      status: patch.status ?? 'draft',
+    }));
+    vi.mocked(armFacebookLivestream).mockResolvedValue({
+      ok: false,
+      details: 'quota exceeded',
+      statusCode: 502,
+    });
+
+    const res = await POST(makeScheduleRequest(), makeParams());
+    expect(res.status).toBe(502);
+    expect((await res.json()).message).toBe('quota exceeded');
+    expect(updateLivestream).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ status: 'scheduled' })
+    );
+    expect(updateLivestream).toHaveBeenCalledWith(expect.any(String), { status: 'draft' });
   });
 });
