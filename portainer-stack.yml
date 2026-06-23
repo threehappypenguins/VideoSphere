@@ -36,6 +36,26 @@
 #
 # Multi-arch image: linux/amd64, linux/arm64 (Odroid HC4 and similar).
 # Docker pulls the variant that matches your host. 32-bit ARM (e.g. HC2) is not supported.
+#
+# DATA LOCATION (backups):
+#   VideoSphere itself is stateless — uploaded media goes to Cloudflare R2, not local
+#   disk, so the "app" container has nothing to back up and uses no bind mount.
+#   MongoDB is the only thing that needs to live on disk. By default it's stored in a
+#   named Docker volume managed by Docker (usually under /var/lib/docker/volumes/...).
+#
+#   To control exactly where that data lives on your host (e.g. so it's covered by your
+#   existing backup job), this stack bind-mounts it instead, under:
+#     /srv/AppData/videosphere/mongo
+#
+#   Before deploying, create that folder on the Portainer host:
+#     mkdir -p /srv/AppData/videosphere/mongo
+#
+#   If you'd rather use a Docker-managed named volume instead (no host path to manage),
+#   replace the "volumes:" line under the mongo service with:
+#     - mongo-data:/data/db
+#   and add this at the bottom of the file:
+#     volumes:
+#       mongo-data:
 # =============================================================================
 
 services:
@@ -92,12 +112,14 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: videosphere
     volumes:
-      - mongo-data:/data/db
+      - mongo-data:/data/db # remove this line if using your own bind mount
+      # - /srv/AppData/videosphere/mongo:/data/db # modify address to the left of the colon accordingly
     healthcheck:
       test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+# Remove the volumes block below if using your own bind mount instead
 volumes:
   mongo-data:
