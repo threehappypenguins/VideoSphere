@@ -5,9 +5,13 @@
 # Build: docker build -t videosphere .
 # Run:   docker run --name videosphere -p 9624:9624 --env-file .env.local videosphere
 #
+# Test one platform locally before CI (requires buildx + QEMU):
+#   ./scripts/docker-build-platform.sh linux/arm/v7
+#
 # Multi-arch homelab targets (Odroid HC4 = arm64, HC2 = arm/v7):
-#   linux/amd64, linux/arm64 → Node 24 (official alpine images)
-#   linux/arm/v7             → Node 22 LTS + Webpack (Node 24 / Turbopack lack 32-bit ARM)
+#   linux/amd64, linux/arm64 → Node 24 on Alpine
+#   linux/arm/v7             → Node 22 on Debian (glibc). Tailwind/lightningcss has
+#     no musl binary for 32-bit ARM; Alpine cannot build arm/v7.
 # =============================================================================
 
 ARG NODE_VERSION=24.16.0
@@ -15,7 +19,7 @@ ARG NODE_VERSION_ARM32=22.22.0
 
 FROM node:${NODE_VERSION}-alpine AS base-amd64
 FROM node:${NODE_VERSION}-alpine AS base-arm64
-FROM node:${NODE_VERSION_ARM32}-alpine AS base-arm
+FROM node:${NODE_VERSION_ARM32}-bookworm-slim AS base-arm
 
 ARG TARGETARCH
 FROM base-${TARGETARCH} AS base
@@ -26,6 +30,7 @@ RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* .npmrc* ./
 # arm/v7 images use Node 22; relax engines only for those builds.
+ENV HUSKY=0
 RUN echo "engine-strict=false" >> .npmrc \
     && pnpm install --frozen-lockfile
 
@@ -55,7 +60,14 @@ RUN if [ "$TARGETARCH" = "arm" ]; then \
 
 # Stage 3: production runtime
 FROM base AS runner
-RUN apk add --no-cache ffmpeg
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm" ]; then \
+      apt-get update \
+      && apt-get install -y --no-install-recommends ffmpeg \
+      && rm -rf /var/lib/apt/lists/*; \
+    else \
+      apk add --no-cache ffmpeg; \
+    fi
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
