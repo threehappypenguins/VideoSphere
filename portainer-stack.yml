@@ -10,6 +10,8 @@
 # REQUIRED stack environment variables:
 #   MONGO_ROOT_PASSWORD   strong password (used by Mongo + app connection string)
 #   NEXT_PUBLIC_APP_URL   URL you use in the browser, e.g. http://192.168.1.38:9624
+#                         Must match how you access the app (http vs https). HTTP LAN
+#                         URLs require http:// here so session cookies are accepted.
 #   JWT_SECRET            node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 #   TOKEN_ENCRYPTION_KEY  node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 #   R2_ACCOUNT_ID         Cloudflare R2 staging storage (uploads do not work without R2)
@@ -84,7 +86,7 @@ services:
     container_name: videosphere-mongo
     restart: unless-stopped
     ports:
-      - '127.0.0.1:27017:27017'
+      - '27017:27017'
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}

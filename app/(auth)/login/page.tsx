@@ -80,7 +80,9 @@ export default function LoginPage() {
       message: 'Login successful! Redirecting...',
       type: 'success',
     });
-    setTimeout(() => router.push(redirectTo ?? '/dashboard'), 1000);
+    setTimeout(() => {
+      window.location.replace(redirectTo ?? '/dashboard');
+    }, 1000);
   };
 
   const handleCredentialsSubmit = async (e: React.FormEvent<HTMLFormElement>) => {

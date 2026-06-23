@@ -19,6 +19,7 @@ vi.mock('next/navigation', () => ({
 import { useRouter, useSearchParams } from 'next/navigation';
 
 const mockPush = vi.fn();
+const mockLocationReplace = vi.fn();
 const mockFetch = vi.fn();
 
 beforeEach(() => {
@@ -31,6 +32,11 @@ beforeEach(() => {
   });
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) });
+  mockLocationReplace.mockReset();
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { replace: mockLocationReplace },
+  });
 });
 
 afterEach(() => {
@@ -187,7 +193,7 @@ describe('LoginPage Component', () => {
 
       await waitFor(
         () => {
-          expect(mockPush).toHaveBeenCalledWith('/dashboard');
+          expect(mockLocationReplace).toHaveBeenCalledWith('/dashboard');
         },
         { timeout: 2000 }
       );
@@ -208,7 +214,7 @@ describe('LoginPage Component', () => {
 
       await waitFor(
         () => {
-          expect(mockPush).toHaveBeenCalledWith('/profile/connections');
+          expect(mockLocationReplace).toHaveBeenCalledWith('/profile/connections');
         },
         { timeout: 2000 }
       );
@@ -229,7 +235,7 @@ describe('LoginPage Component', () => {
 
       await waitFor(
         () => {
-          expect(mockPush).toHaveBeenCalledWith('/dashboard');
+          expect(mockLocationReplace).toHaveBeenCalledWith('/dashboard');
         },
         { timeout: 2000 }
       );

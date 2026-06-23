@@ -5,6 +5,24 @@
 // =============================================================================
 
 /**
+ * Whether auth cookies should include the Secure attribute.
+ * Browsers reject Secure cookies on plain HTTP — common for homelab LAN deploys.
+ * @returns True when cookies should be marked Secure.
+ */
+function shouldUseSecureCookies(): boolean {
+  const explicit = process.env.JWT_SESSION_COOKIE_SECURE?.trim().toLowerCase();
+  if (explicit === 'true') return true;
+  if (explicit === 'false') return false;
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (appUrl) {
+    return appUrl.startsWith('https://');
+  }
+
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
  * Returns the configured session cookie name.
  *
  * The optional projectId argument is kept for backward compatibility with
@@ -28,7 +46,6 @@ export function getSessionCookieOptions(): {
   secure: boolean;
   maxAge: number;
 } {
-  const isProduction = process.env.NODE_ENV === 'production';
   const defaultMaxAgeSeconds = 60 * 60 * 24 * 7;
   const parsed = Number(process.env.JWT_SESSION_MAX_AGE_SECONDS);
   const maxAge = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : defaultMaxAgeSeconds;
@@ -36,7 +53,7 @@ export function getSessionCookieOptions(): {
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
-    secure: isProduction,
+    secure: shouldUseSecureCookies(),
     maxAge,
   };
 }
@@ -70,12 +87,11 @@ export function getTotpTrustCookieOptions(maxAgeSeconds: number): {
   secure: boolean;
   maxAge: number;
 } {
-  const isProduction = process.env.NODE_ENV === 'production';
   return {
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
-    secure: isProduction,
+    secure: shouldUseSecureCookies(),
     maxAge: maxAgeSeconds,
   };
 }
