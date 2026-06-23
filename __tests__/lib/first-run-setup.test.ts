@@ -22,6 +22,12 @@ describe('first-run-setup', () => {
     expect(mockHasAnyUsers).toHaveBeenCalledTimes(1);
   });
 
+  it('returns false when the user count cannot be read', async () => {
+    mockHasAnyUsers.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+
+    await expect(isFirstRunSetupPending()).resolves.toBe(false);
+  });
+
   it('returns null setup token when setup is already complete', async () => {
     mockHasAnyUsers.mockResolvedValueOnce(true);
 

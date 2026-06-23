@@ -5,10 +5,15 @@ import { ensureSetupTokenForFirstRun, hasAnyUsers } from '@/lib/repositories/inv
 /**
  * Returns whether this instance still needs first-run admin setup.
  * Deduplicated per React request via `cache()` so layouts and pages share one `hasAnyUsers()` check.
+ * When the database is unreachable, returns false so public pages (e.g. the landing page) still render.
  * @returns True when no user accounts exist yet.
  */
 export const isFirstRunSetupPending = cache(async (): Promise<boolean> => {
-  return !(await hasAnyUsers());
+  try {
+    return !(await hasAnyUsers());
+  } catch {
+    return false;
+  }
 });
 
 /**
