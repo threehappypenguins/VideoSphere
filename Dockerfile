@@ -24,8 +24,10 @@ COPY next.config.* tsconfig.json postcss.config.* ./
 COPY public ./public
 COPY app ./app
 COPY components ./components
+COPY hooks ./hooks
 COPY lib ./lib
 COPY types ./types
+COPY proxy.ts instrumentation.ts ./
 # Build-time env (only NEXT_PUBLIC_* and vars needed at build)
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
