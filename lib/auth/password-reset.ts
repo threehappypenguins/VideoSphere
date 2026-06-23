@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { DEFAULT_LOCAL_APP_URL } from '@/lib/app-port';
 import {
   FORGOT_PASSWORD_RATE_LIMIT_MAX,
   FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS,
@@ -35,7 +36,7 @@ export function getAppBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (envUrl) return envUrl.replace(/\/+$/, '');
 
-  return 'http://localhost:3000';
+  return DEFAULT_LOCAL_APP_URL;
 }
 
 /**

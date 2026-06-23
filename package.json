@@ -8,9 +8,9 @@
   },
   "scripts": {
     "preinstall": "node -e \"if(!process.env.npm_execpath?.includes('pnpm')){console.error('\\n  ✖ This project requires pnpm — npm is not supported.\\n\\n  Run the following instead:\\n    rm -rf node_modules\\n    pnpm install\\n\\n  If you don\\'t have pnpm: npm i -g pnpm\\n');process.exit(1)}\"",
-    "dev": "next dev --webpack",
+    "dev": "next dev --webpack -p 9624",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 9624",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

@@ -21,6 +21,6 @@ describe('getAppBaseUrl', () => {
   it('defaults to localhost when NEXT_PUBLIC_APP_URL is unset', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
 
-    expect(getAppBaseUrl()).toBe('http://localhost:3000');
+    expect(getAppBaseUrl()).toBe('http://localhost:9624');
   });
 });

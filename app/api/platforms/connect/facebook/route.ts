@@ -7,7 +7,7 @@
 // then redirects the browser to Facebook's consent screen.
 //
 // Required env vars: FACEBOOK_APP_ID
-// Callback URL: http://localhost:3000/api/platforms/callback/facebook
+// Callback URL: http://localhost:9624/api/platforms/callback/facebook
 // =============================================================================
 
 import { randomBytes } from 'node:crypto';

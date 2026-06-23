@@ -14,7 +14,7 @@
 // The connection is stored via createConnectedAccount (tokens encrypted at rest).
 //
 // Required env vars: VIMEO_CLIENT_ID, VIMEO_CLIENT_SECRET
-// Callback URL: http://localhost:3000/api/platforms/callback/vimeo
+// Callback URL: http://localhost:9624/api/platforms/callback/vimeo
 // =============================================================================
 
 import { NextRequest } from 'next/server';

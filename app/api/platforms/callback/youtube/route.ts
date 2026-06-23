@@ -10,7 +10,7 @@
 // the connection (tokens encrypted at rest by the repository).
 //
 // Required env vars: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET
-// Callback URL: http://localhost:3000/api/platforms/callback/youtube
+// Callback URL: http://localhost:9624/api/platforms/callback/youtube
 // =============================================================================
 
 import { NextRequest } from 'next/server';

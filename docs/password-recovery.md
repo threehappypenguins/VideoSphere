@@ -57,7 +57,7 @@ Example log line:
 
 ```text
 ⚠️  PASSWORD RESET TOKEN for admin@example.com — expires in 15 min
-URL: http://localhost:3000/reset-password?token=<token>
+URL: http://localhost:9624/reset-password?token=<token>
 ```
 
 Open the URL, set a new password, and log in. Forgot-password tokens expire in **15 minutes** and are **single-use**.

@@ -52,7 +52,7 @@ For Facebook OAuth credentials:
 
 1. Create an app in Facebook Developer Console.
 2. Enable "Manage Everything on your Page" as a use case and configure OAuth redirect URI:
-   - `http://localhost:3000/api/platforms/callback/facebook` (local)
+   - `http://localhost:9624/api/platforms/callback/facebook` (local)
 3. Copy the app credentials into:
    - `FACEBOOK_APP_ID`
    - `FACEBOOK_APP_SECRET`
@@ -113,8 +113,8 @@ pnpm dev
 
 Open the app in your browser using the address you will actually use to reach the server:
 
-- **Same machine as the app:** [http://localhost:3000](http://localhost:3000)
-- **Homelab / LAN (Odroid, NAS, Pi, etc.):** `http://<host-ip>:3000` — for example `http://192.168.1.38:3000`
+- **Same machine as the app:** [http://localhost:9624](http://localhost:9624)
+- **Homelab / LAN (Odroid, NAS, Pi, etc.):** `http://<host-ip>:9624` — for example `http://192.168.1.38:9624`
 
 Use whichever address matches how you browse to the box. Many self-hosted setups never use `localhost` because the app runs on another device on your network.
 
@@ -122,7 +122,7 @@ Use whichever address matches how you browse to the box. Many self-hosted setups
 
 VideoSphere uses invite-only registration after the first admin exists. Until then, the instance is in **first-run setup** mode.
 
-1. Open the app at the address you use to reach the host (for example `http://192.168.1.38:3000` on a homelab, or your cloud VM IP while your firewall allows only your address).
+1. Open the app at the address you use to reach the host (for example `http://192.168.1.38:9624` on a homelab, or your cloud VM IP while your firewall allows only your address).
 2. Click **Set up VideoSphere** on the home page, or go to `/setup` — both take you to the admin creation form.
 3. Create the first admin account (email/password or Google OAuth).
 
@@ -165,9 +165,9 @@ On **Linux**, run the app container with host networking so it can reach LAN hos
 docker run --name videosphere --network host --env-file .env.local videosphere
 ```
 
-The app listens on port 3000 on the host directly; do not add `-p`—published ports are ignored in host networking mode.
+The app listens on port 9624 on the host directly; do not add `-p`—published ports are ignored in host networking mode.
 
-With Docker Compose, uncomment `network_mode: host` on the `app` service (see `docker-compose.yml`). Compose ignores `ports:` in host mode—the app listens on port 3000 on the host directly; leave or remove the `ports` block, but do not expect publish mappings to work.
+With Docker Compose, uncomment `network_mode: host` on the `app` service (see `docker-compose.yml`). Compose ignores `ports:` in host mode—the app listens on port 9624 on the host directly; leave or remove the `ports` block, but do not expect publish mappings to work.
 
 `--network host` is **Linux-only**. On macOS and Windows, Docker Desktop’s “host” network is a VM, so LAN reachability to a NAS depends on your Docker and network setup.
 

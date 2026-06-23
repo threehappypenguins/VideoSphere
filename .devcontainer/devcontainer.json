@@ -3,9 +3,9 @@
   "image": "mcr.microsoft.com/devcontainers/javascript-node:24",
 
   // Forward the Next.js dev server port
-  "forwardPorts": [3000],
+  "forwardPorts": [9624],
   "portsAttributes": {
-    "3000": {
+    "9624": {
       "label": "Next.js Dev Server",
       "onAutoForward": "notify"
     }

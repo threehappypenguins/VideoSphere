@@ -6,7 +6,7 @@
 // tokens, fetches the user profile, stores a compact pending setup session cookie,
 // and uses an HTML landing page before navigating to the setup picker.
 // Required env vars: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET
-// Callback URL: http://localhost:3000/api/platforms/callback/facebook
+// Callback URL: http://localhost:9624/api/platforms/callback/facebook
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';

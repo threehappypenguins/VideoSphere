@@ -8,9 +8,9 @@ services:
     restart: unless-stopped
     # For SMB backup to LAN NAS/Windows shares (TCP 445) on Linux, uncomment:
     # network_mode: host
-    # With network_mode: host, Compose ignores `ports:` — the app binds on the host (e.g. :3000) directly.
+    # With network_mode: host, Compose ignores `ports:` — the app binds on the host (e.g. :9624) directly.
     ports:
-      - '3000:3000'
+      - '9624:9624'
     env_file:
       - .env.local
     environment:

@@ -7,7 +7,7 @@
 // then redirects the browser to Vimeo's consent screen.
 //
 // Required env vars: VIMEO_CLIENT_ID
-// Callback URL: http://localhost:3000/api/platforms/callback/vimeo
+// Callback URL: http://localhost:9624/api/platforms/callback/vimeo
 // =============================================================================
 
 import { randomBytes } from 'node:crypto';

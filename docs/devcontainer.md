@@ -73,7 +73,7 @@ These settings are pre-applied so the entire team works consistently from day on
 - **Node.js >= 24.0.0** (LTS) — matches the project's `.nvmrc` and `engines` field
 - **pnpm** — enabled via Corepack; `pnpm install` runs automatically after container creation
 - **Husky git hooks** — set up automatically as part of `pnpm install` (via the `prepare` script)
-- **Port 3000 forwarded** — labelled "Next.js Dev Server" in the Ports panel
+- **Port 9624 forwarded** — labelled "Next.js Dev Server" in the Ports panel
 
 ## Troubleshooting
 
@@ -91,10 +91,10 @@ These settings are pre-applied so the entire team works consistently from day on
 - Increase Docker Desktop memory allocation (Settings → Resources)
 - On macOS/Windows, ensure you're using the recommended file sharing method
 
-### Can't access localhost:3000
+### Can't access localhost:9624
 
 - Make sure the Next.js dev server is running (`pnpm dev`)
-- Check that port 3000 is forwarded in the Ports panel (bottom of VS Code)
+- Check that port 9624 is forwarded in the Ports panel (bottom of VS Code)
 
 ## Benefits for Teams
 

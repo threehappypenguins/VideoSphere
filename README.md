@@ -33,7 +33,7 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see your app.
+Open [http://localhost:9624](http://localhost:9624) to see your app.
 
 ## Project Structure
 
@@ -160,8 +160,8 @@ After pushing to main, check the Actions run named Deploy Docs To GitHub Pages.
 
 ## Docker
 
-- **Run the app in a container:** `docker build -t videosphere .` then `docker run --name videosphere -p 3000:3000 --env-file .env.local videosphere`.
-- **SMB backup from Docker (Linux):** add `--network host` so the container can reach NAS/Windows shares on your LAN (see [SETUP.md](SETUP.md#smb-backup-docker--lan-reachability)). Published port mappings such as `-p 3000:3000` are ignored in host networking mode—the app listens on the host’s port 3000 directly. On macOS/Windows Docker Desktop, host networking does not expose the physical LAN the same way.
+- **Run the app in a container:** `docker build -t videosphere .` then `docker run --name videosphere -p 9624:9624 --env-file .env.local videosphere`.
+- **SMB backup from Docker (Linux):** add `--network host` so the container can reach NAS/Windows shares on your LAN (see [SETUP.md](SETUP.md#smb-backup-docker--lan-reachability)). Published port mappings such as `-p 9624:9624` are ignored in host networking mode—the app listens on the host’s port 9624 directly. On macOS/Windows Docker Desktop, host networking does not expose the physical LAN the same way.
 - **Password recovery (no SMTP):** see [docs/password-recovery.md](docs/password-recovery.md) for CLI password reset, log-based forgot-password, and admin reset links.
 
 ## Contributing
