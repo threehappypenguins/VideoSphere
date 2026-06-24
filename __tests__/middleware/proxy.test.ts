@@ -99,6 +99,12 @@ describe('Proxy Middleware', () => {
       const result = await proxy(request);
 
       expect(result.status).toBe(200);
+      expect(global.fetch).toHaveBeenCalledWith(
+        new URL('http://127.0.0.1:9624/api/auth/session'),
+        expect.objectContaining({
+          headers: { cookie: 'videosphere_session=valid_session_token_xyz' },
+        })
+      );
     });
 
     it('should redirect to login when session verification fails', async () => {

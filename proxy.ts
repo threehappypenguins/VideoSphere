@@ -17,6 +17,7 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getInternalAppOrigin } from '@/lib/app-port';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
 /**
@@ -26,7 +27,7 @@ import { getSessionCookieName } from '@/lib/auth-session-cookie';
  */
 async function getSessionUser(request: NextRequest): Promise<{ $id: string } | null> {
   try {
-    const res = await fetch(new URL('/api/auth/session', request.url), {
+    const res = await fetch(new URL('/api/auth/session', getInternalAppOrigin()), {
       headers: { cookie: request.headers.get('cookie') ?? '' },
     });
     if (!res.ok) return null;
@@ -45,7 +46,7 @@ async function getSessionRoleForAdminGate(
   request: NextRequest
 ): Promise<'admin' | 'user' | 'unauthenticated' | 'error'> {
   try {
-    const res = await fetch(new URL('/api/auth/session-role', request.url), {
+    const res = await fetch(new URL('/api/auth/session-role', getInternalAppOrigin()), {
       headers: { cookie: request.headers.get('cookie') ?? '' },
     });
     if (res.status === 401) return 'unauthenticated';

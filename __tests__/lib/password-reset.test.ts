@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getAppBaseUrl } from '@/lib/app-port';
+import { getAppBaseUrl, getInternalAppOrigin } from '@/lib/app-port';
 
 describe('getAppBaseUrl', () => {
   afterEach(() => {
@@ -22,5 +22,23 @@ describe('getAppBaseUrl', () => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '');
 
     expect(getAppBaseUrl()).toBe('http://localhost:9624');
+  });
+});
+
+describe('getInternalAppOrigin', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('uses PORT when set', () => {
+    vi.stubEnv('PORT', '3000');
+
+    expect(getInternalAppOrigin()).toBe('http://127.0.0.1:3000');
+  });
+
+  it('defaults to APP_PORT when PORT is unset', () => {
+    vi.stubEnv('PORT', '');
+
+    expect(getInternalAppOrigin()).toBe('http://127.0.0.1:9624');
   });
 });

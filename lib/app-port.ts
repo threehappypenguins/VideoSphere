@@ -16,3 +16,14 @@ export function getAppBaseUrl(): string {
 
   return DEFAULT_LOCAL_APP_URL;
 }
+
+/**
+ * Loopback origin for server-side fetches from `proxy.ts` to `/api/*` routes.
+ * Uses `request.url` for browser redirects; use this for in-process session checks so
+ * the container does not need to reach its own public URL (hairpin NAT / NPM).
+ * @returns `http://127.0.0.1:<PORT>` for the running Next.js server.
+ */
+export function getInternalAppOrigin(): string {
+  const port = process.env.PORT?.trim() || String(APP_PORT);
+  return `http://127.0.0.1:${port}`;
+}
