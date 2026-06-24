@@ -19,3 +19,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for branch workflow, commit conventions, 
 ## License
 
 This project is open source.
+
+If this project has helped you, please feel free to send me a tip!
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/threehappypenguins)
