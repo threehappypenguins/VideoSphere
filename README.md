@@ -12,10 +12,6 @@ Full documentation lives at **[videosphere.sarahpoulin.ca](https://videosphere.s
 
 To deploy a pre-built container in production, see the **[Deployment Guide](https://videosphere.sarahpoulin.ca/deployment-guide.html)**.
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for branch workflow, commit conventions, and pull request requirements.
-
 ## License
 
 This project is open source.
