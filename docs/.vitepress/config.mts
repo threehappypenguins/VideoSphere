@@ -35,6 +35,10 @@ export default defineConfig({
           { text: 'Deployment Guide', link: '/deployment-guide' },
         ],
       },
+      {
+        text: 'Credentials Setup',
+        items: [{ text: 'R2 Storage', link: '/setup/r2/r2-module' }],
+      },
     ],
   },
 });
