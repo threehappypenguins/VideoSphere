@@ -2,6 +2,16 @@
 
 Complete these steps after cloning the repository. This guide is MongoDB-first and self-hostable.
 
+**Documentation:** [videosphere.sarahpoulin.ca](https://videosphere.sarahpoulin.ca/) — including the [Deployment Guide](https://videosphere.sarahpoulin.ca/deployment-guide.html) for running the pre-built Docker image in production.
+
+## Prerequisites
+
+| Tool    | Version  | Check Command    |
+| ------- | -------- | ---------------- |
+| Node.js | ≥ 24.0.0 | `node --version` |
+| pnpm    | ≥ 10.0.0 | `pnpm --version` |
+| Git     | Latest   | `git --version`  |
+
 ---
 
 ## 1. Clone and Install
@@ -177,4 +187,4 @@ With Docker Compose, uncomment `network_mode: host` on the `app` service (see `d
 
 - This repository uses MongoDB for auth/session-related data and application persistence.
 - Docker deployment uses app + MongoDB from one compose file.
-- For production deployment details, see [docs/deployment-guide.md](docs/deployment-guide.md).
+- For production deployment, see the [Deployment Guide](https://videosphere.sarahpoulin.ca/deployment-guide.html).

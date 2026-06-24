@@ -2,6 +2,26 @@
 
 Use this checklist **before you start work** and **when you finish work** so your environment is ready and your changes pass CI.
 
+For first-run setup after cloning the repository (environment variables, MongoDB, admin account), see [SETUP.md](https://github.com/threehappypenguins/VideoSphere/blob/main/SETUP.md) in the repository root.
+
+## Prerequisites
+
+| Tool    | Version  | Check Command    |
+| ------- | -------- | ---------------- |
+| Node.js | ≥ 24.0.0 | `node --version` |
+| pnpm    | ≥ 10.0.0 | `pnpm --version` |
+| Git     | Latest   | `git --version`  |
+
+```bash
+git clone https://github.com/threehappypenguins/VideoSphere.git
+cd VideoSphere
+pnpm install
+cp .env.example .env.local
+pnpm dev
+```
+
+Open [http://localhost:9624](http://localhost:9624) (or your LAN host IP on port 9624).
+
 ---
 
 ## Before you start development
@@ -60,3 +80,30 @@ pnpm build
 4. `pnpm build`
 
 Then commit (if you haven’t already), push, and open a PR.
+
+---
+
+## pnpm Scripts
+
+| Script               | Command                 | Description                     |
+| -------------------- | ----------------------- | ------------------------------- |
+| `pnpm dev`           | `next dev --webpack`    | Start dev server on port 9624   |
+| `pnpm build`         | `next build`            | Create production build         |
+| `pnpm start`         | `next start`            | Start production server         |
+| `pnpm lint`          | `eslint .`              | Run ESLint                      |
+| `pnpm lint:fix`      | `eslint . --fix`        | Run ESLint and auto-fix issues  |
+| `pnpm format`        | `prettier --write .`    | Format all files with Prettier  |
+| `pnpm format:check`  | `prettier --check .`    | Check formatting (used in CI)   |
+| `pnpm type-check`    | `tsc --noEmit`          | Check TypeScript types          |
+| `pnpm test`          | `vitest`                | Run tests in watch mode         |
+| `pnpm test run`      | `vitest run`            | Run tests once                  |
+| `pnpm test:ui`       | `vitest --ui`           | Run tests with browser UI       |
+| `pnpm test:coverage` | `vitest run --coverage` | Run tests with coverage report  |
+
+## Local Docker (build from source)
+
+```bash
+docker compose --env-file .env.local up -d --build
+```
+
+For production with a pre-built image, see the [Deployment Guide](/deployment-guide).

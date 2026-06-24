@@ -105,6 +105,16 @@ git commit -m "docs: update portainer notes [skip publish]"
 
 Omit `[skip publish]` when `Dockerfile`, app code, or anything that should ship a new image has changed.
 
+### Verifying multi-arch image builds
+
+Before pushing Dockerfile changes to `main`, confirm both platforms build successfully (same as CI):
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile .
+```
+
+Omit `--load` and `--push` to discard images after a successful build. Cross-arch builds on amd64 require QEMU (`qemu-user-static` and binfmt).
+
 ## Pull Request Process
 
 1. **Fill out the PR template** — it's provided automatically when you open a PR
