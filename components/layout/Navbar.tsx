@@ -203,7 +203,14 @@ export default function Navbar({
     await logout();
     setSessionUser(null);
     setMobileMenuOpen(false);
-    router.push('/');
+    // Hard navigation on purpose: router.push('/') can be served from the
+    // client Router/prefetch cache (populated while still authenticated, since
+    // proxy.ts redirects "/" -> "/dashboard" for logged-in users and that
+    // result gets cached by Link prefetching). Only a real network request
+    // guarantees proxy.ts re-checks the now-cleared session cookie. This bug
+    // is invisible in `next dev` because Link prefetching — and therefore the
+    // stale cache entry — only exists in production builds.
+    window.location.href = '/';
   };
 
   const isLoggedIn = sessionUser !== null && sessionUser !== 'loading';
