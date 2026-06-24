@@ -35,14 +35,20 @@ export interface RequireAdminFromCookiesOptions {
  * @returns The computed result.
  */
 export async function getSessionUserFromCookies(): Promise<SessionUserFromCookies | null> {
-  const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret) return null;
-
+  // cookies() must be called unconditionally, before any other check, so
+  // Next.js always registers this as dynamic-API usage. If JWT_SECRET were
+  // checked first and missing at build time, this function would return
+  // early without ever calling cookies() — Next would then have no signal
+  // that the page is dynamic and could statically prerender it, baking in
+  // a build-time "no session" result forever. See (dashboard)/layout.tsx.
   const cookieStore = await cookies();
   const token = cookieStore.get(getSessionCookieName())?.value;
   if (!token) {
     return null;
   }
+
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) return null;
 
   try {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(jwtSecret));
@@ -107,14 +113,17 @@ export async function requireAdminUserIdFromCookies(
   const loginRedirectPath = options.loginRedirectPath ?? '/dashboard';
   const forbiddenRedirectPath = options.forbiddenRedirectPath ?? '/dashboard';
 
-  const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret) {
-    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
-  }
-
+  // cookies() must be called before any early redirect/return — see the
+  // comment in getSessionUserFromCookies() above for why ordering matters
+  // for Next.js's static/dynamic rendering detection.
   const cookieStore = await cookies();
   const token = cookieStore.get(getSessionCookieName())?.value;
   if (!token) {
+    redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
+  }
+
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
     redirect(`/login?redirect=${encodeURIComponent(loginRedirectPath)}`);
   }
 
