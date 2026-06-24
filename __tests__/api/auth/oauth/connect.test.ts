@@ -31,11 +31,13 @@ describe('GET /api/auth/oauth/connect', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.GOOGLE_CLIENT_ID = 'test-client-id';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
     mockGetAuthenticatedSessionUserId.mockResolvedValue('user-abc');
     mockGetUserById.mockResolvedValue(passwordProfile);
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (originalClientId === undefined) {
       delete process.env.GOOGLE_CLIENT_ID;
     } else {

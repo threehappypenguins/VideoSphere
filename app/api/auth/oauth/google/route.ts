@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAppBaseUrl } from '@/lib/app-port';
 import { buildGoogleOAuthErrorRedirect } from '@/lib/auth/google-oauth';
 import { createGoogleOAuthStartRedirect } from '@/lib/auth/google-oauth-server';
 import { safeRedirect } from '@/lib/safe-redirect';
@@ -9,7 +10,7 @@ import { safeRedirect } from '@/lib/safe-redirect';
  * @returns Redirect to Google OAuth consent screen.
  */
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
+  const origin = getAppBaseUrl();
   const setupToken = req.nextUrl.searchParams.get('setupToken')?.trim() || null;
   const inviteToken = req.nextUrl.searchParams.get('inviteToken')?.trim() || null;
   const redirectTo = safeRedirect(req.nextUrl.searchParams.get('redirect'));

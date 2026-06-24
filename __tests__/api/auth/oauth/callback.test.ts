@@ -186,6 +186,7 @@ describe('GET /api/auth/oauth/callback', () => {
     process.env.GOOGLE_CLIENT_ID = 'client-id';
     process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
     process.env.JWT_SECRET = 'test-jwt-secret-for-vitest-only';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
     mockHasAnyUsers.mockResolvedValue(false);
     mockIsSetupTokenValid.mockResolvedValue(true);
     mockConsumeSetupToken.mockResolvedValue(true);
@@ -201,6 +202,7 @@ describe('GET /api/auth/oauth/callback', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_SECRET;
   });

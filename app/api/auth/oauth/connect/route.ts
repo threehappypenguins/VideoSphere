@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAppBaseUrl } from '@/lib/app-port';
 import { buildGoogleOAuthErrorRedirect } from '@/lib/auth/google-oauth';
 import { createGoogleOAuthStartRedirect } from '@/lib/auth/google-oauth-server';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
@@ -10,7 +11,7 @@ import { getUserById } from '@/lib/repositories/users';
  * @returns Redirect to Google OAuth consent screen.
  */
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
+  const origin = getAppBaseUrl();
   const connectErrorContext = { connect: true as const };
 
   const userId = await getAuthenticatedSessionUserId(req);

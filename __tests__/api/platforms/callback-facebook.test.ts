@@ -72,9 +72,11 @@ describe('GET /api/platforms/callback/facebook', () => {
     vi.stubGlobal('fetch', mockFetch);
     process.env.FACEBOOK_APP_ID = 'test-app-id';
     process.env.FACEBOOK_APP_SECRET = 'test-app-secret';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.FACEBOOK_APP_ID;
     delete process.env.FACEBOOK_APP_SECRET;
     vi.unstubAllGlobals();

@@ -30,6 +30,7 @@ describe('GET /api/platforms/connect/facebook', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.FACEBOOK_APP_ID = 'test-fb-app-id';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
     mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
       const token = req.cookies.get(SESSION_COOKIE)?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
@@ -38,6 +39,7 @@ describe('GET /api/platforms/connect/facebook', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.FACEBOOK_APP_ID;
   });
 

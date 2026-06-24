@@ -1,5 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import { DEFAULT_LOCAL_APP_URL } from '@/lib/app-port';
+import { getAppBaseUrl } from '@/lib/app-port';
+
+export { getAppBaseUrl } from '@/lib/app-port';
+
 import {
   FORGOT_PASSWORD_RATE_LIMIT_MAX,
   FORGOT_PASSWORD_RATE_LIMIT_WINDOW_MS,
@@ -23,20 +26,6 @@ export const ADMIN_RESET_PASSWORD_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
  */
 export function generatePasswordResetTokenValue(): string {
   return randomBytes(32).toString('base64url');
-}
-
-/**
- * Resolves the public app base URL for reset links from `NEXT_PUBLIC_APP_URL`.
- *
- * Reset links must not be built from request Host/origin (proxy/TLS and host-header
- * risks). Set `NEXT_PUBLIC_APP_URL` in `.env.local` / container env (see `.env.example`).
- * @returns Normalized base URL without a trailing slash.
- */
-export function getAppBaseUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (envUrl) return envUrl.replace(/\/+$/, '');
-
-  return DEFAULT_LOCAL_APP_URL;
 }
 
 /**

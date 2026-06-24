@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import {
   GOOGLE_AUTH_OAUTH_STATE_COOKIE,
   buildGoogleOAuthStateCookie,
@@ -73,7 +74,7 @@ export function createGoogleOAuthStartRedirect(
   response.cookies.set(GOOGLE_AUTH_OAUTH_STATE_COOKIE, cookieValue, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: getSessionCookieOptions().secure,
     maxAge: GOOGLE_OAUTH_STATE_COOKIE_MAX_AGE_SEC,
     path: '/',
   });

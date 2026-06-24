@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { getAppBaseUrl } from '@/lib/app-port';
+import { getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { GOOGLE_DRIVE_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 
@@ -17,7 +19,7 @@ const GOOGLE_DRIVE_SCOPES = [
 export async function GET(req: NextRequest) {
   const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID;
 
-  const origin = req.nextUrl.origin;
+  const origin = getAppBaseUrl();
   const failureUrl = `${origin}/profile/connections?error=google_drive`;
 
   if (!clientId) {
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
   response.cookies.set(GOOGLE_DRIVE_OAUTH_STATE_COOKIE, cookieValue, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: getSessionCookieOptions().secure,
     maxAge: 60 * 10,
     path: '/',
   });

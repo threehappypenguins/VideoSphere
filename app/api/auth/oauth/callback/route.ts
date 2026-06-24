@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
+import { getAppBaseUrl } from '@/lib/app-port';
 import {
   GOOGLE_AUTH_OAUTH_STATE_COOKIE,
   parseGoogleOAuthStateCookie,
@@ -81,7 +82,7 @@ function clearOAuthStateCookie(response: NextResponse): void {
   response.cookies.set(GOOGLE_AUTH_OAUTH_STATE_COOKIE, '', {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: getSessionCookieOptions().secure,
     maxAge: 0,
     path: '/',
   });
@@ -130,7 +131,7 @@ function googleGrantFromTokenResponse(tokenData: GoogleTokenResponse): GoogleOAu
  * @returns Redirect with session cookie on success.
  */
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
+  const origin = getAppBaseUrl();
   const code = req.nextUrl.searchParams.get('code');
   const state = req.nextUrl.searchParams.get('state');
   const oauthError = req.nextUrl.searchParams.get('error');

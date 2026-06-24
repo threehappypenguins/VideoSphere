@@ -113,9 +113,11 @@ describe('GET /api/platforms/callback/youtube', () => {
     vi.resetAllMocks();
     process.env.YOUTUBE_CLIENT_ID = 'test-client-id';
     process.env.YOUTUBE_CLIENT_SECRET = 'test-client-secret';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.YOUTUBE_CLIENT_ID;
     delete process.env.YOUTUBE_CLIENT_SECRET;
   });

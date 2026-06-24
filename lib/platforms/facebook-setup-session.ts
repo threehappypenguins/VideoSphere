@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import type { NextRequest, NextResponse } from 'next/server';
+import { getSessionCookieOptions } from '@/lib/auth-session-cookie';
 import { encryptToken, decryptToken } from '@/lib/crypto/token-encryption';
 import {
   fetchFacebookManagedPages,
@@ -78,7 +79,7 @@ function getSetupCookieOptions() {
   return {
     httpOnly: true,
     sameSite: 'lax' as const,
-    secure: process.env.NODE_ENV === 'production',
+    secure: getSessionCookieOptions().secure,
     maxAge: FACEBOOK_SETUP_SESSION_MAX_AGE_SECONDS,
     path: '/',
   };

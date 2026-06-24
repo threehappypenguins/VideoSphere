@@ -30,6 +30,7 @@ describe('GET /api/platforms/connect/drive', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.GOOGLE_DRIVE_CLIENT_ID = 'test-drive-client-id';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
     mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
       const token = req.cookies.get(SESSION_COOKIE)?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
@@ -38,6 +39,7 @@ describe('GET /api/platforms/connect/drive', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.GOOGLE_DRIVE_CLIENT_ID;
   });
 

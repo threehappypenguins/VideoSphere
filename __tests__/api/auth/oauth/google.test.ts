@@ -13,9 +13,11 @@ describe('GET /api/auth/oauth/google', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.GOOGLE_CLIENT_ID = 'test-client-id';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (originalClientId === undefined) {
       delete process.env.GOOGLE_CLIENT_ID;
     } else {
@@ -54,5 +56,16 @@ describe('GET /api/auth/oauth/google', () => {
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_initiation_failed'
     );
+  });
+
+  it('uses NEXT_PUBLIC_APP_URL for Google redirect_uri, not the request host', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://my.domain.com');
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(307);
+    const location = res.headers.get('location')!;
+    const redirectUri = new URL(location).searchParams.get('redirect_uri');
+    expect(redirectUri).toBe('https://my.domain.com/api/auth/oauth/callback');
   });
 });

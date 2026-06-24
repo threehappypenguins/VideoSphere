@@ -101,9 +101,11 @@ describe('GET /api/platforms/callback/vimeo', () => {
     vi.resetAllMocks();
     process.env.VIMEO_CLIENT_ID = 'test-client-id';
     process.env.VIMEO_CLIENT_SECRET = 'test-client-secret';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.VIMEO_CLIENT_ID;
     delete process.env.VIMEO_CLIENT_SECRET;
   });

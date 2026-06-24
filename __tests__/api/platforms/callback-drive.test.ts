@@ -67,9 +67,11 @@ describe('GET /api/platforms/callback/drive', () => {
     vi.resetAllMocks();
     process.env.GOOGLE_DRIVE_CLIENT_ID = 'drive-client-id';
     process.env.GOOGLE_DRIVE_CLIENT_SECRET = 'drive-client-secret';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.GOOGLE_DRIVE_CLIENT_ID;
     delete process.env.GOOGLE_DRIVE_CLIENT_SECRET;
   });

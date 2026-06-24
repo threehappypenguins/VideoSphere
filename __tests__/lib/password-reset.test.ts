@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getAppBaseUrl } from '@/lib/auth/password-reset';
+import { getAppBaseUrl } from '@/lib/app-port';
 
 describe('getAppBaseUrl', () => {
   afterEach(() => {

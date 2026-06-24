@@ -41,6 +41,7 @@ describe('GET /api/platforms/connect/vimeo', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.VIMEO_CLIENT_ID = 'test-vimeo-client-id';
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'http://localhost:3000');
     mockGetAuthenticatedUserId.mockImplementation(async (req: NextRequest) => {
       const token = req.cookies.get(SESSION_COOKIE)?.value;
       if (!token || /bad|invalid|expired/i.test(token)) return null;
@@ -49,6 +50,7 @@ describe('GET /api/platforms/connect/vimeo', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.VIMEO_CLIENT_ID;
   });
 

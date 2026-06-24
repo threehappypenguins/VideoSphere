@@ -14,6 +14,7 @@
 // =============================================================================
 
 import { NextRequest } from 'next/server';
+import { getAppBaseUrl } from '@/lib/app-port';
 import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
@@ -55,7 +56,7 @@ interface YouTubeChannelsResponse {
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
+  const origin = getAppBaseUrl();
   const successUrl = `${origin}/profile/connections?success=youtube`;
   const failureUrl = `${origin}/profile/connections?error=youtube`;
 

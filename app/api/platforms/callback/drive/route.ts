@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getAppBaseUrl } from '@/lib/app-port';
 import { GOOGLE_DRIVE_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
@@ -37,7 +38,7 @@ interface GoogleDriveAboutResponse {
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
+  const origin = getAppBaseUrl();
   const successUrl = `${origin}/profile/connections?success=google_drive&setup=backup_folder`;
   const failureUrl = `${origin}/profile/connections?error=google_drive`;
 

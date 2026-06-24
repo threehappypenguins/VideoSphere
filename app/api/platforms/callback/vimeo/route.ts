@@ -18,6 +18,7 @@
 // =============================================================================
 
 import { NextRequest } from 'next/server';
+import { getAppBaseUrl } from '@/lib/app-port';
 import { VIMEO_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import {
@@ -46,7 +47,7 @@ interface VimeoTokenResponse {
  * @returns A response describing the request result.
  */
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
+  const origin = getAppBaseUrl();
   const successUrl = `${origin}/profile/connections?success=vimeo`;
   const failureUrl = `${origin}/profile/connections?error=vimeo`;
 
