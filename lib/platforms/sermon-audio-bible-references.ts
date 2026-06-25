@@ -5,10 +5,11 @@ import {
   type SermonAudioBibleBook,
 } from '@/lib/platforms/sermon-audio-bible-books';
 
-/** Bible books sorted longest display name first for greedy prefix matching. */
-const SERMON_AUDIO_BIBLE_BOOKS_BY_DISPLAY_NAME_LENGTH = [...SERMON_AUDIO_BIBLE_BOOKS].sort(
-  (a, b) => b.displayName.length - a.displayName.length
-);
+/** Book display names and typed aliases sorted longest-first for greedy prefix matching. */
+const SERMON_AUDIO_BIBLE_TYPED_PREFIXES = SERMON_AUDIO_BIBLE_BOOKS.flatMap((book) => [
+  { prefix: book.displayName, book },
+  ...(book.typedAliases ?? []).map((alias) => ({ prefix: alias, book })),
+]).sort((a, b) => b.prefix.length - a.prefix.length);
 
 /**
  * Parses semicolon-separated scripture references from SA `bibleText`.
@@ -74,10 +75,11 @@ function matchBookFromTypedInput(
   const normalizedInput = input.trim();
   const inputLower = normalizedInput.toLowerCase();
 
-  for (const book of SERMON_AUDIO_BIBLE_BOOKS_BY_DISPLAY_NAME_LENGTH) {
-    if (inputLower.startsWith(book.displayName.toLowerCase())) {
-      return { book, rest: normalizedInput.slice(book.displayName.length).trim() };
-    }
+  for (const { prefix, book } of SERMON_AUDIO_BIBLE_TYPED_PREFIXES) {
+    if (!inputLower.startsWith(prefix.toLowerCase())) continue;
+    const afterPrefix = normalizedInput.slice(prefix.length);
+    if (!isAbbreviationLocationBoundary(afterPrefix)) continue;
+    return { book, rest: afterPrefix.trimStart() };
   }
 
   for (const { abbrev, book } of SERMON_AUDIO_BIBLE_TYPED_ABBREVIATIONS) {
@@ -247,7 +249,11 @@ export function validateAndNormalizeTypedBibleReference(
  */
 export function findSermonAudioBibleBook(displayName: string): SermonAudioBibleBook | undefined {
   const normalized = displayName.trim().toLowerCase();
-  return SERMON_AUDIO_BIBLE_BOOKS.find((book) => book.displayName.toLowerCase() === normalized);
+  return SERMON_AUDIO_BIBLE_BOOKS.find(
+    (book) =>
+      book.displayName.toLowerCase() === normalized ||
+      (book.typedAliases?.some((alias) => alias.toLowerCase() === normalized) ?? false)
+  );
 }
 
 /**

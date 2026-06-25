@@ -138,6 +138,25 @@ describe('validateAndNormalizeTypedBibleReference', () => {
     });
   });
 
+  it('normalizes Psalm references and accepts Psalms as a typed alias', () => {
+    expect(validateAndNormalizeTypedBibleReference('Psalm 51:14-17')).toEqual({
+      ok: true,
+      reference: 'Psalm 51:14-17',
+    });
+    expect(validateAndNormalizeTypedBibleReference('Psalms 51:14-17')).toEqual({
+      ok: true,
+      reference: 'Psalm 51:14-17',
+    });
+    expect(validateAndNormalizeTypedBibleReference('Psalm23')).toEqual({
+      ok: true,
+      reference: 'Psalm 23',
+    });
+    expect(validateAndNormalizeTypedBibleReference('Ps 23')).toEqual({
+      ok: true,
+      reference: 'Psalm 23',
+    });
+  });
+
   it('normalizes OSIS and Paratext book abbreviations', () => {
     expect(validateAndNormalizeTypedBibleReference('deu 5')).toEqual({
       ok: true,

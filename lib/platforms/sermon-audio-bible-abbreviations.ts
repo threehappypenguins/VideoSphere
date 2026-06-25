@@ -26,7 +26,7 @@ const SERMON_AUDIO_BIBLE_BOOK_ABBREVIATIONS: Readonly<Record<string, readonly st
   Nehemiah: ['Neh', 'NEH'],
   Esther: ['Esth', 'EST'],
   Job: ['Job', 'JOB'],
-  Psalms: ['Ps', 'PSA'],
+  Psalm: ['Ps', 'PSA'],
   Proverbs: ['Prov', 'PRO'],
   Ecclesiastes: ['Eccl', 'ECC'],
   'Song of Solomon': ['Song', 'SNG'],

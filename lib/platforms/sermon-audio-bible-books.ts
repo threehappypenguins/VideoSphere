@@ -2,6 +2,8 @@
 export interface SermonAudioBibleBook {
   /** English book name used in SA `bibleText`. */
   displayName: string;
+  /** Alternate spellings accepted when typing references (normalized to `displayName`). */
+  typedAliases?: readonly string[];
   /** Source OSIS-style abbreviation from reference data. */
   osisAbbrev: string;
   /** Verse count per chapter (index 0 = chapter 1). */
@@ -137,7 +139,8 @@ export const SERMON_AUDIO_BIBLE_BOOKS: readonly SermonAudioBibleBook[] = [
     ] as const,
   },
   {
-    displayName: 'Psalms',
+    displayName: 'Psalm',
+    typedAliases: ['Psalms'],
     osisAbbrev: 'ps',
     chapters: [
       6, 12, 8, 8, 12, 10, 17, 9, 20, 18, 7, 8, 6, 7, 5, 11, 15, 50, 14, 9, 13, 31, 6, 10, 22, 12,
