@@ -176,7 +176,7 @@ describe('uploadToSermonAudio', () => {
     expect(createBody).toMatchObject({ speakerName: 'Rev. Smith' });
   });
 
-  it('includes socialSharing on sermon create when Cross Publish is enabled', async () => {
+  it('does not include cross-publish fields on sermon create', async () => {
     const fetchMock = vi.mocked(global.fetch);
     fetchMock
       .mockResolvedValueOnce(
@@ -206,43 +206,8 @@ describe('uploadToSermonAudio', () => {
 
     const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
-    expect(createBody.socialSharing).toEqual([
-      { platform: 'google', title: 'YT Title', message: 'YT Desc', privacy: 'public' },
-      { platform: 'facebook', message: 'Check this out' },
-      { platform: 'twitter', message: 'Sunday Sermon', useVideoClip: true },
-    ]);
-    expect(createBody.social_sharing_video_clip).toEqual({ start: 0, end: 120 });
-  });
-
-  it('does not include socialSharing on sermon create when Cross Publish is disabled', async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ sermonID: 'sermon-456' }), { status: 200 })
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
-          status: 200,
-        })
-      )
-      .mockResolvedValueOnce(new Response('', { status: 200 }));
-
-    await uploadToSermonAudio({
-      videoStream: makeVideoStream(),
-      contentLength: 3,
-      metadata: {
-        ...metadata,
-        crossPublish: {
-          enabled: false,
-          facebook: { postLink: true, linkMessage: 'Check this out' },
-        },
-      },
-      tokens,
-    });
-
-    const createInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    const createBody = JSON.parse(String(createInit.body)) as Record<string, unknown>;
     expect(createBody).not.toHaveProperty('socialSharing');
+    expect(createBody).not.toHaveProperty('socialSharingSettings');
     expect(createBody).not.toHaveProperty('social_sharing_video_clip');
   });
 
@@ -539,19 +504,12 @@ describe('pollSermonAudioProcessing', () => {
     vi.useRealTimers();
   });
 
-  it('resolves when any media.video entry has a videoCodec (custom thumbnail uploaded)', async () => {
+  it('resolves when hasVideo is true and videoMediaStatus is ready', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          media: {
-            video: [
-              {
-                videoCodec: 'h264',
-                adaptiveBitrate: false,
-                thumbnailImageURL: null,
-              },
-            ],
-          },
+          hasVideo: true,
+          videoMediaStatus: 'ready',
         }),
         { status: 200 }
       )
@@ -561,7 +519,6 @@ describe('pollSermonAudioProcessing', () => {
       pollSermonAudioProcessing({
         sermonID: 'sermon-123',
         tokens,
-        customThumbnailUploaded: true,
         intervalMs: 1000,
         maxAttempts: 3,
       })
@@ -577,19 +534,12 @@ describe('pollSermonAudioProcessing', () => {
     );
   });
 
-  it('resolves when any media.video entry has a thumbnailImageURL (no custom thumbnail)', async () => {
+  it('rejects when videoMediaStatus reports a failed state', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          media: {
-            video: [
-              {
-                videoCodec: 'h264',
-                adaptiveBitrate: false,
-                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/662635113143.jpg',
-              },
-            ],
-          },
+          hasVideo: true,
+          videoMediaStatus: 'failed',
         }),
         { status: 200 }
       )
@@ -599,52 +549,6 @@ describe('pollSermonAudioProcessing', () => {
       pollSermonAudioProcessing({
         sermonID: 'sermon-123',
         tokens,
-        intervalMs: 1000,
-        maxAttempts: 3,
-      })
-    ).resolves.toBeUndefined();
-  });
-
-  it('resolves when any media.video entry has a successful videoMediaStatus (custom thumbnail uploaded)', async () => {
-    vi.mocked(global.fetch).mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          media: {
-            video: [{ videoCodec: null, videoMediaStatus: 'ready', thumbnailImageURL: null }],
-          },
-        }),
-        { status: 200 }
-      )
-    );
-
-    await expect(
-      pollSermonAudioProcessing({
-        sermonID: 'sermon-123',
-        tokens,
-        customThumbnailUploaded: true,
-        intervalMs: 1000,
-        maxAttempts: 3,
-      })
-    ).resolves.toBeUndefined();
-  });
-
-  it('rejects when any media.video entry reports a failed videoMediaStatus', async () => {
-    vi.mocked(global.fetch).mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          media: {
-            video: [{ videoCodec: null, videoMediaStatus: 'failed', thumbnailImageURL: null }],
-          },
-        }),
-        { status: 200 }
-      )
-    );
-
-    await expect(
-      pollSermonAudioProcessing({
-        sermonID: 'sermon-123',
-        tokens,
-        customThumbnailUploaded: true,
         intervalMs: 1000,
         maxAttempts: 3,
       })
@@ -656,28 +560,14 @@ describe('pollSermonAudioProcessing', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('resolves when the ABR video entry exposes a codec on a progressive rendition (custom thumbnail uploaded)', async () => {
+  it('rejects when any media.video entry reports a failed videoMediaStatus', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          videoMediaStatus: 'ready',
+          hasVideo: true,
+          videoMediaStatus: 'processing',
           media: {
-            video: [
-              {
-                mediaType: 'mp4',
-                streamURL: 'https://cloud.sermonaudio.com/media/video/abr/662635113143.m3u8',
-                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/662635113143.jpg',
-                adaptiveBitrate: true,
-                videoCodec: null,
-              },
-              {
-                mediaType: 'mp4',
-                streamURL: 'https://cloud.sermonaudio.com/media/video/high/662635113143.m3u8',
-                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/662635113143.jpg',
-                adaptiveBitrate: false,
-                videoCodec: 'h264',
-              },
-            ],
+            video: [{ videoMediaStatus: 'failed' }],
           },
         }),
         { status: 200 }
@@ -688,83 +578,47 @@ describe('pollSermonAudioProcessing', () => {
       pollSermonAudioProcessing({
         sermonID: 'sermon-123',
         tokens,
-        customThumbnailUploaded: true,
         intervalMs: 1000,
         maxAttempts: 3,
       })
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({
+      code: 'SERMONAUDIO_PROCESSING_FAILED',
+      details: 'videoMediaStatus: failed',
+    });
   });
 
-  it('keeps polling when codec is ready but thumbnailImageURL is still null (no custom thumbnail)', async () => {
+  it('keeps polling when video is not ready yet', async () => {
     vi.mocked(global.fetch).mockResolvedValue(
       new Response(
         JSON.stringify({
+          hasVideo: true,
+          videoMediaStatus: 'processing',
+        }),
+        { status: 200 }
+      )
+    );
+
+    const promise = pollSermonAudioProcessing({
+      sermonID: 'sermon-123',
+      tokens,
+      intervalMs: 100,
+      maxAttempts: 2,
+    });
+
+    const expectation = expect(promise).rejects.toMatchObject({
+      code: 'SERMONAUDIO_PROCESSING_TIMEOUT',
+    });
+    await vi.runAllTimersAsync();
+    await expectation;
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps polling when hasVideo is false', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          hasVideo: false,
           videoMediaStatus: 'ready',
-          media: {
-            video: [{ videoCodec: 'h264', adaptiveBitrate: false, thumbnailImageURL: null }],
-          },
-        }),
-        { status: 200 }
-      )
-    );
-
-    const promise = pollSermonAudioProcessing({
-      sermonID: 'sermon-123',
-      tokens,
-      intervalMs: 100,
-      maxAttempts: 2,
-    });
-
-    const expectation = expect(promise).rejects.toMatchObject({
-      code: 'SERMONAUDIO_PROCESSING_TIMEOUT',
-    });
-    await vi.runAllTimersAsync();
-    await expectation;
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('keeps polling when a custom thumbnail is present but transcoding is not done yet', async () => {
-    vi.mocked(global.fetch).mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          media: {
-            video: [
-              {
-                videoCodec: null,
-                videoMediaStatus: 'processing',
-                adaptiveBitrate: false,
-                thumbnailImageURL: 'https://media.sermonaudio.com/thumbnails/custom.jpg',
-              },
-            ],
-          },
-        }),
-        { status: 200 }
-      )
-    );
-
-    const promise = pollSermonAudioProcessing({
-      sermonID: 'sermon-123',
-      tokens,
-      customThumbnailUploaded: true,
-      intervalMs: 100,
-      maxAttempts: 2,
-    });
-
-    const expectation = expect(promise).rejects.toMatchObject({
-      code: 'SERMONAUDIO_PROCESSING_TIMEOUT',
-    });
-    await vi.runAllTimersAsync();
-    await expectation;
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it('rejects when max attempts are exceeded without a generated thumbnail (no custom thumbnail)', async () => {
-    vi.mocked(global.fetch).mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          media: {
-            video: [{ videoCodec: 'h264', adaptiveBitrate: false, thumbnailImageURL: null }],
-          },
         }),
         { status: 200 }
       )
@@ -787,7 +641,9 @@ describe('pollSermonAudioProcessing', () => {
 
   it('rejects when the abort signal fires during polling', async () => {
     vi.mocked(global.fetch).mockResolvedValue(
-      new Response(JSON.stringify({ media: { video: [] } }), { status: 200 })
+      new Response(JSON.stringify({ hasVideo: false, videoMediaStatus: 'processing' }), {
+        status: 200,
+      })
     );
 
     const controller = new AbortController();
@@ -810,17 +666,14 @@ describe('pollSermonAudioProcessing', () => {
 describe('publishSermonAudio', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-06-05T12:00:00.000Z'));
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    vi.useRealTimers();
   });
 
-  it('PATCHes publishDate only on success (Cross Publish is configured on sermon create)', async () => {
+  it('PATCHes publishNow when Cross Publish is disabled', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
 
     await publishSermonAudio({
@@ -833,7 +686,41 @@ describe('publishSermonAudio', () => {
       expect.objectContaining({
         method: 'PATCH',
         headers: expect.objectContaining({ 'X-Api-Key': 'sa-api-key' }),
-        body: JSON.stringify({ publishDate: '2026-06-05' }),
+        body: JSON.stringify({ publishNow: true }),
+      })
+    );
+  });
+
+  it('PATCHes publishNow with socialSharingSettings when Cross Publish is enabled', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await publishSermonAudio({
+      sermonID: 'sermon-123',
+      tokens,
+      crossPublish: {
+        enabled: true,
+        facebook: { postLink: true, linkMessage: 'Check this out' },
+      },
+      defaultTitle: 'Sunday Sermon',
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.sermonaudio.com/v2/node/sermons/sermon-123',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          publishNow: true,
+          socialSharingSettings: {
+            platforms: [
+              {
+                platform: 'facebook',
+                message: 'Check this out',
+                useVideoClip: false,
+              },
+            ],
+            facebook: true,
+          },
+        }),
       })
     );
   });

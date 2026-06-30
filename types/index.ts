@@ -376,7 +376,7 @@ export interface SermonAudioDraftFields
   publishDate?: string;
   /**
    * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
-   * Mapped to `socialSharing` on sermon create; `publishSermonAudio` only PATCHes `publishDate`.
+   * Sent as `socialSharingSettings` on publish PATCH together with `publishNow: true`.
    */
   crossPublish?: SermonAudioCrossPublishSettings;
 }
@@ -387,8 +387,8 @@ export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x';
 /**
  * Cross Publish options for one social destination (SermonAudio dashboard feature).
  * @property postLink - Post a link to the sermon (Facebook and X only).
- * @property uploadFullVideo - Upload the full sermon video (YouTube and Facebook).
- * @property uploadVideoPreview - Upload a video preview clip (X/Twitter; maps to SA `useVideoClip`).
+ * @property uploadFullVideo - Upload the full sermon video (YouTube; Facebook requires `postLink`).
+ * @property uploadVideoPreview - Upload a video preview clip (X/Twitter; requires `postLink`; maps to SA `useVideoClip`).
  * @property linkMessage - Custom message when `postLink` is enabled (Facebook and X).
  * @property title - YouTube video title when `uploadFullVideo` is enabled (maps to SA `title` on `google`).
  * @property description - YouTube video description when `uploadFullVideo` is enabled (maps to SA `message` on `google`).

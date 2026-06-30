@@ -212,8 +212,7 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
   jobId: string,
   attemptResults: PlatformUpload[],
   metadataByPlatformId: Map<string, PlatformUploadMetadata>,
-  saApiKeyByPlatformUploadId: ReadonlyMap<string, string>,
-  saCustomThumbnailUploadedByPlatformUploadId: ReadonlyMap<string, boolean>
+  saApiKeyByPlatformUploadId: ReadonlyMap<string, string>
 ): Promise<void> {
   const immediateFailureWrites: Promise<void>[] = [];
 
@@ -223,8 +222,6 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
     }
 
     const apiKey = saApiKeyByPlatformUploadId.get(upload.id);
-    const customThumbnailUploaded =
-      saCustomThumbnailUploadedByPlatformUploadId.get(upload.id) === true;
 
     const sermonID = upload.platformVideoId.trim();
     if (!sermonID) continue;
@@ -261,11 +258,13 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
         await pollSermonAudioProcessing({
           sermonID,
           tokens: { accessToken: apiKey },
-          customThumbnailUploaded,
         });
         await publishSermonAudio({
           sermonID,
           tokens: { accessToken: apiKey },
+          crossPublish: meta?.crossPublish,
+          defaultTitle: meta.fullTitle?.trim() || meta.title?.trim(),
+          defaultDescription: meta.description?.trim() || meta.moreInfoText?.trim(),
         });
         await updatePlatformUploadStatus(
           platformUploadId,
@@ -391,7 +390,6 @@ async function runSinglePlatformUpload(
   platformUpload: PlatformUpload,
   metadata: PlatformUploadMetadata,
   saApiKeyByPlatformUploadId: Map<string, string>,
-  saCustomThumbnailUploadedByPlatformUploadId: Map<string, boolean>,
   sharedBackupMetadataSession: SharedBackupMetadataSession | null
 ): Promise<void> {
   try {
@@ -738,13 +736,6 @@ async function runSinglePlatformUpload(
       uploadResult.platformUrl,
       null
     );
-
-    if (
-      platformUpload.platform === 'sermon_audio' &&
-      uploadResult.sermonAudioCustomThumbnailUploaded === true
-    ) {
-      saCustomThumbnailUploadedByPlatformUploadId.set(platformUpload.id, true);
-    }
   } catch (error) {
     const detail = messageFromThrown(error);
     const marked = await updatePlatformUploadStatus(
@@ -919,7 +910,6 @@ export async function runDistributionInBackground(
   const attemptPlatformUploadIds = new Set(platformUploads.map((p) => p.id));
   const subsetRetry = options?.subsetRetry === true;
   const saApiKeyByPlatformUploadId = new Map<string, string>();
-  const saCustomThumbnailUploadedByPlatformUploadId = new Map<string, boolean>();
   let sharedBackupMetadataSession: SharedBackupMetadataSession | null = null;
   try {
     sharedBackupMetadataSession = await createSharedBackupMetadataSessionForJob(
@@ -939,7 +929,6 @@ export async function runDistributionInBackground(
           platformUpload,
           meta,
           saApiKeyByPlatformUploadId,
-          saCustomThumbnailUploadedByPlatformUploadId,
           sharedBackupMetadataSession
         );
       })
@@ -952,8 +941,7 @@ export async function runDistributionInBackground(
       jobId,
       attemptResults,
       metadataByPlatformId,
-      saApiKeyByPlatformUploadId,
-      saCustomThumbnailUploadedByPlatformUploadId
+      saApiKeyByPlatformUploadId
     );
 
     const foundAttemptIds = new Set(attemptResults.map((u) => u.id));

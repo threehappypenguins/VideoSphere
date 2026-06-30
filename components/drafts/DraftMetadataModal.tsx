@@ -55,6 +55,7 @@ import {
 import { UploadHistoryJobDiscard } from '@/components/uploads/UploadHistoryJobDiscard';
 import { UploadHistoryPlatformActions } from '@/components/uploads/UploadHistoryPlatformActions';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
+import { SermonAudioCrossPublishFields } from '@/components/drafts/SermonAudioCrossPublishFields';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
@@ -4263,8 +4264,15 @@ export function DraftMetadataModal({
           <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-5" />
         </label>
       </div>
+      {sermonAudioFields?.autoPublishOnProcessed !== false ? (
+        <SermonAudioCrossPublishFields
+          crossPublish={sermonAudioFields?.crossPublish}
+          defaultVideoTitle={sermonAudioFields?.displayTitle?.trim() || value?.title?.trim() || ''}
+          defaultVideoDescription={value?.description?.trim() || ''}
+          onChange={(next) => updateSermonAudioFields({ crossPublish: next })}
+        />
+      ) : null}
       {/* TODO(sermon-audio-schedule): Contact the SermonAudio developer — POST /v2/node/sermons rejects ISO datetimes for publishDate (422: dates must be YYYY-MM-DD only). Schedule for Publication UI hidden until API supports date+time scheduling. */}
-      {/* TODO(sermon-audio-cross-publish): I will contact the SermonAudio developer about how to get Cross Publish working via the API. Cross Publish UI hidden until then. */}
     </>
   );
 
