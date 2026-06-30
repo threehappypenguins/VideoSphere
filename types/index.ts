@@ -42,6 +42,21 @@ export interface User {
   platformDefaults?: PlatformDefaults;
   /** Cross-device UI preferences (profile GET/PATCH). */
   preferences?: UserPreferences;
+  /**
+   * Saved draft organizational labels for autocomplete across drafts.
+   * Stored on the user profile (`draftLabelLibrary`).
+   */
+  draftLabelLibrary?: DraftLabelDefinition[];
+}
+
+/**
+ * Saved draft label with display color for chips and autocomplete.
+ * @property name - Label text shown on drafts.
+ * @property color - Hex color (for example `#6366f1`).
+ */
+export interface DraftLabelDefinition {
+  name: string;
+  color: string;
 }
 
 /** User-selectable clock format for schedule time pickers and labels. */
@@ -453,6 +468,11 @@ export interface Draft {
   description: string;
   /** Shared tag list for every target platform; stored in `document`. */
   tags: string[];
+  /**
+   * Organizational labels for finding and grouping drafts in VideoSphere.
+   * Not sent to upload platforms; stored in `document`.
+   */
+  labels?: string[];
   /** Applied when distributing (mapped to each API's privacy model). */
   visibility: PlatformUploadVisibility;
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */

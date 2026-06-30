@@ -7,6 +7,7 @@
  *   backup targets (`platforms.sftp` / `platforms.smb`) are carried through as empty objects until fields exist.
  */
 
+import { normalizeDraftLabelList } from '@/lib/draft-labels';
 import type { PlatformUploadMetadata } from '@/lib/platforms/types';
 import { normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 import { formatSermonAudioKeywordsFromTags } from '@/lib/platforms/sermon-audio-tags';
@@ -487,6 +488,8 @@ export interface DraftDocumentStored {
   description: string;
   visibility: PlatformUploadVisibility;
   tags: string[];
+  /** Organizational draft labels (VideoSphere-only; not sent to platforms). */
+  labels: string[];
   platforms: DraftPlatforms;
   backupNaming?: BackupFileNameSettings;
   /** R2 key for draft thumbnail; omitted when unset. */
@@ -511,6 +514,7 @@ export function stringifyDraftDocumentForStorage(d: DraftDocumentStored): string
     description: d.description,
     visibility: d.visibility,
     tags: d.tags,
+    ...(d.labels.length > 0 ? { labels: d.labels } : {}),
     platforms: d.platforms,
     ...(d.backupNaming !== undefined ? { backupNaming: d.backupNaming } : {}),
     ...(typeof d.thumbnailR2Key === 'string' && d.thumbnailR2Key.trim() !== ''
@@ -534,6 +538,7 @@ function emptyDraftDocument(): DraftDocumentStored {
     description: '',
     visibility: DEFAULT_DRAFT_VISIBILITY,
     tags: [],
+    labels: [],
     platforms: {},
     backupNaming: normalizeBackupFileNameSettings(undefined),
   };
@@ -564,6 +569,7 @@ export function draftDocumentFromRow(row: Record<string, unknown>): DraftDocumen
       description: typeof o.description === 'string' ? o.description : '',
       visibility: visibilityFromRow(o.visibility),
       tags: tagsFromDocumentObject(o),
+      labels: normalizeDraftLabelList(o.labels),
       platforms: normalizeDraftPlatforms(o.platforms),
       backupNaming: normalizeBackupFileNameSettings(o.backupNaming),
       ...(thumbKey !== undefined ? { thumbnailR2Key: thumbKey } : {}),

@@ -3,11 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { Trash2 } from 'lucide-react';
+import { Copy, Loader2, Trash2 } from 'lucide-react';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
 import { backupNamingForStorage, normalizeBackupFileNameSettings } from '@/lib/backup-filename';
 import { useOnboardingContext } from '@/components/onboarding/OnboardingContext';
-import type { ApiResponse, ConnectedAccountPlatform, ConnectedAccountPublic, Draft } from '@/types';
+import type {
+  ApiResponse,
+  ConnectedAccountPlatform,
+  ConnectedAccountPublic,
+  Draft,
+  DraftLabelDefinition,
+} from '@/types';
+import { DraftLabelChip } from '@/components/drafts/DraftLabelChip';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 type DraftView = 'list' | 'cards';
@@ -48,6 +55,7 @@ function createEditorValues(draft: Draft): DraftEditorValues {
     title: draft.title,
     description: draft.description,
     tags: draft.tags,
+    labels: draft.labels ?? [],
     visibility: draft.visibility,
     targets: [...draft.targets],
     platforms: draft.platforms ?? {},
@@ -64,6 +72,7 @@ function createNewEditorValues(): DraftEditorValues {
     title: '',
     description: '',
     tags: [],
+    labels: [],
     visibility: 'public',
     targets: [],
     platforms: {},
@@ -96,6 +105,7 @@ export default function DraftsPage() {
   /** Prevents duplicate router.replace when opening create from URL query (e.g. React Strict Mode). */
   const handledOpenCreateQueryRef = useRef(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [labelLibrary, setLabelLibrary] = useState<DraftLabelDefinition[]>([]);
   const [connectedPlatforms, setConnectedPlatforms] = useState<ConnectedAccountPlatform[]>([]);
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -124,23 +134,29 @@ export default function DraftsPage() {
     setHasLoadedConnections(false);
 
     try {
-      const [draftsResponse, connectionsResponse, aiAccessResponse] = await Promise.all([
-        fetch('/api/drafts', {
-          method: 'GET',
-          signal,
-          cache: 'no-store',
-        }),
-        fetch('/api/platforms/connections', {
-          method: 'GET',
-          signal,
-          cache: 'no-store',
-        }),
-        fetch('/api/auth/ai-access', {
-          method: 'GET',
-          signal,
-          cache: 'no-store',
-        }),
-      ]);
+      const [draftsResponse, connectionsResponse, aiAccessResponse, labelsResponse] =
+        await Promise.all([
+          fetch('/api/drafts', {
+            method: 'GET',
+            signal,
+            cache: 'no-store',
+          }),
+          fetch('/api/platforms/connections', {
+            method: 'GET',
+            signal,
+            cache: 'no-store',
+          }),
+          fetch('/api/auth/ai-access', {
+            method: 'GET',
+            signal,
+            cache: 'no-store',
+          }),
+          fetch('/api/drafts/labels', {
+            method: 'GET',
+            signal,
+            cache: 'no-store',
+          }),
+        ]);
 
       if (!draftsResponse.ok) {
         const errorBody = (await draftsResponse.json().catch(() => null)) as {
@@ -168,12 +184,19 @@ export default function DraftsPage() {
         : null;
 
       setDrafts(Array.isArray(draftsJson.data) ? draftsJson.data : []);
+      if (labelsResponse.ok) {
+        const labelsPayload = (await labelsResponse.json()) as ApiResponse<DraftLabelDefinition[]>;
+        setLabelLibrary(Array.isArray(labelsPayload.data) ? labelsPayload.data : []);
+      } else {
+        setLabelLibrary([]);
+      }
       setCanUseAiMetadata(Boolean(aiAccessPayload?.canUseAiMetadata));
     } catch (error) {
       if (signal?.aborted) return;
       const message = error instanceof Error ? error.message : 'Failed to load drafts.';
       setErrorMessage(message);
       setDrafts([]);
+      setLabelLibrary([]);
       setConnectedPlatforms([]);
       setCanUseAiMetadata(false);
       setHasLoadedConnections(false);
@@ -318,6 +341,7 @@ export default function DraftsPage() {
             title: `${draft.title} (copy)`,
             description: draft.description,
             tags: draft.tags,
+            labels: draft.labels,
             targets: draft.targets,
             visibility: draft.visibility,
             platforms: draft.platforms,
@@ -359,6 +383,7 @@ export default function DraftsPage() {
             title: editingDraft.title,
             description: editingDraft.description,
             tags: editingDraft.tags,
+            labels: editingDraft.labels,
             visibility: editingDraft.visibility,
             targets: editingDraft.targets,
             platforms: editingDraft.platforms,
@@ -412,6 +437,7 @@ export default function DraftsPage() {
             title: creatingDraft.title,
             description: creatingDraft.description,
             tags: creatingDraft.tags,
+            labels: creatingDraft.labels,
             visibility: creatingDraft.visibility,
             targets: creatingDraft.targets,
             platforms: creatingDraft.platforms,
@@ -675,6 +701,7 @@ export default function DraftsPage() {
           view === 'list' ? (
             <DraftsTable
               drafts={drafts}
+              labelLibrary={labelLibrary}
               onEdit={(draft) => {
                 void openEditDraft(draft);
               }}
@@ -686,6 +713,7 @@ export default function DraftsPage() {
           ) : (
             <DraftCards
               drafts={drafts}
+              labelLibrary={labelLibrary}
               onEdit={(draft) => {
                 void openEditDraft(draft);
               }}
@@ -701,6 +729,8 @@ export default function DraftsPage() {
       <DraftMetadataModal
         mode="create"
         value={creatingDraft}
+        labelLibrary={labelLibrary}
+        onLabelLibraryChange={setLabelLibrary}
         initialConnectedPlatforms={connectedPlatforms}
         initialConnectionsResolved={hasLoadedConnections}
         onChange={setCreatingDraft}
@@ -716,6 +746,8 @@ export default function DraftsPage() {
       <DraftMetadataModal
         mode="edit"
         value={editingDraft}
+        labelLibrary={labelLibrary}
+        onLabelLibraryChange={setLabelLibrary}
         initialConnectedPlatforms={connectedPlatforms}
         initialConnectionsResolved={hasLoadedConnections}
         onChange={setEditingDraft}
@@ -741,6 +773,9 @@ interface DraftActionsProps {
   isDuplicatingId: string | null;
 }
 
+const draftActionIconButtonClassName =
+  'pointer-events-auto inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-background p-1.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60';
+
 function DraftActions({
   draft,
   onDelete,
@@ -748,18 +783,25 @@ function DraftActions({
   isDeletingId,
   isDuplicatingId,
 }: DraftActionsProps) {
+  const isDuplicating = isDuplicatingId === draft.id;
+
   return (
-    <div className="inline-flex max-w-full flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+    <div className="inline-flex shrink-0 items-center gap-2">
       <button
         type="button"
         onClick={(event) => {
           event.stopPropagation();
           onDuplicate(draft);
         }}
-        disabled={isDuplicatingId === draft.id}
-        className="pointer-events-auto whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+        disabled={isDuplicating}
+        className={draftActionIconButtonClassName}
+        aria-label={isDuplicating ? 'Copying draft' : 'Duplicate draft'}
       >
-        {isDuplicatingId === draft.id ? 'Copying...' : 'Duplicate'}
+        {isDuplicating ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <Copy className="h-4 w-4" aria-hidden />
+        )}
       </button>
       <button
         type="button"
@@ -768,10 +810,10 @@ function DraftActions({
           onDelete(draft);
         }}
         disabled={isDeletingId === draft.id}
-        className="pointer-events-auto inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border bg-background p-1.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+        className={draftActionIconButtonClassName}
         aria-label="Delete draft"
       >
-        <Trash2 className="h-4 w-4" />
+        <Trash2 className="h-4 w-4" aria-hidden />
       </button>
     </div>
   );
@@ -798,7 +840,7 @@ function partitionDraftsByUploadStatus(drafts: Draft[]): { unused: Draft[]; used
 function UsedIndicator({ used }: { used: boolean }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+      className={`inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-center text-[11px] font-medium leading-snug ${
         used
           ? 'border-amber-500/40 bg-amber-500/15 text-amber-950 dark:text-amber-100'
           : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100'
@@ -834,6 +876,7 @@ function DraftSection({ title, description, used = false, children }: DraftSecti
 
 interface DraftCollectionProps {
   drafts: Draft[];
+  labelLibrary: DraftLabelDefinition[];
   onEdit: (draft: Draft) => void;
   onDelete: (draft: Draft) => void;
   onDuplicate: (draft: Draft) => void;
@@ -843,6 +886,7 @@ interface DraftCollectionProps {
 
 function DraftsTable({
   drafts,
+  labelLibrary,
   onEdit,
   onDelete,
   onDuplicate,
@@ -860,6 +904,7 @@ function DraftsTable({
         >
           <DraftsTableContent
             drafts={unused}
+            labelLibrary={labelLibrary}
             onEdit={onEdit}
             onDelete={onDelete}
             onDuplicate={onDuplicate}
@@ -876,6 +921,7 @@ function DraftsTable({
         >
           <DraftsTableContent
             drafts={used}
+            labelLibrary={labelLibrary}
             onEdit={onEdit}
             onDelete={onDelete}
             onDuplicate={onDuplicate}
@@ -889,8 +935,85 @@ function DraftsTable({
   );
 }
 
+function DraftMobileRow({
+  draft,
+  used,
+  labelLibrary,
+  dimUsedRows = false,
+  onEdit,
+  onDelete,
+  onDuplicate,
+  isDeletingId,
+  isDuplicatingId,
+}: {
+  draft: Draft;
+  used: boolean;
+  labelLibrary: DraftLabelDefinition[];
+  dimUsedRows?: boolean;
+  onEdit: (draft: Draft) => void;
+  onDelete: (draft: Draft) => void;
+  onDuplicate: (draft: Draft) => void;
+  isDeletingId: string | null;
+  isDuplicatingId: string | null;
+}) {
+  const displayTitle = draft.title.trim() || 'Untitled draft';
+
+  return (
+    <article className={`px-3 py-3 sm:px-4 ${dimUsedRows ? 'bg-muted/20' : ''}`}>
+      <button
+        type="button"
+        onClick={() => onEdit(draft)}
+        aria-label={`Edit draft "${displayTitle}"`}
+        className="block w-full text-left"
+      >
+        <span className="text-sm font-medium text-foreground">{displayTitle}</span>
+      </button>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="text-xs text-muted-foreground">{formatLastEdited(draft.$updatedAt)}</span>
+        <UsedIndicator used={used} />
+        <DraftLabelChips
+          labels={draft.labels ?? []}
+          labelLibrary={labelLibrary}
+          className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial"
+        />
+        <div className="ml-auto">
+          <DraftActions
+            draft={draft}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+          />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function DraftLabelChips({
+  labels,
+  labelLibrary,
+  className,
+}: {
+  labels: string[];
+  labelLibrary: DraftLabelDefinition[];
+  className?: string;
+}) {
+  if (labels.length === 0) return null;
+  return (
+    <ul className={`flex flex-wrap gap-1 ${className ?? 'mt-1.5'}`}>
+      {labels.map((label) => (
+        <li key={label}>
+          <DraftLabelChip label={label} library={labelLibrary} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function DraftsTableContent({
   drafts,
+  labelLibrary,
   onEdit,
   onDelete,
   onDuplicate,
@@ -899,122 +1022,163 @@ function DraftsTableContent({
   dimUsedRows = false,
 }: DraftCollectionProps & { dimUsedRows?: boolean }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-background">
-      <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr className="border-b border-border text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <th scope="col" className="w-[30%] px-3 py-3 text-left sm:px-4">
-              Draft title
-            </th>
-            <th scope="col" className="w-[16%] px-3 py-3 text-left sm:px-4">
-              Last edited
-            </th>
-            <th scope="col" className="w-[16%] px-3 py-3 text-left sm:px-4">
-              Status
-            </th>
-            <th scope="col" className="w-[38%] px-3 py-3 text-right sm:px-4">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {drafts.map((draft) => {
-            const displayTitle = draft.title.trim() || 'Untitled draft';
-            const used = hasNonEmptyUsedInUploadAt(draft);
-            return (
-              <tr
-                key={draft.id}
-                className={`border-b border-border transition-colors hover:bg-muted/40 ${
-                  dimUsedRows ? 'bg-muted/20' : ''
-                }`}
-              >
-                <td className="p-0 align-top">
-                  <button
-                    type="button"
-                    onClick={() => onEdit(draft)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onEdit(draft);
-                      }
-                    }}
-                    aria-label={`Edit draft "${displayTitle}"`}
-                    className="block w-full px-3 py-3 text-left sm:px-4"
-                  >
-                    <span className="block max-w-full truncate text-foreground">
-                      {displayTitle}
-                    </span>
-                  </button>
-                </td>
-                <td className="p-0 align-top text-muted-foreground">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={() => onEdit(draft)}
-                    aria-label={`Edit draft "${displayTitle}"`}
-                    className="block w-full px-3 py-3 text-left sm:px-4"
-                  >
-                    <span className="block truncate">{formatLastEdited(draft.$updatedAt)}</span>
-                  </button>
-                </td>
-                <td className="p-0 align-top">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={() => onEdit(draft)}
-                    aria-label={`Edit draft "${displayTitle}"`}
-                    className="block w-full px-3 py-3 text-left sm:px-4"
-                  >
-                    <UsedIndicator used={used} />
-                  </button>
-                </td>
-                <td className="p-0 align-top text-right">
-                  <div className="relative">
+    <>
+      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background md:hidden">
+        {drafts.map((draft) => (
+          <DraftMobileRow
+            key={draft.id}
+            draft={draft}
+            used={hasNonEmptyUsedInUploadAt(draft)}
+            labelLibrary={labelLibrary}
+            dimUsedRows={dimUsedRows}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+          />
+        ))}
+      </div>
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-background md:block">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <th scope="col" className="w-[38%] px-4 py-3 text-left">
+                Draft title
+              </th>
+              <th scope="col" className="w-[16%] px-4 py-3 text-left">
+                Last edited
+              </th>
+              <th scope="col" className="w-[16%] px-4 py-3 text-left">
+                Status
+              </th>
+              <th scope="col" className="w-[20%] px-4 py-3 text-left">
+                Labels
+              </th>
+              <th scope="col" className="w-[10%] py-3 pl-2 pr-4 text-right">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {drafts.map((draft) => {
+              const displayTitle = draft.title.trim() || 'Untitled draft';
+              const used = hasNonEmptyUsedInUploadAt(draft);
+              return (
+                <tr
+                  key={draft.id}
+                  className={`border-b border-border transition-colors hover:bg-muted/40 ${
+                    dimUsedRows ? 'bg-muted/20' : ''
+                  }`}
+                >
+                  <td className="p-0 align-top">
                     <button
                       type="button"
-                      tabIndex={-1}
-                      onClick={() => onEdit(draft)}
-                      aria-label={`Edit draft "${displayTitle}"`}
-                      className="absolute inset-0 z-0"
-                    />
-                    <div
-                      className="relative z-10 px-3 py-3 sm:px-4"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Edit draft "${displayTitle}"`}
                       onClick={() => onEdit(draft)}
                       onKeyDown={(event) => {
-                        const target = event.target as HTMLElement | null;
-                        if (target && target.closest('button') && target !== event.currentTarget) {
-                          return;
-                        }
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           onEdit(draft);
                         }
                       }}
+                      aria-label={`Edit draft "${displayTitle}"`}
+                      className="block w-full px-4 py-3 text-left"
                     >
-                      <DraftActions
-                        draft={draft}
-                        onDelete={onDelete}
-                        onDuplicate={onDuplicate}
-                        isDeletingId={isDeletingId}
-                        isDuplicatingId={isDuplicatingId}
+                      <span className="block max-w-full truncate text-foreground">
+                        {displayTitle}
+                      </span>
+                    </button>
+                  </td>
+                  <td className="p-0 align-top text-muted-foreground">
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => onEdit(draft)}
+                      aria-label={`Edit draft "${displayTitle}"`}
+                      className="block w-full px-4 py-3 text-left"
+                    >
+                      <span className="block truncate">{formatLastEdited(draft.$updatedAt)}</span>
+                    </button>
+                  </td>
+                  <td className="p-0 align-top">
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => onEdit(draft)}
+                      aria-label={`Edit draft "${displayTitle}"`}
+                      className="block w-full px-4 py-3 text-left"
+                    >
+                      <UsedIndicator used={used} />
+                    </button>
+                  </td>
+                  <td className="p-0 align-top">
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => onEdit(draft)}
+                      aria-label={`Edit draft "${displayTitle}"`}
+                      className="block w-full px-4 py-3 text-left"
+                    >
+                      <DraftLabelChips
+                        labels={draft.labels ?? []}
+                        labelLibrary={labelLibrary}
+                        className="mt-0"
                       />
+                    </button>
+                  </td>
+                  <td className="p-0 align-top text-right">
+                    <div className="relative">
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => onEdit(draft)}
+                        aria-label={`Edit draft "${displayTitle}"`}
+                        className="absolute inset-0 z-0"
+                      />
+                      <div
+                        className="relative z-10 flex justify-end py-3 pl-2 pr-4"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Edit draft "${displayTitle}"`}
+                        onClick={() => onEdit(draft)}
+                        onKeyDown={(event) => {
+                          const target = event.target as HTMLElement | null;
+                          if (
+                            target &&
+                            target.closest('button') &&
+                            target !== event.currentTarget
+                          ) {
+                            return;
+                          }
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            onEdit(draft);
+                          }
+                        }}
+                      >
+                        <DraftActions
+                          draft={draft}
+                          onDelete={onDelete}
+                          onDuplicate={onDuplicate}
+                          isDeletingId={isDeletingId}
+                          isDuplicatingId={isDuplicatingId}
+                        />
+                      </div>
                     </div>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
 function DraftCards({
   drafts,
+  labelLibrary,
   onEdit,
   onDelete,
   onDuplicate,
@@ -1032,6 +1196,7 @@ function DraftCards({
         >
           <DraftCardsGrid
             drafts={unused}
+            labelLibrary={labelLibrary}
             onEdit={onEdit}
             onDelete={onDelete}
             onDuplicate={onDuplicate}
@@ -1048,6 +1213,7 @@ function DraftCards({
         >
           <DraftCardsGrid
             drafts={used}
+            labelLibrary={labelLibrary}
             onEdit={onEdit}
             onDelete={onDelete}
             onDuplicate={onDuplicate}
@@ -1063,6 +1229,7 @@ function DraftCards({
 
 function DraftCardsGrid({
   drafts,
+  labelLibrary,
   onEdit,
   onDelete,
   onDuplicate,
@@ -1090,23 +1257,30 @@ function DraftCardsGrid({
             />
             <div className="relative z-0 p-4">
               <div className="space-y-2">
-                <h3 className="line-clamp-1 text-sm font-semibold text-foreground">
+                <h3 className="line-clamp-2 text-sm font-semibold text-foreground">
                   {displayTitle}
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Last edited {formatLastEdited(draft.$updatedAt)}
                 </p>
-                <UsedIndicator used={used} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <UsedIndicator used={used} />
+                  <DraftLabelChips
+                    labels={draft.labels ?? []}
+                    labelLibrary={labelLibrary}
+                    className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial mt-0"
+                  />
+                  <div className="relative z-20 ml-auto shrink-0 pointer-events-auto">
+                    <DraftActions
+                      draft={draft}
+                      onDelete={onDelete}
+                      onDuplicate={onDuplicate}
+                      isDeletingId={isDeletingId}
+                      isDuplicatingId={isDuplicatingId}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="relative z-20 px-4 pb-4 pointer-events-none">
-              <DraftActions
-                draft={draft}
-                onDelete={onDelete}
-                onDuplicate={onDuplicate}
-                isDeletingId={isDeletingId}
-                isDuplicatingId={isDuplicatingId}
-              />
             </div>
           </div>
         );

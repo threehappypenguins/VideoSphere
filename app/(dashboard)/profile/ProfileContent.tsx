@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ProfileAuthSection } from './ProfileAuthSection';
 import { ProfileInformationSection } from './ProfileInformationSection';
 import { ProfilePreferencesSection } from './ProfilePreferencesSection';
+import { ProfileDraftLabelsSection } from './ProfileDraftLabelsSection';
 import { ProfileSecuritySection } from './ProfileSecuritySection';
 import { ProfileOAuthFlash } from './ProfileOAuthFlash';
 import type { UserAuthProvider } from '@/types';
@@ -122,6 +123,8 @@ export function ProfileContent({ oauthSuccess, oauthError }: ProfileContentProps
         />
 
         <ProfilePreferencesSection />
+
+        <ProfileDraftLabelsSection />
 
         <ProfileAuthSection authProvider={authProvider} onAuthProviderChange={setAuthProvider} />
 

@@ -305,6 +305,7 @@ describe('POST /api/drafts', () => {
         title: 'My Video',
         description: 'Great video',
         tags: [],
+        labels: [],
         targets: ['youtube', 'vimeo'],
         platforms: {},
         backupNaming: normalizeBackupFileNameSettings(undefined),

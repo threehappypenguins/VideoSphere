@@ -30,6 +30,7 @@ import {
   mergeDraftPlatformsPatch,
   stringifyDraftDocumentForStorage,
 } from '@/lib/draft-upload-metadata';
+import { draftLabelListIncludesEquivalent, normalizeDraftLabel } from '@/lib/draft-labels';
 
 /** Map a MongoDB document to the shared Draft type. */
 function mongoDocToDraft(doc: DraftDocument): Draft {
@@ -41,6 +42,7 @@ function mongoDocToDraft(doc: DraftDocument): Draft {
     title: parsed.title,
     description: parsed.description,
     tags: parsed.tags,
+    labels: parsed.labels,
     visibility: parsed.visibility,
     platforms: parsed.platforms,
     backupNaming: parsed.backupNaming,
@@ -69,6 +71,7 @@ export async function markDraftUsedInUpload(
       description: draft.description,
       visibility: draft.visibility,
       tags: draft.tags,
+      labels: draft.labels,
       platforms: draft.platforms,
       backupNaming: draft.backupNaming,
       ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
@@ -147,6 +150,8 @@ export interface CreateDraftInput {
   description: string;
   /** Shared tags for all targets; default []. */
   tags?: string[];
+  /** Organizational draft labels; default []. */
+  labels?: string[];
   visibility?: PlatformUploadVisibility;
   platforms?: DraftPlatforms;
   backupNaming?: BackupFileNameSettings;
@@ -161,6 +166,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
   const visibility = input.visibility ?? DEFAULT_DRAFT_VISIBILITY;
   const platforms = input.platforms ?? {};
   const tags = input.tags ?? [];
+  const labels = input.labels ?? [];
   const title = resolveDraftTitleForStorage({
     title: input.title,
     targets: input.targets,
@@ -172,6 +178,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
     description: input.description,
     visibility,
     tags,
+    labels,
     platforms,
     backupNaming: backupNamingForStorage(input.backupNaming),
     ...(input.thumbnailR2Key ? { thumbnailR2Key: input.thumbnailR2Key } : {}),
@@ -334,6 +341,7 @@ export interface UpdateDraftInput {
   title?: string;
   description?: string;
   tags?: string[];
+  labels?: string[];
   visibility?: PlatformUploadVisibility;
   /** Partial platforms object from PATCH; merged without wiping omitted fields. */
   platformsPatch?: unknown;
@@ -359,6 +367,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     input.title !== undefined ||
     input.description !== undefined ||
     input.tags !== undefined ||
+    input.labels !== undefined ||
     input.visibility !== undefined ||
     input.platformsPatch !== undefined ||
     input.backupNaming !== undefined ||
@@ -423,6 +432,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     title,
     description: input.description ?? current.description,
     tags: input.tags ?? current.tags,
+    labels: input.labels ?? current.labels,
     visibility: input.visibility ?? current.visibility,
     platforms: mergedPlatforms,
     backupNaming,
@@ -440,6 +450,38 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
   ).lean<DraftDocument | null>();
   if (!updated) return null;
   return mongoDocToDraft(updated);
+}
+
+/**
+ * Removes an organizational label from every draft owned by a user.
+ * @param userId - Draft owner id.
+ * @param label - Label to remove (case-insensitive match).
+ */
+export async function removeLabelFromAllDraftsForUser(
+  userId: string,
+  label: string
+): Promise<void> {
+  const normalizedTarget = normalizeDraftLabel(label);
+  if (!normalizedTarget) return;
+
+  await connectToDatabase();
+  const rows = await DraftModel.find({ userId }).lean<DraftDocument[]>();
+  for (const row of rows) {
+    const parsed = draftDocumentFromRow({ document: row.document });
+    if (!draftLabelListIncludesEquivalent(parsed.labels, normalizedTarget)) {
+      continue;
+    }
+
+    const nextLabels = parsed.labels.filter(
+      (existing) => !draftLabelListIncludesEquivalent([normalizedTarget], existing)
+    );
+    const documentJson = stringifyDraftDocumentForStorage({
+      ...parsed,
+      labels: nextLabels,
+    });
+    assertDraftDocumentJsonWithinLimit(documentJson);
+    await DraftModel.findByIdAndUpdate(row._id, { document: documentJson });
+  }
 }
 
 // -----------------------------------------------------------------------------

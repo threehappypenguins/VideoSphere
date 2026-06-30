@@ -17,6 +17,12 @@ import type {
 import { userSupportsPasswordReset } from '@/lib/auth/password';
 import { normalizeStoredPlatformDefaults } from '@/lib/auth/platform-defaults-validation';
 import { normalizeStoredUserPreferences } from '@/lib/user-preferences';
+import {
+  mergeDraftLabelLibraryEntries,
+  normalizeDraftLabelLibrary,
+  upsertDraftLabelNamesInLibrary,
+} from '@/lib/draft-labels';
+import type { DraftLabelDefinition } from '@/types';
 import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
@@ -69,6 +75,7 @@ export interface SessionUser extends User {
 function mongoDocToUser(doc: UserProfileDocument): User {
   const platformDefaults = normalizeStoredPlatformDefaults(doc.platformDefaults);
   const preferences = normalizeStoredUserPreferences(doc.preferences);
+  const draftLabelLibrary = normalizeDraftLabelLibrary(doc.draftLabelLibrary);
 
   return {
     userId: String(doc.userId),
@@ -81,6 +88,7 @@ function mongoDocToUser(doc: UserProfileDocument): User {
     $updatedAt: new Date(doc.updatedAt).toISOString(),
     ...(platformDefaults !== undefined ? { platformDefaults } : {}),
     ...(preferences !== undefined ? { preferences } : {}),
+    ...(draftLabelLibrary.length > 0 ? { draftLabelLibrary } : {}),
   };
 }
 
@@ -346,6 +354,8 @@ export interface UpdateUserData {
   platformDefaultsYoutube?: Partial<YouTubeUserDefaults>;
   /** Partial merge into stored `preferences`. */
   preferences?: Partial<UserPreferences>;
+  /** Replaces the saved draft label library when provided. */
+  draftLabelLibrary?: DraftLabelDefinition[];
 }
 
 /**
@@ -404,6 +414,10 @@ export async function updateUser(userId: string, data: UpdateUserData): Promise<
         payload[`preferences.${key}`] = value;
       }
     }
+  }
+
+  if (data.draftLabelLibrary !== undefined) {
+    payload.draftLabelLibrary = normalizeDraftLabelLibrary(data.draftLabelLibrary);
   }
 
   const updated = await UserProfileModel.findByIdAndUpdate(userId, payload, {
@@ -676,6 +690,83 @@ export async function revokeStoredGoogleAuthForUser(userId: string): Promise<voi
       error
     );
   }
+}
+
+/**
+ * Returns the authenticated user's saved draft label library.
+ * @param userId - Auth user id.
+ * @returns Normalized label definitions in stored order.
+ */
+export async function getDraftLabelLibrary(userId: string): Promise<DraftLabelDefinition[]> {
+  await connectToDatabase();
+  const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  if (!doc) return [];
+  return normalizeDraftLabelLibrary(doc.draftLabelLibrary);
+}
+
+/**
+ * Merges label names into the user's saved draft label library without duplicates.
+ * @param userId - Auth user id.
+ * @param labels - Label names to upsert.
+ * @returns Updated library after merge.
+ */
+export async function upsertDraftLabelsInLibrary(
+  userId: string,
+  labels: readonly string[]
+): Promise<DraftLabelDefinition[]> {
+  await connectToDatabase();
+  const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  if (!doc) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+
+  const merged = upsertDraftLabelNamesInLibrary(
+    normalizeDraftLabelLibrary(doc.draftLabelLibrary),
+    labels
+  );
+  await UserProfileModel.findByIdAndUpdate(userId, { draftLabelLibrary: merged });
+  return merged;
+}
+
+/**
+ * Merges label definitions (including color updates) into the user's saved library.
+ * @param userId - Auth user id.
+ * @param entries - Label definitions to merge by name.
+ * @returns Updated library after merge.
+ */
+export async function mergeDraftLabelsInLibrary(
+  userId: string,
+  entries: readonly DraftLabelDefinition[]
+): Promise<DraftLabelDefinition[]> {
+  await connectToDatabase();
+  const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  if (!doc) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
+
+  const merged = mergeDraftLabelLibraryEntries(
+    normalizeDraftLabelLibrary(doc.draftLabelLibrary),
+    entries
+  );
+  await UserProfileModel.findByIdAndUpdate(userId, { draftLabelLibrary: merged });
+  return merged;
+}
+
+/**
+ * Replaces the user's saved draft label library.
+ * @param userId - Auth user id.
+ * @param labels - Full library to persist.
+ * @returns Updated library.
+ */
+export async function setDraftLabelLibrary(
+  userId: string,
+  labels: readonly DraftLabelDefinition[]
+): Promise<DraftLabelDefinition[]> {
+  const normalized = normalizeDraftLabelLibrary(labels);
+  await updateUser(userId, { draftLabelLibrary: normalized });
+  return normalized;
 }
 
 /**
