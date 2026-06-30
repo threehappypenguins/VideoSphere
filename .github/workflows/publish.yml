@@ -80,8 +80,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.pkg.outputs.version }},enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=
             type=ref,event=branch
 
@@ -92,8 +92,8 @@ jobs:
         with:
           images: docker.io/${{ steps.dockerhub.outputs.username }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.pkg.outputs.version }},enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=
             type=ref,event=branch
 
