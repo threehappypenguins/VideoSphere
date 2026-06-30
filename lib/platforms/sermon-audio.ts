@@ -3,7 +3,7 @@ import {
   MAX_DRAFT_THUMBNAIL_BYTES,
 } from '@/lib/draft-thumbnail';
 import { formatSermonAudioLocalDate } from '@/lib/platforms/sermon-audio-event-types';
-import { buildSermonAudioSocialSharingCreateFields } from '@/lib/platforms/sermon-audio-cross-publish';
+import { buildSermonAudioSocialSharingSettings } from '@/lib/platforms/sermon-audio-cross-publish';
 import {
   SERMONAUDIO_API_BASE,
   resolveSermonAudioUploadUrl,
@@ -17,6 +17,7 @@ import type {
   PlatformUploadResult,
   PlatformUploadTokens,
 } from '@/lib/platforms/types';
+import type { SermonAudioCrossPublishSettings } from '@/types';
 
 const SERMONAUDIO_SERMONS_URL = `${SERMONAUDIO_API_BASE}/v2/node/sermons`;
 const SERMONAUDIO_MEDIA_URL = `${SERMONAUDIO_API_BASE}/v2/media`;
@@ -43,14 +44,6 @@ interface UploadToSermonAudioInput {
 interface PollSermonAudioProcessingInput {
   sermonID: string;
   tokens: PlatformUploadTokens;
-  /**
-   * When true, poll until transcoding completes (codec/status) because a custom thumbnail was
-   * successfully uploaded during distribute; the poster may appear before encoding finishes.
-   * When false or omitted, poll until SermonAudio generates a poster frame on any `media.video`
-   * entry. Set from {@link PlatformUploadResult.sermonAudioCustomThumbnailUploaded}, not from
-   * draft metadata alone.
-   */
-  customThumbnailUploaded?: boolean;
   /** Delay between poll attempts in milliseconds. Defaults to {@link SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS}. */
   intervalMs?: number;
   /** Maximum poll attempts before rejecting. Defaults to {@link SERMONAUDIO_PROCESSING_MAX_ATTEMPTS}. */
@@ -61,6 +54,12 @@ interface PollSermonAudioProcessingInput {
 interface PublishSermonAudioInput {
   sermonID: string;
   tokens: PlatformUploadTokens;
+  /** Cross Publish settings from draft metadata; sent as `socialSharingSettings` on publish. */
+  crossPublish?: SermonAudioCrossPublishSettings;
+  /** Draft title used when Cross Publish message fields are empty. */
+  defaultTitle?: string;
+  /** Draft description used when Cross Publish message fields are empty. */
+  defaultDescription?: string;
   signal?: AbortSignal;
 }
 
@@ -189,14 +188,6 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   // TODO(sermon-audio-schedule): Re-enable when SermonAudio accepts publishDate beyond YYYY-MM-DD.
   // if (metadata.publishDate?.trim()) body.publishDate = metadata.publishDate.trim();
 
-  const socialSharingFields = buildSermonAudioSocialSharingCreateFields(metadata.crossPublish, {
-    defaultTitle: fullTitle,
-    defaultDescription: metadata.description?.trim() || metadata.moreInfoText?.trim(),
-  });
-  if (socialSharingFields) {
-    Object.assign(body, socialSharingFields);
-  }
-
   return body;
 }
 
@@ -237,53 +228,16 @@ function sermonVideoProcessingFailure(payload: unknown): string | null {
   return null;
 }
 
-function hasSermonVideoCodec(item: unknown): boolean {
-  if (!item || typeof item !== 'object') return false;
-  const videoCodec = (item as { videoCodec?: unknown }).videoCodec;
-  return typeof videoCodec === 'string' && videoCodec.trim().length > 0;
-}
-
-function sermonVideoEntryIsReady(item: unknown): boolean {
-  if (!item || typeof item !== 'object') return false;
-  const entry = item as { videoCodec?: unknown; videoMediaStatus?: unknown };
-  if (hasSermonVideoCodec(entry)) return true;
-  return isSuccessfulVideoMediaStatus(entry.videoMediaStatus);
-}
-
-function hasSermonVideoThumbnail(item: unknown): boolean {
-  if (!item || typeof item !== 'object') return false;
-  const thumbnailImageURL = (item as { thumbnailImageURL?: unknown }).thumbnailImageURL;
-  return typeof thumbnailImageURL === 'string' && thumbnailImageURL.trim().length > 0;
-}
-
 /**
- * True when SermonAudio has finished transcoding any `media.video` rendition.
- * Gates on non-null `videoCodec` or successful `videoMediaStatus` (`ready`) — not `thumbnailImageURL`,
- * since a custom thumbnail may populate that field before transcoding completes.
+ * True when SermonAudio reports sermon video is ready for publish (`hasVideo` + `videoMediaStatus: ready`).
+ * @param payload - GET sermon JSON body.
+ * @returns Whether video processing has reached the publish gate.
  */
-function sermonVideoTranscodingIsReady(payload: unknown): boolean {
+function sermonVideoPublishIsReady(payload: unknown): boolean {
   if (payload === null || typeof payload !== 'object') return false;
-  const media = (payload as SermonMediaPayload).media;
-  if (!media || !Array.isArray(media.video) || media.video.length === 0) return false;
-  return media.video.some((item) => sermonVideoEntryIsReady(item));
-}
-
-/**
- * True when SermonAudio has generated a video thumbnail on any `media.video` entry.
- * Transcoding can finish before SA extracts the poster frame, so do not gate on codec/status alone.
- */
-function sermonVideoPosterIsReady(payload: unknown): boolean {
-  if (payload === null || typeof payload !== 'object') return false;
-  const media = (payload as SermonMediaPayload).media;
-  if (!media || !Array.isArray(media.video)) return false;
-  return media.video.some((item) => hasSermonVideoThumbnail(item));
-}
-
-function sermonVideoIsReady(payload: unknown, customThumbnailUploaded: boolean): boolean {
-  // Custom thumbnail success: wait for transcoding, not SA-generated poster URL.
-  return customThumbnailUploaded
-    ? sermonVideoTranscodingIsReady(payload)
-    : sermonVideoPosterIsReady(payload);
+  const root = payload as { hasVideo?: unknown; videoMediaStatus?: unknown };
+  if (root.hasVideo !== true) return false;
+  return isSuccessfulVideoMediaStatus(root.videoMediaStatus);
 }
 
 /**
@@ -651,12 +605,9 @@ export async function uploadToSermonAudio(
 }
 
 /**
- * Polls SermonAudio until sermon video processing completes.
- * Without a successfully uploaded custom thumbnail, waits for SA-generated `thumbnailImageURL`
- * on any `media.video` entry. With one, waits for transcoding (`videoCodec` or
- * `videoMediaStatus: ready`) instead, since the uploaded poster may appear before encoding finishes.
+ * Polls SermonAudio until sermon video is ready for publish (`hasVideo` and `videoMediaStatus: ready`).
  * @param input - Sermon id, API key tokens, poll tuning, and optional abort signal.
- * @returns Resolves when processing is complete.
+ * @returns Resolves when video is ready.
  * @throws When transcoding fails, polling is aborted, or `maxAttempts` is exceeded.
  */
 export async function pollSermonAudioProcessing(
@@ -677,7 +628,6 @@ export async function pollSermonAudioProcessing(
 
   const intervalMs = input.intervalMs ?? SERMONAUDIO_PROCESSING_POLL_INTERVAL_MS;
   const maxAttempts = input.maxAttempts ?? SERMONAUDIO_PROCESSING_MAX_ATTEMPTS;
-  const customThumbnailUploaded = input.customThumbnailUploaded === true;
   const pollUrl = `${SERMONAUDIO_SERMONS_URL}/${encodeURIComponent(sermonID)}?allowUnpublished=true`;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -713,7 +663,7 @@ export async function pollSermonAudioProcessing(
         `videoMediaStatus: ${processingFailure}`
       );
     }
-    if (sermonVideoIsReady(payload, customThumbnailUploaded)) {
+    if (sermonVideoPublishIsReady(payload)) {
       return;
     }
 
@@ -729,10 +679,9 @@ export async function pollSermonAudioProcessing(
 }
 
 /**
- * Publishes a SermonAudio sermon by PATCHing `publishDate` to today's local calendar date (`YYYY-MM-DD`).
- * Cross Publish options must already be on the sermon from the create POST (`socialSharing`);
- * publishing triggers SA to run the configured cross-posts once video processing is complete.
- * @param input - Sermon id, API key tokens, and optional abort signal.
+ * Publishes a SermonAudio sermon by PATCHing `publishNow: true`.
+ * When Cross Publish is configured, includes `socialSharingSettings` in the same request.
+ * @param input - Sermon id, API key tokens, optional Cross Publish settings, and abort signal.
  * @throws When the publish request fails.
  */
 export async function publishSermonAudio(input: PublishSermonAudioInput): Promise<void> {
@@ -750,12 +699,19 @@ export async function publishSermonAudio(input: PublishSermonAudioInput): Promis
   }
 
   const publishUrl = `${SERMONAUDIO_SERMONS_URL}/${encodeURIComponent(sermonID)}`;
+  const socialSharingSettings = buildSermonAudioSocialSharingSettings(input.crossPublish, {
+    defaultTitle: input.defaultTitle,
+    defaultDescription: input.defaultDescription,
+  });
+  const publishBody: Record<string, unknown> = { publishNow: true };
+  if (socialSharingSettings) {
+    publishBody.socialSharingSettings = socialSharingSettings;
+  }
+
   const response = await fetch(publishUrl, {
     method: 'PATCH',
     headers: sermonAudioJsonHeaders(apiKey),
-    body: JSON.stringify({
-      publishDate: formatSermonAudioLocalDate(),
-    }),
+    body: JSON.stringify(publishBody),
     ...(input.signal ? { signal: input.signal } : {}),
   });
 

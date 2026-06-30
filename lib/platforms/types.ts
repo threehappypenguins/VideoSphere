@@ -83,7 +83,7 @@ export interface SermonAudioSpecificUploadMetadata {
   autoPublishOnProcessed?: boolean;
   /** Scheduled publication datetime (`publishDate` on sermon create; ISO 8601 with optional offset). */
   publishDate?: string;
-  /** Cross Publish destination settings (sent as `socialSharing` on sermon create POST). */
+  /** Cross Publish destination settings (sent as `socialSharingSettings` on publish PATCH). */
   crossPublish?: SermonAudioCrossPublishSettings;
 }
 
