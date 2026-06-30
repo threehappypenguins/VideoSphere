@@ -204,7 +204,7 @@ export interface SermonAudioSocialSharingSettingsPlatformEntry {
   title?: string;
   /** YouTube visibility when uploading full video to YouTube. */
   privacy?: string;
-  /** When true, attach the configured preview clip (X video preview). */
+  /** When true, include video with the cross-post (Facebook full video or X preview clip); when false, link only. */
   useVideoClip?: boolean;
 }
 
