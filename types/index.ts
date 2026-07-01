@@ -382,7 +382,7 @@ export interface SermonAudioDraftFields
   displayTitle?: string;
   /** Language code from `GET /v2/node/languages` (SA `languageCode`; defaults to `en`). */
   languageCode?: string;
-  /** When true, publish automatically after SA video processing completes (defaults to on). */
+  /** When not explicitly false, publish automatically after SA video processing completes (defaults to on). */
   autoPublishOnProcessed?: boolean;
   /**
    * Scheduled publication time for SermonAudio (`publishTimestamp` on publish PATCH).

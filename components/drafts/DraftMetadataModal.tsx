@@ -2565,7 +2565,10 @@ export function DraftMetadataModal({
     setSaScheduleDate('');
     setSaScheduleTime('');
     setSaScheduleTimeZone('');
-    updateSermonAudioFields({ publishTimestamp: undefined });
+    updateSermonAudioFields({
+      publishTimestamp: undefined,
+      autoPublishOnProcessed: undefined,
+    });
   };
 
   const handleSermonAudioScheduleExpandedChange = (nextExpanded: boolean) => {
