@@ -714,6 +714,38 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
     });
   });
 
+  it('persists scheduled status when publishTimestamp is in the future', async () => {
+    mockUploadToSermonAudio.mockResolvedValue(sermonAudioUploadSuccess());
+    mockPollSermonAudioProcessing.mockResolvedValue(undefined);
+    mockPublishSermonAudio.mockResolvedValue(undefined);
+
+    const futurePublishTimestamp = Math.floor(Date.now() / 1000) + 86_400;
+    const pu = basePlatformUpload({ id: 'pu-sa', platform: 'sermon_audio' });
+    const meta = new Map<string, PlatformUploadMetadata>([
+      [
+        'pu-sa',
+        {
+          ...baseMetadata,
+          autoPublishOnProcessed: false,
+          publishTimestamp: futurePublishTimestamp,
+        },
+      ],
+    ]);
+
+    await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
+
+    await vi.waitFor(() => {
+      expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+        'pu-sa',
+        'scheduled',
+        'sermon-123',
+        sermonUrl,
+        null,
+        new Date(futurePublishTimestamp * 1000).toISOString()
+      );
+    });
+  });
+
   it('persists failed status when auto-publish cannot run without a captured API key', async () => {
     mockRefreshTokenIfNeeded.mockResolvedValue({
       accessToken: '',

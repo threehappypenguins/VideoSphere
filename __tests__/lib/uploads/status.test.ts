@@ -4,14 +4,16 @@ import {
   isPlatformUploadRowActive,
   isPlatformUploadStatusInProgress,
   isSermonAudioAwaitingAutoPublish,
+  resolveSermonAudioTerminalUploadStatus,
   SERMONAUDIO_AUTO_PUBLISH_UI_STALE_MS,
 } from '@/lib/uploads/status';
 
 describe('isPlatformUploadDistributionComplete', () => {
-  it('treats completed, unpublished, and published as distribution-complete', () => {
+  it('treats completed, unpublished, published, and scheduled as distribution-complete', () => {
     expect(isPlatformUploadDistributionComplete('completed')).toBe(true);
     expect(isPlatformUploadDistributionComplete('unpublished')).toBe(true);
     expect(isPlatformUploadDistributionComplete('published')).toBe(true);
+    expect(isPlatformUploadDistributionComplete('scheduled')).toBe(true);
   });
 
   it('treats pending, uploading, and failed as not distribution-complete', () => {
@@ -31,7 +33,22 @@ describe('isPlatformUploadStatusInProgress', () => {
     expect(isPlatformUploadStatusInProgress('completed')).toBe(false);
     expect(isPlatformUploadStatusInProgress('unpublished')).toBe(false);
     expect(isPlatformUploadStatusInProgress('published')).toBe(false);
+    expect(isPlatformUploadStatusInProgress('scheduled')).toBe(false);
     expect(isPlatformUploadStatusInProgress('failed')).toBe(false);
+  });
+});
+
+describe('resolveSermonAudioTerminalUploadStatus', () => {
+  const nowSec = 1_700_000_000;
+
+  it('returns scheduled when publishTimestamp is in the future', () => {
+    expect(resolveSermonAudioTerminalUploadStatus(nowSec + 3600, nowSec)).toBe('scheduled');
+  });
+
+  it('returns published when publishTimestamp is now, past, or omitted', () => {
+    expect(resolveSermonAudioTerminalUploadStatus(undefined, nowSec)).toBe('published');
+    expect(resolveSermonAudioTerminalUploadStatus(nowSec, nowSec)).toBe('published');
+    expect(resolveSermonAudioTerminalUploadStatus(nowSec - 60, nowSec)).toBe('published');
   });
 });
 
@@ -40,6 +57,7 @@ describe('isSermonAudioAwaitingAutoPublish', () => {
     expect(isSermonAudioAwaitingAutoPublish('unpublished', true)).toBe(true);
     expect(isSermonAudioAwaitingAutoPublish('unpublished', false)).toBe(false);
     expect(isSermonAudioAwaitingAutoPublish('published', true)).toBe(false);
+    expect(isSermonAudioAwaitingAutoPublish('scheduled', true)).toBe(false);
   });
 });
 

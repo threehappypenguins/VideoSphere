@@ -9,12 +9,16 @@ export const YOUTUBE_MAX_SCHEDULE_LEAD_MONTHS = 12;
 /** Maximum days in the future Facebook allows scheduling. */
 export const FACEBOOK_MAX_SCHEDULE_LEAD_DAYS = 75;
 
+/** Maximum days in the future SermonAudio allows scheduling. */
+export const SERMONAUDIO_MAX_SCHEDULE_LEAD_DAYS = 60;
+
 /**
  * Platform whose schedule window applies.
  * @property youtube - Up to {@link YOUTUBE_MAX_SCHEDULE_LEAD_MONTHS} months ahead.
  * @property facebook - Up to {@link FACEBOOK_MAX_SCHEDULE_LEAD_DAYS} days ahead.
+ * @property sermon_audio - Up to {@link SERMONAUDIO_MAX_SCHEDULE_LEAD_DAYS} days ahead.
  */
-export type SchedulePlatform = 'youtube' | 'facebook';
+export type SchedulePlatform = 'youtube' | 'facebook' | 'sermon_audio';
 
 /**
  * Earliest selectable calendar day for schedulers (start of today, local time).
@@ -32,10 +36,13 @@ export function getScheduleMinDate(now: Date = new Date()): Date {
  * @returns Start of the last allowed local day.
  */
 export function getScheduleMaxDate(platform: SchedulePlatform, now: Date = new Date()): Date {
-  if (platform === 'youtube') {
-    return startOfDay(addMonths(now, YOUTUBE_MAX_SCHEDULE_LEAD_MONTHS));
+  if (platform === 'facebook') {
+    return startOfDay(addDays(now, FACEBOOK_MAX_SCHEDULE_LEAD_DAYS));
   }
-  return startOfDay(addDays(now, FACEBOOK_MAX_SCHEDULE_LEAD_DAYS));
+  if (platform === 'sermon_audio') {
+    return startOfDay(addDays(now, SERMONAUDIO_MAX_SCHEDULE_LEAD_DAYS));
+  }
+  return startOfDay(addMonths(now, YOUTUBE_MAX_SCHEDULE_LEAD_MONTHS));
 }
 
 /**
@@ -57,9 +64,13 @@ export function getScheduleMaxDateTimeMs(
  * @returns Short phrase for UI help text (e.g. `12 months`, `75 days`).
  */
 export function getScheduleMaxLeadLabel(platform: SchedulePlatform): string {
-  return platform === 'youtube'
-    ? `${YOUTUBE_MAX_SCHEDULE_LEAD_MONTHS} months`
-    : `${FACEBOOK_MAX_SCHEDULE_LEAD_DAYS} days`;
+  if (platform === 'facebook') {
+    return `${FACEBOOK_MAX_SCHEDULE_LEAD_DAYS} days`;
+  }
+  if (platform === 'sermon_audio') {
+    return `${SERMONAUDIO_MAX_SCHEDULE_LEAD_DAYS} days`;
+  }
+  return `${YOUTUBE_MAX_SCHEDULE_LEAD_MONTHS} months`;
 }
 
 function parseUtcIsoScheduleTimestamp(iso: string): number | null {
@@ -128,6 +139,32 @@ export function validateFacebookScheduledPublishTime(
     'facebook',
     new Date(nowMs)
   );
+}
+
+/**
+ * Validates a Unix timestamp (seconds) for SermonAudio scheduled publish.
+ * Past times are allowed (SermonAudio publishes immediately). Only the upper bound is enforced.
+ * @param publishTimestamp - Unix timestamp in seconds.
+ * @param nowMs - Reference time in milliseconds.
+ * @returns Error message when invalid, or undefined when valid.
+ */
+export function validateSermonAudioScheduledPublishTime(
+  publishTimestamp: number,
+  nowMs: number = Date.now()
+): string | undefined {
+  if (!Number.isFinite(publishTimestamp)) {
+    return 'Scheduled publish time must be a valid Unix timestamp.';
+  }
+
+  const parsedMs = Math.floor(publishTimestamp) * 1000;
+  const maxMs = getScheduleMaxDateTimeMs('sermon_audio', new Date(nowMs));
+  const maxLabel = getScheduleMaxLeadLabel('sermon_audio');
+
+  if (parsedMs > maxMs) {
+    return `Scheduled time must be within ${maxLabel} from now.`;
+  }
+
+  return undefined;
 }
 
 /** @deprecated Use {@link SCHEDULE_MIN_LEAD_MINUTES} via seconds in callers. */

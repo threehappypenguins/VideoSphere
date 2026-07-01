@@ -189,13 +189,14 @@ export interface PerPlatformOverrides extends PerPlatformCopyOverrides {
   thumbnailPreviewUrlOverride?: string;
 }
 
-/** Platform upload status. SermonAudio uses `unpublished` / `published` after upload instead of `completed`. */
+/** Platform upload status. SermonAudio uses `unpublished`, `published`, or `scheduled` after upload instead of `completed`. */
 export type PlatformUploadStatus =
   | 'pending'
   | 'uploading'
   | 'completed'
   | 'unpublished'
   | 'published'
+  | 'scheduled'
   | 'failed';
 
 /** Per-platform visibility (PRD: public, unlisted, private). */
@@ -384,14 +385,14 @@ export interface SermonAudioDraftFields
   /** When not explicitly false, publish automatically after SA video processing completes (defaults to on). */
   autoPublishOnProcessed?: boolean;
   /**
-   * Scheduled publication datetime for SermonAudio (`publishDate` on sermon create).
-   * ISO 8601 wall-clock datetime, typically with offset (for example `2026-07-01T09:00:00-04:00`).
-   * When set, `autoPublishOnProcessed` is disabled and the sermon goes live at this time.
+   * Scheduled publication time for SermonAudio (`publishTimestamp` on publish PATCH).
+   * Unix timestamp in seconds. When set, `autoPublishOnProcessed` is disabled and the sermon
+   * goes live at this time after processing completes.
    */
-  publishDate?: string;
+  publishTimestamp?: number;
   /**
    * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
-   * Sent as `socialSharingSettings` on publish PATCH together with `publishNow: true`.
+   * Sent as `socialSharingSettings` on publish PATCH together with `publishTimestamp`.
    */
   crossPublish?: SermonAudioCrossPublishSettings;
 }

@@ -61,7 +61,10 @@ import {
 } from '@/lib/platforms/sermon-audio';
 import { sermonAudioCrossPublishHasActiveSelection } from '@/lib/platforms/sermon-audio-cross-publish';
 import { latestPlatformUploadsPerPlatform } from '@/lib/utils/platform-uploads';
-import { isPlatformUploadDistributionComplete } from '@/lib/uploads/status';
+import {
+  isPlatformUploadDistributionComplete,
+  resolveSermonAudioTerminalUploadStatus,
+} from '@/lib/uploads/status';
 
 export type { RetryabilityAssessment } from '@/lib/utils/retryability';
 export { assessPlatformUploadRetryability } from '@/lib/utils/retryability';
@@ -142,7 +145,10 @@ export function distributeCreatePlatformUploadInput(
         }
       : {}),
     ...(platform === 'sermon_audio'
-      ? { sermonAudioAutoPublishOnProcessed: meta.autoPublishOnProcessed === true }
+      ? {
+          sermonAudioAutoPublishOnProcessed:
+            meta.autoPublishOnProcessed === true || meta.publishTimestamp !== undefined,
+        }
       : {}),
   };
 }
@@ -227,7 +233,9 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
     if (!sermonID) continue;
 
     const meta = metadataByPlatformId.get(upload.id);
-    if (meta?.autoPublishOnProcessed !== true) continue;
+    const shouldPublishAfterProcessing =
+      meta?.autoPublishOnProcessed === true || meta?.publishTimestamp !== undefined;
+    if (!shouldPublishAfterProcessing) continue;
 
     if (!apiKey) {
       console.warn(
@@ -265,17 +273,24 @@ async function startSermonAudioAutoPublishForSuccessfulUploads(
           crossPublish: meta?.crossPublish,
           defaultTitle: meta.fullTitle?.trim() || meta.title?.trim(),
           defaultDescription: meta.description?.trim() || meta.moreInfoText?.trim(),
+          publishTimestamp: meta.publishTimestamp,
         });
+        const terminalStatus = resolveSermonAudioTerminalUploadStatus(meta.publishTimestamp);
+        const scheduledAt =
+          terminalStatus === 'scheduled' && meta.publishTimestamp !== undefined
+            ? new Date(meta.publishTimestamp * 1000).toISOString()
+            : null;
         await updatePlatformUploadStatus(
           platformUploadId,
-          'published',
+          terminalStatus,
           sermonID,
           platformUrl || undefined,
-          null
+          null,
+          scheduledAt
         );
         const crossPublishActive = sermonAudioCrossPublishHasActiveSelection(meta?.crossPublish);
         console.log(
-          `[distribute] SermonAudio sermon ${sermonID} published after processing (job ${jobId}, platform_upload ${platformUploadId})` +
+          `[distribute] SermonAudio sermon ${sermonID} ${terminalStatus === 'scheduled' ? 'scheduled' : 'published'} after processing (job ${jobId}, platform_upload ${platformUploadId})` +
             (crossPublishActive ? '; Cross Publish enabled' : '')
         );
       } catch (err) {

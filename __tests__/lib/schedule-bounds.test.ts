@@ -6,8 +6,10 @@ import {
   getScheduleMaxDate,
   getScheduleMaxDateTimeMs,
   getScheduleMinDate,
+  SERMONAUDIO_MAX_SCHEDULE_LEAD_DAYS,
   validateFacebookScheduledPublishTime,
   validateSchedulePublishAtIso,
+  validateSermonAudioScheduledPublishTime,
   YOUTUBE_MAX_SCHEDULE_LEAD_MONTHS,
 } from '@/lib/schedule-bounds';
 
@@ -24,8 +26,13 @@ describe('schedule bounds', () => {
     expect(getScheduleMaxDate('facebook', now).toISOString().slice(0, 10)).toBe('2025-08-22');
   });
 
+  it('limits SermonAudio dates to today through 60 days ahead', () => {
+    const july1 = new Date('2026-07-01T12:00:00.000Z');
+    expect(getScheduleMaxDate('sermon_audio', july1).toISOString().slice(0, 10)).toBe('2026-08-30');
+  });
+
   it('ends the max schedule day at local end-of-day (DST-safe)', () => {
-    for (const platform of ['youtube', 'facebook'] as const) {
+    for (const platform of ['youtube', 'facebook', 'sermon_audio'] as const) {
       const maxDay = getScheduleMaxDate(platform, now);
       expect(getScheduleMaxDateTimeMs(platform, now)).toBe(endOfDay(maxDay).getTime());
     }
@@ -45,6 +52,20 @@ describe('schedule bounds', () => {
     const tooFarSec =
       Math.floor(now.getTime() / 1000) + (FACEBOOK_MAX_SCHEDULE_LEAD_DAYS + 1) * 24 * 60 * 60;
     expect(validateFacebookScheduledPublishTime(tooFarSec, now.getTime())).toMatch(/75 days/);
+  });
+
+  it('accepts SermonAudio timestamps in the past and within 60 days', () => {
+    const pastSec = Math.floor(now.getTime() / 1000) - 3600;
+    const futureSec =
+      Math.floor(now.getTime() / 1000) + SERMONAUDIO_MAX_SCHEDULE_LEAD_DAYS * 24 * 60 * 60;
+    expect(validateSermonAudioScheduledPublishTime(pastSec, now.getTime())).toBeUndefined();
+    expect(validateSermonAudioScheduledPublishTime(futureSec, now.getTime())).toBeUndefined();
+  });
+
+  it('rejects SermonAudio timestamps beyond 60 days', () => {
+    const tooFarSec =
+      Math.floor(now.getTime() / 1000) + (SERMONAUDIO_MAX_SCHEDULE_LEAD_DAYS + 1) * 24 * 60 * 60;
+    expect(validateSermonAudioScheduledPublishTime(tooFarSec, now.getTime())).toMatch(/60 days/);
   });
 
   it('rejects timezone-less ISO schedule timestamps', () => {
