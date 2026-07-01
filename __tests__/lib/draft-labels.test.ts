@@ -9,6 +9,7 @@ import {
   mergeDraftLabelLibraryEntries,
   mergeUniqueDraftLabels,
   normalizeDraftLabelColor,
+  normalizeDraftLabelDefinition,
   normalizeDraftLabelLibrary,
   normalizeDraftLabelList,
   parseDraftLabelInput,
@@ -45,6 +46,29 @@ describe('filterDraftLabelSuggestions', () => {
 });
 
 describe('parseDraftLabelsFromRequestBody', () => {
+  it('rejects non-array values', () => {
+    const result = parseDraftLabelsFromRequestBody('Sunday');
+    expect(result).toEqual({ ok: false, error: 'labels must be an array of strings' });
+  });
+
+  it('rejects arrays containing non-string elements', () => {
+    expect(parseDraftLabelsFromRequestBody(['Sunday', 42])).toEqual({
+      ok: false,
+      error: 'labels must be an array of strings',
+    });
+    expect(parseDraftLabelsFromRequestBody(['Sunday', { name: 'Easter' }])).toEqual({
+      ok: false,
+      error: 'labels must be an array of strings',
+    });
+  });
+
+  it('accepts valid string arrays', () => {
+    expect(parseDraftLabelsFromRequestBody([' Easter ', 'Sunday'])).toEqual({
+      ok: true,
+      value: ['Easter', 'Sunday'],
+    });
+  });
+
   it('rejects arrays that exceed per-draft limit', () => {
     const labels = Array.from({ length: 21 }, (_, index) => `Label ${index}`);
     const result = parseDraftLabelsFromRequestBody(labels);
@@ -53,6 +77,35 @@ describe('parseDraftLabelsFromRequestBody', () => {
 });
 
 describe('parseDraftLabelLibraryFromRequestBody', () => {
+  it('rejects arrays containing non-string, non-object entries', () => {
+    expect(parseDraftLabelLibraryFromRequestBody([42])).toEqual({
+      ok: false,
+      error: 'labels must contain only strings or label objects',
+    });
+    expect(
+      parseDraftLabelLibraryFromRequestBody([{ name: 'Sunday', color: '#6366f1' }, null])
+    ).toEqual({
+      ok: false,
+      error: 'labels must contain only strings or label objects',
+    });
+    expect(parseDraftLabelLibraryFromRequestBody([['Sunday']])).toEqual({
+      ok: false,
+      error: 'labels must contain only strings or label objects',
+    });
+  });
+
+  it('accepts string entries and label objects', () => {
+    expect(
+      parseDraftLabelLibraryFromRequestBody(['Sunday', { name: 'Easter', color: '#6366f1' }])
+    ).toEqual({
+      ok: true,
+      value: [
+        { name: 'Sunday', color: expect.any(String) },
+        { name: 'Easter', color: '#6366f1' },
+      ],
+    });
+  });
+
   it('rejects raw arrays that exceed the library size cap', () => {
     const labels = Array.from({ length: MAX_DRAFT_LABEL_LIBRARY_SIZE + 1 }, (_, index) =>
       String(index)
@@ -91,12 +144,43 @@ describe('normalizeDraftLabelList', () => {
   });
 });
 
+describe('normalizeDraftLabelDefinition', () => {
+  it('returns null when object name is not a string', () => {
+    expect(normalizeDraftLabelDefinition({ name: { nested: true } })).toBeNull();
+    expect(normalizeDraftLabelDefinition({ name: 42 })).toBeNull();
+    expect(normalizeDraftLabelDefinition({ name: null })).toBeNull();
+  });
+
+  it('accepts string names on objects', () => {
+    expect(normalizeDraftLabelDefinition({ name: 'Sunday', color: '#6366f1' })).toEqual({
+      name: 'Sunday',
+      color: '#6366f1',
+    });
+  });
+
+  it('accepts legacy string entries', () => {
+    expect(normalizeDraftLabelDefinition(' Easter ')).toEqual({
+      name: 'Easter',
+      color: expect.any(String),
+    });
+  });
+});
+
 describe('normalizeDraftLabelLibrary', () => {
   it('migrates legacy string entries and accepts color objects', () => {
     expect(normalizeDraftLabelLibrary([' Easter ', { name: 'Sunday', color: '#6366f1' }])).toEqual([
       { name: 'Easter', color: expect.any(String) },
       { name: 'Sunday', color: '#6366f1' },
     ]);
+  });
+
+  it('skips object entries with non-string names', () => {
+    expect(
+      normalizeDraftLabelLibrary([
+        { name: 'Sunday', color: '#6366f1' },
+        { name: { nested: true }, color: '#ef4444' },
+      ])
+    ).toEqual([{ name: 'Sunday', color: '#6366f1' }]);
   });
 
   it('deduplicates by name case-insensitively', () => {

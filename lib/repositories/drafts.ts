@@ -32,6 +32,16 @@ import {
 } from '@/lib/draft-upload-metadata';
 import { draftLabelListIncludesEquivalent, normalizeDraftLabel } from '@/lib/draft-labels';
 
+/** Max draft updates per bulkWrite when stripping labels (keeps memory bounded). */
+const DRAFT_LABEL_REMOVAL_BULK_CHUNK_SIZE = 500;
+
+type DraftLabelRemovalBulkOp = {
+  updateOne: {
+    filter: { _id: string };
+    update: { $set: { document: string; updatedAt: Date } };
+  };
+};
+
 /** Map a MongoDB document to the shared Draft type. */
 function mongoDocToDraft(doc: DraftDocument): Draft {
   const parsed = draftDocumentFromRow({ document: doc.document });
@@ -465,18 +475,21 @@ export async function removeLabelsFromAllDraftsForUser(
   if (normalizedTargets.length === 0) return;
 
   await connectToDatabase();
-  const rows = await DraftModel.find({ userId })
-    .select({ _id: 1, document: 1 })
-    .lean<Pick<DraftDocument, '_id' | 'document'>[]>();
   const now = new Date();
-  const bulkOps: Array<{
-    updateOne: {
-      filter: { _id: string };
-      update: { $set: { document: string; updatedAt: Date } };
-    };
-  }> = [];
+  let bulkOps: DraftLabelRemovalBulkOp[] = [];
 
-  for (const row of rows) {
+  const flushBulkOps = async (): Promise<void> => {
+    if (bulkOps.length === 0) return;
+    await DraftModel.bulkWrite(bulkOps, { ordered: false });
+    bulkOps = [];
+  };
+
+  const cursor = DraftModel.find({ userId })
+    .select({ _id: 1, document: 1 })
+    .lean<Pick<DraftDocument, '_id' | 'document'>>()
+    .cursor();
+
+  for await (const row of cursor) {
     const parsed = draftDocumentFromRow({ document: row.document });
     const nextLabels = parsed.labels.filter(
       (existing) =>
@@ -497,11 +510,13 @@ export async function removeLabelsFromAllDraftsForUser(
         update: { $set: { document: documentJson, updatedAt: now } },
       },
     });
+
+    if (bulkOps.length >= DRAFT_LABEL_REMOVAL_BULK_CHUNK_SIZE) {
+      await flushBulkOps();
+    }
   }
 
-  if (bulkOps.length === 0) return;
-
-  await DraftModel.bulkWrite(bulkOps, { ordered: false });
+  await flushBulkOps();
 }
 
 /**

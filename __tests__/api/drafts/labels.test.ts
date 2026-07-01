@@ -107,6 +107,20 @@ describe('GET /api/drafts/labels', () => {
     ]);
   });
 
+  it('returns 404 when the user profile is missing', async () => {
+    vi.mocked(getDraftLabelLibrary).mockRejectedValueOnce(
+      Object.assign(new Error('User profile not found'), { code: 404 })
+    );
+
+    const res = await GET(makeRequest('GET'));
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe('Not Found');
+    expect(body.message).toBe('User profile not found');
+    expect(body.statusCode).toBe(404);
+  });
+
   it('returns 500 when loading the library fails', async () => {
     vi.mocked(getDraftLabelLibrary).mockRejectedValueOnce(new Error('db down'));
 

@@ -701,13 +701,17 @@ export async function revokeStoredGoogleAuthForUser(userId: string): Promise<voi
  * Returns the authenticated user's saved draft label library.
  * @param userId - Auth user id.
  * @returns Normalized label definitions in stored order.
+ * @throws Error with `code` 404 when no matching profile exists.
  */
 export async function getDraftLabelLibrary(userId: string): Promise<DraftLabelDefinition[]> {
   await connectToDatabase();
   const doc = await UserProfileModel.findById(userId)
     .select(DRAFT_LABEL_LIBRARY_SELECT)
     .lean<DraftLabelLibraryLean | null>();
-  if (!doc) return [];
+  if (!doc) {
+    const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
+    throw notFound;
+  }
   return normalizeDraftLabelLibrary(doc.draftLabelLibrary);
 }
 

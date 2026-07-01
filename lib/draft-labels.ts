@@ -143,7 +143,8 @@ export function normalizeDraftLabelDefinition(value: unknown): DraftLabelDefinit
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const name = normalizeDraftLabel(String(record.name ?? ''));
+  if (typeof record.name !== 'string') return null;
+  const name = normalizeDraftLabel(record.name);
   if (!name) return null;
   return {
     name,
@@ -312,6 +313,9 @@ export function parseDraftLabelsFromRequestBody(
   if (!Array.isArray(value)) {
     return { ok: false, error: 'labels must be an array of strings' };
   }
+  if (value.some((item) => typeof item !== 'string')) {
+    return { ok: false, error: 'labels must be an array of strings' };
+  }
 
   const normalized = normalizeDraftLabelList(value);
   if (normalized.length > MAX_DRAFT_LABELS_PER_DRAFT) {
@@ -347,6 +351,15 @@ export function parseDraftLabelLibraryFromRequestBody(
   }
   if (!Array.isArray(value)) {
     return { ok: false, error: 'labels must be an array' };
+  }
+  if (
+    value.some(
+      (item) =>
+        typeof item !== 'string' &&
+        (item === null || typeof item !== 'object' || Array.isArray(item))
+    )
+  ) {
+    return { ok: false, error: 'labels must contain only strings or label objects' };
   }
   if (value.length > MAX_DRAFT_LABEL_LIBRARY_SIZE) {
     return {
