@@ -300,7 +300,8 @@ export function SermonAudioCrossPublishFields({
                     const requiresPostLink =
                       !postLink &&
                       ((destination.id === 'facebook' && option.id === 'uploadFullVideo') ||
-                        (destination.id === 'x' && option.id === 'uploadVideoPreview'));
+                        ((destination.id === 'x' || destination.id === 'instagram') &&
+                          option.id === 'uploadVideoPreview'));
 
                     return (
                       <CrossPublishToggleRow
@@ -316,7 +317,7 @@ export function SermonAudioCrossPublishFields({
                               ...(option.id === 'postLink' && !nextChecked
                                 ? destination.id === 'facebook'
                                   ? { uploadFullVideo: false }
-                                  : destination.id === 'x'
+                                  : destination.id === 'x' || destination.id === 'instagram'
                                     ? { uploadVideoPreview: false }
                                     : {}
                                 : {}),

@@ -30,6 +30,8 @@ export interface SermonAudioCrossPublishSocialConnections {
   facebook: SermonAudioSocialConnectionPlatformStatus;
   /** X / Twitter (`twitter` in SermonAudio refresh_social response). */
   x: SermonAudioSocialConnectionPlatformStatus;
+  /** Instagram. */
+  instagram: SermonAudioSocialConnectionPlatformStatus;
 }
 
 function parseHasOAuth(value: unknown): boolean {
@@ -49,7 +51,7 @@ function parseConnectionDisplayName(value: unknown): string | undefined {
 /**
  * Parses SermonAudio `refresh_social` JSON into Cross Publish connection flags.
  * @param body - Raw upstream JSON body.
- * @returns Connection status for YouTube, Facebook, and X.
+ * @returns Connection status for YouTube, Facebook, X, and Instagram.
  */
 export function parseSermonAudioRefreshSocialResponse(
   body: unknown
@@ -68,6 +70,10 @@ export function parseSermonAudioRefreshSocialResponse(
     x: {
       connected: parseHasOAuth(raw.twitter),
       displayName: parseConnectionDisplayName(raw.twitter),
+    },
+    instagram: {
+      connected: parseHasOAuth(raw.instagram),
+      displayName: parseConnectionDisplayName(raw.instagram),
     },
   };
 }

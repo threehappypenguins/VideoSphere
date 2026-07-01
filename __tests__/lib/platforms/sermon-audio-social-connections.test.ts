@@ -24,6 +24,7 @@ describe('parseSermonAudioRefreshSocialResponse', () => {
         displayName: 'Covenant Reformed Presbyterian Church',
       },
       x: { connected: true, displayName: 'CRPCHalifax' },
+      instagram: { connected: false },
     });
   });
 
@@ -32,6 +33,7 @@ describe('parseSermonAudioRefreshSocialResponse', () => {
       youtube: { connected: false },
       facebook: { connected: false },
       x: { connected: false },
+      instagram: { connected: false },
     });
   });
 });
