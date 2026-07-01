@@ -25,7 +25,7 @@ const mockRouterReplace = vi.fn();
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
   useRouter: () => ({ push: vi.fn(), replace: mockRouterReplace }),
-  usePathname: () => '/dashboard/drafts',
+  usePathname: () => '/dashboard/videos',
 }));
 
 vi.mock('@/components/drafts/DraftMetadataModal', () => ({
@@ -50,7 +50,7 @@ vi.mock('@/components/onboarding/OnboardingContext', () => ({
   }),
 }));
 
-import DraftsPage from '@/app/(dashboard)/dashboard/drafts/page';
+import DraftsPage from '@/app/(dashboard)/dashboard/videos/page';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -138,12 +138,12 @@ function mockEditDraftQueryFetch() {
 }
 
 describe('DraftsPage', () => {
-  it('renders the Drafts page heading', async () => {
+  it('renders the Videos page heading', async () => {
     mockInitialPageLoadFetch();
 
     render(<DraftsPage />);
 
-    expect(screen.getByRole('heading', { level: 1, name: /drafts/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /videos/i })).toBeInTheDocument();
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith('/api/drafts', expect.any(Object))
     );
@@ -224,7 +224,7 @@ describe('DraftsPage', () => {
     render(<DraftsPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
-    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/videos');
   });
 
   it('does not delete a non-minimal existing draft opened via createDraftId and preserves targets', async () => {
@@ -286,6 +286,6 @@ describe('DraftsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'close-edit' }));
 
-    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/videos');
   });
 });

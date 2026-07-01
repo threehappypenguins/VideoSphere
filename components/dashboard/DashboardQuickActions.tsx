@@ -36,7 +36,7 @@ export function DashboardQuickActions() {
         throw new Error('Failed to create draft');
       }
 
-      router.push(`/dashboard/drafts?createDraftId=${draft.id}`);
+      router.push(`/dashboard/videos?createDraftId=${draft.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to create draft');
     } finally {
@@ -63,7 +63,7 @@ export function DashboardQuickActions() {
           {isCreatingDraft ? 'Creating…' : 'New draft'}
         </button>
         <Link
-          href="/dashboard/drafts"
+          href="/dashboard/videos"
           data-tour="ai-metadata-hint"
           className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors bg-background/70 hover:bg-muted"
         >

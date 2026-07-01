@@ -3633,7 +3633,7 @@ export function DraftMetadataModal({
     abortThumbnailUploadFlow();
     void (async () => {
       if (await tryCloseModal()) {
-        router.push('/dashboard/history');
+        router.push('/dashboard/videos/history');
       }
     })();
   };
