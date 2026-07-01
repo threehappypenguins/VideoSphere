@@ -81,8 +81,8 @@ export interface SermonAudioSpecificUploadMetadata {
   acceptCopyright?: boolean;
   /** When true, publish after SA video processing completes. */
   autoPublishOnProcessed?: boolean;
-  /** Scheduled publication datetime (`publishDate` on sermon create; ISO 8601 with optional offset). */
-  publishDate?: string;
+  /** Scheduled publication Unix timestamp in seconds (`publishTimestamp` on publish PATCH). */
+  publishTimestamp?: number;
   /** Cross Publish destination settings (sent as `socialSharingSettings` on publish PATCH). */
   crossPublish?: SermonAudioCrossPublishSettings;
 }

@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
  * @property timeStr - Selected wall-clock time (`HH:MM`, 24-hour storage).
  * @property onDateChange - Called when the calendar date changes or is cleared.
  * @property onTimeChange - Called when the time input changes.
- * @property platform - Platform schedule window (`youtube` or `facebook`).
+ * @property platform - Platform schedule window (`youtube`, `facebook`, or `sermon_audio`).
  */
 export interface ScheduleDateTimeFieldsProps {
   dateId: string;

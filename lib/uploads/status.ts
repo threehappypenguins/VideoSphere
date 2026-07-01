@@ -37,13 +37,32 @@ export type PlatformStatusItem = {
 };
 
 /**
+ * Resolves the terminal SermonAudio platform upload status after a successful publish PATCH.
+ * Future `publishTimestamp` values become `scheduled`; past or immediate times become `published`.
+ * @param publishTimestamp - Unix timestamp (seconds) sent to SermonAudio, if any.
+ * @param nowSec - Reference time in seconds.
+ * @returns Terminal upload status for the platform row.
+ */
+export function resolveSermonAudioTerminalUploadStatus(
+  publishTimestamp: number | undefined,
+  nowSec: number = Math.floor(Date.now() / 1000)
+): 'published' | 'scheduled' {
+  return publishTimestamp !== undefined && publishTimestamp > nowSec ? 'scheduled' : 'published';
+}
+
+/**
  * True when bytes were successfully sent to the platform (terminal upload outcome, excluding failure).
- * SermonAudio stops at `unpublished` or `published`; other platforms use `completed`.
+ * SermonAudio stops at `unpublished`, `published`, or `scheduled`; other platforms use `completed`.
  * @param status - Platform upload row status.
  * @returns Whether distribution finished without error.
  */
 export function isPlatformUploadDistributionComplete(status: PlatformUploadStatus): boolean {
-  return status === 'completed' || status === 'unpublished' || status === 'published';
+  return (
+    status === 'completed' ||
+    status === 'unpublished' ||
+    status === 'published' ||
+    status === 'scheduled'
+  );
 }
 
 /**

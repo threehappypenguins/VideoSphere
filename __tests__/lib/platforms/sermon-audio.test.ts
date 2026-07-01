@@ -673,7 +673,7 @@ describe('publishSermonAudio', () => {
     vi.restoreAllMocks();
   });
 
-  it('PATCHes publishNow when Cross Publish is disabled', async () => {
+  it('PATCHes publishTimestamp when Cross Publish is disabled', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
 
     await publishSermonAudio({
@@ -686,12 +686,14 @@ describe('publishSermonAudio', () => {
       expect.objectContaining({
         method: 'PATCH',
         headers: expect.objectContaining({ 'X-Api-Key': 'sa-api-key' }),
-        body: JSON.stringify({ publishNow: true }),
+        body: expect.stringMatching(/"publishTimestamp":\d+/),
       })
     );
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body));
+    expect(body.publishNow).toBeUndefined();
   });
 
-  it('PATCHes publishNow with socialSharingSettings when Cross Publish is enabled', async () => {
+  it('PATCHes publishTimestamp with socialSharingSettings when Cross Publish is enabled', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
 
     await publishSermonAudio({
@@ -708,21 +710,35 @@ describe('publishSermonAudio', () => {
       'https://api.sermonaudio.com/v2/node/sermons/sermon-123',
       expect.objectContaining({
         method: 'PATCH',
-        body: JSON.stringify({
-          publishNow: true,
-          socialSharingSettings: {
-            platforms: [
-              {
-                platform: 'facebook',
-                message: 'Check this out',
-                useVideoClip: false,
-              },
-            ],
-            facebook: true,
-          },
-        }),
+        body: expect.stringContaining('"socialSharingSettings"'),
       })
     );
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body));
+    expect(body.publishTimestamp).toEqual(expect.any(Number));
+    expect(body.publishNow).toBeUndefined();
+    expect(body.socialSharingSettings).toEqual({
+      platforms: [
+        {
+          platform: 'facebook',
+          message: 'Check this out',
+          useVideoClip: false,
+        },
+      ],
+      facebook: true,
+    });
+  });
+
+  it('PATCHes an explicit publishTimestamp when provided', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    await publishSermonAudio({
+      sermonID: 'sermon-123',
+      tokens,
+      publishTimestamp: 1_782_772_962,
+    });
+
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body));
+    expect(body.publishTimestamp).toBe(1_782_772_962);
   });
 
   it('throws when publish request fails', async () => {

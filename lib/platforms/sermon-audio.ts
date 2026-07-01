@@ -60,6 +60,8 @@ interface PublishSermonAudioInput {
   defaultTitle?: string;
   /** Draft description used when Cross Publish message fields are empty. */
   defaultDescription?: string;
+  /** Unix timestamp (seconds) for publication. Defaults to the current time when omitted. */
+  publishTimestamp?: number;
   signal?: AbortSignal;
 }
 
@@ -185,8 +187,6 @@ function buildCreateSermonBody(metadata: PlatformUploadMetadata): Record<string,
   if (metadata.moreInfoText?.trim()) body.moreInfoText = metadata.moreInfoText.trim();
   if (metadata.keywords?.trim()) body.keywords = metadata.keywords.trim();
   if (metadata.languageCode?.trim()) body.languageCode = metadata.languageCode.trim();
-  // TODO(sermon-audio-schedule): Re-enable when SermonAudio accepts publishDate beyond YYYY-MM-DD.
-  // if (metadata.publishDate?.trim()) body.publishDate = metadata.publishDate.trim();
 
   return body;
 }
@@ -679,9 +679,9 @@ export async function pollSermonAudioProcessing(
 }
 
 /**
- * Publishes a SermonAudio sermon by PATCHing `publishNow: true`.
+ * Publishes a SermonAudio sermon by PATCHing `publishTimestamp`.
  * When Cross Publish is configured, includes `socialSharingSettings` in the same request.
- * @param input - Sermon id, API key tokens, optional Cross Publish settings, and abort signal.
+ * @param input - Sermon id, API key tokens, optional publish time, Cross Publish settings, and abort signal.
  * @throws When the publish request fails.
  */
 export async function publishSermonAudio(input: PublishSermonAudioInput): Promise<void> {
@@ -703,7 +703,9 @@ export async function publishSermonAudio(input: PublishSermonAudioInput): Promis
     defaultTitle: input.defaultTitle,
     defaultDescription: input.defaultDescription,
   });
-  const publishBody: Record<string, unknown> = { publishNow: true };
+  const publishBody: Record<string, unknown> = {
+    publishTimestamp: input.publishTimestamp ?? Math.floor(Date.now() / 1000),
+  };
   if (socialSharingSettings) {
     publishBody.socialSharingSettings = socialSharingSettings;
   }
