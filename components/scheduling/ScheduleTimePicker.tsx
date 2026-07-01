@@ -1,18 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckIcon, ChevronDownIcon, ClockIcon } from 'lucide-react';
+import { ChevronDownIcon, ClockIcon } from 'lucide-react';
 
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { usePrefers12HourClock } from '@/hooks/useUserClockFormat';
 import {
   buildScheduleTimeStr,
   formatScheduleTimeLabel,
   getScheduleHourOptions,
   normalizeScheduleTimeStr,
-  parseScheduleHourInput,
-  parseScheduleMinuteInput,
+  parseScheduleTimeInput,
   parseScheduleTimeParts,
   SCHEDULE_MINUTE_OPTIONS,
   to12HourParts,
@@ -42,12 +41,6 @@ interface TimePickerColumnProps<T extends string | number> {
   selected: T;
   formatOption: (value: T) => string;
   onSelect: (value: T) => void;
-  /** When true, shows a text field above the list so values can be typed as well as selected. */
-  editable?: boolean;
-  /** Parses typed digits on commit; return null to keep the current selection. */
-  parseTypedValue?: (value: string) => T | null;
-  /** Maximum digit length while typing. */
-  maxInputLength?: number;
   /** Optional class names for the column wrapper. */
   className?: string;
 }
@@ -58,27 +51,10 @@ function TimePickerColumn<T extends string | number>({
   selected,
   formatOption,
   onSelect,
-  editable = false,
-  parseTypedValue,
-  maxInputLength = 2,
   className,
 }: TimePickerColumnProps<T>) {
   const listRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
-  const [draftValue, setDraftValue] = useState<string | null>(null);
-  const isEditing = draftValue !== null;
-
-  const commitDraft = () => {
-    if (draftValue === null) {
-      return;
-    }
-
-    const parsed = parseTypedValue?.(draftValue);
-    if (parsed !== null && parsed !== undefined) {
-      onSelect(parsed);
-    }
-    setDraftValue(null);
-  };
 
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: 'center' });
@@ -110,36 +86,10 @@ function TimePickerColumn<T extends string | number>({
   }, []);
 
   return (
-    <div className={cn('min-w-0', className)}>
+    <div className={cn('min-w-[4.5rem]', className)}>
       <p className="mb-1 text-center text-[11px] font-medium text-muted-foreground sm:mb-2 sm:text-xs">
         {label}
       </p>
-      {editable ? (
-        <Input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          aria-label={`${label} (type or select)`}
-          maxLength={maxInputLength}
-          value={isEditing ? draftValue : formatOption(selected)}
-          className="mb-1 h-8 min-w-0 px-1 text-center text-xs tabular-nums sm:mb-2 sm:px-2 sm:text-sm"
-          onFocus={(event) => {
-            setDraftValue(formatOption(selected));
-            event.target.select();
-          }}
-          onChange={(event) => {
-            setDraftValue(event.target.value.replace(/\D/g, '').slice(0, maxInputLength));
-          }}
-          onBlur={commitDraft}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              commitDraft();
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      ) : null}
       <div
         ref={listRef}
         className="max-h-[min(9rem,var(--radix-popover-content-available-height,9rem))] overflow-y-auto overscroll-y-contain rounded-md border border-border bg-background sm:max-h-[min(12rem,var(--radix-popover-content-available-height,12rem))]"
@@ -156,17 +106,12 @@ function TimePickerColumn<T extends string | number>({
               role="option"
               aria-selected={isSelected}
               className={cn(
-                'flex w-full items-center gap-1 px-1 py-1 text-xs transition-colors hover:bg-muted sm:gap-2 sm:px-2 sm:py-1.5 sm:text-sm',
+                'flex w-full items-center justify-center px-2 py-1.5 text-sm tabular-nums transition-colors hover:bg-muted',
                 isSelected && 'bg-primary/10 font-medium text-primary'
               )}
               onClick={() => onSelect(option)}
             >
-              <span className="hidden w-4 shrink-0 justify-center sm:inline-flex">
-                {isSelected ? <CheckIcon className="size-3.5" aria-hidden="true" /> : null}
-              </span>
-              <span className="w-full text-center sm:w-auto sm:text-left">
-                {formatOption(option)}
-              </span>
+              {formatOption(option)}
             </button>
           );
         })}
@@ -188,7 +133,7 @@ interface MeridiemToggleProps {
  */
 function MeridiemToggle({ selected, onSelect, className }: MeridiemToggleProps) {
   return (
-    <div className={cn('min-w-0', className)}>
+    <div className={cn('min-w-[5.5rem]', className)}>
       <p className="mb-1 text-center text-[11px] font-medium text-muted-foreground sm:mb-2 sm:text-xs">
         AM/PM
       </p>
@@ -222,7 +167,7 @@ function MeridiemToggle({ selected, onSelect, className }: MeridiemToggleProps) 
 
 /**
  * Scroll-column time picker using the signed-in user's saved 12h or 24h preference.
- * Hour and minute columns support both scrolling/clicking and direct numeric entry.
+ * The main field accepts free-form typed times (for example `2:00 pm`); the popover keeps scroll columns.
  * @param props - Trigger id, value, change handler, and styling.
  * @returns Popover time picker trigger and panel.
  */
@@ -236,14 +181,44 @@ export function ScheduleTimePicker({
   disabled = false,
 }: ScheduleTimePickerProps) {
   const [open, setOpen] = useState(false);
+  const [draftValue, setDraftValue] = useState<string | null>(null);
   const use12Hour = usePrefers12HourClock();
   const normalizedTime = normalizeScheduleTimeStr(timeStr);
   const parsed = parseScheduleTimeParts(normalizedTime) ?? { hour: 12, minute: 0 };
   const hourOptions = useMemo(() => getScheduleHourOptions(use12Hour), [use12Hour]);
   const display12 = to12HourParts(parsed.hour);
+  const formattedTime = normalizedTime
+    ? formatScheduleTimeLabel(normalizedTime, { hour12: use12Hour })
+    : '';
+  const isEditing = draftValue !== null;
 
   const updateTime = (hour24: number, minute: number) => {
     onTimeChange(buildScheduleTimeStr(hour24, minute));
+    setDraftValue(null);
+  };
+
+  const commitDraft = () => {
+    if (draftValue === null) {
+      return;
+    }
+
+    const trimmed = draftValue.trim();
+    if (trimmed === '') {
+      setDraftValue(null);
+      return;
+    }
+
+    const fallbackPeriod = to12HourParts(parsed.hour).period;
+    const parsedInput = parseScheduleTimeInput(trimmed, {
+      hour12: use12Hour,
+      fallbackPeriod,
+    });
+
+    if (parsedInput) {
+      onTimeChange(buildScheduleTimeStr(parsedInput.hour, parsedInput.minute));
+    }
+
+    setDraftValue(null);
   };
 
   return (
@@ -252,43 +227,90 @@ export function ScheduleTimePicker({
         {label}
       </label>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            id={id}
-            disabled={disabled}
-            data-time={normalizedTime}
+        <PopoverAnchor asChild>
+          <div
             className={cn(
-              'mt-1 w-full rounded-md border border-input bg-background px-3 text-sm font-normal ring-offset-background hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+              'relative mt-1 h-10 w-full min-w-0 overflow-hidden rounded-md border border-input bg-background ring-offset-background hover:bg-accent hover:text-accent-foreground focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
               className,
-              'flex h-10 min-w-0 items-center justify-between text-left',
-              !normalizedTime && 'text-muted-foreground',
-              invalid && 'border-red-600 focus-visible:ring-red-600 dark:border-red-500'
+              invalid && 'border-red-600 focus-within:ring-red-600 dark:border-red-500',
+              disabled && 'pointer-events-none opacity-50'
             )}
           >
-            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-              <ClockIcon className="size-4 shrink-0 opacity-70" aria-hidden="true" />
-              <span className="truncate">
-                {normalizedTime
-                  ? formatScheduleTimeLabel(normalizedTime, { hour12: use12Hour })
-                  : 'Select time'}
-              </span>
-            </span>
-            <ChevronDownIcon
-              className="ml-2 size-4 shrink-0 self-center opacity-50"
+            <ClockIcon
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 opacity-70"
               aria-hidden="true"
             />
-          </button>
-        </PopoverTrigger>
+            <Input
+              id={id}
+              type="text"
+              disabled={disabled}
+              data-time={normalizedTime}
+              aria-label={label}
+              aria-expanded={open}
+              placeholder="Select time"
+              value={isEditing ? draftValue : formattedTime}
+              className={cn(
+                'h-full w-full min-w-0 border-0 bg-transparent px-10 py-0 text-center text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0',
+                !formattedTime && !isEditing && 'text-muted-foreground'
+              )}
+              onFocus={(event) => {
+                setOpen(true);
+                setDraftValue(formattedTime);
+                event.target.select();
+              }}
+              onClick={() => {
+                setOpen(true);
+              }}
+              onChange={(event) => {
+                setDraftValue(event.target.value);
+              }}
+              onBlur={commitDraft}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitDraft();
+                  event.currentTarget.blur();
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setDraftValue(null);
+                  setOpen(false);
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-label={`Open ${label.toLowerCase()} picker`}
+                className="absolute right-0 top-0 flex h-full shrink-0 items-center pr-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed"
+              >
+                <ChevronDownIcon className="size-4 opacity-50" aria-hidden="true" />
+              </button>
+            </PopoverTrigger>
+          </div>
+        </PopoverAnchor>
         <PopoverContent
-          className="w-[calc(100dvw-2rem)] max-w-none p-2 sm:w-auto sm:max-w-[calc(100dvw-2rem)] sm:p-3"
-          align="center"
+          className={cn(
+            'p-2 sm:p-3',
+            'w-[var(--radix-popover-trigger-width)] max-sm:max-w-[calc(100dvw-2rem)]',
+            use12Hour ? 'sm:w-auto sm:min-w-[16rem]' : 'sm:w-auto sm:min-w-[10rem]'
+          )}
+          align="start"
           side="bottom"
+          sideOffset={4}
           collisionPadding={16}
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+          }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+          }}
         >
           <div
             className={cn(
-              'grid w-full min-w-0 gap-1 sm:gap-2',
+              'grid w-full gap-1 sm:gap-2',
               use12Hour ? 'max-sm:grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'
             )}
           >
@@ -296,13 +318,7 @@ export function ScheduleTimePicker({
               label="Hour"
               options={hourOptions}
               selected={use12Hour ? display12.hour12 : parsed.hour}
-              editable
-              maxInputLength={2}
               formatOption={(value) => String(value).padStart(use12Hour ? 1 : 2, '0')}
-              parseTypedValue={(value) => {
-                const parsedHour = parseScheduleHourInput(value, use12Hour);
-                return parsedHour === null ? null : (parsedHour as (typeof hourOptions)[number]);
-              }}
               onSelect={(value) => {
                 const hour24 = use12Hour
                   ? to24HourFrom12(Number(value), display12.period)
@@ -314,10 +330,7 @@ export function ScheduleTimePicker({
               label="Minute"
               options={SCHEDULE_MINUTE_OPTIONS}
               selected={parsed.minute}
-              editable
-              maxInputLength={2}
               formatOption={(value) => String(value).padStart(2, '0')}
-              parseTypedValue={(value) => parseScheduleMinuteInput(value)}
               onSelect={(minute) => updateTime(parsed.hour, minute)}
             />
             {use12Hour ? (

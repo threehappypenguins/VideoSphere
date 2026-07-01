@@ -44,7 +44,7 @@ export interface ScheduleDateTimeFieldsProps {
 
 /**
  * Unified shadcn date and time fields for platform schedulers.
- * Date uses a calendar popover; time uses a scroll-column picker with typed entry (profile 12h/24h preference).
+ * Date uses a calendar popover; time uses a single typable field plus scroll-column picker (profile 12h/24h preference).
  * @param props - Field ids, values, change handlers, and styling.
  * @returns Date and time field columns for a scheduler row.
  */
