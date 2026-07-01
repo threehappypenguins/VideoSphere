@@ -75,6 +75,10 @@ export function ProfileDraftLabelsSection() {
     );
   };
 
+  const removeLabel = (label: string) => {
+    setLibrary((current) => current.filter((existing) => existing.name !== label));
+  };
+
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
@@ -157,9 +161,7 @@ export function ProfileDraftLabelsSection() {
                     label={entry.name}
                     color={entry.color}
                     onColorChange={(color) => updateLabelColor(entry.name, color)}
-                    onRemove={() =>
-                      setLibrary(library.filter((existing) => existing.name !== entry.name))
-                    }
+                    onRemove={() => removeLabel(entry.name)}
                   />
                 </li>
               ))}

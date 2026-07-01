@@ -170,6 +170,7 @@ export function normalizeDraftLabelLibrary(value: unknown): DraftLabelDefinition
       };
       continue;
     }
+    if (merged.length >= MAX_DRAFT_LABEL_LIBRARY_SIZE) continue;
     merged.push(definition);
   }
   return merged;
@@ -193,6 +194,7 @@ export function upsertDraftLabelNamesInLibrary(
       (entry) => entry.name.toLowerCase() === name.toLowerCase()
     );
     if (existingIndex >= 0) continue;
+    if (merged.length >= MAX_DRAFT_LABEL_LIBRARY_SIZE) continue;
     merged.push({ name, color: defaultDraftLabelColorForName(name) });
   }
   return merged;
@@ -221,6 +223,7 @@ export function mergeDraftLabelLibraryEntries(
       merged[existingIndex] = { name: merged[existingIndex].name, color };
       continue;
     }
+    if (merged.length >= MAX_DRAFT_LABEL_LIBRARY_SIZE) continue;
     merged.push({ name, color });
   }
   return merged;
@@ -341,6 +344,12 @@ export function parseDraftLabelLibraryFromRequestBody(
   }
   if (!Array.isArray(value)) {
     return { ok: false, error: 'labels must be an array' };
+  }
+  if (value.length > MAX_DRAFT_LABEL_LIBRARY_SIZE) {
+    return {
+      ok: false,
+      error: `labels must contain at most ${MAX_DRAFT_LABEL_LIBRARY_SIZE} items`,
+    };
   }
 
   const normalized = normalizeDraftLabelLibrary(value);

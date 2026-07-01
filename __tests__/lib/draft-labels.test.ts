@@ -4,12 +4,15 @@ import {
   draftLabelsRemovedFromLibrary,
   filterDraftLabelSuggestions,
   lookupDraftLabelColor,
+  MAX_DRAFT_LABEL_LIBRARY_SIZE,
+  MAX_DRAFT_LABEL_LENGTH,
   mergeDraftLabelLibraryEntries,
   mergeUniqueDraftLabels,
   normalizeDraftLabelColor,
   normalizeDraftLabelLibrary,
   normalizeDraftLabelList,
   parseDraftLabelInput,
+  parseDraftLabelLibraryFromRequestBody,
   parseDraftLabelsFromRequestBody,
   upsertDraftLabelNamesInLibrary,
 } from '@/lib/draft-labels';
@@ -45,6 +48,21 @@ describe('parseDraftLabelsFromRequestBody', () => {
   it('rejects arrays that exceed per-draft limit', () => {
     const labels = Array.from({ length: 21 }, (_, index) => `Label ${index}`);
     const result = parseDraftLabelsFromRequestBody(labels);
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('parseDraftLabelLibraryFromRequestBody', () => {
+  it('rejects raw arrays that exceed the library size cap', () => {
+    const labels = Array.from({ length: MAX_DRAFT_LABEL_LIBRARY_SIZE + 1 }, (_, index) =>
+      String(index)
+    );
+    const result = parseDraftLabelLibraryFromRequestBody(labels);
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects string entries longer than the per-label limit', () => {
+    const result = parseDraftLabelLibraryFromRequestBody(['a'.repeat(MAX_DRAFT_LABEL_LENGTH + 1)]);
     expect(result.ok).toBe(false);
   });
 });
@@ -123,6 +141,17 @@ describe('upsertDraftLabelNamesInLibrary', () => {
       { name: 'Sunday', color: '#6366f1' },
       { name: 'Easter', color: expect.any(String) },
     ]);
+  });
+
+  it('does not add new names when the library is at capacity', () => {
+    const fullLibrary = Array.from({ length: MAX_DRAFT_LABEL_LIBRARY_SIZE }, (_, index) => ({
+      name: `Label ${index}`,
+      color: '#6366f1',
+    }));
+
+    expect(upsertDraftLabelNamesInLibrary(fullLibrary, ['Label 0', 'Brand new'])).toEqual(
+      fullLibrary
+    );
   });
 });
 

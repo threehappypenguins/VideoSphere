@@ -3,7 +3,6 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
   draftLabelsRemovedFromLibrary,
   filterDraftLabelSuggestions,
-  normalizeDraftLabelList,
   parseDraftLabelLibraryFromRequestBody,
 } from '@/lib/draft-labels';
 import { removeLabelFromAllDraftsForUser } from '@/lib/repositories/drafts';
@@ -102,7 +101,16 @@ export async function POST(req: NextRequest) {
     let data: DraftLabelDefinition[];
 
     if (allStrings) {
-      const names = normalizeDraftLabelList(rawLabels);
+      const parsed = parseDraftLabelLibraryFromRequestBody(rawLabels);
+      if (parsed.ok === false) {
+        const errRes: ApiError = {
+          error: 'Bad Request',
+          message: parsed.error,
+          statusCode: 400,
+        };
+        return NextResponse.json(errRes, { status: 400 });
+      }
+      const names = parsed.value.map((entry) => entry.name);
       data = await upsertDraftLabelsInLibrary(userId, names);
     } else {
       const parsed = parseDraftLabelLibraryFromRequestBody(rawLabels);

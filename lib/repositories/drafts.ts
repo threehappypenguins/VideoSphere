@@ -466,6 +466,14 @@ export async function removeLabelFromAllDraftsForUser(
 
   await connectToDatabase();
   const rows = await DraftModel.find({ userId }).lean<DraftDocument[]>();
+  const now = new Date();
+  const bulkOps: Array<{
+    updateOne: {
+      filter: { _id: string };
+      update: { $set: { document: string; updatedAt: Date } };
+    };
+  }> = [];
+
   for (const row of rows) {
     const parsed = draftDocumentFromRow({ document: row.document });
     if (!draftLabelListIncludesEquivalent(parsed.labels, normalizedTarget)) {
@@ -480,8 +488,17 @@ export async function removeLabelFromAllDraftsForUser(
       labels: nextLabels,
     });
     assertDraftDocumentJsonWithinLimit(documentJson);
-    await DraftModel.findByIdAndUpdate(row._id, { document: documentJson });
+    bulkOps.push({
+      updateOne: {
+        filter: { _id: row._id },
+        update: { $set: { document: documentJson, updatedAt: now } },
+      },
+    });
   }
+
+  if (bulkOps.length === 0) return;
+
+  await DraftModel.bulkWrite(bulkOps, { ordered: false });
 }
 
 // -----------------------------------------------------------------------------

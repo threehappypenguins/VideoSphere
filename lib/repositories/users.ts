@@ -30,6 +30,11 @@ import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserPro
 
 export type { UserAuthProvider } from '@/types';
 
+/** Fields loaded for draft label library reads (avoids pulling unrelated profile data). */
+const DRAFT_LABEL_LIBRARY_SELECT = { draftLabelLibrary: 1 } as const;
+
+type DraftLabelLibraryLean = Pick<UserProfileDocument, 'draftLabelLibrary'>;
+
 /** Fields returned for admin user list rows (excludes secrets such as `googleRefreshToken`). */
 const LIST_USER_BASE_SELECT =
   'userId email name hasCompletedOnboarding role authProvider createdAt updatedAt';
@@ -699,7 +704,9 @@ export async function revokeStoredGoogleAuthForUser(userId: string): Promise<voi
  */
 export async function getDraftLabelLibrary(userId: string): Promise<DraftLabelDefinition[]> {
   await connectToDatabase();
-  const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  const doc = await UserProfileModel.findById(userId)
+    .select(DRAFT_LABEL_LIBRARY_SELECT)
+    .lean<DraftLabelLibraryLean | null>();
   if (!doc) return [];
   return normalizeDraftLabelLibrary(doc.draftLabelLibrary);
 }
@@ -715,7 +722,9 @@ export async function upsertDraftLabelsInLibrary(
   labels: readonly string[]
 ): Promise<DraftLabelDefinition[]> {
   await connectToDatabase();
-  const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  const doc = await UserProfileModel.findById(userId)
+    .select(DRAFT_LABEL_LIBRARY_SELECT)
+    .lean<DraftLabelLibraryLean | null>();
   if (!doc) {
     const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
     throw notFound;
@@ -725,7 +734,11 @@ export async function upsertDraftLabelsInLibrary(
     normalizeDraftLabelLibrary(doc.draftLabelLibrary),
     labels
   );
-  await UserProfileModel.findByIdAndUpdate(userId, { draftLabelLibrary: merged });
+  await UserProfileModel.findByIdAndUpdate(
+    userId,
+    { draftLabelLibrary: merged },
+    { runValidators: true }
+  );
   return merged;
 }
 
@@ -740,7 +753,9 @@ export async function mergeDraftLabelsInLibrary(
   entries: readonly DraftLabelDefinition[]
 ): Promise<DraftLabelDefinition[]> {
   await connectToDatabase();
-  const doc = await UserProfileModel.findById(userId).lean<UserProfileDocument | null>();
+  const doc = await UserProfileModel.findById(userId)
+    .select(DRAFT_LABEL_LIBRARY_SELECT)
+    .lean<DraftLabelLibraryLean | null>();
   if (!doc) {
     const notFound = Object.assign(new Error('User profile not found'), { code: 404 });
     throw notFound;
@@ -750,7 +765,11 @@ export async function mergeDraftLabelsInLibrary(
     normalizeDraftLabelLibrary(doc.draftLabelLibrary),
     entries
   );
-  await UserProfileModel.findByIdAndUpdate(userId, { draftLabelLibrary: merged });
+  await UserProfileModel.findByIdAndUpdate(
+    userId,
+    { draftLabelLibrary: merged },
+    { runValidators: true }
+  );
   return merged;
 }
 

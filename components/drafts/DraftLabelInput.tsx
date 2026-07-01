@@ -58,6 +58,7 @@ export const DraftLabelInput = forwardRef<DraftLabelInputHandle, DraftLabelInput
     ref
   ) {
     const listboxId = useId();
+    const optionIdPrefix = useId();
     const containerRef = useRef<HTMLDivElement>(null);
     const [inputValue, setInputValue] = useState('');
     const [fetchedLibrary, setFetchedLibrary] = useState<DraftLabelDefinition[]>([]);
@@ -201,6 +202,13 @@ export const DraftLabelInput = forwardRef<DraftLabelInputHandle, DraftLabelInput
       (suggestion) => !labels.some((label) => label.toLowerCase() === suggestion.name.toLowerCase())
     );
 
+    const highlightedOptionId =
+      suggestionsOpen &&
+      activeSuggestionIndex >= 0 &&
+      activeSuggestionIndex < visibleSuggestions.length
+        ? `${optionIdPrefix}-option-${activeSuggestionIndex}`
+        : undefined;
+
     return (
       <div ref={containerRef} className="relative">
         <label htmlFor={inputId} className="text-sm font-medium text-foreground">
@@ -275,6 +283,7 @@ export const DraftLabelInput = forwardRef<DraftLabelInputHandle, DraftLabelInput
               role="combobox"
               aria-expanded={suggestionsOpen && visibleSuggestions.length > 0}
               aria-controls={listboxId}
+              aria-activedescendant={highlightedOptionId}
               aria-autocomplete="list"
               placeholder={labels.length === 0 ? 'Add a label…' : ''}
               disabled={disabled || labels.length >= MAX_DRAFT_LABELS_PER_DRAFT}
@@ -292,6 +301,7 @@ export const DraftLabelInput = forwardRef<DraftLabelInputHandle, DraftLabelInput
               <li key={suggestion.name} role="presentation">
                 <button
                   type="button"
+                  id={`${optionIdPrefix}-option-${index}`}
                   role="option"
                   aria-selected={index === activeSuggestionIndex}
                   className={cn(
@@ -302,6 +312,7 @@ export const DraftLabelInput = forwardRef<DraftLabelInputHandle, DraftLabelInput
                     event.preventDefault();
                     addLabels([suggestion.name]);
                   }}
+                  onMouseEnter={() => setActiveSuggestionIndex(index)}
                 >
                   <span
                     className="h-3 w-3 shrink-0 rounded-full border border-border/60"
