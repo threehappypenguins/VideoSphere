@@ -6,6 +6,7 @@ import {
   normalizeScheduleTimeStr,
   parseScheduleHourInput,
   parseScheduleMinuteInput,
+  parseScheduleTimeInput,
   parseScheduleTimeParts,
   scheduleDateStrToDate,
   scheduleDateToDateStr,
@@ -71,5 +72,21 @@ describe('schedule-date-time helpers', () => {
     expect(parseScheduleMinuteInput('')).toBeNull();
     expect(parseScheduleMinuteInput('1.5')).toBeNull();
     expect(parseScheduleMinuteInput('1e2')).toBeNull();
+  });
+
+  it('parses free-form schedule time input', () => {
+    expect(parseScheduleTimeInput('2:00 pm', { hour12: true })).toEqual({ hour: 14, minute: 0 });
+    expect(parseScheduleTimeInput('2:00pm', { hour12: true })).toEqual({ hour: 14, minute: 0 });
+    expect(parseScheduleTimeInput('2 pm', { hour12: true })).toEqual({ hour: 14, minute: 0 });
+    expect(parseScheduleTimeInput('2pm', { hour12: true })).toEqual({ hour: 14, minute: 0 });
+    expect(parseScheduleTimeInput('12:30 am', { hour12: true })).toEqual({ hour: 0, minute: 30 });
+    expect(parseScheduleTimeInput('14:00', { hour12: false })).toEqual({ hour: 14, minute: 0 });
+    expect(parseScheduleTimeInput('9:05')).toEqual({ hour: 9, minute: 5 });
+    expect(parseScheduleTimeInput('2:00', { hour12: true, fallbackPeriod: 'PM' })).toEqual({
+      hour: 14,
+      minute: 0,
+    });
+    expect(parseScheduleTimeInput('invalid')).toBeNull();
+    expect(parseScheduleTimeInput('13:00 pm', { hour12: true })).toBeNull();
   });
 });
