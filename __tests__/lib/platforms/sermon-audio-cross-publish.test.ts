@@ -128,6 +128,21 @@ describe('normalizeSermonAudioCrossPublishPlatformSettings', () => {
       })
     ).toEqual({ postLink: false });
   });
+
+  it('drops Instagram uploadVideoPreview when postLink is not enabled', () => {
+    expect(
+      normalizeSermonAudioCrossPublishPlatformSettings('instagram', {
+        uploadVideoPreview: true,
+      })
+    ).toBeUndefined();
+
+    expect(
+      normalizeSermonAudioCrossPublishPlatformSettings('instagram', {
+        postLink: false,
+        uploadVideoPreview: true,
+      })
+    ).toEqual({ postLink: false });
+  });
 });
 
 describe('sermonAudioCrossPublishHasActiveSelection', () => {
@@ -181,6 +196,15 @@ describe('sermonAudioCrossPublishHasActiveSelection', () => {
       sermonAudioCrossPublishHasActiveSelection({
         enabled: true,
         x: { uploadVideoPreview: true },
+      })
+    ).toBe(false);
+  });
+
+  it('returns false when only Instagram uploadVideoPreview is selected without postLink', () => {
+    expect(
+      sermonAudioCrossPublishHasActiveSelection({
+        enabled: true,
+        instagram: { uploadVideoPreview: true },
       })
     ).toBe(false);
   });
@@ -349,6 +373,42 @@ describe('buildSermonAudioSocialSharingSettings', () => {
       buildSermonAudioSocialSharingSettings({
         enabled: true,
         x: { uploadVideoPreview: true },
+      })
+    ).toBeUndefined();
+  });
+
+  it('sets useVideoClip only for Instagram link plus video preview', () => {
+    expect(
+      buildSermonAudioSocialSharingSettings(
+        {
+          enabled: true,
+          instagram: { postLink: true, uploadVideoPreview: true, linkMessage: 'Preview clip' },
+        },
+        { defaultTitle: 'Sunday Sermon' }
+      )
+    ).toEqual({
+      platforms: [{ platform: 'instagram', message: 'Preview clip', useVideoClip: true }],
+      instagram: true,
+    });
+  });
+
+  it('sets useVideoClip false for Instagram link-only posts', () => {
+    expect(
+      buildSermonAudioSocialSharingSettings({
+        enabled: true,
+        instagram: { postLink: true, linkMessage: 'Read more' },
+      })
+    ).toEqual({
+      platforms: [{ platform: 'instagram', message: 'Read more', useVideoClip: false }],
+      instagram: true,
+    });
+  });
+
+  it('ignores Instagram uploadVideoPreview without postLink', () => {
+    expect(
+      buildSermonAudioSocialSharingSettings({
+        enabled: true,
+        instagram: { uploadVideoPreview: true },
       })
     ).toBeUndefined();
   });

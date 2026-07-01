@@ -73,6 +73,17 @@ export const SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS: readonly SermonAudioCrossP
       supportsVideoMetadata: false,
       supportsPrivacy: false,
     },
+    {
+      id: 'instagram',
+      label: 'Instagram',
+      options: [
+        { id: 'postLink', label: 'Post link to sermon' },
+        { id: 'uploadVideoPreview', label: 'Upload video preview to Instagram' },
+      ],
+      supportsLinkMessage: true,
+      supportsVideoMetadata: false,
+      supportsPrivacy: false,
+    },
   ] as const;
 
 const YOUTUBE_PRIVACY_VALUES = new Set<SermonAudioCrossPublishYouTubePrivacy>([
@@ -155,11 +166,11 @@ export function normalizeSermonAudioCrossPublishPlatformSettings(
     }
   }
 
-  // SermonAudio dashboard: link post must be enabled before video options on Facebook and X.
+  // SermonAudio dashboard: link post must be enabled before video options on Facebook, X, and Instagram.
   if (destId === 'facebook' && out.postLink !== true) {
     delete out.uploadFullVideo;
   }
-  if (destId === 'x' && out.postLink !== true) {
+  if ((destId === 'x' || destId === 'instagram') && out.postLink !== true) {
     delete out.uploadVideoPreview;
   }
 
@@ -192,7 +203,7 @@ export function normalizeSermonAudioCrossPublishSettings(
 }
 
 /** SermonAudio `SocialEnum` value for a Cross Publish destination. */
-export type SermonAudioSocialSharingPlatform = 'google' | 'facebook' | 'twitter';
+export type SermonAudioSocialSharingPlatform = 'google' | 'facebook' | 'twitter' | 'instagram';
 
 /** One Cross Publish destination in `socialSharingSettings.platforms`. */
 export interface SermonAudioSocialSharingSettingsPlatformEntry {
@@ -221,6 +232,8 @@ export interface SermonAudioSocialSharingSettings {
   facebook?: boolean;
   /** When true, cross-post to X/Twitter. */
   twitter?: boolean;
+  /** When true, cross-post to Instagram. */
+  instagram?: boolean;
 }
 
 function platformHasCrossPublishSelection(
@@ -230,7 +243,7 @@ function platformHasCrossPublishSelection(
   if (!settings) return false;
   const dest = SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS.find((entry) => entry.id === destId);
   if (!dest) return false;
-  if (destId === 'facebook' || destId === 'x') {
+  if (destId === 'facebook' || destId === 'x' || destId === 'instagram') {
     return settings.postLink === true;
   }
   return dest.options.some((option) => settings[option.id] === true);
@@ -265,7 +278,10 @@ export function buildSermonAudioSocialSharingSettings(
   const defaultTitle = options?.defaultTitle?.trim() ?? '';
   const defaultDescription = options?.defaultDescription?.trim() ?? '';
   const platforms: SermonAudioSocialSharingSettingsPlatformEntry[] = [];
-  const toggles: Pick<SermonAudioSocialSharingSettings, 'google' | 'facebook' | 'twitter'> = {};
+  const toggles: Pick<
+    SermonAudioSocialSharingSettings,
+    'google' | 'facebook' | 'twitter' | 'instagram'
+  > = {};
 
   for (const dest of SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS) {
     const platformSettings = settings?.[dest.id];
@@ -299,7 +315,7 @@ export function buildSermonAudioSocialSharingSettings(
       continue;
     }
 
-    if (dest.id === 'x') {
+    if (dest.id === 'x' || dest.id === 'instagram') {
       const postLink = platformSettings?.postLink === true;
       if (!postLink) continue;
 
@@ -308,11 +324,15 @@ export function buildSermonAudioSocialSharingSettings(
       const message = customMessage || defaultTitle;
 
       platforms.push({
-        platform: 'twitter',
+        platform: dest.id === 'x' ? 'twitter' : 'instagram',
         message,
         useVideoClip: uploadVideoPreview,
       });
-      toggles.twitter = true;
+      if (dest.id === 'x') {
+        toggles.twitter = true;
+      } else {
+        toggles.instagram = true;
+      }
       continue;
     }
   }

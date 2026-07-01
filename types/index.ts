@@ -391,21 +391,21 @@ export interface SermonAudioDraftFields
    */
   publishTimestamp?: number;
   /**
-   * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
+   * SermonAudio Cross Publish destinations (YouTube, Facebook, X, Instagram) configured for this draft.
    * Sent as `socialSharingSettings` on publish PATCH together with `publishTimestamp`.
    */
   crossPublish?: SermonAudioCrossPublishSettings;
 }
 
 /** Cross Publish destination id stored under `SermonAudioDraftFields.crossPublish`. */
-export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x';
+export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x' | 'instagram';
 
 /**
  * Cross Publish options for one social destination (SermonAudio dashboard feature).
- * @property postLink - Post a link to the sermon (Facebook and X only).
+ * @property postLink - Post a link to the sermon (Facebook, X, and Instagram).
  * @property uploadFullVideo - Upload the full sermon video (YouTube; Facebook with `postLink` maps to SA `useVideoClip`).
- * @property uploadVideoPreview - Upload a video preview clip (X/Twitter with `postLink`; maps to SA `useVideoClip`).
- * @property linkMessage - Custom message when `postLink` is enabled (Facebook and X).
+ * @property uploadVideoPreview - Upload a video preview clip (X/Twitter and Instagram with `postLink`; maps to SA `useVideoClip`).
+ * @property linkMessage - Custom message when `postLink` is enabled (Facebook, X, and Instagram).
  * @property title - YouTube video title when `uploadFullVideo` is enabled (maps to SA `title` on `google`).
  * @property description - YouTube video description when `uploadFullVideo` is enabled (maps to SA `message` on `google`).
  * @property privacy - YouTube visibility when `uploadFullVideo` is enabled (maps to SA `privacy` on `google`).
@@ -432,12 +432,14 @@ export type SermonAudioCrossPublishOptionId = 'postLink' | 'uploadFullVideo' | '
  * @property youtube - YouTube Cross Publish options.
  * @property facebook - Facebook Cross Publish options.
  * @property x - X (Twitter) Cross Publish options.
+ * @property instagram - Instagram Cross Publish options.
  */
 export interface SermonAudioCrossPublishSettings {
   enabled?: boolean;
   youtube?: SermonAudioCrossPublishPlatformSettings;
   facebook?: SermonAudioCrossPublishPlatformSettings;
   x?: SermonAudioCrossPublishPlatformSettings;
+  instagram?: SermonAudioCrossPublishPlatformSettings;
 }
 
 /**

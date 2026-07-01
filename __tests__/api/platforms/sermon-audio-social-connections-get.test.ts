@@ -50,6 +50,7 @@ describe('GET /api/platforms/sermon-audio/social-connections', () => {
       youtube: { connected: false },
       facebook: { connected: true, displayName: 'CRPC Facebook' },
       x: { connected: true, displayName: 'CRPCHalifax' },
+      instagram: { connected: false },
     });
 
     const [url, init] = vi.mocked(global.fetch).mock.calls[0] ?? [];
