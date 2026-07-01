@@ -72,7 +72,12 @@ export const DraftLabelInput = forwardRef<DraftLabelInputHandle, DraftLabelInput
         try {
           const params = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
           const response = await fetch(`/api/drafts/labels${params}`, { cache: 'no-store' });
-          if (!response.ok) return;
+          if (!response.ok) {
+            setSuggestions([]);
+            setSuggestionsOpen(false);
+            setActiveSuggestionIndex(-1);
+            return;
+          }
           const payload = (await response.json()) as ApiResponse<DraftLabelDefinition[]>;
           const next = Array.isArray(payload.data) ? payload.data : [];
           if (query.trim()) {
@@ -87,6 +92,7 @@ export const DraftLabelInput = forwardRef<DraftLabelInputHandle, DraftLabelInput
         } catch {
           setSuggestions([]);
           setSuggestionsOpen(false);
+          setActiveSuggestionIndex(-1);
         }
       },
       [labelLibrary]

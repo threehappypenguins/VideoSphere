@@ -35,10 +35,15 @@ vi.mock('@/lib/repositories/upload-jobs', () => ({
   listUploadJobsByUserForDraftIds: vi.fn(async () => []),
 }));
 
+vi.mock('@/lib/repositories/users', () => ({
+  upsertDraftLabelsInLibrary: vi.fn(),
+}));
+
 import { POST, GET } from '@/app/api/drafts/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { createDraft, listDraftsByUser, markDraftUsedInUpload } from '@/lib/repositories/drafts';
 import { listUploadJobsByUserForDraftIds } from '@/lib/repositories/upload-jobs';
+import { upsertDraftLabelsInLibrary } from '@/lib/repositories/users';
 import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
 // ---------------------------------------------------------------------------
@@ -353,6 +358,24 @@ describe('POST /api/drafts', () => {
       await POST(req);
 
       expect(createDraft).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-123' }));
+    });
+
+    it('returns 201 when label library upsert fails after the draft is created', async () => {
+      vi.mocked(createDraft).mockResolvedValueOnce({ ...baseDraft, labels: ['Sunday'] });
+      vi.mocked(upsertDraftLabelsInLibrary).mockRejectedValueOnce(new Error('db down'));
+
+      const req = makeRequest(
+        'POST',
+        { title: 'My Video', targets: ['youtube'], labels: ['Sunday'] },
+        { [SESSION_COOKIE]: 'tok' }
+      );
+      const res = await POST(req);
+
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body.message).toBe('Draft created');
+      expect(body.data.labels).toEqual(['Sunday']);
+      expect(upsertDraftLabelsInLibrary).toHaveBeenCalledWith('user-123', ['Sunday']);
     });
   });
 

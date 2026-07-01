@@ -261,6 +261,19 @@ describe('PUT /api/drafts/labels', () => {
     expect(removeLabelFromAllDraftsForUser).not.toHaveBeenCalled();
   });
 
+  it('returns 500 without persisting the library when draft removal fails', async () => {
+    const nextLibrary = [{ name: 'Sunday', color: '#6366f1' }];
+    vi.mocked(removeLabelFromAllDraftsForUser).mockRejectedValueOnce(new Error('db down'));
+
+    const res = await PUT(makeRequest('PUT', { body: { labels: nextLibrary } }));
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.message).toBe('Failed to save draft labels');
+    expect(removeLabelFromAllDraftsForUser).toHaveBeenCalled();
+    expect(setDraftLabelLibrary).not.toHaveBeenCalled();
+  });
+
   it('returns 500 when saving the library fails', async () => {
     vi.mocked(setDraftLabelLibrary).mockRejectedValueOnce(new Error('db down'));
 

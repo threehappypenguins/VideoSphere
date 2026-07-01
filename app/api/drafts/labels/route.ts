@@ -189,11 +189,12 @@ export async function PUT(req: NextRequest) {
   try {
     const previous = await getDraftLabelLibrary(userId);
     const removed = draftLabelsRemovedFromLibrary(previous, parsed.value);
-    const data = await setDraftLabelLibrary(userId, parsed.value);
 
     for (const label of removed) {
       await removeLabelFromAllDraftsForUser(userId, label);
     }
+
+    const data = await setDraftLabelLibrary(userId, parsed.value);
 
     const res: ApiResponse<DraftLabelDefinition[]> = { data, message: 'Draft labels saved' };
     return NextResponse.json(res, { status: 200 });

@@ -35,9 +35,14 @@ vi.mock('@/lib/r2', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/repositories/users', () => ({
+  upsertDraftLabelsInLibrary: vi.fn(),
+}));
+
 import { GET, PATCH, DELETE } from '@/app/api/drafts/[id]/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById, updateDraft, deleteDraft } from '@/lib/repositories/drafts';
+import { upsertDraftLabelsInLibrary } from '@/lib/repositories/users';
 import { deleteObject, buildDraftThumbnailFinalKey } from '@/lib/r2';
 import { DraftDocumentTooLargeError, MAX_DRAFT_TITLE_LENGTH } from '@/lib/draft-upload-metadata';
 
@@ -470,6 +475,23 @@ describe('PATCH /api/drafts/[id]', () => {
 
       expect(res.status).toBe(200);
       expect(updateDraft).toHaveBeenCalledWith(DRAFT_ID, { tags: ['a', 'b'] });
+    });
+
+    it('returns 200 when label library upsert fails after the draft is updated', async () => {
+      const updated = { ...baseDraft, labels: ['Sunday'] };
+      vi.mocked(updateDraft).mockResolvedValueOnce(updated);
+      vi.mocked(upsertDraftLabelsInLibrary).mockRejectedValueOnce(new Error('db down'));
+
+      const res = await PATCH(
+        makeRequest('PATCH', { labels: ['Sunday'] }, { [SESSION_COOKIE]: 'tok' }),
+        makeParams()
+      );
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.message).toBe('Draft updated');
+      expect(body.data.labels).toEqual(['Sunday']);
+      expect(upsertDraftLabelsInLibrary).toHaveBeenCalledWith('user-123', ['Sunday']);
     });
 
     it('updates multiple fields at once', async () => {

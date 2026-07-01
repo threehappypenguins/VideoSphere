@@ -350,7 +350,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     if (parsedLabels?.ok === true && parsedLabels.value.length > 0) {
-      await upsertDraftLabelsInLibrary(userId, parsedLabels.value);
+      try {
+        await upsertDraftLabelsInLibrary(userId, parsedLabels.value);
+      } catch (libraryErr) {
+        // Best-effort: draft is already updated; avoid 500 misleading the client about PATCH success.
+        console.error(
+          '[PATCH /api/drafts/:id] Failed to upsert draft labels in library',
+          libraryErr
+        );
+      }
     }
 
     // Presign only if updated.thumbnailR2Key passes isDraftThumbnailFinalKeyForUser (see helper).

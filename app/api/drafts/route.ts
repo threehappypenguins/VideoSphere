@@ -222,7 +222,12 @@ export async function POST(req: NextRequest) {
     });
 
     if (labelsParse.value.length > 0) {
-      await upsertDraftLabelsInLibrary(userId, labelsParse.value);
+      try {
+        await upsertDraftLabelsInLibrary(userId, labelsParse.value);
+      } catch (libraryErr) {
+        // Best-effort: draft is already persisted; avoid 500 + client retries that duplicate drafts.
+        console.error('[POST /api/drafts] Failed to upsert draft labels in library', libraryErr);
+      }
     }
 
     const response: ApiResponse<Draft> = { data: draft, message: 'Draft created' };

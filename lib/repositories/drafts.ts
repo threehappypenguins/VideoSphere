@@ -465,7 +465,9 @@ export async function removeLabelFromAllDraftsForUser(
   if (!normalizedTarget) return;
 
   await connectToDatabase();
-  const rows = await DraftModel.find({ userId }).lean<DraftDocument[]>();
+  const rows = await DraftModel.find({ userId })
+    .select({ _id: 1, document: 1 })
+    .lean<Pick<DraftDocument, '_id' | 'document'>[]>();
   const now = new Date();
   const bulkOps: Array<{
     updateOne: {
