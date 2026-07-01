@@ -1,5 +1,11 @@
 import mongoose, { Schema } from 'mongoose';
-import type { PlatformDefaults, UserAuthProvider, UserPreferences, UserRole } from '@/types';
+import type {
+  PlatformDefaults,
+  UserAuthProvider,
+  UserPreferences,
+  UserRole,
+  DraftLabelDefinition,
+} from '@/types';
 
 /**
  * Raw MongoDB document shape for the `user_profiles` collection.
@@ -24,6 +30,8 @@ export interface UserProfileDocument {
   platformDefaults?: PlatformDefaults;
   /** Cross-device UI preferences. */
   preferences?: UserPreferences;
+  /** Saved draft organizational labels for autocomplete. */
+  draftLabelLibrary?: DraftLabelDefinition[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -48,6 +56,15 @@ const UserProfileSchema = new Schema<UserProfileDocument>(
     totpEnabled: { type: Boolean, default: false },
     platformDefaults: { type: Schema.Types.Mixed, default: {} },
     preferences: { type: Schema.Types.Mixed, default: {} },
+    draftLabelLibrary: {
+      type: [
+        {
+          name: { type: String, required: true, trim: true },
+          color: { type: String, required: true, trim: true },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );

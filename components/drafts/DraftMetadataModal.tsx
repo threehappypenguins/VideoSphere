@@ -89,6 +89,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { DraftLabelInput, type DraftLabelInputHandle } from '@/components/drafts/DraftLabelInput';
 import { DraftModalCard } from '@/components/drafts/DraftModalCard';
 import { DraftPlatformToggles } from '@/components/drafts/DraftPlatformToggles';
 import type {
@@ -99,6 +100,7 @@ import type {
   ConnectedAccountPlatform,
   ConnectedAccountPublic,
   Draft,
+  DraftLabelDefinition,
   DraftPlatforms,
   PerPlatformCopyOverrides,
   PerPlatformOverrides,
@@ -176,6 +178,8 @@ export interface DraftEditorValues {
   title: string;
   description: string;
   tags: string[];
+  /** Organizational labels for grouping drafts in VideoSphere (not sent to platforms). */
+  labels?: string[];
   visibility: Draft['visibility'];
   targets: ConnectedAccountPlatform[];
   platforms: DraftPlatforms;
@@ -502,6 +506,10 @@ interface DraftMetadataModalProps {
   onDelete?: (draftId: string) => Promise<boolean>;
   onChange: (next: DraftEditorValues) => void;
   canUseAiMetadata?: boolean;
+  /** Saved label library for chip colors in the label editor. */
+  labelLibrary?: DraftLabelDefinition[];
+  /** Called when the label library changes during editing (for example, color updates). */
+  onLabelLibraryChange?: (library: DraftLabelDefinition[]) => void;
   /** Disable Dialog focus trap and scroll lock, e.g. when an onboarding tour overlay is active. */
   disableInteractionLock?: boolean;
 }
@@ -590,6 +598,8 @@ export function DraftMetadataModal({
   onDelete,
   onChange,
   canUseAiMetadata = false,
+  labelLibrary,
+  onLabelLibraryChange,
   disableInteractionLock = false,
 }: DraftMetadataModalProps) {
   const router = useRouter();
@@ -607,6 +617,7 @@ export function DraftMetadataModal({
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [platformWarning, setPlatformWarning] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
+  const labelInputRef = useRef<DraftLabelInputHandle>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   /** True when server cancel failed after XHR abort; keeps retry/clear UI until resolved. */
@@ -821,6 +832,7 @@ export function DraftMetadataModal({
   const snapshotEditor = (editor: DraftEditorValues): DraftEditorValues => ({
     ...editor,
     tags: [...editor.tags],
+    labels: [...(editor.labels ?? [])],
     targets: [...editor.targets],
     backupNaming: { ...normalizeBackupFileNameSettings(editor.backupNaming) },
     platforms: {
@@ -2502,9 +2514,18 @@ export function DraftMetadataModal({
     });
   }, [commitTagsFromInput]);
 
+  const commitLabelsBeforeSave = useCallback(() => {
+    labelInputRef.current?.commitPending();
+  }, []);
+
+  const commitMetadataInputsBeforeSave = useCallback(() => {
+    commitLabelsBeforeSave();
+    commitTagsBeforeSave();
+  }, [commitLabelsBeforeSave, commitTagsBeforeSave]);
+
   const validateBeforeUpload = useCallback((): boolean => {
     if (!value) return false;
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     const issues = validateDraftForUpload({
       title: value.title,
       description: value.description,
@@ -2533,7 +2554,7 @@ export function DraftMetadataModal({
     }
     setUploadFieldErrors(new Set());
     return true;
-  }, [commitTagsBeforeSave, value, vimeoSupportsUnlisted]);
+  }, [commitMetadataInputsBeforeSave, value, vimeoSupportsUnlisted]);
 
   const displayPlatforms = useMemo(() => {
     if (!value) return [] as ConnectedAccountPlatform[];
@@ -2835,7 +2856,7 @@ export function DraftMetadataModal({
       currentUploadJobId === null &&
       !cancelServerFailed &&
       !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
@@ -2862,7 +2883,7 @@ export function DraftMetadataModal({
       currentUploadJobId === null &&
       !cancelServerFailed &&
       !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
@@ -2889,7 +2910,7 @@ export function DraftMetadataModal({
       return;
     }
 
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     const saveResult = await onSave({ closeAfterSave: false });
     if (!saveResult.saved) {
       setUploadModalPhase('confirm');
@@ -4474,6 +4495,15 @@ export function DraftMetadataModal({
             {isLoadingPlatforms && displayPlatforms.length === 0 ? (
               <p className="text-xs text-muted-foreground">Loading connected platforms...</p>
             ) : null}
+            <DraftModalCard>
+              <DraftLabelInput
+                ref={labelInputRef}
+                labels={value.labels ?? []}
+                labelLibrary={labelLibrary}
+                onLabelLibraryChange={onLabelLibraryChange}
+                onChange={(labels) => onChange({ ...value, labels })}
+              />
+            </DraftModalCard>
             <DraftModalCard data-tour="draft-platforms">
               <DraftPlatformToggles
                 availablePlatforms={displayPlatforms}
@@ -4885,90 +4915,88 @@ export function DraftMetadataModal({
               </DraftModalCard>
             ) : null}
             <DraftModalCard>
-              <div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
-                    Title
-                    <RequiredFieldMarker />
-                  </label>
-                  {showTitleSharedCheckbox ? (
-                    <SharedMetadataCheckbox
-                      checked={usesSharedTitleGlobally}
-                      onChange={(useShared) => setUseSharedCopyField('title', useShared)}
-                      hint="When checked, all selected targets share one title. Uncheck to set a title per platform."
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
+                  Title
+                  <RequiredFieldMarker />
+                </label>
+                {showTitleSharedCheckbox ? (
+                  <SharedMetadataCheckbox
+                    checked={usesSharedTitleGlobally}
+                    onChange={(useShared) => setUseSharedCopyField('title', useShared)}
+                    hint="When checked, all selected targets share one title. Uncheck to set a title per platform."
+                  />
+                ) : null}
+              </div>
+              {showPerPlatformTitle ? (
+                <div className="mt-2 space-y-3">
+                  {selectedTitleTargetPlatforms.map((platform) => {
+                    const platformFields = value.platforms[platform];
+                    const fieldKey = `title:${platform}` as DraftUploadFieldKey;
+                    const platformTitle = platformFields?.titleOverride ?? value.title;
+                    const showShortTitleUnderPlatform =
+                      platform === 'sermon_audio' && needsSermonAudioShortTitle(platformTitle);
+                    return (
+                      <div key={platform}>
+                        <label
+                          htmlFor={`edit-title-${platform}`}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <span className="sr-only">Title — </span>
+                          <TitleTargetPlatformLabel
+                            platform={platform}
+                            isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                          />
+                        </label>
+                        <input
+                          id={`edit-title-${platform}`}
+                          value={platformTitle}
+                          required
+                          onChange={(event) => {
+                            clearUploadFieldError(fieldKey);
+                            updateTitleOverridePlatformFields(platform, {
+                              titleOverride: event.target.value,
+                            });
+                          }}
+                          aria-invalid={uploadFieldErrors.has(fieldKey)}
+                          className={fieldBorderClass(fieldKey)}
+                        />
+                        {showShortTitleUnderPlatform ? (
+                          <SermonAudioShortTitleField
+                            className="mt-3"
+                            value={sermonAudioFields?.displayTitle ?? ''}
+                            onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
+                            fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <>
+                  <input
+                    id="edit-title"
+                    data-tour="draft-title-input"
+                    value={value.title}
+                    required
+                    onChange={(event) => {
+                      clearUploadFieldError('title');
+                      onChange({ ...value, title: event.target.value });
+                    }}
+                    aria-invalid={uploadFieldErrors.has('title')}
+                    className={fieldBorderClass('title')}
+                  />
+                  {showSermonAudioShortTitleUnderSharedTitle ? (
+                    <SermonAudioShortTitleField
+                      className="mt-3"
+                      value={sermonAudioFields?.displayTitle ?? ''}
+                      onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
+                      fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
                     />
                   ) : null}
-                </div>
-                {showPerPlatformTitle ? (
-                  <div className="mt-2 space-y-3">
-                    {selectedTitleTargetPlatforms.map((platform) => {
-                      const platformFields = value.platforms[platform];
-                      const fieldKey = `title:${platform}` as DraftUploadFieldKey;
-                      const platformTitle = platformFields?.titleOverride ?? value.title;
-                      const showShortTitleUnderPlatform =
-                        platform === 'sermon_audio' && needsSermonAudioShortTitle(platformTitle);
-                      return (
-                        <div key={platform}>
-                          <label
-                            htmlFor={`edit-title-${platform}`}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
-                          >
-                            <span className="sr-only">Title — </span>
-                            <TitleTargetPlatformLabel
-                              platform={platform}
-                              isShort={platform === 'youtube' ? youtubeIsShort : undefined}
-                            />
-                          </label>
-                          <input
-                            id={`edit-title-${platform}`}
-                            value={platformTitle}
-                            required
-                            onChange={(event) => {
-                              clearUploadFieldError(fieldKey);
-                              updateTitleOverridePlatformFields(platform, {
-                                titleOverride: event.target.value,
-                              });
-                            }}
-                            aria-invalid={uploadFieldErrors.has(fieldKey)}
-                            className={fieldBorderClass(fieldKey)}
-                          />
-                          {showShortTitleUnderPlatform ? (
-                            <SermonAudioShortTitleField
-                              className="mt-3"
-                              value={sermonAudioFields?.displayTitle ?? ''}
-                              onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
-                              fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
-                            />
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <>
-                    <input
-                      id="edit-title"
-                      data-tour="draft-title-input"
-                      value={value.title}
-                      required
-                      onChange={(event) => {
-                        clearUploadFieldError('title');
-                        onChange({ ...value, title: event.target.value });
-                      }}
-                      aria-invalid={uploadFieldErrors.has('title')}
-                      className={fieldBorderClass('title')}
-                    />
-                    {showSermonAudioShortTitleUnderSharedTitle ? (
-                      <SermonAudioShortTitleField
-                        className="mt-3"
-                        value={sermonAudioFields?.displayTitle ?? ''}
-                        onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
-                        fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
-                      />
-                    ) : null}
-                  </>
-                )}
-              </div>
+                </>
+              )}
               {showDescriptionField ? (
                 <div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -5692,7 +5720,7 @@ export function DraftMetadataModal({
             type="button"
             data-tour="draft-save-button"
             onClick={() => {
-              commitTagsBeforeSave();
+              commitMetadataInputsBeforeSave();
               void (async () => {
                 try {
                   const r = await onSave({ closeAfterSave: true });

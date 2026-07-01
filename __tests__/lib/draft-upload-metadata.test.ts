@@ -83,6 +83,7 @@ describe('draft-upload-metadata', () => {
       description: 'D',
       visibility: 'unlisted',
       tags: ['a', 'b'],
+      labels: [],
       platforms: { vimeo: { categoryUris: ['/categories/1'] } },
     });
     const row = { document: doc };
@@ -92,6 +93,7 @@ describe('draft-upload-metadata', () => {
       description: 'D',
       visibility: 'unlisted',
       tags: ['a', 'b'],
+      labels: [],
       platforms: { vimeo: { categoryUris: ['/categories/1'] } },
       backupNaming: defaultBackupNaming,
       usedInUploadAt: undefined,
@@ -105,6 +107,7 @@ describe('draft-upload-metadata', () => {
       description: '',
       visibility: 'private',
       tags: [],
+      labels: [],
       platforms: {},
     });
     expect(
@@ -140,6 +143,7 @@ describe('draft-upload-metadata', () => {
       description: '',
       visibility: 'public',
       tags: [],
+      labels: [],
       platforms: {},
       backupNaming: defaultBackupNaming,
     });
@@ -149,6 +153,7 @@ describe('draft-upload-metadata', () => {
       description: '',
       visibility: 'public',
       tags: [],
+      labels: [],
       platforms: {},
       backupNaming: defaultBackupNaming,
     });

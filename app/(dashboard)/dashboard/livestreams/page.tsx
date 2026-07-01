@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Copy, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   createLivestreamEditorValues,
@@ -694,6 +694,9 @@ interface LivestreamActionsProps {
   isDuplicatingId: string | null;
 }
 
+const livestreamActionIconButtonClassName =
+  'pointer-events-auto inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-background p-1.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60';
+
 function LivestreamActions({
   livestream,
   onDelete,
@@ -701,18 +704,25 @@ function LivestreamActions({
   isDeletingId,
   isDuplicatingId,
 }: LivestreamActionsProps) {
+  const isDuplicating = isDuplicatingId === livestream.id;
+
   return (
-    <div className="inline-flex max-w-full flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+    <div className="inline-flex shrink-0 items-center gap-2">
       <button
         type="button"
         onClick={(event) => {
           event.stopPropagation();
           onDuplicate(livestream);
         }}
-        disabled={isDuplicatingId === livestream.id}
-        className="pointer-events-auto whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+        disabled={isDuplicating}
+        className={livestreamActionIconButtonClassName}
+        aria-label={isDuplicating ? 'Copying livestream' : 'Duplicate livestream'}
       >
-        {isDuplicatingId === livestream.id ? 'Copying...' : 'Duplicate'}
+        {isDuplicating ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <Copy className="h-4 w-4" aria-hidden />
+        )}
       </button>
       <button
         type="button"
@@ -721,10 +731,10 @@ function LivestreamActions({
           onDelete(livestream);
         }}
         disabled={isDeletingId === livestream.id}
-        className="pointer-events-auto inline-flex items-center justify-center whitespace-nowrap rounded-md border border-border bg-background p-1.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+        className={livestreamActionIconButtonClassName}
         aria-label="Delete livestream"
       >
-        <Trash2 className="h-4 w-4" />
+        <Trash2 className="h-4 w-4" aria-hidden />
       </button>
     </div>
   );
@@ -745,7 +755,7 @@ function StatusBadge({ status }: { status: LivestreamStatus }) {
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${className}`}
+      className={`inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-center text-[11px] font-medium leading-snug ${className}`}
     >
       {label}
     </span>
@@ -795,6 +805,53 @@ interface LivestreamsTableContentProps {
   dimStreamedRows?: boolean;
 }
 
+function LivestreamMobileRow({
+  livestream,
+  showScheduledColumn,
+  dimStreamedRows = false,
+  onEdit,
+  onDelete,
+  onDuplicate,
+  isDeletingId,
+  isDuplicatingId,
+}: Omit<LivestreamsTableContentProps, 'livestreams'> & { livestream: Livestream }) {
+  const title = displayTitle(livestream);
+  const keySwapNote = formatKeySwapNote(livestream);
+
+  return (
+    <article className={`px-3 py-3 sm:px-4 ${dimStreamedRows ? 'bg-muted/20' : ''}`}>
+      <button
+        type="button"
+        onClick={() => onEdit(livestream)}
+        aria-label={`Edit livestream "${title}"`}
+        className="block w-full text-left"
+      >
+        <span className="text-sm font-medium text-foreground">{title}</span>
+        {keySwapNote ? (
+          <span className="mt-0.5 block text-xs text-muted-foreground">{keySwapNote}</span>
+        ) : null}
+      </button>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        {showScheduledColumn ? (
+          <span className="text-xs text-muted-foreground">
+            {formatScheduledDateTime(livestream.scheduledStartTime)}
+          </span>
+        ) : null}
+        <StatusBadge status={livestream.status} />
+        <div className="ml-auto">
+          <LivestreamActions
+            livestream={livestream}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+          />
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function LivestreamsTableContent({
   livestreams,
   showScheduledColumn,
@@ -806,134 +863,155 @@ function LivestreamsTableContent({
   dimStreamedRows = false,
 }: LivestreamsTableContentProps) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-background">
-      <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr className="border-b border-border text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            <th
-              scope="col"
-              className={`px-3 py-3 text-left sm:px-4 ${showScheduledColumn ? 'w-[28%]' : 'w-[36%]'}`}
-            >
-              Title
-            </th>
-            {showScheduledColumn ? (
-              <th scope="col" className="w-[20%] px-3 py-3 text-left sm:px-4">
-                Scheduled
-              </th>
-            ) : null}
-            <th
-              scope="col"
-              className={`px-3 py-3 text-left sm:px-4 ${showScheduledColumn ? 'w-[14%]' : 'w-[18%]'}`}
-            >
-              Status
-            </th>
-            <th
-              scope="col"
-              className={`px-3 py-3 text-right sm:px-4 ${showScheduledColumn ? 'w-[38%]' : 'w-[46%]'}`}
-            >
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {livestreams.map((livestream) => {
-            const title = displayTitle(livestream);
-            const keySwapNote = formatKeySwapNote(livestream);
-            return (
-              <tr
-                key={livestream.id}
-                className={`border-b border-border transition-colors hover:bg-muted/40 ${
-                  dimStreamedRows ? 'bg-muted/20' : ''
-                }`}
+    <>
+      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background md:hidden">
+        {livestreams.map((livestream) => (
+          <LivestreamMobileRow
+            key={livestream.id}
+            livestream={livestream}
+            showScheduledColumn={showScheduledColumn}
+            dimStreamedRows={dimStreamedRows}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onDuplicate={onDuplicate}
+            isDeletingId={isDeletingId}
+            isDuplicatingId={isDuplicatingId}
+          />
+        ))}
+      </div>
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-background md:block">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <th
+                scope="col"
+                className={`px-4 py-3 text-left ${showScheduledColumn ? 'w-[30%]' : 'w-[40%]'}`}
               >
-                <td className="p-0 align-top">
-                  <button
-                    type="button"
-                    onClick={() => onEdit(livestream)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onEdit(livestream);
-                      }
-                    }}
-                    aria-label={`Edit livestream "${title}"`}
-                    className="block w-full px-3 py-3 text-left sm:px-4"
-                  >
-                    <span className="block max-w-full truncate text-foreground">{title}</span>
-                    {keySwapNote ? (
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {keySwapNote}
-                      </span>
-                    ) : null}
-                  </button>
-                </td>
-                {showScheduledColumn ? (
-                  <td className="p-0 align-top text-muted-foreground">
+                Title
+              </th>
+              {showScheduledColumn ? (
+                <th scope="col" className="w-[22%] px-4 py-3 text-left">
+                  Scheduled
+                </th>
+              ) : null}
+              <th
+                scope="col"
+                className={`px-4 py-3 text-left ${showScheduledColumn ? 'w-[18%]' : 'w-[24%]'}`}
+              >
+                Status
+              </th>
+              <th
+                scope="col"
+                className={`px-4 py-3 text-right ${showScheduledColumn ? 'w-[30%]' : 'w-[36%]'}`}
+              >
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {livestreams.map((livestream) => {
+              const title = displayTitle(livestream);
+              const keySwapNote = formatKeySwapNote(livestream);
+              return (
+                <tr
+                  key={livestream.id}
+                  className={`border-b border-border transition-colors hover:bg-muted/40 ${
+                    dimStreamedRows ? 'bg-muted/20' : ''
+                  }`}
+                >
+                  <td className="p-0 align-top">
                     <button
                       type="button"
-                      tabIndex={-1}
-                      onClick={() => onEdit(livestream)}
-                      aria-label={`Edit livestream "${title}"`}
-                      className="block w-full px-3 py-3 text-left sm:px-4"
-                    >
-                      <span className="block truncate">
-                        {formatScheduledDateTime(livestream.scheduledStartTime)}
-                      </span>
-                    </button>
-                  </td>
-                ) : null}
-                <td className="p-0 align-top">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={() => onEdit(livestream)}
-                    aria-label={`Edit livestream "${title}"`}
-                    className="block w-full px-3 py-3 text-left sm:px-4"
-                  >
-                    <StatusBadge status={livestream.status} />
-                  </button>
-                </td>
-                <td className="p-0 align-top text-right">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onClick={() => onEdit(livestream)}
-                      aria-label={`Edit livestream "${title}"`}
-                      className="absolute inset-0 z-0"
-                    />
-                    <div
-                      className="relative z-10 px-3 py-3 sm:px-4"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Edit livestream "${title}"`}
                       onClick={() => onEdit(livestream)}
                       onKeyDown={(event) => {
-                        const target = event.target as HTMLElement | null;
-                        if (target && target.closest('button') && target !== event.currentTarget) {
-                          return;
-                        }
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           onEdit(livestream);
                         }
                       }}
+                      aria-label={`Edit livestream "${title}"`}
+                      className="block w-full px-4 py-3 text-left"
                     >
-                      <LivestreamActions
-                        livestream={livestream}
-                        onDelete={onDelete}
-                        onDuplicate={onDuplicate}
-                        isDeletingId={isDeletingId}
-                        isDuplicatingId={isDuplicatingId}
+                      <span className="block max-w-full truncate text-foreground">{title}</span>
+                      {keySwapNote ? (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {keySwapNote}
+                        </span>
+                      ) : null}
+                    </button>
+                  </td>
+                  {showScheduledColumn ? (
+                    <td className="p-0 align-top text-muted-foreground">
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => onEdit(livestream)}
+                        aria-label={`Edit livestream "${title}"`}
+                        className="block w-full px-4 py-3 text-left"
+                      >
+                        <span className="block truncate">
+                          {formatScheduledDateTime(livestream.scheduledStartTime)}
+                        </span>
+                      </button>
+                    </td>
+                  ) : null}
+                  <td className="p-0 align-top">
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => onEdit(livestream)}
+                      aria-label={`Edit livestream "${title}"`}
+                      className="block w-full px-4 py-3 text-left"
+                    >
+                      <StatusBadge status={livestream.status} />
+                    </button>
+                  </td>
+                  <td className="p-0 align-top text-right">
+                    <div className="relative">
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => onEdit(livestream)}
+                        aria-label={`Edit livestream "${title}"`}
+                        className="absolute inset-0 z-0"
                       />
+                      <div
+                        className="relative z-10 px-4 py-3"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Edit livestream "${title}"`}
+                        onClick={() => onEdit(livestream)}
+                        onKeyDown={(event) => {
+                          const target = event.target as HTMLElement | null;
+                          if (
+                            target &&
+                            target.closest('button') &&
+                            target !== event.currentTarget
+                          ) {
+                            return;
+                          }
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            onEdit(livestream);
+                          }
+                        }}
+                      >
+                        <LivestreamActions
+                          livestream={livestream}
+                          onDelete={onDelete}
+                          onDuplicate={onDuplicate}
+                          isDeletingId={isDeletingId}
+                          isDuplicatingId={isDuplicatingId}
+                        />
+                      </div>
                     </div>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

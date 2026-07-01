@@ -30,6 +30,17 @@ import {
   mergeDraftPlatformsPatch,
   stringifyDraftDocumentForStorage,
 } from '@/lib/draft-upload-metadata';
+import { draftLabelListIncludesEquivalent, normalizeDraftLabel } from '@/lib/draft-labels';
+
+/** Max draft updates per bulkWrite when stripping labels (keeps memory bounded). */
+const DRAFT_LABEL_REMOVAL_BULK_CHUNK_SIZE = 500;
+
+type DraftLabelRemovalBulkOp = {
+  updateOne: {
+    filter: { _id: string };
+    update: { $set: { document: string; updatedAt: Date } };
+  };
+};
 
 /** Map a MongoDB document to the shared Draft type. */
 function mongoDocToDraft(doc: DraftDocument): Draft {
@@ -41,6 +52,7 @@ function mongoDocToDraft(doc: DraftDocument): Draft {
     title: parsed.title,
     description: parsed.description,
     tags: parsed.tags,
+    labels: parsed.labels,
     visibility: parsed.visibility,
     platforms: parsed.platforms,
     backupNaming: parsed.backupNaming,
@@ -69,6 +81,7 @@ export async function markDraftUsedInUpload(
       description: draft.description,
       visibility: draft.visibility,
       tags: draft.tags,
+      labels: draft.labels ?? [],
       platforms: draft.platforms,
       backupNaming: draft.backupNaming,
       ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
@@ -147,6 +160,8 @@ export interface CreateDraftInput {
   description: string;
   /** Shared tags for all targets; default []. */
   tags?: string[];
+  /** Organizational draft labels; default []. */
+  labels?: string[];
   visibility?: PlatformUploadVisibility;
   platforms?: DraftPlatforms;
   backupNaming?: BackupFileNameSettings;
@@ -161,6 +176,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
   const visibility = input.visibility ?? DEFAULT_DRAFT_VISIBILITY;
   const platforms = input.platforms ?? {};
   const tags = input.tags ?? [];
+  const labels = input.labels ?? [];
   const title = resolveDraftTitleForStorage({
     title: input.title,
     targets: input.targets,
@@ -172,6 +188,7 @@ export async function createDraft(input: CreateDraftInput): Promise<Draft> {
     description: input.description,
     visibility,
     tags,
+    labels,
     platforms,
     backupNaming: backupNamingForStorage(input.backupNaming),
     ...(input.thumbnailR2Key ? { thumbnailR2Key: input.thumbnailR2Key } : {}),
@@ -334,6 +351,7 @@ export interface UpdateDraftInput {
   title?: string;
   description?: string;
   tags?: string[];
+  labels?: string[];
   visibility?: PlatformUploadVisibility;
   /** Partial platforms object from PATCH; merged without wiping omitted fields. */
   platformsPatch?: unknown;
@@ -359,6 +377,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     input.title !== undefined ||
     input.description !== undefined ||
     input.tags !== undefined ||
+    input.labels !== undefined ||
     input.visibility !== undefined ||
     input.platformsPatch !== undefined ||
     input.backupNaming !== undefined ||
@@ -423,6 +442,7 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
     title,
     description: input.description ?? current.description,
     tags: input.tags ?? current.tags,
+    labels: input.labels ?? current.labels,
     visibility: input.visibility ?? current.visibility,
     platforms: mergedPlatforms,
     backupNaming,
@@ -440,6 +460,75 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
   ).lean<DraftDocument | null>();
   if (!updated) return null;
   return mongoDocToDraft(updated);
+}
+
+/**
+ * Removes multiple organizational labels from every draft owned by a user in one scan.
+ * @param userId - Draft owner id.
+ * @param labels - Labels to remove (case-insensitive match).
+ */
+export async function removeLabelsFromAllDraftsForUser(
+  userId: string,
+  labels: readonly string[]
+): Promise<void> {
+  const normalizedTargets = labels.map(normalizeDraftLabel).filter(Boolean);
+  if (normalizedTargets.length === 0) return;
+
+  await connectToDatabase();
+  const now = new Date();
+  let bulkOps: DraftLabelRemovalBulkOp[] = [];
+
+  const flushBulkOps = async (): Promise<void> => {
+    if (bulkOps.length === 0) return;
+    await DraftModel.bulkWrite(bulkOps, { ordered: false });
+    bulkOps = [];
+  };
+
+  const cursor = DraftModel.find({ userId })
+    .select({ _id: 1, document: 1 })
+    .lean<Pick<DraftDocument, '_id' | 'document'>>()
+    .cursor();
+
+  for await (const row of cursor) {
+    const parsed = draftDocumentFromRow({ document: row.document });
+    const nextLabels = parsed.labels.filter(
+      (existing) =>
+        !normalizedTargets.some((target) => draftLabelListIncludesEquivalent([target], existing))
+    );
+    if (nextLabels.length === parsed.labels.length) {
+      continue;
+    }
+
+    const documentJson = stringifyDraftDocumentForStorage({
+      ...parsed,
+      labels: nextLabels,
+    });
+    assertDraftDocumentJsonWithinLimit(documentJson);
+    bulkOps.push({
+      updateOne: {
+        filter: { _id: row._id },
+        update: { $set: { document: documentJson, updatedAt: now } },
+      },
+    });
+
+    if (bulkOps.length >= DRAFT_LABEL_REMOVAL_BULK_CHUNK_SIZE) {
+      await flushBulkOps();
+    }
+  }
+
+  await flushBulkOps();
+}
+
+/**
+ * Removes an organizational label from every draft owned by a user.
+ * @param userId - Draft owner id.
+ * @param label - Label to remove (case-insensitive match).
+ */
+export async function removeLabelFromAllDraftsForUser(
+  userId: string,
+  label: string
+): Promise<void> {
+  await removeLabelsFromAllDraftsForUser(userId, [label]);
 }
 
 // -----------------------------------------------------------------------------

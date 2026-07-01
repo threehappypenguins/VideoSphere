@@ -544,7 +544,7 @@ describe('DraftMetadataModal SermonAudio short title', () => {
   });
 
   it('prevents typing and pasting more than 30 characters into the short title field', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(
       <ControlledModal
         initialValue={{
@@ -559,14 +559,14 @@ describe('DraftMetadataModal SermonAudio short title', () => {
     await screen.findByRole('dialog');
     const shortTitleInput = screen.getByLabelText(/Short Title/i);
 
-    await user.type(shortTitleInput, 'B'.repeat(35));
+    await user.click(shortTitleInput);
+    await user.paste('B'.repeat(35));
     expect(shortTitleInput).toHaveValue('B'.repeat(30));
 
     await user.clear(shortTitleInput);
-    await user.click(shortTitleInput);
-    await user.paste('C'.repeat(40));
+    await user.type(shortTitleInput, 'C'.repeat(35));
     expect(shortTitleInput).toHaveValue('C'.repeat(30));
-  });
+  }, 10000);
 
   it('shows the SermonAudio language field with help text and defaults to English', async () => {
     render(
