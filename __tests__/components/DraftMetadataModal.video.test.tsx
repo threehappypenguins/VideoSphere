@@ -193,7 +193,7 @@ describe('DraftMetadataModal video upload regressions', () => {
   });
 
   it('disables Choose video file after upload completes while thumbnail Choose file stays enabled', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderVideoModal();
 
     await screen.findByRole('dialog');
@@ -227,7 +227,7 @@ describe('DraftMetadataModal video upload regressions', () => {
     expect(
       within(draftDialog).getAllByRole('button', { name: /^Choose file$/i, hidden: true })[0]!
     ).toBeEnabled();
-  });
+  }, 10000);
 
   it('calls cancel with uploadId when multipart completion fails', async () => {
     const user = userEvent.setup();

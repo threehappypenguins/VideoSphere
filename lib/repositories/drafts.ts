@@ -71,7 +71,7 @@ export async function markDraftUsedInUpload(
       description: draft.description,
       visibility: draft.visibility,
       tags: draft.tags,
-      labels: draft.labels,
+      labels: draft.labels ?? [],
       platforms: draft.platforms,
       backupNaming: draft.backupNaming,
       ...(draft.thumbnailR2Key ? { thumbnailR2Key: draft.thumbnailR2Key } : {}),
@@ -453,16 +453,16 @@ export async function updateDraft(id: string, input: UpdateDraftInput): Promise<
 }
 
 /**
- * Removes an organizational label from every draft owned by a user.
+ * Removes multiple organizational labels from every draft owned by a user in one scan.
  * @param userId - Draft owner id.
- * @param label - Label to remove (case-insensitive match).
+ * @param labels - Labels to remove (case-insensitive match).
  */
-export async function removeLabelFromAllDraftsForUser(
+export async function removeLabelsFromAllDraftsForUser(
   userId: string,
-  label: string
+  labels: readonly string[]
 ): Promise<void> {
-  const normalizedTarget = normalizeDraftLabel(label);
-  if (!normalizedTarget) return;
+  const normalizedTargets = labels.map(normalizeDraftLabel).filter(Boolean);
+  if (normalizedTargets.length === 0) return;
 
   await connectToDatabase();
   const rows = await DraftModel.find({ userId })
@@ -478,13 +478,14 @@ export async function removeLabelFromAllDraftsForUser(
 
   for (const row of rows) {
     const parsed = draftDocumentFromRow({ document: row.document });
-    if (!draftLabelListIncludesEquivalent(parsed.labels, normalizedTarget)) {
+    const nextLabels = parsed.labels.filter(
+      (existing) =>
+        !normalizedTargets.some((target) => draftLabelListIncludesEquivalent([target], existing))
+    );
+    if (nextLabels.length === parsed.labels.length) {
       continue;
     }
 
-    const nextLabels = parsed.labels.filter(
-      (existing) => !draftLabelListIncludesEquivalent([normalizedTarget], existing)
-    );
     const documentJson = stringifyDraftDocumentForStorage({
       ...parsed,
       labels: nextLabels,
@@ -501,6 +502,18 @@ export async function removeLabelFromAllDraftsForUser(
   if (bulkOps.length === 0) return;
 
   await DraftModel.bulkWrite(bulkOps, { ordered: false });
+}
+
+/**
+ * Removes an organizational label from every draft owned by a user.
+ * @param userId - Draft owner id.
+ * @param label - Label to remove (case-insensitive match).
+ */
+export async function removeLabelFromAllDraftsForUser(
+  userId: string,
+  label: string
+): Promise<void> {
+  await removeLabelsFromAllDraftsForUser(userId, [label]);
 }
 
 // -----------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-import { tagListIncludesEquivalent } from '@/lib/platforms/sermon-audio-tags';
 import type { DraftLabelDefinition } from '@/types';
 
 /** Maximum organizational labels stored on a single draft. */
@@ -84,7 +83,11 @@ export function draftLabelListIncludesEquivalent(
   labels: readonly string[],
   candidate: string
 ): boolean {
-  return tagListIncludesEquivalent(labels, candidate);
+  const normalizedCandidate = normalizeDraftLabel(candidate).toLowerCase();
+  if (!normalizedCandidate) return false;
+  return labels.some(
+    (existing) => normalizeDraftLabel(existing).toLowerCase() === normalizedCandidate
+  );
 }
 
 /**

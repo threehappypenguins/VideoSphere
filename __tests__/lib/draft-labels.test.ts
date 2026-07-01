@@ -166,4 +166,9 @@ describe('draftLabelListIncludesEquivalent', () => {
   it('matches labels case-insensitively', () => {
     expect(draftLabelListIncludesEquivalent(['Sunday Service'], 'sunday service')).toBe(true);
   });
+
+  it('does not treat leading # as equivalent to the bare label', () => {
+    expect(draftLabelListIncludesEquivalent(['foo'], '#foo')).toBe(false);
+    expect(draftLabelListIncludesEquivalent(['#foo'], 'foo')).toBe(false);
+  });
 });

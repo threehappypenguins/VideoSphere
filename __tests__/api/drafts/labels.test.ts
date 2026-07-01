@@ -21,12 +21,12 @@ vi.mock('@/lib/repositories/users', () => ({
 }));
 
 vi.mock('@/lib/repositories/drafts', () => ({
-  removeLabelFromAllDraftsForUser: vi.fn(),
+  removeLabelsFromAllDraftsForUser: vi.fn(),
 }));
 
 import { GET, POST, PUT } from '@/app/api/drafts/labels/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { removeLabelFromAllDraftsForUser } from '@/lib/repositories/drafts';
+import { removeLabelsFromAllDraftsForUser } from '@/lib/repositories/drafts';
 import {
   getDraftLabelLibrary,
   mergeDraftLabelsInLibrary,
@@ -211,6 +211,20 @@ describe('POST /api/drafts/labels', () => {
     const body = await res.json();
     expect(body.message).toBe('Failed to update draft labels');
   });
+
+  it('returns 404 when the user profile is missing', async () => {
+    vi.mocked(upsertDraftLabelsInLibrary).mockRejectedValueOnce(
+      Object.assign(new Error('User profile not found'), { code: 404 })
+    );
+
+    const res = await POST(makeRequest('POST', { body: { labels: ['Sunday'] } }));
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe('Not Found');
+    expect(body.message).toBe('User profile not found');
+    expect(body.statusCode).toBe(404);
+  });
 });
 
 describe('PUT /api/drafts/labels', () => {
@@ -219,7 +233,7 @@ describe('PUT /api/drafts/labels', () => {
     vi.mocked(getAuthenticatedUserId).mockResolvedValue(USER_ID);
     vi.mocked(getDraftLabelLibrary).mockResolvedValue(sampleLibrary);
     vi.mocked(setDraftLabelLibrary).mockImplementation(async (_userId, labels) => [...labels]);
-    vi.mocked(removeLabelFromAllDraftsForUser).mockResolvedValue(undefined);
+    vi.mocked(removeLabelsFromAllDraftsForUser).mockResolvedValue(undefined);
   });
 
   it('returns 401 when unauthenticated', async () => {
@@ -249,28 +263,30 @@ describe('PUT /api/drafts/labels', () => {
     expect(body.message).toBe('Draft labels saved');
     expect(body.data).toEqual(nextLibrary);
     expect(setDraftLabelLibrary).toHaveBeenCalledWith(USER_ID, nextLibrary);
-    expect(removeLabelFromAllDraftsForUser).toHaveBeenCalledTimes(2);
-    expect(removeLabelFromAllDraftsForUser).toHaveBeenCalledWith(USER_ID, 'Easter');
-    expect(removeLabelFromAllDraftsForUser).toHaveBeenCalledWith(USER_ID, 'Sunday Morning');
+    expect(removeLabelsFromAllDraftsForUser).toHaveBeenCalledTimes(1);
+    expect(removeLabelsFromAllDraftsForUser).toHaveBeenCalledWith(USER_ID, [
+      'Easter',
+      'Sunday Morning',
+    ]);
   });
 
   it('does not cascade draft updates when no labels were removed', async () => {
     const res = await PUT(makeRequest('PUT', { body: { labels: sampleLibrary } }));
 
     expect(res.status).toBe(200);
-    expect(removeLabelFromAllDraftsForUser).not.toHaveBeenCalled();
+    expect(removeLabelsFromAllDraftsForUser).not.toHaveBeenCalled();
   });
 
   it('returns 500 without persisting the library when draft removal fails', async () => {
     const nextLibrary = [{ name: 'Sunday', color: '#6366f1' }];
-    vi.mocked(removeLabelFromAllDraftsForUser).mockRejectedValueOnce(new Error('db down'));
+    vi.mocked(removeLabelsFromAllDraftsForUser).mockRejectedValueOnce(new Error('db down'));
 
     const res = await PUT(makeRequest('PUT', { body: { labels: nextLibrary } }));
 
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.message).toBe('Failed to save draft labels');
-    expect(removeLabelFromAllDraftsForUser).toHaveBeenCalled();
+    expect(removeLabelsFromAllDraftsForUser).toHaveBeenCalled();
     expect(setDraftLabelLibrary).not.toHaveBeenCalled();
   });
 
@@ -282,5 +298,19 @@ describe('PUT /api/drafts/labels', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.message).toBe('Failed to save draft labels');
+  });
+
+  it('returns 404 when the user profile is missing', async () => {
+    vi.mocked(setDraftLabelLibrary).mockRejectedValueOnce(
+      Object.assign(new Error('User profile not found'), { code: 404 })
+    );
+
+    const res = await PUT(makeRequest('PUT', { body: { labels: sampleLibrary } }));
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe('Not Found');
+    expect(body.message).toBe('User profile not found');
+    expect(body.statusCode).toBe(404);
   });
 });

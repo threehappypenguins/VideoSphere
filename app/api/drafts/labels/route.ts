@@ -5,7 +5,7 @@ import {
   filterDraftLabelSuggestions,
   parseDraftLabelLibraryFromRequestBody,
 } from '@/lib/draft-labels';
-import { removeLabelFromAllDraftsForUser } from '@/lib/repositories/drafts';
+import { removeLabelsFromAllDraftsForUser } from '@/lib/repositories/drafts';
 import {
   getDraftLabelLibrary,
   mergeDraftLabelsInLibrary,
@@ -13,6 +13,24 @@ import {
   upsertDraftLabelsInLibrary,
 } from '@/lib/repositories/users';
 import type { ApiError, ApiResponse, DraftLabelDefinition } from '@/types';
+
+/**
+ * Maps repository "profile not found" errors to an HTTP 404 response.
+ * @param err - Caught error from a labels repository call.
+ * @returns A 404 JSON response, or null when the error is not a known not-found case.
+ */
+function draftLabelsRepositoryErrorResponse(err: unknown): NextResponse | null {
+  const repoErr = err as { code?: number; message?: string };
+  if (repoErr?.code === 404) {
+    const errRes: ApiError = {
+      error: 'Not Found',
+      message: repoErr.message ?? 'User profile not found',
+      statusCode: 404,
+    };
+    return NextResponse.json(errRes, { status: 404 });
+  }
+  return null;
+}
 
 /**
  * Returns saved draft label suggestions for autocomplete.
@@ -37,6 +55,8 @@ export async function GET(req: NextRequest) {
     const res: ApiResponse<DraftLabelDefinition[]> = { data };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {
+    const notFound = draftLabelsRepositoryErrorResponse(err);
+    if (notFound) return notFound;
     console.error('[GET /api/drafts/labels]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
@@ -128,6 +148,8 @@ export async function POST(req: NextRequest) {
     const res: ApiResponse<DraftLabelDefinition[]> = { data, message: 'Draft labels updated' };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {
+    const notFound = draftLabelsRepositoryErrorResponse(err);
+    if (notFound) return notFound;
     console.error('[POST /api/drafts/labels]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
@@ -190,8 +212,8 @@ export async function PUT(req: NextRequest) {
     const previous = await getDraftLabelLibrary(userId);
     const removed = draftLabelsRemovedFromLibrary(previous, parsed.value);
 
-    for (const label of removed) {
-      await removeLabelFromAllDraftsForUser(userId, label);
+    if (removed.length > 0) {
+      await removeLabelsFromAllDraftsForUser(userId, removed);
     }
 
     const data = await setDraftLabelLibrary(userId, parsed.value);
@@ -199,6 +221,8 @@ export async function PUT(req: NextRequest) {
     const res: ApiResponse<DraftLabelDefinition[]> = { data, message: 'Draft labels saved' };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {
+    const notFound = draftLabelsRepositoryErrorResponse(err);
+    if (notFound) return notFound;
     console.error('[PUT /api/drafts/labels]', err);
     const errRes: ApiError = {
       error: 'Internal Server Error',
