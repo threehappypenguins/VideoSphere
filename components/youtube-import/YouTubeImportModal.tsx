@@ -12,6 +12,16 @@ import {
 } from '@/components/youtube-import/YouTubePreviewPlayer';
 import { Button } from '@/components/ui/button';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -47,6 +57,8 @@ interface ResolvedYouTubeSource {
   title: string;
   durationSeconds: number;
   thumbnailUrl: string;
+  previewStreamUrl: string;
+  previewExpiresAt: number;
   sourceUrl?: string;
   livestreamId?: string;
 }
@@ -104,6 +116,7 @@ export function YouTubeImportModal({
   const [isResolving, setIsResolving] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [showCancelImportConfirm, setShowCancelImportConfirm] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [conflictActiveJobId, setConflictActiveJobId] = useState<string | null>(null);
   const [showCompletionSuccess, setShowCompletionSuccess] = useState(false);
@@ -159,6 +172,7 @@ export function YouTubeImportModal({
     setIsResolving(false);
     setIsStarting(false);
     setIsCancelling(false);
+    setShowCancelImportConfirm(false);
     completionHandledRef.current = false;
     kickoffSentForJobIdRef.current = null;
   }, []);
@@ -222,6 +236,8 @@ export function YouTubeImportModal({
               title: string;
               durationSeconds: number;
               thumbnailUrl: string;
+              previewStreamUrl: string;
+              previewExpiresAt: number;
             }>
           | { message?: string }
           | null;
@@ -353,6 +369,7 @@ export function YouTubeImportModal({
         const payload = (await response.json().catch(() => null)) as { message?: string } | null;
         throw new Error(payload?.message ?? 'Failed to cancel import');
       }
+      setShowCancelImportConfirm(false);
       handleRetryAfterFailure();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to cancel import');
@@ -632,13 +649,17 @@ export function YouTubeImportModal({
             </div>
 
             <YouTubePreviewPlayer
+              key={resolvedSource.youtubeVideoId}
               youtubeVideoId={resolvedSource.youtubeVideoId}
+              streamUrl={resolvedSource.previewStreamUrl}
+              previewExpiresAt={resolvedSource.previewExpiresAt}
               playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
             />
 
             <p className="text-xs text-muted-foreground">
-              If the preview is unavailable, set the video to unlisted or public on YouTube. Private
-              videos cannot be embedded here.
+              Preview uses the same yt-dlp media source as import, so scrubbing should match the
+              trimmed result. Private videos must still be accessible to your connected YouTube
+              account.
             </p>
 
             <TrimRangeSlider
@@ -726,9 +747,7 @@ export function YouTubeImportModal({
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => {
-                        void handleCancelImport();
-                      }}
+                      onClick={() => setShowCancelImportConfirm(true)}
                       disabled={isCancelling}
                     >
                       {isCancelling ? (
@@ -747,6 +766,37 @@ export function YouTubeImportModal({
           </div>
         ) : null}
       </DialogContent>
+
+      <AlertDialog
+        open={showCancelImportConfirm}
+        onOpenChange={(open) => {
+          if (!open && !isCancelling) {
+            setShowCancelImportConfirm(false);
+          }
+        }}
+      >
+        <AlertDialogContent stackLayerClassName="!z-[70]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel YouTube import?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops the current import. Any partial download will be discarded and you can
+              choose a different source afterward.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCancelling}>Keep importing</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleCancelImport();
+              }}
+              disabled={isCancelling}
+            >
+              {isCancelling ? 'Cancelling…' : 'Cancel import'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

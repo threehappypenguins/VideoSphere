@@ -648,6 +648,7 @@ export function DraftMetadataModal({
   const [youtubeImportDraftId, setYoutubeImportDraftId] = useState<string | null>(null);
   const [draftYoutubeImport, setDraftYoutubeImport] = useState<YoutubeImportJob | null>(null);
   const [showClearYoutubeImportConfirm, setShowClearYoutubeImportConfirm] = useState(false);
+  const [showCancelYoutubeImportConfirm, setShowCancelYoutubeImportConfirm] = useState(false);
   const [isYoutubeImportConfirmBusy, setIsYoutubeImportConfirmBusy] = useState(false);
   const [showUploadProgressModalHistory, setShowUploadProgressModalHistory] = useState(false);
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
@@ -3378,6 +3379,32 @@ export function DraftMetadataModal({
     }
   }, [handleDiscardDraftYoutubeImport]);
 
+  const handleCancelActiveYoutubeImportConfirm = useCallback(async () => {
+    const importJobId = draftYoutubeImport?.id;
+    const draftIdForReload = draftId ?? value?.id;
+    if (!importJobId || !draftIdForReload) return;
+
+    setIsYoutubeImportConfirmBusy(true);
+    try {
+      const response = await fetch(`/api/youtube-import/${importJobId}/cancel`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? 'Failed to cancel YouTube import');
+      }
+      setShowCancelYoutubeImportConfirm(false);
+      setDraftYoutubeImport(null);
+      await loadDraftYoutubeImport(draftIdForReload);
+      toast.success('YouTube import cancelled');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to cancel YouTube import');
+      throw error;
+    } finally {
+      setIsYoutubeImportConfirmBusy(false);
+    }
+  }, [draftId, draftYoutubeImport?.id, loadDraftYoutubeImport, value?.id]);
+
   const handleCancelUpload = async () => {
     if (!currentUploadJobId) return;
     if (!uploading && !cancelServerFailed) return; // retry path only when stuck or in-flight
@@ -6073,6 +6100,20 @@ export function DraftMetadataModal({
                       Upload queued — distribution will start when the import finishes.
                     </p>
                   ) : null}
+                  {youtubeImportActive ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCancelYoutubeImportConfirm(true);
+                        }}
+                        disabled={uploadComplete || uploading || isYoutubeImportConfirmBusy}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        Cancel import
+                      </button>
+                    </div>
+                  ) : null}
                   {!youtubeImportActive && (youtubeImportFailed || youtubeImportStaged) ? (
                     <div className="flex flex-wrap gap-2 pt-1">
                       <button
@@ -6406,6 +6447,39 @@ export function DraftMetadataModal({
               disabled={isYoutubeImportConfirmBusy}
             >
               {isYoutubeImportConfirmBusy ? 'Working…' : 'Clear import'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showCancelYoutubeImportConfirm}
+        onOpenChange={(open) => {
+          if (!open && !isYoutubeImportConfirmBusy) {
+            setShowCancelYoutubeImportConfirm(false);
+          }
+        }}
+      >
+        <AlertDialogContent stackLayerClassName="!z-[70]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel YouTube import?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops the current import. Any partial download will be discarded and you can
+              start a new import or choose a file afterward.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isYoutubeImportConfirmBusy}>
+              Keep importing
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleCancelActiveYoutubeImportConfirm();
+              }}
+              disabled={isYoutubeImportConfirmBusy}
+            >
+              {isYoutubeImportConfirmBusy ? 'Cancelling…' : 'Cancel import'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

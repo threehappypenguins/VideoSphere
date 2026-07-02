@@ -6,6 +6,7 @@ const mockRequireYouTubeConnection = vi.fn();
 const mockGetLivestreamById = vi.fn();
 const mockFetchYouTubeVideoForImport = vi.fn();
 const mockMapYouTubeImportResolvedSource = vi.fn();
+const mockResolvePreviewDirectMediaUrl = vi.fn();
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
@@ -31,6 +32,12 @@ vi.mock('@/lib/youtube-import/resolve-source', async (importOriginal) => {
       mockMapYouTubeImportResolvedSource(...args),
   };
 });
+
+vi.mock('@/lib/youtube-import/preview-media-url', () => ({
+  buildYoutubeImportPreviewStreamPath: (youtubeVideoId: string) =>
+    `/api/youtube-import/preview/stream?youtubeVideoId=${youtubeVideoId}`,
+  resolvePreviewDirectMediaUrl: (...args: unknown[]) => mockResolvePreviewDirectMediaUrl(...args),
+}));
 
 import { POST } from '@/app/api/youtube-import/resolve/route';
 
@@ -63,6 +70,10 @@ beforeEach(() => {
   mockRequireYouTubeConnection.mockResolvedValue({ ok: true, accessToken: ACCESS_TOKEN });
   mockFetchYouTubeVideoForImport.mockResolvedValue({ ok: true, item: youtubeItem });
   mockMapYouTubeImportResolvedSource.mockReturnValue({ ok: true, data: resolvedMetadata });
+  mockResolvePreviewDirectMediaUrl.mockResolvedValue({
+    url: 'https://r1---sn.example.googlevideo.com/videoplayback?id=abc',
+    expiresAt: Date.now() + 3_600_000,
+  });
 });
 
 afterEach(() => {
@@ -121,7 +132,12 @@ describe('POST /api/youtube-import/resolve', () => {
 
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.data).toEqual(resolvedMetadata);
+    expect(body.data).toEqual({
+      ...resolvedMetadata,
+      previewStreamUrl: '/api/youtube-import/preview/stream?youtubeVideoId=dQw4w9WgXcQ',
+      previewExpiresAt: expect.any(Number),
+    });
+    expect(mockResolvePreviewDirectMediaUrl).toHaveBeenCalledWith(USER_ID, 'dQw4w9WgXcQ');
     expect(mockFetchYouTubeVideoForImport).toHaveBeenCalledWith(
       ACCESS_TOKEN,
       'dQw4w9WgXcQ',

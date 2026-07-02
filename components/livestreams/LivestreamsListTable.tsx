@@ -215,33 +215,34 @@ function LivestreamMobileRow({
   const keySwapNote = formatKeySwapNote(livestream);
 
   return (
-    <article className={`px-3 py-3 sm:px-4 ${dimStreamedRows ? 'bg-muted/20' : ''}`}>
+    <article className={`relative px-3 py-3 sm:px-4 ${dimStreamedRows ? 'bg-muted/20' : ''}`}>
       <button
         type="button"
         onClick={() => onEdit(livestream)}
         aria-label={`Edit livestream "${title}"`}
-        className="block w-full text-left"
-      >
+        className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      />
+      <div className="relative z-0">
         <span className="text-sm font-medium text-foreground">{title}</span>
         {keySwapNote ? (
           <span className="mt-0.5 block text-xs text-muted-foreground">{keySwapNote}</span>
         ) : null}
-      </button>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-        {showScheduledColumn ? (
-          <span className="text-xs text-muted-foreground">
-            {formatScheduledDateTime(livestream.scheduledStartTime)}
-          </span>
-        ) : null}
-        <StatusBadge status={livestream.status} />
-        <div className="ml-auto">
-          <LivestreamActions
-            livestream={livestream}
-            onDelete={onDelete}
-            onDuplicate={onDuplicate}
-            isDeletingId={isDeletingId}
-            isDuplicatingId={isDuplicatingId}
-          />
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+          {showScheduledColumn ? (
+            <span className="text-xs text-muted-foreground">
+              {formatScheduledDateTime(livestream.scheduledStartTime)}
+            </span>
+          ) : null}
+          <StatusBadge status={livestream.status} />
+          <div className="relative z-20 ml-auto pointer-events-auto">
+            <LivestreamActions
+              livestream={livestream}
+              onDelete={onDelete}
+              onDuplicate={onDuplicate}
+              isDeletingId={isDeletingId}
+              isDuplicatingId={isDuplicatingId}
+            />
+          </div>
         </div>
       </div>
     </article>

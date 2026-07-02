@@ -1,27 +1,17 @@
 'use client';
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useImperativeHandle,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
-import {
-  loadYouTubeIframeApi,
-  YouTubePlayerState,
-  type YouTubeIframePlayerInstance,
-} from '@/lib/youtube-import/load-youtube-iframe-api';
-import { buildYouTubePreviewEmbedUrl } from '@/lib/youtube-import/youtube-preview-embed';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import type { ApiResponse } from '@/types';
+
+/** Refresh preview URLs one minute before yt-dlp reports expiry. */
+const PREVIEW_URL_REFRESH_BUFFER_MS = 60_000;
 
 /**
  * Imperative handle for controlling YouTube preview playback from sibling components.
  */
 export interface YouTubePlayerHandle {
   /**
-   * Shows the frame at the given timestamp without starting playback when possible.
+   * Seeks the preview player to the given timestamp.
    * @param seconds - Target playback position in seconds.
    */
   previewAt(seconds: number): void;
@@ -38,6 +28,10 @@ export interface YouTubePlayerHandle {
 export interface YouTubePreviewPlayerProps {
   /** YouTube video id to preview. */
   youtubeVideoId: string;
+  /** Same-origin proxied preview stream URL from resolve. */
+  streamUrl: string;
+  /** Approximate Unix expiry for the proxied preview media URL. */
+  previewExpiresAt: number;
   /**
    * Called once when the player is ready and duration is known.
    * @param seconds - Total video duration in seconds.
@@ -48,83 +42,47 @@ export interface YouTubePreviewPlayerProps {
 }
 
 /**
- * Returns a user-facing message for a YouTube player error code.
- * @param errorCode - Numeric error code from the IFrame API `onError` event.
- * @returns Human-readable playback error message.
- */
-export function youtubePreviewPlayerErrorMessage(errorCode: number): string {
-  switch (errorCode) {
-    case 2:
-      return 'YouTube rejected the preview request (invalid player parameters).';
-    case 5:
-      return 'YouTube could not play this video in the embedded HTML5 player.';
-    case 100:
-      return 'This video was not found or is no longer available.';
-    case 101:
-    case 150:
-      return 'The video owner does not allow playback in embedded players.';
-    case 153:
-      return 'YouTube could not verify this embed (missing referrer information).';
-    default:
-      return 'YouTube playback failed. Try again on youtube.com to confirm the video plays there.';
-  }
-}
-
-/**
- * Embeds a YouTube IFrame player for import trim preview.
+ * HTML5 preview player for import trim using a proxied yt-dlp media stream.
  * @param props - Player configuration.
  * @returns Preview player container element.
  */
 export function YouTubePreviewPlayer({
   youtubeVideoId,
+  streamUrl,
+  previewExpiresAt,
   onDurationKnown,
   playerRef,
 }: YouTubePreviewPlayerProps) {
-  const iframeId = useId().replace(/:/g, '');
-  const playerInstanceRef = useRef<YouTubeIframePlayerInstance | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const onDurationKnownRef = useRef(onDurationKnown);
-  const isReadyRef = useRef(false);
   const pendingPreviewSecondsRef = useRef<number | null>(null);
-  const pageOrigin = useSyncExternalStore(
-    () => () => {},
-    () => window.location.origin,
-    () => ''
-  );
-  const embedSrc = pageOrigin ? buildYouTubePreviewEmbedUrl(youtubeVideoId, pageOrigin) : null;
-  const [playbackErrorForEmbed, setPlaybackErrorForEmbed] = useState<{
-    embedSrc: string;
-    message: string;
-  } | null>(null);
-  const playbackError =
-    embedSrc && playbackErrorForEmbed?.embedSrc === embedSrc ? playbackErrorForEmbed.message : null;
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [expiresAt, setExpiresAt] = useState(previewExpiresAt);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+
+  const streamSrc = useMemo(() => {
+    const url = new URL(streamUrl, 'http://localhost');
+    if (refreshKey > 0) {
+      url.searchParams.set('refresh', '1');
+    }
+    return `${url.pathname}${url.search}`;
+  }, [refreshKey, streamUrl]);
 
   useEffect(() => {
     onDurationKnownRef.current = onDurationKnown;
   }, [onDurationKnown]);
 
-  const previewAt = useCallback(
-    (seconds: number) => {
-      const player = playerInstanceRef.current;
-      if (!player || !isReadyRef.current) {
-        pendingPreviewSecondsRef.current = Math.max(0, seconds);
-        return;
-      }
+  const previewAt = useCallback((seconds: number) => {
+    const video = videoRef.current;
+    const clampedSeconds = Math.max(0, seconds);
+    if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) {
+      pendingPreviewSecondsRef.current = clampedSeconds;
+      return;
+    }
 
-      const clampedSeconds = Math.max(0, seconds);
-      const state = player.getPlayerState();
-
-      if (state === YouTubePlayerState.PLAYING || state === YouTubePlayerState.BUFFERING) {
-        player.seekTo(clampedSeconds, true);
-        return;
-      }
-
-      player.cueVideoById({
-        videoId: youtubeVideoId,
-        startSeconds: clampedSeconds,
-      });
-    },
-    [youtubeVideoId]
-  );
+    video.currentTime = clampedSeconds;
+  }, []);
 
   useImperativeHandle(
     playerRef,
@@ -133,98 +91,101 @@ export function YouTubePreviewPlayer({
         previewAt(seconds);
       },
       getCurrentTime() {
-        return playerInstanceRef.current?.getCurrentTime() ?? 0;
+        return videoRef.current?.currentTime ?? 0;
       },
     }),
     [previewAt]
   );
 
   useEffect(() => {
-    if (!embedSrc) {
+    const clearRefreshTimer = () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+
+    const delayMs = expiresAt - Date.now() - PREVIEW_URL_REFRESH_BUFFER_MS;
+    if (delayMs <= 0) {
+      return clearRefreshTimer;
+    }
+
+    refreshTimerRef.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const params = new URLSearchParams({
+            youtubeVideoId,
+            refresh: '1',
+          });
+          const response = await fetch(`/api/youtube-import/preview?${params.toString()}`, {
+            cache: 'no-store',
+          });
+          if (!response.ok) {
+            throw new Error('Failed to refresh preview media');
+          }
+
+          const body = (await response.json()) as ApiResponse<{
+            streamUrl: string;
+            expiresAt: number;
+          }>;
+          setExpiresAt(body.data.expiresAt);
+          setRefreshKey((current) => current + 1);
+        } catch (error) {
+          console.error('[YouTubePreviewPlayer] Failed to refresh preview media:', error);
+        }
+      })();
+    }, delayMs);
+
+    return clearRefreshTimer;
+  }, [expiresAt, youtubeVideoId]);
+
+  const handleLoadedMetadata = () => {
+    const video = videoRef.current;
+    if (!video) {
       return;
     }
 
-    let cancelled = false;
-    let player: YouTubeIframePlayerInstance | null = null;
+    setPlaybackError(null);
 
-    isReadyRef.current = false;
-    pendingPreviewSecondsRef.current = null;
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      onDurationKnownRef.current?.(video.duration);
+    }
 
-    void loadYouTubeIframeApi()
-      .then((YT) => {
-        if (cancelled) {
-          return;
-        }
+    const pendingSeconds = pendingPreviewSecondsRef.current;
+    if (pendingSeconds != null) {
+      pendingPreviewSecondsRef.current = null;
+      video.currentTime = pendingSeconds;
+    }
+  };
 
-        player = new YT.Player(iframeId, {
-          events: {
-            onReady(event) {
-              if (cancelled) {
-                return;
-              }
-              playerInstanceRef.current = event.target;
-              isReadyRef.current = true;
-              const duration = event.target.getDuration();
-              if (Number.isFinite(duration) && duration > 0) {
-                onDurationKnownRef.current?.(duration);
-              }
+  const handleVideoError = () => {
+    if (refreshKey === 0) {
+      setRefreshKey(1);
+      return;
+    }
 
-              const pendingSeconds = pendingPreviewSecondsRef.current;
-              if (pendingSeconds != null) {
-                pendingPreviewSecondsRef.current = null;
-                previewAt(pendingSeconds);
-              }
-            },
-            onStateChange() {
-              setPlaybackErrorForEmbed((current) =>
-                current?.embedSrc === embedSrc ? null : current
-              );
-            },
-            onError(event) {
-              if (cancelled) {
-                return;
-              }
-              setPlaybackErrorForEmbed({
-                embedSrc,
-                message: youtubePreviewPlayerErrorMessage(event.data),
-              });
-            },
-          },
-        });
-        playerInstanceRef.current = player;
-      })
-      .catch((error) => {
-        console.error('[YouTubePreviewPlayer] Failed to initialize player:', error);
-        if (!cancelled) {
-          setPlaybackErrorForEmbed({
-            embedSrc,
-            message: 'Failed to load the YouTube preview player.',
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      isReadyRef.current = false;
-      playerInstanceRef.current = null;
-      player?.destroy();
-    };
-  }, [embedSrc, iframeId, previewAt]);
+    setPlaybackError(
+      'Preview playback failed. Confirm the video is accessible on YouTube and try again.'
+    );
+  };
 
   return (
     <div className="space-y-2">
       <div className="aspect-video w-full overflow-hidden rounded-md border border-border bg-black">
-        {embedSrc ? (
-          <iframe
-            id={iframeId}
-            title="YouTube preview"
-            src={embedSrc}
-            referrerPolicy="strict-origin-when-cross-origin"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            className="h-full w-full"
-          />
-        ) : null}
+        <video
+          key={`${youtubeVideoId}-${refreshKey}`}
+          ref={videoRef}
+          src={streamSrc}
+          controls
+          preload="metadata"
+          playsInline
+          aria-label="YouTube import trim preview"
+          className="h-full w-full"
+          onLoadedMetadata={handleLoadedMetadata}
+          onError={handleVideoError}
+        >
+          <track kind="captions" label="Captions not available for preview" />
+        </video>
       </div>
       {playbackError ? (
         <p className="text-xs text-destructive" role="alert">

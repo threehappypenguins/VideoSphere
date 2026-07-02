@@ -30,11 +30,21 @@ export type YouTubeImportVideosListItem = {
 /**
  * Resolved metadata returned by the import resolve route.
  */
-export interface YouTubeImportResolvedSource {
+export interface YouTubeImportResolvedMetadata {
   youtubeVideoId: string;
   title: string;
   durationSeconds: number;
   thumbnailUrl: string;
+}
+
+/**
+ * Full resolved import source including proxied preview stream details.
+ */
+export interface YouTubeImportResolvedSource extends YouTubeImportResolvedMetadata {
+  /** Same-origin preview stream URL for the trim editor. */
+  previewStreamUrl: string;
+  /** Approximate Unix expiry for the proxied preview media URL. */
+  previewExpiresAt: number;
 }
 
 /**
@@ -243,7 +253,7 @@ export async function fetchYouTubeVideoForImport(
  */
 export function mapYouTubeImportResolvedSource(
   item: YouTubeImportVideosListItem
-): { ok: true; data: YouTubeImportResolvedSource } | { ok: false; message: string } {
+): { ok: true; data: YouTubeImportResolvedMetadata } | { ok: false; message: string } {
   const youtubeVideoId = item.id?.trim() ?? '';
   if (!YOUTUBE_VIDEO_ID_PATTERN.test(youtubeVideoId)) {
     return { ok: false, message: 'YouTube returned an invalid video id.' };

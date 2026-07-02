@@ -11,6 +11,10 @@ import {
   mapYouTubeImportResolvedSource,
   type YouTubeImportResolvedSource,
 } from '@/lib/youtube-import/resolve-source';
+import {
+  buildYoutubeImportPreviewStreamPath,
+  resolvePreviewDirectMediaUrl,
+} from '@/lib/youtube-import/preview-media-url';
 import type { ApiError, ApiResponse } from '@/types';
 
 interface ResolveYouTubeImportRequestBody {
@@ -146,7 +150,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return badRequest(mapped.message);
     }
 
-    const res: ApiResponse<YouTubeImportResolvedSource> = { data: mapped.data };
+    let previewExpiresAt: number;
+    try {
+      const previewMedia = await resolvePreviewDirectMediaUrl(userId, mapped.data.youtubeVideoId);
+      previewExpiresAt = previewMedia.expiresAt;
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.trim() !== ''
+          ? err.message.trim()
+          : 'Failed to resolve preview media';
+      return youtubeUpstreamErrorResponse(message);
+    }
+
+    const res: ApiResponse<YouTubeImportResolvedSource> = {
+      data: {
+        ...mapped.data,
+        previewStreamUrl: buildYoutubeImportPreviewStreamPath(mapped.data.youtubeVideoId),
+        previewExpiresAt,
+      },
+    };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {
     console.error('[POST /api/youtube-import/resolve] Unexpected error:', err);

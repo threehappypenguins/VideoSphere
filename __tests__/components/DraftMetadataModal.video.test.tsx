@@ -385,4 +385,94 @@ describe('DraftMetadataModal YouTube import entry point', () => {
       );
     });
   });
+
+  it('cancels an active YouTube import from the draft editor after confirmation', async () => {
+    const user = userEvent.setup({ delay: null });
+    const cancelSpy = vi.fn();
+    let importJobActive = true;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+
+        if (
+          url.includes('/api/drafts/draft-video-regression/youtube-import') &&
+          init?.method !== 'POST'
+        ) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: importJobActive
+                ? {
+                    id: 'import-job-active',
+                    userId: 'user-1',
+                    draftId: 'draft-video-regression',
+                    sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                    youtubeVideoId: 'dQw4w9WgXcQ',
+                    livestreamId: null,
+                    startSeconds: 0,
+                    endSeconds: 3600,
+                    status: 'downloading',
+                    progressPercent: 42,
+                    errorMessage: null,
+                    r2Key: null,
+                    uploadJobId: null,
+                    distributeQueued: false,
+                    $createdAt: '2026-01-01T00:00:00.000Z',
+                    $updatedAt: '2026-01-01T00:05:00.000Z',
+                  }
+                : null,
+            }),
+          } as Response;
+        }
+
+        if (
+          url.includes('/api/youtube-import/import-job-active/cancel') &&
+          init?.method === 'POST'
+        ) {
+          cancelSpy();
+          importJobActive = false;
+          return { ok: true, json: async () => ({ success: true }) } as Response;
+        }
+
+        if (url.includes('/api/drafts/') && url.includes('/used-platforms')) {
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+
+        if (url.includes('/api/uploads/history')) {
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ data: [] }),
+        } as Response;
+      })
+    );
+
+    renderVideoModal();
+
+    await screen.findByRole('dialog');
+
+    await waitFor(() => {
+      expect(screen.getByText(/downloading/i)).toBeInTheDocument();
+      expect(screen.getByText('42%')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /^cancel import$/i }));
+
+    const confirmDialog = await screen.findByRole('alertdialog', {
+      name: /cancel youtube import/i,
+    });
+    expect(cancelSpy).not.toHaveBeenCalled();
+
+    await user.click(within(confirmDialog).getByRole('button', { name: /^cancel import$/i }));
+
+    await waitFor(() => {
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(toast.success).toHaveBeenCalledWith('YouTube import cancelled');
+      expect(screen.queryByText('42%')).not.toBeInTheDocument();
+    });
+  });
 });

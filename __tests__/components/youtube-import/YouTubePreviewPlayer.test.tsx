@@ -1,100 +1,55 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
-import { resetYouTubeIframeApiLoaderForTests } from '@/lib/youtube-import/load-youtube-iframe-api';
-import {
-  youtubePreviewPlayerErrorMessage,
-  YouTubePreviewPlayer,
-} from '@/components/youtube-import/YouTubePreviewPlayer';
-
-const mockLoadYouTubeIframeApi = vi.fn();
-
-vi.mock('@/lib/youtube-import/load-youtube-iframe-api', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/lib/youtube-import/load-youtube-iframe-api')>();
-  return {
-    ...actual,
-    loadYouTubeIframeApi: (...args: unknown[]) => mockLoadYouTubeIframeApi(...args),
-  };
-});
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, waitFor } from '@testing-library/react';
+import { YouTubePreviewPlayer } from '@/components/youtube-import/YouTubePreviewPlayer';
 
 const VIDEO_ID = 'dQw4w9WgXcQ';
-
-function createMockPlayer(durationSeconds = 600) {
-  return {
-    seekTo: vi.fn(),
-    cueVideoById: vi.fn(),
-    getPlayerState: vi.fn().mockReturnValue(5),
-    getCurrentTime: vi.fn().mockReturnValue(0),
-    getDuration: vi.fn().mockReturnValue(durationSeconds),
-    destroy: vi.fn(),
-  };
-}
-
-function createMockYouTubePlayerClass(durationSeconds = 600) {
-  return class MockYouTubePlayer {
-    constructor(
-      _elementId: string,
-      config: {
-        events?: {
-          onReady?: (event: { target: ReturnType<typeof createMockPlayer> }) => void;
-          onError?: (event: { data: number }) => void;
-        };
-      }
-    ) {
-      const player = createMockPlayer(durationSeconds);
-      queueMicrotask(() => {
-        config.events?.onReady?.({ target: player });
-      });
-      return player;
-    }
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  resetYouTubeIframeApiLoaderForTests();
-
-  mockLoadYouTubeIframeApi.mockImplementation(() =>
-    Promise.resolve({
-      Player: createMockYouTubePlayerClass(),
-    })
-  );
-});
-
-afterEach(() => {
-  resetYouTubeIframeApiLoaderForTests();
-});
-
-describe('youtubePreviewPlayerErrorMessage', () => {
-  it('maps known YouTube error codes to readable messages', () => {
-    expect(youtubePreviewPlayerErrorMessage(101)).toContain('embedded players');
-    expect(youtubePreviewPlayerErrorMessage(153)).toContain('referrer');
-  });
-});
+const STREAM_URL = `/api/youtube-import/preview/stream?youtubeVideoId=${VIDEO_ID}`;
+const PREVIEW_EXPIRES_AT = Date.now() + 3_600_000;
 
 describe('YouTubePreviewPlayer', () => {
-  it('calls onDurationKnown once when the player becomes ready', async () => {
-    const onDurationKnown = vi.fn();
-
-    render(<YouTubePreviewPlayer youtubeVideoId={VIDEO_ID} onDurationKnown={onDurationKnown} />);
-
-    await waitFor(() => {
-      expect(onDurationKnown).toHaveBeenCalledTimes(1);
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(HTMLMediaElement.prototype, 'duration', {
+      configurable: true,
+      get() {
+        return 600;
+      },
     });
-    expect(onDurationKnown).toHaveBeenCalledWith(600);
-    expect(mockLoadYouTubeIframeApi).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses the shared iframe API loader across multiple mounted players', async () => {
-    render(
-      <>
-        <YouTubePreviewPlayer youtubeVideoId={VIDEO_ID} />
-        <YouTubePreviewPlayer youtubeVideoId={VIDEO_ID} />
-      </>
+  it('renders a video element pointed at the proxied stream URL', () => {
+    const { container } = render(
+      <YouTubePreviewPlayer
+        youtubeVideoId={VIDEO_ID}
+        streamUrl={STREAM_URL}
+        previewExpiresAt={PREVIEW_EXPIRES_AT}
+      />
     );
 
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    expect(video).toHaveAttribute('src', STREAM_URL);
+    expect(video).toHaveAttribute('controls');
+  });
+
+  it('calls onDurationKnown when metadata loads', async () => {
+    const onDurationKnown = vi.fn();
+
+    const { container } = render(
+      <YouTubePreviewPlayer
+        youtubeVideoId={VIDEO_ID}
+        streamUrl={STREAM_URL}
+        previewExpiresAt={PREVIEW_EXPIRES_AT}
+        onDurationKnown={onDurationKnown}
+      />
+    );
+
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    fireEvent.loadedMetadata(video!);
+
     await waitFor(() => {
-      expect(mockLoadYouTubeIframeApi).toHaveBeenCalledTimes(2);
+      expect(onDurationKnown).toHaveBeenCalledWith(600);
     });
   });
 
@@ -105,14 +60,32 @@ describe('YouTubePreviewPlayer', () => {
         | null,
     };
 
-    render(<YouTubePreviewPlayer youtubeVideoId={VIDEO_ID} playerRef={playerRef} />);
+    const { container } = render(
+      <YouTubePreviewPlayer
+        youtubeVideoId={VIDEO_ID}
+        streamUrl={STREAM_URL}
+        previewExpiresAt={PREVIEW_EXPIRES_AT}
+        playerRef={playerRef}
+      />
+    );
 
-    await waitFor(() => {
-      expect(playerRef.current).not.toBeNull();
+    const video = container.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'readyState', {
+      configurable: true,
+      get() {
+        return HTMLMediaElement.HAVE_METADATA;
+      },
+    });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      writable: true,
+      value: 0,
     });
 
+    fireEvent.loadedMetadata(video);
+
     playerRef.current?.previewAt(42);
-    expect(playerRef.current?.getCurrentTime()).toBe(0);
-    expect(mockLoadYouTubeIframeApi).toHaveBeenCalled();
+    expect(video.currentTime).toBe(42);
+    expect(playerRef.current?.getCurrentTime()).toBe(42);
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { YouTubeImportModal } from '@/components/youtube-import/YouTubeImportModal';
 import type { Livestream, YoutubeImportJob } from '@/types';
@@ -39,6 +39,8 @@ const resolvedSource = {
   title: 'Sunday Service',
   durationSeconds: 3600,
   thumbnailUrl: 'https://img.youtube.com/high.jpg',
+  previewStreamUrl: `/api/youtube-import/preview/stream?youtubeVideoId=${VIDEO_ID}`,
+  previewExpiresAt: Date.now() + 3_600_000,
 };
 
 const livestreamRow: Livestream = {
@@ -223,7 +225,9 @@ describe('YouTubeImportModal', () => {
       expect(screen.getByTestId('trim-range-slider')).toBeInTheDocument();
       expect(screen.getByText('Sunday Service')).toBeInTheDocument();
       expect(
-        screen.getByText(/If the preview is unavailable, set the video to unlisted or public/i)
+        screen.getByText(
+          /Preview uses the same yt-dlp media source as import, so scrubbing should match the trimmed result/i
+        )
       ).toBeInTheDocument();
     });
 
@@ -408,6 +412,60 @@ describe('YouTubeImportModal', () => {
 
     expect(global.fetch).toHaveBeenCalledWith('/api/youtube-import/active', {
       cache: 'no-store',
+    });
+  });
+
+  it('asks for confirmation before cancelling an in-flight import', async () => {
+    const user = userEvent.setup({ delay: null });
+    const cancelSpy = vi.fn();
+    installFetchMock({
+      cancel: () => {
+        cancelSpy();
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      },
+      job: () =>
+        new Response(
+          JSON.stringify({
+            data: makeImportJob({ status: 'downloading', progressPercent: 40 }),
+          }),
+          { status: 200 }
+        ),
+    });
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText('Sunday Morning Service')).toBeInTheDocument();
+    });
+
+    await user.type(
+      screen.getByLabelText(/youtube link/i),
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    );
+    await user.click(screen.getByRole('button', { name: /use this link/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /start import/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /start import/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/downloading/i)).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /^cancel import$/i }));
+
+    const confirmDialog = await screen.findByRole('alertdialog', {
+      name: /cancel youtube import/i,
+    });
+    expect(cancelSpy).not.toHaveBeenCalled();
+
+    await user.click(within(confirmDialog).getByRole('button', { name: /^cancel import$/i }));
+
+    await waitFor(() => {
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('Pick a past livestream')).toBeInTheDocument();
     });
   });
 });
