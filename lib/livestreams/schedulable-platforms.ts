@@ -1,3 +1,4 @@
+import { isUsablePlatformConnection } from '@/lib/platforms/connection-status';
 import { isFacebookLivestreamSchedulingEnabled } from '@/lib/livestreams/facebook-livestream-feature';
 import type { ConnectedAccountPlatform, ConnectedAccountPublic } from '@/types';
 
@@ -91,19 +92,21 @@ export function getSchedulableLivestreamPlatforms(
 export function toLivestreamConnectionSnapshots(
   connections: ConnectedAccountPublic[]
 ): LivestreamConnectionSnapshot[] {
-  return connections.map(
-    ({
-      platform,
-      hasYoutubeMainStreamKey,
-      hasYoutubeTempStreamKey,
-      facebookTargetType,
-      facebookPageId,
-    }) => ({
-      platform,
-      hasYoutubeMainStreamKey,
-      hasYoutubeTempStreamKey,
-      ...(facebookTargetType != null ? { facebookTargetType } : {}),
-      ...(facebookPageId != null ? { facebookPageId } : {}),
-    })
-  );
+  return connections
+    .filter(isUsablePlatformConnection)
+    .map(
+      ({
+        platform,
+        hasYoutubeMainStreamKey,
+        hasYoutubeTempStreamKey,
+        facebookTargetType,
+        facebookPageId,
+      }) => ({
+        platform,
+        hasYoutubeMainStreamKey,
+        hasYoutubeTempStreamKey,
+        ...(facebookTargetType != null ? { facebookTargetType } : {}),
+        ...(facebookPageId != null ? { facebookPageId } : {}),
+      })
+    );
 }

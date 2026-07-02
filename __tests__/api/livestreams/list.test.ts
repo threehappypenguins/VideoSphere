@@ -16,18 +16,18 @@ vi.mock('@/lib/livestreams/reconcile-user-lifecycle', () => ({
 }));
 
 vi.mock('@/lib/repositories/livestreams', () => ({
-  countStreamedLivestreamsByUser: vi.fn(),
+  getStreamedLivestreamsPage: vi.fn(),
+  getYoutubeImportLivestreamsPage: vi.fn(),
   listLivestreamsByUser: vi.fn(),
-  listStreamedLivestreamsByUserPage: vi.fn(),
 }));
 
 import { GET } from '@/app/api/livestreams/route';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { reconcileLivestreamsFromYouTubeForUser } from '@/lib/livestreams/reconcile-user-lifecycle';
 import {
-  countStreamedLivestreamsByUser,
+  getStreamedLivestreamsPage,
+  getYoutubeImportLivestreamsPage,
   listLivestreamsByUser,
-  listStreamedLivestreamsByUserPage,
 } from '@/lib/repositories/livestreams';
 import type { Livestream } from '@/types';
 
@@ -72,14 +72,16 @@ describe('GET /api/livestreams', () => {
 
     expect(res.status).toBe(401);
     expect(reconcileLivestreamsFromYouTubeForUser).not.toHaveBeenCalled();
-    expect(listStreamedLivestreamsByUserPage).not.toHaveBeenCalled();
+    expect(getStreamedLivestreamsPage).not.toHaveBeenCalled();
   });
 
   describe('status=streamed', () => {
     it('returns data, meta.total, and default limit/offset on the first page', async () => {
       const page = [makeLivestream('ls-1')];
-      vi.mocked(countStreamedLivestreamsByUser).mockResolvedValueOnce(42);
-      vi.mocked(listStreamedLivestreamsByUserPage).mockResolvedValueOnce(page);
+      vi.mocked(getStreamedLivestreamsPage).mockResolvedValueOnce({
+        total: 42,
+        livestreams: page,
+      });
 
       const res = await GET(createRequest('?status=streamed'));
 
@@ -93,7 +95,7 @@ describe('GET /api/livestreams', () => {
       expect(body.meta.limit).toBe(20);
       expect(body.meta.offset).toBe(0);
       expect(reconcileLivestreamsFromYouTubeForUser).toHaveBeenCalledWith(USER_ID);
-      expect(listStreamedLivestreamsByUserPage).toHaveBeenCalledWith(USER_ID, {
+      expect(getStreamedLivestreamsPage).toHaveBeenCalledWith(USER_ID, {
         limit: 20,
         offset: 0,
       });
@@ -101,8 +103,10 @@ describe('GET /api/livestreams', () => {
 
     it('applies limit and offset; meta.total reflects the full streamed count', async () => {
       const page = [makeLivestream('ls-2'), makeLivestream('ls-3')];
-      vi.mocked(countStreamedLivestreamsByUser).mockResolvedValueOnce(5);
-      vi.mocked(listStreamedLivestreamsByUserPage).mockResolvedValueOnce(page);
+      vi.mocked(getStreamedLivestreamsPage).mockResolvedValueOnce({
+        total: 5,
+        livestreams: page,
+      });
 
       const res = await GET(createRequest('?status=streamed&limit=2&offset=2'));
 
@@ -115,15 +119,14 @@ describe('GET /api/livestreams', () => {
       expect(body.meta.total).toBe(5);
       expect(body.meta.limit).toBe(2);
       expect(body.meta.offset).toBe(2);
-      expect(listStreamedLivestreamsByUserPage).toHaveBeenCalledWith(USER_ID, {
+      expect(getStreamedLivestreamsPage).toHaveBeenCalledWith(USER_ID, {
         limit: 2,
         offset: 2,
       });
     });
 
     it('reconciles YouTube livestreams only when offset is 0', async () => {
-      vi.mocked(countStreamedLivestreamsByUser).mockResolvedValueOnce(0);
-      vi.mocked(listStreamedLivestreamsByUserPage).mockResolvedValueOnce([]);
+      vi.mocked(getStreamedLivestreamsPage).mockResolvedValueOnce({ total: 0, livestreams: [] });
 
       const res = await GET(createRequest('?status=streamed&offset=20'));
 
@@ -132,23 +135,27 @@ describe('GET /api/livestreams', () => {
     });
 
     it('caps limit at 100', async () => {
-      vi.mocked(countStreamedLivestreamsByUser).mockResolvedValueOnce(3);
-      vi.mocked(listStreamedLivestreamsByUserPage).mockResolvedValueOnce([makeLivestream('ls-a')]);
+      vi.mocked(getStreamedLivestreamsPage).mockResolvedValueOnce({
+        total: 3,
+        livestreams: [makeLivestream('ls-a')],
+      });
 
       const res = await GET(createRequest('?status=streamed&limit=500'));
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as { meta: { limit: number } };
       expect(body.meta.limit).toBe(100);
-      expect(listStreamedLivestreamsByUserPage).toHaveBeenCalledWith(USER_ID, {
+      expect(getStreamedLivestreamsPage).toHaveBeenCalledWith(USER_ID, {
         limit: 100,
         offset: 0,
       });
     });
 
     it('uses default limit when limit param is not a number', async () => {
-      vi.mocked(countStreamedLivestreamsByUser).mockResolvedValueOnce(1);
-      vi.mocked(listStreamedLivestreamsByUserPage).mockResolvedValueOnce([makeLivestream('ls-b')]);
+      vi.mocked(getStreamedLivestreamsPage).mockResolvedValueOnce({
+        total: 1,
+        livestreams: [makeLivestream('ls-b')],
+      });
 
       const res = await GET(createRequest('?status=streamed&limit=not-a-number'));
 
@@ -158,23 +165,27 @@ describe('GET /api/livestreams', () => {
     });
 
     it('clamps limit below 1 up to 1', async () => {
-      vi.mocked(countStreamedLivestreamsByUser).mockResolvedValueOnce(1);
-      vi.mocked(listStreamedLivestreamsByUserPage).mockResolvedValueOnce([makeLivestream('ls-c')]);
+      vi.mocked(getStreamedLivestreamsPage).mockResolvedValueOnce({
+        total: 1,
+        livestreams: [makeLivestream('ls-c')],
+      });
 
       const res = await GET(createRequest('?status=streamed&limit=0'));
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as { meta: { limit: number } };
       expect(body.meta.limit).toBe(1);
-      expect(listStreamedLivestreamsByUserPage).toHaveBeenCalledWith(USER_ID, {
+      expect(getStreamedLivestreamsPage).toHaveBeenCalledWith(USER_ID, {
         limit: 1,
         offset: 0,
       });
     });
 
     it('clamps negative offset to 0', async () => {
-      vi.mocked(countStreamedLivestreamsByUser).mockResolvedValueOnce(1);
-      vi.mocked(listStreamedLivestreamsByUserPage).mockResolvedValueOnce([makeLivestream('ls-d')]);
+      vi.mocked(getStreamedLivestreamsPage).mockResolvedValueOnce({
+        total: 1,
+        livestreams: [makeLivestream('ls-d')],
+      });
 
       const res = await GET(createRequest('?status=streamed&offset=-5'));
 
@@ -182,10 +193,30 @@ describe('GET /api/livestreams', () => {
       const body = (await res.json()) as { meta: { offset: number } };
       expect(body.meta.offset).toBe(0);
       expect(reconcileLivestreamsFromYouTubeForUser).toHaveBeenCalledWith(USER_ID);
-      expect(listStreamedLivestreamsByUserPage).toHaveBeenCalledWith(USER_ID, {
+      expect(getStreamedLivestreamsPage).toHaveBeenCalledWith(USER_ID, {
         limit: 20,
         offset: 0,
       });
+    });
+
+    it('uses the YouTube import filter when for=youtube-import is requested', async () => {
+      const page = [makeLivestream('importable-1')];
+      vi.mocked(getYoutubeImportLivestreamsPage).mockResolvedValueOnce({
+        total: 1,
+        livestreams: page,
+      });
+
+      const res = await GET(createRequest('?status=streamed&for=youtube-import'));
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: Livestream[]; meta: { total: number } };
+      expect(body.data).toEqual(page);
+      expect(body.meta.total).toBe(1);
+      expect(getYoutubeImportLivestreamsPage).toHaveBeenCalledWith(USER_ID, {
+        limit: 20,
+        offset: 0,
+      });
+      expect(getStreamedLivestreamsPage).not.toHaveBeenCalled();
     });
   });
 
@@ -202,7 +233,7 @@ describe('GET /api/livestreams', () => {
       expect(body.meta).toBeUndefined();
       expect(reconcileLivestreamsFromYouTubeForUser).toHaveBeenCalledWith(USER_ID);
       expect(listLivestreamsByUser).toHaveBeenCalledWith(USER_ID);
-      expect(listStreamedLivestreamsByUserPage).not.toHaveBeenCalled();
+      expect(getStreamedLivestreamsPage).not.toHaveBeenCalled();
     });
   });
 });

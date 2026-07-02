@@ -684,6 +684,49 @@ export interface UploadJob {
   $updatedAt: string;
 }
 
+/**
+ * Lifecycle status for a YouTube import/trim job (download → trim → R2 handoff).
+ */
+export type YoutubeImportJobStatus =
+  | 'pending'
+  | 'downloading'
+  | 'trimming'
+  | 'uploading'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+/**
+ * YouTube import job tracking download, trim, and R2 staging before upload distribution.
+ */
+export interface YoutubeImportJob {
+  id: string;
+  userId: string;
+  /** Draft this import is destined for; set at creation. */
+  draftId: string;
+  /** Original pasted URL or resolved watch URL. */
+  sourceUrl: string;
+  youtubeVideoId: string;
+  /** Past livestream id when picked from history; null when the source was a pasted link. */
+  livestreamId: string | null;
+  startSeconds: number;
+  endSeconds: number;
+  status: YoutubeImportJobStatus;
+  /** Coarse progress for the UI (0–100). */
+  progressPercent: number;
+  errorMessage: string | null;
+  /** R2 object key once the trimmed file lands in staging storage. */
+  r2Key: string | null;
+  /** Upload job id once handed off to the distribution pipeline. */
+  uploadJobId: string | null;
+  /** When true, distribution starts automatically once staging completes. */
+  distributeQueued: boolean;
+  /** Persistence system attribute (ISO string). */
+  $createdAt: string;
+  /** Persistence system attribute (ISO string). */
+  $updatedAt: string;
+}
+
 /** Platform upload (one per target platform per upload job). See PRD Platform Upload. */
 export interface PlatformUpload {
   id: string;
@@ -759,6 +802,11 @@ export interface ConnectedAccountPublic {
   hasYoutubeMainStreamKey: boolean;
   /** True when a non-empty YouTube temp stream key is stored (encrypted at rest). */
   hasYoutubeTempStreamKey: boolean;
+  /**
+   * Present on GET /api/platforms/connections after optional OAuth health verification.
+   * When omitted, callers should derive status from token fields via `getConnectionStatus`.
+   */
+  connectionStatus?: 'connected' | 'expired';
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

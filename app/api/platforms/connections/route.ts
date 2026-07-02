@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getConnectedAccountsByUser } from '@/lib/repositories/connected-accounts';
+import { getConnectedAccountsWithHealth } from '@/lib/platforms/connected-accounts-health';
 import type { ApiResponse, ApiError, ConnectedAccountPublic } from '@/types';
 
 /**
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const accounts = await getConnectedAccountsByUser(userId);
+    const accounts = await getConnectedAccountsWithHealth(userId);
     const res: ApiResponse<ConnectedAccountPublic[]> = { data: accounts };
     return NextResponse.json(res, { status: 200 });
   } catch (err) {

@@ -15,6 +15,7 @@ import type {
   DraftLabelDefinition,
 } from '@/types';
 import { DraftLabelChip } from '@/components/drafts/DraftLabelChip';
+import { getUsableConnectedPlatforms } from '@/lib/platforms/connection-status';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 type VideosView = 'list' | 'cards';
@@ -159,7 +160,7 @@ export default function VideosPage() {
           ConnectedAccountPublic[]
         >;
         platforms = Array.isArray(connectionsPayload.data)
-          ? connectionsPayload.data.map((account) => account.platform)
+          ? getUsableConnectedPlatforms(connectionsPayload.data)
           : [];
       }
       setConnectedPlatforms(platforms);
@@ -945,31 +946,34 @@ function VideosMobileRow({
   const displayTitle = draft.title.trim() || 'Untitled draft';
 
   return (
-    <article className={`px-3 py-3 sm:px-4 ${dimUsedRows ? 'bg-muted/20' : ''}`}>
+    <article className={`relative px-3 py-3 sm:px-4 ${dimUsedRows ? 'bg-muted/20' : ''}`}>
       <button
         type="button"
         onClick={() => onEdit(draft)}
         aria-label={`Edit draft "${displayTitle}"`}
-        className="block w-full text-left"
-      >
+        className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      />
+      <div className="relative z-0">
         <span className="text-sm font-medium text-foreground">{displayTitle}</span>
-      </button>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="text-xs text-muted-foreground">{formatLastEdited(draft.$updatedAt)}</span>
-        <UsedIndicator used={used} />
-        <VideosLabelChips
-          labels={draft.labels ?? []}
-          labelLibrary={labelLibrary}
-          className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial"
-        />
-        <div className="ml-auto">
-          <VideosRowActions
-            draft={draft}
-            onDelete={onDelete}
-            onDuplicate={onDuplicate}
-            isDeletingId={isDeletingId}
-            isDuplicatingId={isDuplicatingId}
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-xs text-muted-foreground">
+            {formatLastEdited(draft.$updatedAt)}
+          </span>
+          <UsedIndicator used={used} />
+          <VideosLabelChips
+            labels={draft.labels ?? []}
+            labelLibrary={labelLibrary}
+            className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial"
           />
+          <div className="relative z-20 ml-auto pointer-events-auto">
+            <VideosRowActions
+              draft={draft}
+              onDelete={onDelete}
+              onDuplicate={onDuplicate}
+              isDeletingId={isDeletingId}
+              isDuplicatingId={isDuplicatingId}
+            />
+          </div>
         </div>
       </div>
     </article>

@@ -3,6 +3,7 @@ import type { ConnectedAccount } from '@/types';
 
 const mockRefreshYouTubeAccessToken = vi.fn();
 const mockUpdateTokens = vi.fn();
+const mockClearOAuthRefreshToken = vi.fn();
 
 vi.mock('@/lib/platforms/youtube', () => ({
   refreshYouTubeAccessToken: (...args: unknown[]) => mockRefreshYouTubeAccessToken(...args),
@@ -24,6 +25,7 @@ vi.mock('@/lib/platforms/facebook-oauth', async (importOriginal) => {
 
 vi.mock('@/lib/repositories/connected-accounts', () => ({
   updateTokens: (...args: unknown[]) => mockUpdateTokens(...args),
+  clearOAuthRefreshToken: (...args: unknown[]) => mockClearOAuthRefreshToken(...args),
 }));
 
 import {
@@ -164,6 +166,21 @@ describe('refreshTokenIfNeeded', () => {
 
     const acc = youtubeAccount({ tokenExpiry: new Date(Date.now() - 1000).toISOString() });
     await expect(refreshTokenIfNeeded(acc)).rejects.toThrow(/YOUTUBE_TOKEN_REFRESH_FAILED/);
+  });
+
+  it('clears stored refresh token when YouTube refresh returns invalid_grant', async () => {
+    mockRefreshYouTubeAccessToken.mockResolvedValue({
+      ok: false,
+      error: {
+        code: 'YOUTUBE_TOKEN_REFRESH_FAILED',
+        message: 'Failed to refresh YouTube access token.',
+        details: 'invalid_grant: Token has been expired or revoked.',
+      },
+    });
+
+    const acc = youtubeAccount({ tokenExpiry: new Date(Date.now() - 1000).toISOString() });
+    await expect(refreshTokenIfNeeded(acc)).rejects.toThrow(/YOUTUBE_TOKEN_REFRESH_FAILED/);
+    expect(mockClearOAuthRefreshToken).toHaveBeenCalledWith('acc-1');
   });
 
   it('returns stored Vimeo tokens without calling YouTube refresh', async () => {
