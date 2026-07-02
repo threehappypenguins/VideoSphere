@@ -81,7 +81,7 @@ describe('Navbar admin link visibility', () => {
     render(<Navbar />);
 
     await waitFor(() => {
-      expect(screen.getByText('Regular User')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Profile' })).toBeInTheDocument();
     });
 
     expect(screen.queryByRole('link', { name: 'Invites' })).not.toBeInTheDocument();
@@ -93,7 +93,7 @@ describe('Navbar admin link visibility', () => {
     render(<Navbar />);
 
     await waitFor(() => {
-      expect(screen.getByText('Admin User')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
     });
 
     const user = userEvent.setup();

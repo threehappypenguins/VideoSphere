@@ -1,28 +1,8 @@
-import type { Metadata } from 'next';
-import { UploadHistoryClient } from '@/components/dashboard/UploadHistoryClient';
+import { redirect } from 'next/navigation';
 
 /**
- * Provides static page metadata for this route segment.
+ * Legacy route redirect: /dashboard/history → /dashboard/videos/history.
  */
-export const metadata: Metadata = {
-  title: 'Upload History',
-  description: 'View your completed and failed video uploads.',
-};
-
-/**
- * Renders the history page component.
- * @returns The rendered UI output.
- */
-export default function HistoryPage() {
-  return (
-    <div className="px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="text-2xl font-bold text-foreground">Upload History</h1>
-        <p className="mt-2 text-lg text-foreground text-shadow-bg">
-          A record of all your completed and failed video distributions.
-        </p>
-        <UploadHistoryClient />
-      </div>
-    </div>
-  );
+export default function LegacyHistoryRedirectPage() {
+  redirect('/dashboard/videos/history');
 }

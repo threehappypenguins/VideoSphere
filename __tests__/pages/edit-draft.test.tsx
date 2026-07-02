@@ -16,6 +16,6 @@ describe('EditDraftPage', () => {
       params: Promise.resolve({ id: 'draft-123' }),
     });
 
-    expect(redirectMock).toHaveBeenCalledWith('/dashboard/drafts?editDraft=draft-123');
+    expect(redirectMock).toHaveBeenCalledWith('/dashboard/videos?editDraft=draft-123');
   });
 });

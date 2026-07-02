@@ -21,12 +21,32 @@ import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user
 import { reconcileLivestreamsFromYouTubeForUser } from '@/lib/livestreams/reconcile-user-lifecycle';
 import {
   createLivestream,
+  countStreamedLivestreamsByUser,
   listLivestreamsByUser,
+  listStreamedLivestreamsByUserPage,
   LivestreamDocumentTooLargeError,
 } from '@/lib/repositories/livestreams';
 import type { ApiResponse, ApiError, Livestream } from '@/types';
 
 const SCHEDULE_ONLY_FIELDS = ['keySlot', 'status'] as const;
+
+const DEFAULT_STREAMED_LIMIT = 20;
+const MAX_STREAMED_LIMIT = 100;
+const MIN_STREAMED_LIMIT = 1;
+
+function parseLimitParam(raw: string | null, fallback: number): number {
+  if (raw == null) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(MAX_STREAMED_LIMIT, Math.max(MIN_STREAMED_LIMIT, parsed));
+}
+
+function parseOffsetParam(raw: string | null): number {
+  if (raw == null) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return 0;
+  return Math.max(0, parsed);
+}
 
 function rejectScheduleOnlyFields(body: Record<string, unknown>): ApiError | null {
   for (const field of SCHEDULE_ONLY_FIELDS) {
@@ -244,7 +264,31 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const { searchParams } = new URL(req.url);
+    const statusFilter = searchParams.get('status');
+
+    if (statusFilter === 'streamed') {
+      const limit = parseLimitParam(searchParams.get('limit'), DEFAULT_STREAMED_LIMIT);
+      const offset = parseOffsetParam(searchParams.get('offset'));
+
+      // Reconcile once when opening history; skip on later pages to avoid repeated YouTube API load.
+      if (offset === 0) {
+        await reconcileLivestreamsFromYouTubeForUser(userId);
+      }
+
+      const [total, livestreams] = await Promise.all([
+        countStreamedLivestreamsByUser(userId),
+        listStreamedLivestreamsByUserPage(userId, { limit, offset }),
+      ]);
+      const response = {
+        data: livestreams,
+        meta: { total, limit, offset },
+      };
+      return NextResponse.json(response);
+    }
+
     await reconcileLivestreamsFromYouTubeForUser(userId);
+
     const livestreams = await listLivestreamsByUser(userId);
     const response: ApiResponse<Livestream[]> = { data: livestreams };
     return NextResponse.json(response);

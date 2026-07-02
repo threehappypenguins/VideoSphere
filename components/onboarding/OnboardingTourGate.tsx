@@ -16,7 +16,7 @@ function OnboardingTourGateContent() {
   // Keep this predicate aligned with OnboardingTour route/query checks.
   const isOnboardingRoute =
     pathname === '/dashboard' ||
-    (pathname === '/dashboard/drafts' && searchParams.has('onboardingFlow')) ||
+    (pathname === '/dashboard/videos' && searchParams.has('onboardingFlow')) ||
     (pathname === '/profile/connections' && searchParams.has('onboardingFlow'));
   if (!isOnboardingRoute) return null;
 

@@ -410,6 +410,45 @@ export async function listLivestreamsByUser(userId: string): Promise<Livestream[
   return docs.map(mongoDocToLivestream);
 }
 
+const STREAMED_LIVESTREAM_STATUSES: LivestreamStatus[] = ['ended', 'failed'];
+
+/**
+ * Counts streamed livestreams (ended or failed) for a user.
+ * @param userId - Owner user id.
+ * @returns Total streamed livestream count.
+ */
+export async function countStreamedLivestreamsByUser(userId: string): Promise<number> {
+  await connectToDatabase();
+  return LivestreamModel.countDocuments({
+    userId,
+    status: { $in: STREAMED_LIVESTREAM_STATUSES },
+  });
+}
+
+/**
+ * Lists a paginated page of streamed livestreams for a user, most recently updated first.
+ * @param userId - Owner user id.
+ * @param options - Pagination options.
+ * @param options.limit - Maximum rows to return.
+ * @param options.offset - Number of rows to skip.
+ * @returns Streamed livestream rows for the requested page.
+ */
+export async function listStreamedLivestreamsByUserPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<Livestream[]> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({
+    userId,
+    status: { $in: STREAMED_LIVESTREAM_STATUSES },
+  })
+    .sort({ updatedAt: -1 })
+    .skip(options.offset)
+    .limit(options.limit)
+    .lean<LivestreamDocument[]>();
+  return docs.map(mongoDocToLivestream);
+}
+
 /**
  * Returns armed YouTube livestreams for a user (holding a key slot, scheduled or live).
  * @param userId - Owner user id.
