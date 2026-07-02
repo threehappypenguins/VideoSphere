@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { resetYouTubeIframeApiLoaderForTests } from '@/lib/youtube-import/load-youtube-iframe-api';
-import { YouTubePreviewPlayer } from '@/components/youtube-import/YouTubePreviewPlayer';
+import {
+  youtubePreviewPlayerErrorMessage,
+  YouTubePreviewPlayer,
+} from '@/components/youtube-import/YouTubePreviewPlayer';
 
 const mockLoadYouTubeIframeApi = vi.fn();
 
@@ -19,6 +22,8 @@ const VIDEO_ID = 'dQw4w9WgXcQ';
 function createMockPlayer(durationSeconds = 600) {
   return {
     seekTo: vi.fn(),
+    cueVideoById: vi.fn(),
+    getPlayerState: vi.fn().mockReturnValue(5),
     getCurrentTime: vi.fn().mockReturnValue(0),
     getDuration: vi.fn().mockReturnValue(durationSeconds),
     destroy: vi.fn(),
@@ -30,7 +35,10 @@ function createMockYouTubePlayerClass(durationSeconds = 600) {
     constructor(
       _elementId: string,
       config: {
-        events?: { onReady?: (event: { target: ReturnType<typeof createMockPlayer> }) => void };
+        events?: {
+          onReady?: (event: { target: ReturnType<typeof createMockPlayer> }) => void;
+          onError?: (event: { data: number }) => void;
+        };
       }
     ) {
       const player = createMockPlayer(durationSeconds);
@@ -55,6 +63,13 @@ beforeEach(() => {
 
 afterEach(() => {
   resetYouTubeIframeApiLoaderForTests();
+});
+
+describe('youtubePreviewPlayerErrorMessage', () => {
+  it('maps known YouTube error codes to readable messages', () => {
+    expect(youtubePreviewPlayerErrorMessage(101)).toContain('embedded players');
+    expect(youtubePreviewPlayerErrorMessage(153)).toContain('referrer');
+  });
 });
 
 describe('YouTubePreviewPlayer', () => {
@@ -83,7 +98,7 @@ describe('YouTubePreviewPlayer', () => {
     });
   });
 
-  it('exposes seekTo and getCurrentTime through playerRef', async () => {
+  it('exposes previewAt and getCurrentTime through playerRef', async () => {
     const playerRef = {
       current: null as
         | import('@/components/youtube-import/YouTubePreviewPlayer').YouTubePlayerHandle
@@ -96,7 +111,7 @@ describe('YouTubePreviewPlayer', () => {
       expect(playerRef.current).not.toBeNull();
     });
 
-    playerRef.current?.seekTo(42);
+    playerRef.current?.previewAt(42);
     expect(playerRef.current?.getCurrentTime()).toBe(0);
     expect(mockLoadYouTubeIframeApi).toHaveBeenCalled();
   });

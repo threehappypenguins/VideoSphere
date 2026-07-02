@@ -50,6 +50,7 @@ const livestreamRow: Livestream = {
   tags: [],
   visibility: 'public',
   targets: ['youtube'],
+  youtubeBroadcastId: VIDEO_ID,
   platforms: {
     youtube: {
       thumbnailUrl: 'https://img.youtube.com/live.jpg',
@@ -221,6 +222,9 @@ describe('YouTubeImportModal', () => {
       expect(screen.getByTestId('youtube-preview-player')).toBeInTheDocument();
       expect(screen.getByTestId('trim-range-slider')).toBeInTheDocument();
       expect(screen.getByText('Sunday Service')).toBeInTheDocument();
+      expect(
+        screen.getByText(/If the preview is unavailable, set the video to unlisted or public/i)
+      ).toBeInTheDocument();
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -228,6 +232,38 @@ describe('YouTubeImportModal', () => {
       expect.objectContaining({
         method: 'POST',
         body: expect.any(String),
+      })
+    );
+  });
+
+  it('selects a livestream row to resolve and open the trim editor', async () => {
+    installFetchMock({});
+    const user = userEvent.setup();
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText('Sunday Morning Service')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('youtube-preview-player')).not.toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/youtube-import/resolve',
+      expect.objectContaining({ method: 'POST' })
+    );
+
+    await user.click(screen.getByRole('button', { name: /sunday morning service/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('trim-range-slider')).toBeInTheDocument();
+      expect(screen.getByText('Sunday Service')).toBeInTheDocument();
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/youtube-import/resolve',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ livestreamId: 'livestream-1' }),
       })
     );
   });

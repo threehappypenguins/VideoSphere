@@ -1,8 +1,26 @@
 /**
+ * YouTube IFrame Player API player states.
+ * @see https://developers.google.com/youtube/iframe_api_reference#Playback_status
+ */
+export const YouTubePlayerState = {
+  UNSTARTED: -1,
+  ENDED: 0,
+  PLAYING: 1,
+  PAUSED: 2,
+  BUFFERING: 3,
+  CUED: 5,
+} as const;
+
+/**
  * Minimal YouTube IFrame Player API surface used by the preview player.
  */
 export interface YouTubeIframePlayerInstance {
   seekTo(seconds: number, allowSeekAhead?: boolean): void;
+  cueVideoById(
+    videoIdOrOptions: string | { videoId: string; startSeconds?: number },
+    startSeconds?: number
+  ): void;
+  getPlayerState(): number;
   getCurrentTime(): number;
   getDuration(): number;
   destroy(): void;
@@ -10,12 +28,15 @@ export interface YouTubeIframePlayerInstance {
 
 interface YouTubeIframePlayerConstructor {
   new (
-    elementId: string,
-    config: {
+    elementId: string | HTMLElement,
+    config?: {
       videoId?: string;
+      host?: string;
       playerVars?: Record<string, number | string>;
       events?: {
         onReady?: (event: { target: YouTubeIframePlayerInstance }) => void;
+        onStateChange?: (event: { data: number; target: YouTubeIframePlayerInstance }) => void;
+        onError?: (event: { data: number; target: YouTubeIframePlayerInstance }) => void;
       };
     }
   ): YouTubeIframePlayerInstance;

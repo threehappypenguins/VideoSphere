@@ -160,7 +160,7 @@ describe('TrimRangeSlider', () => {
 
   it('seeks the preview player while dragging when a player handle is provided', async () => {
     const playerHandle = {
-      seekTo: vi.fn(),
+      previewAt: vi.fn(),
       getCurrentTime: vi.fn().mockReturnValue(0),
     };
     const onChange = vi.fn();
@@ -170,7 +170,9 @@ describe('TrimRangeSlider', () => {
     const [startThumb] = screen.getAllByRole('slider');
     fireEvent.keyDown(startThumb, { key: 'ArrowRight' });
 
-    expect(playerHandle.seekTo).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(playerHandle.previewAt).toHaveBeenCalled();
     expect(onChange).toHaveBeenCalled();
   });
 

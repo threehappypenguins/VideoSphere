@@ -5,8 +5,13 @@ import { Loader2 } from 'lucide-react';
 import { Slider, SliderRange, SliderThumb, SliderTrack } from '@/components/ui/slider';
 import type { YouTubePlayerHandle } from '@/components/youtube-import/YouTubePreviewPlayer';
 import { cn } from '@/lib/utils';
+import { formatVideoDuration } from '@/lib/format-video-duration';
 
+/** Debounce interval before snapping trim handles to nearby keyframes. */
 const KEYFRAME_SNAP_DEBOUNCE_MS = 250;
+
+/** Debounce interval for preview seeks while dragging trim handles. */
+const PREVIEW_SEEK_THROTTLE_MS = 200;
 
 /**
  * Props for {@link TrimRangeSlider}.
@@ -28,15 +33,12 @@ export interface TrimRangeSliderProps {
 }
 
 /**
- * Formats seconds as `m:ss` for trim labels.
+ * Formats seconds as a YouTube-style duration label (`H:MM:SS` or `M:SS`).
  * @param seconds - Duration in seconds.
  * @returns Human-readable timestamp label.
  */
 export function formatTrimSeconds(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(safeSeconds / 60);
-  const remainingSeconds = safeSeconds % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  return formatVideoDuration(seconds);
 }
 
 /**
@@ -72,6 +74,8 @@ export function TrimRangeSlider({
   const pendingSnapRef = useRef<{ handle: 'start' | 'end'; seconds: number } | null>(null);
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
+  const previewThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPreviewSecondsRef = useRef<number | null>(null);
 
   useEffect(() => {
     valueRef.current = value;
@@ -149,8 +153,33 @@ export function TrimRangeSlider({
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
+      if (previewThrottleTimerRef.current) {
+        clearTimeout(previewThrottleTimerRef.current);
+      }
     };
   }, []);
+
+  const schedulePreviewAt = useCallback(
+    (seconds: number) => {
+      if (!playerHandle) {
+        return;
+      }
+
+      pendingPreviewSecondsRef.current = seconds;
+      if (previewThrottleTimerRef.current) {
+        return;
+      }
+
+      previewThrottleTimerRef.current = setTimeout(() => {
+        previewThrottleTimerRef.current = null;
+        const pendingSeconds = pendingPreviewSecondsRef.current;
+        if (pendingSeconds != null) {
+          playerHandle.previewAt(pendingSeconds);
+        }
+      }, PREVIEW_SEEK_THROTTLE_MS);
+    },
+    [playerHandle]
+  );
 
   const handleValueChange = useCallback(
     ([startSeconds, endSeconds]: number[]) => {
@@ -161,10 +190,10 @@ export function TrimRangeSlider({
       const movedSeconds = movedHandle === 'start' ? startSeconds : endSeconds;
 
       onChangeRef.current({ startSeconds, endSeconds });
-      playerHandle?.seekTo(movedSeconds);
+      schedulePreviewAt(movedSeconds);
       scheduleKeyframeSnap(movedHandle, movedSeconds);
     },
-    [playerHandle, scheduleKeyframeSnap]
+    [scheduleKeyframeSnap, schedulePreviewAt]
   );
 
   const disabled = durationSeconds <= 0;

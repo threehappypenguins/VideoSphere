@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import Image from 'next/image';
 import { CircleCheck, Loader2 } from 'lucide-react';
+import { formatVideoDuration } from '@/lib/format-video-duration';
+import { getLivestreamListThumbnailUrl } from '@/lib/livestreams/youtube-thumbnail-preview';
 import { formatScheduledDateTime } from '@/components/livestreams/LivestreamsListTable';
 import { TrimRangeSlider } from '@/components/youtube-import/TrimRangeSlider';
 import {
@@ -78,19 +79,6 @@ export interface YouTubeImportModalProps {
 }
 
 /**
- * Picks the best thumbnail URL for a livestream list row.
- * @param livestream - Livestream record.
- * @returns Thumbnail URL when available.
- */
-function getLivestreamThumbnailUrl(livestream: Livestream): string | undefined {
-  return (
-    livestream.thumbnailPreviewUrl?.trim() ||
-    livestream.platforms.youtube?.thumbnailUrl?.trim() ||
-    undefined
-  );
-}
-
-/**
  * Modal for importing and trimming a YouTube video into a draft.
  * @param props - Modal configuration.
  * @returns YouTube import modal UI.
@@ -123,8 +111,8 @@ export function YouTubeImportModal({
   const playerRef = useRef<YouTubePlayerHandle | null>(null);
   const playerHandle = useMemo<YouTubePlayerHandle>(
     () => ({
-      seekTo(seconds: number) {
-        playerRef.current?.seekTo(seconds);
+      previewAt(seconds: number) {
+        playerRef.current?.previewAt(seconds);
       },
       getCurrentTime() {
         return playerRef.current?.getCurrentTime() ?? 0;
@@ -193,7 +181,7 @@ export function YouTubeImportModal({
     setIsLoadingLivestreams(true);
     try {
       const response = await fetch(
-        `/api/livestreams?status=streamed&limit=${LIVESTREAM_PAGE_SIZE}&offset=${offset}`,
+        `/api/livestreams?status=streamed&for=youtube-import&limit=${LIVESTREAM_PAGE_SIZE}&offset=${offset}`,
         { cache: 'no-store' }
       );
       if (!response.ok) {
@@ -407,12 +395,12 @@ export function YouTubeImportModal({
     return () => {
       cancelled = true;
     };
-  }, [loadLivestreams, open, requestImportWorkerKickoff]);
+  }, [open, requestImportWorkerKickoff]);
 
   useEffect(() => {
-    if (!open || step !== 'source' || jobId || isCheckingActiveJob) return;
+    if (!open || step !== 'source' || jobId) return;
     void loadLivestreams(livestreamsOffset);
-  }, [isCheckingActiveJob, jobId, livestreamsOffset, loadLivestreams, open, step]);
+  }, [jobId, livestreamsOffset, loadLivestreams, open, step]);
 
   useEffect(() => {
     if (!open || step !== 'progress' || !jobId) return;
@@ -556,11 +544,14 @@ export function YouTubeImportModal({
                   Loading livestreams…
                 </div>
               ) : livestreams.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No streamed livestreams found.</p>
+                <p className="text-sm text-muted-foreground">
+                  No past YouTube livestreams are available to import. Only ended VideoSphere
+                  livestreams that were scheduled on YouTube appear here.
+                </p>
               ) : (
                 <ul className="space-y-2">
                   {livestreams.map((livestream) => {
-                    const thumbnailUrl = getLivestreamThumbnailUrl(livestream);
+                    const thumbnailUrl = getLivestreamListThumbnailUrl(livestream);
                     return (
                       <li key={livestream.id}>
                         <button
@@ -573,12 +564,11 @@ export function YouTubeImportModal({
                         >
                           <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded bg-muted">
                             {thumbnailUrl ? (
-                              <Image
+                              // eslint-disable-next-line @next/next/no-img-element -- YouTube CDN thumbnails are not in next/image remotePatterns.
+                              <img
                                 src={thumbnailUrl}
                                 alt=""
-                                fill
-                                className="object-cover"
-                                sizes="80px"
+                                className="h-full w-full object-cover"
                               />
                             ) : null}
                           </div>
@@ -637,7 +627,7 @@ export function YouTubeImportModal({
             <div className="space-y-1">
               <h3 className="text-sm font-medium text-foreground">{resolvedSource.title}</h3>
               <p className="text-xs text-muted-foreground">
-                Duration: {Math.round(resolvedSource.durationSeconds)} seconds
+                Duration: {formatVideoDuration(resolvedSource.durationSeconds)}
               </p>
             </div>
 
@@ -645,6 +635,11 @@ export function YouTubeImportModal({
               youtubeVideoId={resolvedSource.youtubeVideoId}
               playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
             />
+
+            <p className="text-xs text-muted-foreground">
+              If the preview is unavailable, set the video to unlisted or public on YouTube. Private
+              videos cannot be embedded here.
+            </p>
 
             <TrimRangeSlider
               durationSeconds={resolvedSource.durationSeconds}

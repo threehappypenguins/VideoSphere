@@ -36,7 +36,7 @@ RUN pnpm build
 FROM node:${NODE_VERSION}-alpine AS runner
 ARG YT_DLP_VERSION=2026.2.21
 RUN apk add --no-cache ffmpeg python3 py3-pip \
-    && pip3 install --break-system-packages "yt-dlp==${YT_DLP_VERSION}" \
+    && pip3 install --break-system-packages "yt-dlp[default]==${YT_DLP_VERSION}" \
     && yt-dlp --version && ffmpeg -version
 WORKDIR /app
 ENV NODE_ENV=production

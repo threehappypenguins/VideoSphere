@@ -17,8 +17,10 @@ vi.mock('@/lib/livestreams/reconcile-user-lifecycle', () => ({
 
 vi.mock('@/lib/repositories/livestreams', () => ({
   countStreamedLivestreamsByUser: vi.fn(),
+  countYoutubeImportLivestreamsByUser: vi.fn(),
   listLivestreamsByUser: vi.fn(),
   listStreamedLivestreamsByUserPage: vi.fn(),
+  listYoutubeImportLivestreamsByUserPage: vi.fn(),
 }));
 
 import { GET } from '@/app/api/livestreams/route';
@@ -26,8 +28,10 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { reconcileLivestreamsFromYouTubeForUser } from '@/lib/livestreams/reconcile-user-lifecycle';
 import {
   countStreamedLivestreamsByUser,
+  countYoutubeImportLivestreamsByUser,
   listLivestreamsByUser,
   listStreamedLivestreamsByUserPage,
+  listYoutubeImportLivestreamsByUserPage,
 } from '@/lib/repositories/livestreams';
 import type { Livestream } from '@/types';
 
@@ -186,6 +190,26 @@ describe('GET /api/livestreams', () => {
         limit: 20,
         offset: 0,
       });
+    });
+
+    it('uses the YouTube import filter when for=youtube-import is requested', async () => {
+      const page = [makeLivestream('importable-1')];
+      vi.mocked(countYoutubeImportLivestreamsByUser).mockResolvedValueOnce(1);
+      vi.mocked(listYoutubeImportLivestreamsByUserPage).mockResolvedValueOnce(page);
+
+      const res = await GET(createRequest('?status=streamed&for=youtube-import'));
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: Livestream[]; meta: { total: number } };
+      expect(body.data).toEqual(page);
+      expect(body.meta.total).toBe(1);
+      expect(countYoutubeImportLivestreamsByUser).toHaveBeenCalledWith(USER_ID);
+      expect(listYoutubeImportLivestreamsByUserPage).toHaveBeenCalledWith(USER_ID, {
+        limit: 20,
+        offset: 0,
+      });
+      expect(countStreamedLivestreamsByUser).not.toHaveBeenCalled();
+      expect(listStreamedLivestreamsByUserPage).not.toHaveBeenCalled();
     });
   });
 

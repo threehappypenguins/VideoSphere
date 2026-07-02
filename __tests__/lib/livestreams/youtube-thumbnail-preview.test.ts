@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { livestreamWithThumbnailPreview } from '@/lib/livestreams/livestream-thumbnail-preview';
 import {
+  getLivestreamListThumbnailUrl,
   livestreamYouTubeThumbnailCacheKey,
   youtubeThumbnailPreviewUrl,
 } from '@/lib/livestreams/youtube-thumbnail-preview';
@@ -16,6 +17,60 @@ describe('youtubeThumbnailPreviewUrl', () => {
         '2026-01-02T00:00:00.000Z'
       )
     ).toBe('https://i.ytimg.com/vi/abc/hqdefault.jpg?vs=2026-01-02T00%3A00%3A00.000Z');
+  });
+});
+
+describe('getLivestreamListThumbnailUrl', () => {
+  const baseLivestream: Livestream = {
+    id: 'ls-1',
+    userId: 'user-1',
+    status: 'ended',
+    title: 'Stream',
+    description: '',
+    tags: [],
+    visibility: 'public',
+    targets: ['youtube'],
+    platforms: {},
+    $createdAt: '2026-01-01T00:00:00.000Z',
+    $updatedAt: '2026-01-02T00:00:00.000Z',
+  };
+
+  it('prefers an ephemeral R2 preview URL', () => {
+    expect(
+      getLivestreamListThumbnailUrl({
+        ...baseLivestream,
+        thumbnailPreviewUrl: 'https://r2.example/presigned.jpg',
+        youtubeBroadcastId: 'abc123',
+      })
+    ).toBe('https://r2.example/presigned.jpg');
+  });
+
+  it('cache-busts a stored YouTube thumbnail URL', () => {
+    const livestream: Livestream = {
+      ...baseLivestream,
+      platforms: {
+        youtube: {
+          thumbnailUrl: 'https://i.ytimg.com/vi/abc/hqdefault.jpg',
+          thumbnailUpdatedAt: '2026-01-02T12:00:00.000Z',
+        },
+      },
+    };
+
+    expect(getLivestreamListThumbnailUrl(livestream)).toBe(
+      youtubeThumbnailPreviewUrl(
+        livestream.platforms.youtube!.thumbnailUrl!,
+        livestreamYouTubeThumbnailCacheKey(livestream)
+      )
+    );
+  });
+
+  it('falls back to the standard YouTube thumbnail for a broadcast id', () => {
+    expect(
+      getLivestreamListThumbnailUrl({
+        ...baseLivestream,
+        youtubeBroadcastId: 'dQw4w9WgXcQ',
+      })
+    ).toBe('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
   });
 });
 

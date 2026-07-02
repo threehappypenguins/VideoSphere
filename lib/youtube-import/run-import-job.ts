@@ -10,6 +10,7 @@ import {
 import { buildYouTubeWatchUrl } from '@/lib/youtube-import/resolve-source';
 import { distributeStagedYoutubeImportUpload } from '@/lib/youtube-import/queue-import-distribute';
 import { spawnProcess } from '@/lib/youtube-import/spawn-process';
+import { buildYtDlpBaseArgs } from '@/lib/youtube-import/yt-dlp-args';
 import type { YoutubeImportJob } from '@/types';
 
 const DEFAULT_YT_IMPORT_WORKDIR = '/tmp/yt-import';
@@ -296,8 +297,8 @@ async function downloadYoutubeSection(
   await runSpawnCollecting(
     'yt-dlp',
     [
+      ...buildYtDlpBaseArgs(),
       '--no-playlist',
-      '--no-update',
       '--newline',
       '--download-sections',
       section,

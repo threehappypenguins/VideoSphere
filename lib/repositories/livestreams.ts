@@ -24,6 +24,11 @@ import {
 import { mergeLivestreamPlatformsPatch } from '@/lib/livestream-upload-metadata';
 import { connectToDatabase } from '@/lib/mongodb';
 import { LivestreamModel, type LivestreamDocument } from '@/lib/models/Livestream';
+import {
+  filterStreamedLivestreams,
+  filterYoutubeImportLivestreams,
+  paginateLivestreams,
+} from '@/lib/livestreams/livestream-list-filters';
 
 /** Default visibility for new livestreams when omitted at creation. */
 export const DEFAULT_LIVESTREAM_VISIBILITY: PlatformUploadVisibility = 'public';
@@ -410,19 +415,14 @@ export async function listLivestreamsByUser(userId: string): Promise<Livestream[
   return docs.map(mongoDocToLivestream);
 }
 
-const STREAMED_LIVESTREAM_STATUSES: LivestreamStatus[] = ['ended', 'failed'];
-
 /**
  * Counts streamed livestreams (ended or failed) for a user.
  * @param userId - Owner user id.
  * @returns Total streamed livestream count.
  */
 export async function countStreamedLivestreamsByUser(userId: string): Promise<number> {
-  await connectToDatabase();
-  return LivestreamModel.countDocuments({
-    userId,
-    status: { $in: STREAMED_LIVESTREAM_STATUSES },
-  });
+  const livestreams = await listLivestreamsByUser(userId);
+  return filterStreamedLivestreams(livestreams).length;
 }
 
 /**
@@ -437,16 +437,38 @@ export async function listStreamedLivestreamsByUserPage(
   userId: string,
   options: { limit: number; offset: number }
 ): Promise<Livestream[]> {
-  await connectToDatabase();
-  const docs = await LivestreamModel.find({
-    userId,
-    status: { $in: STREAMED_LIVESTREAM_STATUSES },
-  })
-    .sort({ updatedAt: -1 })
-    .skip(options.offset)
-    .limit(options.limit)
-    .lean<LivestreamDocument[]>();
-  return docs.map(mongoDocToLivestream);
+  const livestreams = await listLivestreamsByUser(userId);
+  return paginateLivestreams(filterStreamedLivestreams(livestreams), options.offset, options.limit);
+}
+
+/**
+ * Counts past YouTube livestreams that can be used as import sources.
+ * @param userId - Owner user id.
+ * @returns Total importable YouTube livestream count.
+ */
+export async function countYoutubeImportLivestreamsByUser(userId: string): Promise<number> {
+  const livestreams = await listLivestreamsByUser(userId);
+  return filterYoutubeImportLivestreams(livestreams).length;
+}
+
+/**
+ * Lists a paginated page of YouTube-importable livestreams for a user.
+ * @param userId - Owner user id.
+ * @param options - Pagination options.
+ * @param options.limit - Maximum rows to return.
+ * @param options.offset - Number of rows to skip.
+ * @returns Importable YouTube livestream rows for the requested page.
+ */
+export async function listYoutubeImportLivestreamsByUserPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<Livestream[]> {
+  const livestreams = await listLivestreamsByUser(userId);
+  return paginateLivestreams(
+    filterYoutubeImportLivestreams(livestreams),
+    options.offset,
+    options.limit
+  );
 }
 
 /**

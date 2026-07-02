@@ -176,9 +176,15 @@ describe('getDirectMediaUrl', () => {
     expect(result.expiresAt).toBe(2_000_000_000_000);
     expect(mockSpawnProcess).toHaveBeenCalledWith(
       'yt-dlp',
-      ['-J', '--no-playlist', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
+      expect.arrayContaining([
+        '-J',
+        '--no-playlist',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      ]),
       { stdio: ['ignore', 'pipe', 'pipe'] }
     );
+    const args = mockSpawnProcess.mock.calls[0]?.[1] as string[];
+    expect(args).toContain('--js-runtimes');
   });
 
   it('rejects when yt-dlp exits non-zero', async () => {

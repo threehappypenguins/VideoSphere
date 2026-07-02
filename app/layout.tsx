@@ -60,6 +60,7 @@ export const metadata: Metadata = {
     apple: '/apple-touch-icon.png',
   },
   manifest: '/site.webmanifest',
+  referrer: 'strict-origin-when-cross-origin',
 };
 
 /**

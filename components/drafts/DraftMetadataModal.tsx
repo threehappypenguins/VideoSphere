@@ -1145,11 +1145,15 @@ export function DraftMetadataModal({
     return () => controller.abort();
   }, [draftId, loadDraftYoutubeImport]);
 
+  const draftYoutubeImportId = draftYoutubeImport?.id;
+  const draftYoutubeImportStatus = draftYoutubeImport?.status;
+
   useEffect(() => {
     if (
       !draftId ||
-      !draftYoutubeImport ||
-      !isActiveYoutubeImportStatus(draftYoutubeImport.status)
+      !draftYoutubeImportId ||
+      draftYoutubeImportStatus == null ||
+      !isActiveYoutubeImportStatus(draftYoutubeImportStatus)
     ) {
       return;
     }
@@ -1163,7 +1167,7 @@ export function DraftMetadataModal({
       controller.abort();
       window.clearInterval(intervalId);
     };
-  }, [draftId, draftYoutubeImport?.id, draftYoutubeImport?.status, loadDraftYoutubeImport]);
+  }, [draftId, draftYoutubeImportId, draftYoutubeImportStatus, loadDraftYoutubeImport]);
 
   const needsLiveUploadHistoryUpdates =
     uploading || uploadComplete || showUploadHistory || showUploadModal;

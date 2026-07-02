@@ -1,5 +1,6 @@
 import { spawnProcess } from '@/lib/youtube-import/spawn-process';
 import { buildYouTubeWatchUrl } from '@/lib/youtube-import/resolve-source';
+import { buildYtDlpMetadataArgs } from '@/lib/youtube-import/yt-dlp-args';
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
 const PROCESS_TIMEOUT_MS = 15_000;
@@ -186,7 +187,7 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
   const watchUrl = buildYouTubeWatchUrl(youtubeVideoId);
   const { stdout } = await runProcess(
     'yt-dlp',
-    ['-J', '--no-playlist', watchUrl],
+    buildYtDlpMetadataArgs(watchUrl),
     'yt-dlp metadata lookup'
   );
 

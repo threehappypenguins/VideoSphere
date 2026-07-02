@@ -22,8 +22,10 @@ import { reconcileLivestreamsFromYouTubeForUser } from '@/lib/livestreams/reconc
 import {
   createLivestream,
   countStreamedLivestreamsByUser,
+  countYoutubeImportLivestreamsByUser,
   listLivestreamsByUser,
   listStreamedLivestreamsByUserPage,
+  listYoutubeImportLivestreamsByUserPage,
   LivestreamDocumentTooLargeError,
 } from '@/lib/repositories/livestreams';
 import type { ApiResponse, ApiError, Livestream } from '@/types';
@@ -270,16 +272,22 @@ export async function GET(req: NextRequest) {
     if (statusFilter === 'streamed') {
       const limit = parseLimitParam(searchParams.get('limit'), DEFAULT_STREAMED_LIMIT);
       const offset = parseOffsetParam(searchParams.get('offset'));
+      const forYoutubeImport = searchParams.get('for') === 'youtube-import';
 
       // Reconcile once when opening history; skip on later pages to avoid repeated YouTube API load.
       if (offset === 0) {
         await reconcileLivestreamsFromYouTubeForUser(userId);
       }
 
-      const [total, livestreams] = await Promise.all([
-        countStreamedLivestreamsByUser(userId),
-        listStreamedLivestreamsByUserPage(userId, { limit, offset }),
-      ]);
+      const [total, livestreams] = forYoutubeImport
+        ? await Promise.all([
+            countYoutubeImportLivestreamsByUser(userId),
+            listYoutubeImportLivestreamsByUserPage(userId, { limit, offset }),
+          ])
+        : await Promise.all([
+            countStreamedLivestreamsByUser(userId),
+            listStreamedLivestreamsByUserPage(userId, { limit, offset }),
+          ]);
       const response = {
         data: livestreams,
         meta: { total, limit, offset },
