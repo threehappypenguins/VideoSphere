@@ -1,0 +1,740 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import Image from 'next/image';
+import { CircleCheck, Loader2 } from 'lucide-react';
+import { formatScheduledDateTime } from '@/components/livestreams/LivestreamsListTable';
+import { TrimRangeSlider } from '@/components/youtube-import/TrimRangeSlider';
+import {
+  YouTubePreviewPlayer,
+  type YouTubePlayerHandle,
+} from '@/components/youtube-import/YouTubePreviewPlayer';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
+import type { ApiResponse, Livestream, YoutubeImportJob } from '@/types';
+
+/** Poll interval for in-flight import jobs (matches draft upload polling). */
+const IMPORT_JOB_POLL_INTERVAL_MS = 3000;
+
+/** Page size for streamed livestream history in the source picker. */
+const LIVESTREAM_PAGE_SIZE = 20;
+
+/**
+ * Modal step identifiers for the YouTube import flow.
+ */
+type YouTubeImportModalStep = 'source' | 'editor' | 'progress';
+
+/**
+ * Resolved YouTube source metadata from the resolve API.
+ */
+interface ResolvedYouTubeSource {
+  youtubeVideoId: string;
+  title: string;
+  durationSeconds: number;
+  thumbnailUrl: string;
+  sourceUrl?: string;
+  livestreamId?: string;
+}
+
+interface LivestreamsListResponse extends ApiResponse<Livestream[]> {
+  meta?: {
+    total: number;
+    limit: number;
+    offset: number;
+  };
+}
+
+/**
+ * Props for {@link YouTubeImportModal}.
+ */
+export interface YouTubeImportModalProps {
+  /** Draft that will receive the imported video. */
+  draftId: string;
+  /** Whether the modal is open. */
+  open: boolean;
+  /**
+   * Called when the modal open state changes.
+   * @param open - Next open state.
+   */
+  onOpenChange: (open: boolean) => void;
+  /**
+   * Called after a successful import so the parent can refresh upload history.
+   */
+  onImportComplete: () => void | Promise<void>;
+}
+
+/**
+ * Returns a user-facing label for an import job status.
+ * @param status - Import job status.
+ * @returns Display label.
+ */
+function formatImportStatusLabel(status: YoutubeImportJob['status']): string {
+  switch (status) {
+    case 'pending':
+      return 'Preparing import…';
+    case 'downloading':
+      return 'Downloading from YouTube…';
+    case 'trimming':
+      return 'Trimming video…';
+    case 'uploading':
+      return 'Uploading to storage…';
+    case 'completed':
+      return 'Import complete';
+    case 'failed':
+      return 'Import failed';
+    case 'cancelled':
+      return 'Import cancelled';
+    default:
+      return 'Import in progress…';
+  }
+}
+
+/**
+ * Whether an import job is still in progress.
+ * @param status - Import job status.
+ * @returns True when the job has not reached a terminal state.
+ */
+function isActiveImportStatus(status: YoutubeImportJob['status']): boolean {
+  return (
+    status === 'pending' ||
+    status === 'downloading' ||
+    status === 'trimming' ||
+    status === 'uploading'
+  );
+}
+
+/**
+ * Picks the best thumbnail URL for a livestream list row.
+ * @param livestream - Livestream record.
+ * @returns Thumbnail URL when available.
+ */
+function getLivestreamThumbnailUrl(livestream: Livestream): string | undefined {
+  return (
+    livestream.thumbnailPreviewUrl?.trim() ||
+    livestream.platforms.youtube?.thumbnailUrl?.trim() ||
+    undefined
+  );
+}
+
+/**
+ * Modal for importing and trimming a YouTube video into a draft.
+ * @param props - Modal configuration.
+ * @returns YouTube import modal UI.
+ */
+export function YouTubeImportModal({
+  draftId,
+  open,
+  onOpenChange,
+  onImportComplete,
+}: YouTubeImportModalProps) {
+  const [step, setStep] = useState<YouTubeImportModalStep>('source');
+  const [resolvedSource, setResolvedSource] = useState<ResolvedYouTubeSource | null>(null);
+  const [trimRange, setTrimRange] = useState({ startSeconds: 0, endSeconds: 0 });
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<YoutubeImportJob | null>(null);
+
+  const [sourceUrlInput, setSourceUrlInput] = useState('');
+  const [livestreams, setLivestreams] = useState<Livestream[]>([]);
+  const [livestreamsOffset, setLivestreamsOffset] = useState(0);
+  const [livestreamsTotal, setLivestreamsTotal] = useState(0);
+  const [isLoadingLivestreams, setIsLoadingLivestreams] = useState(false);
+  const [isCheckingActiveJob, setIsCheckingActiveJob] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [conflictActiveJobId, setConflictActiveJobId] = useState<string | null>(null);
+  const [showCompletionSuccess, setShowCompletionSuccess] = useState(false);
+
+  const playerRef = useRef<YouTubePlayerHandle | null>(null);
+  const playerHandle = useMemo<YouTubePlayerHandle>(
+    () => ({
+      seekTo(seconds: number) {
+        playerRef.current?.seekTo(seconds);
+      },
+      getCurrentTime() {
+        return playerRef.current?.getCurrentTime() ?? 0;
+      },
+    }),
+    []
+  );
+  const completionHandledRef = useRef(false);
+
+  const resetModalState = useCallback(() => {
+    setStep('source');
+    setResolvedSource(null);
+    setTrimRange({ startSeconds: 0, endSeconds: 0 });
+    setJobId(null);
+    setJobStatus(null);
+    setSourceUrlInput('');
+    setLivestreams([]);
+    setLivestreamsOffset(0);
+    setLivestreamsTotal(0);
+    setErrorMessage(null);
+    setConflictActiveJobId(null);
+    setShowCompletionSuccess(false);
+    setIsResolving(false);
+    setIsStarting(false);
+    setIsCancelling(false);
+    completionHandledRef.current = false;
+  }, []);
+
+  const handleDialogOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        resetModalState();
+      }
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange, resetModalState]
+  );
+
+  const loadLivestreams = useCallback(async (offset: number) => {
+    setIsLoadingLivestreams(true);
+    try {
+      const response = await fetch(
+        `/api/livestreams?status=streamed&limit=${LIVESTREAM_PAGE_SIZE}&offset=${offset}`,
+        { cache: 'no-store' }
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? 'Failed to load past livestreams');
+      }
+
+      const payload = (await response.json()) as LivestreamsListResponse;
+      const rows = Array.isArray(payload.data) ? payload.data : [];
+      setLivestreams(rows);
+      setLivestreamsTotal(payload.meta?.total ?? rows.length);
+      setLivestreamsOffset(offset);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load past livestreams');
+      setLivestreams([]);
+      setLivestreamsTotal(0);
+    } finally {
+      setIsLoadingLivestreams(false);
+    }
+  }, []);
+
+  const resolveSource = useCallback(
+    async (body: { sourceUrl: string } | { livestreamId: string }) => {
+      setIsResolving(true);
+      setErrorMessage(null);
+      setConflictActiveJobId(null);
+
+      try {
+        const response = await fetch('/api/youtube-import/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const payload = (await response.json().catch(() => null)) as
+          | ApiResponse<{
+              youtubeVideoId: string;
+              title: string;
+              durationSeconds: number;
+              thumbnailUrl: string;
+            }>
+          | { message?: string }
+          | null;
+
+        if (!response.ok || !payload || !('data' in payload) || !payload.data) {
+          throw new Error(
+            payload && 'message' in payload && payload.message
+              ? payload.message
+              : 'Failed to resolve YouTube source'
+          );
+        }
+
+        const resolved: ResolvedYouTubeSource = {
+          ...payload.data,
+          ...('sourceUrl' in body ? { sourceUrl: body.sourceUrl } : {}),
+          ...('livestreamId' in body ? { livestreamId: body.livestreamId } : {}),
+        };
+
+        setResolvedSource(resolved);
+        setTrimRange({ startSeconds: 0, endSeconds: resolved.durationSeconds });
+        setStep('editor');
+      } catch (error) {
+        setErrorMessage(
+          error instanceof Error ? error.message : 'Failed to resolve YouTube source'
+        );
+      } finally {
+        setIsResolving(false);
+      }
+    },
+    []
+  );
+
+  const handleUsePastedLink = useCallback(async () => {
+    const sourceUrl = sourceUrlInput.trim();
+    if (!sourceUrl) {
+      setErrorMessage('Enter a YouTube URL to continue.');
+      return;
+    }
+    await resolveSource({ sourceUrl });
+  }, [resolveSource, sourceUrlInput]);
+
+  const handleSelectLivestream = useCallback(
+    async (livestreamId: string) => {
+      await resolveSource({ livestreamId });
+    },
+    [resolveSource]
+  );
+
+  const handleStartImport = useCallback(async () => {
+    if (!resolvedSource) return;
+
+    setIsStarting(true);
+    setErrorMessage(null);
+    setConflictActiveJobId(null);
+
+    try {
+      const response = await fetch('/api/youtube-import/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          draftId,
+          youtubeVideoId: resolvedSource.youtubeVideoId,
+          livestreamId: resolvedSource.livestreamId,
+          sourceUrl: resolvedSource.sourceUrl,
+          startSeconds: trimRange.startSeconds,
+          endSeconds: trimRange.endSeconds,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as {
+        jobId?: string;
+        activeJobId?: string | null;
+        message?: string;
+      } | null;
+
+      if (response.status === 409) {
+        setConflictActiveJobId(payload?.activeJobId ?? null);
+        setErrorMessage(null);
+        return;
+      }
+
+      if (!response.ok || !payload?.jobId) {
+        throw new Error(payload?.message ?? 'Failed to start YouTube import');
+      }
+
+      setJobId(payload.jobId);
+      setStep('progress');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to start YouTube import');
+    } finally {
+      setIsStarting(false);
+    }
+  }, [draftId, resolvedSource, trimRange.endSeconds, trimRange.startSeconds]);
+
+  const handleWatchExistingImport = useCallback(() => {
+    if (!conflictActiveJobId) return;
+    setJobId(conflictActiveJobId);
+    setConflictActiveJobId(null);
+    setErrorMessage(null);
+    setStep('progress');
+  }, [conflictActiveJobId]);
+
+  const handleRetryAfterFailure = useCallback(() => {
+    setStep('source');
+    setResolvedSource(null);
+    setJobId(null);
+    setJobStatus(null);
+    setErrorMessage(null);
+    setShowCompletionSuccess(false);
+    completionHandledRef.current = false;
+    void loadLivestreams(livestreamsOffset);
+  }, [livestreamsOffset, loadLivestreams]);
+
+  const handleCancelImport = useCallback(async () => {
+    if (!jobId) return;
+
+    setIsCancelling(true);
+    setErrorMessage(null);
+    try {
+      const response = await fetch(`/api/youtube-import/${jobId}/cancel`, { method: 'POST' });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? 'Failed to cancel import');
+      }
+      handleRetryAfterFailure();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to cancel import');
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [handleRetryAfterFailure, jobId]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    setIsCheckingActiveJob(true);
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/youtube-import/active', { cache: 'no-store' });
+        if (!response.ok || cancelled) return;
+
+        const payload = (await response.json()) as { job: YoutubeImportJob | null };
+        if (payload.job) {
+          setJobId(payload.job.id);
+          setJobStatus(payload.job);
+          setStep('progress');
+        }
+      } catch {
+        if (!cancelled) {
+          setErrorMessage('Failed to check for an active import job');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCheckingActiveJob(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadLivestreams, open]);
+
+  useEffect(() => {
+    if (!open || step !== 'source' || jobId || isCheckingActiveJob) return;
+    void loadLivestreams(livestreamsOffset);
+  }, [isCheckingActiveJob, jobId, livestreamsOffset, loadLivestreams, open, step]);
+
+  useEffect(() => {
+    if (!open || step !== 'progress' || !jobId) return;
+
+    let disposed = false;
+    const controller = new AbortController();
+
+    const pollJob = async () => {
+      try {
+        const response = await fetch(`/api/youtube-import/${jobId}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok || disposed) return;
+
+        const payload = (await response.json()) as ApiResponse<YoutubeImportJob>;
+        if (!payload.data || disposed) return;
+
+        setJobStatus(payload.data);
+      } catch {
+        if (controller.signal.aborted || disposed) return;
+      }
+    };
+
+    void pollJob();
+    const intervalId = window.setInterval(() => {
+      void pollJob();
+    }, IMPORT_JOB_POLL_INTERVAL_MS);
+
+    return () => {
+      disposed = true;
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [jobId, open, step]);
+
+  useEffect(() => {
+    if (!open || !jobStatus || jobStatus.status !== 'completed' || completionHandledRef.current) {
+      return;
+    }
+
+    completionHandledRef.current = true;
+    setShowCompletionSuccess(true);
+
+    void (async () => {
+      await onImportComplete();
+      handleDialogOpenChange(false);
+    })();
+  }, [handleDialogOpenChange, jobStatus, onImportComplete, open]);
+
+  const canPrevLivestreams = livestreamsOffset > 0;
+  const canNextLivestreams = livestreamsOffset + livestreams.length < livestreamsTotal;
+
+  return (
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Import from YouTube</DialogTitle>
+          <DialogDescription>
+            {step === 'source'
+              ? 'Paste a YouTube link or choose a past livestream to import into this draft.'
+              : step === 'editor'
+                ? 'Preview the source and choose the section to import.'
+                : 'Your import is running in the background.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {errorMessage ? (
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {errorMessage}
+          </p>
+        ) : null}
+
+        {conflictActiveJobId ? (
+          <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+            <p>You already have an import in progress.</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={handleWatchExistingImport}
+            >
+              Watch existing import
+            </Button>
+          </div>
+        ) : null}
+
+        {isCheckingActiveJob ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Checking for an in-progress import…
+          </div>
+        ) : null}
+
+        {step === 'source' && !isCheckingActiveJob ? (
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="youtube-import-source-url">YouTube link</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="youtube-import-source-url"
+                  value={sourceUrlInput}
+                  onChange={(event) => setSourceUrlInput(event.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=…"
+                  disabled={isResolving}
+                />
+                <Button
+                  type="button"
+                  onClick={() => {
+                    void handleUsePastedLink();
+                  }}
+                  disabled={isResolving || sourceUrlInput.trim() === ''}
+                >
+                  {isResolving ? (
+                    <>
+                      <Loader2 className="animate-spin" />
+                      Resolving…
+                    </>
+                  ) : (
+                    'Use this link'
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-sm font-medium text-foreground">Pick a past livestream</h3>
+                <p className="text-xs text-muted-foreground">
+                  Completed broadcasts from your VideoSphere livestream history.
+                </p>
+              </div>
+
+              {isLoadingLivestreams ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading livestreams…
+                </div>
+              ) : livestreams.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No streamed livestreams found.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {livestreams.map((livestream) => {
+                    const thumbnailUrl = getLivestreamThumbnailUrl(livestream);
+                    return (
+                      <li key={livestream.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleSelectLivestream(livestream.id);
+                          }}
+                          disabled={isResolving}
+                          className="flex w-full items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-left transition-colors hover:bg-muted disabled:opacity-60"
+                        >
+                          <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded bg-muted">
+                            {thumbnailUrl ? (
+                              <Image
+                                src={thumbnailUrl}
+                                alt=""
+                                fill
+                                className="object-cover"
+                                sizes="80px"
+                              />
+                            ) : null}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {livestream.title.trim() || 'Untitled livestream'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatScheduledDateTime(livestream.scheduledStartTime)}
+                            </p>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {livestreamsTotal > 0 ? (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    Showing{' '}
+                    {livestreams.length === 0
+                      ? '0'
+                      : `${livestreamsOffset + 1}-${livestreamsOffset + livestreams.length}`}{' '}
+                    of {livestreamsTotal}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLivestreamsOffset((prev) => Math.max(0, prev - LIVESTREAM_PAGE_SIZE))
+                      }
+                      disabled={!canPrevLivestreams || isLoadingLivestreams}
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLivestreamsOffset((prev) => prev + LIVESTREAM_PAGE_SIZE)}
+                      disabled={!canNextLivestreams || isLoadingLivestreams}
+                      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {step === 'editor' && resolvedSource ? (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium text-foreground">{resolvedSource.title}</h3>
+              <p className="text-xs text-muted-foreground">
+                Duration: {Math.round(resolvedSource.durationSeconds)} seconds
+              </p>
+            </div>
+
+            <YouTubePreviewPlayer
+              youtubeVideoId={resolvedSource.youtubeVideoId}
+              playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
+            />
+
+            <TrimRangeSlider
+              durationSeconds={resolvedSource.durationSeconds}
+              youtubeVideoId={resolvedSource.youtubeVideoId}
+              value={trimRange}
+              onChange={setTrimRange}
+              playerHandle={playerHandle}
+            />
+
+            <DialogFooter className="px-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setStep('source');
+                  setResolvedSource(null);
+                  setErrorMessage(null);
+                }}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  void handleStartImport();
+                }}
+                disabled={isStarting}
+              >
+                {isStarting ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    Starting…
+                  </>
+                ) : (
+                  'Start import'
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : null}
+
+        {step === 'progress' && jobStatus ? (
+          <div className="space-y-4">
+            {showCompletionSuccess ? (
+              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
+                <CircleCheck className="h-4 w-4 shrink-0" />
+                Import completed successfully
+              </div>
+            ) : jobStatus.status === 'failed' ? (
+              <div className="space-y-3">
+                <p className="text-sm text-destructive">
+                  {jobStatus.errorMessage?.trim() || 'The import failed.'}
+                </p>
+                <Button type="button" variant="outline" onClick={handleRetryAfterFailure}>
+                  Try a different source
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <span>{formatImportStatusLabel(jobStatus.status)}</span>
+                    <span>{jobStatus.progressPercent}%</span>
+                  </div>
+                  <Progress value={jobStatus.progressPercent} className="h-2" />
+                </div>
+
+                {isActiveImportStatus(jobStatus.status) ? (
+                  <DialogFooter className="px-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        void handleCancelImport();
+                      }}
+                      disabled={isCancelling}
+                    >
+                      {isCancelling ? (
+                        <>
+                          <Loader2 className="animate-spin" />
+                          Cancelling…
+                        </>
+                      ) : (
+                        'Cancel import'
+                      )}
+                    </Button>
+                  </DialogFooter>
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}

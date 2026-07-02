@@ -1,0 +1,397 @@
+import { randomUUID } from 'node:crypto';
+import { readFile, mkdtemp, rm, stat } from '@/lib/youtube-import/import-job-fs';
+import { join } from 'node:path';
+import { finalizeUploadJobAndDistribute } from '@/lib/api/finalize-upload-job';
+import { uploadLocalFileToR2 } from '@/lib/r2';
+import { createUploadJob } from '@/lib/repositories/upload-jobs';
+import {
+  getYoutubeImportJobById,
+  updateYoutubeImportJobStatus,
+} from '@/lib/repositories/youtube-import-jobs';
+import { buildYouTubeWatchUrl } from '@/lib/youtube-import/resolve-source';
+import { spawnProcess } from '@/lib/youtube-import/spawn-process';
+import type { YoutubeImportJob } from '@/types';
+
+const DEFAULT_YT_IMPORT_WORKDIR = '/tmp/yt-import';
+const DOWNLOADED_BASENAME = 'download';
+const TRIMMED_BASENAME = 'trimmed.mp4';
+const DOWNLOAD_PROGRESS_MAX = 70;
+const TRIM_PROGRESS = 85;
+const UPLOAD_PROGRESS = 95;
+
+/**
+ * Parses a yt-dlp `[download] …%` progress chunk.
+ * @param chunk - stdout/stderr fragment from yt-dlp.
+ * @returns Download percent when present, otherwise `null`.
+ */
+export function parseYtDlpDownloadPercent(chunk: string): number | null {
+  const match = /\[download\]\s+(\d+(?:\.\d+)?)%/.exec(chunk);
+  if (!match) {
+    return null;
+  }
+
+  const percent = Number(match[1]);
+  return Number.isFinite(percent) ? percent : null;
+}
+
+/**
+ * Computes ffmpeg copy-trim offsets inside a section download.
+ * @param input - Requested trim points and the section yt-dlp actually fetched.
+ * @returns Relative `-ss`/`-to` values for the downloaded file.
+ */
+export function computeTrimOffsets(input: {
+  jobStartSeconds: number;
+  jobEndSeconds: number;
+  sectionStartSeconds: number;
+  downloadedDurationSeconds: number;
+}): { relativeStart: number; relativeEnd: number } {
+  const relativeStart = Math.max(0, input.jobStartSeconds - input.sectionStartSeconds);
+  const relativeEnd = Math.min(
+    input.downloadedDurationSeconds,
+    input.jobEndSeconds - input.sectionStartSeconds
+  );
+
+  if (
+    !Number.isFinite(relativeStart) ||
+    !Number.isFinite(relativeEnd) ||
+    relativeEnd <= relativeStart
+  ) {
+    throw new Error('Trim range is empty after section download');
+  }
+
+  return { relativeStart, relativeEnd };
+}
+
+/**
+ * Builds an R2 staging key for a YouTube import upload, mirroring presign naming.
+ * @param userId - Owning user id.
+ * @param youtubeVideoId - Source YouTube video id.
+ * @returns Object key under `temp/uploads/{userId}/...`.
+ */
+export function buildYoutubeImportUploadKey(userId: string, youtubeVideoId: string): string {
+  const sanitized = `youtube-import-${youtubeVideoId}.mp4`.replace(/[/\\]/g, '_');
+  const timestamp = Date.now();
+  const uid = randomUUID();
+  return `temp/uploads/${userId}/${timestamp}-${uid}/${sanitized}`;
+}
+
+function getYoutubeImportWorkdirRoot(): string {
+  const configured = process.env.YT_IMPORT_WORKDIR?.trim();
+  return configured && configured.length > 0 ? configured : DEFAULT_YT_IMPORT_WORKDIR;
+}
+
+async function createImportWorkDir(): Promise<string> {
+  const root = getYoutubeImportWorkdirRoot();
+  return mkdtemp(join(root.endsWith('/') ? root : `${root}/`, 'yt-import-job-'));
+}
+
+function spawnExitError(label: string, code: number | null, stderrChunks: Buffer[]): Error {
+  const detail = Buffer.concat(stderrChunks).toString('utf8').trim();
+  const codeLabel = code == null ? 'unknown' : String(code);
+  const message = detail
+    ? `${label} failed (exit ${codeLabel}): ${detail}`
+    : `${label} failed (exit ${codeLabel})`;
+  return new Error(message);
+}
+
+async function runSpawnCollecting(
+  command: string,
+  args: readonly string[],
+  label: string,
+  options?: {
+    onStderrChunk?: (chunk: string) => void;
+    onStdoutChunk?: (chunk: string) => void;
+  }
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawnProcess(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const stderrChunks: Buffer[] = [];
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      options?.onStdoutChunk?.(chunk.toString('utf8'));
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      options?.onStderrChunk?.(chunk.toString('utf8'));
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(spawnExitError(label, code, stderrChunks));
+        return;
+      }
+      resolve();
+    });
+    child.on('error', reject);
+  });
+}
+
+async function runSpawnStdout(
+  command: string,
+  args: readonly string[],
+  label: string
+): Promise<string> {
+  let stdout = '';
+  await runSpawnCollecting(command, args, label, {
+    onStdoutChunk: (chunk) => {
+      stdout += chunk;
+    },
+  });
+  return stdout.trim();
+}
+
+function parseSectionStartFromInfoJson(info: Record<string, unknown>): number | null {
+  if (typeof info.section_start === 'number' && Number.isFinite(info.section_start)) {
+    return info.section_start;
+  }
+
+  const requested = info.requested_downloads;
+  if (Array.isArray(requested) && requested.length > 0) {
+    const first = requested[0];
+    if (typeof first === 'object' && first !== null) {
+      const sectionStart = (first as Record<string, unknown>).section_start;
+      if (typeof sectionStart === 'number' && Number.isFinite(sectionStart)) {
+        return sectionStart;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function readDownloadMetadata(workDir: string): Promise<{
+  downloadedPath: string;
+  sectionStartSeconds: number;
+  downloadedDurationSeconds: number;
+}> {
+  const downloadedPath = join(workDir, `${DOWNLOADED_BASENAME}.mp4`);
+  const infoPath = join(workDir, `${DOWNLOADED_BASENAME}.info.json`);
+
+  const [infoRaw, durationRaw] = await Promise.all([
+    readFile(infoPath, 'utf8'),
+    runSpawnStdout(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        downloadedPath,
+      ],
+      'ffprobe duration probe'
+    ),
+  ]);
+
+  const info = JSON.parse(infoRaw) as Record<string, unknown>;
+  const sectionStartSeconds = parseSectionStartFromInfoJson(info);
+  if (sectionStartSeconds == null) {
+    throw new Error('yt-dlp info JSON did not include section_start metadata');
+  }
+
+  const downloadedDurationSeconds = Number(durationRaw);
+  if (!Number.isFinite(downloadedDurationSeconds) || downloadedDurationSeconds <= 0) {
+    throw new Error('Downloaded section has invalid duration');
+  }
+
+  return { downloadedPath, sectionStartSeconds, downloadedDurationSeconds };
+}
+
+async function isImportJobCancelled(jobId: string): Promise<boolean> {
+  const current = await getYoutubeImportJobById(jobId);
+  return current?.status === 'cancelled';
+}
+
+async function downloadYoutubeSection(
+  job: YoutubeImportJob,
+  workDir: string,
+  jobId: string
+): Promise<{
+  downloadedPath: string;
+  sectionStartSeconds: number;
+  downloadedDurationSeconds: number;
+}> {
+  const watchUrl = buildYouTubeWatchUrl(job.youtubeVideoId);
+  const outputTemplate = join(workDir, `${DOWNLOADED_BASENAME}.%(ext)s`);
+  const section = `*${job.startSeconds}-${job.endSeconds}`;
+
+  let lastPersistedPercent = -1;
+
+  await runSpawnCollecting(
+    'yt-dlp',
+    [
+      '--no-playlist',
+      '--download-sections',
+      section,
+      '-f',
+      'bv*+ba/b',
+      '--merge-output-format',
+      'mp4',
+      '--retries',
+      '3',
+      '--fragment-retries',
+      '3',
+      '--write-info-json',
+      '-o',
+      outputTemplate,
+      watchUrl,
+    ],
+    'yt-dlp section download',
+    {
+      onStderrChunk: (chunk) => {
+        const downloadPercent = parseYtDlpDownloadPercent(chunk);
+        if (downloadPercent == null) {
+          return;
+        }
+
+        const overallPercent = Math.min(
+          DOWNLOAD_PROGRESS_MAX,
+          Math.max(0, Math.floor((downloadPercent / 100) * DOWNLOAD_PROGRESS_MAX))
+        );
+        if (overallPercent === lastPersistedPercent) {
+          return;
+        }
+
+        lastPersistedPercent = overallPercent;
+        void updateYoutubeImportJobStatus(jobId, { progressPercent: overallPercent });
+      },
+    }
+  );
+
+  return readDownloadMetadata(workDir);
+}
+
+async function trimDownloadedSection(
+  job: YoutubeImportJob,
+  download: {
+    downloadedPath: string;
+    sectionStartSeconds: number;
+    downloadedDurationSeconds: number;
+  },
+  workDir: string
+): Promise<string> {
+  const { relativeStart, relativeEnd } = computeTrimOffsets({
+    jobStartSeconds: job.startSeconds,
+    jobEndSeconds: job.endSeconds,
+    sectionStartSeconds: download.sectionStartSeconds,
+    downloadedDurationSeconds: download.downloadedDurationSeconds,
+  });
+
+  const trimmedPath = join(workDir, TRIMMED_BASENAME);
+
+  await runSpawnCollecting(
+    'ffmpeg',
+    [
+      '-hide_banner',
+      '-nostdin',
+      '-loglevel',
+      'error',
+      '-ss',
+      String(relativeStart),
+      '-to',
+      String(relativeEnd),
+      '-i',
+      download.downloadedPath,
+      '-c',
+      'copy',
+      '-y',
+      trimmedPath,
+    ],
+    'ffmpeg stream-copy trim'
+  );
+
+  const trimmedStat = await stat(trimmedPath);
+  if (trimmedStat.size <= 0) {
+    throw new Error('ffmpeg trim produced an empty output file');
+  }
+
+  return trimmedPath;
+}
+
+/**
+ * Executes a single YouTube import/trim job end to end: downloads the
+ * requested time range, trims it with a stream-copy ffmpeg pass, uploads
+ * the result to R2, and hands off to the standard upload/distribution
+ * pipeline. Updates the job's status/progress as it proceeds so callers
+ * polling `getYoutubeImportJobById` see live progress.
+ * @param jobId - YoutubeImportJob id to execute. Must already exist with
+ *   status `pending`.
+ */
+export async function runYoutubeImportJob(jobId: string): Promise<void> {
+  let workDir: string | null = null;
+
+  try {
+    const job = await getYoutubeImportJobById(jobId);
+    if (!job || job.status !== 'pending') {
+      return;
+    }
+
+    workDir = await createImportWorkDir();
+
+    if (await isImportJobCancelled(jobId)) {
+      return;
+    }
+
+    await updateYoutubeImportJobStatus(jobId, { status: 'downloading', progressPercent: 0 });
+    const download = await downloadYoutubeSection(job, workDir, jobId);
+
+    if (await isImportJobCancelled(jobId)) {
+      return;
+    }
+
+    await updateYoutubeImportJobStatus(jobId, {
+      status: 'trimming',
+      progressPercent: DOWNLOAD_PROGRESS_MAX,
+    });
+    const trimmedPath = await trimDownloadedSection(job, download, workDir);
+
+    if (await isImportJobCancelled(jobId)) {
+      return;
+    }
+
+    await updateYoutubeImportJobStatus(jobId, {
+      status: 'uploading',
+      progressPercent: TRIM_PROGRESS,
+    });
+    const r2Key = buildYoutubeImportUploadKey(job.userId, job.youtubeVideoId);
+    await uploadLocalFileToR2(trimmedPath, r2Key, 'video/mp4');
+
+    if (await isImportJobCancelled(jobId)) {
+      return;
+    }
+
+    await updateYoutubeImportJobStatus(jobId, { progressPercent: UPLOAD_PROGRESS });
+    const uploadJob = await createUploadJob({
+      userId: job.userId,
+      draftId: job.draftId,
+      r2Key,
+    });
+
+    await updateYoutubeImportJobStatus(jobId, { r2Key, uploadJobId: uploadJob.id });
+    await finalizeUploadJobAndDistribute(uploadJob.id, job.userId);
+
+    await updateYoutubeImportJobStatus(jobId, {
+      status: 'completed',
+      progressPercent: 100,
+      errorMessage: null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await updateYoutubeImportJobStatus(jobId, {
+      status: 'failed',
+      errorMessage: message,
+    }).catch((updateErr) => {
+      console.error(`[runYoutubeImportJob] Failed to mark job ${jobId} as failed:`, updateErr);
+    });
+  } finally {
+    if (workDir) {
+      await rm(workDir, { recursive: true, force: true }).catch((cleanupErr) => {
+        console.error(
+          `[runYoutubeImportJob] Failed to remove temp work dir ${workDir}:`,
+          cleanupErr
+        );
+      });
+    }
+  }
+}

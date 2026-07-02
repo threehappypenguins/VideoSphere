@@ -15,6 +15,7 @@
  */
 
 import { Readable } from 'node:stream';
+import { createReadStream } from 'node:fs';
 import {
   S3Client,
   GetObjectCommand,
@@ -27,6 +28,7 @@ import {
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Constants
@@ -385,6 +387,49 @@ export async function abortMultipartUpload(key: string, uploadId: string): Promi
       }`
     );
   }
+}
+
+/**
+ * Uploads a local file to R2 via a streaming multipart upload, for
+ * server-side producers (e.g. the YouTube import/trim job) that already
+ * have a finished file on local disk and are not going through the
+ * browser presigned-URL flow.
+ * @param localFilePath - Absolute path to the file to upload.
+ * @param key - Destination R2 object key.
+ * @param contentType - MIME type to set on the object.
+ * @returns The final object size in bytes, for downstream size bookkeeping.
+ */
+export async function uploadLocalFileToR2(
+  localFilePath: string,
+  key: string,
+  contentType: string
+): Promise<number> {
+  if (!localFilePath) {
+    throw new Error('Local file path is required');
+  }
+  if (!key) {
+    throw new Error('Object key is required');
+  }
+  if (!contentType) {
+    throw new Error('Content type is required');
+  }
+
+  const client = getR2Client();
+  const bucket = getBucketName();
+
+  const upload = new Upload({
+    client,
+    params: {
+      Bucket: bucket,
+      Key: key,
+      Body: createReadStream(localFilePath),
+      ContentType: contentType,
+    },
+  });
+
+  await upload.done();
+
+  return headObject(key);
 }
 
 /**

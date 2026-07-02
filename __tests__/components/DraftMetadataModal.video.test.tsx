@@ -3,7 +3,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import type { ComponentProps } from 'react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DraftMetadataModal, type DraftEditorValues } from '@/components/drafts/DraftMetadataModal';
 
@@ -30,6 +31,25 @@ vi.mock('sonner', () => ({
     success: vi.fn(),
     error: vi.fn(),
   },
+}));
+
+vi.mock('@/components/youtube-import/YouTubeImportModal', () => ({
+  YouTubeImportModal: ({
+    open,
+    draftId,
+    onImportComplete,
+  }: {
+    open: boolean;
+    draftId: string;
+    onImportComplete: () => void | Promise<void>;
+  }) =>
+    open ? (
+      <div data-testid="youtube-import-modal" data-draft-id={draftId}>
+        <button type="button" onClick={() => void onImportComplete()}>
+          Complete YouTube import
+        </button>
+      </div>
+    ) : null,
 }));
 
 import { toast } from 'sonner';
@@ -157,7 +177,17 @@ const draftValue: DraftEditorValues = {
   platforms: {},
 };
 
-function renderVideoModal() {
+function renderVideoModal(
+  overrides: Partial<React.ComponentProps<typeof DraftMetadataModal>> = {}
+) {
+  const onSave =
+    overrides.onSave ??
+    vi.fn().mockResolvedValue({
+      saved: true,
+      draftId: draftValue.id,
+      message: 'Draft updated',
+    });
+
   render(
     <DraftMetadataModal
       mode="edit"
@@ -166,14 +196,13 @@ function renderVideoModal() {
       initialConnectionsResolved
       isSaving={false}
       onClose={vi.fn()}
-      onSave={vi.fn().mockResolvedValue({
-        saved: true,
-        draftId: draftValue.id,
-        message: 'Draft updated',
-      })}
+      onSave={onSave}
       onChange={vi.fn()}
+      {...overrides}
     />
   );
+
+  return { onSave };
 }
 
 function getThumbnailChooseFileButton() {
@@ -256,5 +285,104 @@ describe('DraftMetadataModal video upload regressions', () => {
     });
 
     expect(onCancel).toHaveBeenCalledWith({ uploadId: VIDEO_UPLOAD_ID });
+  });
+});
+
+describe('DraftMetadataModal YouTube import entry point', () => {
+  beforeEach(() => {
+    MockXMLHttpRequest.instances.length = 0;
+    vi.stubGlobal('XMLHttpRequest', MockXMLHttpRequest as unknown as typeof XMLHttpRequest);
+    mockVideoUploadFetch();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('hides Import from YouTube when YouTube is not connected', async () => {
+    renderVideoModal({ initialConnectedPlatforms: ['vimeo'] });
+
+    await screen.findByRole('dialog');
+    expect(screen.queryByRole('button', { name: /Import from YouTube/i })).not.toBeInTheDocument();
+  });
+
+  it('disables Import from YouTube while a normal upload is in progress', async () => {
+    const user = userEvent.setup({ delay: null });
+    renderVideoModal();
+
+    await screen.findByRole('dialog');
+
+    const videoInput = document.getElementById('draft-video-file') as HTMLInputElement;
+    await user.upload(
+      videoInput,
+      new File([new Uint8Array([0, 1, 2])], 'sermon.mp4', { type: 'video/mp4' })
+    );
+
+    await user.click(screen.getByRole('button', { name: /Upload & Save/i }));
+    await user.click(screen.getByRole('button', { name: /Yes, upload/i }));
+
+    await waitFor(() => {
+      const draftDialog = screen.getByRole('dialog', { name: /Edit draft/i, hidden: true });
+      expect(
+        within(draftDialog).getByRole('button', { name: /Import from YouTube/i, hidden: true })
+      ).toBeDisabled();
+      expect(
+        within(draftDialog).getByRole('button', { name: /Choose video file/i, hidden: true })
+      ).toBeDisabled();
+    });
+  });
+
+  it('saves the draft and opens the import modal with the draft id', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onSave = vi.fn().mockResolvedValue({
+      saved: true,
+      draftId: 'saved-draft-id',
+      message: 'Draft updated',
+    });
+    renderVideoModal({ onSave });
+
+    await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: /Import from YouTube/i }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith({ closeAfterSave: false });
+      expect(screen.getByTestId('youtube-import-modal')).toHaveAttribute(
+        'data-draft-id',
+        'saved-draft-id'
+      );
+    });
+  });
+
+  it('refreshes upload history the same way as a completed normal upload', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onUploadComplete = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.mocked(global.fetch);
+    renderVideoModal({ onUploadComplete });
+
+    await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: /Import from YouTube/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('youtube-import-modal')).toBeInTheDocument();
+    });
+
+    const historyCallsBefore = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/api/drafts/draft-video-regression/upload-history')
+    ).length;
+
+    fireEvent.click(screen.getByRole('button', { name: /Complete YouTube import/i, hidden: true }));
+
+    await waitFor(() => {
+      expect(onUploadComplete).toHaveBeenCalledTimes(1);
+      const historyCallsAfter = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/api/drafts/draft-video-regression/upload-history')
+      ).length;
+      expect(historyCallsAfter).toBeGreaterThan(historyCallsBefore);
+      expect(screen.getByRole('button', { name: /Upload history/i })).toHaveAttribute(
+        'aria-expanded',
+        'true'
+      );
+    });
   });
 });

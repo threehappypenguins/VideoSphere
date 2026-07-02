@@ -66,6 +66,7 @@ import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistComb
 import { SearchableSelect } from '@/components/drafts/SearchableSelect';
 import { VimeoCategoryPicker } from '@/components/drafts/VimeoCategoryPicker';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
+import { YouTubeImportModal } from '@/components/youtube-import/YouTubeImportModal';
 import { Progress } from '@/components/ui/progress';
 import { RequiredFieldMarker } from '@/components/ui/required-field-marker';
 import {
@@ -637,6 +638,8 @@ export function DraftMetadataModal({
   const [uploadHistory, setUploadHistory] = useState<DraftUploadHistoryItem[]>([]);
   const [isLoadingUploadHistory, setIsLoadingUploadHistory] = useState(false);
   const [showUploadHistory, setShowUploadHistory] = useState(false);
+  const [showYouTubeImportModal, setShowYouTubeImportModal] = useState(false);
+  const [youtubeImportDraftId, setYoutubeImportDraftId] = useState<string | null>(null);
   const [showUploadProgressModalHistory, setShowUploadProgressModalHistory] = useState(false);
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
   const [retryingUploadKey, setRetryingUploadKey] = useState<string | null>(null);
@@ -2713,6 +2716,8 @@ export function DraftMetadataModal({
     return value.targets.filter((platform) => !connectedSet.has(platform));
   }, [connectedPlatforms, value]);
 
+  const isYouTubeConnected = connectedPlatforms.includes('youtube');
+
   const connectionsResolvedSuccessfully = hasLoadedConnections && connectionsError === null;
 
   const canSave =
@@ -3198,6 +3203,32 @@ export function DraftMetadataModal({
         setUploading(false);
       }
     }
+  };
+
+  const handleYouTubeImportComplete = async () => {
+    if (!youtubeImportDraftId) return;
+    await loadUploadHistory(youtubeImportDraftId);
+    await onUploadComplete?.();
+    setShowUploadHistory(true);
+  };
+
+  const handleOpenYouTubeImport = async () => {
+    if (!value) return;
+    if (uploadComplete || uploading) return;
+
+    commitMetadataInputsBeforeSave();
+    const saveResult = await onSave({ closeAfterSave: false });
+    if (!saveResult.saved) {
+      toast.error(saveResult.message ?? 'Please save the draft before importing.');
+      return;
+    }
+    const draftIdForImport = saveResult.draftId ?? value.id;
+    if (!draftIdForImport) {
+      toast.error('Please save the draft before importing.');
+      return;
+    }
+    setYoutubeImportDraftId(draftIdForImport);
+    setShowYouTubeImportModal(true);
   };
 
   const handleCancelUpload = async () => {
@@ -5891,6 +5922,19 @@ export function DraftMetadataModal({
                 >
                   Choose file
                 </button>
+                {isYouTubeConnected ? (
+                  <button
+                    type="button"
+                    aria-label="Import from YouTube"
+                    disabled={uploadComplete || uploading}
+                    onClick={() => {
+                      void handleOpenYouTubeImport();
+                    }}
+                    className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                  >
+                    Import from YouTube
+                  </button>
+                ) : null}
                 <span className="max-w-full truncate text-xs text-muted-foreground">
                   {videoFile ? videoFile.name : 'No file selected'}
                 </span>
@@ -6120,6 +6164,20 @@ export function DraftMetadataModal({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {youtubeImportDraftId ? (
+        <YouTubeImportModal
+          draftId={youtubeImportDraftId}
+          open={showYouTubeImportModal}
+          onOpenChange={(nextOpen) => {
+            setShowYouTubeImportModal(nextOpen);
+            if (!nextOpen) {
+              setYoutubeImportDraftId(null);
+            }
+          }}
+          onImportComplete={handleYouTubeImportComplete}
+        />
+      ) : null}
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
