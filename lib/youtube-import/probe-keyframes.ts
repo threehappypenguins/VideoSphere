@@ -1,6 +1,7 @@
 import { spawnProcess } from '@/lib/youtube-import/spawn-process';
 import { buildYouTubeWatchUrl } from '@/lib/youtube-import/resolve-source';
 import { buildYtDlpMetadataArgs } from '@/lib/youtube-import/yt-dlp-args';
+import { buildYtDlpProcessError } from '@/lib/youtube-import/yt-dlp-errors';
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
 const PROCESS_TIMEOUT_MS = 15_000;
@@ -53,12 +54,7 @@ function assertValidYouTubeVideoId(youtubeVideoId: string): void {
 }
 
 function processExitError(label: string, code: number | null, stderrChunks: Buffer[]): Error {
-  const detail = Buffer.concat(stderrChunks).toString('utf8').trim();
-  const codeLabel = code == null ? 'unknown' : String(code);
-  const message = detail
-    ? `${label} failed (exit ${codeLabel}): ${detail}`
-    : `${label} failed (exit ${codeLabel})`;
-  return new Error(message);
+  return buildYtDlpProcessError(label, code, stderrChunks);
 }
 
 /**

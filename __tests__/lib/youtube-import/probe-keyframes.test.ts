@@ -198,6 +198,20 @@ describe('getDirectMediaUrl', () => {
     await expect(getDirectMediaUrl('dQw4w9WgXcQ')).rejects.toThrow(/yt-dlp metadata lookup failed/);
   });
 
+  it('returns a friendly message when yt-dlp reports a private video', async () => {
+    mockSpawnProcess.mockImplementationOnce(() =>
+      createMockChild({
+        stderr:
+          "ERROR: [youtube] h3DhnqpppU8: Private video. Sign in if you've been granted access to this video.",
+        code: 1,
+      })
+    );
+
+    await expect(getDirectMediaUrl('dQw4w9WgXcQ')).rejects.toThrow(
+      'This video is private. Make it public or unlisted on YouTube before importing.'
+    );
+  });
+
   it('rejects when yt-dlp exceeds the process timeout', async () => {
     setYouTubeImportProcessTimeoutMsForTests(50);
 

@@ -11,6 +11,7 @@ import { buildYouTubeWatchUrl } from '@/lib/youtube-import/resolve-source';
 import { distributeStagedYoutubeImportUpload } from '@/lib/youtube-import/queue-import-distribute';
 import { spawnProcess } from '@/lib/youtube-import/spawn-process';
 import { buildYtDlpBaseArgs } from '@/lib/youtube-import/yt-dlp-args';
+import { buildYtDlpProcessError } from '@/lib/youtube-import/yt-dlp-errors';
 import type { YoutubeImportJob } from '@/types';
 
 const DEFAULT_YT_IMPORT_WORKDIR = '/tmp/yt-import';
@@ -161,12 +162,7 @@ async function createImportWorkDir(): Promise<string> {
 }
 
 function spawnExitError(label: string, code: number | null, stderrChunks: Buffer[]): Error {
-  const detail = Buffer.concat(stderrChunks).toString('utf8').trim();
-  const codeLabel = code == null ? 'unknown' : String(code);
-  const message = detail
-    ? `${label} failed (exit ${codeLabel}): ${detail}`
-    : `${label} failed (exit ${codeLabel})`;
-  return new Error(message);
+  return buildYtDlpProcessError(label, code, stderrChunks);
 }
 
 async function runSpawnCollecting(
