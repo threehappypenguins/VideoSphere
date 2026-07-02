@@ -24,6 +24,11 @@ import {
 import { mergeLivestreamPlatformsPatch } from '@/lib/livestream-upload-metadata';
 import { connectToDatabase } from '@/lib/mongodb';
 import { LivestreamModel, type LivestreamDocument } from '@/lib/models/Livestream';
+import {
+  buildStreamedLivestreamsMongoFilter,
+  buildYoutubeImportLivestreamsMongoFilter,
+} from '@/lib/livestreams/livestream-list-filters';
+import { livestreamQueryFieldsFromStoredDocument } from '@/lib/livestreams/livestream-query-fields';
 
 /** Default visibility for new livestreams when omitted at creation. */
 export const DEFAULT_LIVESTREAM_VISIBILITY: PlatformUploadVisibility = 'public';
@@ -303,6 +308,58 @@ function isPendingFacebookDeferredArm(livestream: Livestream): boolean {
   return livestream.autoPromoteToMainKey === true || livestream.autoPromoteToMainKeyMinutes != null;
 }
 
+/** Maximum legacy livestream rows to backfill per list request. */
+const LIVESTREAM_QUERY_FIELD_BACKFILL_BATCH_SIZE = 50;
+
+/**
+ * Backfills indexed query fields for legacy rows missing top-level columns.
+ * Runs automatically during list requests so operators do not run migrations manually.
+ * @param userId - Owner user id.
+ */
+async function backfillLivestreamQueryFieldsForUser(userId: string): Promise<void> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({
+    userId,
+    $or: [{ status: { $exists: false } }, { hasYoutubeTarget: { $exists: false } }],
+  })
+    .limit(LIVESTREAM_QUERY_FIELD_BACKFILL_BATCH_SIZE)
+    .lean<LivestreamDocument[]>();
+
+  if (docs.length === 0) {
+    return;
+  }
+
+  for (const doc of docs) {
+    const parsed = parseStoredLivestreamDocument(doc.document, String(doc._id));
+    await LivestreamModel.updateOne(
+      { _id: doc._id },
+      livestreamQueryFieldsFromStoredDocument(parsed)
+    );
+  }
+}
+
+async function queryLivestreamsPage(
+  filter: Record<string, unknown>,
+  options: { limit: number; offset: number }
+): Promise<{ total: number; livestreams: Livestream[] }> {
+  await connectToDatabase();
+  const total = await LivestreamModel.countDocuments(filter);
+  if (options.limit <= 0) {
+    return { total, livestreams: [] };
+  }
+
+  const docs = await LivestreamModel.find(filter)
+    .sort({ updatedAt: -1 })
+    .skip(options.offset)
+    .limit(options.limit)
+    .lean<LivestreamDocument[]>();
+
+  return {
+    total,
+    livestreams: docs.map(mongoDocToLivestream),
+  };
+}
+
 function compareScheduledStartAsc(a: Livestream, b: Livestream): number {
   const aMs = Date.parse(a.scheduledStartTime ?? '');
   const bMs = Date.parse(b.scheduledStartTime ?? '');
@@ -355,7 +412,7 @@ export async function createLivestream(
   userId: string,
   fields: CreateLivestreamFields
 ): Promise<Livestream> {
-  const documentJson = stringifyLivestreamDocumentForStorage({
+  const documentPayload: StoredLivestreamDocument = {
     status: 'draft',
     title: fields.title,
     description: fields.description,
@@ -369,7 +426,8 @@ export async function createLivestream(
       : {}),
     ...(fields.thumbnailR2Key ? { thumbnailR2Key: fields.thumbnailR2Key } : {}),
     ...(fields.thumbnailContentType ? { thumbnailContentType: fields.thumbnailContentType } : {}),
-  });
+  };
+  const documentJson = stringifyLivestreamDocumentForStorage(documentPayload);
   assertLivestreamDocumentJsonWithinLimit(documentJson);
 
   await connectToDatabase();
@@ -377,6 +435,7 @@ export async function createLivestream(
     _id: randomUUID(),
     userId,
     document: documentJson,
+    ...livestreamQueryFieldsFromStoredDocument(documentPayload),
   });
   return mongoDocToLivestream(created.toObject());
 }
@@ -410,19 +469,30 @@ export async function listLivestreamsByUser(userId: string): Promise<Livestream[
   return docs.map(mongoDocToLivestream);
 }
 
-const STREAMED_LIVESTREAM_STATUSES: LivestreamStatus[] = ['ended', 'failed'];
-
 /**
  * Counts streamed livestreams (ended or failed) for a user.
  * @param userId - Owner user id.
  * @returns Total streamed livestream count.
  */
 export async function countStreamedLivestreamsByUser(userId: string): Promise<number> {
-  await connectToDatabase();
-  return LivestreamModel.countDocuments({
-    userId,
-    status: { $in: STREAMED_LIVESTREAM_STATUSES },
-  });
+  const { total } = await getStreamedLivestreamsPage(userId, { limit: 0, offset: 0 });
+  return total;
+}
+
+/**
+ * Returns a paginated slice of streamed livestreams and the filtered total.
+ * @param userId - Owner user id.
+ * @param options - Pagination options.
+ * @param options.limit - Maximum rows to return.
+ * @param options.offset - Number of rows to skip.
+ * @returns Page slice and total streamed count from an indexed MongoDB query.
+ */
+export async function getStreamedLivestreamsPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<{ total: number; livestreams: Livestream[] }> {
+  await backfillLivestreamQueryFieldsForUser(userId);
+  return queryLivestreamsPage(buildStreamedLivestreamsMongoFilter(userId), options);
 }
 
 /**
@@ -437,16 +507,50 @@ export async function listStreamedLivestreamsByUserPage(
   userId: string,
   options: { limit: number; offset: number }
 ): Promise<Livestream[]> {
-  await connectToDatabase();
-  const docs = await LivestreamModel.find({
-    userId,
-    status: { $in: STREAMED_LIVESTREAM_STATUSES },
-  })
-    .sort({ updatedAt: -1 })
-    .skip(options.offset)
-    .limit(options.limit)
-    .lean<LivestreamDocument[]>();
-  return docs.map(mongoDocToLivestream);
+  const { livestreams } = await getStreamedLivestreamsPage(userId, options);
+  return livestreams;
+}
+
+/**
+ * Counts past YouTube livestreams that can be used as import sources.
+ * @param userId - Owner user id.
+ * @returns Total importable YouTube livestream count.
+ */
+export async function countYoutubeImportLivestreamsByUser(userId: string): Promise<number> {
+  const { total } = await getYoutubeImportLivestreamsPage(userId, { limit: 0, offset: 0 });
+  return total;
+}
+
+/**
+ * Returns a paginated slice of YouTube-importable livestreams and the filtered total.
+ * @param userId - Owner user id.
+ * @param options - Pagination options.
+ * @param options.limit - Maximum rows to return.
+ * @param options.offset - Number of rows to skip.
+ * @returns Page slice and total importable count from an indexed MongoDB query.
+ */
+export async function getYoutubeImportLivestreamsPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<{ total: number; livestreams: Livestream[] }> {
+  await backfillLivestreamQueryFieldsForUser(userId);
+  return queryLivestreamsPage(buildYoutubeImportLivestreamsMongoFilter(userId), options);
+}
+
+/**
+ * Lists a paginated page of YouTube-importable livestreams for a user.
+ * @param userId - Owner user id.
+ * @param options - Pagination options.
+ * @param options.limit - Maximum rows to return.
+ * @param options.offset - Number of rows to skip.
+ * @returns Importable YouTube livestream rows for the requested page.
+ */
+export async function listYoutubeImportLivestreamsByUserPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<Livestream[]> {
+  const { livestreams } = await getYoutubeImportLivestreamsPage(userId, options);
+  return livestreams;
 }
 
 /**
@@ -739,13 +843,15 @@ export async function updateLivestream(
     ),
   };
 
-  const documentJson = stringifyLivestreamDocumentForStorage(storedDocumentFromLivestream(next));
+  const stored = storedDocumentFromLivestream(next);
+  const documentJson = stringifyLivestreamDocumentForStorage(stored);
   assertLivestreamDocumentJsonWithinLimit(documentJson);
+  const queryFields = livestreamQueryFieldsFromStoredDocument(stored);
 
   await connectToDatabase();
   const updated = await LivestreamModel.findByIdAndUpdate(
     id,
-    { document: documentJson },
+    { document: documentJson, ...queryFields },
     { returnDocument: 'after', runValidators: true }
   ).lean<LivestreamDocument | null>();
   if (!updated) return null;

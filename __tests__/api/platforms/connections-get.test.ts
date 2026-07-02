@@ -12,8 +12,8 @@ import { NextRequest } from 'next/server';
 // Mock connected-accounts repository
 // ---------------------------------------------------------------------------
 
-vi.mock('@/lib/repositories/connected-accounts', () => ({
-  getConnectedAccountsByUser: vi.fn(),
+vi.mock('@/lib/platforms/connected-accounts-health', () => ({
+  getConnectedAccountsWithHealth: vi.fn(),
 }));
 
 const mockGetAuthenticatedUserId = vi.fn();
@@ -23,7 +23,7 @@ vi.mock('@/lib/api/auth', () => ({
 }));
 
 import { GET } from '@/app/api/platforms/connections/route';
-import { getConnectedAccountsByUser } from '@/lib/repositories/connected-accounts';
+import { getConnectedAccountsWithHealth } from '@/lib/platforms/connected-accounts-health';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,6 +53,7 @@ const MOCK_ACCOUNT = {
   hasRefreshToken: true,
   hasYoutubeMainStreamKey: false,
   hasYoutubeTempStreamKey: false,
+  connectionStatus: 'connected' as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -91,13 +92,13 @@ describe('GET /api/platforms/connections', () => {
     it('does not call repository when unauthenticated', async () => {
       mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
       await GET(makeRequest());
-      expect(getConnectedAccountsByUser).not.toHaveBeenCalled();
+      expect(getConnectedAccountsWithHealth).not.toHaveBeenCalled();
     });
   });
 
   describe('success path', () => {
     it('returns 200 with account list', async () => {
-      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
+      vi.mocked(getConnectedAccountsWithHealth).mockResolvedValueOnce([MOCK_ACCOUNT as never]);
       const res = await GET(makeRequest({ [SESSION_COOKIE]: 'valid-session' }));
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -106,13 +107,13 @@ describe('GET /api/platforms/connections', () => {
     });
 
     it('calls repository with the authenticated userId', async () => {
-      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([]);
+      vi.mocked(getConnectedAccountsWithHealth).mockResolvedValueOnce([]);
       await GET(makeRequest({ [SESSION_COOKIE]: 'valid-session' }));
-      expect(getConnectedAccountsByUser).toHaveBeenCalledWith(USER_ID);
+      expect(getConnectedAccountsWithHealth).toHaveBeenCalledWith(USER_ID);
     });
 
     it('returns 200 with empty array when user has no connections', async () => {
-      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([]);
+      vi.mocked(getConnectedAccountsWithHealth).mockResolvedValueOnce([]);
       const res = await GET(makeRequest({ [SESSION_COOKIE]: 'valid-session' }));
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -121,7 +122,7 @@ describe('GET /api/platforms/connections', () => {
 
     it('returns 200 with multiple accounts', async () => {
       const second = { ...MOCK_ACCOUNT, id: 'conn-2', platform: 'vimeo' };
-      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([
+      vi.mocked(getConnectedAccountsWithHealth).mockResolvedValueOnce([
         MOCK_ACCOUNT as never,
         second as never,
       ]);
@@ -141,7 +142,9 @@ describe('GET /api/platforms/connections', () => {
         hasYoutubeMainStreamKey: false,
         hasYoutubeTempStreamKey: false,
       };
-      vi.mocked(getConnectedAccountsByUser).mockResolvedValueOnce([sermonAudioAccount as never]);
+      vi.mocked(getConnectedAccountsWithHealth).mockResolvedValueOnce([
+        sermonAudioAccount as never,
+      ]);
       const res = await GET(makeRequest({ [SESSION_COOKIE]: 'valid-session' }));
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -158,7 +161,7 @@ describe('GET /api/platforms/connections', () => {
 
   describe('error handling', () => {
     it('returns 500 when the repository throws', async () => {
-      vi.mocked(getConnectedAccountsByUser).mockRejectedValueOnce(new Error('DB error'));
+      vi.mocked(getConnectedAccountsWithHealth).mockRejectedValueOnce(new Error('DB error'));
       const res = await GET(makeRequest({ [SESSION_COOKIE]: 'valid-session' }));
       expect(res.status).toBe(500);
       const body = await res.json();

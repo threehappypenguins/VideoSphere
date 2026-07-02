@@ -7,7 +7,8 @@
 
 import type { ConnectedAccount } from '@/types';
 import type { PlatformUploadTokens } from '@/lib/platforms/types';
-import { updateTokens } from '@/lib/repositories/connected-accounts';
+import { isOAuthRefreshTokenRevokedError } from '@/lib/platforms/oauth-refresh-errors';
+import { clearOAuthRefreshToken, updateTokens } from '@/lib/repositories/connected-accounts';
 import {
   refreshFacebookPageConnection,
   refreshFacebookProfileConnection,
@@ -22,6 +23,21 @@ export const TOKEN_REFRESH_LEAD_MS = 5 * 60 * 1000;
 function facebookRefreshFailureMessage(providerError: string): string {
   const detail = providerError.trim().replace(/\.+$/, '');
   return `Facebook token refresh failed: ${detail}. Please reconnect your Facebook account to continue.`;
+}
+
+async function clearRevokedOAuthRefreshTokenIfNeeded(
+  account: ConnectedAccount,
+  details: unknown
+): Promise<void> {
+  if (!isOAuthRefreshTokenRevokedError(details)) return;
+  try {
+    await clearOAuthRefreshToken(account.id);
+  } catch (err) {
+    console.error(
+      `[token-refresh] Failed to clear revoked refresh token for ${account.platform} account ${account.id}:`,
+      err
+    );
+  }
 }
 
 /**
@@ -94,6 +110,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
 
     const refreshed = await refreshYouTubeAccessToken({ refreshToken });
     if ('error' in refreshed) {
+      await clearRevokedOAuthRefreshTokenIfNeeded(account, refreshed.error.details);
       const statusSuffix =
         refreshed.error.statusCode != null ? ` (HTTP ${refreshed.error.statusCode})` : '';
       const detailsSuffix = refreshed.error.details
@@ -133,6 +150,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
 
     const refreshed = await refreshGoogleDriveAccessToken({ refreshToken });
     if ('error' in refreshed) {
+      await clearRevokedOAuthRefreshTokenIfNeeded(account, refreshed.error.details);
       const statusSuffix =
         refreshed.error.statusCode != null ? ` (HTTP ${refreshed.error.statusCode})` : '';
       const detailsSuffix = refreshed.error.details
@@ -209,6 +227,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
 
       const refreshed = await refreshFacebookPageConnection(userToken, pageId);
       if ('error' in refreshed) {
+        await clearRevokedOAuthRefreshTokenIfNeeded(account, refreshed.error);
         throw new Error(facebookRefreshFailureMessage(refreshed.error));
       }
 
@@ -233,6 +252,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
 
     const refreshed = await refreshFacebookProfileConnection(userToken);
     if ('error' in refreshed) {
+      await clearRevokedOAuthRefreshTokenIfNeeded(account, refreshed.error);
       throw new Error(facebookRefreshFailureMessage(refreshed.error));
     }
 

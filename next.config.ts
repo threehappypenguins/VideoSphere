@@ -29,6 +29,19 @@ const nextConfig: NextConfig = {
   // Mongoose/MongoDB use Node built-ins (net, tls, etc.); must not be webpack-bundled
   // for instrumentation or other server entry points.
   serverExternalPackages: ['mongoose', 'mongodb', 'ssh2'],
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
+        ],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

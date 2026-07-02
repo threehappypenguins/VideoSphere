@@ -87,6 +87,23 @@ function labelsJsonResponse(labels: unknown[] = []): Response {
   return jsonResponse({ data: labels });
 }
 
+function youtubeConnectionPayload() {
+  return {
+    id: 'conn-yt',
+    userId: 'user-1',
+    platform: 'youtube',
+    tokenExpiry: new Date(Date.now() + 3_600_000).toISOString(),
+    hasRefreshToken: true,
+    hasYoutubeMainStreamKey: false,
+    hasYoutubeTempStreamKey: false,
+    platformUserId: 'yt-1',
+    platformName: 'Channel',
+    connectionStatus: 'connected',
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-02T00:00:00.000Z',
+  };
+}
+
 /** Mocks the four parallel GETs issued by loadDrafts (call order matters). */
 function mockInitialPageLoadFetch(options?: {
   drafts?: unknown[];
@@ -97,7 +114,11 @@ function mockInitialPageLoadFetch(options?: {
   return vi
     .spyOn(global, 'fetch')
     .mockResolvedValueOnce(jsonResponse({ data: options?.drafts ?? [] }))
-    .mockResolvedValueOnce(jsonResponse({ data: options?.connections ?? [] }))
+    .mockResolvedValueOnce(
+      jsonResponse({
+        data: options?.connections ?? [youtubeConnectionPayload()],
+      })
+    )
     .mockResolvedValueOnce(jsonResponse({ canUseAiMetadata: options?.canUseAiMetadata ?? true }))
     .mockResolvedValueOnce(labelsJsonResponse(options?.labels ?? []));
 }
@@ -127,7 +148,7 @@ function mockEditDraftQueryFetch() {
       return Promise.resolve(jsonResponse({ data: [draftListItem] }));
     }
     if (url.includes('/api/platforms/connections')) {
-      return Promise.resolve(jsonResponse({ data: ['youtube'] }));
+      return Promise.resolve(jsonResponse({ data: [youtubeConnectionPayload()] }));
     }
     if (url.includes('/api/auth/ai-access')) {
       return Promise.resolve(jsonResponse({ canUseAiMetadata: true }));

@@ -358,6 +358,24 @@ export async function updateTokens(
 }
 
 /**
+ * Clears a stored OAuth refresh token after the provider reports the grant is invalid.
+ * The row is kept so the UI can prompt the user to reconnect.
+ * @param id - Connected account row id.
+ * @returns Updated public account row, or null when the row no longer exists.
+ */
+export async function clearOAuthRefreshToken(id: string): Promise<ConnectedAccountPublic | null> {
+  await connectToDatabase();
+  const updated = await ConnectedAccountModel.findByIdAndUpdate(
+    id,
+    { refreshToken: '' },
+    { returnDocument: 'after', runValidators: true }
+  ).lean<ConnectedAccountDocument | null>();
+
+  if (!updated) return null;
+  return rowToConnectedAccountPublic(updated);
+}
+
+/**
  * Update tokens and platform metadata (name, userId) for an existing connection.
  * Use this on reconnection so the stored channel name/id stays current.
  * Returns public shape (no tokens) so callers never receive secrets.
