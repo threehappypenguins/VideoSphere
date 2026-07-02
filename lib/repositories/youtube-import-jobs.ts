@@ -14,6 +14,7 @@ import {
   YoutubeImportJobModel,
   type YoutubeImportJobDocument,
 } from '@/lib/models/YoutubeImportJob';
+import { getUploadJobById } from '@/lib/repositories/upload-jobs';
 
 const ACTIVE_YOUTUBE_IMPORT_JOB_STATUSES: readonly YoutubeImportJobStatus[] = [
   'pending',
@@ -57,6 +58,7 @@ function rowToYoutubeImportJob(doc: YoutubeImportJobDocument): YoutubeImportJob 
       doc.errorMessage != null && doc.errorMessage !== '' ? String(doc.errorMessage) : null,
     r2Key: doc.r2Key != null && doc.r2Key !== '' ? String(doc.r2Key) : null,
     uploadJobId: doc.uploadJobId != null && doc.uploadJobId !== '' ? String(doc.uploadJobId) : null,
+    distributeQueued: Boolean(doc.distributeQueued),
     $createdAt: new Date(doc.createdAt).toISOString(),
     $updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -85,6 +87,7 @@ export interface UpdateYoutubeImportJobStatusPatch {
   errorMessage?: string | null;
   r2Key?: string | null;
   uploadJobId?: string | null;
+  distributeQueued?: boolean;
 }
 
 /**
@@ -113,6 +116,7 @@ export async function createYoutubeImportJob(
       errorMessage: '',
       r2Key: '',
       uploadJobId: '',
+      distributeQueued: false,
     });
 
     return rowToYoutubeImportJob(created.toObject());
@@ -164,6 +168,91 @@ export async function getActiveYoutubeImportJobForUser(
 }
 
 /**
+ * Returns the import job a draft editor should surface: an in-flight import, or the
+ * latest completed import whose staged upload has not been distributed yet.
+ * @param draftId - Draft id.
+ * @returns Relevant import job, or null when the draft has no active/staged import.
+ */
+export async function getYoutubeImportJobForDraft(
+  draftId: string
+): Promise<YoutubeImportJob | null> {
+  await connectToDatabase();
+
+  const activeDoc = await YoutubeImportJobModel.findOne({
+    draftId,
+    status: { $in: [...ACTIVE_YOUTUBE_IMPORT_JOB_STATUSES] },
+  })
+    .sort({ createdAt: -1 })
+    .lean<YoutubeImportJobDocument | null>();
+
+  if (activeDoc) {
+    return rowToYoutubeImportJob(activeDoc);
+  }
+
+  const completedDoc = await YoutubeImportJobModel.findOne({
+    draftId,
+    status: 'completed',
+    uploadJobId: { $ne: '' },
+  })
+    .sort({ createdAt: -1 })
+    .lean<YoutubeImportJobDocument | null>();
+
+  if (!completedDoc) {
+    return null;
+  }
+
+  const importJob = rowToYoutubeImportJob(completedDoc);
+  if (!importJob.uploadJobId) {
+    return null;
+  }
+
+  const uploadJob = await getUploadJobById(importJob.uploadJobId);
+  if (!uploadJob || (uploadJob.status !== 'pending' && uploadJob.status !== 'uploading')) {
+    return null;
+  }
+
+  return importJob;
+}
+
+/**
+ * Returns the most recent failed import for a draft when nothing active/staged remains.
+ * @param draftId - Draft id.
+ * @returns Failed import job, or null.
+ */
+async function getFailedYoutubeImportJobForDraft(
+  draftId: string
+): Promise<YoutubeImportJob | null> {
+  const failedDoc = await YoutubeImportJobModel.findOne({
+    draftId,
+    status: 'failed',
+  })
+    .sort({ createdAt: -1 })
+    .lean<YoutubeImportJobDocument | null>();
+
+  if (!failedDoc) {
+    return null;
+  }
+
+  return rowToYoutubeImportJob(failedDoc);
+}
+
+/**
+ * Returns the import job shown in the draft editor, including failed jobs that can be retried.
+ * @param draftId - Draft id.
+ * @returns Relevant import job, or null when the draft has no import state to show.
+ */
+export async function getYoutubeImportJobForDraftEditor(
+  draftId: string
+): Promise<YoutubeImportJob | null> {
+  const blocking = await getYoutubeImportJobForDraft(draftId);
+  if (blocking) {
+    return blocking;
+  }
+
+  return getFailedYoutubeImportJobForDraft(draftId);
+}
+
+/**
  * Apply a partial status/progress patch to an import job.
  * @param id - Import job id.
  * @param patch - Fields to update; omitted keys are left unchanged.
@@ -190,6 +279,9 @@ export async function updateYoutubeImportJobStatus(
   if (patch.uploadJobId !== undefined) {
     data.uploadJobId = patch.uploadJobId ?? '';
   }
+  if (patch.distributeQueued !== undefined) {
+    data.distributeQueued = patch.distributeQueued;
+  }
 
   if (Object.keys(data).length === 0) {
     return;
@@ -198,6 +290,36 @@ export async function updateYoutubeImportJobStatus(
   await YoutubeImportJobModel.findByIdAndUpdate(id, data, {
     runValidators: true,
   });
+}
+
+/**
+ * Atomically moves a pending import job to `downloading` so only one worker can run it.
+ * @param id - Import job id.
+ * @param userId - When set, the row must belong to this user.
+ * @returns Claimed job row, or null when not pending / not found / wrong owner.
+ */
+export async function claimPendingYoutubeImportJob(
+  id: string,
+  userId?: string
+): Promise<YoutubeImportJob | null> {
+  await connectToDatabase();
+
+  const filter: { _id: string; status: 'pending'; userId?: string } = {
+    _id: id,
+    status: 'pending',
+  };
+  if (userId) {
+    filter.userId = userId;
+  }
+
+  const doc = await YoutubeImportJobModel.findOneAndUpdate(
+    filter,
+    { status: 'downloading', progressPercent: 0 },
+    { returnDocument: 'after', runValidators: true }
+  ).lean<YoutubeImportJobDocument | null>();
+
+  if (!doc) return null;
+  return rowToYoutubeImportJob(doc);
 }
 
 /**

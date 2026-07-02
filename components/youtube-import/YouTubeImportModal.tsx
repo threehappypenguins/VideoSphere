@@ -21,6 +21,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
+import {
+  formatYoutubeImportStatusLabel,
+  isActiveYoutubeImportStatus,
+} from '@/lib/youtube-import/import-job-ui';
 import type { ApiResponse, Livestream, YoutubeImportJob } from '@/types';
 
 /** Poll interval for in-flight import jobs (matches draft upload polling). */
@@ -68,49 +72,9 @@ export interface YouTubeImportModalProps {
    */
   onOpenChange: (open: boolean) => void;
   /**
-   * Called after a successful import so the parent can refresh upload history.
+   * Called when import staging completes so the parent can refresh draft import state.
    */
   onImportComplete: () => void | Promise<void>;
-}
-
-/**
- * Returns a user-facing label for an import job status.
- * @param status - Import job status.
- * @returns Display label.
- */
-function formatImportStatusLabel(status: YoutubeImportJob['status']): string {
-  switch (status) {
-    case 'pending':
-      return 'Preparing import…';
-    case 'downloading':
-      return 'Downloading from YouTube…';
-    case 'trimming':
-      return 'Trimming video…';
-    case 'uploading':
-      return 'Uploading to storage…';
-    case 'completed':
-      return 'Import complete';
-    case 'failed':
-      return 'Import failed';
-    case 'cancelled':
-      return 'Import cancelled';
-    default:
-      return 'Import in progress…';
-  }
-}
-
-/**
- * Whether an import job is still in progress.
- * @param status - Import job status.
- * @returns True when the job has not reached a terminal state.
- */
-function isActiveImportStatus(status: YoutubeImportJob['status']): boolean {
-  return (
-    status === 'pending' ||
-    status === 'downloading' ||
-    status === 'trimming' ||
-    status === 'uploading'
-  );
 }
 
 /**
@@ -169,6 +133,27 @@ export function YouTubeImportModal({
     []
   );
   const completionHandledRef = useRef(false);
+  const kickoffSentForJobIdRef = useRef<string | null>(null);
+
+  const requestImportWorkerKickoff = useCallback((targetJobId: string) => {
+    if (kickoffSentForJobIdRef.current === targetJobId) {
+      return;
+    }
+    kickoffSentForJobIdRef.current = targetJobId;
+    void fetch(`/api/youtube-import/${targetJobId}/run`, {
+      method: 'POST',
+      cache: 'no-store',
+    })
+      .then((response) => {
+        // 409 means another kickoff already claimed the job — expected when resuming.
+        if (!response.ok && response.status !== 409) {
+          console.error('YouTube import worker kickoff failed:', response.status);
+        }
+      })
+      .catch((error) => {
+        console.error('YouTube import worker kickoff failed:', error);
+      });
+  }, []);
 
   const resetModalState = useCallback(() => {
     setStep('source');
@@ -187,16 +172,21 @@ export function YouTubeImportModal({
     setIsStarting(false);
     setIsCancelling(false);
     completionHandledRef.current = false;
+    kickoffSentForJobIdRef.current = null;
   }, []);
 
   const handleDialogOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
-        resetModalState();
+        const importInFlight =
+          step === 'progress' && jobStatus && isActiveYoutubeImportStatus(jobStatus.status);
+        if (!importInFlight) {
+          resetModalState();
+        }
       }
       onOpenChange(nextOpen);
     },
-    [onOpenChange, resetModalState]
+    [jobStatus, onOpenChange, resetModalState, step]
   );
 
   const loadLivestreams = useCallback(async (offset: number) => {
@@ -331,12 +321,19 @@ export function YouTubeImportModal({
 
       setJobId(payload.jobId);
       setStep('progress');
+      requestImportWorkerKickoff(payload.jobId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start YouTube import');
     } finally {
       setIsStarting(false);
     }
-  }, [draftId, resolvedSource, trimRange.endSeconds, trimRange.startSeconds]);
+  }, [
+    draftId,
+    requestImportWorkerKickoff,
+    resolvedSource,
+    trimRange.endSeconds,
+    trimRange.startSeconds,
+  ]);
 
   const handleWatchExistingImport = useCallback(() => {
     if (!conflictActiveJobId) return;
@@ -392,6 +389,9 @@ export function YouTubeImportModal({
           setJobId(payload.job.id);
           setJobStatus(payload.job);
           setStep('progress');
+          if (payload.job.status === 'pending') {
+            requestImportWorkerKickoff(payload.job.id);
+          }
         }
       } catch {
         if (!cancelled) {
@@ -407,7 +407,7 @@ export function YouTubeImportModal({
     return () => {
       cancelled = true;
     };
-  }, [loadLivestreams, open]);
+  }, [loadLivestreams, open, requestImportWorkerKickoff]);
 
   useEffect(() => {
     if (!open || step !== 'source' || jobId || isCheckingActiveJob) return;
@@ -450,18 +450,21 @@ export function YouTubeImportModal({
   }, [jobId, open, step]);
 
   useEffect(() => {
-    if (!open || !jobStatus || jobStatus.status !== 'completed' || completionHandledRef.current) {
+    if (!open || step !== 'progress' || !jobId) return;
+    if (jobStatus?.status !== 'pending') return;
+
+    requestImportWorkerKickoff(jobId);
+  }, [jobId, jobStatus?.status, open, requestImportWorkerKickoff, step]);
+
+  useEffect(() => {
+    if (!jobStatus || jobStatus.status !== 'completed' || completionHandledRef.current) {
       return;
     }
 
     completionHandledRef.current = true;
     setShowCompletionSuccess(true);
-
-    void (async () => {
-      await onImportComplete();
-      handleDialogOpenChange(false);
-    })();
-  }, [handleDialogOpenChange, jobStatus, onImportComplete, open]);
+    void onImportComplete();
+  }, [jobStatus, onImportComplete]);
 
   const canPrevLivestreams = livestreamsOffset > 0;
   const canNextLivestreams = livestreamsOffset + livestreams.length < livestreamsTotal;
@@ -686,9 +689,20 @@ export function YouTubeImportModal({
         {step === 'progress' && jobStatus ? (
           <div className="space-y-4">
             {showCompletionSuccess ? (
-              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
-                <CircleCheck className="h-4 w-4 shrink-0" />
-                Import completed successfully
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
+                  <CircleCheck className="h-4 w-4 shrink-0" />
+                  Video staged for this draft
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Close this window and use <span className="font-medium">Upload &amp; Save</span>{' '}
+                  in the draft when your metadata is ready.
+                </p>
+                <DialogFooter className="px-0">
+                  <Button type="button" onClick={() => handleDialogOpenChange(false)}>
+                    Done
+                  </Button>
+                </DialogFooter>
               </div>
             ) : jobStatus.status === 'failed' ? (
               <div className="space-y-3">
@@ -703,14 +717,17 @@ export function YouTubeImportModal({
               <>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
-                    <span>{formatImportStatusLabel(jobStatus.status)}</span>
+                    <span>{formatYoutubeImportStatusLabel(jobStatus.status)}</span>
                     <span>{jobStatus.progressPercent}%</span>
                   </div>
                   <Progress value={jobStatus.progressPercent} className="h-2" />
                 </div>
 
-                {isActiveImportStatus(jobStatus.status) ? (
-                  <DialogFooter className="px-0">
+                {isActiveYoutubeImportStatus(jobStatus.status) ? (
+                  <DialogFooter className="px-0 sm:justify-between">
+                    <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                      Continue in background
+                    </Button>
                     <Button
                       type="button"
                       variant="outline"

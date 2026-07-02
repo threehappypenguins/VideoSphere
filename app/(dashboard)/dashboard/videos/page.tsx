@@ -15,6 +15,7 @@ import type {
   DraftLabelDefinition,
 } from '@/types';
 import { DraftLabelChip } from '@/components/drafts/DraftLabelChip';
+import { getUsableConnectedPlatforms } from '@/lib/platforms/connection-status';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 type VideosView = 'list' | 'cards';
@@ -159,7 +160,7 @@ export default function VideosPage() {
           ConnectedAccountPublic[]
         >;
         platforms = Array.isArray(connectionsPayload.data)
-          ? connectionsPayload.data.map((account) => account.platform)
+          ? getUsableConnectedPlatforms(connectionsPayload.data)
           : [];
       }
       setConnectedPlatforms(platforms);

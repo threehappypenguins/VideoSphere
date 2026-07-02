@@ -1,1 +1,1 @@
-export { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+export { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';

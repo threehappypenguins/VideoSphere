@@ -23,6 +23,7 @@ const inter = localFont({
   src: [{ path: './fonts/InterVariable.woff2', weight: '100 900', style: 'normal' }],
   variable: '--font-inter',
   display: 'swap',
+  preload: false,
 });
 
 const apfelGrotezk = localFont({
@@ -35,6 +36,7 @@ const apfelGrotezk = localFont({
   ],
   variable: '--font-apfel-grotezk',
   display: 'swap',
+  preload: false,
 });
 
 // --- Metadata ---

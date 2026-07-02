@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById } from '@/lib/repositories/drafts';
+import { discardBlockingDraftYoutubeImport } from '@/lib/youtube-import/discard-draft-import';
 import {
   YoutubeImportJobAlreadyActiveError,
   createYoutubeImportJob,
   getActiveYoutubeImportJobForUser,
 } from '@/lib/repositories/youtube-import-jobs';
-import { runYoutubeImportJob } from '@/lib/youtube-import/run-import-job';
 import {
   buildYouTubeWatchUrl,
   getYouTubeImportMaxDurationSeconds,
@@ -150,6 +150,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    await discardBlockingDraftYoutubeImport(parsed.data.draftId, userId);
+
     const job = await createYoutubeImportJob({
       userId,
       draftId: parsed.data.draftId,
@@ -159,20 +161,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       startSeconds: parsed.data.startSeconds,
       endSeconds: parsed.data.endSeconds,
     });
-
-    try {
-      void runYoutubeImportJob(job.id).catch((err) => {
-        console.error(
-          `[POST /api/youtube-import/start] Background import failed for job ${job.id}:`,
-          err
-        );
-      });
-    } catch (err) {
-      console.error(
-        `[POST /api/youtube-import/start] Failed to schedule background import for job ${job.id}:`,
-        err
-      );
-    }
 
     return NextResponse.json({ jobId: job.id }, { status: 201 });
   } catch (error) {

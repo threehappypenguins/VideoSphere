@@ -75,6 +75,7 @@ function makeImportJob(overrides: Partial<YoutubeImportJob> = {}): YoutubeImport
     errorMessage: null,
     r2Key: null,
     uploadJobId: null,
+    distributeQueued: false,
     $createdAt: '2026-01-01T00:00:00.000Z',
     $updatedAt: '2026-01-01T00:05:00.000Z',
     ...overrides,
@@ -88,6 +89,7 @@ function installFetchMock(handlers: {
   livestreams?: FetchHandler;
   resolve?: FetchHandler;
   start?: FetchHandler;
+  run?: FetchHandler;
   job?: FetchHandler;
   cancel?: FetchHandler;
 }) {
@@ -129,11 +131,21 @@ function installFetchMock(handlers: {
       );
     }
 
+    if (urlStr.includes('/api/youtube-import/') && urlStr.endsWith('/run') && method === 'POST') {
+      return (
+        handlers.run?.(urlStr, init) ??
+        new Response(JSON.stringify({ data: makeImportJob({ status: 'downloading' }) }), {
+          status: 200,
+        })
+      );
+    }
+
     if (
       urlStr.includes('/api/youtube-import/') &&
       !urlStr.endsWith('/api/youtube-import/active') &&
       !urlStr.endsWith('/api/youtube-import/resolve') &&
       !urlStr.endsWith('/api/youtube-import/start') &&
+      !urlStr.endsWith('/run') &&
       !urlStr.includes('/cancel') &&
       method === 'GET'
     ) {
@@ -260,14 +272,14 @@ describe('YouTubeImportModal', () => {
     await user.click(screen.getByRole('button', { name: /start import/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/downloading from youtube/i)).toBeInTheDocument();
+      expect(screen.getByText(/downloading/i)).toBeInTheDocument();
     });
 
     await vi.advanceTimersByTimeAsync(3000);
 
     await waitFor(() => {
       expect(onImportComplete).toHaveBeenCalledTimes(1);
-      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(screen.getByText(/video staged for this draft/i)).toBeInTheDocument();
     });
   });
 

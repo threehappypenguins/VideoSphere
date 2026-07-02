@@ -719,6 +719,8 @@ export interface YoutubeImportJob {
   r2Key: string | null;
   /** Upload job id once handed off to the distribution pipeline. */
   uploadJobId: string | null;
+  /** When true, distribution starts automatically once staging completes. */
+  distributeQueued: boolean;
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */
@@ -800,6 +802,11 @@ export interface ConnectedAccountPublic {
   hasYoutubeMainStreamKey: boolean;
   /** True when a non-empty YouTube temp stream key is stored (encrypted at rest). */
   hasYoutubeTempStreamKey: boolean;
+  /**
+   * Present on GET /api/platforms/connections after optional OAuth health verification.
+   * When omitted, callers should derive status from token fields via `getConnectionStatus`.
+   */
+  connectionStatus?: 'connected' | 'expired';
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

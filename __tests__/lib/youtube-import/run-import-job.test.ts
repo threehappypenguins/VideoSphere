@@ -5,8 +5,10 @@ const mockSpawnProcess = vi.hoisted(() => vi.fn());
 const mockGetYoutubeImportJobById = vi.hoisted(() => vi.fn());
 const mockUpdateYoutubeImportJobStatus = vi.hoisted(() => vi.fn());
 const mockCreateUploadJob = vi.hoisted(() => vi.fn());
+const mockUpdateUploadJobStatus = vi.hoisted(() => vi.fn());
 const mockUploadLocalFileToR2 = vi.hoisted(() => vi.fn());
-const mockFinalizeUploadJobAndDistribute = vi.hoisted(() => vi.fn());
+const mockDistributeStagedYoutubeImportUpload = vi.hoisted(() => vi.fn());
+const mockMkdir = vi.hoisted(() => vi.fn());
 const mockMkdtemp = vi.hoisted(() => vi.fn());
 const mockRm = vi.hoisted(() => vi.fn());
 const mockReadFile = vi.hoisted(() => vi.fn());
@@ -23,18 +25,20 @@ vi.mock('@/lib/repositories/youtube-import-jobs', () => ({
 
 vi.mock('@/lib/repositories/upload-jobs', () => ({
   createUploadJob: (...args: unknown[]) => mockCreateUploadJob(...args),
+  updateUploadJobStatus: (...args: unknown[]) => mockUpdateUploadJobStatus(...args),
 }));
 
 vi.mock('@/lib/r2', () => ({
   uploadLocalFileToR2: (...args: unknown[]) => mockUploadLocalFileToR2(...args),
 }));
 
-vi.mock('@/lib/api/finalize-upload-job', () => ({
-  finalizeUploadJobAndDistribute: (...args: unknown[]) =>
-    mockFinalizeUploadJobAndDistribute(...args),
+vi.mock('@/lib/youtube-import/queue-import-distribute', () => ({
+  distributeStagedYoutubeImportUpload: (...args: unknown[]) =>
+    mockDistributeStagedYoutubeImportUpload(...args),
 }));
 
 vi.mock('@/lib/youtube-import/import-job-fs', () => ({
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
   mkdtemp: (...args: unknown[]) => mockMkdtemp(...args),
   rm: (...args: unknown[]) => mockRm(...args),
   readFile: (...args: unknown[]) => mockReadFile(...args),
@@ -43,7 +47,9 @@ vi.mock('@/lib/youtube-import/import-job-fs', () => ({
 
 import {
   buildYoutubeImportUploadKey,
+  computeDownloadPhaseProgressPercent,
   computeTrimOffsets,
+  parseFfmpegTimeSeconds,
   parseYtDlpDownloadPercent,
   runYoutubeImportJob,
 } from '@/lib/youtube-import/run-import-job';
@@ -94,6 +100,7 @@ const baseJob = {
   errorMessage: null,
   r2Key: null,
   uploadJobId: null,
+  distributeQueued: false,
   $createdAt: '2000-01-01T00:00:00.000Z',
   $updatedAt: '2000-01-01T00:00:00.000Z',
 };
@@ -102,6 +109,7 @@ const WORK_DIR = '/tmp/yt-import/yt-import-job-abc';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockMkdir.mockResolvedValue(undefined);
   mockMkdtemp.mockResolvedValue(WORK_DIR);
   mockRm.mockResolvedValue(undefined);
   mockReadFile.mockResolvedValue(JSON.stringify({ section_start: 95 }));
@@ -119,7 +127,8 @@ beforeEach(() => {
     $createdAt: '2000-01-01T00:00:00.000Z',
     $updatedAt: '2000-01-01T00:00:00.000Z',
   });
-  mockFinalizeUploadJobAndDistribute.mockResolvedValue({ distributing: true });
+  mockUpdateUploadJobStatus.mockResolvedValue(undefined);
+  mockDistributeStagedYoutubeImportUpload.mockResolvedValue({ distributing: false });
 
   mockSpawnProcess.mockImplementation((command: string) => {
     if (command === 'yt-dlp') {
@@ -141,6 +150,42 @@ describe('parseYtDlpDownloadPercent', () => {
   it('parses yt-dlp download progress lines', () => {
     expect(parseYtDlpDownloadPercent('[download]  42.5% of file')).toBe(42.5);
     expect(parseYtDlpDownloadPercent('noise')).toBeNull();
+  });
+});
+
+describe('parseFfmpegTimeSeconds', () => {
+  it('parses the latest non-negative ffmpeg time value', () => {
+    expect(parseFfmpegTimeSeconds('size=0kB time=-00:00:02.96 bitrate=N/A')).toBeNull();
+    expect(parseFfmpegTimeSeconds('size=512kB time=00:00:15.52 bitrate=11891.1kbits/s')).toBe(
+      15.52
+    );
+    expect(
+      parseFfmpegTimeSeconds(
+        'size=512kB time=00:00:10.00 bitrate=N/A\rsize=1024kB time=00:00:20.00 bitrate=N/A'
+      )
+    ).toBe(20);
+  });
+});
+
+describe('computeDownloadPhaseProgressPercent', () => {
+  it('prefers yt-dlp percent over ffmpeg time', () => {
+    expect(
+      computeDownloadPhaseProgressPercent({
+        downloadPercent: 50,
+        ffmpegTimeSeconds: 10,
+        sectionDurationSeconds: 60,
+      })
+    ).toBe(35);
+  });
+
+  it('maps ffmpeg time into the download phase when yt-dlp percent is absent', () => {
+    expect(
+      computeDownloadPhaseProgressPercent({
+        downloadPercent: null,
+        ffmpegTimeSeconds: 30,
+        sectionDurationSeconds: 60,
+      })
+    ).toBe(35);
   });
 });
 
@@ -193,13 +238,53 @@ describe('runYoutubeImportJob', () => {
       draftId: 'draft-abc',
       r2Key: expect.stringMatching(/^temp\/uploads\/user-123\//),
     });
-    expect(mockFinalizeUploadJobAndDistribute).toHaveBeenCalledWith('upload-job-1', 'user-123');
+    expect(mockUpdateUploadJobStatus).toHaveBeenCalledWith('upload-job-1', 'uploading');
+    expect(mockDistributeStagedYoutubeImportUpload).not.toHaveBeenCalled();
     expect(mockUpdateYoutubeImportJobStatus).toHaveBeenCalledWith('yt-import-1', {
       status: 'completed',
       progressPercent: 100,
       errorMessage: null,
     });
     expect(mockRm).toHaveBeenCalledWith(WORK_DIR, { recursive: true, force: true });
+  });
+
+  it('distributes immediately when distributeQueued was set before staging finished', async () => {
+    mockGetYoutubeImportJobById.mockResolvedValue({ ...baseJob, distributeQueued: true });
+
+    await runYoutubeImportJob('yt-import-1');
+
+    expect(mockDistributeStagedYoutubeImportUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'yt-import-1',
+        distributeQueued: true,
+        uploadJobId: 'upload-job-1',
+      }),
+      'user-123'
+    );
+    expect(mockUpdateUploadJobStatus).not.toHaveBeenCalled();
+  });
+
+  it('updates progress from ffmpeg time output during section downloads', async () => {
+    mockSpawnProcess.mockImplementation((command: string) => {
+      if (command === 'yt-dlp') {
+        return createMockChild({
+          stderr: 'size=512kB time=00:00:30.00 bitrate=N/A\n',
+        });
+      }
+      if (command === 'ffprobe') {
+        return createMockChild({ stdout: '120.5\n' });
+      }
+      if (command === 'ffmpeg') {
+        return createMockChild({});
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    await runYoutubeImportJob('yt-import-1');
+
+    expect(mockUpdateYoutubeImportJobStatus).toHaveBeenCalledWith('yt-import-1', {
+      progressPercent: 35,
+    });
   });
 
   it('marks the job failed and still cleans up temp files on errors', async () => {

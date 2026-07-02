@@ -18,6 +18,7 @@ export interface YoutubeImportJobDocument {
   errorMessage: string;
   r2Key: string;
   uploadJobId: string;
+  distributeQueued: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +50,7 @@ const YoutubeImportJobSchema = new Schema<YoutubeImportJobDocument>(
     errorMessage: { type: String, default: '' },
     r2Key: { type: String, default: '' },
     uploadJobId: { type: String, default: '' },
+    distributeQueued: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -62,6 +64,8 @@ YoutubeImportJobSchema.index(
     },
   }
 );
+
+YoutubeImportJobSchema.index({ draftId: 1, createdAt: -1 });
 
 export const YoutubeImportJobModel =
   (mongoose.models.YoutubeImportJob as mongoose.Model<YoutubeImportJobDocument> | undefined) ||

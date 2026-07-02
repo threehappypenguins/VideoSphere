@@ -5,7 +5,7 @@ const mockGetAuthenticatedUserId = vi.fn();
 const mockGetDraftById = vi.fn();
 const mockCreateYoutubeImportJob = vi.fn();
 const mockGetActiveYoutubeImportJobForUser = vi.fn();
-const mockRunYoutubeImportJob = vi.fn();
+const mockDiscardBlockingDraftYoutubeImport = vi.fn();
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
@@ -25,8 +25,9 @@ vi.mock('@/lib/repositories/youtube-import-jobs', async (importOriginal) => {
   };
 });
 
-vi.mock('@/lib/youtube-import/run-import-job', () => ({
-  runYoutubeImportJob: (...args: unknown[]) => mockRunYoutubeImportJob(...args),
+vi.mock('@/lib/youtube-import/discard-draft-import', () => ({
+  discardBlockingDraftYoutubeImport: (...args: unknown[]) =>
+    mockDiscardBlockingDraftYoutubeImport(...args),
 }));
 
 import { POST } from '@/app/api/youtube-import/start/route';
@@ -75,7 +76,7 @@ beforeEach(() => {
   mockGetAuthenticatedUserId.mockResolvedValue(USER_ID);
   mockGetDraftById.mockResolvedValue({ id: DRAFT_ID, userId: USER_ID });
   mockCreateYoutubeImportJob.mockResolvedValue(baseJob);
-  mockRunYoutubeImportJob.mockResolvedValue(undefined);
+  mockDiscardBlockingDraftYoutubeImport.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -145,10 +146,9 @@ describe('POST /api/youtube-import/start', () => {
     const body = await response.json();
     expect(body.message).toBe('You already have an import in progress');
     expect(body.activeJobId).toBe('existing-active-job');
-    expect(mockRunYoutubeImportJob).not.toHaveBeenCalled();
   });
 
-  it('creates a job, starts the worker without awaiting, and returns 201', async () => {
+  it('creates a job and returns 201 for the client to start the worker', async () => {
     const response = await POST(createRequest(validBody));
 
     expect(response.status).toBe(201);
@@ -164,7 +164,7 @@ describe('POST /api/youtube-import/start', () => {
       startSeconds: 10,
       endSeconds: 100,
     });
-    expect(mockRunYoutubeImportJob).toHaveBeenCalledWith('import-job-1');
+    expect(mockDiscardBlockingDraftYoutubeImport).toHaveBeenCalledWith(DRAFT_ID, USER_ID);
   });
 
   it('passes livestreamId and sourceUrl when provided', async () => {

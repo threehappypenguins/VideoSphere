@@ -354,7 +354,7 @@ describe('DraftMetadataModal YouTube import entry point', () => {
     });
   });
 
-  it('refreshes upload history the same way as a completed normal upload', async () => {
+  it('refreshes draft YouTube import state after staging without triggering upload', async () => {
     const user = userEvent.setup({ delay: null });
     const onUploadComplete = vi.fn().mockResolvedValue(undefined);
     const fetchMock = vi.mocked(global.fetch);
@@ -367,21 +367,21 @@ describe('DraftMetadataModal YouTube import entry point', () => {
       expect(screen.getByTestId('youtube-import-modal')).toBeInTheDocument();
     });
 
-    const historyCallsBefore = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes('/api/drafts/draft-video-regression/upload-history')
+    const importCallsBefore = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/api/drafts/draft-video-regression/youtube-import')
     ).length;
 
     fireEvent.click(screen.getByRole('button', { name: /Complete YouTube import/i, hidden: true }));
 
     await waitFor(() => {
-      expect(onUploadComplete).toHaveBeenCalledTimes(1);
-      const historyCallsAfter = fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes('/api/drafts/draft-video-regression/upload-history')
+      expect(onUploadComplete).not.toHaveBeenCalled();
+      const importCallsAfter = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/api/drafts/draft-video-regression/youtube-import')
       ).length;
-      expect(historyCallsAfter).toBeGreaterThan(historyCallsBefore);
+      expect(importCallsAfter).toBeGreaterThan(importCallsBefore);
       expect(screen.getByRole('button', { name: /Upload history/i })).toHaveAttribute(
         'aria-expanded',
-        'true'
+        'false'
       );
     });
   });

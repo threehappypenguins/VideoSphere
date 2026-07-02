@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { readFile, mkdtemp, rm, stat } from '@/lib/youtube-import/import-job-fs';
+import { readFile, mkdir, mkdtemp, rm, stat } from '@/lib/youtube-import/import-job-fs';
 import { join } from 'node:path';
-import { finalizeUploadJobAndDistribute } from '@/lib/api/finalize-upload-job';
 import { uploadLocalFileToR2 } from '@/lib/r2';
-import { createUploadJob } from '@/lib/repositories/upload-jobs';
+import { createUploadJob, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
 import {
   getYoutubeImportJobById,
   updateYoutubeImportJobStatus,
 } from '@/lib/repositories/youtube-import-jobs';
 import { buildYouTubeWatchUrl } from '@/lib/youtube-import/resolve-source';
+import { distributeStagedYoutubeImportUpload } from '@/lib/youtube-import/queue-import-distribute';
 import { spawnProcess } from '@/lib/youtube-import/spawn-process';
 import type { YoutubeImportJob } from '@/types';
 
@@ -32,6 +32,63 @@ export function parseYtDlpDownloadPercent(chunk: string): number | null {
 
   const percent = Number(match[1]);
   return Number.isFinite(percent) ? percent : null;
+}
+
+/**
+ * Parses the latest non-negative `time=HH:MM:SS.ms` value from ffmpeg stderr.
+ * Section downloads mux through ffmpeg and may not emit `[download] …%` until the end.
+ * @param chunk - stdout/stderr fragment from yt-dlp/ffmpeg.
+ * @returns Elapsed output seconds when present, otherwise `null`.
+ */
+export function parseFfmpegTimeSeconds(chunk: string): number | null {
+  let latest: number | null = null;
+
+  for (const match of chunk.matchAll(/time=(-)?(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/g)) {
+    if (match[1] === '-') {
+      continue;
+    }
+
+    const hours = Number(match[2]);
+    const minutes = Number(match[3]);
+    const seconds = Number(match[4]);
+    const total = hours * 3600 + minutes * 60 + seconds;
+    if (Number.isFinite(total) && total >= 0) {
+      latest = total;
+    }
+  }
+
+  return latest;
+}
+
+/**
+ * Maps yt-dlp/ffmpeg progress signals to the download phase percent (0–70).
+ * @param input - Parsed progress signals and clip duration.
+ * @returns Overall job percent for the download phase, or `null` when no signal is present.
+ */
+export function computeDownloadPhaseProgressPercent(input: {
+  downloadPercent: number | null;
+  ffmpegTimeSeconds: number | null;
+  sectionDurationSeconds: number;
+  maxPercent?: number;
+}): number | null {
+  const maxPercent = input.maxPercent ?? DOWNLOAD_PROGRESS_MAX;
+  let ratio: number | null = null;
+
+  if (input.downloadPercent != null) {
+    ratio = Math.min(1, Math.max(0, input.downloadPercent / 100));
+  } else if (
+    input.ffmpegTimeSeconds != null &&
+    input.sectionDurationSeconds > 0 &&
+    input.ffmpegTimeSeconds >= 0
+  ) {
+    ratio = Math.min(1, input.ffmpegTimeSeconds / input.sectionDurationSeconds);
+  }
+
+  if (ratio == null) {
+    return null;
+  }
+
+  return Math.min(maxPercent, Math.max(1, Math.floor(ratio * maxPercent)));
 }
 
 /**
@@ -82,6 +139,7 @@ function getYoutubeImportWorkdirRoot(): string {
 
 async function createImportWorkDir(): Promise<string> {
   const root = getYoutubeImportWorkdirRoot();
+  await mkdir(root, { recursive: true });
   return mkdtemp(join(root.endsWith('/') ? root : `${root}/`, 'yt-import-job-'));
 }
 
@@ -217,11 +275,30 @@ async function downloadYoutubeSection(
   const section = `*${job.startSeconds}-${job.endSeconds}`;
 
   let lastPersistedPercent = -1;
+  const sectionDurationSeconds = Math.max(1, job.endSeconds - job.startSeconds);
+
+  void updateYoutubeImportJobStatus(jobId, { progressPercent: 1 });
+
+  const handleDownloadProgressChunk = (chunk: string) => {
+    const overallPercent = computeDownloadPhaseProgressPercent({
+      downloadPercent: parseYtDlpDownloadPercent(chunk),
+      ffmpegTimeSeconds: parseFfmpegTimeSeconds(chunk),
+      sectionDurationSeconds,
+    });
+    if (overallPercent == null || overallPercent === lastPersistedPercent) {
+      return;
+    }
+
+    lastPersistedPercent = overallPercent;
+    void updateYoutubeImportJobStatus(jobId, { progressPercent: overallPercent });
+  };
 
   await runSpawnCollecting(
     'yt-dlp',
     [
       '--no-playlist',
+      '--no-update',
+      '--newline',
       '--download-sections',
       section,
       '-f',
@@ -239,23 +316,8 @@ async function downloadYoutubeSection(
     ],
     'yt-dlp section download',
     {
-      onStderrChunk: (chunk) => {
-        const downloadPercent = parseYtDlpDownloadPercent(chunk);
-        if (downloadPercent == null) {
-          return;
-        }
-
-        const overallPercent = Math.min(
-          DOWNLOAD_PROGRESS_MAX,
-          Math.max(0, Math.floor((downloadPercent / 100) * DOWNLOAD_PROGRESS_MAX))
-        );
-        if (overallPercent === lastPersistedPercent) {
-          return;
-        }
-
-        lastPersistedPercent = overallPercent;
-        void updateYoutubeImportJobStatus(jobId, { progressPercent: overallPercent });
-      },
+      onStderrChunk: handleDownloadProgressChunk,
+      onStdoutChunk: handleDownloadProgressChunk,
     }
   );
 
@@ -316,14 +378,15 @@ async function trimDownloadedSection(
  * pipeline. Updates the job's status/progress as it proceeds so callers
  * polling `getYoutubeImportJobById` see live progress.
  * @param jobId - YoutubeImportJob id to execute. Must already exist with
- *   status `pending`.
+ *   status `pending` or `downloading` (after atomic claim).
  */
 export async function runYoutubeImportJob(jobId: string): Promise<void> {
   let workDir: string | null = null;
 
   try {
+    console.info(`[runYoutubeImportJob] Starting job ${jobId}`);
     const job = await getYoutubeImportJobById(jobId);
-    if (!job || job.status !== 'pending') {
+    if (!job || (job.status !== 'pending' && job.status !== 'downloading')) {
       return;
     }
 
@@ -333,7 +396,10 @@ export async function runYoutubeImportJob(jobId: string): Promise<void> {
       return;
     }
 
-    await updateYoutubeImportJobStatus(jobId, { status: 'downloading', progressPercent: 0 });
+    if (job.status === 'pending') {
+      await updateYoutubeImportJobStatus(jobId, { status: 'downloading', progressPercent: 0 });
+    }
+
     const download = await downloadYoutubeSection(job, workDir, jobId);
 
     if (await isImportJobCancelled(jobId)) {
@@ -369,7 +435,16 @@ export async function runYoutubeImportJob(jobId: string): Promise<void> {
     });
 
     await updateYoutubeImportJobStatus(jobId, { r2Key, uploadJobId: uploadJob.id });
-    await finalizeUploadJobAndDistribute(uploadJob.id, job.userId);
+
+    const latestImportJob = await getYoutubeImportJobById(jobId);
+    if (latestImportJob?.distributeQueued) {
+      await distributeStagedYoutubeImportUpload(
+        { ...latestImportJob, uploadJobId: uploadJob.id, r2Key },
+        job.userId
+      );
+    } else {
+      await updateUploadJobStatus(uploadJob.id, 'uploading');
+    }
 
     await updateYoutubeImportJobStatus(jobId, {
       status: 'completed',
