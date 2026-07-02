@@ -50,7 +50,7 @@ vi.mock('@/components/onboarding/OnboardingContext', () => ({
   }),
 }));
 
-import DraftsPage from '@/app/(dashboard)/dashboard/videos/page';
+import VideosPage from '@/app/(dashboard)/dashboard/videos/page';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -137,11 +137,11 @@ function mockEditDraftQueryFetch() {
   });
 }
 
-describe('DraftsPage', () => {
+describe('VideosPage', () => {
   it('renders the Videos page heading', async () => {
     mockInitialPageLoadFetch();
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(screen.getByRole('heading', { level: 1, name: /videos/i })).toBeInTheDocument();
     await waitFor(() =>
@@ -161,7 +161,7 @@ describe('DraftsPage', () => {
   it('renders the empty state message when there are no drafts', async () => {
     mockInitialPageLoadFetch();
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(await screen.findByText(/no drafts yet/i)).toBeInTheDocument();
     expect(await screen.findByText(/create a draft to get started/i)).toBeInTheDocument();
@@ -170,7 +170,7 @@ describe('DraftsPage', () => {
   it('renders a Create draft button', async () => {
     mockInitialPageLoadFetch();
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(screen.getByRole('button', { name: /create draft/i })).toBeInTheDocument();
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(4));
@@ -196,7 +196,7 @@ describe('DraftsPage', () => {
       })
     );
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
   });
@@ -221,7 +221,7 @@ describe('DraftsPage', () => {
       })
     );
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
     expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/videos');
@@ -249,7 +249,7 @@ describe('DraftsPage', () => {
       })
     );
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
     expect(screen.getByTestId('create-modal-targets')).toHaveTextContent('youtube');
@@ -267,7 +267,7 @@ describe('DraftsPage', () => {
 
     mockEditDraftQueryFetch();
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(await screen.findByTestId('edit-modal-open')).toBeInTheDocument();
     await waitFor(() =>
@@ -280,7 +280,7 @@ describe('DraftsPage', () => {
 
     mockEditDraftQueryFetch();
 
-    render(<DraftsPage />);
+    render(<VideosPage />);
 
     expect(await screen.findByTestId('edit-modal-open')).toBeInTheDocument();
 

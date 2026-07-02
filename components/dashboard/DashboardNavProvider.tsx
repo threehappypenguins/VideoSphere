@@ -12,9 +12,8 @@ import {
 import {
   DASHBOARD_ADMIN_NAV_ITEMS,
   DASHBOARD_NAV_ITEMS,
-  DashboardNavList,
+  DashboardNavListContainer,
   resolveActiveDashboardNavHref,
-  useDashboardNavExpanded,
 } from '@/components/dashboard/dashboard-nav-shared';
 
 interface DashboardNavContextValue {
@@ -53,25 +52,38 @@ export function DashboardNavProvider({ children, isAdmin = false }: DashboardNav
     [isAdmin]
   );
   const activeHref = resolveActiveDashboardNavHref(pathname, navItems);
-  const { expandedParents, toggleExpanded } = useDashboardNavExpanded(pathname, navItems);
-  const [prevPathname, setPrevPathname] = useState(pathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileNavPathname, setMobileNavPathname] = useState<string | null>(null);
+  const isMobileNavOpen = mobileNavOpen && mobileNavPathname === pathname;
 
-  if (pathname !== prevPathname) {
-    setPrevPathname(pathname);
+  const openMobileNav = useCallback(() => {
+    setMobileNavOpen(true);
+    setMobileNavPathname(pathname);
+  }, [pathname]);
+
+  const closeMobileNav = useCallback(() => {
     setMobileNavOpen(false);
-  }
+    setMobileNavPathname(null);
+  }, []);
 
-  const openMobileNav = useCallback(() => setMobileNavOpen(true), []);
-  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+  const handleMobileNavOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) {
+        openMobileNav();
+      } else {
+        closeMobileNav();
+      }
+    },
+    [closeMobileNav, openMobileNav]
+  );
 
   const contextValue = useMemo(
     () => ({
       openMobileNav,
       closeMobileNav,
-      mobileNavOpen,
+      mobileNavOpen: isMobileNavOpen,
     }),
-    [closeMobileNav, mobileNavOpen, openMobileNav]
+    [closeMobileNav, isMobileNavOpen, openMobileNav]
   );
 
   const drawerLinkClassName =
@@ -83,7 +95,7 @@ export function DashboardNavProvider({ children, isAdmin = false }: DashboardNav
   return (
     <DashboardNavContext.Provider value={contextValue}>
       {children}
-      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+      <Sheet open={isMobileNavOpen} onOpenChange={handleMobileNavOpenChange}>
         <SheetContent
           side="left"
           id="dashboard-mobile-nav-drawer"
@@ -94,12 +106,11 @@ export function DashboardNavProvider({ children, isAdmin = false }: DashboardNav
             <SheetDescription>Jump to a dashboard section.</SheetDescription>
           </SheetHeader>
           <nav aria-label="Dashboard navigation" className="overflow-y-auto py-2">
-            <DashboardNavList
+            <DashboardNavListContainer
+              key={pathname}
               navItems={navItems}
               pathname={pathname}
               activeHref={activeHref}
-              expandedParents={expandedParents}
-              toggleExpanded={toggleExpanded}
               linkClassName={drawerLinkClassName}
               activeClassName={activeClassName}
               inactiveClassName={inactiveClassName}

@@ -17,7 +17,7 @@ import type {
 import { DraftLabelChip } from '@/components/drafts/DraftLabelChip';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-type DraftView = 'list' | 'cards';
+type VideosView = 'list' | 'cards';
 
 function draftTargetsEqual(
   a: readonly ConnectedAccountPlatform[],
@@ -66,20 +66,6 @@ function createEditorValues(draft: Draft): DraftEditorValues {
   };
 }
 
-function createNewEditorValues(): DraftEditorValues {
-  return {
-    id: '',
-    title: '',
-    description: '',
-    tags: [],
-    labels: [],
-    visibility: 'public',
-    targets: [],
-    platforms: {},
-    backupNaming: { ...normalizeBackupFileNameSettings(undefined) },
-  };
-}
-
 function isMinimalCreateDraft(draft: Draft): boolean {
   return (
     draft.title.trim() === '' &&
@@ -92,10 +78,10 @@ function isMinimalCreateDraft(draft: Draft): boolean {
 }
 
 /**
- * Renders the drafts page component.
+ * Renders the dashboard Videos page.
  * @returns The rendered UI output.
  */
-export default function DraftsPage() {
+export default function VideosPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -110,7 +96,7 @@ export default function DraftsPage() {
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [view, setView] = useState<DraftView>('list');
+  const [view, setView] = useState<VideosView>('list');
   const [creatingDraft, setCreatingDraft] = useState<DraftEditorValues | null>(null);
   const [editingDraft, setEditingDraft] = useState<DraftEditorValues | null>(null);
   const [isSavingCreate, setIsSavingCreate] = useState(false);
@@ -699,7 +685,7 @@ export default function DraftsPage() {
 
         {hasDrafts ? (
           view === 'list' ? (
-            <DraftsTable
+            <VideosTable
               drafts={drafts}
               labelLibrary={labelLibrary}
               onEdit={(draft) => {
@@ -711,7 +697,7 @@ export default function DraftsPage() {
               isDuplicatingId={isDuplicatingId}
             />
           ) : (
-            <DraftCards
+            <VideosCards
               drafts={drafts}
               labelLibrary={labelLibrary}
               onEdit={(draft) => {
@@ -765,7 +751,7 @@ export default function DraftsPage() {
   );
 }
 
-interface DraftActionsProps {
+interface VideosRowActionsProps {
   draft: Draft;
   onDelete: (draft: Draft) => void;
   onDuplicate: (draft: Draft) => void;
@@ -776,13 +762,13 @@ interface DraftActionsProps {
 const draftActionIconButtonClassName =
   'pointer-events-auto inline-flex shrink-0 h-12 w-12 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted disabled:opacity-60';
 
-function DraftActions({
+function VideosRowActions({
   draft,
   onDelete,
   onDuplicate,
   isDeletingId,
   isDuplicatingId,
-}: DraftActionsProps) {
+}: VideosRowActionsProps) {
   const isDuplicating = isDuplicatingId === draft.id;
 
   return (
@@ -851,14 +837,14 @@ function UsedIndicator({ used }: { used: boolean }) {
   );
 }
 
-interface DraftSectionProps {
+interface VideosSectionProps {
   title: string;
   description: string;
   used?: boolean;
   children: ReactNode;
 }
 
-function DraftSection({ title, description, used = false, children }: DraftSectionProps) {
+function VideosSection({ title, description, used = false, children }: VideosSectionProps) {
   return (
     <section
       className={`space-y-3 rounded-xl border p-4 sm:p-5 ${
@@ -874,7 +860,7 @@ function DraftSection({ title, description, used = false, children }: DraftSecti
   );
 }
 
-interface DraftCollectionProps {
+interface VideosCollectionProps {
   drafts: Draft[];
   labelLibrary: DraftLabelDefinition[];
   onEdit: (draft: Draft) => void;
@@ -884,7 +870,7 @@ interface DraftCollectionProps {
   isDuplicatingId: string | null;
 }
 
-function DraftsTable({
+function VideosTable({
   drafts,
   labelLibrary,
   onEdit,
@@ -892,17 +878,17 @@ function DraftsTable({
   onDuplicate,
   isDeletingId,
   isDuplicatingId,
-}: DraftCollectionProps) {
+}: VideosCollectionProps) {
   const { unused, used } = partitionDraftsByUploadStatus(drafts);
 
   return (
     <div className="space-y-6">
       {unused.length > 0 ? (
-        <DraftSection
+        <VideosSection
           title="Ready to upload"
           description="Drafts that have not been used for an upload yet."
         >
-          <DraftsTableContent
+          <VideosTableContent
             drafts={unused}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -911,15 +897,15 @@ function DraftsTable({
             isDeletingId={isDeletingId}
             isDuplicatingId={isDuplicatingId}
           />
-        </DraftSection>
+        </VideosSection>
       ) : null}
       {used.length > 0 ? (
-        <DraftSection
+        <VideosSection
           title="Used in upload"
           description="These drafts were already used to start an upload. Duplicate one if you need to publish again."
           used
         >
-          <DraftsTableContent
+          <VideosTableContent
             drafts={used}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -929,13 +915,13 @@ function DraftsTable({
             isDuplicatingId={isDuplicatingId}
             dimUsedRows
           />
-        </DraftSection>
+        </VideosSection>
       ) : null}
     </div>
   );
 }
 
-function DraftMobileRow({
+function VideosMobileRow({
   draft,
   used,
   labelLibrary,
@@ -971,13 +957,13 @@ function DraftMobileRow({
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-xs text-muted-foreground">{formatLastEdited(draft.$updatedAt)}</span>
         <UsedIndicator used={used} />
-        <DraftLabelChips
+        <VideosLabelChips
           labels={draft.labels ?? []}
           labelLibrary={labelLibrary}
           className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial"
         />
         <div className="ml-auto">
-          <DraftActions
+          <VideosRowActions
             draft={draft}
             onDelete={onDelete}
             onDuplicate={onDuplicate}
@@ -990,7 +976,7 @@ function DraftMobileRow({
   );
 }
 
-function DraftLabelChips({
+function VideosLabelChips({
   labels,
   labelLibrary,
   className,
@@ -1011,7 +997,7 @@ function DraftLabelChips({
   );
 }
 
-function DraftsTableContent({
+function VideosTableContent({
   drafts,
   labelLibrary,
   onEdit,
@@ -1020,12 +1006,12 @@ function DraftsTableContent({
   isDeletingId,
   isDuplicatingId,
   dimUsedRows = false,
-}: DraftCollectionProps & { dimUsedRows?: boolean }) {
+}: VideosCollectionProps & { dimUsedRows?: boolean }) {
   return (
     <>
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background md:hidden">
         {drafts.map((draft) => (
-          <DraftMobileRow
+          <VideosMobileRow
             key={draft.id}
             draft={draft}
             used={hasNonEmptyUsedInUploadAt(draft)}
@@ -1119,7 +1105,7 @@ function DraftsTableContent({
                       aria-label={`Edit draft "${displayTitle}"`}
                       className="flex min-h-12 w-full items-center px-4 py-3 text-left"
                     >
-                      <DraftLabelChips
+                      <VideosLabelChips
                         labels={draft.labels ?? []}
                         labelLibrary={labelLibrary}
                         className="mt-0"
@@ -1156,7 +1142,7 @@ function DraftsTableContent({
                           }
                         }}
                       >
-                        <DraftActions
+                        <VideosRowActions
                           draft={draft}
                           onDelete={onDelete}
                           onDuplicate={onDuplicate}
@@ -1176,7 +1162,7 @@ function DraftsTableContent({
   );
 }
 
-function DraftCards({
+function VideosCards({
   drafts,
   labelLibrary,
   onEdit,
@@ -1184,17 +1170,17 @@ function DraftCards({
   onDuplicate,
   isDeletingId,
   isDuplicatingId,
-}: DraftCollectionProps) {
+}: VideosCollectionProps) {
   const { unused, used } = partitionDraftsByUploadStatus(drafts);
 
   return (
     <div className="space-y-6">
       {unused.length > 0 ? (
-        <DraftSection
+        <VideosSection
           title="Ready to upload"
           description="Drafts that have not been used for an upload yet."
         >
-          <DraftCardsGrid
+          <VideosCardsGrid
             drafts={unused}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -1203,15 +1189,15 @@ function DraftCards({
             isDeletingId={isDeletingId}
             isDuplicatingId={isDuplicatingId}
           />
-        </DraftSection>
+        </VideosSection>
       ) : null}
       {used.length > 0 ? (
-        <DraftSection
+        <VideosSection
           title="Used in upload"
           description="These drafts were already used to start an upload. Duplicate one if you need to publish again."
           used
         >
-          <DraftCardsGrid
+          <VideosCardsGrid
             drafts={used}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -1221,13 +1207,13 @@ function DraftCards({
             isDuplicatingId={isDuplicatingId}
             dimUsedCards
           />
-        </DraftSection>
+        </VideosSection>
       ) : null}
     </div>
   );
 }
 
-function DraftCardsGrid({
+function VideosCardsGrid({
   drafts,
   labelLibrary,
   onEdit,
@@ -1236,7 +1222,7 @@ function DraftCardsGrid({
   isDeletingId,
   isDuplicatingId,
   dimUsedCards = false,
-}: DraftCollectionProps & { dimUsedCards?: boolean }) {
+}: VideosCollectionProps & { dimUsedCards?: boolean }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {drafts.map((draft) => {
@@ -1265,13 +1251,13 @@ function DraftCardsGrid({
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <UsedIndicator used={used} />
-                  <DraftLabelChips
+                  <VideosLabelChips
                     labels={draft.labels ?? []}
                     labelLibrary={labelLibrary}
                     className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial mt-0"
                   />
                   <div className="relative z-20 ml-auto shrink-0 pointer-events-auto">
-                    <DraftActions
+                    <VideosRowActions
                       draft={draft}
                       onDelete={onDelete}
                       onDuplicate={onDuplicate}

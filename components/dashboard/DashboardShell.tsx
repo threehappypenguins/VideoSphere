@@ -5,9 +5,8 @@ import { usePathname } from 'next/navigation';
 import {
   DASHBOARD_ADMIN_NAV_ITEMS,
   DASHBOARD_NAV_ITEMS,
-  DashboardNavList,
+  DashboardNavListContainer,
   resolveActiveDashboardNavHref,
-  useDashboardNavExpanded,
 } from '@/components/dashboard/dashboard-nav-shared';
 
 // =============================================================================
@@ -39,7 +38,6 @@ export default function DashboardShell({
     [isAdmin]
   );
   const activeHref = resolveActiveDashboardNavHref(pathname, navItems);
-  const { expandedParents, toggleExpanded } = useDashboardNavExpanded(pathname, navItems);
 
   const desktopLinkClassName =
     'flex items-center border-l-2 px-4 py-2 text-lg transition-colors rounded-r-md';
@@ -52,12 +50,11 @@ export default function DashboardShell({
       <aside className="hidden w-56 shrink-0 border-r border-border md:block bg-background/50">
         <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto py-4">
           <nav aria-label="Dashboard navigation">
-            <DashboardNavList
+            <DashboardNavListContainer
+              key={pathname}
               navItems={navItems}
               pathname={pathname}
               activeHref={activeHref}
-              expandedParents={expandedParents}
-              toggleExpanded={toggleExpanded}
               linkClassName={desktopLinkClassName}
               activeClassName={desktopActiveClassName}
               inactiveClassName={desktopInactiveClassName}

@@ -125,19 +125,13 @@ export function dashboardNavParentHasActiveChild(
 
 /**
  * Tracks expanded dashboard nav parents, auto-expanding sections with active children.
- * Manual toggles apply until the pathname changes.
+ * Mount inside a component keyed by pathname so manual toggles reset on navigation.
  * @param pathname - Current app pathname.
  * @param navItems - Nav items to evaluate.
  * @returns Expanded parent hrefs and a toggle handler.
  */
 export function useDashboardNavExpanded(pathname: string, navItems: DashboardNavItem[]) {
-  const [prevPathname, setPrevPathname] = useState(pathname);
   const [userToggles, setUserToggles] = useState<Map<string, boolean>>(() => new Map());
-
-  if (pathname !== prevPathname) {
-    setPrevPathname(pathname);
-    setUserToggles(new Map());
-  }
 
   const expandedParents = useMemo(() => {
     const next = new Set<string>();
@@ -224,6 +218,30 @@ interface DashboardNavListProps {
   inactiveClassName: string;
   onNavigate?: () => void;
   videosTourId?: 'desktop' | 'mobile';
+}
+
+type DashboardNavListContainerProps = Omit<
+  DashboardNavListProps,
+  'expandedParents' | 'toggleExpanded'
+>;
+
+/**
+ * Renders {@link DashboardNavList} with expansion state scoped to the current route.
+ * Remount with `key={pathname}` so chevron toggles reset when navigating.
+ * @param props - Nav list props excluding expansion state.
+ * @returns Navigation list UI.
+ */
+export function DashboardNavListContainer(props: DashboardNavListContainerProps) {
+  const { pathname, navItems } = props;
+  const { expandedParents, toggleExpanded } = useDashboardNavExpanded(pathname, navItems);
+
+  return (
+    <DashboardNavList
+      {...props}
+      expandedParents={expandedParents}
+      toggleExpanded={toggleExpanded}
+    />
+  );
 }
 
 /**

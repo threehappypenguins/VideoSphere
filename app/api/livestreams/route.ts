@@ -264,14 +264,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await reconcileLivestreamsFromYouTubeForUser(userId);
-
     const { searchParams } = new URL(req.url);
     const statusFilter = searchParams.get('status');
 
     if (statusFilter === 'streamed') {
       const limit = parseLimitParam(searchParams.get('limit'), DEFAULT_STREAMED_LIMIT);
       const offset = parseOffsetParam(searchParams.get('offset'));
+
+      // Reconcile once when opening history; skip on later pages to avoid repeated YouTube API load.
+      if (offset === 0) {
+        await reconcileLivestreamsFromYouTubeForUser(userId);
+      }
+
       const [total, livestreams] = await Promise.all([
         countStreamedLivestreamsByUser(userId),
         listStreamedLivestreamsByUserPage(userId, { limit, offset }),
@@ -282,6 +286,8 @@ export async function GET(req: NextRequest) {
       };
       return NextResponse.json(response);
     }
+
+    await reconcileLivestreamsFromYouTubeForUser(userId);
 
     const livestreams = await listLivestreamsByUser(userId);
     const response: ApiResponse<Livestream[]> = { data: livestreams };
