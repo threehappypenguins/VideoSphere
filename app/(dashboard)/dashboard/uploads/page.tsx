@@ -18,7 +18,7 @@ import { DraftLabelChip } from '@/components/drafts/DraftLabelChip';
 import { getUsableConnectedPlatforms } from '@/lib/platforms/connection-status';
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-type VideosView = 'list' | 'cards';
+type UploadsView = 'list' | 'cards';
 
 function draftTargetsEqual(
   a: readonly ConnectedAccountPlatform[],
@@ -79,10 +79,10 @@ function isMinimalCreateDraft(draft: Draft): boolean {
 }
 
 /**
- * Renders the dashboard Videos page.
+ * Renders the dashboard Uploads page.
  * @returns The rendered UI output.
  */
-export default function VideosPage() {
+export default function UploadsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -97,7 +97,7 @@ export default function VideosPage() {
   const [hasLoadedConnections, setHasLoadedConnections] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [view, setView] = useState<VideosView>('list');
+  const [view, setView] = useState<UploadsView>('list');
   const [creatingDraft, setCreatingDraft] = useState<DraftEditorValues | null>(null);
   const [editingDraft, setEditingDraft] = useState<DraftEditorValues | null>(null);
   const [isSavingCreate, setIsSavingCreate] = useState(false);
@@ -623,7 +623,7 @@ export default function VideosPage() {
     () =>
       hasDrafts
         ? `You have ${drafts.length} draft${drafts.length === 1 ? '' : 's'} ready to edit or upload.`
-        : "Videos you've started but haven't published yet. Drafts help you prepare uploads before distributing them.",
+        : "Uploads you've started but haven't published yet. Drafts help you prepare uploads before distributing them.",
     [drafts.length, hasDrafts]
   );
 
@@ -631,7 +631,7 @@ export default function VideosPage() {
     <div className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-5xl space-y-8">
         <header>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Videos</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Uploads</h1>
           <p className="mt-2 text-lg text-foreground text-shadow-bg">{headingDescription}</p>
         </header>
 
@@ -686,7 +686,7 @@ export default function VideosPage() {
 
         {hasDrafts ? (
           view === 'list' ? (
-            <VideosTable
+            <UploadsTable
               drafts={drafts}
               labelLibrary={labelLibrary}
               onEdit={(draft) => {
@@ -698,7 +698,7 @@ export default function VideosPage() {
               isDuplicatingId={isDuplicatingId}
             />
           ) : (
-            <VideosCards
+            <UploadsCards
               drafts={drafts}
               labelLibrary={labelLibrary}
               onEdit={(draft) => {
@@ -752,7 +752,7 @@ export default function VideosPage() {
   );
 }
 
-interface VideosRowActionsProps {
+interface UploadsRowActionsProps {
   draft: Draft;
   onDelete: (draft: Draft) => void;
   onDuplicate: (draft: Draft) => void;
@@ -763,13 +763,13 @@ interface VideosRowActionsProps {
 const draftActionIconButtonClassName =
   'pointer-events-auto inline-flex shrink-0 h-12 w-12 items-center justify-center rounded-md border border-border bg-background text-foreground transition-colors hover:bg-muted disabled:opacity-60';
 
-function VideosRowActions({
+function UploadsRowActions({
   draft,
   onDelete,
   onDuplicate,
   isDeletingId,
   isDuplicatingId,
-}: VideosRowActionsProps) {
+}: UploadsRowActionsProps) {
   const isDuplicating = isDuplicatingId === draft.id;
 
   return (
@@ -838,14 +838,14 @@ function UsedIndicator({ used }: { used: boolean }) {
   );
 }
 
-interface VideosSectionProps {
+interface UploadsSectionProps {
   title: string;
   description: string;
   used?: boolean;
   children: ReactNode;
 }
 
-function VideosSection({ title, description, used = false, children }: VideosSectionProps) {
+function UploadsSection({ title, description, used = false, children }: UploadsSectionProps) {
   return (
     <section
       className={`space-y-3 rounded-xl border p-4 sm:p-5 ${
@@ -861,7 +861,7 @@ function VideosSection({ title, description, used = false, children }: VideosSec
   );
 }
 
-interface VideosCollectionProps {
+interface UploadsCollectionProps {
   drafts: Draft[];
   labelLibrary: DraftLabelDefinition[];
   onEdit: (draft: Draft) => void;
@@ -871,7 +871,7 @@ interface VideosCollectionProps {
   isDuplicatingId: string | null;
 }
 
-function VideosTable({
+function UploadsTable({
   drafts,
   labelLibrary,
   onEdit,
@@ -879,17 +879,17 @@ function VideosTable({
   onDuplicate,
   isDeletingId,
   isDuplicatingId,
-}: VideosCollectionProps) {
+}: UploadsCollectionProps) {
   const { unused, used } = partitionDraftsByUploadStatus(drafts);
 
   return (
     <div className="space-y-6">
       {unused.length > 0 ? (
-        <VideosSection
+        <UploadsSection
           title="Ready to upload"
           description="Drafts that have not been used for an upload yet."
         >
-          <VideosTableContent
+          <UploadsTableContent
             drafts={unused}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -898,15 +898,15 @@ function VideosTable({
             isDeletingId={isDeletingId}
             isDuplicatingId={isDuplicatingId}
           />
-        </VideosSection>
+        </UploadsSection>
       ) : null}
       {used.length > 0 ? (
-        <VideosSection
+        <UploadsSection
           title="Used in upload"
           description="These drafts were already used to start an upload. Duplicate one if you need to publish again."
           used
         >
-          <VideosTableContent
+          <UploadsTableContent
             drafts={used}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -916,13 +916,13 @@ function VideosTable({
             isDuplicatingId={isDuplicatingId}
             dimUsedRows
           />
-        </VideosSection>
+        </UploadsSection>
       ) : null}
     </div>
   );
 }
 
-function VideosMobileRow({
+function UploadsMobileRow({
   draft,
   used,
   labelLibrary,
@@ -960,13 +960,13 @@ function VideosMobileRow({
             {formatLastEdited(draft.$updatedAt)}
           </span>
           <UsedIndicator used={used} />
-          <VideosLabelChips
+          <UploadsLabelChips
             labels={draft.labels ?? []}
             labelLibrary={labelLibrary}
             className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial"
           />
           <div className="relative z-20 ml-auto pointer-events-auto">
-            <VideosRowActions
+            <UploadsRowActions
               draft={draft}
               onDelete={onDelete}
               onDuplicate={onDuplicate}
@@ -980,7 +980,7 @@ function VideosMobileRow({
   );
 }
 
-function VideosLabelChips({
+function UploadsLabelChips({
   labels,
   labelLibrary,
   className,
@@ -1001,7 +1001,7 @@ function VideosLabelChips({
   );
 }
 
-function VideosTableContent({
+function UploadsTableContent({
   drafts,
   labelLibrary,
   onEdit,
@@ -1010,12 +1010,12 @@ function VideosTableContent({
   isDeletingId,
   isDuplicatingId,
   dimUsedRows = false,
-}: VideosCollectionProps & { dimUsedRows?: boolean }) {
+}: UploadsCollectionProps & { dimUsedRows?: boolean }) {
   return (
     <>
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background md:hidden">
         {drafts.map((draft) => (
-          <VideosMobileRow
+          <UploadsMobileRow
             key={draft.id}
             draft={draft}
             used={hasNonEmptyUsedInUploadAt(draft)}
@@ -1109,7 +1109,7 @@ function VideosTableContent({
                       aria-label={`Edit draft "${displayTitle}"`}
                       className="flex min-h-12 w-full items-center px-4 py-3 text-left"
                     >
-                      <VideosLabelChips
+                      <UploadsLabelChips
                         labels={draft.labels ?? []}
                         labelLibrary={labelLibrary}
                         className="mt-0"
@@ -1146,7 +1146,7 @@ function VideosTableContent({
                           }
                         }}
                       >
-                        <VideosRowActions
+                        <UploadsRowActions
                           draft={draft}
                           onDelete={onDelete}
                           onDuplicate={onDuplicate}
@@ -1166,7 +1166,7 @@ function VideosTableContent({
   );
 }
 
-function VideosCards({
+function UploadsCards({
   drafts,
   labelLibrary,
   onEdit,
@@ -1174,17 +1174,17 @@ function VideosCards({
   onDuplicate,
   isDeletingId,
   isDuplicatingId,
-}: VideosCollectionProps) {
+}: UploadsCollectionProps) {
   const { unused, used } = partitionDraftsByUploadStatus(drafts);
 
   return (
     <div className="space-y-6">
       {unused.length > 0 ? (
-        <VideosSection
+        <UploadsSection
           title="Ready to upload"
           description="Drafts that have not been used for an upload yet."
         >
-          <VideosCardsGrid
+          <UploadsCardsGrid
             drafts={unused}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -1193,15 +1193,15 @@ function VideosCards({
             isDeletingId={isDeletingId}
             isDuplicatingId={isDuplicatingId}
           />
-        </VideosSection>
+        </UploadsSection>
       ) : null}
       {used.length > 0 ? (
-        <VideosSection
+        <UploadsSection
           title="Used in upload"
           description="These drafts were already used to start an upload. Duplicate one if you need to publish again."
           used
         >
-          <VideosCardsGrid
+          <UploadsCardsGrid
             drafts={used}
             labelLibrary={labelLibrary}
             onEdit={onEdit}
@@ -1211,13 +1211,13 @@ function VideosCards({
             isDuplicatingId={isDuplicatingId}
             dimUsedCards
           />
-        </VideosSection>
+        </UploadsSection>
       ) : null}
     </div>
   );
 }
 
-function VideosCardsGrid({
+function UploadsCardsGrid({
   drafts,
   labelLibrary,
   onEdit,
@@ -1226,7 +1226,7 @@ function VideosCardsGrid({
   isDeletingId,
   isDuplicatingId,
   dimUsedCards = false,
-}: VideosCollectionProps & { dimUsedCards?: boolean }) {
+}: UploadsCollectionProps & { dimUsedCards?: boolean }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {drafts.map((draft) => {
@@ -1255,13 +1255,13 @@ function VideosCardsGrid({
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <UsedIndicator used={used} />
-                  <VideosLabelChips
+                  <UploadsLabelChips
                     labels={draft.labels ?? []}
                     labelLibrary={labelLibrary}
                     className="min-w-0 flex-1 basis-full sm:basis-auto sm:flex-initial mt-0"
                   />
                   <div className="relative z-20 ml-auto shrink-0 pointer-events-auto">
-                    <VideosRowActions
+                    <UploadsRowActions
                       draft={draft}
                       onDelete={onDelete}
                       onDuplicate={onDuplicate}

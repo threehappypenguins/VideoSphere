@@ -58,7 +58,7 @@ export default function DashboardShell({
               linkClassName={desktopLinkClassName}
               activeClassName={desktopActiveClassName}
               inactiveClassName={desktopInactiveClassName}
-              videosTourId="desktop"
+              uploadsTourId="desktop"
             />
           </nav>
         </div>

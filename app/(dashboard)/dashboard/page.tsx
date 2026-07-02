@@ -147,7 +147,7 @@ export default async function DashboardPage() {
                       </td>
                       <td className="px-4 py-4">
                         <Link
-                          href={`/dashboard/videos/${draft.id}`}
+                          href={`/dashboard/uploads/${draft.id}`}
                           className="font-medium text-foreground underline underline-offset-4 transition-opacity hover:opacity-70"
                         >
                           Open draft
@@ -162,7 +162,7 @@ export default async function DashboardPage() {
           {readyDrafts > previewDrafts.length ? (
             <div className="mt-4 flex justify-end">
               <Link
-                href="/dashboard/videos"
+                href="/dashboard/uploads"
                 className="text-sm font-medium text-foreground underline underline-offset-4 transition-opacity hover:opacity-70"
               >
                 View all drafts

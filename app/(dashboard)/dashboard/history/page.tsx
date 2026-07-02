@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
 
 /**
- * Legacy route redirect: /dashboard/history → /dashboard/videos/history.
+ * Legacy route redirect: /dashboard/history → /dashboard/uploads/history.
  */
 export default function LegacyHistoryRedirectPage() {
-  redirect('/dashboard/videos/history');
+  redirect('/dashboard/uploads/history');
 }

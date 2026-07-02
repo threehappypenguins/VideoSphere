@@ -25,12 +25,12 @@ export interface DashboardNavItem {
 export const DASHBOARD_NAV_ITEMS: DashboardNavItem[] = [
   { label: 'Dashboard', href: '/dashboard', exact: true },
   {
-    label: 'Videos',
-    href: '/dashboard/videos',
+    label: 'Uploads',
+    href: '/dashboard/uploads',
     exact: false,
-    tourIdDesktop: 'videos-nav-link-desktop',
-    tourIdMobile: 'videos-nav-link-mobile',
-    children: [{ label: 'History', href: '/dashboard/videos/history', exact: false }],
+    tourIdDesktop: 'uploads-nav-link-desktop',
+    tourIdMobile: 'uploads-nav-link-mobile',
+    children: [{ label: 'History', href: '/dashboard/uploads/history', exact: false }],
   },
   {
     label: 'Livestreams',
@@ -217,7 +217,7 @@ interface DashboardNavListProps {
   activeClassName: string;
   inactiveClassName: string;
   onNavigate?: () => void;
-  videosTourId?: 'desktop' | 'mobile';
+  uploadsTourId?: 'desktop' | 'mobile';
 }
 
 type DashboardNavListContainerProps = Omit<
@@ -259,16 +259,16 @@ export function DashboardNavList({
   activeClassName,
   inactiveClassName,
   onNavigate,
-  videosTourId,
+  uploadsTourId,
 }: DashboardNavListProps) {
   return (
     <>
       {navItems.map((item) => {
         const { label, href, children } = item;
         const tourId =
-          videosTourId === 'desktop'
+          uploadsTourId === 'desktop'
             ? item.tourIdDesktop
-            : videosTourId === 'mobile'
+            : uploadsTourId === 'mobile'
               ? item.tourIdMobile
               : undefined;
         const parentActive = isDashboardNavParentActive(pathname, item);

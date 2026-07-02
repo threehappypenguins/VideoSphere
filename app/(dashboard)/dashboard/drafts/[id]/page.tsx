@@ -5,10 +5,10 @@ interface Props {
 }
 
 /**
- * Legacy route redirect: /dashboard/drafts/[id] → /dashboard/videos?editDraft=[id].
+ * Legacy route redirect: /dashboard/drafts/[id] → /dashboard/uploads?editDraft=[id].
  * @param props - Route params.
  */
 export default async function LegacyEditDraftRedirectPage({ params }: Props) {
   const { id } = await params;
-  redirect(`/dashboard/videos?editDraft=${encodeURIComponent(id)}`);
+  redirect(`/dashboard/uploads?editDraft=${encodeURIComponent(id)}`);
 }

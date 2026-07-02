@@ -3838,7 +3838,7 @@ export function DraftMetadataModal({
     abortThumbnailUploadFlow();
     void (async () => {
       if (await tryCloseModal()) {
-        router.push('/dashboard/videos/history');
+        router.push('/dashboard/uploads/history');
       }
     })();
   };

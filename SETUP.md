@@ -92,10 +92,10 @@ an explicit Compose env file, so this command must include `--env-file .env.loca
 
 ### Option B: Docker run (also valid for local development)
 
-If you prefer running Mongo directly, this is supported:
+If you prefer running Mongo directly, this is supported. Use the **fully qualified** image name — Podman does not resolve short names like `mongo:8` unless your registry config defines search registries (Docker Desktop does this automatically).
 
 ```bash
-docker pull docker.io/mongo:8
+docker pull docker.io/library/mongo:8
 
 docker run -d \
   --name videosphere-mongo \
@@ -103,7 +103,7 @@ docker run -d \
   -e MONGO_INITDB_ROOT_USERNAME=admin \
   -e MONGO_INITDB_ROOT_PASSWORD=localdevpassword \
   -v videosphere-mongo-data:/data/db \
-  mongo:8
+  docker.io/library/mongo:8
 ```
 
 When using this option, ensure your `.env.local` uses matching credentials, for example:

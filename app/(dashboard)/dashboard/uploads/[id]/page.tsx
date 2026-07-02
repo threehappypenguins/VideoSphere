@@ -20,5 +20,5 @@ interface Props {
  */
 export default async function EditDraftPage({ params }: Props) {
   const { id } = await params;
-  redirect(`/dashboard/videos?editDraft=${encodeURIComponent(id)}`);
+  redirect(`/dashboard/uploads?editDraft=${encodeURIComponent(id)}`);
 }

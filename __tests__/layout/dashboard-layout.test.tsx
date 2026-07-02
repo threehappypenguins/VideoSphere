@@ -53,8 +53,8 @@ import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Videos', href: '/dashboard/videos' },
-  { label: 'History', href: '/dashboard/videos/history' },
+  { label: 'Uploads', href: '/dashboard/uploads' },
+  { label: 'History', href: '/dashboard/uploads/history' },
   { label: 'Livestreams', href: '/dashboard/livestreams' },
   { label: 'History', href: '/dashboard/livestreams/history' },
 ] as const;
@@ -100,7 +100,7 @@ describe('DashboardShell', () => {
       renderDashboardLayout(<div>Test Content</div>);
 
       expect(screen.getAllByRole('link', { name: 'Dashboard' }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole('link', { name: 'Videos' }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('link', { name: 'Uploads' }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('link', { name: 'Livestreams' }).length).toBeGreaterThan(0);
     });
 
@@ -114,11 +114,11 @@ describe('DashboardShell', () => {
       const drawer = screen.getByRole('dialog');
       expect(within(drawer).queryByRole('link', { name: 'History' })).not.toBeInTheDocument();
 
-      fireEvent.click(within(drawer).getByRole('button', { name: 'Show Videos submenu' }));
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Show Uploads submenu' }));
       expect(
         within(drawer)
           .getAllByRole('link', { name: 'History' })
-          .some((link) => link.getAttribute('href') === '/dashboard/videos/history')
+          .some((link) => link.getAttribute('href') === '/dashboard/uploads/history')
       ).toBe(true);
     });
 
@@ -130,7 +130,7 @@ describe('DashboardShell', () => {
       openMobileDrawer();
       const drawer = screen.getByRole('dialog');
 
-      fireEvent.click(within(drawer).getByRole('button', { name: 'Show Videos submenu' }));
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Show Uploads submenu' }));
       fireEvent.click(within(drawer).getByRole('button', { name: 'Show Livestreams submenu' }));
 
       NAV_ITEMS.forEach(({ label, href }) => {
@@ -149,11 +149,11 @@ describe('DashboardShell', () => {
     });
 
     it('should not render a mobile sections bar above page content', () => {
-      (usePathname as any).mockReturnValue('/dashboard/videos');
+      (usePathname as any).mockReturnValue('/dashboard/uploads');
 
       renderDashboardLayout(<div>Test Content</div>);
 
-      expect(screen.queryByText('Videos · History')).not.toBeInTheDocument();
+      expect(screen.queryByText('Uploads · History')).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Sections' })).not.toBeInTheDocument();
     });
   });
@@ -173,8 +173,8 @@ describe('DashboardShell', () => {
       expect(activeLink).toBeDefined();
     });
 
-    it('should NOT mark Dashboard sidebar link as active when pathname is /dashboard/videos', () => {
-      (usePathname as any).mockReturnValue('/dashboard/videos');
+    it('should NOT mark Dashboard sidebar link as active when pathname is /dashboard/uploads', () => {
+      (usePathname as any).mockReturnValue('/dashboard/uploads');
 
       renderDashboardLayout(<div>Test</div>);
 
@@ -187,13 +187,13 @@ describe('DashboardShell', () => {
       expect(activeSidebarLink).toBeUndefined();
     });
 
-    it('should mark Videos as active when pathname is /dashboard/videos', () => {
-      (usePathname as any).mockReturnValue('/dashboard/videos');
+    it('should mark Uploads as active when pathname is /dashboard/uploads', () => {
+      (usePathname as any).mockReturnValue('/dashboard/uploads');
 
       renderDashboardLayout(<div>Test</div>);
 
-      const videoLinks = screen.getAllByText('Videos');
-      const activeLink = videoLinks.find((el) => {
+      const uploadsLinks = screen.getAllByText('Uploads');
+      const activeLink = uploadsLinks.find((el) => {
         const link = el.closest('a');
         return link && link.getAttribute('aria-current') === 'page';
       });
@@ -201,13 +201,13 @@ describe('DashboardShell', () => {
       expect(activeLink).toBeDefined();
     });
 
-    it('should mark Videos as active when pathname is /dashboard/videos/[id]/upload', () => {
-      (usePathname as any).mockReturnValue('/dashboard/videos/video-123/upload');
+    it('should mark Uploads as active when pathname is /dashboard/uploads/[id]/upload', () => {
+      (usePathname as any).mockReturnValue('/dashboard/uploads/video-123/upload');
 
       renderDashboardLayout(<div>Test</div>);
 
-      const videoLinks = screen.getAllByText('Videos');
-      const activeLink = videoLinks.find((el) => {
+      const uploadsLinks = screen.getAllByText('Uploads');
+      const activeLink = uploadsLinks.find((el) => {
         const link = el.closest('a');
         return link && link.getAttribute('aria-current') === 'page';
       });
@@ -216,7 +216,7 @@ describe('DashboardShell', () => {
     });
 
     it('should auto-expand the parent section when a nested history route is active', () => {
-      (usePathname as any).mockReturnValue('/dashboard/videos/history');
+      (usePathname as any).mockReturnValue('/dashboard/uploads/history');
 
       renderDashboardLayout(<div>Test</div>);
 
@@ -226,14 +226,14 @@ describe('DashboardShell', () => {
       expect(
         historyLinks.some(
           (link) =>
-            link.getAttribute('href') === '/dashboard/videos/history' &&
+            link.getAttribute('href') === '/dashboard/uploads/history' &&
             link.getAttribute('aria-current') === 'page'
         )
       ).toBe(true);
     });
 
-    it('should only mark Videos sidebar links as active for /dashboard/videos', () => {
-      (usePathname as any).mockReturnValue('/dashboard/videos');
+    it('should only mark Uploads sidebar links as active for /dashboard/uploads', () => {
+      (usePathname as any).mockReturnValue('/dashboard/uploads');
 
       renderDashboardLayout(<div>Test</div>);
 
@@ -244,7 +244,7 @@ describe('DashboardShell', () => {
 
       expect(activeSidebarLinks.length).toBeGreaterThan(0);
       activeSidebarLinks.forEach((link) => {
-        expect(link).toHaveTextContent('Videos');
+        expect(link).toHaveTextContent('Uploads');
       });
     });
   });

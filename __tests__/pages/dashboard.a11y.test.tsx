@@ -90,7 +90,7 @@ describe('Dashboard accessibility', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open draft/i })).toHaveAttribute(
       'href',
-      '/dashboard/videos/draft-ready'
+      '/dashboard/uploads/draft-ready'
     );
 
     await expectNoAxeViolations(baseElement);

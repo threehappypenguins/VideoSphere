@@ -115,7 +115,7 @@ export function DashboardNavProvider({ children, isAdmin = false }: DashboardNav
               activeClassName={activeClassName}
               inactiveClassName={inactiveClassName}
               onNavigate={closeMobileNav}
-              videosTourId="mobile"
+              uploadsTourId="mobile"
             />
           </nav>
         </SheetContent>

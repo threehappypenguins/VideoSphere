@@ -34,17 +34,17 @@ export const onboardingSteps: Step[] = [
       'Click Connect to authorise VideoSphere to publish on your behalf. You can always add more platforms later from your profile.',
   },
   {
-    id: 'videos-nav-link',
+    id: 'uploads-nav-link',
     // NOTE: The actual target is overridden in OnboardingTour.tsx with a
     // visibility-checking function so the correct element is picked on both
     // desktop (sidebar) and mobile (tab bar). The string here is a fallback.
-    target: '[data-tour="videos-nav-link-desktop"], [data-tour="videos-nav-link-mobile"]',
+    target: '[data-tour="uploads-nav-link-desktop"], [data-tour="uploads-nav-link-mobile"]',
     skipBeacon: true,
     placement: 'auto',
     scrollOffset: 80,
-    title: 'Go to Videos',
+    title: 'Go to Uploads',
     content:
-      "Now let's head to the Videos section where you create and manage your video projects.",
+      "Now let's head to the Uploads section where you create and manage your video projects.",
   },
   {
     id: 'create-draft-button',
