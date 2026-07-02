@@ -5,6 +5,8 @@
 #   ./scripts/docker-build-platform.sh linux/arm64
 #   ./scripts/docker-build-platform.sh linux/amd64 videosphere:amd64-test
 #
+# Run the built image locally: docs/local-docker-testing.md
+#
 # Cross-arch on amd64 (arm64) needs QEMU. One-time host setup (Ubuntu/Debian):
 #   sudo apt install qemu-user-static binfmt-support
 #   sudo podman run --rm --privileged docker.io/tonistiigi/binfmt:latest --install all

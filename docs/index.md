@@ -7,6 +7,7 @@ Use these docs to run a production deployment, configure platform integrations, 
 ## Start Here
 
 - [Deployment Guide](/deployment-guide) — run the pre-built Docker image (Portainer or Compose)
+- [Local Docker Testing](/local-docker-testing) — build and run the image on your machine
 - [Daily Dev Workflow](/daily-dev-workflow) — local development checklist and pnpm scripts
 - [MongoDB Data Model](/mongodb-data-model)
 - [Code Quality](/code-quality)

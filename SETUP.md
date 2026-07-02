@@ -183,6 +183,14 @@ With Docker Compose, uncomment `network_mode: host` on the `app` service (see `d
 
 `pnpm dev` on the host (without Docker) can reach the LAN directly; host networking is only required when the app runs inside a container.
 
+## Testing a local Docker build
+
+To build the production image and run it on your machine (instead of `pnpm dev`), see [docs/local-docker-testing.md](docs/local-docker-testing.md). Typical amd64 build:
+
+```bash
+./scripts/docker-build-platform.sh linux/amd64 videosphere:amd64-test
+```
+
 ## Notes
 
 - This repository uses MongoDB for auth/session-related data and application persistence.

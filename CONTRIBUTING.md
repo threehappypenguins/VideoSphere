@@ -115,6 +115,8 @@ docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile .
 
 Omit `--load` and `--push` to discard images after a successful build. Cross-arch builds on amd64 require QEMU (`qemu-user-static` and binfmt).
 
+To **build and run** the image locally (amd64 smoke test, OAuth, production server), see [docs/local-docker-testing.md](docs/local-docker-testing.md).
+
 ## Pull Request Process
 
 1. **Fill out the PR template** — it's provided automatically when you open a PR
