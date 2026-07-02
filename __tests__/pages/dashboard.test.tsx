@@ -144,11 +144,11 @@ describe('DashboardPage Component', () => {
       expect(screen.getByRole('button', { name: /new draft/i })).toBeInTheDocument();
     });
 
-    it('should link "View drafts" to /dashboard/drafts', async () => {
+    it('should link "View drafts" to /dashboard/uploads', async () => {
       render(await DashboardPage());
 
       const viewDraftsLink = screen.getByRole('link', { name: /view drafts/i });
-      expect(viewDraftsLink).toHaveAttribute('href', '/dashboard/drafts');
+      expect(viewDraftsLink).toHaveAttribute('href', '/dashboard/uploads');
     });
   });
 
@@ -203,7 +203,7 @@ describe('DashboardPage Component', () => {
       expect(screen.getByText('YouTube, Vimeo')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /open draft/i })).toHaveAttribute(
         'href',
-        '/dashboard/drafts/draft-ready'
+        '/dashboard/uploads/draft-ready'
       );
       expect(screen.queryByText('Already uploaded draft')).not.toBeInTheDocument();
     });

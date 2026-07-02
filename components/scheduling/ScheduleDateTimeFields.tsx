@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
  * @property timeStr - Selected wall-clock time (`HH:MM`, 24-hour storage).
  * @property onDateChange - Called when the calendar date changes or is cleared.
  * @property onTimeChange - Called when the time input changes.
- * @property platform - Platform schedule window (`youtube` or `facebook`).
+ * @property platform - Platform schedule window (`youtube`, `facebook`, or `sermon_audio`).
  */
 export interface ScheduleDateTimeFieldsProps {
   dateId: string;
@@ -44,7 +44,7 @@ export interface ScheduleDateTimeFieldsProps {
 
 /**
  * Unified shadcn date and time fields for platform schedulers.
- * Date uses a calendar popover; time uses a scroll-column picker with typed entry (profile 12h/24h preference).
+ * Date uses a calendar popover; time uses a single typable field plus scroll-column picker (profile 12h/24h preference).
  * @param props - Field ids, values, change handlers, and styling.
  * @returns Date and time field columns for a scheduler row.
  */

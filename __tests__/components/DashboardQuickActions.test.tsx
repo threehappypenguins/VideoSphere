@@ -69,7 +69,7 @@ describe('DashboardQuickActions', () => {
       });
     });
 
-    expect(pushMock).toHaveBeenCalledWith('/dashboard/drafts?createDraftId=draft-new-123');
+    expect(pushMock).toHaveBeenCalledWith('/dashboard/uploads?createDraftId=draft-new-123');
   });
 
   it('shows an error toast when draft creation fails', async () => {

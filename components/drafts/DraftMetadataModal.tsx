@@ -21,7 +21,12 @@ import { createSseParser } from '@/lib/ai/sse-utils';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import type { SermonAudioLanguageOption } from '@/lib/platforms/sermon-audio-languages';
+import { getUsableConnectedPlatforms } from '@/lib/platforms/connection-status';
 import { validateFacebookScheduledPublishTime } from '@/lib/platforms/facebook-schedule';
+import {
+  sermonAudioPublishTimestampToScheduleParts,
+  validateSermonAudioScheduledPublishTime,
+} from '@/lib/platforms/sermon-audio-schedule';
 import { validateSchedulePublishAtIso, getScheduleMaxLeadLabel } from '@/lib/schedule-bounds';
 import {
   buildBackupFileName,
@@ -55,12 +60,18 @@ import {
 import { UploadHistoryJobDiscard } from '@/components/uploads/UploadHistoryJobDiscard';
 import { UploadHistoryPlatformActions } from '@/components/uploads/UploadHistoryPlatformActions';
 import { SermonAudioSpeakerCombobox } from '@/components/drafts/SermonAudioSpeakerCombobox';
+import { SermonAudioCrossPublishFields } from '@/components/drafts/SermonAudioCrossPublishFields';
 import { SermonAudioSeriesCombobox } from '@/components/drafts/SermonAudioSeriesCombobox';
 import { SermonAudioBibleReferencesField } from '@/components/drafts/SermonAudioBibleReferencesField';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
 import { SearchableSelect } from '@/components/drafts/SearchableSelect';
 import { VimeoCategoryPicker } from '@/components/drafts/VimeoCategoryPicker';
 import { YouTubeTimezoneSelect } from '@/components/drafts/YouTubeTimezoneSelect';
+import { YouTubeImportModal } from '@/components/youtube-import/YouTubeImportModal';
+import {
+  formatYoutubeImportStatusLabel,
+  isActiveYoutubeImportStatus,
+} from '@/lib/youtube-import/import-job-ui';
 import { Progress } from '@/components/ui/progress';
 import { RequiredFieldMarker } from '@/components/ui/required-field-marker';
 import {
@@ -88,6 +99,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { DraftLabelInput, type DraftLabelInputHandle } from '@/components/drafts/DraftLabelInput';
 import { DraftModalCard } from '@/components/drafts/DraftModalCard';
 import { DraftPlatformToggles } from '@/components/drafts/DraftPlatformToggles';
 import type {
@@ -98,6 +110,7 @@ import type {
   ConnectedAccountPlatform,
   ConnectedAccountPublic,
   Draft,
+  DraftLabelDefinition,
   DraftPlatforms,
   PerPlatformCopyOverrides,
   PerPlatformOverrides,
@@ -108,6 +121,7 @@ import type {
   VimeoVideoLicense,
   YouTubeDraftFields,
   FacebookDraftFields,
+  YoutubeImportJob,
 } from '@/types';
 import {
   DRAFT_THUMBNAIL_DISALLOWED_TYPE_MESSAGE,
@@ -175,6 +189,8 @@ export interface DraftEditorValues {
   title: string;
   description: string;
   tags: string[];
+  /** Organizational labels for grouping drafts in VideoSphere (not sent to platforms). */
+  labels?: string[];
   visibility: Draft['visibility'];
   targets: ConnectedAccountPlatform[];
   platforms: DraftPlatforms;
@@ -501,6 +517,10 @@ interface DraftMetadataModalProps {
   onDelete?: (draftId: string) => Promise<boolean>;
   onChange: (next: DraftEditorValues) => void;
   canUseAiMetadata?: boolean;
+  /** Saved label library for chip colors in the label editor. */
+  labelLibrary?: DraftLabelDefinition[];
+  /** Called when the label library changes during editing (for example, color updates). */
+  onLabelLibraryChange?: (library: DraftLabelDefinition[]) => void;
   /** Disable Dialog focus trap and scroll lock, e.g. when an onboarding tour overlay is active. */
   disableInteractionLock?: boolean;
 }
@@ -589,6 +609,8 @@ export function DraftMetadataModal({
   onDelete,
   onChange,
   canUseAiMetadata = false,
+  labelLibrary,
+  onLabelLibraryChange,
   disableInteractionLock = false,
 }: DraftMetadataModalProps) {
   const router = useRouter();
@@ -606,6 +628,7 @@ export function DraftMetadataModal({
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [platformWarning, setPlatformWarning] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
+  const labelInputRef = useRef<DraftLabelInputHandle>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   /** True when server cancel failed after XHR abort; keeps retry/clear UI until resolved. */
@@ -621,6 +644,12 @@ export function DraftMetadataModal({
   const [uploadHistory, setUploadHistory] = useState<DraftUploadHistoryItem[]>([]);
   const [isLoadingUploadHistory, setIsLoadingUploadHistory] = useState(false);
   const [showUploadHistory, setShowUploadHistory] = useState(false);
+  const [showYouTubeImportModal, setShowYouTubeImportModal] = useState(false);
+  const [youtubeImportDraftId, setYoutubeImportDraftId] = useState<string | null>(null);
+  const [draftYoutubeImport, setDraftYoutubeImport] = useState<YoutubeImportJob | null>(null);
+  const [showClearYoutubeImportConfirm, setShowClearYoutubeImportConfirm] = useState(false);
+  const [showCancelYoutubeImportConfirm, setShowCancelYoutubeImportConfirm] = useState(false);
+  const [isYoutubeImportConfirmBusy, setIsYoutubeImportConfirmBusy] = useState(false);
   const [showUploadProgressModalHistory, setShowUploadProgressModalHistory] = useState(false);
   const [expandedUploadHistoryIds, setExpandedUploadHistoryIds] = useState<Set<string>>(new Set());
   const [retryingUploadKey, setRetryingUploadKey] = useState<string | null>(null);
@@ -638,6 +667,11 @@ export function DraftMetadataModal({
   const [fbScheduleTime, setFbScheduleTime] = useState('');
   const [fbScheduleTimeZone, setFbScheduleTimeZone] = useState('');
   const fbScheduleInitializedRef = useRef(false);
+  const [saScheduleExpanded, setSaScheduleExpanded] = useState(false);
+  const [saScheduleDate, setSaScheduleDate] = useState('');
+  const [saScheduleTime, setSaScheduleTime] = useState('');
+  const [saScheduleTimeZone, setSaScheduleTimeZone] = useState('');
+  const saScheduleInitializedRef = useRef(false);
   const supportedTimeZones = useMemo(() => getSupportedTimeZones(), []);
   const [youtubeLanguages, setYoutubeLanguages] = useState<Array<{ id: string; name: string }>>([]);
   const [youtubeCategories, setYoutubeCategories] = useState<Array<{ id: string; title: string }>>(
@@ -820,6 +854,7 @@ export function DraftMetadataModal({
   const snapshotEditor = (editor: DraftEditorValues): DraftEditorValues => ({
     ...editor,
     tags: [...editor.tags],
+    labels: [...(editor.labels ?? [])],
     targets: [...editor.targets],
     backupNaming: { ...normalizeBackupFileNameSettings(editor.backupNaming) },
     platforms: {
@@ -887,6 +922,28 @@ export function DraftMetadataModal({
       }
     }
   };
+
+  const loadDraftYoutubeImport = useCallback(async (id: string, signal?: AbortSignal) => {
+    try {
+      const response = await fetch(`/api/drafts/${id}/youtube-import`, {
+        cache: 'no-store',
+        signal,
+      });
+      if (signal?.aborted) return;
+      if (!response.ok) {
+        setDraftYoutubeImport(null);
+        return;
+      }
+      const payload = (await response.json()) as ApiResponse<YoutubeImportJob | null>;
+      setDraftYoutubeImport(payload.data ?? null);
+    } catch (error) {
+      if (signal?.aborted) return;
+      const isAbortError =
+        (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
+      if (isAbortError) return;
+      setDraftYoutubeImport(null);
+    }
+  }, []);
 
   /** Reconcile thumbnail fields with the server after distribute consumes and clears them. */
   const syncDraftThumbnailFromServer = useCallback(
@@ -1085,8 +1142,33 @@ export function DraftMetadataModal({
     if (!draftId) return;
     const controller = new AbortController();
     void loadUploadHistory(draftId, controller.signal);
+    void loadDraftYoutubeImport(draftId, controller.signal);
     return () => controller.abort();
-  }, [draftId]);
+  }, [draftId, loadDraftYoutubeImport]);
+
+  const draftYoutubeImportId = draftYoutubeImport?.id;
+  const draftYoutubeImportStatus = draftYoutubeImport?.status;
+
+  useEffect(() => {
+    if (
+      !draftId ||
+      !draftYoutubeImportId ||
+      draftYoutubeImportStatus == null ||
+      !isActiveYoutubeImportStatus(draftYoutubeImportStatus)
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const intervalId = window.setInterval(() => {
+      void loadDraftYoutubeImport(draftId, controller.signal);
+    }, 3000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [draftId, draftYoutubeImportId, draftYoutubeImportStatus, loadDraftYoutubeImport]);
 
   const needsLiveUploadHistoryUpdates =
     uploading || uploadComplete || showUploadHistory || showUploadModal;
@@ -1191,7 +1273,7 @@ export function DraftMetadataModal({
         }
         const payload = (await response.json()) as ApiResponse<ConnectedAccountPublic[]>;
         const platforms = Array.isArray(payload.data)
-          ? payload.data.map((acc) => acc.platform)
+          ? getUsableConnectedPlatforms(payload.data)
           : [];
         setConnectedPlatforms(platforms);
       } catch (error) {
@@ -2164,6 +2246,23 @@ export function DraftMetadataModal({
     setFbScheduleTimeZone(tz);
   }, [value?.platforms.facebook?.scheduledPublishTime]);
 
+  const initSermonAudioScheduleFromStored = useCallback(() => {
+    const tz = getLocalTimeZone();
+    const existing = value?.platforms.sermon_audio?.publishTimestamp;
+    if (existing !== undefined) {
+      const parts = sermonAudioPublishTimestampToScheduleParts(existing, tz);
+      if (parts) {
+        setSaScheduleDate(parts.dateStr);
+        setSaScheduleTime(parts.timeStr);
+        setSaScheduleTimeZone(tz);
+        return;
+      }
+    }
+    setSaScheduleDate(getDefaultScheduleDate(tz));
+    setSaScheduleTime(getDefaultScheduleTime(tz));
+    setSaScheduleTimeZone(tz);
+  }, [value?.platforms.sermon_audio?.publishTimestamp]);
+
   useEffect(() => {
     if (!value?.targets.includes('youtube')) {
       youtubeDefaultsSeededRef.current = null;
@@ -2332,6 +2431,18 @@ export function DraftMetadataModal({
       ? validateFacebookScheduledPublishTime(facebookFields.scheduledPublishTime)
       : undefined;
 
+  const sermonAudioPublishTimestampValue = sermonAudioFields?.publishTimestamp;
+  const sermonAudioSchedulePastWarning =
+    sermonAudioPublishTimestampValue !== undefined &&
+    sermonAudioPublishTimestampValue * 1000 < Date.now();
+  const sermonAudioScheduleValidationMessage =
+    sermonAudioPublishTimestampValue !== undefined
+      ? validateSermonAudioScheduledPublishTime(sermonAudioPublishTimestampValue)
+      : undefined;
+  const sermonAudioShowsCrossPublish =
+    sermonAudioFields?.autoPublishOnProcessed !== false ||
+    sermonAudioPublishTimestampValue !== undefined;
+
   useEffect(() => {
     if (!value || facebookVideoState !== 'SCHEDULED') return;
 
@@ -2373,6 +2484,7 @@ export function DraftMetadataModal({
   useEffect(() => {
     scheduleInitializedRef.current = false;
     fbScheduleInitializedRef.current = false;
+    saScheduleInitializedRef.current = false;
     setShowMoreExpanded(false);
     setAgeRestrictionsExpanded(false);
     setScheduleExpanded(false);
@@ -2382,6 +2494,10 @@ export function DraftMetadataModal({
     setFbScheduleDate('');
     setFbScheduleTime('');
     setFbScheduleTimeZone('');
+    setSaScheduleExpanded(false);
+    setSaScheduleDate('');
+    setSaScheduleTime('');
+    setSaScheduleTimeZone('');
   }, [draftId]);
 
   useEffect(() => {
@@ -2392,6 +2508,62 @@ export function DraftMetadataModal({
     initFacebookScheduleFromStored();
     fbScheduleInitializedRef.current = true;
   }, [draftId, facebookVideoState, initFacebookScheduleFromStored, value?.targets]);
+
+  useEffect(() => {
+    if (!value?.targets.includes('sermon_audio')) return;
+    if (sermonAudioPublishTimestampValue === undefined) return;
+    if (saScheduleInitializedRef.current) return;
+
+    initSermonAudioScheduleFromStored();
+    saScheduleInitializedRef.current = true;
+    setSaScheduleExpanded(true);
+  }, [
+    draftId,
+    initSermonAudioScheduleFromStored,
+    sermonAudioPublishTimestampValue,
+    value?.targets,
+  ]);
+
+  useEffect(() => {
+    if (!value || !saScheduleExpanded) return;
+
+    const hasCompleteScheduleInputs =
+      Boolean(saScheduleDate) && Boolean(saScheduleTime) && Boolean(saScheduleTimeZone);
+
+    if (!hasCompleteScheduleInputs) {
+      if (
+        saScheduleInitializedRef.current &&
+        value.platforms.sermon_audio?.publishTimestamp !== undefined
+      ) {
+        updateSermonAudioFields({ publishTimestamp: undefined });
+      }
+      return;
+    }
+
+    let iso: string;
+    try {
+      iso = zonedDateTimeToUtcIso(saScheduleDate, saScheduleTime, saScheduleTimeZone);
+    } catch {
+      if (value.platforms.sermon_audio?.publishTimestamp !== undefined) {
+        updateSermonAudioFields({ publishTimestamp: undefined });
+      }
+      return;
+    }
+
+    const unixSec = Math.floor(new Date(iso).getTime() / 1000);
+    if (value.platforms.sermon_audio?.publishTimestamp === unixSec) return;
+    updateSermonAudioFields({
+      publishTimestamp: unixSec,
+      autoPublishOnProcessed: false,
+    });
+  }, [
+    saScheduleDate,
+    saScheduleExpanded,
+    saScheduleTime,
+    saScheduleTimeZone,
+    updateSermonAudioFields,
+    value,
+  ]);
 
   useEffect(() => {
     if (!value || !showMoreExpanded || !scheduleExpanded) return;
@@ -2445,6 +2617,32 @@ export function DraftMetadataModal({
 
     setScheduleExpanded(false);
     updateYouTubeFields({ publishAt: undefined });
+  };
+
+  const clearSermonAudioSchedule = () => {
+    setSaScheduleExpanded(false);
+    saScheduleInitializedRef.current = false;
+    setSaScheduleDate('');
+    setSaScheduleTime('');
+    setSaScheduleTimeZone('');
+    updateSermonAudioFields({
+      publishTimestamp: undefined,
+      autoPublishOnProcessed: undefined,
+    });
+  };
+
+  const handleSermonAudioScheduleExpandedChange = (nextExpanded: boolean) => {
+    if (nextExpanded) {
+      if (!saScheduleInitializedRef.current) {
+        initSermonAudioScheduleFromStored();
+        saScheduleInitializedRef.current = true;
+      }
+      updateSermonAudioFields({ autoPublishOnProcessed: false });
+      setSaScheduleExpanded(true);
+      return;
+    }
+
+    clearSermonAudioSchedule();
   };
 
   const clearSchedule = () => {
@@ -2501,9 +2699,18 @@ export function DraftMetadataModal({
     });
   }, [commitTagsFromInput]);
 
+  const commitLabelsBeforeSave = useCallback(() => {
+    labelInputRef.current?.commitPending();
+  }, []);
+
+  const commitMetadataInputsBeforeSave = useCallback(() => {
+    commitLabelsBeforeSave();
+    commitTagsBeforeSave();
+  }, [commitLabelsBeforeSave, commitTagsBeforeSave]);
+
   const validateBeforeUpload = useCallback((): boolean => {
     if (!value) return false;
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     const issues = validateDraftForUpload({
       title: value.title,
       description: value.description,
@@ -2532,7 +2739,7 @@ export function DraftMetadataModal({
     }
     setUploadFieldErrors(new Set());
     return true;
-  }, [commitTagsBeforeSave, value, vimeoSupportsUnlisted]);
+  }, [commitMetadataInputsBeforeSave, value, vimeoSupportsUnlisted]);
 
   const displayPlatforms = useMemo(() => {
     if (!value) return [] as ConnectedAccountPlatform[];
@@ -2566,6 +2773,14 @@ export function DraftMetadataModal({
     return value.targets.filter((platform) => !connectedSet.has(platform));
   }, [connectedPlatforms, value]);
 
+  const isYouTubeConnected = connectedPlatforms.includes('youtube');
+  const youtubeImportActive =
+    draftYoutubeImport != null && isActiveYoutubeImportStatus(draftYoutubeImport.status);
+  const youtubeImportStaged = draftYoutubeImport?.status === 'completed';
+  const youtubeImportFailed = draftYoutubeImport?.status === 'failed';
+  const youtubeImportLocksFilePicker = youtubeImportActive || youtubeImportStaged;
+  const hasUploadableVideoSource = videoFile != null || youtubeImportStaged;
+
   const connectionsResolvedSuccessfully = hasLoadedConnections && connectionsError === null;
 
   const canSave =
@@ -2578,7 +2793,12 @@ export function DraftMetadataModal({
     (!connectionsResolvedSuccessfully || disconnectedSelectedPlatforms.length === 0);
   /** Blocks video upload while thumbnail PUT/complete is in-flight so distribute reads thumbnailR2Key. */
   const canUploadVideo =
-    canSave && !thumbnailUploading && !uploading && !cancelServerFailed && !isSaving;
+    canSave &&
+    !thumbnailUploading &&
+    !uploading &&
+    !cancelServerFailed &&
+    !isSaving &&
+    hasUploadableVideoSource;
   const trimmedAiPrompt = aiPrompt.trim();
   const hasAiPrompt = trimmedAiPrompt !== '';
   const hasGeneratedMetadata =
@@ -2834,7 +3054,7 @@ export function DraftMetadataModal({
       currentUploadJobId === null &&
       !cancelServerFailed &&
       !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
@@ -2861,7 +3081,7 @@ export function DraftMetadataModal({
       currentUploadJobId === null &&
       !cancelServerFailed &&
       !(value.thumbnailR2Key || value.thumbnailPreviewUrl);
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     if (isCreateDraftEmptyForConnect) {
       onClose();
       router.push('/profile/connections');
@@ -2874,7 +3094,11 @@ export function DraftMetadataModal({
   };
 
   const handleUploadVideo = async () => {
-    if (!value || !videoFile) {
+    if (!value) {
+      closeUploadModal();
+      return;
+    }
+    if (!videoFile && !draftYoutubeImport) {
       closeUploadModal();
       return;
     }
@@ -2888,7 +3112,7 @@ export function DraftMetadataModal({
       return;
     }
 
-    commitTagsBeforeSave();
+    commitMetadataInputsBeforeSave();
     const saveResult = await onSave({ closeAfterSave: false });
     if (!saveResult.saved) {
       setUploadModalPhase('confirm');
@@ -2898,6 +3122,53 @@ export function DraftMetadataModal({
     if (!draftIdForUpload) {
       toast.error('Please save the draft before uploading.');
       setUploadModalPhase('confirm');
+      return;
+    }
+
+    if (!videoFile && draftYoutubeImport) {
+      setUploading(true);
+      try {
+        const response = await fetch(
+          `/api/youtube-import/${draftYoutubeImport.id}/queue-distribute`,
+          { method: 'POST' }
+        );
+        const payload = (await response.json().catch(() => null)) as
+          | ApiResponse<YoutubeImportJob>
+          | { message?: string }
+          | null;
+
+        if (!response.ok) {
+          throw new Error(
+            payload && 'message' in payload && payload.message
+              ? payload.message
+              : 'Failed to queue YouTube import upload'
+          );
+        }
+
+        const updatedJob = payload && 'data' in payload ? payload.data : null;
+        if (updatedJob) {
+          setDraftYoutubeImport(updatedJob);
+        }
+
+        if (updatedJob && isActiveYoutubeImportStatus(updatedJob.status)) {
+          toast.success('Upload queued. It will start when the import finishes.');
+          closeUploadModal();
+          return;
+        }
+
+        await loadUploadHistory(draftIdForUpload);
+        setUploadComplete(true);
+        setUploadModalPhase('complete');
+        setShowUploadHistory(true);
+        await onUploadComplete?.();
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to queue YouTube import upload'
+        );
+        setUploadModalPhase('confirm');
+      } finally {
+        setUploading(false);
+      }
       return;
     }
 
@@ -3052,6 +3323,87 @@ export function DraftMetadataModal({
       }
     }
   };
+
+  const handleYouTubeImportComplete = async () => {
+    const draftIdForImport = youtubeImportDraftId ?? draftId;
+    if (!draftIdForImport) return;
+    await loadDraftYoutubeImport(draftIdForImport);
+  };
+
+  const handleDiscardDraftYoutubeImport = useCallback(async () => {
+    const draftIdForDiscard = draftId ?? value?.id;
+    if (!draftIdForDiscard) return;
+
+    try {
+      const response = await fetch(`/api/drafts/${draftIdForDiscard}/youtube-import/discard`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? 'Failed to clear YouTube import');
+      }
+      setDraftYoutubeImport(null);
+      toast.success('YouTube import cleared');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to clear YouTube import');
+      throw error;
+    }
+  }, [draftId, value?.id]);
+
+  const handleOpenYouTubeImport = async () => {
+    if (!value) return;
+    if (uploadComplete || uploading || youtubeImportActive || youtubeImportStaged) return;
+
+    commitMetadataInputsBeforeSave();
+    const saveResult = await onSave({ closeAfterSave: false });
+    if (!saveResult.saved) {
+      toast.error(saveResult.message ?? 'Please save the draft before importing.');
+      return;
+    }
+    const draftIdForImport = saveResult.draftId ?? value.id;
+    if (!draftIdForImport) {
+      toast.error('Please save the draft before importing.');
+      return;
+    }
+    setYoutubeImportDraftId(draftIdForImport);
+    setShowYouTubeImportModal(true);
+  };
+
+  const handleClearYoutubeImportConfirm = useCallback(async () => {
+    setIsYoutubeImportConfirmBusy(true);
+    try {
+      await handleDiscardDraftYoutubeImport();
+      setShowClearYoutubeImportConfirm(false);
+    } finally {
+      setIsYoutubeImportConfirmBusy(false);
+    }
+  }, [handleDiscardDraftYoutubeImport]);
+
+  const handleCancelActiveYoutubeImportConfirm = useCallback(async () => {
+    const importJobId = draftYoutubeImport?.id;
+    const draftIdForReload = draftId ?? value?.id;
+    if (!importJobId || !draftIdForReload) return;
+
+    setIsYoutubeImportConfirmBusy(true);
+    try {
+      const response = await fetch(`/api/youtube-import/${importJobId}/cancel`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? 'Failed to cancel YouTube import');
+      }
+      setShowCancelYoutubeImportConfirm(false);
+      setDraftYoutubeImport(null);
+      await loadDraftYoutubeImport(draftIdForReload);
+      toast.success('YouTube import cancelled');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to cancel YouTube import');
+      throw error;
+    } finally {
+      setIsYoutubeImportConfirmBusy(false);
+    }
+  }, [draftId, draftYoutubeImport?.id, loadDraftYoutubeImport, value?.id]);
 
   const handleCancelUpload = async () => {
     if (!currentUploadJobId) return;
@@ -3486,7 +3838,7 @@ export function DraftMetadataModal({
     abortThumbnailUploadFlow();
     void (async () => {
       if (await tryCloseModal()) {
-        router.push('/dashboard/history');
+        router.push('/dashboard/uploads/history');
       }
     })();
   };
@@ -4251,20 +4603,108 @@ export function DraftMetadataModal({
             type="checkbox"
             role="switch"
             aria-label="Auto-publish when processed"
-            checked={sermonAudioFields?.autoPublishOnProcessed !== false}
-            onChange={(event) =>
+            checked={
+              sermonAudioFields?.autoPublishOnProcessed !== false &&
+              sermonAudioPublishTimestampValue === undefined
+            }
+            disabled={sermonAudioPublishTimestampValue !== undefined}
+            onChange={(event) => {
+              if (event.target.checked) {
+                clearSermonAudioSchedule();
+              }
               updateSermonAudioFields({
                 autoPublishOnProcessed: event.target.checked,
-              })
-            }
+              });
+            }}
             className="peer sr-only"
           />
-          <span className="h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-primary" />
+          <span className="h-6 w-11 rounded-full bg-muted transition-colors peer-checked:bg-primary peer-disabled:opacity-50" />
           <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-background shadow-sm transition-transform peer-checked:translate-x-5" />
         </label>
       </div>
-      {/* TODO(sermon-audio-schedule): Contact the SermonAudio developer — POST /v2/node/sermons rejects ISO datetimes for publishDate (422: dates must be YYYY-MM-DD only). Schedule for Publication UI hidden until API supports date+time scheduling. */}
-      {/* TODO(sermon-audio-cross-publish): I will contact the SermonAudio developer about how to get Cross Publish working via the API. Cross Publish UI hidden until then. */}
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => handleSermonAudioScheduleExpandedChange(!saScheduleExpanded)}
+          className="inline-flex items-center gap-2 text-sm font-medium text-foreground"
+          aria-expanded={saScheduleExpanded}
+        >
+          {saScheduleExpanded ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+          Schedule for publication
+        </button>
+        {saScheduleExpanded ? (
+          <div className="space-y-3 rounded-lg border border-border bg-background p-3">
+            <p className="text-sm font-medium text-foreground">Scheduled publish time</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+              <ScheduleDateTimeFields
+                platform="sermon_audio"
+                dateId="draft-sermon-audio-schedule-date"
+                timeId="draft-sermon-audio-schedule-time"
+                dateStr={saScheduleDate}
+                timeStr={saScheduleTime}
+                dateClassName={fieldBorderClass('sermon_audio.publishTimestamp')}
+                timeClassName={fieldBorderClass('sermon_audio.publishTimestamp')}
+                onDateChange={setSaScheduleDate}
+                onTimeChange={setSaScheduleTime}
+              />
+              <div className="min-w-0">
+                <label
+                  htmlFor="draft-sermon-audio-schedule-timezone"
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  Timezone
+                </label>
+                <YouTubeTimezoneSelect
+                  id="draft-sermon-audio-schedule-timezone"
+                  value={saScheduleTimeZone}
+                  options={supportedTimeZones}
+                  onValueChange={(next) => setSaScheduleTimeZone(next)}
+                  className={cn(
+                    fieldBorderClass('sermon_audio.publishTimestamp'),
+                    'mt-1 w-full rounded-md border bg-background px-3'
+                  )}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={clearSermonAudioSchedule}
+                className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Clear schedule
+              </button>
+              {sermonAudioScheduleValidationMessage ? (
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  {sermonAudioScheduleValidationMessage}
+                </p>
+              ) : sermonAudioSchedulePastWarning ? (
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  Scheduled time is in the past. The sermon will publish immediately after
+                  processing.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  You can schedule up to {getScheduleMaxLeadLabel('sermon_audio')} ahead. Times in
+                  the past publish immediately.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      {sermonAudioShowsCrossPublish ? (
+        <SermonAudioCrossPublishFields
+          crossPublish={sermonAudioFields?.crossPublish}
+          defaultVideoTitle={sermonAudioFields?.displayTitle?.trim() || value?.title?.trim() || ''}
+          defaultVideoDescription={value?.description?.trim() || ''}
+          onChange={(next) => updateSermonAudioFields({ crossPublish: next })}
+        />
+      ) : null}
     </>
   );
 
@@ -4466,6 +4906,15 @@ export function DraftMetadataModal({
             {isLoadingPlatforms && displayPlatforms.length === 0 ? (
               <p className="text-xs text-muted-foreground">Loading connected platforms...</p>
             ) : null}
+            <DraftModalCard>
+              <DraftLabelInput
+                ref={labelInputRef}
+                labels={value.labels ?? []}
+                labelLibrary={labelLibrary}
+                onLabelLibraryChange={onLabelLibraryChange}
+                onChange={(labels) => onChange({ ...value, labels })}
+              />
+            </DraftModalCard>
             <DraftModalCard data-tour="draft-platforms">
               <DraftPlatformToggles
                 availablePlatforms={displayPlatforms}
@@ -4877,90 +5326,88 @@ export function DraftMetadataModal({
               </DraftModalCard>
             ) : null}
             <DraftModalCard>
-              <div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
-                    Title
-                    <RequiredFieldMarker />
-                  </label>
-                  {showTitleSharedCheckbox ? (
-                    <SharedMetadataCheckbox
-                      checked={usesSharedTitleGlobally}
-                      onChange={(useShared) => setUseSharedCopyField('title', useShared)}
-                      hint="When checked, all selected targets share one title. Uncheck to set a title per platform."
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <label htmlFor="edit-title" className="text-sm font-medium text-foreground">
+                  Title
+                  <RequiredFieldMarker />
+                </label>
+                {showTitleSharedCheckbox ? (
+                  <SharedMetadataCheckbox
+                    checked={usesSharedTitleGlobally}
+                    onChange={(useShared) => setUseSharedCopyField('title', useShared)}
+                    hint="When checked, all selected targets share one title. Uncheck to set a title per platform."
+                  />
+                ) : null}
+              </div>
+              {showPerPlatformTitle ? (
+                <div className="mt-2 space-y-3">
+                  {selectedTitleTargetPlatforms.map((platform) => {
+                    const platformFields = value.platforms[platform];
+                    const fieldKey = `title:${platform}` as DraftUploadFieldKey;
+                    const platformTitle = platformFields?.titleOverride ?? value.title;
+                    const showShortTitleUnderPlatform =
+                      platform === 'sermon_audio' && needsSermonAudioShortTitle(platformTitle);
+                    return (
+                      <div key={platform}>
+                        <label
+                          htmlFor={`edit-title-${platform}`}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <span className="sr-only">Title — </span>
+                          <TitleTargetPlatformLabel
+                            platform={platform}
+                            isShort={platform === 'youtube' ? youtubeIsShort : undefined}
+                          />
+                        </label>
+                        <input
+                          id={`edit-title-${platform}`}
+                          value={platformTitle}
+                          required
+                          onChange={(event) => {
+                            clearUploadFieldError(fieldKey);
+                            updateTitleOverridePlatformFields(platform, {
+                              titleOverride: event.target.value,
+                            });
+                          }}
+                          aria-invalid={uploadFieldErrors.has(fieldKey)}
+                          className={fieldBorderClass(fieldKey)}
+                        />
+                        {showShortTitleUnderPlatform ? (
+                          <SermonAudioShortTitleField
+                            className="mt-3"
+                            value={sermonAudioFields?.displayTitle ?? ''}
+                            onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
+                            fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
+                          />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <>
+                  <input
+                    id="edit-title"
+                    data-tour="draft-title-input"
+                    value={value.title}
+                    required
+                    onChange={(event) => {
+                      clearUploadFieldError('title');
+                      onChange({ ...value, title: event.target.value });
+                    }}
+                    aria-invalid={uploadFieldErrors.has('title')}
+                    className={fieldBorderClass('title')}
+                  />
+                  {showSermonAudioShortTitleUnderSharedTitle ? (
+                    <SermonAudioShortTitleField
+                      className="mt-3"
+                      value={sermonAudioFields?.displayTitle ?? ''}
+                      onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
+                      fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
                     />
                   ) : null}
-                </div>
-                {showPerPlatformTitle ? (
-                  <div className="mt-2 space-y-3">
-                    {selectedTitleTargetPlatforms.map((platform) => {
-                      const platformFields = value.platforms[platform];
-                      const fieldKey = `title:${platform}` as DraftUploadFieldKey;
-                      const platformTitle = platformFields?.titleOverride ?? value.title;
-                      const showShortTitleUnderPlatform =
-                        platform === 'sermon_audio' && needsSermonAudioShortTitle(platformTitle);
-                      return (
-                        <div key={platform}>
-                          <label
-                            htmlFor={`edit-title-${platform}`}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
-                          >
-                            <span className="sr-only">Title — </span>
-                            <TitleTargetPlatformLabel
-                              platform={platform}
-                              isShort={platform === 'youtube' ? youtubeIsShort : undefined}
-                            />
-                          </label>
-                          <input
-                            id={`edit-title-${platform}`}
-                            value={platformTitle}
-                            required
-                            onChange={(event) => {
-                              clearUploadFieldError(fieldKey);
-                              updateTitleOverridePlatformFields(platform, {
-                                titleOverride: event.target.value,
-                              });
-                            }}
-                            aria-invalid={uploadFieldErrors.has(fieldKey)}
-                            className={fieldBorderClass(fieldKey)}
-                          />
-                          {showShortTitleUnderPlatform ? (
-                            <SermonAudioShortTitleField
-                              className="mt-3"
-                              value={sermonAudioFields?.displayTitle ?? ''}
-                              onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
-                              fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
-                            />
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <>
-                    <input
-                      id="edit-title"
-                      data-tour="draft-title-input"
-                      value={value.title}
-                      required
-                      onChange={(event) => {
-                        clearUploadFieldError('title');
-                        onChange({ ...value, title: event.target.value });
-                      }}
-                      aria-invalid={uploadFieldErrors.has('title')}
-                      className={fieldBorderClass('title')}
-                    />
-                    {showSermonAudioShortTitleUnderSharedTitle ? (
-                      <SermonAudioShortTitleField
-                        className="mt-3"
-                        value={sermonAudioFields?.displayTitle ?? ''}
-                        onChange={(next) => updateSermonAudioFields({ displayTitle: next })}
-                        fieldBorderClassName={fieldBorderClass('sermon_audio.displayTitle')}
-                      />
-                    ) : null}
-                  </>
-                )}
-              </div>
+                </>
+              )}
               {showDescriptionField ? (
                 <div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -5623,8 +6070,66 @@ export function DraftMetadataModal({
             ) : null}
             <DraftModalCard title="Upload video" data-tour="draft-upload-section">
               <p className="text-xs text-muted-foreground">
-                Choose a video file, then upload it for this draft.
+                Choose a video file or import from YouTube, then upload when your draft is ready.
               </p>
+              {draftYoutubeImport ? (
+                <div className="space-y-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                      YouTube import: {formatYoutubeImportStatusLabel(draftYoutubeImport.status)}
+                    </span>
+                    <span>{draftYoutubeImport.progressPercent}%</span>
+                  </div>
+                  {isActiveYoutubeImportStatus(draftYoutubeImport.status) ? (
+                    <Progress value={draftYoutubeImport.progressPercent} className="h-2" />
+                  ) : null}
+                  {draftYoutubeImport.status === 'completed' ? (
+                    <p className="text-xs text-muted-foreground">
+                      Video is staged for this draft. Use Upload &amp; Save when your metadata is
+                      ready.
+                    </p>
+                  ) : null}
+                  {draftYoutubeImport.status === 'failed' ? (
+                    <p className="text-xs text-destructive">
+                      {draftYoutubeImport.errorMessage?.trim() || 'The import failed.'}
+                    </p>
+                  ) : null}
+                  {draftYoutubeImport.distributeQueued &&
+                  isActiveYoutubeImportStatus(draftYoutubeImport.status) ? (
+                    <p className="text-xs text-muted-foreground">
+                      Upload queued — distribution will start when the import finishes.
+                    </p>
+                  ) : null}
+                  {youtubeImportActive ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCancelYoutubeImportConfirm(true);
+                        }}
+                        disabled={uploadComplete || uploading || isYoutubeImportConfirmBusy}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        Cancel import
+                      </button>
+                    </div>
+                  ) : null}
+                  {!youtubeImportActive && (youtubeImportFailed || youtubeImportStaged) ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowClearYoutubeImportConfirm(true);
+                        }}
+                        disabled={uploadComplete || uploading}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        Clear import
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <label htmlFor="draft-video-file" className="sr-only">
                   Choose video file
@@ -5635,7 +6140,7 @@ export function DraftMetadataModal({
                   type="file"
                   accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.avi,.mkv,.webm"
                   onChange={(event) => {
-                    if (uploadComplete || uploading) return;
+                    if (uploadComplete || uploading || youtubeImportLocksFilePicker) return;
                     setVideoFile(event.target.files?.[0] ?? null);
                   }}
                   className="hidden"
@@ -5643,14 +6148,33 @@ export function DraftMetadataModal({
                 <button
                   type="button"
                   aria-label="Choose video file"
-                  disabled={uploadComplete || uploading}
+                  disabled={uploadComplete || uploading || youtubeImportLocksFilePicker}
                   onClick={() => fileInputRef.current?.click()}
                   className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                 >
                   Choose file
                 </button>
+                {isYouTubeConnected ? (
+                  <button
+                    type="button"
+                    aria-label="Import from YouTube"
+                    disabled={
+                      uploadComplete || uploading || youtubeImportActive || youtubeImportStaged
+                    }
+                    onClick={() => {
+                      void handleOpenYouTubeImport();
+                    }}
+                    className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                  >
+                    Import from YouTube
+                  </button>
+                ) : null}
                 <span className="max-w-full truncate text-xs text-muted-foreground">
-                  {videoFile ? videoFile.name : 'No file selected'}
+                  {videoFile
+                    ? videoFile.name
+                    : draftYoutubeImport
+                      ? 'Staged from YouTube'
+                      : 'No file selected'}
                 </span>
               </div>
             </DraftModalCard>
@@ -5684,7 +6208,7 @@ export function DraftMetadataModal({
             type="button"
             data-tour="draft-save-button"
             onClick={() => {
-              commitTagsBeforeSave();
+              commitMetadataInputsBeforeSave();
               void (async () => {
                 try {
                   const r = await onSave({ closeAfterSave: true });
@@ -5705,7 +6229,7 @@ export function DraftMetadataModal({
               if (!validateBeforeUpload()) return;
               openUploadConfirmModal();
             }}
-            disabled={uploading || !canUploadVideo || !videoFile}
+            disabled={uploading || !canUploadVideo}
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
             {uploading ? 'Uploading...' : cancelServerFailed ? 'Pending upload' : 'Upload & Save'}
@@ -5752,7 +6276,11 @@ export function DraftMetadataModal({
             </DialogTitle>
             <DialogDescription>
               {uploadModalPhase === 'confirm'
-                ? 'This will save your latest draft changes and upload the selected video using this draft. Are you sure you want to continue?'
+                ? draftYoutubeImport && !videoFile
+                  ? isActiveYoutubeImportStatus(draftYoutubeImport.status)
+                    ? 'This will save your latest draft changes and queue an upload using the YouTube import in progress. Distribution starts when the import finishes. Continue?'
+                    : 'This will save your latest draft changes and upload the imported YouTube video to your selected platforms. Continue?'
+                  : 'This will save your latest draft changes and upload the selected video using this draft. Are you sure you want to continue?'
                 : uploadModalPhase === 'clearPendingConfirm'
                   ? 'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
                   : uploadModalPhase === 'complete'
@@ -5840,7 +6368,7 @@ export function DraftMetadataModal({
                 <button
                   type="button"
                   onClick={confirmUploadVideo}
-                  disabled={!canUploadVideo || !videoFile}
+                  disabled={!canUploadVideo}
                   className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 >
                   Yes, upload
@@ -5878,6 +6406,84 @@ export function DraftMetadataModal({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {youtubeImportDraftId ? (
+        <YouTubeImportModal
+          draftId={youtubeImportDraftId}
+          open={showYouTubeImportModal}
+          onOpenChange={(nextOpen) => {
+            setShowYouTubeImportModal(nextOpen);
+            if (!nextOpen && youtubeImportDraftId) {
+              void loadDraftYoutubeImport(youtubeImportDraftId);
+            }
+          }}
+          onImportComplete={handleYouTubeImportComplete}
+        />
+      ) : null}
+
+      <AlertDialog
+        open={showClearYoutubeImportConfirm}
+        onOpenChange={(open) => {
+          if (!open && !isYoutubeImportConfirmBusy) {
+            setShowClearYoutubeImportConfirm(false);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear YouTube import?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the current YouTube import from this draft. You can use Import from
+              YouTube or choose a file afterward.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isYoutubeImportConfirmBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleClearYoutubeImportConfirm();
+              }}
+              disabled={isYoutubeImportConfirmBusy}
+            >
+              {isYoutubeImportConfirmBusy ? 'Working…' : 'Clear import'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={showCancelYoutubeImportConfirm}
+        onOpenChange={(open) => {
+          if (!open && !isYoutubeImportConfirmBusy) {
+            setShowCancelYoutubeImportConfirm(false);
+          }
+        }}
+      >
+        <AlertDialogContent stackLayerClassName="!z-[70]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel YouTube import?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This stops the current import. Any partial download will be discarded and you can
+              start a new import or choose a file afterward.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isYoutubeImportConfirmBusy}>
+              Keep importing
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleCancelActiveYoutubeImportConfirm();
+              }}
+              disabled={isYoutubeImportConfirmBusy}
+            >
+              {isYoutubeImportConfirmBusy ? 'Cancelling…' : 'Cancel import'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>

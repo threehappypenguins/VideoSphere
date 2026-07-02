@@ -2,8 +2,8 @@
 // DRAFTS PAGE COMPONENT TESTS
 // =============================================================================
 // Basic UI rendering tests for the Drafts page: verify header, empty state,
-// and primary CTA link render correctly. Initial load uses three GETs (drafts,
-// connections, ai-access); edit-from-query also GETs /api/drafts/:id after openEditDraft.
+// and primary CTA link render correctly. Initial load uses four GETs (drafts,
+// connections, ai-access, labels); edit-from-query also GETs /api/drafts/:id after openEditDraft.
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -25,7 +25,7 @@ const mockRouterReplace = vi.fn();
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
   useRouter: () => ({ push: vi.fn(), replace: mockRouterReplace }),
-  usePathname: () => '/dashboard/drafts',
+  usePathname: () => '/dashboard/uploads',
 }));
 
 vi.mock('@/components/drafts/DraftMetadataModal', () => ({
@@ -50,7 +50,7 @@ vi.mock('@/components/onboarding/OnboardingContext', () => ({
   }),
 }));
 
-import DraftsPage from '@/app/(dashboard)/dashboard/drafts/page';
+import UploadsPage from '@/app/(dashboard)/dashboard/uploads/page';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -83,6 +83,46 @@ function jsonResponse(body: unknown): Response {
   } as Response;
 }
 
+function labelsJsonResponse(labels: unknown[] = []): Response {
+  return jsonResponse({ data: labels });
+}
+
+function youtubeConnectionPayload() {
+  return {
+    id: 'conn-yt',
+    userId: 'user-1',
+    platform: 'youtube',
+    tokenExpiry: new Date(Date.now() + 3_600_000).toISOString(),
+    hasRefreshToken: true,
+    hasYoutubeMainStreamKey: false,
+    hasYoutubeTempStreamKey: false,
+    platformUserId: 'yt-1',
+    platformName: 'Channel',
+    connectionStatus: 'connected',
+    $createdAt: '2000-01-01T00:00:00.000Z',
+    $updatedAt: '2000-01-02T00:00:00.000Z',
+  };
+}
+
+/** Mocks the four parallel GETs issued by loadDrafts (call order matters). */
+function mockInitialPageLoadFetch(options?: {
+  drafts?: unknown[];
+  connections?: unknown;
+  canUseAiMetadata?: boolean;
+  labels?: unknown[];
+}) {
+  return vi
+    .spyOn(global, 'fetch')
+    .mockResolvedValueOnce(jsonResponse({ data: options?.drafts ?? [] }))
+    .mockResolvedValueOnce(
+      jsonResponse({
+        data: options?.connections ?? [youtubeConnectionPayload()],
+      })
+    )
+    .mockResolvedValueOnce(jsonResponse({ canUseAiMetadata: options?.canUseAiMetadata ?? true }))
+    .mockResolvedValueOnce(labelsJsonResponse(options?.labels ?? []));
+}
+
 /** Route-aware fetch mock for editDraft query tests (survives remount / repeated loadDrafts). */
 function mockEditDraftQueryFetch() {
   const draftListItem = {
@@ -101,11 +141,14 @@ function mockEditDraftQueryFetch() {
     if (url.includes('/api/drafts/draft-1')) {
       return Promise.resolve(jsonResponse(draft1DetailPayload()));
     }
+    if (url.includes('/api/drafts/labels')) {
+      return Promise.resolve(labelsJsonResponse());
+    }
     if (url.includes('/api/drafts')) {
       return Promise.resolve(jsonResponse({ data: [draftListItem] }));
     }
     if (url.includes('/api/platforms/connections')) {
-      return Promise.resolve(jsonResponse({ data: ['youtube'] }));
+      return Promise.resolve(jsonResponse({ data: [youtubeConnectionPayload()] }));
     }
     if (url.includes('/api/auth/ai-access')) {
       return Promise.resolve(jsonResponse({ canUseAiMetadata: true }));
@@ -115,25 +158,13 @@ function mockEditDraftQueryFetch() {
   });
 }
 
-describe('DraftsPage', () => {
-  it('renders the Drafts page heading', async () => {
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response);
+describe('UploadsPage', () => {
+  it('renders the Uploads page heading', async () => {
+    mockInitialPageLoadFetch();
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
-    expect(screen.getByRole('heading', { level: 1, name: /drafts/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /uploads/i })).toBeInTheDocument();
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith('/api/drafts', expect.any(Object))
     );
@@ -143,85 +174,50 @@ describe('DraftsPage', () => {
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith('/api/auth/ai-access', expect.any(Object))
     );
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith('/api/drafts/labels', expect.any(Object))
+    );
   });
 
   it('renders the empty state message when there are no drafts', async () => {
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response);
+    mockInitialPageLoadFetch();
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
     expect(await screen.findByText(/no drafts yet/i)).toBeInTheDocument();
     expect(await screen.findByText(/create a draft to get started/i)).toBeInTheDocument();
   });
 
   it('renders a Create draft button', async () => {
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response);
+    mockInitialPageLoadFetch();
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
     expect(screen.getByRole('button', { name: /create draft/i })).toBeInTheDocument();
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(4));
   });
 
   it('opens create modal from openCreateDraft query param', async () => {
     mockSearchParams = new URLSearchParams('openCreateDraft=true');
 
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            id: 'draft-from-minimal',
-            userId: 'user-1',
-            title: '',
-            description: '',
-            tags: [],
-            visibility: 'private',
-            targets: [],
-            platforms: {},
-            $createdAt: '2000-01-01T00:00:00.000Z',
-            $updatedAt: '2000-01-01T00:00:00.000Z',
-          },
-        }),
-      } as Response);
+    mockInitialPageLoadFetch().mockResolvedValueOnce(
+      jsonResponse({
+        data: {
+          id: 'draft-from-minimal',
+          userId: 'user-1',
+          title: '',
+          description: '',
+          tags: [],
+          visibility: 'private',
+          targets: [],
+          platforms: {},
+          $createdAt: '2000-01-01T00:00:00.000Z',
+          $updatedAt: '2000-01-01T00:00:00.000Z',
+        },
+      })
+    );
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
   });
@@ -229,81 +225,52 @@ describe('DraftsPage', () => {
   it('opens create modal from createDraftId query param', async () => {
     mockSearchParams = new URLSearchParams('createDraftId=draft-from-dashboard');
 
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            id: 'draft-from-dashboard',
-            userId: 'user-1',
-            title: '',
-            description: '',
-            tags: [],
-            visibility: 'private',
-            targets: [],
-            platforms: {},
-            $createdAt: '2000-01-01T00:00:00.000Z',
-            $updatedAt: '2000-01-01T00:00:00.000Z',
-          },
-        }),
-      } as Response);
+    mockInitialPageLoadFetch().mockResolvedValueOnce(
+      jsonResponse({
+        data: {
+          id: 'draft-from-dashboard',
+          userId: 'user-1',
+          title: '',
+          description: '',
+          tags: [],
+          visibility: 'private',
+          targets: [],
+          platforms: {},
+          $createdAt: '2000-01-01T00:00:00.000Z',
+          $updatedAt: '2000-01-01T00:00:00.000Z',
+        },
+      })
+    );
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
-    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/uploads');
   });
 
   it('does not delete a non-minimal existing draft opened via createDraftId and preserves targets', async () => {
     mockSearchParams = new URLSearchParams('createDraftId=existing-draft');
 
-    const fetchSpy = vi
-      .spyOn(global, 'fetch')
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ data: [] }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: [{ platform: 'vimeo' }],
-        }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ canUseAiMetadata: true }),
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: {
-            id: 'existing-draft',
-            userId: 'user-1',
-            title: 'Already saved',
-            description: '',
-            tags: [],
-            visibility: 'private',
-            targets: ['youtube'],
-            platforms: {},
-            $createdAt: '2000-01-01T00:00:00.000Z',
-            $updatedAt: '2000-01-01T00:00:00.000Z',
-          },
-        }),
-      } as Response);
+    const fetchSpy = mockInitialPageLoadFetch({
+      connections: [{ platform: 'vimeo' }],
+    }).mockResolvedValueOnce(
+      jsonResponse({
+        data: {
+          id: 'existing-draft',
+          userId: 'user-1',
+          title: 'Already saved',
+          description: '',
+          tags: [],
+          visibility: 'private',
+          targets: ['youtube'],
+          platforms: {},
+          $createdAt: '2000-01-01T00:00:00.000Z',
+          $updatedAt: '2000-01-01T00:00:00.000Z',
+        },
+      })
+    );
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
     expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
     expect(screen.getByTestId('create-modal-targets')).toHaveTextContent('youtube');
@@ -321,7 +288,7 @@ describe('DraftsPage', () => {
 
     mockEditDraftQueryFetch();
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
     expect(await screen.findByTestId('edit-modal-open')).toBeInTheDocument();
     await waitFor(() =>
@@ -334,12 +301,12 @@ describe('DraftsPage', () => {
 
     mockEditDraftQueryFetch();
 
-    render(<DraftsPage />);
+    render(<UploadsPage />);
 
     expect(await screen.findByTestId('edit-modal-open')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'close-edit' }));
 
-    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/drafts');
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard/uploads');
   });
 });

@@ -83,6 +83,7 @@ describe('draft-upload-metadata', () => {
       description: 'D',
       visibility: 'unlisted',
       tags: ['a', 'b'],
+      labels: [],
       platforms: { vimeo: { categoryUris: ['/categories/1'] } },
     });
     const row = { document: doc };
@@ -92,6 +93,7 @@ describe('draft-upload-metadata', () => {
       description: 'D',
       visibility: 'unlisted',
       tags: ['a', 'b'],
+      labels: [],
       platforms: { vimeo: { categoryUris: ['/categories/1'] } },
       backupNaming: defaultBackupNaming,
       usedInUploadAt: undefined,
@@ -105,6 +107,7 @@ describe('draft-upload-metadata', () => {
       description: '',
       visibility: 'private',
       tags: [],
+      labels: [],
       platforms: {},
     });
     expect(
@@ -140,6 +143,7 @@ describe('draft-upload-metadata', () => {
       description: '',
       visibility: 'public',
       tags: [],
+      labels: [],
       platforms: {},
       backupNaming: defaultBackupNaming,
     });
@@ -149,6 +153,7 @@ describe('draft-upload-metadata', () => {
       description: '',
       visibility: 'public',
       tags: [],
+      labels: [],
       platforms: {},
       backupNaming: defaultBackupNaming,
     });
@@ -843,7 +848,7 @@ describe('draft-upload-metadata', () => {
         displayTitle: 'Short',
         languageCode: 'en',
         autoPublishOnProcessed: false,
-        publishDate: '2026-07-01T09:00:00-04:00',
+        publishTimestamp: Math.floor(Date.parse('2026-07-01T09:00:00-04:00') / 1000),
         titleOverride: 'SA Title',
         descriptionOverride: 'SA Desc',
         tagsOverride: ['holy', 'day'],
@@ -1003,6 +1008,32 @@ describe('draft-upload-metadata', () => {
     };
 
     expect(buildMetadataForPlatform(draft, 'sermon_audio').autoPublishOnProcessed).toBe(false);
+  });
+
+  it('buildMetadataForPlatform sermon_audio includes publishTimestamp when set', () => {
+    const publishTimestamp = 1_782_772_962;
+    const draft: Draft = {
+      id: 'd1',
+      userId: 'u1',
+      targets: ['sermon_audio'],
+      title: 'Title',
+      description: 'Description',
+      tags: [],
+      visibility: 'public',
+      platforms: {
+        sermon_audio: {
+          speakerName: 'Rev. Smith',
+          preachDate: '2026-06-01',
+          publishTimestamp,
+        },
+      },
+      $createdAt: '2000-01-01T00:00:00.000Z',
+      $updatedAt: '2000-01-01T00:00:00.000Z',
+    };
+
+    const meta = buildMetadataForPlatform(draft, 'sermon_audio');
+    expect(meta.publishTimestamp).toBe(publishTimestamp);
+    expect(meta.autoPublishOnProcessed).toBe(false);
   });
 
   it('buildMetadataForPlatform sermon_audio includes crossPublish settings when set', () => {

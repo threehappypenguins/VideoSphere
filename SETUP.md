@@ -92,10 +92,10 @@ an explicit Compose env file, so this command must include `--env-file .env.loca
 
 ### Option B: Docker run (also valid for local development)
 
-If you prefer running Mongo directly, this is supported:
+If you prefer running Mongo directly, this is supported. Use the **fully qualified** image name — Podman does not resolve short names like `mongo:8` unless your registry config defines search registries (Docker Desktop does this automatically).
 
 ```bash
-docker pull docker.io/mongo:8
+docker pull docker.io/library/mongo:8
 
 docker run -d \
   --name videosphere-mongo \
@@ -103,7 +103,7 @@ docker run -d \
   -e MONGO_INITDB_ROOT_USERNAME=admin \
   -e MONGO_INITDB_ROOT_PASSWORD=localdevpassword \
   -v videosphere-mongo-data:/data/db \
-  mongo:8
+  docker.io/library/mongo:8
 ```
 
 When using this option, ensure your `.env.local` uses matching credentials, for example:
@@ -182,6 +182,14 @@ With Docker Compose, uncomment `network_mode: host` on the `app` service (see `d
 `--network host` is **Linux-only**. On macOS and Windows, Docker Desktop’s “host” network is a VM, so LAN reachability to a NAS depends on your Docker and network setup.
 
 `pnpm dev` on the host (without Docker) can reach the LAN directly; host networking is only required when the app runs inside a container.
+
+## Testing a local Docker build
+
+To build the production image and run it on your machine (instead of `pnpm dev`), see [docs/local-docker-testing.md](docs/local-docker-testing.md). Typical amd64 build:
+
+```bash
+./scripts/docker-build-platform.sh linux/amd64 videosphere:amd64-test
+```
 
 ## Notes
 

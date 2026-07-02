@@ -21,6 +21,8 @@ import {
   parseTagsFromRequestBody,
   resolveDraftTitleForStorage,
 } from '@/lib/draft-upload-metadata';
+import { parseDraftLabelsFromRequestBody } from '@/lib/draft-labels';
+import { upsertDraftLabelsInLibrary } from '@/lib/repositories/users';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
 const BACKFILL_SCAN_MAX_ROWS = 5000;
@@ -105,8 +107,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const { title, description, visibility, targets, platforms, tags, minimal, backupNaming } =
-    body as Record<string, unknown>;
+  const {
+    title,
+    description,
+    visibility,
+    targets,
+    platforms,
+    tags,
+    labels,
+    minimal,
+    backupNaming,
+  } = body as Record<string, unknown>;
 
   const isMinimal = minimal === true;
 
@@ -162,6 +173,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errRes, { status: 400 });
   }
 
+  const labelsParse = parseDraftLabelsFromRequestBody(labels);
+  if (labelsParse.ok === false) {
+    const errRes: ApiError = {
+      error: 'Bad Request',
+      message: labelsParse.error,
+      statusCode: 400,
+    };
+    return NextResponse.json(errRes, { status: 400 });
+  }
+
   const backupNamingParse = parseBackupNamingFromRequestBody(backupNaming);
   if (backupNamingParse.ok === false) {
     const errRes: ApiError = {
@@ -194,10 +215,20 @@ export async function POST(req: NextRequest) {
       title: trimmedTitle,
       description: (description as string | undefined) ?? '',
       tags: tagsParse.value,
+      labels: labelsParse.value,
       ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
       platforms: platformsParse.value,
       backupNaming: backupNamingParse.value,
     });
+
+    if (labelsParse.value.length > 0) {
+      try {
+        await upsertDraftLabelsInLibrary(userId, labelsParse.value);
+      } catch (libraryErr) {
+        // Best-effort: draft is already persisted; avoid 500 + client retries that duplicate drafts.
+        console.error('[POST /api/drafts] Failed to upsert draft labels in library', libraryErr);
+      }
+    }
 
     const response: ApiResponse<Draft> = { data: draft, message: 'Draft created' };
     return NextResponse.json(response, { status: 201 });

@@ -42,6 +42,21 @@ export interface User {
   platformDefaults?: PlatformDefaults;
   /** Cross-device UI preferences (profile GET/PATCH). */
   preferences?: UserPreferences;
+  /**
+   * Saved draft organizational labels for autocomplete across drafts.
+   * Stored on the user profile (`draftLabelLibrary`).
+   */
+  draftLabelLibrary?: DraftLabelDefinition[];
+}
+
+/**
+ * Saved draft label with display color for chips and autocomplete.
+ * @property name - Label text shown on drafts.
+ * @property color - Hex color (for example `#6366f1`).
+ */
+export interface DraftLabelDefinition {
+  name: string;
+  color: string;
 }
 
 /** User-selectable clock format for schedule time pickers and labels. */
@@ -174,13 +189,14 @@ export interface PerPlatformOverrides extends PerPlatformCopyOverrides {
   thumbnailPreviewUrlOverride?: string;
 }
 
-/** Platform upload status. SermonAudio uses `unpublished` / `published` after upload instead of `completed`. */
+/** Platform upload status. SermonAudio uses `unpublished`, `published`, or `scheduled` after upload instead of `completed`. */
 export type PlatformUploadStatus =
   | 'pending'
   | 'uploading'
   | 'completed'
   | 'unpublished'
   | 'published'
+  | 'scheduled'
   | 'failed';
 
 /** Per-platform visibility (PRD: public, unlisted, private). */
@@ -369,27 +385,27 @@ export interface SermonAudioDraftFields
   /** When not explicitly false, publish automatically after SA video processing completes (defaults to on). */
   autoPublishOnProcessed?: boolean;
   /**
-   * Scheduled publication datetime for SermonAudio (`publishDate` on sermon create).
-   * ISO 8601 wall-clock datetime, typically with offset (for example `2026-07-01T09:00:00-04:00`).
-   * When set, `autoPublishOnProcessed` is disabled and the sermon goes live at this time.
+   * Scheduled publication time for SermonAudio (`publishTimestamp` on publish PATCH).
+   * Unix timestamp in seconds. When set, `autoPublishOnProcessed` is disabled and the sermon
+   * goes live at this time after processing completes.
    */
-  publishDate?: string;
+  publishTimestamp?: number;
   /**
-   * SermonAudio Cross Publish destinations (YouTube, Facebook, X) configured for this draft.
-   * Mapped to `socialSharing` on sermon create; `publishSermonAudio` only PATCHes `publishDate`.
+   * SermonAudio Cross Publish destinations (YouTube, Facebook, X, Instagram) configured for this draft.
+   * Sent as `socialSharingSettings` on publish PATCH together with `publishTimestamp`.
    */
   crossPublish?: SermonAudioCrossPublishSettings;
 }
 
 /** Cross Publish destination id stored under `SermonAudioDraftFields.crossPublish`. */
-export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x';
+export type SermonAudioCrossPublishTarget = 'youtube' | 'facebook' | 'x' | 'instagram';
 
 /**
  * Cross Publish options for one social destination (SermonAudio dashboard feature).
- * @property postLink - Post a link to the sermon (Facebook and X only).
- * @property uploadFullVideo - Upload the full sermon video (YouTube and Facebook).
- * @property uploadVideoPreview - Upload a video preview clip (X/Twitter; maps to SA `useVideoClip`).
- * @property linkMessage - Custom message when `postLink` is enabled (Facebook and X).
+ * @property postLink - Post a link to the sermon (Facebook, X, and Instagram).
+ * @property uploadFullVideo - Upload the full sermon video (YouTube; Facebook with `postLink` maps to SA `useVideoClip`).
+ * @property uploadVideoPreview - Upload a video preview clip (X/Twitter and Instagram with `postLink`; maps to SA `useVideoClip`).
+ * @property linkMessage - Custom message when `postLink` is enabled (Facebook, X, and Instagram).
  * @property title - YouTube video title when `uploadFullVideo` is enabled (maps to SA `title` on `google`).
  * @property description - YouTube video description when `uploadFullVideo` is enabled (maps to SA `message` on `google`).
  * @property privacy - YouTube visibility when `uploadFullVideo` is enabled (maps to SA `privacy` on `google`).
@@ -416,12 +432,14 @@ export type SermonAudioCrossPublishOptionId = 'postLink' | 'uploadFullVideo' | '
  * @property youtube - YouTube Cross Publish options.
  * @property facebook - Facebook Cross Publish options.
  * @property x - X (Twitter) Cross Publish options.
+ * @property instagram - Instagram Cross Publish options.
  */
 export interface SermonAudioCrossPublishSettings {
   enabled?: boolean;
   youtube?: SermonAudioCrossPublishPlatformSettings;
   facebook?: SermonAudioCrossPublishPlatformSettings;
   x?: SermonAudioCrossPublishPlatformSettings;
+  instagram?: SermonAudioCrossPublishPlatformSettings;
 }
 
 /**
@@ -453,6 +471,11 @@ export interface Draft {
   description: string;
   /** Shared tag list for every target platform; stored in `document`. */
   tags: string[];
+  /**
+   * Organizational labels for finding and grouping drafts in VideoSphere.
+   * Not sent to upload platforms; stored in `document`.
+   */
+  labels?: string[];
   /** Applied when distributing (mapped to each API's privacy model). */
   visibility: PlatformUploadVisibility;
   /** Per-platform-only options (e.g. YouTube categoryId, Vimeo category URI). */
@@ -661,6 +684,49 @@ export interface UploadJob {
   $updatedAt: string;
 }
 
+/**
+ * Lifecycle status for a YouTube import/trim job (download → trim → R2 handoff).
+ */
+export type YoutubeImportJobStatus =
+  | 'pending'
+  | 'downloading'
+  | 'trimming'
+  | 'uploading'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+/**
+ * YouTube import job tracking download, trim, and R2 staging before upload distribution.
+ */
+export interface YoutubeImportJob {
+  id: string;
+  userId: string;
+  /** Draft this import is destined for; set at creation. */
+  draftId: string;
+  /** Original pasted URL or resolved watch URL. */
+  sourceUrl: string;
+  youtubeVideoId: string;
+  /** Past livestream id when picked from history; null when the source was a pasted link. */
+  livestreamId: string | null;
+  startSeconds: number;
+  endSeconds: number;
+  status: YoutubeImportJobStatus;
+  /** Coarse progress for the UI (0–100). */
+  progressPercent: number;
+  errorMessage: string | null;
+  /** R2 object key once the trimmed file lands in staging storage. */
+  r2Key: string | null;
+  /** Upload job id once handed off to the distribution pipeline. */
+  uploadJobId: string | null;
+  /** When true, distribution starts automatically once staging completes. */
+  distributeQueued: boolean;
+  /** Persistence system attribute (ISO string). */
+  $createdAt: string;
+  /** Persistence system attribute (ISO string). */
+  $updatedAt: string;
+}
+
 /** Platform upload (one per target platform per upload job). See PRD Platform Upload. */
 export interface PlatformUpload {
   id: string;
@@ -736,6 +802,11 @@ export interface ConnectedAccountPublic {
   hasYoutubeMainStreamKey: boolean;
   /** True when a non-empty YouTube temp stream key is stored (encrypted at rest). */
   hasYoutubeTempStreamKey: boolean;
+  /**
+   * Present on GET /api/platforms/connections after optional OAuth health verification.
+   * When omitted, callers should derive status from token fields via `getConnectionStatus`.
+   */
+  connectionStatus?: 'connected' | 'expired';
   /** Persistence system attribute (ISO string). */
   $createdAt: string;
   /** Persistence system attribute (ISO string). */

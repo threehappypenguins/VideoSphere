@@ -73,7 +73,7 @@ describe('Proxy Middleware', () => {
     });
 
     it('should redirect to login when no session cookie is present', async () => {
-      const request = createMockRequest('/dashboard/videos');
+      const request = createMockRequest('/dashboard/uploads');
 
       const result = await proxy(request);
 
@@ -81,12 +81,12 @@ describe('Proxy Middleware', () => {
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/login');
-      expect(location).toContain('redirect=%2Fdashboard%2Fvideos');
+      expect(location).toContain('redirect=%2Fdashboard%2Fuploads');
     });
 
     it('should allow authenticated users through', async () => {
       const sessionToken = 'valid_session_token_xyz';
-      const request = createMockRequest('/dashboard/videos', {
+      const request = createMockRequest('/dashboard/uploads', {
         videosphere_session: sessionToken,
       });
 
@@ -312,7 +312,7 @@ describe('Proxy Middleware', () => {
 
     it('should allow admin users to access /dashboard routes', async () => {
       const sessionToken = 'admin_session_token';
-      const request = createMockRequest('/dashboard/videos', {
+      const request = createMockRequest('/dashboard/uploads', {
         videosphere_session: sessionToken,
       });
 
@@ -418,7 +418,7 @@ describe('Proxy Middleware', () => {
 
   describe('Route Matching', () => {
     it('should protect /dashboard routes', async () => {
-      const request = createMockRequest('/dashboard/videos');
+      const request = createMockRequest('/dashboard/uploads');
       const result = await proxy(request);
 
       expect(result.status).toBe(307);

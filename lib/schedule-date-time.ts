@@ -183,6 +183,102 @@ export function parseScheduleHourInput(value: string, use12Hour: boolean): numbe
 }
 
 /**
+ * Options for {@link parseScheduleTimeInput}.
+ * @property hour12 - When true, accepts 12-hour text with optional AM/PM.
+ * @property fallbackPeriod - Meridiem used when 12-hour text omits AM/PM (defaults to `AM`).
+ */
+export interface ParseScheduleTimeInputOptions {
+  hour12?: boolean;
+  fallbackPeriod?: 'AM' | 'PM';
+}
+
+/**
+ * Parses free-form schedule time text into 24-hour wall-clock parts.
+ * Accepts values such as `2:00 pm`, `2pm`, `14:00`, and `9:05`.
+ * @param value - Raw time text from a schedule field.
+ * @param options - Parsing and display preferences.
+ * @returns Parsed parts, or null when the text cannot be interpreted.
+ */
+export function parseScheduleTimeInput(
+  value: string,
+  options?: ParseScheduleTimeInputOptions
+): ScheduleTimeParts | null {
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  if (trimmed === '') {
+    return null;
+  }
+
+  const meridiemMatch = /\b(a\.?\s*m\.?|p\.?\s*m\.?)\s*$/i.exec(trimmed);
+  let period: 'AM' | 'PM' | null = null;
+  let withoutMeridiem = trimmed;
+
+  if (meridiemMatch) {
+    const normalizedMeridiem = meridiemMatch[1].toLowerCase().replace(/\./g, '').replace(/\s/g, '');
+    period = normalizedMeridiem.startsWith('p') ? 'PM' : 'AM';
+    withoutMeridiem = trimmed.slice(0, meridiemMatch.index).trim();
+  }
+
+  const gluedMeridiemMatch = /^(\d{1,2})(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?)$/i.exec(
+    withoutMeridiem
+  );
+  if (gluedMeridiemMatch) {
+    const normalizedMeridiem = gluedMeridiemMatch[3]
+      .toLowerCase()
+      .replace(/\./g, '')
+      .replace(/\s/g, '');
+    period = normalizedMeridiem.startsWith('p') ? 'PM' : 'AM';
+    withoutMeridiem = gluedMeridiemMatch[2]
+      ? `${gluedMeridiemMatch[1]}:${gluedMeridiemMatch[2]}`
+      : gluedMeridiemMatch[1];
+  }
+
+  const timeMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(withoutMeridiem);
+  if (timeMatch) {
+    const hour = Number(timeMatch[1]);
+    const minute = Number(timeMatch[2]);
+    if (minute < 0 || minute > 59) {
+      return null;
+    }
+
+    if (period) {
+      if (hour < 1 || hour > 12) {
+        return null;
+      }
+      return { hour: to24HourFrom12(hour, period), minute };
+    }
+
+    if (options?.hour12 && hour >= 1 && hour <= 12) {
+      const fallbackPeriod = options.fallbackPeriod ?? 'AM';
+      return { hour: to24HourFrom12(hour, fallbackPeriod), minute };
+    }
+
+    if (hour >= 0 && hour <= 23) {
+      return { hour, minute };
+    }
+
+    return null;
+  }
+
+  const hourOnlyMatch = /^(\d{1,2})$/.exec(withoutMeridiem);
+  if (hourOnlyMatch) {
+    const hour = Number(hourOnlyMatch[1]);
+
+    if (period) {
+      if (hour < 1 || hour > 12) {
+        return null;
+      }
+      return { hour: to24HourFrom12(hour, period), minute: 0 };
+    }
+
+    if (!options?.hour12 && hour >= 0 && hour <= 23) {
+      return { hour, minute: 0 };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Parses and clamps a typed minute for schedule picker columns.
  * @param value - Raw digits from the minute input.
  * @returns Clamped minute (`0`–`59`), or null when empty or non-numeric.

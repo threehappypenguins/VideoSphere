@@ -8,7 +8,7 @@
  * - Internal failures (500)
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/api/auth', () => ({
@@ -81,6 +81,7 @@ function createRequest(body: unknown, cookies: Record<string, string> = {}): Nex
 describe('POST /api/uploads/presign', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('R2_BUCKET_NAME', '');
 
     vi.mocked(getAuthenticatedUserId).mockResolvedValue('user-123');
     vi.mocked(getDraftById).mockResolvedValue(baseDraft);
@@ -100,6 +101,10 @@ describe('POST /api/uploads/presign', () => {
       $updatedAt: '2026-01-01T00:00:00.000Z',
     });
     vi.mocked(markDraftUsedInUpload).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('returns 401 when unauthenticated', async () => {

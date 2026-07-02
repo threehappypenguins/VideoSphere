@@ -1,6 +1,7 @@
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import DashboardShell from '@/components/dashboard/DashboardShell';
+import { DashboardNavProvider } from '@/components/dashboard/DashboardNavProvider';
 import { getNavbarAuthStateFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
 
 /**
@@ -12,12 +13,12 @@ export default async function DashboardTemplate({ children }: { children: React.
   const { sessionUser, hasAdminRole } = await getNavbarAuthStateFromCookies();
 
   return (
-    <>
+    <DashboardNavProvider isAdmin={hasAdminRole}>
       <Navbar initialSessionUser={sessionUser} />
       <main className="flex flex-col">
         <DashboardShell isAdmin={hasAdminRole}>{children}</DashboardShell>
       </main>
       <Footer />
-    </>
+    </DashboardNavProvider>
   );
 }

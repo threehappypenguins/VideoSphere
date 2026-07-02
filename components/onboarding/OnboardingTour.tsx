@@ -28,7 +28,7 @@ type StepWithFnTarget = Omit<Step, 'target'> & {
   target: Step['target'] | (() => HTMLElement | null);
 };
 const WAIT_FOR_TARGET_STEP_IDS = new Set([
-  'drafts-nav-link',
+  'uploads-nav-link',
   'create-draft-button',
   'first-connect-button',
   'draft-platforms',
@@ -161,19 +161,19 @@ export function OnboardingTour() {
     () => pathname === '/profile/connections' && hasOnboardingFlow,
     [hasOnboardingFlow, pathname]
   );
-  const isDraftsWithFlow = useMemo(
-    () => pathname === '/dashboard/drafts' && hasOnboardingFlow,
+  const isUploadsWithFlow = useMemo(
+    () => pathname === '/dashboard/uploads' && hasOnboardingFlow,
     [hasOnboardingFlow, pathname]
   );
   const run = useMemo(
     () =>
       isReady &&
       isOnboarding &&
-      (pathname === '/dashboard' || isConnectionsWithFlow || isDraftsWithFlow),
-    [isReady, isOnboarding, isConnectionsWithFlow, isDraftsWithFlow, pathname]
+      (pathname === '/dashboard' || isConnectionsWithFlow || isUploadsWithFlow),
+    [isReady, isOnboarding, isConnectionsWithFlow, isUploadsWithFlow, pathname]
   );
 
-  // Override the drafts-nav-link step with a function target that picks the
+  // Override the uploads-nav-link step with a function target that picks the
   // visible element. A CSS comma-selector uses DOM order, which always returns
   // the desktop sidebar link first — even on mobile where it lives inside a
   // `display:none` aside (zero bounding rect → Joyride raises the overlay but
@@ -184,20 +184,25 @@ export function OnboardingTour() {
   const tourSteps = useMemo<StepWithFnTarget[]>(
     () =>
       onboardingSteps.map((step) => {
-        if (step.id !== 'drafts-nav-link') return step;
+        if (step.id !== 'uploads-nav-link') return step;
         return {
           ...step,
           target: (): HTMLElement | null => {
-            const mobile = document.querySelector<HTMLElement>(
-              '[data-tour="drafts-nav-link-mobile"]'
+            const mobileUploads = document.querySelector<HTMLElement>(
+              '[data-tour="uploads-nav-link-mobile"]'
+            );
+            const mobileSectionsTrigger = document.querySelector<HTMLElement>(
+              '[data-tour="dashboard-sections-trigger-mobile"]'
             );
             const desktop = document.querySelector<HTMLElement>(
-              '[data-tour="drafts-nav-link-desktop"]'
+              '[data-tour="uploads-nav-link-desktop"]'
             );
-            // offsetParent is null when the element or any ancestor has display:none
-            if (mobile && mobile.offsetParent !== null) return mobile;
+            if (mobileUploads && mobileUploads.offsetParent !== null) return mobileUploads;
+            if (mobileSectionsTrigger && mobileSectionsTrigger.offsetParent !== null) {
+              return mobileSectionsTrigger;
+            }
             if (desktop && desktop.offsetParent !== null) return desktop;
-            return mobile ?? desktop ?? null;
+            return mobileUploads ?? mobileSectionsTrigger ?? desktop ?? null;
           },
         };
       }),
@@ -361,13 +366,13 @@ export function OnboardingTour() {
           return;
         }
 
-        // When advancing from the drafts sidebar link, navigate to the drafts page.
+        // When advancing from the uploads sidebar link, navigate to the uploads page.
         if (
           type === EVENTS.STEP_AFTER &&
           action !== ACTIONS.PREV &&
-          currentStepId === 'drafts-nav-link'
+          currentStepId === 'uploads-nav-link'
         ) {
-          router.push('/dashboard/drafts?onboardingFlow=true');
+          router.push('/dashboard/uploads?onboardingFlow=true');
           // Queue step advance to happen after navigation completes
           const nextStep = Math.max(0, Math.min(eventIndex + 1, onboardingSteps.length - 1));
           pendingNavigationStepAdvanceRef.current = nextStep;
@@ -426,7 +431,7 @@ export function OnboardingTour() {
   if (
     pathname !== '/dashboard' &&
     pathname !== '/profile/connections' &&
-    pathname !== '/dashboard/drafts'
+    pathname !== '/dashboard/uploads'
   ) {
     return null;
   }

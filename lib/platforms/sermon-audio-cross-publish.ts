@@ -73,6 +73,17 @@ export const SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS: readonly SermonAudioCrossP
       supportsVideoMetadata: false,
       supportsPrivacy: false,
     },
+    {
+      id: 'instagram',
+      label: 'Instagram',
+      options: [
+        { id: 'postLink', label: 'Post link to sermon' },
+        { id: 'uploadVideoPreview', label: 'Upload video preview to Instagram' },
+      ],
+      supportsLinkMessage: true,
+      supportsVideoMetadata: false,
+      supportsPrivacy: false,
+    },
   ] as const;
 
 const YOUTUBE_PRIVACY_VALUES = new Set<SermonAudioCrossPublishYouTubePrivacy>([
@@ -155,6 +166,14 @@ export function normalizeSermonAudioCrossPublishPlatformSettings(
     }
   }
 
+  // SermonAudio dashboard: link post must be enabled before video options on Facebook, X, and Instagram.
+  if (destId === 'facebook' && out.postLink !== true) {
+    delete out.uploadFullVideo;
+  }
+  if ((destId === 'x' || destId === 'instagram') && out.postLink !== true) {
+    delete out.uploadVideoPreview;
+  }
+
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -184,32 +203,38 @@ export function normalizeSermonAudioCrossPublishSettings(
 }
 
 /** SermonAudio `SocialEnum` value for a Cross Publish destination. */
-export type SermonAudioSocialSharingPlatform = 'google' | 'facebook' | 'twitter';
+export type SermonAudioSocialSharingPlatform = 'google' | 'facebook' | 'twitter' | 'instagram';
 
-/** One Cross Publish destination in the sermon create `socialSharing` array. */
-export interface SermonAudioSocialSharingCreateEntry {
+/** One Cross Publish destination in `socialSharingSettings.platforms`. */
+export interface SermonAudioSocialSharingSettingsPlatformEntry {
   /** SermonAudio social platform id (`google` = YouTube). */
   platform: SermonAudioSocialSharingPlatform;
-  /** Required by SA (`message` on `SocialSharingSettingsPlatformAPIParam`). */
+  /** Post message (`message` on `SocialSharingSettingsPlatformAPIParam`). */
   message: string;
-  /** YouTube video title (`title` on `SocialSharingSettingsPlatformAPIParam`). */
+  /** YouTube video title when uploading full video to YouTube. */
   title?: string;
-  /** YouTube visibility (`privacy` on `SocialSharingSettingsPlatformAPIParam`). */
+  /** YouTube visibility when uploading full video to YouTube. */
   privacy?: string;
-  /** When true, attach the configured preview clip (X video preview). */
+  /** When true, include video with the cross-post (Facebook full video or X preview clip); when false, link only. */
   useVideoClip?: boolean;
 }
 
-/** Cross Publish fields merged into the sermon create POST body. */
-export interface SermonAudioSocialSharingCreateFields {
-  /** Per-destination Cross Publish options (array form used by the live SA API). */
-  socialSharing: SermonAudioSocialSharingCreateEntry[];
-  /** Preview clip range (seconds) when X video preview is enabled. */
-  social_sharing_video_clip?: { start: number; end: number };
+/**
+ * Cross Publish payload nested under `socialSharingSettings` on sermon PATCH/PUT.
+ * Matches the SermonAudio dashboard and OpenAPI `SocialSharingSettingsAPIParam`.
+ */
+export interface SermonAudioSocialSharingSettings {
+  /** Per-destination Cross Publish options for selected platforms. */
+  platforms: SermonAudioSocialSharingSettingsPlatformEntry[];
+  /** When true, cross-post to YouTube (`google` platform entry). */
+  google?: boolean;
+  /** When true, cross-post to Facebook. */
+  facebook?: boolean;
+  /** When true, cross-post to X/Twitter. */
+  twitter?: boolean;
+  /** When true, cross-post to Instagram. */
+  instagram?: boolean;
 }
-
-/** Default preview clip length (seconds) for X Cross Publish video preview. */
-export const SERMON_AUDIO_CROSS_PUBLISH_VIDEO_CLIP_END_SECONDS = 120;
 
 function platformHasCrossPublishSelection(
   destId: SermonAudioCrossPublishTarget,
@@ -218,6 +243,9 @@ function platformHasCrossPublishSelection(
   if (!settings) return false;
   const dest = SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS.find((entry) => entry.id === destId);
   if (!dest) return false;
+  if (destId === 'facebook' || destId === 'x' || destId === 'instagram') {
+    return settings.postLink === true;
+  }
   return dest.options.some((option) => settings[option.id] === true);
 }
 
@@ -236,78 +264,83 @@ export function sermonAudioCrossPublishHasActiveSelection(
 }
 
 /**
- * Builds Cross Publish fields for the SermonAudio sermon create body (`socialSharing` array +
- * optional `social_sharing_video_clip`). Matches the live API shape used by transferupload and
- * the SermonAudio dashboard; the public OpenAPI spec documents the nested `platforms` form but
- * not this array form.
+ * Builds Cross Publish `socialSharingSettings` for SermonAudio sermon publish (PATCH/PUT).
  * @param settings - Normalized Cross Publish settings from draft metadata.
  * @param options - Optional draft defaults when Cross Publish text fields are empty.
- * @returns SermonAudio body fields, or `undefined` when Cross Publish is off or empty.
+ * @returns Nested Cross Publish settings, or `undefined` when Cross Publish is off or empty.
  */
-export function buildSermonAudioSocialSharingCreateFields(
+export function buildSermonAudioSocialSharingSettings(
   settings: SermonAudioCrossPublishSettings | undefined,
   options?: { defaultTitle?: string; defaultDescription?: string }
-): SermonAudioSocialSharingCreateFields | undefined {
+): SermonAudioSocialSharingSettings | undefined {
   if (!sermonAudioCrossPublishHasActiveSelection(settings)) return undefined;
 
   const defaultTitle = options?.defaultTitle?.trim() ?? '';
   const defaultDescription = options?.defaultDescription?.trim() ?? '';
-  const socialSharing: SermonAudioSocialSharingCreateEntry[] = [];
-  let usesVideoClip = false;
+  const platforms: SermonAudioSocialSharingSettingsPlatformEntry[] = [];
+  const toggles: Pick<
+    SermonAudioSocialSharingSettings,
+    'google' | 'facebook' | 'twitter' | 'instagram'
+  > = {};
 
   for (const dest of SERMON_AUDIO_CROSS_PUBLISH_DESTINATIONS) {
     const platformSettings = settings?.[dest.id];
     if (!platformHasCrossPublishSelection(dest.id, platformSettings)) continue;
 
     if (dest.id === 'youtube') {
-      socialSharing.push({
+      platforms.push({
         platform: 'google',
         title: platformSettings?.title?.trim() || defaultTitle,
         message: platformSettings?.description?.trim() || defaultDescription || defaultTitle,
         privacy: platformSettings?.privacy ?? 'public',
       });
+      toggles.google = true;
       continue;
     }
 
     if (dest.id === 'facebook') {
       const postLink = platformSettings?.postLink === true;
+      if (!postLink) continue;
+
       const uploadFullVideo = platformSettings?.uploadFullVideo === true;
       const customMessage = platformSettings?.linkMessage?.trim() ?? '';
-      const message = postLink
-        ? customMessage || defaultTitle
-        : uploadFullVideo
-          ? defaultDescription || defaultTitle
-          : defaultTitle;
+      const message = customMessage || defaultTitle;
 
-      socialSharing.push({ platform: 'facebook', message });
+      platforms.push({
+        platform: 'facebook',
+        message,
+        useVideoClip: uploadFullVideo,
+      });
+      toggles.facebook = true;
       continue;
     }
 
-    const postLink = platformSettings?.postLink === true;
-    const uploadVideoPreview = platformSettings?.uploadVideoPreview === true;
-    const customMessage = platformSettings?.linkMessage?.trim() ?? '';
-    const message = postLink ? customMessage || defaultTitle : defaultTitle;
+    if (dest.id === 'x' || dest.id === 'instagram') {
+      const postLink = platformSettings?.postLink === true;
+      if (!postLink) continue;
 
-    if (uploadVideoPreview) usesVideoClip = true;
+      const uploadVideoPreview = platformSettings?.uploadVideoPreview === true;
+      const customMessage = platformSettings?.linkMessage?.trim() ?? '';
+      const message = customMessage || defaultTitle;
 
-    socialSharing.push({
-      platform: 'twitter',
-      message,
-      ...(uploadVideoPreview ? { useVideoClip: true } : {}),
-    });
+      platforms.push({
+        platform: dest.id === 'x' ? 'twitter' : 'instagram',
+        message,
+        useVideoClip: uploadVideoPreview,
+      });
+      if (dest.id === 'x') {
+        toggles.twitter = true;
+      } else {
+        toggles.instagram = true;
+      }
+      continue;
+    }
   }
 
-  if (socialSharing.length === 0) return undefined;
+  if (platforms.length === 0) return undefined;
 
   return {
-    socialSharing,
-    ...(usesVideoClip
-      ? {
-          social_sharing_video_clip: {
-            start: 0,
-            end: SERMON_AUDIO_CROSS_PUBLISH_VIDEO_CLIP_END_SECONDS,
-          },
-        }
-      : {}),
+    platforms,
+    ...toggles,
   };
 }

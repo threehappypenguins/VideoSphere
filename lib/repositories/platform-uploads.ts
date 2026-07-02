@@ -329,7 +329,7 @@ export async function listStaleSermonAudioUnpublishedPlatformUploads(
 /**
  * Update a platform upload's status and optional result fields.
  * Use platformVideoId and platformUrl when status is terminal success
- * (`completed`, `unpublished`, or `published`); use errorMessage when status is `failed`.
+ * (`completed`, `unpublished`, `published`, or `scheduled`); use errorMessage when status is `failed`.
  * Returns the updated record or null if not found.
  */
 export async function updatePlatformUploadStatus(
@@ -337,7 +337,8 @@ export async function updatePlatformUploadStatus(
   status: PlatformUploadStatus,
   platformVideoId?: string,
   platformUrl?: string,
-  errorMessage?: string | null
+  errorMessage?: string | null,
+  scheduledAt?: string | null
 ): Promise<PlatformUpload | null> {
   await connectToDatabase();
 
@@ -350,6 +351,9 @@ export async function updatePlatformUploadStatus(
   }
   if (errorMessage !== undefined) {
     data.errorMessage = errorMessage ?? '';
+  }
+  if (scheduledAt !== undefined) {
+    data.scheduledAt = scheduledAt ?? '';
   }
 
   const updated = await PlatformUploadModel.findByIdAndUpdate(id, data, {

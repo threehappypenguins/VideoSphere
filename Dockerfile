@@ -34,7 +34,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 FROM node:${NODE_VERSION}-alpine AS runner
-RUN apk add --no-cache ffmpeg
+ARG YT_DLP_VERSION=2026.2.21
+RUN apk add --no-cache ffmpeg python3 py3-pip \
+    && pip3 install --break-system-packages "yt-dlp[default]==${YT_DLP_VERSION}" \
+    && yt-dlp --version && ffmpeg -version
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

@@ -44,8 +44,12 @@
  *   oversized objects are deleted from R2 (server-side enforcement layer 2)
  */
 
-import { NextRequest, NextResponse, after } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import {
+  finalizeUploadJobAndDistribute,
+  UploadJobFinalizeNotFoundError,
+} from '@/lib/api/finalize-upload-job';
 import {
   completeMultipartUpload,
   abortMultipartUpload,
@@ -55,14 +59,6 @@ import {
   R2ObjectNotFoundError,
 } from '@/lib/r2';
 import { getUploadJobById, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
-import { getDraftById } from '@/lib/repositories/drafts';
-import { buildMetadataForPlatform } from '@/lib/draft-upload-metadata';
-import { ensurePlatformUploadsForJobTargets } from '@/lib/repositories/platform-uploads';
-import {
-  distributeCreatePlatformUploadInput,
-  runDistributionInBackground,
-} from '@/lib/api/distribute';
-import type { ConnectedAccountPlatform } from '@/types';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB in bytes
 
@@ -302,47 +298,18 @@ export async function POST(
       );
     }
 
-    // --- Auto-distribute to the draft's target platforms ---
-    if (!job.draftId) {
-      // No draft linked — just mark as uploading (manual distribute later).
-      await updateUploadJobStatus(jobId, 'uploading');
-      return NextResponse.json({ success: true, distributing: false }, { status: 200 });
+    try {
+      const { distributing } = await finalizeUploadJobAndDistribute(jobId, userId);
+      return NextResponse.json({ success: true, distributing }, { status: 200 });
+    } catch (err) {
+      if (err instanceof UploadJobFinalizeNotFoundError) {
+        return NextResponse.json(
+          { error: 'Upload job no longer exists and could not be finalized' },
+          { status: 404 }
+        );
+      }
+      throw err;
     }
-
-    const draft = await getDraftById(job.draftId);
-    if (!draft || draft.targets.length === 0) {
-      // Draft missing or has no targets — advance to uploading only.
-      await updateUploadJobStatus(jobId, 'uploading');
-      return NextResponse.json({ success: true, distributing: false }, { status: 200 });
-    }
-
-    const targetPlatforms = [...new Set(draft.targets)] as ConnectedAccountPlatform[];
-
-    // Create platform_upload rows before advancing to distributing so a failure
-    // here leaves the job in pending (retryable), not stuck in distributing.
-    const platformUploads = await ensurePlatformUploadsForJobTargets(
-      targetPlatforms.map((platform) => distributeCreatePlatformUploadInput(jobId, draft, platform))
-    );
-
-    const updated = await updateUploadJobStatus(jobId, 'distributing', null);
-    if (!updated) {
-      return NextResponse.json(
-        { error: 'Upload job no longer exists and could not be finalized' },
-        { status: 404 }
-      );
-    }
-
-    const metadataByPlatformId = new Map<string, ReturnType<typeof buildMetadataForPlatform>>();
-    for (const pu of platformUploads) {
-      metadataByPlatformId.set(pu.id, buildMetadataForPlatform(draft, pu.platform));
-    }
-
-    // Schedule background distribution (runs after the response is sent).
-    after(() =>
-      runDistributionInBackground(jobId, userId, job.r2Key!, platformUploads, metadataByPlatformId)
-    );
-
-    return NextResponse.json({ success: true, distributing: true }, { status: 200 });
   } catch (error) {
     console.error('Upload complete error:', error);
     return NextResponse.json(

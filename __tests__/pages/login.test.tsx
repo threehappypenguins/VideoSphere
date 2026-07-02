@@ -358,11 +358,13 @@ describe('LoginPage Component', () => {
     beforeEach(() => {
       // jsdom's window.location is not writable directly, so we replace the
       // whole object with a plain object that has a writable `href` property.
+      // Include `replace` so delayed credential-login redirects from prior tests
+      // do not throw when this mock is active.
       originalLocation = window.location;
       Object.defineProperty(window, 'location', {
         configurable: true,
         writable: true,
-        value: { href: '' },
+        value: { href: '', replace: mockLocationReplace },
       });
     });
 

@@ -33,6 +33,7 @@ export default defineConfig({
           { text: 'Code Quality', link: '/code-quality' },
           { text: 'Testing', link: '/testing' },
           { text: 'Deployment Guide', link: '/deployment-guide' },
+          { text: 'Local Docker Testing', link: '/local-docker-testing' },
         ],
       },
       {

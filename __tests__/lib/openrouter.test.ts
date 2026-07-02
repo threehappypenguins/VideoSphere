@@ -73,6 +73,7 @@ describe('generateMetadata (OpenRouter client)', () => {
     vi.stubEnv('OPENROUTER_API_KEY', 'sk-test-key');
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://test.app');
     vi.stubEnv('NEXT_PUBLIC_APP_NAME', 'TestApp');
+    vi.stubEnv('OPENROUTER_FETCH_TIMEOUT_MS', '');
   });
 
   afterEach(() => {

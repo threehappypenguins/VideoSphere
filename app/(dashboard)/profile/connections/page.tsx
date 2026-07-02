@@ -18,14 +18,19 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
 import { getCurrentUserIdFromCookies } from '@/lib/auth/get-current-user-id-from-cookies';
+import { getConnectedAccountsWithHealth } from '@/lib/platforms/connected-accounts-health';
 import {
-  getConnectedAccountsByUser,
+  isSermonAudioConnectionReady,
+  isSftpConnectionReady,
+  isSmbConnectionReady,
+  resolveConnectionStatus,
+} from '@/lib/platforms/connection-status';
+import {
   getConnectedAccountForUser,
   getConnectedAccountWithTokens,
   deleteConnectedAccount,
 } from '@/lib/repositories/connected-accounts';
 import { clearDraftLivestreamYouTubeBroadcastLinksForUser } from '@/lib/repositories/livestreams';
-import { normalizeConnectedAccountSftpHostKeyFingerprint } from '@/lib/models/ConnectedAccount';
 import { revokeFacebookAppAuthorization } from '@/lib/platforms/facebook-oauth';
 import type { ConnectedAccountPublic } from '@/types';
 import { ConnectButton } from './ConnectButton';
@@ -124,7 +129,7 @@ function sortPlatformsInSection(
   return [...platforms]
     .map((platform) => {
       const account = accounts.find((a) => a.platform === platform);
-      const status = getConnectionStatus(account);
+      const status = account ? resolveConnectionStatus(account) : 'not-connected';
       return {
         platform,
         label: PLATFORM_META[platform].label,
@@ -138,35 +143,6 @@ function sortPlatformsInSection(
       return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
     })
     .map(({ platform }) => platform);
-}
-
-/** True when an SFTP row has the fields required for backups (including a pinned host key). */
-function isSftpConnectionReady(account: ConnectedAccountPublic): boolean {
-  const fingerprint = account.sftpHostKeyFingerprint;
-  return (
-    account.platform === 'sftp' &&
-    Boolean(account.sftpHost?.trim()) &&
-    Boolean(account.sftpRemotePath?.trim()) &&
-    Boolean(account.sftpAuthMethod) &&
-    fingerprint != null &&
-    normalizeConnectedAccountSftpHostKeyFingerprint(fingerprint) != null
-  );
-}
-
-/** True when an SMB row has the fields required for backups. */
-function isSmbConnectionReady(account: ConnectedAccountPublic): boolean {
-  return (
-    account.platform === 'smb' &&
-    Boolean(account.smbHost?.trim()) &&
-    Boolean(account.smbShare?.trim()) &&
-    account.smbRemotePath != null &&
-    account.smbRemotePath.trim() !== ''
-  );
-}
-
-/** True when a SermonAudio row has the broadcaster id required for uploads. */
-function isSermonAudioConnectionReady(account: ConnectedAccountPublic): boolean {
-  return account.platform === 'sermon_audio' && Boolean(account.platformUserId.trim());
 }
 
 /** Build editable SMB settings from a connected account row (non-secret fields only). */
@@ -272,35 +248,6 @@ function toFacebookExistingConnection(
   };
 }
 
-/** Derive connection status from tokenExpiry and whether a refresh token exists. */
-function getConnectionStatus(
-  account: ConnectedAccountPublic | undefined
-): 'connected' | 'expired' | 'not-connected' {
-  if (!account) return 'not-connected';
-  if (account.platform === 'sftp') {
-    return isSftpConnectionReady(account) ? 'connected' : 'expired';
-  }
-  if (account.platform === 'smb') {
-    return isSmbConnectionReady(account) ? 'connected' : 'expired';
-  }
-  if (account.platform === 'sermon_audio') {
-    return isSermonAudioConnectionReady(account) ? 'connected' : 'expired';
-  }
-  const expiryMs = new Date(account.tokenExpiry).getTime();
-  if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
-  // YouTube, Google Drive, and Facebook use short-lived or schedulable tokens; a stored refresh token
-  // means the link can be renewed automatically before the next API call.
-  if (
-    (account.platform === 'youtube' ||
-      account.platform === 'google_drive' ||
-      account.platform === 'facebook') &&
-    account.hasRefreshToken
-  ) {
-    return 'connected';
-  }
-  return 'expired';
-}
-
 function StatusBadge({ status }: { status: 'connected' | 'expired' | 'not-connected' }) {
   if (status === 'connected') {
     return (
@@ -312,7 +259,7 @@ function StatusBadge({ status }: { status: 'connected' | 'expired' | 'not-connec
   if (status === 'expired') {
     return (
       <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-        Expired — reconnect
+        Reconnect required
       </span>
     );
   }
@@ -481,7 +428,7 @@ function ConnectionPlatformRow({
   openGoogleDriveBackupSetup = false,
 }: ConnectionPlatformRowProps) {
   const meta = PLATFORM_META[platform];
-  const status = getConnectionStatus(account);
+  const status = resolveConnectionStatus(account);
   const sftpExistingConnection =
     account?.platform === 'sftp' ? toSftpExistingConnection(account) : undefined;
   const smbExistingConnection =
@@ -664,7 +611,7 @@ export default async function ConnectionsPage({ searchParams }: PageProps) {
 
   let accounts: ConnectedAccountPublic[] = [];
   try {
-    accounts = await getConnectedAccountsByUser(userId);
+    accounts = await getConnectedAccountsWithHealth(userId);
   } catch (err) {
     console.error('[ConnectionsPage] Failed to fetch connected accounts:', err);
   }

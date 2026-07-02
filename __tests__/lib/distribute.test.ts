@@ -655,7 +655,6 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
       expect(mockPollSermonAudioProcessing).toHaveBeenCalledWith(
         expect.objectContaining({
           sermonID: 'sermon-123',
-          customThumbnailUploaded: false,
         })
       );
     });
@@ -680,10 +679,8 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
     ).toBe(false);
   });
 
-  it('passes customThumbnailUploaded true to poll when thumbnail upload succeeded', async () => {
-    mockUploadToSermonAudio.mockResolvedValue(
-      sermonAudioUploadSuccess({ sermonAudioCustomThumbnailUploaded: true })
-    );
+  it('passes crossPublish settings to publish when configured on the draft', async () => {
+    mockUploadToSermonAudio.mockResolvedValue(sermonAudioUploadSuccess());
     mockPollSermonAudioProcessing.mockResolvedValue(undefined);
     mockPublishSermonAudio.mockResolvedValue(undefined);
 
@@ -694,7 +691,10 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
         {
           ...baseMetadata,
           autoPublishOnProcessed: true,
-          thumbnailR2Key: 'draft-thumbnails/u1/thumb.jpg',
+          crossPublish: {
+            enabled: true,
+            facebook: { postLink: true, linkMessage: 'New sermon' },
+          },
         },
       ],
     ]);
@@ -702,11 +702,46 @@ describe('runDistributionInBackground — SermonAudio auto-publish failure', () 
     await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
 
     await vi.waitFor(() => {
-      expect(mockPollSermonAudioProcessing).toHaveBeenCalledWith(
+      expect(mockPublishSermonAudio).toHaveBeenCalledWith(
         expect.objectContaining({
           sermonID: 'sermon-123',
-          customThumbnailUploaded: true,
+          crossPublish: {
+            enabled: true,
+            facebook: { postLink: true, linkMessage: 'New sermon' },
+          },
         })
+      );
+    });
+  });
+
+  it('persists scheduled status when publishTimestamp is in the future', async () => {
+    mockUploadToSermonAudio.mockResolvedValue(sermonAudioUploadSuccess());
+    mockPollSermonAudioProcessing.mockResolvedValue(undefined);
+    mockPublishSermonAudio.mockResolvedValue(undefined);
+
+    const futurePublishTimestamp = Math.floor(Date.now() / 1000) + 86_400;
+    const pu = basePlatformUpload({ id: 'pu-sa', platform: 'sermon_audio' });
+    const meta = new Map<string, PlatformUploadMetadata>([
+      [
+        'pu-sa',
+        {
+          ...baseMetadata,
+          autoPublishOnProcessed: false,
+          publishTimestamp: futurePublishTimestamp,
+        },
+      ],
+    ]);
+
+    await runDistributionInBackground('job-1', 'u1', 'temp/uploads/u1/v.mp4', [pu], meta);
+
+    await vi.waitFor(() => {
+      expect(mockUpdatePlatformUploadStatus).toHaveBeenCalledWith(
+        'pu-sa',
+        'scheduled',
+        'sermon-123',
+        sermonUrl,
+        null,
+        new Date(futurePublishTimestamp * 1000).toISOString()
       );
     });
   });

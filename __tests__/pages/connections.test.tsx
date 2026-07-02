@@ -16,9 +16,9 @@ import userEvent from '@testing-library/user-event';
 // the top of the file at compile-time, so plain `const` refs are TDZ).
 // ---------------------------------------------------------------------------
 
-const { mockGetCurrentUserIdFromCookies, mockGetConnectedAccountsByUser } = vi.hoisted(() => ({
+const { mockGetCurrentUserIdFromCookies, mockGetConnectedAccountsWithHealth } = vi.hoisted(() => ({
   mockGetCurrentUserIdFromCookies: vi.fn(),
-  mockGetConnectedAccountsByUser: vi.fn(),
+  mockGetConnectedAccountsWithHealth: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -42,10 +42,9 @@ vi.mock('@/lib/auth/get-current-user-id-from-cookies', () => ({
   getCurrentUserIdFromCookies: (...args: unknown[]) => mockGetCurrentUserIdFromCookies(...args),
 }));
 
-vi.mock('@/lib/repositories/connected-accounts', () => ({
-  getConnectedAccountsByUser: (...args: unknown[]) => mockGetConnectedAccountsByUser(...args),
-  getConnectedAccountWithTokens: vi.fn(),
-  deleteConnectedAccount: vi.fn(),
+vi.mock('@/lib/platforms/connected-accounts-health', () => ({
+  getConnectedAccountsWithHealth: (...args: unknown[]) =>
+    mockGetConnectedAccountsWithHealth(...args),
 }));
 
 import ConnectionsPage from '@/app/(dashboard)/profile/connections/page';
@@ -82,7 +81,7 @@ function getPlatformsInSection(sectionTitle: string): ConnectedAccountPlatform[]
 describe('ConnectionsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mockGetConnectedAccountsByUser.mockResolvedValue([]);
+    mockGetConnectedAccountsWithHealth.mockResolvedValue([]);
     mockGetCurrentUserIdFromCookies.mockResolvedValue('user-123');
   });
 
@@ -138,7 +137,7 @@ describe('ConnectionsPage', () => {
     });
 
     it('shows connected video platforms first in alphabetical order within the section', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'account-youtube',
           userId: 'user-123',
@@ -179,7 +178,7 @@ describe('ConnectionsPage', () => {
     });
 
     it('shows connected backup platforms first in alphabetical order within the section', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'sftp-1',
           userId: 'user-123',
@@ -254,7 +253,7 @@ describe('ConnectionsPage', () => {
     });
 
     it('shows Disconnect button and channel name when YouTube is connected', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'account-1',
           userId: 'user-123',
@@ -275,8 +274,8 @@ describe('ConnectionsPage', () => {
       expect(screen.getByText('My Test Channel')).toBeInTheDocument();
     });
 
-    it('shows Connected (not Expired) when access token is past but a refresh token exists', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+    it('shows Connected (not Reconnect required) when OAuth health check succeeds', async () => {
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'account-1',
           userId: 'user-123',
@@ -287,6 +286,7 @@ describe('ConnectionsPage', () => {
           hasYoutubeTempStreamKey: false,
           platformUserId: 'UCtest123',
           platformName: 'My Test Channel',
+          connectionStatus: 'connected',
           $createdAt: new Date().toISOString(),
           $updatedAt: new Date().toISOString(),
         },
@@ -294,11 +294,34 @@ describe('ConnectionsPage', () => {
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
       expect(screen.getByText('Connected')).toBeInTheDocument();
-      expect(screen.queryByText(/expired/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/reconnect required/i)).not.toBeInTheDocument();
+    });
+
+    it('shows Reconnect required when OAuth health check fails', async () => {
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
+        {
+          id: 'account-1',
+          userId: 'user-123',
+          platform: 'youtube',
+          tokenExpiry: new Date(Date.now() - 1000).toISOString(),
+          hasRefreshToken: false,
+          hasYoutubeMainStreamKey: false,
+          hasYoutubeTempStreamKey: false,
+          platformUserId: 'UCtest123',
+          platformName: 'My Test Channel',
+          connectionStatus: 'expired',
+          $createdAt: new Date().toISOString(),
+          $updatedAt: new Date().toISOString(),
+        },
+      ]);
+      const page = await ConnectionsPage({ searchParams: makeSearchParams() });
+      render(page);
+      expect(screen.getByText(/reconnect required/i)).toBeInTheDocument();
+      expect(screen.queryByText(/^connected$/i)).not.toBeInTheDocument();
     });
 
     it('shows Edit and Disconnect when SFTP is connected', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'sftp-1',
           userId: 'user-123',
@@ -326,7 +349,7 @@ describe('ConnectionsPage', () => {
     });
 
     it('shows Expired and Reconnect when SFTP row is missing required fields', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'sftp-1',
           userId: 'user-123',
@@ -343,13 +366,13 @@ describe('ConnectionsPage', () => {
       ]);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByText(/reconnect required/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
     });
 
     it('shows Expired and Reconnect when SFTP host key is not pinned', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'sftp-1',
           userId: 'user-123',
@@ -370,13 +393,13 @@ describe('ConnectionsPage', () => {
       ]);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByText(/reconnect required/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
       expect(screen.queryByText(/^connected$/i)).not.toBeInTheDocument();
     });
 
     it('shows Expired and Reconnect when SFTP host key fingerprint format is invalid', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'sftp-1',
           userId: 'user-123',
@@ -398,14 +421,14 @@ describe('ConnectionsPage', () => {
       ]);
       const page = await ConnectionsPage({ searchParams: makeSearchParams() });
       render(page);
-      expect(screen.getByText(/expired/i)).toBeInTheDocument();
+      expect(screen.getByText(/reconnect required/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();
     });
 
     it('prefills the reconnect modal when SFTP settings exist but host key is not pinned', async () => {
       const user = userEvent.setup();
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'sftp-1',
           userId: 'user-123',
@@ -479,7 +502,7 @@ describe('ConnectionsPage', () => {
     });
 
     it('opens the Google Drive backup folder dialog after OAuth connect', async () => {
-      mockGetConnectedAccountsByUser.mockResolvedValue([
+      mockGetConnectedAccountsWithHealth.mockResolvedValue([
         {
           id: 'drive-1',
           userId: 'user-123',

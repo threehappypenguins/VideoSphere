@@ -1,3 +1,5 @@
+import type { Livestream } from '@/types';
+
 /**
  * Builds a cache-busted preview URL for a YouTube-hosted thumbnail image.
  * YouTube often reuses the same CDN path when a custom thumbnail is replaced.
@@ -32,4 +34,31 @@ export function livestreamYouTubeThumbnailCacheKey(livestream: {
   platforms: { youtube?: { thumbnailUpdatedAt?: string } };
 }): string {
   return livestream.platforms.youtube?.thumbnailUpdatedAt?.trim() || livestream.$updatedAt;
+}
+
+/**
+ * Resolves a thumbnail URL for livestream list rows (R2 preview, stored YouTube URL, or broadcast id fallback).
+ * @param livestream - Livestream row from the API.
+ * @returns Thumbnail image URL when one can be derived.
+ */
+export function getLivestreamListThumbnailUrl(livestream: Livestream): string | undefined {
+  const r2Preview = livestream.thumbnailPreviewUrl?.trim();
+  if (r2Preview) {
+    return r2Preview;
+  }
+
+  const youtubeThumbnailUrl = livestream.platforms.youtube?.thumbnailUrl?.trim();
+  if (youtubeThumbnailUrl) {
+    return youtubeThumbnailPreviewUrl(
+      youtubeThumbnailUrl,
+      livestreamYouTubeThumbnailCacheKey(livestream)
+    );
+  }
+
+  const broadcastId = livestream.youtubeBroadcastId?.trim();
+  if (broadcastId) {
+    return `https://i.ytimg.com/vi/${broadcastId}/hqdefault.jpg`;
+  }
+
+  return undefined;
 }

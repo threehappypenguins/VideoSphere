@@ -24,6 +24,8 @@ import {
   parseTagsFromRequestBody,
   resolveDraftTitleForStorage,
 } from '@/lib/draft-upload-metadata';
+import { parseDraftLabelsFromRequestBody } from '@/lib/draft-labels';
+import { upsertDraftLabelsInLibrary } from '@/lib/repositories/users';
 import type { ApiResponse, ApiError, Draft } from '@/types';
 
 /**
@@ -177,10 +179,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json(errRes, { status: 400 });
   }
 
-  const { title, description, visibility, targets, platforms, tags, backupNaming } = body as Record<
-    string,
-    unknown
-  >;
+  const { title, description, visibility, targets, platforms, tags, labels, backupNaming } =
+    body as Record<string, unknown>;
 
   // At least one field must be provided
   if (
@@ -190,12 +190,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     targets === undefined &&
     platforms === undefined &&
     tags === undefined &&
+    labels === undefined &&
     backupNaming === undefined
   ) {
     const errRes: ApiError = {
       error: 'Bad Request',
       message:
-        'At least one field (title, description, visibility, targets, tags, platforms, backupNaming) must be provided',
+        'At least one field (title, description, visibility, targets, tags, labels, platforms, backupNaming) must be provided',
       statusCode: 400,
     };
     return NextResponse.json(errRes, { status: 400 });
@@ -267,6 +268,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  let parsedLabels: ReturnType<typeof parseDraftLabelsFromRequestBody> | undefined;
+  if (labels !== undefined) {
+    parsedLabels = parseDraftLabelsFromRequestBody(labels);
+    if (parsedLabels.ok === false) {
+      const errRes: ApiError = {
+        error: 'Bad Request',
+        message: parsedLabels.error,
+        statusCode: 400,
+      };
+      return NextResponse.json(errRes, { status: 400 });
+    }
+  }
+
   let platformsPatchParse: ReturnType<typeof parseDraftPlatformsPatchBody> | undefined;
   if (platforms !== undefined) {
     platformsPatchParse = parseDraftPlatformsPatchBody(platforms);
@@ -325,6 +339,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(isPlatformUploadVisibility(visibility) ? { visibility } : {}),
       ...(parsedTargets?.ok === true ? { targets: parsedTargets.value } : {}),
       ...(parsedTags?.ok === true ? { tags: parsedTags.value } : {}),
+      ...(parsedLabels?.ok === true ? { labels: parsedLabels.value } : {}),
       ...(platformsPatchParse?.ok === true ? { platformsPatch: platformsPatchParse.value } : {}),
       ...(backupNamingParse?.ok === true ? { backupNaming: backupNamingParse.value } : {}),
     });
@@ -332,6 +347,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!updated) {
       const errRes: ApiError = { error: 'Not Found', message: 'Draft not found', statusCode: 404 };
       return NextResponse.json(errRes, { status: 404 });
+    }
+
+    if (parsedLabels?.ok === true && parsedLabels.value.length > 0) {
+      try {
+        await upsertDraftLabelsInLibrary(userId, parsedLabels.value);
+      } catch (libraryErr) {
+        // Best-effort: draft is already updated; avoid 500 misleading the client about PATCH success.
+        console.error(
+          '[PATCH /api/drafts/:id] Failed to upsert draft labels in library',
+          libraryErr
+        );
+      }
     }
 
     // Presign only if updated.thumbnailR2Key passes isDraftThumbnailFinalKeyForUser (see helper).

@@ -15,8 +15,10 @@ export const PAGE_SEEDS: Record<string, number> = {
   '/invite': 721,
   // Dashboard
   '/dashboard': 137,
-  '/dashboard/drafts': 1088,
-  '/dashboard/history': 1201,
+  '/dashboard/uploads': 1088,
+  '/dashboard/uploads/history': 1201,
+  '/dashboard/livestreams': 1420,
+  '/dashboard/livestreams/history': 1533,
   // Profile
   '/profile': 256,
   '/profile/connections': 1345,
