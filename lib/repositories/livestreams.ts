@@ -28,6 +28,7 @@ import {
   buildStreamedLivestreamsMongoFilter,
   buildYoutubeImportLivestreamsMongoFilter,
 } from '@/lib/livestreams/livestream-list-filters';
+import { livestreamQueryFieldsFromStoredDocument } from '@/lib/livestreams/livestream-query-fields';
 
 /** Default visibility for new livestreams when omitted at creation. */
 export const DEFAULT_LIVESTREAM_VISIBILITY: PlatformUploadVisibility = 'public';
@@ -307,35 +308,34 @@ function isPendingFacebookDeferredArm(livestream: Livestream): boolean {
   return livestream.autoPromoteToMainKey === true || livestream.autoPromoteToMainKeyMinutes != null;
 }
 
-function livestreamQueryFieldsFromStoredDocument(doc: StoredLivestreamDocument) {
-  return {
-    status: doc.status,
-    hasYoutubeTarget: doc.targets.includes('youtube'),
-    youtubeBroadcastId: doc.youtubeBroadcastId?.trim() ?? '',
-    youtubeLifecycleStatus: doc.youtubeLifecycleStatus?.trim() ?? '',
-  };
-}
+/** Maximum legacy livestream rows to backfill per list request. */
+const LIVESTREAM_QUERY_FIELD_BACKFILL_BATCH_SIZE = 50;
 
+/**
+ * Backfills indexed query fields for legacy rows missing top-level columns.
+ * Runs automatically during list requests so operators do not run migrations manually.
+ * @param userId - Owner user id.
+ */
 async function backfillLivestreamQueryFieldsForUser(userId: string): Promise<void> {
   await connectToDatabase();
   const docs = await LivestreamModel.find({
     userId,
     $or: [{ status: { $exists: false } }, { hasYoutubeTarget: { $exists: false } }],
-  }).lean<LivestreamDocument[]>();
+  })
+    .limit(LIVESTREAM_QUERY_FIELD_BACKFILL_BATCH_SIZE)
+    .lean<LivestreamDocument[]>();
 
   if (docs.length === 0) {
     return;
   }
 
-  await Promise.all(
-    docs.map(async (doc) => {
-      const parsed = parseStoredLivestreamDocument(doc.document, String(doc._id));
-      await LivestreamModel.updateOne(
-        { _id: doc._id },
-        livestreamQueryFieldsFromStoredDocument(parsed)
-      );
-    })
-  );
+  for (const doc of docs) {
+    const parsed = parseStoredLivestreamDocument(doc.document, String(doc._id));
+    await LivestreamModel.updateOne(
+      { _id: doc._id },
+      livestreamQueryFieldsFromStoredDocument(parsed)
+    );
+  }
 }
 
 async function queryLivestreamsPage(

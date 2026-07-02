@@ -113,20 +113,24 @@ describe('livestream list page queries', () => {
   });
 
   it('backfills query fields for legacy rows before paging', async () => {
+    const backfillLimit = vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue([
+        {
+          _id: 'legacy-1',
+          userId: USER_ID,
+          document: streamedDoc.document,
+        },
+      ]),
+    });
     mockFind
       .mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValue([
-          {
-            _id: 'legacy-1',
-            userId: USER_ID,
-            document: streamedDoc.document,
-          },
-        ]),
+        limit: backfillLimit,
       })
       .mockReturnValueOnce(mockFindChain([streamedDoc]));
 
     await getStreamedLivestreamsPage(USER_ID, { limit: 1, offset: 0 });
 
+    expect(backfillLimit).toHaveBeenCalledWith(50);
     expect(mockUpdateOne).toHaveBeenCalledWith(
       { _id: 'legacy-1' },
       {

@@ -19,6 +19,18 @@ const TRIMMED_BASENAME = 'trimmed.mp4';
 const DOWNLOAD_PROGRESS_MAX = 70;
 const TRIM_PROGRESS = 85;
 const UPLOAD_PROGRESS = 95;
+/** How often in-flight subprocesses check whether the import job was cancelled. */
+const IMPORT_CANCEL_POLL_INTERVAL_MS = 500;
+
+/**
+ * Thrown when an import subprocess is stopped because the job was cancelled.
+ */
+class YoutubeImportJobCancelledError extends Error {
+  constructor() {
+    super('YouTube import job was cancelled');
+    this.name = 'YoutubeImportJobCancelledError';
+  }
+}
 
 /**
  * Parses a yt-dlp `[download] …%` progress chunk.
@@ -160,11 +172,43 @@ async function runSpawnCollecting(
   options?: {
     onStderrChunk?: (chunk: string) => void;
     onStdoutChunk?: (chunk: string) => void;
+    isCancelled?: () => Promise<boolean>;
   }
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawnProcess(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const stderrChunks: Buffer[] = [];
+    let stoppedForCancel = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const rejectIfCancelled = async (): Promise<boolean> => {
+      if (stoppedForCancel) {
+        return true;
+      }
+      if (!options?.isCancelled) {
+        return false;
+      }
+      if (await options.isCancelled()) {
+        stoppedForCancel = true;
+        child.kill('SIGTERM');
+        return true;
+      }
+      return false;
+    };
+
+    if (options?.isCancelled) {
+      void rejectIfCancelled();
+      pollTimer = setInterval(() => {
+        void rejectIfCancelled();
+      }, IMPORT_CANCEL_POLL_INTERVAL_MS);
+    }
 
     child.stdout.on('data', (chunk: Buffer) => {
       options?.onStdoutChunk?.(chunk.toString('utf8'));
@@ -175,23 +219,35 @@ async function runSpawnCollecting(
     });
 
     child.on('close', (code) => {
-      if (code !== 0) {
-        reject(spawnExitError(label, code, stderrChunks));
-        return;
-      }
-      resolve();
+      stopPolling();
+      void (async () => {
+        if (stoppedForCancel || (await options?.isCancelled?.())) {
+          reject(new YoutubeImportJobCancelledError());
+          return;
+        }
+        if (code !== 0) {
+          reject(spawnExitError(label, code, stderrChunks));
+          return;
+        }
+        resolve();
+      })();
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      stopPolling();
+      reject(error);
+    });
   });
 }
 
 async function runSpawnStdout(
   command: string,
   args: readonly string[],
-  label: string
+  label: string,
+  options?: { isCancelled?: () => Promise<boolean> }
 ): Promise<string> {
   let stdout = '';
   await runSpawnCollecting(command, args, label, {
+    ...options,
     onStdoutChunk: (chunk) => {
       stdout += chunk;
     },
@@ -218,13 +274,17 @@ function parseSectionStartFromInfoJson(info: Record<string, unknown>): number | 
   return null;
 }
 
-async function readDownloadMetadata(workDir: string): Promise<{
+async function readDownloadMetadata(
+  workDir: string,
+  jobId: string
+): Promise<{
   downloadedPath: string;
   sectionStartSeconds: number;
   downloadedDurationSeconds: number;
 }> {
   const downloadedPath = join(workDir, `${DOWNLOADED_BASENAME}.mp4`);
   const infoPath = join(workDir, `${DOWNLOADED_BASENAME}.info.json`);
+  const isCancelled = () => isImportJobCancelled(jobId);
 
   const [infoRaw, durationRaw] = await Promise.all([
     readFile(infoPath, 'utf8'),
@@ -239,7 +299,8 @@ async function readDownloadMetadata(workDir: string): Promise<{
         'default=noprint_wrappers=1:nokey=1',
         downloadedPath,
       ],
-      'ffprobe duration probe'
+      'ffprobe duration probe',
+      { isCancelled }
     ),
   ]);
 
@@ -319,10 +380,11 @@ async function downloadYoutubeSection(
     {
       onStderrChunk: handleDownloadProgressChunk,
       onStdoutChunk: handleDownloadProgressChunk,
+      isCancelled: () => isImportJobCancelled(jobId),
     }
   );
 
-  return readDownloadMetadata(workDir);
+  return readDownloadMetadata(workDir, jobId);
 }
 
 async function trimDownloadedSection(
@@ -332,7 +394,8 @@ async function trimDownloadedSection(
     sectionStartSeconds: number;
     downloadedDurationSeconds: number;
   },
-  workDir: string
+  workDir: string,
+  jobId: string
 ): Promise<string> {
   const { relativeStart, relativeEnd } = computeTrimOffsets({
     jobStartSeconds: job.startSeconds,
@@ -361,7 +424,8 @@ async function trimDownloadedSection(
       '-y',
       trimmedPath,
     ],
-    'ffmpeg stream-copy trim'
+    'ffmpeg stream-copy trim',
+    { isCancelled: () => isImportJobCancelled(jobId) }
   );
 
   const trimmedStat = await stat(trimmedPath);
@@ -411,7 +475,7 @@ export async function runYoutubeImportJob(jobId: string): Promise<void> {
       status: 'trimming',
       progressPercent: DOWNLOAD_PROGRESS_MAX,
     });
-    const trimmedPath = await trimDownloadedSection(job, download, workDir);
+    const trimmedPath = await trimDownloadedSection(job, download, workDir, jobId);
 
     if (await isImportJobCancelled(jobId)) {
       return;
@@ -453,6 +517,13 @@ export async function runYoutubeImportJob(jobId: string): Promise<void> {
       errorMessage: null,
     });
   } catch (error) {
+    if (error instanceof YoutubeImportJobCancelledError) {
+      return;
+    }
+    if (await isImportJobCancelled(jobId)) {
+      return;
+    }
+
     const message = error instanceof Error ? error.message : String(error);
     await updateYoutubeImportJobStatus(jobId, {
       status: 'failed',

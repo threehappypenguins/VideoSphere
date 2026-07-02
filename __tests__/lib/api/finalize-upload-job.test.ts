@@ -44,6 +44,7 @@ import { runDistributionInBackground } from '@/lib/api/distribute';
 import {
   finalizeUploadJobAndDistribute,
   UploadJobFinalizeNotFoundError,
+  UploadJobMissingR2KeyError,
 } from '@/lib/api/finalize-upload-job';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { ensurePlatformUploadsForJobTargets } from '@/lib/repositories/platform-uploads';
@@ -158,5 +159,16 @@ describe('finalizeUploadJobAndDistribute', () => {
     await expect(finalizeUploadJobAndDistribute('job-123', 'user-123')).rejects.toBeInstanceOf(
       UploadJobFinalizeNotFoundError
     );
+  });
+
+  it('throws UploadJobMissingR2KeyError when the job has no staged R2 key', async () => {
+    vi.mocked(getUploadJobById).mockResolvedValueOnce({ ...baseJob, r2Key: null });
+
+    await expect(finalizeUploadJobAndDistribute('job-123', 'user-123')).rejects.toBeInstanceOf(
+      UploadJobMissingR2KeyError
+    );
+    expect(ensurePlatformUploadsForJobTargets).not.toHaveBeenCalled();
+    expect(updateUploadJobStatus).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
   });
 });

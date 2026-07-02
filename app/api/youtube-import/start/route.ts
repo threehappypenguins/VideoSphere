@@ -9,6 +9,7 @@ import {
 } from '@/lib/repositories/youtube-import-jobs';
 import {
   buildYouTubeWatchUrl,
+  extractYouTubeVideoId,
   getYouTubeImportMaxDurationSeconds,
 } from '@/lib/youtube-import/resolve-source';
 import { scheduleYoutubeImportJob } from '@/lib/youtube-import/schedule-import-job';
@@ -90,6 +91,22 @@ function parseStartRequestBody(body: unknown):
   }
 
   const sourceUrl = sourceUrlRaw || buildYouTubeWatchUrl(youtubeVideoId);
+
+  if (sourceUrlRaw) {
+    const sourceVideoId = extractYouTubeVideoId(sourceUrlRaw);
+    if (!sourceVideoId) {
+      return {
+        ok: false,
+        response: badRequest('sourceUrl must be a valid YouTube URL or video id'),
+      };
+    }
+    if (sourceVideoId !== youtubeVideoId) {
+      return {
+        ok: false,
+        response: badRequest('sourceUrl does not match youtubeVideoId'),
+      };
+    }
+  }
 
   return {
     ok: true,

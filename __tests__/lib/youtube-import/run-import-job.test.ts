@@ -65,6 +65,7 @@ function createMockChild(options: {
   stderr?: string;
   code?: number;
   delayMs?: number;
+  onClose?: () => void;
 }): MockChild {
   const child = new EventEmitter() as MockChild;
   child.stdout = new EventEmitter();
@@ -81,6 +82,7 @@ function createMockChild(options: {
       child.stderr.emit('data', Buffer.from(options.stderr));
     }
     child.emit('close', options.code ?? 0);
+    options.onClose?.();
   }, options.delayMs ?? 0);
 
   return child;
@@ -306,10 +308,38 @@ describe('runYoutubeImportJob', () => {
   });
 
   it('honors cancellation between phases before trim starts', async () => {
-    mockGetYoutubeImportJobById
-      .mockResolvedValueOnce(baseJob)
-      .mockResolvedValueOnce(baseJob)
-      .mockResolvedValueOnce({ ...baseJob, status: 'cancelled' });
+    let ytDlpDone = false;
+    let ffprobeDone = false;
+
+    mockSpawnProcess.mockImplementation((command: string) => {
+      if (command === 'yt-dlp') {
+        return createMockChild({
+          stderr: '[download]  50.0% of ~10.00MiB at 1.00MiB/s ETA 00:05\n',
+          onClose: () => {
+            ytDlpDone = true;
+          },
+        });
+      }
+      if (command === 'ffprobe') {
+        return createMockChild({
+          stdout: '120.5\n',
+          onClose: () => {
+            ffprobeDone = true;
+          },
+        });
+      }
+      if (command === 'ffmpeg') {
+        return createMockChild({});
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    mockGetYoutubeImportJobById.mockImplementation(async () => {
+      if (ytDlpDone && ffprobeDone) {
+        return { ...baseJob, status: 'cancelled' };
+      }
+      return { ...baseJob, status: 'downloading' };
+    });
 
     await runYoutubeImportJob('yt-import-1');
 
@@ -322,5 +352,47 @@ describe('runYoutubeImportJob', () => {
     });
     expect(mockUploadLocalFileToR2).not.toHaveBeenCalled();
     expect(mockRm).toHaveBeenCalledWith(WORK_DIR, { recursive: true, force: true });
+  });
+
+  it('kills yt-dlp when cancelled during download and does not mark the job failed', async () => {
+    vi.useFakeTimers();
+
+    let ytDlpChild: MockChild | null = null;
+    let getCount = 0;
+    mockGetYoutubeImportJobById.mockImplementation(async () => {
+      getCount += 1;
+      if (getCount <= 2) {
+        return baseJob;
+      }
+      return { ...baseJob, status: 'cancelled' };
+    });
+
+    mockSpawnProcess.mockImplementation((command: string) => {
+      if (command === 'yt-dlp') {
+        const child = new EventEmitter() as MockChild;
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = vi.fn(() => {
+          child.emit('close', null);
+        });
+        ytDlpChild = child;
+        return child;
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    const runPromise = runYoutubeImportJob('yt-import-1');
+    await vi.advanceTimersByTimeAsync(600);
+    await runPromise;
+
+    expect(ytDlpChild?.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(mockUpdateYoutubeImportJobStatus).not.toHaveBeenCalledWith('yt-import-1', {
+      status: 'failed',
+      errorMessage: expect.any(String),
+    });
+    expect(mockUploadLocalFileToR2).not.toHaveBeenCalled();
+    expect(mockRm).toHaveBeenCalledWith(WORK_DIR, { recursive: true, force: true });
+
+    vi.useRealTimers();
   });
 });

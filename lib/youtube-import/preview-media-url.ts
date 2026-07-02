@@ -69,12 +69,7 @@ export function isAllowedPreviewUpstreamUrl(url: string): boolean {
     }
 
     const hostname = parsed.hostname.toLowerCase();
-    return (
-      hostname === 'googlevideo.com' ||
-      hostname.endsWith('.googlevideo.com') ||
-      hostname === 'youtube.com' ||
-      hostname.endsWith('.youtube.com')
-    );
+    return hostname === 'googlevideo.com' || hostname.endsWith('.googlevideo.com');
   } catch {
     return false;
   }

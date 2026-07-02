@@ -20,7 +20,8 @@ describe('isAllowedPreviewUpstreamUrl', () => {
     ).toBe(true);
   });
 
-  it('rejects non-YouTube hosts', () => {
+  it('rejects non-CDN YouTube hosts', () => {
+    expect(isAllowedPreviewUpstreamUrl('https://www.youtube.com/videoplayback')).toBe(false);
     expect(isAllowedPreviewUpstreamUrl('https://evil.example.com/video.mp4')).toBe(false);
   });
 });

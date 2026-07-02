@@ -190,4 +190,18 @@ describe('POST /api/youtube-import/start', () => {
       })
     );
   });
+
+  it('returns 400 when sourceUrl does not match youtubeVideoId', async () => {
+    const response = await POST(
+      createRequest({
+        ...validBody,
+        sourceUrl: 'https://www.youtube.com/watch?v=aaaaaaaaaaa',
+      })
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.message).toBe('sourceUrl does not match youtubeVideoId');
+    expect(mockCreateYoutubeImportJob).not.toHaveBeenCalled();
+  });
 });

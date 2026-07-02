@@ -20,6 +20,19 @@ export class UploadJobFinalizeNotFoundError extends Error {
 }
 
 /**
+ * Thrown when distribution is requested but the upload job has no staged R2 object key.
+ */
+export class UploadJobMissingR2KeyError extends Error {
+  /**
+   * @param jobId - Upload job id missing an R2 key.
+   */
+  constructor(jobId: string) {
+    super(`Upload job ${jobId} has no R2 object key and cannot be distributed`);
+    this.name = 'UploadJobMissingR2KeyError';
+  }
+}
+
+/**
  * Finalizes an UploadJob whose R2 object is already fully present and
  * verified, transitioning it to the distributing/completed state and
  * kicking off distribution to the draft's target platforms.
@@ -53,6 +66,10 @@ export async function finalizeUploadJobAndDistribute(
   }
 
   const targetPlatforms = [...new Set(draft.targets)] as ConnectedAccountPlatform[];
+  const r2Key = job.r2Key?.trim();
+  if (!r2Key) {
+    throw new UploadJobMissingR2KeyError(jobId);
+  }
 
   // Create platform_upload rows before advancing to distributing so a failure
   // here leaves the job in pending (retryable), not stuck in distributing.
@@ -72,7 +89,7 @@ export async function finalizeUploadJobAndDistribute(
 
   // Schedule background distribution (runs after the response is sent).
   after(() =>
-    runDistributionInBackground(jobId, userId, job.r2Key!, platformUploads, metadataByPlatformId)
+    runDistributionInBackground(jobId, userId, r2Key, platformUploads, metadataByPlatformId)
   );
 
   return { distributing: true };
