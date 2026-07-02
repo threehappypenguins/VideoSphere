@@ -361,7 +361,8 @@ describe('runYoutubeImportJob', () => {
     let getCount = 0;
     mockGetYoutubeImportJobById.mockImplementation(async () => {
       getCount += 1;
-      if (getCount <= 2) {
+      // Startup reads plus immediate cancel poll see baseJob; cancellation on second scheduled poll.
+      if (getCount < 5) {
         return baseJob;
       }
       return { ...baseJob, status: 'cancelled' };
@@ -382,7 +383,7 @@ describe('runYoutubeImportJob', () => {
     });
 
     const runPromise = runYoutubeImportJob('yt-import-1');
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(2_600);
     await runPromise;
 
     expect(ytDlpChild?.kill).toHaveBeenCalledWith('SIGTERM');

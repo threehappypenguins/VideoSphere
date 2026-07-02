@@ -117,12 +117,7 @@ export function YouTubePreviewPlayer({
       }
     };
 
-    const delayMs = expiresAt - Date.now() - PREVIEW_URL_REFRESH_BUFFER_MS;
-    if (delayMs <= 0) {
-      return clearRefreshTimer;
-    }
-
-    refreshTimerRef.current = setTimeout(() => {
+    const refreshPreview = () => {
       void (async () => {
         try {
           const params = new URLSearchParams({
@@ -146,7 +141,15 @@ export function YouTubePreviewPlayer({
           console.error('[YouTubePreviewPlayer] Failed to refresh preview media:', error);
         }
       })();
-    }, delayMs);
+    };
+
+    const delayMs = expiresAt - Date.now() - PREVIEW_URL_REFRESH_BUFFER_MS;
+    if (delayMs <= 0) {
+      refreshPreview();
+      return clearRefreshTimer;
+    }
+
+    refreshTimerRef.current = setTimeout(refreshPreview, delayMs);
 
     return clearRefreshTimer;
   }, [expiresAt, youtubeVideoId]);

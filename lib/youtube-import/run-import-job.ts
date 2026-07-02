@@ -19,8 +19,12 @@ const TRIMMED_BASENAME = 'trimmed.mp4';
 const DOWNLOAD_PROGRESS_MAX = 70;
 const TRIM_PROGRESS = 85;
 const UPLOAD_PROGRESS = 95;
-/** How often in-flight subprocesses check whether the import job was cancelled. */
-const IMPORT_CANCEL_POLL_INTERVAL_MS = 500;
+/** Initial cancel poll interval while subprocesses start (ms). */
+const IMPORT_CANCEL_POLL_INITIAL_MS = 1_000;
+/** Maximum cancel poll interval during long downloads/trims (ms). */
+const IMPORT_CANCEL_POLL_MAX_MS = 5_000;
+/** Multiplier applied after each cancel poll that finds the job still active. */
+const IMPORT_CANCEL_POLL_BACKOFF_FACTOR = 1.5;
 
 /**
  * Thrown when an import subprocess is stopped because the job was cancelled.
@@ -179,11 +183,12 @@ async function runSpawnCollecting(
     const child = spawnProcess(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const stderrChunks: Buffer[] = [];
     let stoppedForCancel = false;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let nextPollDelayMs = IMPORT_CANCEL_POLL_INITIAL_MS;
 
     const stopPolling = () => {
       if (pollTimer) {
-        clearInterval(pollTimer);
+        clearTimeout(pollTimer);
         pollTimer = null;
       }
     };
@@ -203,11 +208,24 @@ async function runSpawnCollecting(
       return false;
     };
 
+    const scheduleCancelPoll = () => {
+      pollTimer = setTimeout(() => {
+        void (async () => {
+          if (await rejectIfCancelled()) {
+            return;
+          }
+          nextPollDelayMs = Math.min(
+            Math.round(nextPollDelayMs * IMPORT_CANCEL_POLL_BACKOFF_FACTOR),
+            IMPORT_CANCEL_POLL_MAX_MS
+          );
+          scheduleCancelPoll();
+        })();
+      }, nextPollDelayMs);
+    };
+
     if (options?.isCancelled) {
       void rejectIfCancelled();
-      pollTimer = setInterval(() => {
-        void rejectIfCancelled();
-      }, IMPORT_CANCEL_POLL_INTERVAL_MS);
+      scheduleCancelPoll();
     }
 
     child.stdout.on('data', (chunk: Buffer) => {

@@ -89,6 +89,37 @@ describe('YouTubePreviewPlayer', () => {
     expect(playerRef.current?.getCurrentTime()).toBe(42);
   });
 
+  it('refreshes immediately when preview URL is within the refresh buffer', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            streamUrl: STREAM_URL,
+            expiresAt: Date.now() + 3_600_000,
+          },
+        }),
+        { status: 200 }
+      )
+    );
+
+    render(
+      <YouTubePreviewPlayer
+        youtubeVideoId={VIDEO_ID}
+        streamUrl={STREAM_URL}
+        previewExpiresAt={Date.now() + 30_000}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/youtube-import/preview?youtubeVideoId=${VIDEO_ID}`),
+        expect.objectContaining({ cache: 'no-store' })
+      );
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('refresh=1');
+  });
+
   it('resets refresh state when preview source props change', () => {
     const otherVideoId = 'abc123xyz90';
     const otherStreamUrl = `/api/youtube-import/preview/stream?youtubeVideoId=${otherVideoId}`;
