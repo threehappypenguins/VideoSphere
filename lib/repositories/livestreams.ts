@@ -421,8 +421,28 @@ export async function listLivestreamsByUser(userId: string): Promise<Livestream[
  * @returns Total streamed livestream count.
  */
 export async function countStreamedLivestreamsByUser(userId: string): Promise<number> {
+  const { total } = await getStreamedLivestreamsPage(userId, { limit: 0, offset: 0 });
+  return total;
+}
+
+/**
+ * Returns a paginated slice of streamed livestreams and the filtered total.
+ * @param userId - Owner user id.
+ * @param options - Pagination options.
+ * @param options.limit - Maximum rows to return.
+ * @param options.offset - Number of rows to skip.
+ * @returns Page slice and total streamed count from a single in-memory filter pass.
+ */
+export async function getStreamedLivestreamsPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<{ total: number; livestreams: Livestream[] }> {
   const livestreams = await listLivestreamsByUser(userId);
-  return filterStreamedLivestreams(livestreams).length;
+  const filtered = filterStreamedLivestreams(livestreams);
+  return {
+    total: filtered.length,
+    livestreams: paginateLivestreams(filtered, options.offset, options.limit),
+  };
 }
 
 /**
@@ -437,8 +457,8 @@ export async function listStreamedLivestreamsByUserPage(
   userId: string,
   options: { limit: number; offset: number }
 ): Promise<Livestream[]> {
-  const livestreams = await listLivestreamsByUser(userId);
-  return paginateLivestreams(filterStreamedLivestreams(livestreams), options.offset, options.limit);
+  const { livestreams } = await getStreamedLivestreamsPage(userId, options);
+  return livestreams;
 }
 
 /**
@@ -447,8 +467,28 @@ export async function listStreamedLivestreamsByUserPage(
  * @returns Total importable YouTube livestream count.
  */
 export async function countYoutubeImportLivestreamsByUser(userId: string): Promise<number> {
+  const { total } = await getYoutubeImportLivestreamsPage(userId, { limit: 0, offset: 0 });
+  return total;
+}
+
+/**
+ * Returns a paginated slice of YouTube-importable livestreams and the filtered total.
+ * @param userId - Owner user id.
+ * @param options - Pagination options.
+ * @param options.limit - Maximum rows to return.
+ * @param options.offset - Number of rows to skip.
+ * @returns Page slice and total importable count from a single in-memory filter pass.
+ */
+export async function getYoutubeImportLivestreamsPage(
+  userId: string,
+  options: { limit: number; offset: number }
+): Promise<{ total: number; livestreams: Livestream[] }> {
   const livestreams = await listLivestreamsByUser(userId);
-  return filterYoutubeImportLivestreams(livestreams).length;
+  const filtered = filterYoutubeImportLivestreams(livestreams);
+  return {
+    total: filtered.length,
+    livestreams: paginateLivestreams(filtered, options.offset, options.limit),
+  };
 }
 
 /**
@@ -463,12 +503,8 @@ export async function listYoutubeImportLivestreamsByUserPage(
   userId: string,
   options: { limit: number; offset: number }
 ): Promise<Livestream[]> {
-  const livestreams = await listLivestreamsByUser(userId);
-  return paginateLivestreams(
-    filterYoutubeImportLivestreams(livestreams),
-    options.offset,
-    options.limit
-  );
+  const { livestreams } = await getYoutubeImportLivestreamsPage(userId, options);
+  return livestreams;
 }
 
 /**

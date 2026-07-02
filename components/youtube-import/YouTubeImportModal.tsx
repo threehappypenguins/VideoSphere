@@ -41,8 +41,8 @@ import type { ApiResponse, Livestream, YoutubeImportJob } from '@/types';
 /** Poll interval for in-flight import jobs (matches draft upload polling). */
 const IMPORT_JOB_POLL_INTERVAL_MS = 3000;
 
-/** Page size for streamed livestream history in the source picker. */
-const LIVESTREAM_PAGE_SIZE = 20;
+/** Page size for streamed livestream history in the YouTube import source picker. */
+const LIVESTREAM_IMPORT_PAGE_SIZE = 2;
 
 /**
  * Modal step identifiers for the YouTube import flow.
@@ -109,7 +109,6 @@ export function YouTubeImportModal({
 
   const [sourceUrlInput, setSourceUrlInput] = useState('');
   const [livestreams, setLivestreams] = useState<Livestream[]>([]);
-  const [livestreamsOffset, setLivestreamsOffset] = useState(0);
   const [livestreamsTotal, setLivestreamsTotal] = useState(0);
   const [isLoadingLivestreams, setIsLoadingLivestreams] = useState(false);
   const [isCheckingActiveJob, setIsCheckingActiveJob] = useState(false);
@@ -164,7 +163,6 @@ export function YouTubeImportModal({
     setJobStatus(null);
     setSourceUrlInput('');
     setLivestreams([]);
-    setLivestreamsOffset(0);
     setLivestreamsTotal(0);
     setErrorMessage(null);
     setConflictActiveJobId(null);
@@ -191,11 +189,12 @@ export function YouTubeImportModal({
     [jobStatus, onOpenChange, resetModalState, step]
   );
 
-  const loadLivestreams = useCallback(async (offset: number) => {
+  const loadLivestreams = useCallback(async (offset: number, options?: { append?: boolean }) => {
+    const append = options?.append ?? false;
     setIsLoadingLivestreams(true);
     try {
       const response = await fetch(
-        `/api/livestreams?status=streamed&for=youtube-import&limit=${LIVESTREAM_PAGE_SIZE}&offset=${offset}`,
+        `/api/livestreams?status=streamed&for=youtube-import&limit=${LIVESTREAM_IMPORT_PAGE_SIZE}&offset=${offset}`,
         { cache: 'no-store' }
       );
       if (!response.ok) {
@@ -205,13 +204,14 @@ export function YouTubeImportModal({
 
       const payload = (await response.json()) as LivestreamsListResponse;
       const rows = Array.isArray(payload.data) ? payload.data : [];
-      setLivestreams(rows);
+      setLivestreams((current) => (append ? [...current, ...rows] : rows));
       setLivestreamsTotal(payload.meta?.total ?? rows.length);
-      setLivestreamsOffset(offset);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to load past livestreams');
-      setLivestreams([]);
-      setLivestreamsTotal(0);
+      if (!options?.append) {
+        setLivestreams([]);
+        setLivestreamsTotal(0);
+      }
     } finally {
       setIsLoadingLivestreams(false);
     }
@@ -355,8 +355,8 @@ export function YouTubeImportModal({
     setErrorMessage(null);
     setShowCompletionSuccess(false);
     completionHandledRef.current = false;
-    void loadLivestreams(livestreamsOffset);
-  }, [livestreamsOffset, loadLivestreams]);
+    void loadLivestreams(0);
+  }, [loadLivestreams]);
 
   const handleCancelImport = useCallback(async () => {
     if (!jobId) return;
@@ -416,8 +416,8 @@ export function YouTubeImportModal({
 
   useEffect(() => {
     if (!open || step !== 'source' || jobId) return;
-    void loadLivestreams(livestreamsOffset);
-  }, [jobId, livestreamsOffset, loadLivestreams, open, step]);
+    void loadLivestreams(0);
+  }, [jobId, loadLivestreams, open, step]);
 
   useEffect(() => {
     if (!open || step !== 'progress' || !jobId) return;
@@ -471,8 +471,7 @@ export function YouTubeImportModal({
     void onImportComplete();
   }, [jobStatus, onImportComplete]);
 
-  const canPrevLivestreams = livestreamsOffset > 0;
-  const canNextLivestreams = livestreamsOffset + livestreams.length < livestreamsTotal;
+  const canShowMoreLivestreams = livestreams.length < livestreamsTotal;
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
@@ -607,32 +606,20 @@ export function YouTubeImportModal({
               {livestreamsTotal > 0 ? (
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
-                    Showing{' '}
-                    {livestreams.length === 0
-                      ? '0'
-                      : `${livestreamsOffset + 1}-${livestreamsOffset + livestreams.length}`}{' '}
-                    of {livestreamsTotal}
+                    Showing {livestreams.length} of {livestreamsTotal}
                   </p>
-                  <div className="flex items-center gap-2">
+                  {canShowMoreLivestreams ? (
                     <button
                       type="button"
-                      onClick={() =>
-                        setLivestreamsOffset((prev) => Math.max(0, prev - LIVESTREAM_PAGE_SIZE))
-                      }
-                      disabled={!canPrevLivestreams || isLoadingLivestreams}
+                      onClick={() => {
+                        void loadLivestreams(livestreams.length, { append: true });
+                      }}
+                      disabled={isLoadingLivestreams}
                       className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
                     >
-                      Previous
+                      {isLoadingLivestreams ? 'Loading…' : 'Show more'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setLivestreamsOffset((prev) => prev + LIVESTREAM_PAGE_SIZE)}
-                      disabled={!canNextLivestreams || isLoadingLivestreams}
-                      className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-60"
-                    >
-                      Next
-                    </button>
-                  </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>

@@ -21,11 +21,9 @@ import { persistUserYouTubePlatformDefaults } from '@/lib/platforms/youtube-user
 import { reconcileLivestreamsFromYouTubeForUser } from '@/lib/livestreams/reconcile-user-lifecycle';
 import {
   createLivestream,
-  countStreamedLivestreamsByUser,
-  countYoutubeImportLivestreamsByUser,
+  getStreamedLivestreamsPage,
+  getYoutubeImportLivestreamsPage,
   listLivestreamsByUser,
-  listStreamedLivestreamsByUserPage,
-  listYoutubeImportLivestreamsByUserPage,
   LivestreamDocumentTooLargeError,
 } from '@/lib/repositories/livestreams';
 import type { ApiResponse, ApiError, Livestream } from '@/types';
@@ -279,18 +277,12 @@ export async function GET(req: NextRequest) {
         await reconcileLivestreamsFromYouTubeForUser(userId);
       }
 
-      const [total, livestreams] = forYoutubeImport
-        ? await Promise.all([
-            countYoutubeImportLivestreamsByUser(userId),
-            listYoutubeImportLivestreamsByUserPage(userId, { limit, offset }),
-          ])
-        : await Promise.all([
-            countStreamedLivestreamsByUser(userId),
-            listStreamedLivestreamsByUserPage(userId, { limit, offset }),
-          ]);
+      const page = forYoutubeImport
+        ? await getYoutubeImportLivestreamsPage(userId, { limit, offset })
+        : await getStreamedLivestreamsPage(userId, { limit, offset });
       const response = {
-        data: livestreams,
-        meta: { total, limit, offset },
+        data: page.livestreams,
+        meta: { total: page.total, limit, offset },
       };
       return NextResponse.json(response);
     }

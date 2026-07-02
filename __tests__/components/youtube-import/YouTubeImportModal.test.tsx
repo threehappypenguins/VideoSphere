@@ -63,6 +63,13 @@ const livestreamRow: Livestream = {
   $updatedAt: '2026-01-16T00:00:00.000Z',
 };
 
+const livestreamRow2: Livestream = {
+  ...livestreamRow,
+  id: 'livestream-2',
+  title: 'Wednesday Night Service',
+  scheduledStartTime: '2026-01-08T23:00:00.000Z',
+};
+
 function makeImportJob(overrides: Partial<YoutubeImportJob> = {}): YoutubeImportJob {
   return {
     id: 'import-job-1',
@@ -113,7 +120,7 @@ function installFetchMock(handlers: {
         new Response(
           JSON.stringify({
             data: [livestreamRow],
-            meta: { total: 1, limit: 20, offset: 0 },
+            meta: { total: 1, limit: 2, offset: 0 },
           }),
           { status: 200 }
         )
@@ -270,6 +277,56 @@ describe('YouTubeImportModal', () => {
         body: JSON.stringify({ livestreamId: 'livestream-1' }),
       })
     );
+  });
+
+  it('loads two livestreams initially and appends two more when Show more is clicked', async () => {
+    const user = userEvent.setup();
+    const fetchMock = installFetchMock({
+      livestreams: (urlStr) => {
+        const url = new URL(urlStr, 'http://localhost');
+        const offset = Number(url.searchParams.get('offset') ?? '0');
+        const page =
+          offset === 0
+            ? [livestreamRow, livestreamRow2]
+            : [
+                { ...livestreamRow, id: 'livestream-3', title: 'Older Service 3' },
+                { ...livestreamRow, id: 'livestream-4', title: 'Older Service 4' },
+              ];
+
+        return new Response(
+          JSON.stringify({
+            data: page,
+            meta: { total: 4, limit: 2, offset },
+          }),
+          { status: 200 }
+        );
+      },
+    });
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText('Sunday Morning Service')).toBeInTheDocument();
+      expect(screen.getByText('Wednesday Night Service')).toBeInTheDocument();
+    });
+
+    const initialLivestreamRequest = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes('/api/livestreams?')
+    );
+    expect(initialLivestreamRequest?.[0]).toEqual(expect.stringContaining('limit=2'));
+    expect(initialLivestreamRequest?.[0]).toEqual(expect.stringContaining('offset=0'));
+
+    await user.click(screen.getByRole('button', { name: /show more/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Older Service 3')).toBeInTheDocument();
+      expect(screen.getByText('Older Service 4')).toBeInTheDocument();
+    });
+
+    const showMoreRequest = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.includes('/api/livestreams?') && url.includes('offset=2'));
+    expect(showMoreRequest).toEqual(expect.stringContaining('limit=2'));
   });
 
   it('polls job status after start and calls onImportComplete when finished', async () => {

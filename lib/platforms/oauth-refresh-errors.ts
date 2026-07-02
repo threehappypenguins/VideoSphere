@@ -4,8 +4,17 @@
  * @returns True when the user must reconnect the platform account.
  */
 export function isOAuthRefreshTokenRevokedError(details: unknown): boolean {
-  const text =
-    typeof details === 'string' ? details : details == null ? '' : JSON.stringify(details);
+  let text = '';
+  if (typeof details === 'string') {
+    text = details;
+  } else if (details != null) {
+    try {
+      text = JSON.stringify(details);
+    } catch {
+      text = String(details);
+    }
+  }
+
   const normalized = text.toLowerCase();
   return (
     normalized.includes('invalid_grant') ||

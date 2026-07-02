@@ -88,4 +88,33 @@ describe('YouTubePreviewPlayer', () => {
     expect(video.currentTime).toBe(42);
     expect(playerRef.current?.getCurrentTime()).toBe(42);
   });
+
+  it('resets refresh state when preview source props change', () => {
+    const otherVideoId = 'abc123xyz90';
+    const otherStreamUrl = `/api/youtube-import/preview/stream?youtubeVideoId=${otherVideoId}`;
+
+    const { container, rerender } = render(
+      <YouTubePreviewPlayer
+        youtubeVideoId={VIDEO_ID}
+        streamUrl={STREAM_URL}
+        previewExpiresAt={PREVIEW_EXPIRES_AT}
+      />
+    );
+
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    fireEvent.error(video!);
+
+    rerender(
+      <YouTubePreviewPlayer
+        youtubeVideoId={otherVideoId}
+        streamUrl={otherStreamUrl}
+        previewExpiresAt={PREVIEW_EXPIRES_AT + 1_000}
+      />
+    );
+
+    const nextVideo = container.querySelector('video');
+    expect(nextVideo).not.toHaveAttribute('src', expect.stringContaining('refresh=1'));
+    expect(nextVideo).toHaveAttribute('src', otherStreamUrl);
+  });
 });

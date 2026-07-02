@@ -73,6 +73,13 @@ export function YouTubePreviewPlayer({
     onDurationKnownRef.current = onDurationKnown;
   }, [onDurationKnown]);
 
+  useEffect(() => {
+    setRefreshKey(0);
+    setExpiresAt(previewExpiresAt);
+    setPlaybackError(null);
+    pendingPreviewSecondsRef.current = null;
+  }, [previewExpiresAt, streamUrl, youtubeVideoId]);
+
   const previewAt = useCallback((seconds: number) => {
     const video = videoRef.current;
     const clampedSeconds = Math.max(0, seconds);
