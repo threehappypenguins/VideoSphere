@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getActiveYoutubeImportJobForUser } from '@/lib/repositories/youtube-import-jobs';
+import { scheduleYoutubeImportJob } from '@/lib/youtube-import/schedule-import-job';
 import type { ApiError } from '@/types';
 
 /**
@@ -20,6 +21,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const job = await getActiveYoutubeImportJobForUser(userId);
+
+  if (job?.status === 'pending') {
+    scheduleYoutubeImportJob(job.id, userId);
+  }
 
   return NextResponse.json({ job }, { status: 200 });
 }

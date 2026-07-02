@@ -11,6 +11,7 @@ import {
   buildYouTubeWatchUrl,
   getYouTubeImportMaxDurationSeconds,
 } from '@/lib/youtube-import/resolve-source';
+import { scheduleYoutubeImportJob } from '@/lib/youtube-import/schedule-import-job';
 import type { ApiError } from '@/types';
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
@@ -161,6 +162,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       startSeconds: parsed.data.startSeconds,
       endSeconds: parsed.data.endSeconds,
     });
+
+    scheduleYoutubeImportJob(job.id, userId);
 
     return NextResponse.json({ jobId: job.id }, { status: 201 });
   } catch (error) {

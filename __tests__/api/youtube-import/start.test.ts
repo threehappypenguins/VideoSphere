@@ -30,6 +30,12 @@ vi.mock('@/lib/youtube-import/discard-draft-import', () => ({
     mockDiscardBlockingDraftYoutubeImport(...args),
 }));
 
+const mockScheduleYoutubeImportJob = vi.fn();
+
+vi.mock('@/lib/youtube-import/schedule-import-job', () => ({
+  scheduleYoutubeImportJob: (...args: unknown[]) => mockScheduleYoutubeImportJob(...args),
+}));
+
 import { POST } from '@/app/api/youtube-import/start/route';
 import { YoutubeImportJobAlreadyActiveError } from '@/lib/repositories/youtube-import-jobs';
 
@@ -148,7 +154,7 @@ describe('POST /api/youtube-import/start', () => {
     expect(body.activeJobId).toBe('existing-active-job');
   });
 
-  it('creates a job and returns 201 for the client to start the worker', async () => {
+  it('creates a job, schedules the server worker, and returns 201', async () => {
     const response = await POST(createRequest(validBody));
 
     expect(response.status).toBe(201);
@@ -165,6 +171,7 @@ describe('POST /api/youtube-import/start', () => {
       endSeconds: 100,
     });
     expect(mockDiscardBlockingDraftYoutubeImport).toHaveBeenCalledWith(DRAFT_ID, USER_ID);
+    expect(mockScheduleYoutubeImportJob).toHaveBeenCalledWith('import-job-1', USER_ID);
   });
 
   it('passes livestreamId and sourceUrl when provided', async () => {

@@ -133,27 +133,6 @@ export function YouTubeImportModal({
     []
   );
   const completionHandledRef = useRef(false);
-  const kickoffSentForJobIdRef = useRef<string | null>(null);
-
-  const requestImportWorkerKickoff = useCallback((targetJobId: string) => {
-    if (kickoffSentForJobIdRef.current === targetJobId) {
-      return;
-    }
-    kickoffSentForJobIdRef.current = targetJobId;
-    void fetch(`/api/youtube-import/${targetJobId}/run`, {
-      method: 'POST',
-      cache: 'no-store',
-    })
-      .then((response) => {
-        // 409 means another kickoff already claimed the job — expected when resuming.
-        if (!response.ok && response.status !== 409) {
-          console.error('YouTube import worker kickoff failed:', response.status);
-        }
-      })
-      .catch((error) => {
-        console.error('YouTube import worker kickoff failed:', error);
-      });
-  }, []);
 
   const resetModalState = useCallback(() => {
     setStep('source');
@@ -172,7 +151,6 @@ export function YouTubeImportModal({
     setIsCancelling(false);
     setShowCancelImportConfirm(false);
     completionHandledRef.current = false;
-    kickoffSentForJobIdRef.current = null;
   }, []);
 
   const handleDialogOpenChange = useCallback(
@@ -325,19 +303,12 @@ export function YouTubeImportModal({
 
       setJobId(payload.jobId);
       setStep('progress');
-      requestImportWorkerKickoff(payload.jobId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start YouTube import');
     } finally {
       setIsStarting(false);
     }
-  }, [
-    draftId,
-    requestImportWorkerKickoff,
-    resolvedSource,
-    trimRange.endSeconds,
-    trimRange.startSeconds,
-  ]);
+  }, [draftId, resolvedSource, trimRange.endSeconds, trimRange.startSeconds]);
 
   const handleWatchExistingImport = useCallback(() => {
     if (!conflictActiveJobId) return;
@@ -394,9 +365,6 @@ export function YouTubeImportModal({
           setJobId(payload.job.id);
           setJobStatus(payload.job);
           setStep('progress');
-          if (payload.job.status === 'pending') {
-            requestImportWorkerKickoff(payload.job.id);
-          }
         }
       } catch {
         if (!cancelled) {
@@ -412,7 +380,7 @@ export function YouTubeImportModal({
     return () => {
       cancelled = true;
     };
-  }, [open, requestImportWorkerKickoff]);
+  }, [open]);
 
   useEffect(() => {
     if (!open || step !== 'source' || jobId) return;
@@ -453,13 +421,6 @@ export function YouTubeImportModal({
       window.clearInterval(intervalId);
     };
   }, [jobId, open, step]);
-
-  useEffect(() => {
-    if (!open || step !== 'progress' || !jobId) return;
-    if (jobStatus?.status !== 'pending') return;
-
-    requestImportWorkerKickoff(jobId);
-  }, [jobId, jobStatus?.status, open, requestImportWorkerKickoff, step]);
 
   useEffect(() => {
     if (!jobStatus || jobStatus.status !== 'completed' || completionHandledRef.current) {

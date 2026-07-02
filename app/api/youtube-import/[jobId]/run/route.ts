@@ -1,31 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { YOUTUBE_IMPORT_WORKER_HEADER } from '@/lib/youtube-import/kickoff-import-job';
-import { runYoutubeImportJob } from '@/lib/youtube-import/run-import-job';
-import {
-  claimPendingYoutubeImportJob,
-  getYoutubeImportJobById,
-} from '@/lib/repositories/youtube-import-jobs';
+import { executeYoutubeImportJobWorker } from '@/lib/youtube-import/execute-import-job';
+import { getYoutubeImportJobById } from '@/lib/repositories/youtube-import-jobs';
 import type { ApiError } from '@/types';
 
 /** Allow long downloads/trims in hosted environments that honor route segment config. */
 export const maxDuration = 3600;
 
-function isAuthorizedWorkerRequest(req: NextRequest): boolean {
-  const expected = process.env.YOUTUBE_IMPORT_WORKER_SECRET?.trim();
-  if (!expected) {
-    return false;
-  }
-  return req.headers.get(YOUTUBE_IMPORT_WORKER_HEADER) === expected;
-}
-
 /**
- * Executes a pending YouTube import job. The request stays open until the
- * download/trim/upload pipeline finishes so dev and container hosts keep the
- * worker alive for the full yt-dlp/ffmpeg run.
+ * Executes a pending YouTube import job for the authenticated owner. Prefer
+ * server-side scheduling from `/start`; this route remains for manual resume.
  * @param req - Incoming POST request.
  * @param context - Route params containing the import job id.
- * @returns Accepted when the job is already running or finished; otherwise the terminal job row.
+ * @returns Terminal job row when the worker ran; 409 when already active.
  */
 export async function POST(
   req: NextRequest,
@@ -44,10 +31,7 @@ export async function POST(
   }
 
   const userId = await getAuthenticatedUserId(req);
-  const authorizedByUser = userId != null && job.userId === userId;
-  const authorizedByWorker = isAuthorizedWorkerRequest(req);
-
-  if (!authorizedByUser && !authorizedByWorker) {
+  if (userId == null || job.userId !== userId) {
     const errRes: ApiError = {
       error: 'Forbidden',
       message: 'You do not have access to run this import job',
@@ -56,13 +40,10 @@ export async function POST(
     return NextResponse.json(errRes, { status: 403 });
   }
 
-  const claimed = authorizedByWorker
-    ? await claimPendingYoutubeImportJob(jobId)
-    : await claimPendingYoutubeImportJob(jobId, userId!);
+  try {
+    const result = await executeYoutubeImportJobWorker(jobId, userId);
 
-  if (!claimed) {
-    const current = await getYoutubeImportJobById(jobId);
-    if (!current) {
+    if (result.outcome === 'not_found') {
       const errRes: ApiError = {
         error: 'Not Found',
         message: 'YouTube import job not found',
@@ -70,13 +51,13 @@ export async function POST(
       };
       return NextResponse.json(errRes, { status: 404 });
     }
-    return NextResponse.json({ accepted: false, status: current.status }, { status: 409 });
-  }
 
-  console.info(`[POST /api/youtube-import/${jobId}/run] Starting import worker`);
+    if (result.outcome === 'already_running') {
+      return NextResponse.json({ accepted: false, status: result.status }, { status: 409 });
+    }
 
-  try {
-    await runYoutubeImportJob(jobId);
+    const finished = await getYoutubeImportJobById(jobId);
+    return NextResponse.json({ data: finished }, { status: 200 });
   } catch (error) {
     console.error(`[POST /api/youtube-import/${jobId}/run] Import worker failed:`, error);
     const message = error instanceof Error ? error.message : String(error);
@@ -87,7 +68,4 @@ export async function POST(
     };
     return NextResponse.json(errRes, { status: 500 });
   }
-
-  const finished = await getYoutubeImportJobById(jobId);
-  return NextResponse.json({ data: finished }, { status: 200 });
 }

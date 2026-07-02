@@ -3,8 +3,7 @@ import { NextRequest } from 'next/server';
 
 const mockGetAuthenticatedUserId = vi.fn();
 const mockGetYoutubeImportJobById = vi.fn();
-const mockClaimPendingYoutubeImportJob = vi.fn();
-const mockRunYoutubeImportJob = vi.fn();
+const mockExecuteYoutubeImportJobWorker = vi.fn();
 
 vi.mock('@/lib/api/auth', () => ({
   getAuthenticatedUserId: (...args: unknown[]) => mockGetAuthenticatedUserId(...args),
@@ -12,11 +11,10 @@ vi.mock('@/lib/api/auth', () => ({
 
 vi.mock('@/lib/repositories/youtube-import-jobs', () => ({
   getYoutubeImportJobById: (...args: unknown[]) => mockGetYoutubeImportJobById(...args),
-  claimPendingYoutubeImportJob: (...args: unknown[]) => mockClaimPendingYoutubeImportJob(...args),
 }));
 
-vi.mock('@/lib/youtube-import/run-import-job', () => ({
-  runYoutubeImportJob: (...args: unknown[]) => mockRunYoutubeImportJob(...args),
+vi.mock('@/lib/youtube-import/execute-import-job', () => ({
+  executeYoutubeImportJobWorker: (...args: unknown[]) => mockExecuteYoutubeImportJobWorker(...args),
 }));
 
 import { POST } from '@/app/api/youtube-import/[jobId]/run/route';
@@ -42,28 +40,22 @@ const pendingJob = {
   $updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
-function createRequest(jobId = JOB_ID, headers: Record<string, string> = {}): NextRequest {
+function createRequest(jobId = JOB_ID): NextRequest {
   return new NextRequest(`http://localhost:9624/api/youtube-import/${jobId}/run`, {
     method: 'POST',
-    headers,
   });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv('YOUTUBE_IMPORT_WORKER_SECRET', 'worker-secret');
   mockGetAuthenticatedUserId.mockResolvedValue(USER_ID);
   mockGetYoutubeImportJobById.mockResolvedValue(pendingJob);
-  mockClaimPendingYoutubeImportJob.mockResolvedValue({
-    ...pendingJob,
-    status: 'downloading',
-  });
+  mockExecuteYoutubeImportJobWorker.mockResolvedValue({ outcome: 'ran' });
   mockGetYoutubeImportJobById.mockResolvedValueOnce(pendingJob).mockResolvedValueOnce({
     ...pendingJob,
     status: 'completed',
     progressPercent: 100,
   });
-  mockRunYoutubeImportJob.mockResolvedValue(undefined);
 });
 
 describe('POST /api/youtube-import/[jobId]/run', () => {
@@ -71,32 +63,26 @@ describe('POST /api/youtube-import/[jobId]/run', () => {
     const response = await POST(createRequest(), { params: Promise.resolve({ jobId: JOB_ID }) });
 
     expect(response.status).toBe(200);
-    expect(mockClaimPendingYoutubeImportJob).toHaveBeenCalledWith(JOB_ID, USER_ID);
-    expect(mockRunYoutubeImportJob).toHaveBeenCalledWith(JOB_ID);
+    expect(mockExecuteYoutubeImportJobWorker).toHaveBeenCalledWith(JOB_ID, USER_ID);
   });
 
   it('returns 409 when the job is no longer pending', async () => {
-    mockGetYoutubeImportJobById.mockResolvedValue({
-      ...pendingJob,
+    mockExecuteYoutubeImportJobWorker.mockResolvedValueOnce({
+      outcome: 'already_running',
       status: 'downloading',
     });
-    mockClaimPendingYoutubeImportJob.mockResolvedValue(null);
 
     const response = await POST(createRequest(), { params: Promise.resolve({ jobId: JOB_ID }) });
 
     expect(response.status).toBe(409);
-    expect(mockRunYoutubeImportJob).not.toHaveBeenCalled();
   });
 
-  it('accepts worker-secret auth without a user session', async () => {
+  it('returns 403 without a user session', async () => {
     mockGetAuthenticatedUserId.mockResolvedValueOnce(null);
 
-    const response = await POST(
-      createRequest(JOB_ID, { 'x-youtube-import-worker-secret': 'worker-secret' }),
-      { params: Promise.resolve({ jobId: JOB_ID }) }
-    );
+    const response = await POST(createRequest(), { params: Promise.resolve({ jobId: JOB_ID }) });
 
-    expect(response.status).toBe(200);
-    expect(mockRunYoutubeImportJob).toHaveBeenCalledWith(JOB_ID);
+    expect(response.status).toBe(403);
+    expect(mockExecuteYoutubeImportJobWorker).not.toHaveBeenCalled();
   });
 });

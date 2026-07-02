@@ -13,6 +13,12 @@ vi.mock('@/lib/repositories/youtube-import-jobs', () => ({
     mockGetActiveYoutubeImportJobForUser(...args),
 }));
 
+const mockScheduleYoutubeImportJob = vi.fn();
+
+vi.mock('@/lib/youtube-import/schedule-import-job', () => ({
+  scheduleYoutubeImportJob: (...args: unknown[]) => mockScheduleYoutubeImportJob(...args),
+}));
+
 import { GET } from '@/app/api/youtube-import/active/route';
 
 const USER_ID = 'user-123';
@@ -74,5 +80,19 @@ describe('GET /api/youtube-import/active', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toEqual({ job: activeJob });
+    expect(mockScheduleYoutubeImportJob).not.toHaveBeenCalled();
+  });
+
+  it('schedules server-side execution when the active job is still pending', async () => {
+    mockGetActiveYoutubeImportJobForUser.mockResolvedValueOnce({
+      ...activeJob,
+      status: 'pending',
+      progressPercent: 0,
+    });
+
+    const response = await GET(createRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockScheduleYoutubeImportJob).toHaveBeenCalledWith('import-job-1', USER_ID);
   });
 });

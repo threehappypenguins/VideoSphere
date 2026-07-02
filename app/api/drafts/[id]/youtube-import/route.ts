@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { getDraftById } from '@/lib/repositories/drafts';
 import { getYoutubeImportJobForDraftEditor } from '@/lib/repositories/youtube-import-jobs';
+import { scheduleYoutubeImportJob } from '@/lib/youtube-import/schedule-import-job';
 import type { ApiError, ApiResponse, YoutubeImportJob } from '@/types';
 
 /**
@@ -45,6 +46,11 @@ export async function GET(
   }
 
   const job = await getYoutubeImportJobForDraftEditor(draftId);
+
+  if (job?.status === 'pending') {
+    scheduleYoutubeImportJob(job.id, userId);
+  }
+
   const response: ApiResponse<YoutubeImportJob | null> = { data: job };
   return NextResponse.json(response, { status: 200 });
 }
