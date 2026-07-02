@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildStreamedLivestreamsMongoFilter,
+  buildYoutubeImportLivestreamsMongoFilter,
   filterStreamedLivestreams,
   filterYoutubeImportLivestreams,
   isStreamedLivestream,
@@ -61,5 +63,22 @@ describe('livestream list filters', () => {
     expect(paginateLivestreams(filterStreamedLivestreams(rows), 1, 1).map((row) => row.id)).toEqual(
       ['failed-1']
     );
+  });
+
+  it('builds MongoDB filters for streamed and YouTube import pages', () => {
+    expect(buildStreamedLivestreamsMongoFilter('user-1')).toEqual({
+      userId: 'user-1',
+      status: { $in: ['ended', 'failed'] },
+    });
+
+    expect(buildYoutubeImportLivestreamsMongoFilter('user-2')).toEqual({
+      userId: 'user-2',
+      hasYoutubeTarget: true,
+      youtubeBroadcastId: { $ne: '' },
+      $or: [
+        { status: { $in: ['ended', 'failed'] } },
+        { status: 'live', youtubeLifecycleStatus: /^complete$/i },
+      ],
+    });
   });
 });

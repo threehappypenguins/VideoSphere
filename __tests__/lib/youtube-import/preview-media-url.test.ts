@@ -4,6 +4,7 @@ import {
   clearPreviewMediaCacheForTests,
   isAllowedPreviewUpstreamUrl,
   resolvePreviewDirectMediaUrl,
+  setPreviewMediaCacheMaxEntriesForTests,
 } from '@/lib/youtube-import/preview-media-url';
 
 const mockGetDirectMediaUrl = vi.fn();
@@ -36,6 +37,7 @@ describe('resolvePreviewDirectMediaUrl', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearPreviewMediaCacheForTests();
+    setPreviewMediaCacheMaxEntriesForTests(null);
     mockGetDirectMediaUrl.mockResolvedValue({
       url: 'https://r1---sn.example.googlevideo.com/videoplayback',
       expiresAt: Date.now() + 3_600_000,
@@ -56,5 +58,16 @@ describe('resolvePreviewDirectMediaUrl', () => {
     await resolvePreviewDirectMediaUrl('user-1', 'dQw4w9WgXcQ', { forceRefresh: true });
 
     expect(mockGetDirectMediaUrl).toHaveBeenCalledTimes(2);
+  });
+
+  it('evicts the oldest entry when the cache exceeds its size cap', async () => {
+    setPreviewMediaCacheMaxEntriesForTests(2);
+
+    await resolvePreviewDirectMediaUrl('user-1', 'aaaaaaaaaaa');
+    await resolvePreviewDirectMediaUrl('user-1', 'bbbbbbbbbbb');
+    await resolvePreviewDirectMediaUrl('user-1', 'ccccccccccc');
+    await resolvePreviewDirectMediaUrl('user-1', 'aaaaaaaaaaa');
+
+    expect(mockGetDirectMediaUrl).toHaveBeenCalledTimes(4);
   });
 });

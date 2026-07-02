@@ -6,6 +6,11 @@ import type { ApiResponse } from '@/types';
 /** Refresh preview URLs one minute before yt-dlp reports expiry. */
 const PREVIEW_URL_REFRESH_BUFFER_MS = 60_000;
 
+/** Empty WebVTT track — proxied preview has no captions; satisfies media caption lint. */
+const PREVIEW_NO_CAPTIONS_TRACK_SRC =
+  'data:text/vtt;charset=utf-8,' +
+  encodeURIComponent('WEBVTT\n\nNOTE No captions for import preview\n');
+
 /**
  * Imperative handle for controlling YouTube preview playback from sibling components.
  */
@@ -191,7 +196,11 @@ export function YouTubePreviewPlayer({
           onLoadedMetadata={handleLoadedMetadata}
           onError={handleVideoError}
         >
-          <track kind="captions" label="Captions not available for preview" />
+          <track
+            kind="captions"
+            src={PREVIEW_NO_CAPTIONS_TRACK_SRC}
+            label="No captions for preview"
+          />
         </video>
       </div>
       {playbackError ? (

@@ -1,5 +1,7 @@
 import type { Livestream } from '@/types';
 
+const STREAMED_LIVESTREAM_STATUSES = ['ended', 'failed'] as const;
+
 /**
  * Returns whether a livestream belongs in the streamed/history sections.
  * @param livestream - Livestream row to evaluate.
@@ -36,6 +38,35 @@ export function isYoutubeImportLivestream(
     livestream.status === 'live' &&
     livestream.youtubeLifecycleStatus?.trim().toLowerCase() === 'complete'
   );
+}
+
+/**
+ * Builds a MongoDB filter for streamed livestream history pages.
+ * @param userId - Owner user id.
+ * @returns Query filter for ended/failed rows.
+ */
+export function buildStreamedLivestreamsMongoFilter(userId: string): Record<string, unknown> {
+  return {
+    userId,
+    status: { $in: STREAMED_LIVESTREAM_STATUSES },
+  };
+}
+
+/**
+ * Builds a MongoDB filter for YouTube import source picker pages.
+ * @param userId - Owner user id.
+ * @returns Query filter for importable YouTube-linked rows.
+ */
+export function buildYoutubeImportLivestreamsMongoFilter(userId: string): Record<string, unknown> {
+  return {
+    userId,
+    hasYoutubeTarget: true,
+    youtubeBroadcastId: { $ne: '' },
+    $or: [
+      { status: { $in: STREAMED_LIVESTREAM_STATUSES } },
+      { status: 'live', youtubeLifecycleStatus: /^complete$/i },
+    ],
+  };
 }
 
 /**

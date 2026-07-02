@@ -25,9 +25,8 @@ import { mergeLivestreamPlatformsPatch } from '@/lib/livestream-upload-metadata'
 import { connectToDatabase } from '@/lib/mongodb';
 import { LivestreamModel, type LivestreamDocument } from '@/lib/models/Livestream';
 import {
-  filterStreamedLivestreams,
-  filterYoutubeImportLivestreams,
-  paginateLivestreams,
+  buildStreamedLivestreamsMongoFilter,
+  buildYoutubeImportLivestreamsMongoFilter,
 } from '@/lib/livestreams/livestream-list-filters';
 
 /** Default visibility for new livestreams when omitted at creation. */
@@ -308,6 +307,59 @@ function isPendingFacebookDeferredArm(livestream: Livestream): boolean {
   return livestream.autoPromoteToMainKey === true || livestream.autoPromoteToMainKeyMinutes != null;
 }
 
+function livestreamQueryFieldsFromStoredDocument(doc: StoredLivestreamDocument) {
+  return {
+    status: doc.status,
+    hasYoutubeTarget: doc.targets.includes('youtube'),
+    youtubeBroadcastId: doc.youtubeBroadcastId?.trim() ?? '',
+    youtubeLifecycleStatus: doc.youtubeLifecycleStatus?.trim() ?? '',
+  };
+}
+
+async function backfillLivestreamQueryFieldsForUser(userId: string): Promise<void> {
+  await connectToDatabase();
+  const docs = await LivestreamModel.find({
+    userId,
+    $or: [{ status: { $exists: false } }, { hasYoutubeTarget: { $exists: false } }],
+  }).lean<LivestreamDocument[]>();
+
+  if (docs.length === 0) {
+    return;
+  }
+
+  await Promise.all(
+    docs.map(async (doc) => {
+      const parsed = parseStoredLivestreamDocument(doc.document, String(doc._id));
+      await LivestreamModel.updateOne(
+        { _id: doc._id },
+        livestreamQueryFieldsFromStoredDocument(parsed)
+      );
+    })
+  );
+}
+
+async function queryLivestreamsPage(
+  filter: Record<string, unknown>,
+  options: { limit: number; offset: number }
+): Promise<{ total: number; livestreams: Livestream[] }> {
+  await connectToDatabase();
+  const total = await LivestreamModel.countDocuments(filter);
+  if (options.limit <= 0) {
+    return { total, livestreams: [] };
+  }
+
+  const docs = await LivestreamModel.find(filter)
+    .sort({ updatedAt: -1 })
+    .skip(options.offset)
+    .limit(options.limit)
+    .lean<LivestreamDocument[]>();
+
+  return {
+    total,
+    livestreams: docs.map(mongoDocToLivestream),
+  };
+}
+
 function compareScheduledStartAsc(a: Livestream, b: Livestream): number {
   const aMs = Date.parse(a.scheduledStartTime ?? '');
   const bMs = Date.parse(b.scheduledStartTime ?? '');
@@ -360,7 +412,7 @@ export async function createLivestream(
   userId: string,
   fields: CreateLivestreamFields
 ): Promise<Livestream> {
-  const documentJson = stringifyLivestreamDocumentForStorage({
+  const documentPayload: StoredLivestreamDocument = {
     status: 'draft',
     title: fields.title,
     description: fields.description,
@@ -374,7 +426,8 @@ export async function createLivestream(
       : {}),
     ...(fields.thumbnailR2Key ? { thumbnailR2Key: fields.thumbnailR2Key } : {}),
     ...(fields.thumbnailContentType ? { thumbnailContentType: fields.thumbnailContentType } : {}),
-  });
+  };
+  const documentJson = stringifyLivestreamDocumentForStorage(documentPayload);
   assertLivestreamDocumentJsonWithinLimit(documentJson);
 
   await connectToDatabase();
@@ -382,6 +435,7 @@ export async function createLivestream(
     _id: randomUUID(),
     userId,
     document: documentJson,
+    ...livestreamQueryFieldsFromStoredDocument(documentPayload),
   });
   return mongoDocToLivestream(created.toObject());
 }
@@ -431,18 +485,14 @@ export async function countStreamedLivestreamsByUser(userId: string): Promise<nu
  * @param options - Pagination options.
  * @param options.limit - Maximum rows to return.
  * @param options.offset - Number of rows to skip.
- * @returns Page slice and total streamed count from a single in-memory filter pass.
+ * @returns Page slice and total streamed count from an indexed MongoDB query.
  */
 export async function getStreamedLivestreamsPage(
   userId: string,
   options: { limit: number; offset: number }
 ): Promise<{ total: number; livestreams: Livestream[] }> {
-  const livestreams = await listLivestreamsByUser(userId);
-  const filtered = filterStreamedLivestreams(livestreams);
-  return {
-    total: filtered.length,
-    livestreams: paginateLivestreams(filtered, options.offset, options.limit),
-  };
+  await backfillLivestreamQueryFieldsForUser(userId);
+  return queryLivestreamsPage(buildStreamedLivestreamsMongoFilter(userId), options);
 }
 
 /**
@@ -477,18 +527,14 @@ export async function countYoutubeImportLivestreamsByUser(userId: string): Promi
  * @param options - Pagination options.
  * @param options.limit - Maximum rows to return.
  * @param options.offset - Number of rows to skip.
- * @returns Page slice and total importable count from a single in-memory filter pass.
+ * @returns Page slice and total importable count from an indexed MongoDB query.
  */
 export async function getYoutubeImportLivestreamsPage(
   userId: string,
   options: { limit: number; offset: number }
 ): Promise<{ total: number; livestreams: Livestream[] }> {
-  const livestreams = await listLivestreamsByUser(userId);
-  const filtered = filterYoutubeImportLivestreams(livestreams);
-  return {
-    total: filtered.length,
-    livestreams: paginateLivestreams(filtered, options.offset, options.limit),
-  };
+  await backfillLivestreamQueryFieldsForUser(userId);
+  return queryLivestreamsPage(buildYoutubeImportLivestreamsMongoFilter(userId), options);
 }
 
 /**
@@ -797,13 +843,15 @@ export async function updateLivestream(
     ),
   };
 
-  const documentJson = stringifyLivestreamDocumentForStorage(storedDocumentFromLivestream(next));
+  const stored = storedDocumentFromLivestream(next);
+  const documentJson = stringifyLivestreamDocumentForStorage(stored);
   assertLivestreamDocumentJsonWithinLimit(documentJson);
+  const queryFields = livestreamQueryFieldsFromStoredDocument(stored);
 
   await connectToDatabase();
   const updated = await LivestreamModel.findByIdAndUpdate(
     id,
-    { document: documentJson },
+    { document: documentJson, ...queryFields },
     { returnDocument: 'after', runValidators: true }
   ).lean<LivestreamDocument | null>();
   if (!updated) return null;

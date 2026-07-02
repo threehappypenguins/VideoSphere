@@ -4,11 +4,27 @@ import {
 } from '@/lib/youtube-import/probe-keyframes';
 
 const PREVIEW_CACHE_REFRESH_BUFFER_MS = 30_000;
+/** Upper bound on cached preview URLs; entries are short-lived CDN links. */
+const PREVIEW_CACHE_MAX_ENTRIES = 64;
 
 const previewMediaCache = new Map<string, YouTubeDirectMediaUrl>();
+let previewMediaCacheMaxEntriesForTests: number | null = null;
 
 function previewMediaCacheKey(userId: string, youtubeVideoId: string): string {
   return `${userId}:${youtubeVideoId}`;
+}
+
+function getPreviewMediaCacheMaxEntries(): number {
+  return previewMediaCacheMaxEntriesForTests ?? PREVIEW_CACHE_MAX_ENTRIES;
+}
+
+/**
+ * Overrides the preview media cache size cap in unit tests.
+ * @param maxEntries - Maximum entries, or `null` to restore the default.
+ * @internal
+ */
+export function setPreviewMediaCacheMaxEntriesForTests(maxEntries: number | null): void {
+  previewMediaCacheMaxEntriesForTests = maxEntries;
 }
 
 /**
@@ -16,6 +32,28 @@ function previewMediaCacheKey(userId: string, youtubeVideoId: string): string {
  */
 export function clearPreviewMediaCacheForTests(): void {
   previewMediaCache.clear();
+}
+
+function evictExpiredPreviewMediaCacheEntries(now = Date.now()): void {
+  const refreshDeadline = now + PREVIEW_CACHE_REFRESH_BUFFER_MS;
+  for (const [key, value] of previewMediaCache) {
+    if (value.expiresAt <= refreshDeadline) {
+      previewMediaCache.delete(key);
+    }
+  }
+}
+
+function storePreviewMediaCacheEntry(cacheKey: string, resolved: YouTubeDirectMediaUrl): void {
+  evictExpiredPreviewMediaCacheEntries();
+  const maxEntries = getPreviewMediaCacheMaxEntries();
+  while (previewMediaCache.size >= maxEntries) {
+    const oldestKey = previewMediaCache.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    previewMediaCache.delete(oldestKey);
+  }
+  previewMediaCache.set(cacheKey, resolved);
 }
 
 /**
@@ -88,6 +126,6 @@ export async function resolvePreviewDirectMediaUrl(
     throw new Error('Preview media URL is not from an allowed host');
   }
 
-  previewMediaCache.set(cacheKey, resolved);
+  storePreviewMediaCacheEntry(cacheKey, resolved);
   return resolved;
 }
