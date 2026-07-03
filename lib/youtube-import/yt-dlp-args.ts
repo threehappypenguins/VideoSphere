@@ -8,6 +8,7 @@ function resolveDenoExecutable(): string | null {
   const candidates = [
     process.env.DENO_BIN?.trim(),
     process.env.DENO_INSTALL ? `${process.env.DENO_INSTALL}/bin/deno` : undefined,
+    '/usr/bin/deno',
     '/usr/local/bin/deno',
   ].filter((value): value is string => Boolean(value));
 

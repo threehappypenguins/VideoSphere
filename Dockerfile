@@ -35,11 +35,8 @@ RUN pnpm build
 
 FROM node:${NODE_VERSION}-alpine AS runner
 ARG YT_DLP_VERSION=2026.3.17
-ENV DENO_INSTALL=/usr/local
-ENV PATH="/usr/local/bin:${PATH}"
 ENV YT_DLP_REMOTE_COMPONENTS=none
-RUN apk add --no-cache ffmpeg python3 py3-pip curl \
-    && curl -fsSL https://deno.land/x/install/install.sh | sh \
+RUN apk add --no-cache ffmpeg python3 py3-pip deno \
     && pip3 install --break-system-packages "yt-dlp[default]==${YT_DLP_VERSION}" \
     && yt-dlp --version && deno --version && ffmpeg -version
 WORKDIR /app
