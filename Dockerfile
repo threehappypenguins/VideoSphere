@@ -34,15 +34,29 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 FROM node:${NODE_VERSION}-alpine AS runner
-ARG YT_DLP_VERSION=2026.2.21
-RUN apk add --no-cache ffmpeg python3 py3-pip \
+ARG YT_DLP_VERSION=2026.3.17
+ENV DENO_INSTALL=/usr/local
+ENV PATH="/usr/local/bin:${PATH}"
+ENV YT_DLP_REMOTE_COMPONENTS=none
+RUN apk add --no-cache ffmpeg python3 py3-pip curl \
+    && curl -fsSL https://deno.land/x/install/install.sh | sh \
     && pip3 install --break-system-packages "yt-dlp[default]==${YT_DLP_VERSION}" \
-    && yt-dlp --version && ffmpeg -version
+    && yt-dlp --version && deno --version && ffmpeg -version
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV XDG_CACHE_HOME=/app/.cache
 RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN adduser --system --uid 1001 nextjs \
+    && mkdir -p /app/.cache \
+    && chown -R nextjs:nodejs /app/.cache
+# Warm yt-dlp YouTube extraction (deno + bundled yt-dlp-ejs from pip [default]).
+RUN yt-dlp --no-update \
+    --js-runtimes "deno:$(command -v deno)" \
+    --js-runtimes "node:$(command -v node)" \
+    -J --no-playlist "https://www.youtube.com/watch?v=jNQXAC9IVRw" \
+    > /dev/null 2>&1 || true \
+    && chown -R nextjs:nodejs /app/.cache
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

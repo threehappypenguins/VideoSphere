@@ -10,7 +10,7 @@ describe('buildYtDlpBaseArgs', () => {
     vi.unstubAllEnvs();
   });
 
-  it('enables the Node runtime and GitHub-hosted EJS scripts by default', () => {
+  it('enables Node and GitHub-hosted EJS scripts by default when Deno is absent', () => {
     const args = buildYtDlpBaseArgs();
 
     expect(args).toContain('--no-update');

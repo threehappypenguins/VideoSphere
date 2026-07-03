@@ -4,7 +4,9 @@ import { buildYtDlpMetadataArgs } from '@/lib/youtube-import/yt-dlp-args';
 import { buildYtDlpProcessError } from '@/lib/youtube-import/yt-dlp-errors';
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
-const PROCESS_TIMEOUT_MS = 15_000;
+/** Default spawn timeout for yt-dlp/ffprobe metadata probes (slow on ARM / cold cache). */
+const DEFAULT_PROCESS_TIMEOUT_MS = 60_000;
+const MAX_PROCESS_TIMEOUT_MS = 300_000;
 
 let processTimeoutMsForTests: number | null = null;
 
@@ -18,7 +20,19 @@ export function setYouTubeImportProcessTimeoutMsForTests(timeoutMs: number | nul
 }
 
 function getProcessTimeoutMs(): number {
-  return processTimeoutMsForTests ?? PROCESS_TIMEOUT_MS;
+  if (processTimeoutMsForTests !== null) {
+    return processTimeoutMsForTests;
+  }
+
+  const fromEnv = process.env.YOUTUBE_IMPORT_PROCESS_TIMEOUT_MS?.trim();
+  if (fromEnv) {
+    const parsed = Number(fromEnv);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.min(parsed, MAX_PROCESS_TIMEOUT_MS);
+    }
+  }
+
+  return DEFAULT_PROCESS_TIMEOUT_MS;
 }
 
 /** Default expiry when yt-dlp does not expose a format expiration timestamp. */
@@ -95,6 +109,13 @@ async function runProcess(
 
     child.on('close', (code) => {
       if (timedOut) {
+        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+        if (stderr) {
+          console.error(
+            `[${label}] timed out after ${timeoutMs}ms; stderr tail:`,
+            stderr.slice(-2000)
+          );
+        }
         finish(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)));
         return;
       }
@@ -197,7 +218,9 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
   const selected = pickYtDlpProbeFormat(metadata.formats ?? []);
   const url = selected?.url?.trim();
   if (!url) {
-    throw new Error('yt-dlp did not return a usable direct media URL');
+    throw new Error(
+      'yt-dlp did not return a playable video format (YouTube JS challenge solving may have failed on the server)'
+    );
   }
 
   return {
