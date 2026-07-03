@@ -9,9 +9,15 @@ import {
 } from '@/lib/repositories/youtube-import-jobs';
 import { buildYouTubeWatchUrl } from '@/lib/youtube-import/resolve-source';
 import { distributeStagedYoutubeImportUpload } from '@/lib/youtube-import/queue-import-distribute';
-import { spawnProcess } from '@/lib/youtube-import/spawn-process';
-import { buildYtDlpBaseArgs } from '@/lib/youtube-import/yt-dlp-args';
-import { buildYtDlpProcessError } from '@/lib/youtube-import/yt-dlp-errors';
+import { trimWithSmartCut } from '@/lib/youtube-import/smart-cut';
+import {
+  runSpawnWithCancel,
+  YoutubeImportJobCancelledError,
+} from '@/lib/youtube-import/spawn-with-cancel';
+import {
+  buildYtDlpBaseArgs,
+  YT_DLP_IMPORT_DOWNLOAD_FORMAT,
+} from '@/lib/youtube-import/yt-dlp-args';
 import type { YoutubeImportJob } from '@/types';
 
 const DEFAULT_YT_IMPORT_WORKDIR = '/tmp/yt-import';
@@ -20,22 +26,6 @@ const TRIMMED_BASENAME = 'trimmed.mp4';
 const DOWNLOAD_PROGRESS_MAX = 70;
 const TRIM_PROGRESS = 85;
 const UPLOAD_PROGRESS = 95;
-/** Initial cancel poll interval while subprocesses start (ms). */
-const IMPORT_CANCEL_POLL_INITIAL_MS = 1_000;
-/** Maximum cancel poll interval during long downloads/trims (ms). */
-const IMPORT_CANCEL_POLL_MAX_MS = 5_000;
-/** Multiplier applied after each cancel poll that finds the job still active. */
-const IMPORT_CANCEL_POLL_BACKOFF_FACTOR = 1.5;
-
-/**
- * Thrown when an import subprocess is stopped because the job was cancelled.
- */
-class YoutubeImportJobCancelledError extends Error {
-  constructor() {
-    super('YouTube import job was cancelled');
-    this.name = 'YoutubeImportJobCancelledError';
-  }
-}
 
 /**
  * Parses a yt-dlp `[download] …%` progress chunk.
@@ -161,10 +151,6 @@ async function createImportWorkDir(): Promise<string> {
   return mkdtemp(join(root.endsWith('/') ? root : `${root}/`, 'yt-import-job-'));
 }
 
-function spawnExitError(label: string, code: number | null, stderrChunks: Buffer[]): Error {
-  return buildYtDlpProcessError(label, code, stderrChunks);
-}
-
 async function runSpawnCollecting(
   command: string,
   args: readonly string[],
@@ -175,82 +161,7 @@ async function runSpawnCollecting(
     isCancelled?: () => Promise<boolean>;
   }
 ): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawnProcess(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const stderrChunks: Buffer[] = [];
-    let stoppedForCancel = false;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
-    let nextPollDelayMs = IMPORT_CANCEL_POLL_INITIAL_MS;
-
-    const stopPolling = () => {
-      if (pollTimer) {
-        clearTimeout(pollTimer);
-        pollTimer = null;
-      }
-    };
-
-    const rejectIfCancelled = async (): Promise<boolean> => {
-      if (stoppedForCancel) {
-        return true;
-      }
-      if (!options?.isCancelled) {
-        return false;
-      }
-      if (await options.isCancelled()) {
-        stoppedForCancel = true;
-        child.kill('SIGTERM');
-        return true;
-      }
-      return false;
-    };
-
-    const scheduleCancelPoll = () => {
-      pollTimer = setTimeout(() => {
-        void (async () => {
-          if (await rejectIfCancelled()) {
-            return;
-          }
-          nextPollDelayMs = Math.min(
-            Math.round(nextPollDelayMs * IMPORT_CANCEL_POLL_BACKOFF_FACTOR),
-            IMPORT_CANCEL_POLL_MAX_MS
-          );
-          scheduleCancelPoll();
-        })();
-      }, nextPollDelayMs);
-    };
-
-    if (options?.isCancelled) {
-      void rejectIfCancelled();
-      scheduleCancelPoll();
-    }
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      options?.onStdoutChunk?.(chunk.toString('utf8'));
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderrChunks.push(chunk);
-      options?.onStderrChunk?.(chunk.toString('utf8'));
-    });
-
-    child.on('close', (code) => {
-      stopPolling();
-      void (async () => {
-        if (stoppedForCancel || (await options?.isCancelled?.())) {
-          reject(new YoutubeImportJobCancelledError());
-          return;
-        }
-        if (code !== 0) {
-          reject(spawnExitError(label, code, stderrChunks));
-          return;
-        }
-        resolve();
-      })();
-    });
-    child.on('error', (error) => {
-      stopPolling();
-      reject(error);
-    });
-  });
+  return runSpawnWithCancel(command, args, label, options);
 }
 
 async function runSpawnStdout(
@@ -378,7 +289,7 @@ async function downloadYoutubeSection(
       '--download-sections',
       section,
       '-f',
-      'bv*+ba/b',
+      YT_DLP_IMPORT_DOWNLOAD_FORMAT,
       '--merge-output-format',
       'mp4',
       '--retries',
@@ -420,27 +331,39 @@ async function trimDownloadedSection(
 
   const trimmedPath = join(workDir, TRIMMED_BASENAME);
 
-  await runSpawnCollecting(
-    'ffmpeg',
-    [
-      '-hide_banner',
-      '-nostdin',
-      '-loglevel',
-      'error',
-      '-ss',
-      String(relativeStart),
-      '-to',
-      String(relativeEnd),
-      '-i',
-      download.downloadedPath,
-      '-c',
-      'copy',
-      '-y',
-      trimmedPath,
-    ],
-    'ffmpeg stream-copy trim',
-    { isCancelled: () => isImportJobCancelled(jobId) }
-  );
+  if (job.smartCut) {
+    await trimWithSmartCut({
+      inputPath: download.downloadedPath,
+      outputPath: trimmedPath,
+      workDir,
+      relativeStart,
+      relativeEnd,
+      durationSeconds: download.downloadedDurationSeconds,
+      isCancelled: () => isImportJobCancelled(jobId),
+    });
+  } else {
+    await runSpawnCollecting(
+      'ffmpeg',
+      [
+        '-hide_banner',
+        '-nostdin',
+        '-loglevel',
+        'error',
+        '-ss',
+        String(relativeStart),
+        '-to',
+        String(relativeEnd),
+        '-i',
+        download.downloadedPath,
+        '-c',
+        'copy',
+        '-y',
+        trimmedPath,
+      ],
+      'ffmpeg stream-copy trim',
+      { isCancelled: () => isImportJobCancelled(jobId) }
+    );
+  }
 
   const trimmedStat = await stat(trimmedPath);
   if (trimmedStat.size <= 0) {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   YT_DLP_DEFAULT_REMOTE_COMPONENTS,
+  YT_DLP_IMPORT_DOWNLOAD_FORMAT,
   buildYtDlpBaseArgs,
   buildYtDlpMetadataArgs,
 } from '@/lib/youtube-import/yt-dlp-args';
@@ -34,6 +35,14 @@ describe('buildYtDlpBaseArgs', () => {
     const args = buildYtDlpBaseArgs();
 
     expect(args).toContain('ejs:npm');
+  });
+});
+
+describe('YT_DLP_IMPORT_DOWNLOAD_FORMAT', () => {
+  it('prefers m4a/mp4a audio over the default Opus DASH fallback', () => {
+    expect(YT_DLP_IMPORT_DOWNLOAD_FORMAT).toContain('ba[ext=m4a]');
+    expect(YT_DLP_IMPORT_DOWNLOAD_FORMAT).toContain('acodec^=mp4a');
+    expect(YT_DLP_IMPORT_DOWNLOAD_FORMAT.endsWith('bv*+ba/b')).toBe(true);
   });
 });
 

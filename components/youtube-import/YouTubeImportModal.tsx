@@ -119,6 +119,8 @@ export function YouTubeImportModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [conflictActiveJobId, setConflictActiveJobId] = useState<string | null>(null);
   const [showCompletionSuccess, setShowCompletionSuccess] = useState(false);
+  const [showVideoPreview, setShowVideoPreview] = useState(true);
+  const [enableSmartCut, setEnableSmartCut] = useState(true);
 
   const playerRef = useRef<YouTubePlayerHandle | null>(null);
   const playerHandle = useMemo<YouTubePlayerHandle>(
@@ -146,6 +148,8 @@ export function YouTubeImportModal({
     setErrorMessage(null);
     setConflictActiveJobId(null);
     setShowCompletionSuccess(false);
+    setShowVideoPreview(true);
+    setEnableSmartCut(true);
     setIsResolving(false);
     setIsStarting(false);
     setIsCancelling(false);
@@ -282,6 +286,7 @@ export function YouTubeImportModal({
           sourceUrl: resolvedSource.sourceUrl,
           startSeconds: trimRange.startSeconds,
           endSeconds: trimRange.endSeconds,
+          smartCut: enableSmartCut,
         }),
       });
 
@@ -308,7 +313,7 @@ export function YouTubeImportModal({
     } finally {
       setIsStarting(false);
     }
-  }, [draftId, resolvedSource, trimRange.endSeconds, trimRange.startSeconds]);
+  }, [draftId, enableSmartCut, resolvedSource, trimRange.endSeconds, trimRange.startSeconds]);
 
   const handleWatchExistingImport = useCallback(() => {
     if (!conflictActiveJobId) return;
@@ -443,7 +448,9 @@ export function YouTubeImportModal({
             {step === 'source'
               ? 'Paste a YouTube link or choose a past livestream to import into this draft.'
               : step === 'editor'
-                ? 'Preview the source and choose the section to import.'
+                ? showVideoPreview
+                  ? 'Preview the source and choose the section to import.'
+                  : 'Choose the section to import using the trim handles below.'
                 : 'Your import is running in the background.'}
           </DialogDescription>
         </DialogHeader>
@@ -589,33 +596,71 @@ export function YouTubeImportModal({
 
         {step === 'editor' && resolvedSource ? (
           <div className="space-y-4">
-            <div className="space-y-1">
-              <h3 className="text-sm font-medium text-foreground">{resolvedSource.title}</h3>
-              <p className="text-xs text-muted-foreground">
-                Duration: {formatVideoDuration(resolvedSource.durationSeconds)}
-              </p>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-foreground">{resolvedSource.title}</h3>
+                <p className="text-xs text-muted-foreground">
+                  Duration: {formatVideoDuration(resolvedSource.durationSeconds)}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <label
+                  className="inline-flex items-center gap-2 text-sm text-foreground"
+                  title="Turn off to trim by time only and skip video streaming."
+                >
+                  <input
+                    type="checkbox"
+                    checked={showVideoPreview}
+                    onChange={(event) => setShowVideoPreview(event.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Show video preview
+                </label>
+                <label
+                  className="inline-flex items-center gap-2 text-sm text-foreground"
+                  title="Frame-accurate trim at import time. Disables keyframe snapping while you adjust the handles."
+                >
+                  <input
+                    type="checkbox"
+                    checked={enableSmartCut}
+                    onChange={(event) => setEnableSmartCut(event.target.checked)}
+                    className="rounded border-border"
+                  />
+                  Smart cut
+                </label>
+              </div>
             </div>
 
-            <YouTubePreviewPlayer
-              key={resolvedSource.youtubeVideoId}
-              youtubeVideoId={resolvedSource.youtubeVideoId}
-              streamUrl={resolvedSource.previewStreamUrl}
-              previewExpiresAt={resolvedSource.previewExpiresAt}
-              playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
-            />
+            {showVideoPreview ? (
+              <>
+                <YouTubePreviewPlayer
+                  key={resolvedSource.youtubeVideoId}
+                  youtubeVideoId={resolvedSource.youtubeVideoId}
+                  streamUrl={resolvedSource.previewStreamUrl}
+                  previewExpiresAt={resolvedSource.previewExpiresAt}
+                  playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
+                />
 
-            <p className="text-xs text-muted-foreground">
-              Preview uses the same yt-dlp media source as import, so scrubbing should match the
-              trimmed result. Private videos must still be accessible to your connected YouTube
-              account.
-            </p>
+                <p className="text-xs text-muted-foreground">
+                  Drag the handles to choose where the imported clip starts and ends. The preview
+                  may look lower quality than the final video. Private videos must still be
+                  accessible to your connected YouTube account.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Video preview is off. Use the trim handles and timestamps below to set the import
+                range.
+              </p>
+            )}
 
             <TrimRangeSlider
               durationSeconds={resolvedSource.durationSeconds}
               youtubeVideoId={resolvedSource.youtubeVideoId}
               value={trimRange}
               onChange={setTrimRange}
-              playerHandle={playerHandle}
+              playerHandle={showVideoPreview ? playerHandle : undefined}
+              enableKeyframeSnap={showVideoPreview && !enableSmartCut}
             />
 
             <DialogFooter className="px-0">

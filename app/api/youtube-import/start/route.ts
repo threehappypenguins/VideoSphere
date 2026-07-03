@@ -24,6 +24,7 @@ interface StartYoutubeImportRequestBody {
   sourceUrl?: string;
   startSeconds: number;
   endSeconds: number;
+  smartCut?: boolean;
 }
 
 function badRequest(message: string): NextResponse {
@@ -50,6 +51,7 @@ function parseStartRequestBody(body: unknown):
         sourceUrl: string;
         startSeconds: number;
         endSeconds: number;
+        smartCut: boolean;
       };
     }
   | { ok: false; response: NextResponse } {
@@ -64,6 +66,7 @@ function parseStartRequestBody(body: unknown):
   const sourceUrlRaw = typeof req.sourceUrl === 'string' ? req.sourceUrl.trim() : '';
   const startSeconds = req.startSeconds;
   const endSeconds = req.endSeconds;
+  const smartCut = req.smartCut === true;
 
   if (!draftId) {
     return { ok: false, response: badRequest('draftId is required') };
@@ -117,6 +120,7 @@ function parseStartRequestBody(body: unknown):
       sourceUrl,
       startSeconds,
       endSeconds,
+      smartCut,
     },
   };
 }
@@ -178,6 +182,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       livestreamId: parsed.data.livestreamId || undefined,
       startSeconds: parsed.data.startSeconds,
       endSeconds: parsed.data.endSeconds,
+      smartCut: parsed.data.smartCut,
     });
 
     scheduleYoutubeImportJob(job.id, userId);

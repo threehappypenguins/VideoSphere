@@ -112,7 +112,12 @@ export async function resolvePreviewDirectMediaUrl(
   }
 
   const cached = previewMediaCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now() + PREVIEW_CACHE_REFRESH_BUFFER_MS) {
+  if (
+    cached &&
+    cached.expiresAt > Date.now() + PREVIEW_CACHE_REFRESH_BUFFER_MS &&
+    Number.isFinite(cached.durationSeconds) &&
+    cached.durationSeconds > 0
+  ) {
     return cached;
   }
 

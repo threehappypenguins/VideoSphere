@@ -475,4 +475,192 @@ describe('DraftMetadataModal YouTube import entry point', () => {
       expect(screen.queryByText('42%')).not.toBeInTheDocument();
     });
   });
+
+  it('queues Upload & Save while a YouTube import is still downloading', async () => {
+    const user = userEvent.setup({ delay: null });
+    const queueDistributeSpy = vi.fn();
+    const onClose = vi.fn();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+
+        if (
+          url.includes('/api/drafts/draft-video-regression/youtube-import') &&
+          init?.method !== 'POST'
+        ) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                id: 'import-job-active',
+                userId: 'user-1',
+                draftId: 'draft-video-regression',
+                sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                youtubeVideoId: 'dQw4w9WgXcQ',
+                livestreamId: null,
+                startSeconds: 0,
+                endSeconds: 3600,
+                status: 'downloading',
+                progressPercent: 42,
+                errorMessage: null,
+                r2Key: null,
+                uploadJobId: null,
+                distributeQueued: false,
+                smartCut: false,
+                $createdAt: '2026-01-01T00:00:00.000Z',
+                $updatedAt: '2026-01-01T00:05:00.000Z',
+              },
+            }),
+          } as Response;
+        }
+
+        if (
+          url.includes('/api/youtube-import/import-job-active/queue-distribute') &&
+          init?.method === 'POST'
+        ) {
+          queueDistributeSpy();
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                id: 'import-job-active',
+                userId: 'user-1',
+                draftId: 'draft-video-regression',
+                sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                youtubeVideoId: 'dQw4w9WgXcQ',
+                livestreamId: null,
+                startSeconds: 0,
+                endSeconds: 3600,
+                status: 'downloading',
+                progressPercent: 42,
+                errorMessage: null,
+                r2Key: null,
+                uploadJobId: null,
+                distributeQueued: true,
+                smartCut: false,
+                $createdAt: '2026-01-01T00:00:00.000Z',
+                $updatedAt: '2026-01-01T00:05:00.000Z',
+              },
+            }),
+          } as Response;
+        }
+
+        if (url.includes('/api/drafts/') && url.includes('/used-platforms')) {
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+
+        if (url.includes('/api/uploads/history')) {
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ data: [] }),
+        } as Response;
+      })
+    );
+
+    renderVideoModal({ onClose });
+
+    await screen.findByRole('dialog');
+
+    await waitFor(() => {
+      expect(screen.getByText(/downloading/i)).toBeInTheDocument();
+    });
+
+    const uploadButton = screen.getByRole('button', { name: /Upload & Save/i });
+    expect(uploadButton).not.toBeDisabled();
+
+    await user.click(uploadButton);
+
+    const confirmDialog = await screen.findByRole('dialog', { name: /upload and save draft/i });
+    expect(
+      within(confirmDialog).getByText(/queue an upload.*as soon as the youtube import finishes/i)
+    ).toBeInTheDocument();
+
+    await user.click(within(confirmDialog).getByRole('button', { name: /yes, queue upload/i }));
+
+    await waitFor(() => {
+      expect(queueDistributeSpy).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByText(/upload queued — distribution will begin when the import completes/i)
+      ).toBeInTheDocument();
+      expect(toast.success).toHaveBeenCalledWith(
+        'Upload queued — distribution will start when the YouTube import finishes.'
+      );
+    });
+
+    await user.click(screen.getByRole('button', { name: /close upload queue confirmation/i }));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('disables Upload & Save when a YouTube import upload is already queued', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+
+        if (
+          url.includes('/api/drafts/draft-video-regression/youtube-import') &&
+          init?.method !== 'POST'
+        ) {
+          return {
+            ok: true,
+            json: async () => ({
+              data: {
+                id: 'import-job-active',
+                userId: 'user-1',
+                draftId: 'draft-video-regression',
+                sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                youtubeVideoId: 'dQw4w9WgXcQ',
+                livestreamId: null,
+                startSeconds: 0,
+                endSeconds: 3600,
+                status: 'downloading',
+                progressPercent: 42,
+                errorMessage: null,
+                r2Key: null,
+                uploadJobId: null,
+                distributeQueued: true,
+                smartCut: false,
+                $createdAt: '2026-01-01T00:00:00.000Z',
+                $updatedAt: '2026-01-01T00:05:00.000Z',
+              },
+            }),
+          } as Response;
+        }
+
+        if (url.includes('/api/drafts/') && url.includes('/used-platforms')) {
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+
+        if (url.includes('/api/uploads/history')) {
+          return { ok: true, json: async () => ({ data: [] }) } as Response;
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ data: [] }),
+        } as Response;
+      })
+    );
+
+    renderVideoModal();
+
+    await screen.findByRole('dialog');
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/upload queued — distribution will start when the import finishes/i)
+      ).toBeInTheDocument();
+    });
+
+    const uploadButton = screen.getByRole('button', { name: /Upload queued/i });
+    expect(uploadButton).toBeDisabled();
+  });
 });

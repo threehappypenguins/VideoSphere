@@ -4,6 +4,15 @@ import { execPath } from 'node:process';
 /** Default remote EJS source for distro-installed yt-dlp builds that omit bundled scripts. */
 export const YT_DLP_DEFAULT_REMOTE_COMPONENTS = 'ejs:github';
 
+/**
+ * yt-dlp format selector for YouTube import section downloads.
+ * YouTube's default `bv*+ba` pairs best video with DASH Opus audio (typically 48 kHz),
+ * even when the source livestream was ingested as MPEG-4 AAC (often 44.1 kHz).
+ * Prefer m4a/mp4a audio so the merged MP4 stays AAC.
+ */
+export const YT_DLP_IMPORT_DOWNLOAD_FORMAT =
+  'bv*+ba[ext=m4a]/bv*+ba[acodec^=mp4a.40.]/bv*+ba[acodec^=mp4a]/bv*+ba/b';
+
 function resolveDenoExecutable(): string | null {
   const candidates = [
     process.env.DENO_BIN?.trim(),

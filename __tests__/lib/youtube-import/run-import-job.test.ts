@@ -37,6 +37,12 @@ vi.mock('@/lib/youtube-import/queue-import-distribute', () => ({
     mockDistributeStagedYoutubeImportUpload(...args),
 }));
 
+const mockTrimWithSmartCut = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/youtube-import/smart-cut', () => ({
+  trimWithSmartCut: (...args: unknown[]) => mockTrimWithSmartCut(...args),
+}));
+
 vi.mock('@/lib/youtube-import/import-job-fs', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
   mkdtemp: (...args: unknown[]) => mockMkdtemp(...args),
@@ -53,6 +59,7 @@ import {
   parseYtDlpDownloadPercent,
   runYoutubeImportJob,
 } from '@/lib/youtube-import/run-import-job';
+import { YT_DLP_IMPORT_DOWNLOAD_FORMAT } from '@/lib/youtube-import/yt-dlp-args';
 
 type MockChild = EventEmitter & {
   stdout: EventEmitter;
@@ -103,6 +110,7 @@ const baseJob = {
   r2Key: null,
   uploadJobId: null,
   distributeQueued: false,
+  smartCut: false,
   $createdAt: '2000-01-01T00:00:00.000Z',
   $updatedAt: '2000-01-01T00:00:00.000Z',
 };
@@ -131,6 +139,7 @@ beforeEach(() => {
   });
   mockUpdateUploadJobStatus.mockResolvedValue(undefined);
   mockDistributeStagedYoutubeImportUpload.mockResolvedValue({ distributing: false });
+  mockTrimWithSmartCut.mockResolvedValue(`${WORK_DIR}/trimmed.mp4`);
 
   mockSpawnProcess.mockImplementation((command: string) => {
     if (command === 'yt-dlp') {
@@ -215,6 +224,9 @@ describe('runYoutubeImportJob', () => {
   it('runs download, trim, upload, and handoff with status transitions', async () => {
     await runYoutubeImportJob('yt-import-1');
 
+    const ytDlpArgs = mockSpawnProcess.mock.calls.find(([command]) => command === 'yt-dlp')?.[1];
+    expect(ytDlpArgs).toEqual(expect.arrayContaining(['-f', YT_DLP_IMPORT_DOWNLOAD_FORMAT]));
+
     expect(mockUpdateYoutubeImportJobStatus).toHaveBeenCalledWith('yt-import-1', {
       status: 'downloading',
       progressPercent: 0,
@@ -248,6 +260,25 @@ describe('runYoutubeImportJob', () => {
       errorMessage: null,
     });
     expect(mockRm).toHaveBeenCalledWith(WORK_DIR, { recursive: true, force: true });
+  });
+
+  it('uses smart cut trimming when the job requests it', async () => {
+    mockGetYoutubeImportJobById.mockResolvedValue({ ...baseJob, smartCut: true });
+
+    await runYoutubeImportJob('yt-import-1');
+
+    expect(mockTrimWithSmartCut).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: `${WORK_DIR}/download.mp4`,
+        outputPath: `${WORK_DIR}/trimmed.mp4`,
+        relativeStart: 5,
+        relativeEnd: 65,
+        durationSeconds: 120.5,
+        isCancelled: expect.any(Function),
+      })
+    );
+    const ffmpegCalls = mockSpawnProcess.mock.calls.filter(([command]) => command === 'ffmpeg');
+    expect(ffmpegCalls).toHaveLength(0);
   });
 
   it('distributes immediately when distributeQueued was set before staging finished', async () => {

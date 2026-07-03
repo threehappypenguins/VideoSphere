@@ -13,6 +13,7 @@ export interface YoutubeImportJobDocument {
   livestreamId: string;
   startSeconds: number;
   endSeconds: number;
+  smartCut: boolean;
   status: YoutubeImportJobStatus;
   progressPercent: number;
   errorMessage: string;
@@ -40,6 +41,7 @@ const YoutubeImportJobSchema = new Schema<YoutubeImportJobDocument>(
     livestreamId: { type: String, default: '' },
     startSeconds: { type: Number, required: true, min: 0 },
     endSeconds: { type: Number, required: true, min: 0 },
+    smartCut: { type: Boolean, default: false },
     status: {
       type: String,
       enum: ['pending', 'downloading', 'trimming', 'uploading', 'completed', 'failed', 'cancelled'],

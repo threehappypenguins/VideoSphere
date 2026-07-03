@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 
 const mockGetAuthenticatedUserId = vi.fn();
 const mockResolvePreviewDirectMediaUrl = vi.fn();
+const mockInvalidatePreviewDirectMediaUrl = vi.fn();
 const mockFetchProxiedPreviewMedia = vi.fn();
 
 vi.mock('@/lib/api/auth', () => ({
@@ -12,6 +13,8 @@ vi.mock('@/lib/api/auth', () => ({
 vi.mock('@/lib/youtube-import/preview-media-url', () => ({
   buildYoutubeImportPreviewStreamPath: (youtubeVideoId: string) =>
     `/api/youtube-import/preview/stream?youtubeVideoId=${youtubeVideoId}`,
+  invalidatePreviewDirectMediaUrl: (...args: unknown[]) =>
+    mockInvalidatePreviewDirectMediaUrl(...args),
   resolvePreviewDirectMediaUrl: (...args: unknown[]) => mockResolvePreviewDirectMediaUrl(...args),
 }));
 
@@ -103,5 +106,30 @@ describe('GET /api/youtube-import/preview/stream', () => {
       'https://r1---sn.example.googlevideo.com/videoplayback',
       'bytes=0-99'
     );
+  });
+
+  it('invalidates cached media and retries when the upstream proxy returns 416', async () => {
+    mockFetchProxiedPreviewMedia
+      .mockResolvedValueOnce(new Response(null, { status: 416 }))
+      .mockResolvedValueOnce(
+        new Response('video-bytes', {
+          status: 200,
+          headers: { 'Content-Type': 'video/mp4' },
+        })
+      );
+
+    const response = await getPreviewStream(
+      createStreamRequest({ youtubeVideoId: 'dQw4w9WgXcQ' }, { Range: 'bytes=0-99' })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockInvalidatePreviewDirectMediaUrl).toHaveBeenCalledWith(USER_ID, 'dQw4w9WgXcQ');
+    expect(mockResolvePreviewDirectMediaUrl).toHaveBeenNthCalledWith(1, USER_ID, 'dQw4w9WgXcQ', {
+      forceRefresh: false,
+    });
+    expect(mockResolvePreviewDirectMediaUrl).toHaveBeenNthCalledWith(2, USER_ID, 'dQw4w9WgXcQ', {
+      forceRefresh: true,
+    });
+    expect(mockFetchProxiedPreviewMedia).toHaveBeenCalledTimes(2);
   });
 });

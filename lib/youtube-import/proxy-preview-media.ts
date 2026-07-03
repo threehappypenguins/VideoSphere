@@ -5,13 +5,7 @@ const PASSTHROUGH_RESPONSE_HEADERS = [
   'accept-ranges',
 ] as const;
 
-/**
- * Proxies a ranged media request to a YouTube CDN URL for browser preview playback.
- * @param upstreamUrl - Direct media URL from yt-dlp.
- * @param rangeHeader - Optional HTTP Range request header from the browser.
- * @returns Upstream response body and status streamed to the client.
- */
-export async function fetchProxiedPreviewMedia(
+async function fetchUpstreamMedia(
   upstreamUrl: string,
   rangeHeader: string | null
 ): Promise<Response> {
@@ -23,11 +17,13 @@ export async function fetchProxiedPreviewMedia(
     headers.Range = rangeHeader;
   }
 
-  const upstream = await fetch(upstreamUrl, {
+  return fetch(upstreamUrl, {
     headers,
     redirect: 'follow',
   });
+}
 
+function buildProxiedMediaResponse(upstream: Response): Response {
   const responseHeaders = new Headers();
   for (const name of PASSTHROUGH_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name);
@@ -42,4 +38,23 @@ export async function fetchProxiedPreviewMedia(
     statusText: upstream.statusText,
     headers: responseHeaders,
   });
+}
+
+/**
+ * Proxies a ranged media request to a YouTube CDN URL for browser preview playback.
+ * @param upstreamUrl - Direct media URL from yt-dlp.
+ * @param rangeHeader - Optional HTTP Range request header from the browser.
+ * @returns Upstream response body and status streamed to the client.
+ */
+export async function fetchProxiedPreviewMedia(
+  upstreamUrl: string,
+  rangeHeader: string | null
+): Promise<Response> {
+  let upstream = await fetchUpstreamMedia(upstreamUrl, rangeHeader);
+
+  if (upstream.status === 416 && rangeHeader) {
+    upstream = await fetchUpstreamMedia(upstreamUrl, null);
+  }
+
+  return buildProxiedMediaResponse(upstream);
 }

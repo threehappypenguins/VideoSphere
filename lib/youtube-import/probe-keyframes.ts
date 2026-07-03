@@ -38,6 +38,9 @@ function getProcessTimeoutMs(): number {
 /** Default expiry when yt-dlp does not expose a format expiration timestamp. */
 const DEFAULT_DIRECT_MEDIA_URL_TTL_MS = 60 * 60 * 1000;
 
+/** Maximum preview height — keeps browser range seeks on small progressive MP4s. */
+const PREVIEW_MAX_HEIGHT_PX = 360;
+
 type YtDlpFormat = {
   url?: string;
   height?: number;
@@ -45,10 +48,14 @@ type YtDlpFormat = {
   vcodec?: string;
   acodec?: string;
   expires?: number;
+  ext?: string;
+  protocol?: string;
+  format_id?: string;
 };
 
 type YtDlpJsonMetadata = {
   formats?: YtDlpFormat[];
+  duration?: number;
 };
 
 /**
@@ -59,6 +66,8 @@ export interface YouTubeDirectMediaUrl {
   url: string;
   /** Approximate Unix expiry time in milliseconds. */
   expiresAt: number;
+  /** Total media duration in seconds from yt-dlp metadata. */
+  durationSeconds: number;
 }
 
 function assertValidYouTubeVideoId(youtubeVideoId: string): void {
@@ -138,39 +147,100 @@ async function runProcess(
 }
 
 /**
- * Picks a low-resolution progressive or video-only format for ffprobe probing.
+ * Returns true when a yt-dlp format is a direct HTTPS MP4 stream suitable for HTML5 range playback.
+ * @param format - Candidate format row from yt-dlp JSON metadata.
+ * @returns Whether the format can be proxied for in-browser preview.
+ */
+export function isBrowserStreamableMp4Format(format: YtDlpFormat): boolean {
+  const url = format.url?.trim();
+  if (!url) {
+    return false;
+  }
+  if ((format.vcodec ?? 'none') === 'none') {
+    return false;
+  }
+
+  const protocol = (format.protocol ?? 'https').toLowerCase();
+  if (protocol.includes('m3u8') || protocol.includes('dash')) {
+    return false;
+  }
+
+  const ext = (format.ext ?? '').toLowerCase();
+  if (ext && ext !== 'mp4' && ext !== '3gp') {
+    return false;
+  }
+
+  return true;
+}
+
+function comparePreviewFormats(a: YtDlpFormat, b: YtDlpFormat): number {
+  const heightA = a.height ?? Number.MAX_SAFE_INTEGER;
+  const heightB = b.height ?? Number.MAX_SAFE_INTEGER;
+  if (heightA !== heightB) {
+    return heightA - heightB;
+  }
+
+  const widthA = a.width ?? Number.MAX_SAFE_INTEGER;
+  const widthB = b.width ?? Number.MAX_SAFE_INTEGER;
+  if (widthA !== widthB) {
+    return widthA - widthB;
+  }
+
+  const aProgressive = (a.acodec ?? 'none') !== 'none' ? 0 : 1;
+  const bProgressive = (b.acodec ?? 'none') !== 'none' ? 0 : 1;
+  return aProgressive - bProgressive;
+}
+
+/**
+ * Picks the lowest-resolution candidate from a format list.
+ * @param candidates - Usable yt-dlp format rows.
+ * @returns Lowest preview candidate, or null when the list is empty.
+ */
+function pickLowestPreviewFormat(candidates: YtDlpFormat[]): YtDlpFormat | null {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const sorted = [...candidates].sort(comparePreviewFormats);
+  return sorted[0] ?? null;
+}
+
+function isProgressiveFormat(format: YtDlpFormat): boolean {
+  return (format.acodec ?? 'none') !== 'none';
+}
+
+function isWithinPreviewHeightCap(format: YtDlpFormat): boolean {
+  return (
+    typeof format.height === 'number' && format.height > 0 && format.height <= PREVIEW_MAX_HEIGHT_PX
+  );
+}
+
+/**
+ * Picks a low-resolution MP4 format for in-browser preview and ffprobe probing.
  * @param formats - Format rows from yt-dlp JSON metadata.
  * @returns Best probe candidate, or null when none is usable.
  */
 export function pickYtDlpProbeFormat(formats: YtDlpFormat[]): YtDlpFormat | null {
-  const usable = formats.filter((format) => {
-    const url = format.url?.trim();
-    if (!url) {
-      return false;
-    }
-    return (format.vcodec ?? 'none') !== 'none';
-  });
-
+  const usable = formats.filter(isBrowserStreamableMp4Format);
   if (usable.length === 0) {
     return null;
   }
 
-  const progressive = usable.filter((format) => (format.acodec ?? 'none') !== 'none');
-  const candidates = progressive.length > 0 ? progressive : usable;
+  const progressive = usable.filter(isProgressiveFormat);
+  const progressiveWithinCap = progressive.filter(isWithinPreviewHeightCap);
+  const progressivePick = pickLowestPreviewFormat(progressiveWithinCap);
+  if (progressivePick) {
+    return progressivePick;
+  }
 
-  candidates.sort((a, b) => {
-    const heightA = a.height ?? Number.MAX_SAFE_INTEGER;
-    const heightB = b.height ?? Number.MAX_SAFE_INTEGER;
-    if (heightA !== heightB) {
-      return heightA - heightB;
-    }
+  const progressiveFallback = pickLowestPreviewFormat(progressive);
+  if (progressiveFallback) {
+    return progressiveFallback;
+  }
 
-    const widthA = a.width ?? Number.MAX_SAFE_INTEGER;
-    const widthB = b.width ?? Number.MAX_SAFE_INTEGER;
-    return widthA - widthB;
-  });
-
-  return candidates[0] ?? null;
+  const withinHeightCap = usable.filter(isWithinPreviewHeightCap);
+  const candidates = withinHeightCap.length > 0 ? withinHeightCap : usable;
+  return pickLowestPreviewFormat(candidates);
 }
 
 function resolveFormatExpiresAt(format: YtDlpFormat, url: string): number {
@@ -223,9 +293,19 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
     );
   }
 
+  const durationSeconds = metadata.duration;
+  if (
+    typeof durationSeconds !== 'number' ||
+    !Number.isFinite(durationSeconds) ||
+    durationSeconds <= 0
+  ) {
+    throw new Error('yt-dlp metadata lookup did not return video duration');
+  }
+
   return {
     url,
     expiresAt: resolveFormatExpiresAt(selected, url),
+    durationSeconds,
   };
 }
 
@@ -233,9 +313,10 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
  * Parses ffprobe CSV frame output for keyframe timestamps.
  * Column order follows `-show_entries frame=key_frame,pts_time`.
  * @param stdout - Raw ffprobe stdout.
+ * @param ptsOffsetSeconds - Seconds to add to each parsed timestamp (read-interval relative times).
  * @returns Keyframe timestamps in seconds, sorted ascending.
  */
-export function parseFfprobeKeyframeCsv(stdout: string): number[] {
+export function parseFfprobeKeyframeCsv(stdout: string, ptsOffsetSeconds = 0): number[] {
   const keyframes: number[] = [];
 
   for (const line of stdout.split(/\r?\n/)) {
@@ -251,7 +332,7 @@ export function parseFfprobeKeyframeCsv(stdout: string): number[] {
 
     const seconds = Number(ptsTimeRaw);
     if (Number.isFinite(seconds)) {
-      keyframes.push(seconds);
+      keyframes.push(seconds + ptsOffsetSeconds);
     }
   }
 
@@ -259,15 +340,42 @@ export function parseFfprobeKeyframeCsv(stdout: string): number[] {
 }
 
 /**
+ * Builds an ffprobe `-read_intervals` value centered on a timestamp.
+ * ffprobe expects a file-percentage start plus a duration window, not absolute seconds.
+ * @param nearSeconds - Approximate timestamp to search around.
+ * @param windowSeconds - Total read window size in seconds.
+ * @param durationSeconds - Total media duration in seconds.
+ * @returns ffprobe read interval specification and the interval start in seconds.
+ */
+export function buildFfprobeReadInterval(
+  nearSeconds: number,
+  windowSeconds: number,
+  durationSeconds: number
+): { readInterval: string; intervalStartSeconds: number } {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error('durationSeconds must be a positive number');
+  }
+
+  const intervalStartSeconds = Math.max(0, nearSeconds - windowSeconds / 2);
+  const percent = (intervalStartSeconds / durationSeconds) * 100;
+  return {
+    readInterval: `${percent}%+${windowSeconds}`,
+    intervalStartSeconds,
+  };
+}
+
+/**
  * Probes nearby video keyframes using a narrow ffprobe read window.
  * @param mediaUrl - Direct media URL readable by ffprobe.
  * @param nearSeconds - Approximate timestamp to search around.
+ * @param durationSeconds - Total media duration in seconds.
  * @param windowSeconds - Total read window size in seconds.
- * @returns Keyframe timestamps found in the window, or an empty array.
+ * @returns Keyframe timestamps found in the window, or an empty array when probing fails.
  */
 export async function probeNearbyKeyframes(
   mediaUrl: string,
   nearSeconds: number,
+  durationSeconds: number,
   windowSeconds = 8
 ): Promise<number[]> {
   if (!mediaUrl.trim()) {
@@ -276,28 +384,40 @@ export async function probeNearbyKeyframes(
   if (!Number.isFinite(nearSeconds) || nearSeconds < 0) {
     throw new Error('nearSeconds must be a non-negative number');
   }
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error('durationSeconds must be a positive number');
+  }
   if (!Number.isFinite(windowSeconds) || windowSeconds <= 0) {
     throw new Error('windowSeconds must be a positive number');
   }
 
-  const start = Math.max(0, nearSeconds - windowSeconds / 2);
-  const readInterval = `${start}%+${windowSeconds}`;
-
-  const { stdout } = await runProcess(
-    'ffprobe',
-    [
-      '-read_intervals',
-      readInterval,
-      '-select_streams',
-      'v:0',
-      '-show_entries',
-      'frame=key_frame,pts_time',
-      '-of',
-      'csv=p=0',
-      mediaUrl,
-    ],
-    'ffprobe keyframe probe'
+  const { readInterval, intervalStartSeconds } = buildFfprobeReadInterval(
+    nearSeconds,
+    windowSeconds,
+    durationSeconds
   );
 
-  return parseFfprobeKeyframeCsv(stdout);
+  try {
+    const { stdout } = await runProcess(
+      'ffprobe',
+      [
+        '-read_intervals',
+        readInterval,
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'frame=key_frame,pts_time',
+        '-of',
+        'csv=p=0',
+        mediaUrl,
+      ],
+      'ffprobe keyframe probe'
+    );
+
+    return parseFfprobeKeyframeCsv(stdout, intervalStartSeconds);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[probeNearbyKeyframes] ffprobe failed:', message);
+    return [];
+  }
 }

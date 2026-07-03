@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
-import { getDirectMediaUrl, probeNearbyKeyframes } from '@/lib/youtube-import/probe-keyframes';
+import { resolvePreviewDirectMediaUrl } from '@/lib/youtube-import/preview-media-url';
+import { probeNearbyKeyframes } from '@/lib/youtube-import/probe-keyframes';
 import type { ApiError, ApiResponse } from '@/types';
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
@@ -55,8 +56,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const { url } = await getDirectMediaUrl(youtubeVideoId);
-    const keyframeSeconds = await probeNearbyKeyframes(url, nearSeconds);
+    const { url, durationSeconds } = await resolvePreviewDirectMediaUrl(userId, youtubeVideoId);
+    const keyframeSeconds = await probeNearbyKeyframes(url, nearSeconds, durationSeconds);
 
     const res: ApiResponse<{ keyframeSeconds: number[] }> = { data: { keyframeSeconds } };
     return NextResponse.json(res, { status: 200 });

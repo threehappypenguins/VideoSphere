@@ -64,6 +64,8 @@ const baseJob = {
   errorMessage: null,
   r2Key: null,
   uploadJobId: null,
+  distributeQueued: false,
+  smartCut: false,
   $createdAt: '2026-01-01T00:00:00.000Z',
   $updatedAt: '2026-01-01T00:00:00.000Z',
 };
@@ -169,9 +171,20 @@ describe('POST /api/youtube-import/start', () => {
       livestreamId: undefined,
       startSeconds: 10,
       endSeconds: 100,
+      smartCut: false,
     });
     expect(mockDiscardBlockingDraftYoutubeImport).toHaveBeenCalledWith(DRAFT_ID, USER_ID);
     expect(mockScheduleYoutubeImportJob).toHaveBeenCalledWith('import-job-1', USER_ID);
+  });
+
+  it('passes smartCut when requested', async () => {
+    await POST(createRequest({ ...validBody, smartCut: true }));
+
+    expect(mockCreateYoutubeImportJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        smartCut: true,
+      })
+    );
   });
 
   it('passes livestreamId and sourceUrl when provided', async () => {

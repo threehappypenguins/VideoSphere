@@ -38,6 +38,8 @@ services:
       MONGO_INITDB_DATABASE: videosphere
     volumes:
       - mongo-data:/data/db
+    # Cap WiredTiger cache on memory-constrained hosts (e.g. 4GB Odroid); default is ~50% of (RAM - 1GB).
+    command: ['mongod', '--wiredTigerCacheSizeGB', '0.5']
     healthcheck:
       test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
       interval: 10s

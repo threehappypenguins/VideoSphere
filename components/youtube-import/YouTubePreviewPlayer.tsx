@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { ApiResponse } from '@/types';
 
+/** Minimum delta before issuing another programmatic seek. */
+const PREVIEW_SEEK_EPSILON_SECONDS = 0.05;
+
+/** Acceptable seek completion slack for coalesced follow-up seeks. */
+const PREVIEW_SEEK_COMPLETE_SLACK_SECONDS = 0.25;
+
 /** Refresh preview URLs one minute before yt-dlp reports expiry. */
 const PREVIEW_URL_REFRESH_BUFFER_MS = 60_000;
 
@@ -61,6 +67,8 @@ export function YouTubePreviewPlayer({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const onDurationKnownRef = useRef(onDurationKnown);
   const pendingPreviewSecondsRef = useRef<number | null>(null);
+  const seekTargetSecondsRef = useRef<number | null>(null);
+  const hasLoadedMetadataRef = useRef(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [expiresAt, setExpiresAt] = useState(previewExpiresAt);
@@ -83,18 +91,68 @@ export function YouTubePreviewPlayer({
     setExpiresAt(previewExpiresAt);
     setPlaybackError(null);
     pendingPreviewSecondsRef.current = null;
+    seekTargetSecondsRef.current = null;
+    hasLoadedMetadataRef.current = false;
   }, [previewExpiresAt, streamUrl, youtubeVideoId]);
 
-  const previewAt = useCallback((seconds: number) => {
-    const video = videoRef.current;
-    const clampedSeconds = Math.max(0, seconds);
-    if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) {
-      pendingPreviewSecondsRef.current = clampedSeconds;
+  useEffect(() => {
+    hasLoadedMetadataRef.current = false;
+    seekTargetSecondsRef.current = null;
+  }, [refreshKey]);
+
+  const tryApplyQueuedSeek = useCallback((video: HTMLVideoElement) => {
+    const targetSeconds = seekTargetSecondsRef.current;
+    if (targetSeconds == null || video.seeking) {
       return;
     }
 
-    video.currentTime = clampedSeconds;
+    if (Math.abs(video.currentTime - targetSeconds) < PREVIEW_SEEK_EPSILON_SECONDS) {
+      seekTargetSecondsRef.current = null;
+      return;
+    }
+
+    video.currentTime = targetSeconds;
   }, []);
+
+  const seekPreviewTo = useCallback(
+    (video: HTMLVideoElement, seconds: number) => {
+      const clampedSeconds = Math.max(0, seconds);
+      seekTargetSecondsRef.current = clampedSeconds;
+      tryApplyQueuedSeek(video);
+    },
+    [tryApplyQueuedSeek]
+  );
+
+  const handleSeeked = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+
+    const targetSeconds = seekTargetSecondsRef.current;
+    if (
+      targetSeconds != null &&
+      Math.abs(video.currentTime - targetSeconds) < PREVIEW_SEEK_COMPLETE_SLACK_SECONDS
+    ) {
+      seekTargetSecondsRef.current = null;
+    }
+
+    tryApplyQueuedSeek(video);
+  }, [tryApplyQueuedSeek]);
+
+  const previewAt = useCallback(
+    (seconds: number) => {
+      const video = videoRef.current;
+      const clampedSeconds = Math.max(0, seconds);
+      if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) {
+        pendingPreviewSecondsRef.current = clampedSeconds;
+        return;
+      }
+
+      seekPreviewTo(video, clampedSeconds);
+    },
+    [seekPreviewTo]
+  );
 
   useImperativeHandle(
     playerRef,
@@ -161,6 +219,7 @@ export function YouTubePreviewPlayer({
     }
 
     setPlaybackError(null);
+    hasLoadedMetadataRef.current = true;
 
     if (Number.isFinite(video.duration) && video.duration > 0) {
       onDurationKnownRef.current?.(video.duration);
@@ -169,19 +228,21 @@ export function YouTubePreviewPlayer({
     const pendingSeconds = pendingPreviewSecondsRef.current;
     if (pendingSeconds != null) {
       pendingPreviewSecondsRef.current = null;
-      video.currentTime = pendingSeconds;
+      seekPreviewTo(video, pendingSeconds);
     }
   };
 
   const handleVideoError = () => {
-    if (refreshKey === 0) {
+    if (!hasLoadedMetadataRef.current && refreshKey === 0) {
       setRefreshKey(1);
       return;
     }
 
-    setPlaybackError(
-      'Preview playback failed. Confirm the video is accessible on YouTube and try again.'
-    );
+    if (!hasLoadedMetadataRef.current) {
+      setPlaybackError(
+        'Preview playback failed. Confirm the video is accessible on YouTube and try again.'
+      );
+    }
   };
 
   return (
@@ -197,6 +258,7 @@ export function YouTubePreviewPlayer({
           aria-label="YouTube import trim preview"
           className="h-full w-full"
           onLoadedMetadata={handleLoadedMetadata}
+          onSeeked={handleSeeked}
           onError={handleVideoError}
         >
           <track

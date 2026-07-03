@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { YouTubePreviewPlayer } from '@/components/youtube-import/YouTubePreviewPlayer';
 
 const VIDEO_ID = 'dQw4w9WgXcQ';
@@ -87,6 +87,82 @@ describe('YouTubePreviewPlayer', () => {
     playerRef.current?.previewAt(42);
     expect(video.currentTime).toBe(42);
     expect(playerRef.current?.getCurrentTime()).toBe(42);
+  });
+
+  it('queues programmatic seeks while a prior seek is still in progress', () => {
+    const playerRef = {
+      current: null as
+        | import('@/components/youtube-import/YouTubePreviewPlayer').YouTubePlayerHandle
+        | null,
+    };
+
+    const { container } = render(
+      <YouTubePreviewPlayer
+        youtubeVideoId={VIDEO_ID}
+        streamUrl={STREAM_URL}
+        previewExpiresAt={PREVIEW_EXPIRES_AT}
+        playerRef={playerRef}
+      />
+    );
+
+    const video = container.querySelector('video') as HTMLVideoElement;
+    let currentTime = 0;
+    let seeking = false;
+
+    Object.defineProperty(video, 'readyState', {
+      configurable: true,
+      get() {
+        return HTMLMediaElement.HAVE_METADATA;
+      },
+    });
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      get() {
+        return currentTime;
+      },
+      set(value: number) {
+        currentTime = value;
+        seeking = true;
+      },
+    });
+    Object.defineProperty(video, 'seeking', {
+      configurable: true,
+      get() {
+        return seeking;
+      },
+    });
+
+    fireEvent.loadedMetadata(video);
+
+    playerRef.current?.previewAt(10);
+    expect(currentTime).toBe(10);
+
+    playerRef.current?.previewAt(20);
+    expect(currentTime).toBe(10);
+
+    seeking = false;
+    fireEvent.seeked(video);
+
+    expect(currentTime).toBe(20);
+  });
+
+  it('does not remount the video element when a seek-time error fires after metadata loads', () => {
+    const { container } = render(
+      <YouTubePreviewPlayer
+        youtubeVideoId={VIDEO_ID}
+        streamUrl={STREAM_URL}
+        previewExpiresAt={PREVIEW_EXPIRES_AT}
+      />
+    );
+
+    const video = container.querySelector('video');
+    expect(video).not.toBeNull();
+    fireEvent.loadedMetadata(video!);
+    fireEvent.error(video!);
+
+    const nextVideo = container.querySelector('video');
+    expect(nextVideo).toHaveAttribute('src', STREAM_URL);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('refreshes immediately when preview URL is within the refresh buffer', async () => {

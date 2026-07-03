@@ -500,7 +500,7 @@ function isYouTubeMetadataFullyLoaded(state: YouTubeMetadataLoadedState): boolea
   return state.languages && state.categories && state.accountDefaults;
 }
 
-type UploadModalPhase = 'confirm' | 'uploading' | 'complete' | 'clearPendingConfirm';
+type UploadModalPhase = 'confirm' | 'uploading' | 'complete' | 'queued' | 'clearPendingConfirm';
 type ClearPendingConfirmIntent = 'closeDraft' | 'clearOnly';
 
 interface DraftMetadataModalProps {
@@ -2778,8 +2778,12 @@ export function DraftMetadataModal({
     draftYoutubeImport != null && isActiveYoutubeImportStatus(draftYoutubeImport.status);
   const youtubeImportStaged = draftYoutubeImport?.status === 'completed';
   const youtubeImportFailed = draftYoutubeImport?.status === 'failed';
+  const youtubeImportDistributionQueued =
+    draftYoutubeImport?.distributeQueued === true &&
+    draftYoutubeImport.status !== 'failed' &&
+    draftYoutubeImport.status !== 'cancelled';
   const youtubeImportLocksFilePicker = youtubeImportActive || youtubeImportStaged;
-  const hasUploadableVideoSource = videoFile != null || youtubeImportStaged;
+  const hasUploadableVideoSource = videoFile != null || youtubeImportStaged || youtubeImportActive;
 
   const connectionsResolvedSuccessfully = hasLoadedConnections && connectionsError === null;
 
@@ -2798,6 +2802,7 @@ export function DraftMetadataModal({
     !uploading &&
     !cancelServerFailed &&
     !isSaving &&
+    !youtubeImportDistributionQueued &&
     hasUploadableVideoSource;
   const trimmedAiPrompt = aiPrompt.trim();
   const hasAiPrompt = trimmedAiPrompt !== '';
@@ -3151,8 +3156,10 @@ export function DraftMetadataModal({
         }
 
         if (updatedJob && isActiveYoutubeImportStatus(updatedJob.status)) {
-          toast.success('Upload queued. It will start when the import finishes.');
-          closeUploadModal();
+          toast.success(
+            'Upload queued — distribution will start when the YouTube import finishes.'
+          );
+          setUploadModalPhase('queued');
           return;
         }
 
@@ -3853,6 +3860,11 @@ export function DraftMetadataModal({
     if (uploadComplete) {
       await tryCloseModal();
     }
+  };
+
+  const handleCloseUploadQueuedModal = async () => {
+    closeUploadModal();
+    await tryCloseModal();
   };
 
   const openUploadConfirmModal = () => {
@@ -6094,11 +6106,11 @@ export function DraftMetadataModal({
                       {draftYoutubeImport.errorMessage?.trim() || 'The import failed.'}
                     </p>
                   ) : null}
-                  {draftYoutubeImport.distributeQueued &&
-                  isActiveYoutubeImportStatus(draftYoutubeImport.status) ? (
-                    <p className="text-xs text-muted-foreground">
+                  {youtubeImportDistributionQueued ? (
+                    <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-2.5 py-2 text-xs text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
+                      <CircleCheck className="h-3.5 w-3.5 shrink-0" />
                       Upload queued — distribution will start when the import finishes.
-                    </p>
+                    </div>
                   ) : null}
                   {youtubeImportActive ? (
                     <div className="flex flex-wrap gap-2 pt-1">
@@ -6232,7 +6244,13 @@ export function DraftMetadataModal({
             disabled={uploading || !canUploadVideo}
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
           >
-            {uploading ? 'Uploading...' : cancelServerFailed ? 'Pending upload' : 'Upload & Save'}
+            {youtubeImportDistributionQueued
+              ? 'Upload queued'
+              : uploading
+                ? 'Uploading...'
+                : cancelServerFailed
+                  ? 'Pending upload'
+                  : 'Upload & Save'}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -6254,6 +6272,10 @@ export function DraftMetadataModal({
             }
             if (uploadModalPhase === 'complete') {
               void handleCloseUploadProgressModal();
+              return;
+            }
+            if (uploadModalPhase === 'queued') {
+              void handleCloseUploadQueuedModal();
             }
           }
         }}
@@ -6270,27 +6292,36 @@ export function DraftMetadataModal({
                 ? 'Upload and save draft?'
                 : uploadModalPhase === 'clearPendingConfirm'
                   ? 'Clear pending upload?'
-                  : uploadModalPhase === 'complete'
-                    ? 'Upload complete'
-                    : 'Uploading video'}
+                  : uploadModalPhase === 'queued'
+                    ? 'Upload queued'
+                    : uploadModalPhase === 'complete'
+                      ? 'Upload complete'
+                      : 'Uploading video'}
             </DialogTitle>
             <DialogDescription>
               {uploadModalPhase === 'confirm'
                 ? draftYoutubeImport && !videoFile
                   ? isActiveYoutubeImportStatus(draftYoutubeImport.status)
-                    ? 'This will save your latest draft changes and queue an upload using the YouTube import in progress. Distribution starts when the import finishes. Continue?'
+                    ? 'This will save your latest draft changes and queue an upload. The video will be distributed to your selected platforms as soon as the YouTube import finishes. Continue?'
                     : 'This will save your latest draft changes and upload the imported YouTube video to your selected platforms. Continue?'
                   : 'This will save your latest draft changes and upload the selected video using this draft. Are you sure you want to continue?'
                 : uploadModalPhase === 'clearPendingConfirm'
                   ? 'Server cancellation is unavailable right now. Clear this pending upload locally and close anyway?'
-                  : uploadModalPhase === 'complete'
-                    ? 'Your video was uploaded successfully. Distribution will continue in the background.'
-                    : 'Your video is uploading. Keep this window open until the upload finishes.'}
+                  : uploadModalPhase === 'queued'
+                    ? 'Your draft is saved. Distribution will start automatically when the YouTube import finishes. You can close this window and continue working.'
+                    : uploadModalPhase === 'complete'
+                      ? 'Your video was uploaded successfully. Distribution will continue in the background.'
+                      : 'Your video is uploading. Keep this window open until the upload finishes.'}
             </DialogDescription>
           </DialogHeader>
 
           {uploadModalPhase === 'confirm' ||
-          uploadModalPhase === 'clearPendingConfirm' ? null : uploadModalPhase === 'complete' ? (
+          uploadModalPhase === 'clearPendingConfirm' ? null : uploadModalPhase === 'queued' ? (
+            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
+              <CircleCheck className="h-4 w-4 shrink-0" />
+              Upload queued — distribution will begin when the import completes.
+            </div>
+          ) : uploadModalPhase === 'complete' ? (
             <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200">
               <CircleCheck className="h-4 w-4 shrink-0" />
               Video uploaded successfully
@@ -6371,7 +6402,11 @@ export function DraftMetadataModal({
                   disabled={!canUploadVideo}
                   className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 >
-                  Yes, upload
+                  {draftYoutubeImport &&
+                  !videoFile &&
+                  isActiveYoutubeImportStatus(draftYoutubeImport.status)
+                    ? 'Yes, queue upload'
+                    : 'Yes, upload'}
                 </button>
               </>
             ) : uploadModalPhase === 'clearPendingConfirm' ? (
@@ -6391,6 +6426,17 @@ export function DraftMetadataModal({
                   Clear locally
                 </button>
               </>
+            ) : uploadModalPhase === 'queued' ? (
+              <button
+                type="button"
+                aria-label="Close upload queue confirmation"
+                onClick={() => {
+                  void handleCloseUploadQueuedModal();
+                }}
+                className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                Close
+              </button>
             ) : uploadModalPhase === 'complete' ? (
               <button
                 type="button"

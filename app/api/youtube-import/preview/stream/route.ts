@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
 import { fetchProxiedPreviewMedia } from '@/lib/youtube-import/proxy-preview-media';
-import { resolvePreviewDirectMediaUrl } from '@/lib/youtube-import/preview-media-url';
+import {
+  invalidatePreviewDirectMediaUrl,
+  resolvePreviewDirectMediaUrl,
+} from '@/lib/youtube-import/preview-media-url';
 import type { ApiError } from '@/types';
 
 const YOUTUBE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
@@ -48,11 +51,21 @@ export async function GET(req: NextRequest): Promise<NextResponse | Response> {
   const forceRefresh = req.nextUrl.searchParams.get('refresh') === '1';
 
   try {
-    const { url } = await resolvePreviewDirectMediaUrl(userId, youtubeVideoId, {
+    const resolved = await resolvePreviewDirectMediaUrl(userId, youtubeVideoId, {
       forceRefresh,
     });
     const rangeHeader = req.headers.get('range');
-    return await fetchProxiedPreviewMedia(url, rangeHeader);
+    let response = await fetchProxiedPreviewMedia(resolved.url, rangeHeader);
+
+    if (response.status === 416) {
+      invalidatePreviewDirectMediaUrl(userId, youtubeVideoId);
+      const refreshed = await resolvePreviewDirectMediaUrl(userId, youtubeVideoId, {
+        forceRefresh: true,
+      });
+      response = await fetchProxiedPreviewMedia(refreshed.url, rangeHeader);
+    }
+
+    return response;
   } catch (err) {
     const message =
       err instanceof Error && err.message.trim() !== ''

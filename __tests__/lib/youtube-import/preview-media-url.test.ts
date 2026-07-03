@@ -42,6 +42,7 @@ describe('resolvePreviewDirectMediaUrl', () => {
     mockGetDirectMediaUrl.mockResolvedValue({
       url: 'https://r1---sn.example.googlevideo.com/videoplayback',
       expiresAt: Date.now() + 3_600_000,
+      durationSeconds: 212,
     });
   });
 

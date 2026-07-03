@@ -52,6 +52,7 @@ function rowToYoutubeImportJob(doc: YoutubeImportJobDocument): YoutubeImportJob 
       doc.livestreamId != null && doc.livestreamId !== '' ? String(doc.livestreamId) : null,
     startSeconds: doc.startSeconds,
     endSeconds: doc.endSeconds,
+    smartCut: doc.smartCut === true,
     status: String(doc.status) as YoutubeImportJobStatus,
     progressPercent: doc.progressPercent,
     errorMessage:
@@ -76,6 +77,8 @@ export interface CreateYoutubeImportJobInput {
   livestreamId?: string;
   startSeconds: number;
   endSeconds: number;
+  /** When true, trim with ffmpeg smart cut instead of stream-copy only. */
+  smartCut?: boolean;
 }
 
 /**
@@ -111,6 +114,7 @@ export async function createYoutubeImportJob(
       livestreamId: input.livestreamId ?? '',
       startSeconds: input.startSeconds,
       endSeconds: input.endSeconds,
+      smartCut: input.smartCut === true,
       status: 'pending',
       progressPercent: 0,
       errorMessage: '',

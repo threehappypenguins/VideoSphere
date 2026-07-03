@@ -86,6 +86,7 @@ function makeImportJob(overrides: Partial<YoutubeImportJob> = {}): YoutubeImport
     r2Key: null,
     uploadJobId: null,
     distributeQueued: false,
+    smartCut: false,
     $createdAt: '2026-01-01T00:00:00.000Z',
     $updatedAt: '2026-01-01T00:05:00.000Z',
     ...overrides,
@@ -232,9 +233,7 @@ describe('YouTubeImportModal', () => {
       expect(screen.getByTestId('trim-range-slider')).toBeInTheDocument();
       expect(screen.getByText('Sunday Service')).toBeInTheDocument();
       expect(
-        screen.getByText(
-          /Preview uses the same yt-dlp media source as import, so scrubbing should match the trimmed result/i
-        )
+        screen.getByText(/drag the handles to choose where the imported clip starts and ends/i)
       ).toBeInTheDocument();
     });
 
@@ -245,6 +244,70 @@ describe('YouTubeImportModal', () => {
         body: expect.any(String),
       })
     );
+  });
+
+  it('hides the preview player when Show video preview is unchecked', async () => {
+    installFetchMock({});
+    const user = userEvent.setup();
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText('Sunday Morning Service')).toBeInTheDocument();
+    });
+
+    await user.type(
+      screen.getByLabelText(/youtube link/i),
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    );
+    await user.click(screen.getByRole('button', { name: /use this link/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('youtube-preview-player')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('checkbox', { name: /show video preview/i }));
+
+    expect(screen.queryByTestId('youtube-preview-player')).not.toBeInTheDocument();
+    expect(screen.getByTestId('trim-range-slider')).toBeInTheDocument();
+    expect(
+      screen.getByText(/video preview is off\. use the trim handles and timestamps below/i)
+    ).toBeInTheDocument();
+  });
+
+  it('sends smartCut with start import when Smart cut is enabled', async () => {
+    const fetchMock = installFetchMock({});
+    const user = userEvent.setup();
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText('Sunday Morning Service')).toBeInTheDocument();
+    });
+
+    await user.type(
+      screen.getByLabelText(/youtube link/i),
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    );
+    await user.click(screen.getByRole('button', { name: /use this link/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('trim-range-slider')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('checkbox', { name: /smart cut/i })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: /start import/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/youtube-import/start',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"smartCut":true'),
+        })
+      );
+    });
   });
 
   it('selects a livestream row to resolve and open the trim editor', async () => {

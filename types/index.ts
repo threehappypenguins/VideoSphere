@@ -711,6 +711,8 @@ export interface YoutubeImportJob {
   livestreamId: string | null;
   startSeconds: number;
   endSeconds: number;
+  /** When true, import trims with ffmpeg smart cut instead of stream-copy only. */
+  smartCut: boolean;
   status: YoutubeImportJobStatus;
   /** Coarse progress for the UI (0–100). */
   progressPercent: number;
