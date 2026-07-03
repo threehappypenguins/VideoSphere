@@ -33,7 +33,7 @@ const ACTIVE_YOUTUBE_IMPORT_JOB_STATUSES: YoutubeImportJobStatus[] = [
 const YoutubeImportJobSchema = new Schema<YoutubeImportJobDocument>(
   {
     _id: { type: String },
-    userId: { type: String, required: true, index: true, trim: true },
+    userId: { type: String, required: true, trim: true },
     draftId: { type: String, required: true, trim: true },
     sourceUrl: { type: String, required: true, trim: true },
     youtubeVideoId: { type: String, required: true, trim: true },
@@ -55,6 +55,8 @@ const YoutubeImportJobSchema = new Schema<YoutubeImportJobDocument>(
   { timestamps: true }
 );
 
+// Partial unique index on userId for in-flight jobs (see getActiveYoutubeImportJobForUser).
+// Do not also set index: true on the userId field — that creates a duplicate { userId: 1 } index.
 YoutubeImportJobSchema.index(
   { userId: 1 },
   {

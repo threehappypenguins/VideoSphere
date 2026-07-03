@@ -120,6 +120,23 @@ describe('refreshTokenIfNeeded', () => {
     expect(mockUpdateTokens).not.toHaveBeenCalled();
   });
 
+  it('refreshes YouTube when force is true even if expiry is still valid', async () => {
+    const newExpiry = new Date(Date.now() + 3600_000).toISOString();
+    mockRefreshYouTubeAccessToken.mockResolvedValue({
+      ok: true,
+      accessToken: 'forced-access',
+      refreshToken: 'new-refresh',
+      tokenExpiry: newExpiry,
+    });
+    mockUpdateTokens.mockResolvedValue({});
+
+    const acc = youtubeAccount();
+    const out = await refreshTokenIfNeeded(acc, { force: true });
+
+    expect(mockRefreshYouTubeAccessToken).toHaveBeenCalledWith({ refreshToken: 'refresh' });
+    expect(out.accessToken).toBe('forced-access');
+  });
+
   it('refreshes YouTube, persists tokens, and returns new bundle', async () => {
     const past = new Date(Date.now() - 60_000).toISOString();
     const newExpiry = new Date(Date.now() + 3600_000).toISOString();

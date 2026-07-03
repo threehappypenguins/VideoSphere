@@ -215,7 +215,7 @@ export async function fetchYouTubeVideoForImport(
   signal?: AbortSignal
 ): Promise<
   | { ok: true; item: YouTubeImportVideosListItem }
-  | { ok: false; details: string; notFound?: boolean }
+  | { ok: false; details: string; statusCode?: number; notFound?: boolean }
 > {
   const url = new URL(YOUTUBE_VIDEOS_URL);
   url.searchParams.set('part', 'snippet,contentDetails,liveStreamingDetails,status');
@@ -227,7 +227,7 @@ export async function fetchYouTubeVideoForImport(
   });
 
   if (!res.ok) {
-    return { ok: false, details: await readYouTubeApiErrorDetails(res) };
+    return { ok: false, details: await readYouTubeApiErrorDetails(res), statusCode: res.status };
   }
 
   const body = (await res.json().catch(() => ({}))) as {

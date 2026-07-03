@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  fetchYouTubeI18nLanguages,
-  requireYouTubeConnection,
-  youtubeUpstreamErrorResponse,
-} from '@/lib/platforms/youtube-api';
+import { fetchYouTubeI18nLanguages, runYouTubeDataApiRequest } from '@/lib/platforms/youtube-api';
 import type { ApiError, ApiResponse } from '@/types';
 
 /**
@@ -12,18 +8,23 @@ import type { ApiError, ApiResponse } from '@/types';
  * @returns JSON list of BCP-47 language id and English name pairs, or a structured error.
  */
 export async function GET(req: NextRequest) {
-  const connection = await requireYouTubeConnection(req);
-  if (connection.ok === false) {
-    return connection.response;
-  }
-
   try {
-    const result = await fetchYouTubeI18nLanguages(connection.accessToken, req.signal);
+    const result = await runYouTubeDataApiRequest(req, async (accessToken) => {
+      const languages = await fetchYouTubeI18nLanguages(accessToken, req.signal);
+      if (languages.ok === false) {
+        return {
+          ok: false,
+          details: languages.details,
+          statusCode: languages.statusCode,
+        };
+      }
+      return { ok: true, data: languages.items };
+    });
     if (result.ok === false) {
-      return youtubeUpstreamErrorResponse(result.details);
+      return result.response;
     }
 
-    const res: ApiResponse<Array<{ id: string; name: string }>> = { data: result.items };
+    const res: ApiResponse<Array<{ id: string; name: string }>> = { data: result.data };
     return NextResponse.json(res, {
       status: 200,
       headers: {

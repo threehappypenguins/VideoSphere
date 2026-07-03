@@ -6,6 +6,10 @@ import {
   buildYouTubeAccountDefaultsSeedPatch,
   mergeYouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-account-defaults';
+import {
+  isYouTubeAuthCredentialsError,
+  YOUTUBE_RECONNECT_MESSAGE,
+} from '@/lib/platforms/youtube-auth-errors';
 import { refreshTokenIfNeeded } from '@/lib/platforms/token-refresh';
 import type { ApiError } from '@/types';
 
@@ -43,10 +47,16 @@ async function readYouTubeApiErrorDetails(response: Response): Promise<string> {
 
 /**
  * Builds a 502 response for a failed YouTube Data API request.
+ * Auth credential failures are mapped to 401 so clients can prompt reconnect.
  * @param details - Upstream error message or body text.
+ * @param statusCode - HTTP status from the YouTube API response, when known.
  * @returns JSON error response for route handlers.
  */
-export function youtubeUpstreamErrorResponse(details: string): NextResponse {
+export function youtubeUpstreamErrorResponse(details: string, statusCode?: number): NextResponse {
+  if (statusCode === 401 || isYouTubeAuthCredentialsError(details)) {
+    return youtubeAuthErrorResponse(YOUTUBE_RECONNECT_MESSAGE);
+  }
+
   const errRes: ApiError = {
     error: 'Bad Gateway',
     message: details,
@@ -72,9 +82,14 @@ export function youtubeAuthErrorResponse(message: string): NextResponse {
 /**
  * Resolves the authenticated user's YouTube connection and a fresh access token.
  * @param req - Incoming request (session auth).
+ * @param options - Connection resolution overrides.
+ * @param options.forceRefresh - When true, refreshes OAuth tokens even if the stored expiry is still valid.
  * @returns Access token for YouTube Data API calls, or an error response.
  */
-export async function requireYouTubeConnection(req: NextRequest): Promise<YouTubeConnectionResult> {
+export async function requireYouTubeConnection(
+  req: NextRequest,
+  options?: { forceRefresh?: boolean }
+): Promise<YouTubeConnectionResult> {
   const userId = await getAuthenticatedUserId(req);
   if (!userId) {
     return { ok: false, response: youtubeAuthErrorResponse('Not authenticated') };
@@ -86,7 +101,7 @@ export async function requireYouTubeConnection(req: NextRequest): Promise<YouTub
   }
 
   try {
-    const tokens = await refreshTokenIfNeeded(account);
+    const tokens = await refreshTokenIfNeeded(account, { force: options?.forceRefresh });
     const accessToken = tokens.accessToken.trim();
     if (!accessToken) {
       return {
@@ -116,7 +131,8 @@ export async function fetchYouTubeVideoCategories(
   accessToken: string,
   signal?: AbortSignal
 ): Promise<
-  { ok: true; items: Array<{ id: string; title: string }> } | { ok: false; details: string }
+  | { ok: true; items: Array<{ id: string; title: string }> }
+  | { ok: false; details: string; statusCode: number }
 > {
   const url = new URL(YOUTUBE_VIDEO_CATEGORIES_URL);
   url.searchParams.set('part', 'snippet');
@@ -129,7 +145,7 @@ export async function fetchYouTubeVideoCategories(
   });
 
   if (!res.ok) {
-    return { ok: false, details: await readYouTubeApiErrorDetails(res) };
+    return { ok: false, details: await readYouTubeApiErrorDetails(res), statusCode: res.status };
   }
 
   const body = (await res.json().catch(() => ({}))) as {
@@ -157,7 +173,8 @@ export async function fetchYouTubeI18nLanguages(
   accessToken: string,
   signal?: AbortSignal
 ): Promise<
-  { ok: true; items: Array<{ id: string; name: string }> } | { ok: false; details: string }
+  | { ok: true; items: Array<{ id: string; name: string }> }
+  | { ok: false; details: string; statusCode: number }
 > {
   const url = new URL(YOUTUBE_I18N_LANGUAGES_URL);
   url.searchParams.set('part', 'snippet');
@@ -169,7 +186,7 @@ export async function fetchYouTubeI18nLanguages(
   });
 
   if (!res.ok) {
-    return { ok: false, details: await readYouTubeApiErrorDetails(res) };
+    return { ok: false, details: await readYouTubeApiErrorDetails(res), statusCode: res.status };
   }
 
   const body = (await res.json().catch(() => ({}))) as {
@@ -347,7 +364,10 @@ async function finalizeYouTubeAccountDefaults(
 export async function fetchYouTubeAccountDefaults(
   accessToken: string,
   signal?: AbortSignal
-): Promise<{ ok: true; defaults: YouTubeAccountDefaults } | { ok: false; details: string }> {
+): Promise<
+  | { ok: true; defaults: YouTubeAccountDefaults }
+  | { ok: false; details: string; statusCode: number }
+> {
   const authHeaders = { Authorization: `Bearer ${accessToken}` };
   const fetchInit = signal ? { headers: authHeaders, signal } : { headers: authHeaders };
 
@@ -357,7 +377,11 @@ export async function fetchYouTubeAccountDefaults(
 
   const channelRes = await fetch(channelUrl.toString(), fetchInit);
   if (!channelRes.ok) {
-    return { ok: false, details: await readYouTubeApiErrorDetails(channelRes) };
+    return {
+      ok: false,
+      details: await readYouTubeApiErrorDetails(channelRes),
+      statusCode: channelRes.status,
+    };
   }
 
   const channelBody = (await channelRes.json().catch(() => ({}))) as {
@@ -447,4 +471,51 @@ export async function fetchYouTubeAccountDefaults(
   }
 
   return finalizeYouTubeAccountDefaults(accessToken, defaults, signal);
+}
+
+type YouTubeDataApiFailure = { ok: false; details: string; statusCode: number };
+type YouTubeDataApiCallResult<T> = { ok: true; data: T } | YouTubeDataApiFailure;
+
+/**
+ * Runs a YouTube Data API operation with session auth, retrying once after a forced refresh
+ * when Google rejects the access token.
+ * @param req - Incoming request (session auth).
+ * @param operation - YouTube Data API call using a bearer access token.
+ * @returns Operation result or an HTTP error response.
+ */
+export async function runYouTubeDataApiRequest<T>(
+  req: NextRequest,
+  operation: (accessToken: string) => Promise<YouTubeDataApiCallResult<T>>
+): Promise<{ ok: true; data: T } | { ok: false; response: NextResponse }> {
+  const connection = await requireYouTubeConnection(req);
+  if (connection.ok === false) {
+    return { ok: false, response: connection.response };
+  }
+
+  const initialResult = await operation(connection.accessToken);
+  if (initialResult.ok === true) {
+    return { ok: true, data: initialResult.data };
+  }
+
+  if (initialResult.statusCode === 401 || isYouTubeAuthCredentialsError(initialResult.details)) {
+    const retryConnection = await requireYouTubeConnection(req, { forceRefresh: true });
+    if (retryConnection.ok === false) {
+      return { ok: false, response: retryConnection.response };
+    }
+
+    const retryResult = await operation(retryConnection.accessToken);
+    if (retryResult.ok === true) {
+      return { ok: true, data: retryResult.data };
+    }
+
+    return {
+      ok: false,
+      response: youtubeUpstreamErrorResponse(retryResult.details, retryResult.statusCode),
+    };
+  }
+
+  return {
+    ok: false,
+    response: youtubeUpstreamErrorResponse(initialResult.details, initialResult.statusCode),
+  };
 }

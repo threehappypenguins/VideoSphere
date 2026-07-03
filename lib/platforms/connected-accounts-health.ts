@@ -30,7 +30,7 @@ export async function getConnectedAccountsWithHealth(
       const withTokens = await getConnectedAccountWithTokens(userId, account.platform);
       if (withTokens && withTokens.id === account.id) {
         try {
-          await refreshTokenIfNeeded(withTokens);
+          await refreshTokenIfNeeded(withTokens, { force: true });
           publicAccount = (await getConnectedAccountForUser(account.id, userId)) ?? publicAccount;
           connectionStatus = getConnectionStatus(publicAccount);
         } catch {

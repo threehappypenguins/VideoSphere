@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUserId } from '@/lib/api/auth';
+import { isYouTubeAuthCredentialsError } from '@/lib/platforms/youtube-auth-errors';
 import {
   requireYouTubeConnection,
   youtubeUpstreamErrorResponse,
@@ -132,17 +133,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const videoResult = await fetchYouTubeVideoForImport(
+    let videoResult = await fetchYouTubeVideoForImport(
       connection.accessToken,
       youtubeVideoId,
       req.signal
     );
 
+    if (
+      videoResult.ok === false &&
+      !videoResult.notFound &&
+      (videoResult.statusCode === 401 || isYouTubeAuthCredentialsError(videoResult.details))
+    ) {
+      const retryConnection = await requireYouTubeConnection(req, { forceRefresh: true });
+      if (retryConnection.ok === false) {
+        return retryConnection.response;
+      }
+      videoResult = await fetchYouTubeVideoForImport(
+        retryConnection.accessToken,
+        youtubeVideoId,
+        req.signal
+      );
+    }
+
     if (videoResult.ok === false) {
       if (videoResult.notFound) {
         return badRequest(videoResult.details);
       }
-      return youtubeUpstreamErrorResponse(videoResult.details);
+      return youtubeUpstreamErrorResponse(videoResult.details, videoResult.statusCode);
     }
 
     const mapped = mapYouTubeImportResolvedSource(videoResult.item);

@@ -213,7 +213,7 @@ export async function POST(
   let youtubeLifecycleStatus: string | undefined;
 
   if (targetsYouTube) {
-    const youtubeConnection = await requireYouTubeConnection(req);
+    const youtubeConnection = await requireYouTubeConnection(req, { forceRefresh: true });
     if (youtubeConnection.ok === false) {
       return youtubeConnection.response;
     }

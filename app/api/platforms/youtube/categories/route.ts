@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  fetchYouTubeVideoCategories,
-  requireYouTubeConnection,
-  youtubeUpstreamErrorResponse,
-} from '@/lib/platforms/youtube-api';
+import { fetchYouTubeVideoCategories, runYouTubeDataApiRequest } from '@/lib/platforms/youtube-api';
 import type { ApiError, ApiResponse } from '@/types';
 
 /**
@@ -12,18 +8,23 @@ import type { ApiError, ApiResponse } from '@/types';
  * @returns JSON list of category id/title pairs, or a structured error.
  */
 export async function GET(req: NextRequest) {
-  const connection = await requireYouTubeConnection(req);
-  if (connection.ok === false) {
-    return connection.response;
-  }
-
   try {
-    const result = await fetchYouTubeVideoCategories(connection.accessToken, req.signal);
+    const result = await runYouTubeDataApiRequest(req, async (accessToken) => {
+      const categories = await fetchYouTubeVideoCategories(accessToken, req.signal);
+      if (categories.ok === false) {
+        return {
+          ok: false,
+          details: categories.details,
+          statusCode: categories.statusCode,
+        };
+      }
+      return { ok: true, data: categories.items };
+    });
     if (result.ok === false) {
-      return youtubeUpstreamErrorResponse(result.details);
+      return result.response;
     }
 
-    const res: ApiResponse<Array<{ id: string; title: string }>> = { data: result.items };
+    const res: ApiResponse<Array<{ id: string; title: string }>> = { data: result.data };
     return NextResponse.json(res, {
       status: 200,
       headers: {

@@ -116,8 +116,7 @@ export function getUsableConnectedPlatforms(
 }
 
 /**
- * True when an OAuth account should be probed because the access token is expired
- * but a refresh token is still stored.
+ * True when an OAuth account should be probed on the connections page.
  * @param account - Public connected account row.
  * @returns Whether a refresh attempt is needed to verify health.
  */
@@ -129,8 +128,6 @@ export function accountNeedsOAuthHealthProbe(account: ConnectedAccountPublic): b
   ) {
     return false;
   }
-  if (!account.hasRefreshToken) return false;
-  const expiryMs = Date.parse(account.tokenExpiry);
-  if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return false;
-  return true;
+
+  return account.hasRefreshToken;
 }

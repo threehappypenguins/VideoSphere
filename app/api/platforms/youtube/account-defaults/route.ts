@@ -3,8 +3,7 @@ import { getAuthenticatedUserId } from '@/lib/api/auth';
 import {
   fetchYouTubeAccountDefaults,
   mergeYouTubeAccountDefaults,
-  requireYouTubeConnection,
-  youtubeUpstreamErrorResponse,
+  runYouTubeDataApiRequest,
   type YouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-api';
 import { getUserById } from '@/lib/repositories/users';
@@ -17,20 +16,25 @@ import type { ApiError, ApiResponse } from '@/types';
  * @returns JSON account defaults, or a structured error.
  */
 export async function GET(req: NextRequest) {
-  const connection = await requireYouTubeConnection(req);
-  if (connection.ok === false) {
-    return connection.response;
-  }
-
   try {
-    const result = await fetchYouTubeAccountDefaults(connection.accessToken, req.signal);
+    const result = await runYouTubeDataApiRequest(req, async (accessToken) => {
+      const defaultsResult = await fetchYouTubeAccountDefaults(accessToken, req.signal);
+      if (defaultsResult.ok === false) {
+        return {
+          ok: false,
+          details: defaultsResult.details,
+          statusCode: defaultsResult.statusCode,
+        };
+      }
+      return { ok: true, data: defaultsResult.defaults };
+    });
     if (result.ok === false) {
-      return youtubeUpstreamErrorResponse(result.details);
+      return result.response;
     }
 
     const userId = await getAuthenticatedUserId(req);
     const user = userId ? await getUserById(userId) : null;
-    const defaults = mergeYouTubeAccountDefaults(result.defaults, user?.platformDefaults?.youtube);
+    const defaults = mergeYouTubeAccountDefaults(result.data, user?.platformDefaults?.youtube);
 
     const res: ApiResponse<YouTubeAccountDefaults> = { data: defaults };
     return NextResponse.json(res, {

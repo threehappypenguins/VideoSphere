@@ -64,9 +64,15 @@ export function tokenNeedsRefresh(
  * Returns tokens suitable for platform API calls. Persists a new YouTube access token
  * when the stored one is expired or near expiry.
  *
+ * @param account - Connected account row including encrypted tokens.
+ * @param options - Refresh behavior overrides.
+ * @param options.force - When true, refreshes OAuth access tokens even if the stored expiry is still valid.
  * @throws Clear Error when YouTube refresh fails (e.g. the user revoked access).
  */
-export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<PlatformTokens> {
+export async function refreshTokenIfNeeded(
+  account: ConnectedAccount,
+  options?: { force?: boolean }
+): Promise<PlatformTokens> {
   if (account.platform === 'sermon_audio') {
     const apiKey = account.accessToken.trim();
     if (!apiKey) {
@@ -81,7 +87,7 @@ export async function refreshTokenIfNeeded(account: ConnectedAccount): Promise<P
     };
   }
 
-  if (!tokenNeedsRefresh(account.tokenExpiry, Date.now(), account.accessToken)) {
+  if (!options?.force && !tokenNeedsRefresh(account.tokenExpiry, Date.now(), account.accessToken)) {
     return {
       accessToken: account.accessToken,
       refreshToken: account.refreshToken,

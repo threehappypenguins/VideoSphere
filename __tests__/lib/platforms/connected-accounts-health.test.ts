@@ -60,7 +60,7 @@ describe('getConnectedAccountsWithHealth', () => {
 
     const result = await getConnectedAccountsWithHealth(USER_ID);
 
-    expect(mockRefreshTokenIfNeeded).toHaveBeenCalled();
+    expect(mockRefreshTokenIfNeeded).toHaveBeenCalledWith(expect.anything(), { force: true });
     expect(result).toEqual([
       expect.objectContaining({
         id: 'acc-1',

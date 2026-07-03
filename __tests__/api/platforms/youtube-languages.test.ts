@@ -109,7 +109,29 @@ describe('GET /api/platforms/youtube/languages', () => {
     });
   });
 
-  it('returns 502 when YouTube API fails', async () => {
+  it('returns 401 when YouTube rejects the access token', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message:
+              'Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential.',
+          },
+        }),
+        { status: 401 }
+      )
+    );
+
+    const res = await GET(makeRequest());
+
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.statusCode).toBe(401);
+    expect(body.message).toContain('Reconnect your YouTube account');
+    expect(mockRefreshTokenIfNeeded).toHaveBeenCalledWith(expect.anything(), { force: true });
+  });
+
+  it('returns 502 when YouTube API fails for non-auth reasons', async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ error: { message: 'Quota exceeded' } }), { status: 403 })
     );
