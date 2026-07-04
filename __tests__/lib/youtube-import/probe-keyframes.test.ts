@@ -59,10 +59,10 @@ describe('parseFfprobeKeyframeCsv', () => {
     expect(parseFfprobeKeyframeCsv(stdout)).toEqual([0, 2]);
   });
 
-  it('applies a pts offset for read-interval relative timestamps', () => {
-    const stdout = ['1,0.000000', '1,2.000000'].join('\n');
+  it('uses absolute pts_time values from ffprobe without rebasing', () => {
+    const stdout = ['1,32.800000', '1,38.810000'].join('\n');
 
-    expect(parseFfprobeKeyframeCsv(stdout, 10)).toEqual([10, 12]);
+    expect(parseFfprobeKeyframeCsv(stdout)).toEqual([32.8, 38.81]);
   });
 
   it('returns an empty array when no keyframes are present', () => {
@@ -71,14 +71,27 @@ describe('parseFfprobeKeyframeCsv', () => {
 });
 
 describe('buildFfprobeReadInterval', () => {
-  it('uses file percentage plus a duration window', () => {
+  it('uses absolute seconds for the interval start, not a file percentage', () => {
     expect(buildFfprobeReadInterval(14, 8, 100)).toEqual({
       readInterval: '10%+8',
       intervalStartSeconds: 10,
     });
+
+    // On short clips, percent-of-file would accidentally match seconds — long durations expose the bug.
+    expect(buildFfprobeReadInterval(1500, 8, 3000)).toEqual({
+      readInterval: '1496%+8',
+      intervalStartSeconds: 1496,
+    });
     expect(buildFfprobeReadInterval(4683, 8, 6666)).toEqual({
-      readInterval: `${(4679 / 6666) * 100}%+8`,
+      readInterval: '4679%+8',
       intervalStartSeconds: 4679,
+    });
+  });
+
+  it('clamps the read window at EOF', () => {
+    expect(buildFfprobeReadInterval(2998, 8, 3000)).toEqual({
+      readInterval: '2994%+6',
+      intervalStartSeconds: 2994,
     });
   });
 });
@@ -97,7 +110,7 @@ describe('probeNearbyKeyframes', () => {
   it('runs ffprobe with a centered read interval and returns parsed keyframes', async () => {
     mockSpawnProcess.mockImplementationOnce(() =>
       createMockChild({
-        stdout: '1,0.000000\n0,0.040000\n1,2.000000\n',
+        stdout: '1,10.000000\n0,10.040000\n1,12.000000\n',
       })
     );
 

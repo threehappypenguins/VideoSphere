@@ -28,6 +28,12 @@ const TRIM_PROGRESS = 85;
 const UPLOAD_PROGRESS = 95;
 
 /**
+ * Extra seconds to fetch before the requested trim start so yt-dlp can snap to a
+ * keyframe without dropping the user's in-point on long livestream VODs.
+ */
+export const YOUTUBE_SECTION_DOWNLOAD_LEAD_SECONDS = 120;
+
+/**
  * Parses a yt-dlp `[download] …%` progress chunk.
  * @param chunk - stdout/stderr fragment from yt-dlp.
  * @returns Download percent when present, otherwise `null`.
@@ -125,6 +131,22 @@ export function computeTrimOffsets(input: {
   }
 
   return { relativeStart, relativeEnd };
+}
+
+/**
+ * Builds the yt-dlp `--download-sections` specifier for a trim job.
+ * Fetches a short lead-in before the requested start so section/keyframe snapping
+ * does not omit the user's in-point.
+ * @param jobStartSeconds - Requested trim start in seconds on the source timeline.
+ * @param jobEndSeconds - Requested trim end in seconds on the source timeline.
+ * @returns yt-dlp section specifier (e.g. `*3025-3258`).
+ */
+export function buildYoutubeSectionSpecifier(
+  jobStartSeconds: number,
+  jobEndSeconds: number
+): string {
+  const leadStart = Math.max(0, jobStartSeconds - YOUTUBE_SECTION_DOWNLOAD_LEAD_SECONDS);
+  return `*${leadStart}-${jobEndSeconds}`;
 }
 
 /**
@@ -259,7 +281,7 @@ async function downloadYoutubeSection(
 }> {
   const watchUrl = buildYouTubeWatchUrl(job.youtubeVideoId);
   const outputTemplate = join(workDir, `${DOWNLOADED_BASENAME}.%(ext)s`);
-  const section = `*${job.startSeconds}-${job.endSeconds}`;
+  const section = buildYoutubeSectionSpecifier(job.startSeconds, job.endSeconds);
 
   let lastPersistedPercent = -1;
   const sectionDurationSeconds = Math.max(1, job.endSeconds - job.startSeconds);
@@ -288,6 +310,7 @@ async function downloadYoutubeSection(
       '--newline',
       '--download-sections',
       section,
+      '--force-keyframes-at-cuts',
       '-f',
       YT_DLP_IMPORT_DOWNLOAD_FORMAT,
       '--merge-output-format',

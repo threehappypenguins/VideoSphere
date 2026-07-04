@@ -53,6 +53,7 @@ vi.mock('@/lib/youtube-import/import-job-fs', () => ({
 
 import {
   buildYoutubeImportUploadKey,
+  buildYoutubeSectionSpecifier,
   computeDownloadPhaseProgressPercent,
   computeTrimOffsets,
   parseFfmpegTimeSeconds,
@@ -200,6 +201,13 @@ describe('computeDownloadPhaseProgressPercent', () => {
   });
 });
 
+describe('buildYoutubeSectionSpecifier', () => {
+  it('fetches a lead-in before the requested trim start', () => {
+    expect(buildYoutubeSectionSpecifier(100, 160)).toBe('*0-160');
+    expect(buildYoutubeSectionSpecifier(200, 360)).toBe('*80-360');
+  });
+});
+
 describe('computeTrimOffsets', () => {
   it('computes relative trim points inside a section download', () => {
     expect(
@@ -226,6 +234,9 @@ describe('runYoutubeImportJob', () => {
 
     const ytDlpArgs = mockSpawnProcess.mock.calls.find(([command]) => command === 'yt-dlp')?.[1];
     expect(ytDlpArgs).toEqual(expect.arrayContaining(['-f', YT_DLP_IMPORT_DOWNLOAD_FORMAT]));
+    expect(ytDlpArgs).toEqual(
+      expect.arrayContaining(['--download-sections', '*0-160', '--force-keyframes-at-cuts'])
+    );
 
     expect(mockUpdateYoutubeImportJobStatus).toHaveBeenCalledWith('yt-import-1', {
       status: 'downloading',

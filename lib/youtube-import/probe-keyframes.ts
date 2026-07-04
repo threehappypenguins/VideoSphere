@@ -312,11 +312,11 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
 /**
  * Parses ffprobe CSV frame output for keyframe timestamps.
  * Column order follows `-show_entries frame=key_frame,pts_time`.
+ * `pts_time` is already an absolute stream timestamp; do not rebase it.
  * @param stdout - Raw ffprobe stdout.
- * @param ptsOffsetSeconds - Seconds to add to each parsed timestamp (read-interval relative times).
  * @returns Keyframe timestamps in seconds, sorted ascending.
  */
-export function parseFfprobeKeyframeCsv(stdout: string, ptsOffsetSeconds = 0): number[] {
+export function parseFfprobeKeyframeCsv(stdout: string): number[] {
   const keyframes: number[] = [];
 
   for (const line of stdout.split(/\r?\n/)) {
@@ -332,7 +332,7 @@ export function parseFfprobeKeyframeCsv(stdout: string, ptsOffsetSeconds = 0): n
 
     const seconds = Number(ptsTimeRaw);
     if (Number.isFinite(seconds)) {
-      keyframes.push(seconds + ptsOffsetSeconds);
+      keyframes.push(seconds);
     }
   }
 
@@ -341,10 +341,12 @@ export function parseFfprobeKeyframeCsv(stdout: string, ptsOffsetSeconds = 0): n
 
 /**
  * Builds an ffprobe `-read_intervals` value centered on a timestamp.
- * ffprobe expects a file-percentage start plus a duration window, not absolute seconds.
+ * In ffprobe syntax, `%` separates the interval start time from its duration — it does
+ * not mean "percentage of file". Both sides are absolute times in seconds (e.g. `10%+8`
+ * reads from 10s for 8s).
  * @param nearSeconds - Approximate timestamp to search around.
  * @param windowSeconds - Total read window size in seconds.
- * @param durationSeconds - Total media duration in seconds.
+ * @param durationSeconds - Total media duration in seconds (used to clamp the window at EOF).
  * @returns ffprobe read interval specification and the interval start in seconds.
  */
 export function buildFfprobeReadInterval(
@@ -357,9 +359,11 @@ export function buildFfprobeReadInterval(
   }
 
   const intervalStartSeconds = Math.max(0, nearSeconds - windowSeconds / 2);
-  const percent = (intervalStartSeconds / durationSeconds) * 100;
+  const intervalEndSeconds = Math.min(durationSeconds, intervalStartSeconds + windowSeconds);
+  const effectiveWindowSeconds = intervalEndSeconds - intervalStartSeconds;
+
   return {
-    readInterval: `${percent}%+${windowSeconds}`,
+    readInterval: `${intervalStartSeconds}%+${effectiveWindowSeconds}`,
     intervalStartSeconds,
   };
 }
@@ -391,11 +395,7 @@ export async function probeNearbyKeyframes(
     throw new Error('windowSeconds must be a positive number');
   }
 
-  const { readInterval, intervalStartSeconds } = buildFfprobeReadInterval(
-    nearSeconds,
-    windowSeconds,
-    durationSeconds
-  );
+  const { readInterval } = buildFfprobeReadInterval(nearSeconds, windowSeconds, durationSeconds);
 
   try {
     const { stdout } = await runProcess(
@@ -414,7 +414,7 @@ export async function probeNearbyKeyframes(
       'ffprobe keyframe probe'
     );
 
-    return parseFfprobeKeyframeCsv(stdout, intervalStartSeconds);
+    return parseFfprobeKeyframeCsv(stdout);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn('[probeNearbyKeyframes] ffprobe failed:', message);
