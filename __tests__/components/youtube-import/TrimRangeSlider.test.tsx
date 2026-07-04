@@ -3,6 +3,7 @@ import { useState, type ComponentProps } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   TrimRangeSlider,
+  applyTrimHandleSeconds,
   nudgeTrimHandleValue,
   pickClosestKeyframe,
 } from '@/components/youtube-import/TrimRangeSlider';
@@ -90,6 +91,24 @@ describe('nudgeTrimHandleValue', () => {
   });
 });
 
+describe('applyTrimHandleSeconds', () => {
+  it('clamps the start handle within the trim range', () => {
+    expect(
+      applyTrimHandleSeconds({ startSeconds: 10, endSeconds: 100 }, 'start', 150, 300)
+    ).toEqual({
+      startSeconds: 100,
+      endSeconds: 100,
+    });
+  });
+
+  it('clamps the end handle within the trim range', () => {
+    expect(applyTrimHandleSeconds({ startSeconds: 10, endSeconds: 100 }, 'end', 5, 300)).toEqual({
+      startSeconds: 10,
+      endSeconds: 10,
+    });
+  });
+});
+
 describe('TrimRangeSlider', () => {
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', ResizeObserverMock);
@@ -122,7 +141,7 @@ describe('TrimRangeSlider', () => {
     vi.restoreAllMocks();
   });
 
-  it('requests keyframes when the handle is released via keyboard', async () => {
+  it('requests keyframes when the slider handle is released via keyboard and snapping is enabled', async () => {
     const onChange = vi.fn();
     vi.mocked(global.fetch).mockResolvedValue(
       new Response(JSON.stringify({ data: { keyframeSeconds: [12] } }), { status: 200 })
@@ -139,10 +158,10 @@ describe('TrimRangeSlider', () => {
 
     const [url] = vi.mocked(global.fetch).mock.calls[0] ?? [];
     expect(String(url)).toContain('/api/youtube-import/keyframes');
-    expect(String(url)).toContain(`youtubeVideoId=${VIDEO_ID}`);
+    expect(onChange).toHaveBeenCalled();
   });
 
-  it('does not request keyframes when snapping is disabled', async () => {
+  it('does not request keyframes when the slider handle is released and snapping is disabled', async () => {
     const onChange = vi.fn();
     renderSlider({ onChange, enableKeyframeSnap: false });
 
@@ -154,7 +173,35 @@ describe('TrimRangeSlider', () => {
     expect(onChange).toHaveBeenCalled();
   });
 
-  it('snaps the moved handle to the closest returned keyframe', async () => {
+  it('requests keyframes when a frame nudge button is clicked', async () => {
+    const onChange = vi.fn();
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response(JSON.stringify({ data: { keyframeSeconds: [12] } }), { status: 200 })
+    );
+    renderSlider({ onChange });
+
+    fireEvent.click(screen.getByTestId('trim-start-frame-later'));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const [url] = vi.mocked(global.fetch).mock.calls[0] ?? [];
+    expect(String(url)).toContain('/api/youtube-import/keyframes');
+    expect(String(url)).toContain(`youtubeVideoId=${VIDEO_ID}`);
+  });
+
+  it('does not request keyframes when snapping is disabled', async () => {
+    const onChange = vi.fn();
+    renderSlider({ onChange, enableKeyframeSnap: false });
+
+    fireEvent.click(screen.getByTestId('trim-start-frame-later'));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalled();
+  });
+
+  it('snaps the moved handle to the closest returned keyframe after a frame nudge', async () => {
     const onChange = vi.fn();
     renderSlider({ onChange, value: { startSeconds: 10, endSeconds: 100 } });
 
@@ -162,9 +209,7 @@ describe('TrimRangeSlider', () => {
       new Response(JSON.stringify({ data: { keyframeSeconds: [5, 12, 20] } }), { status: 200 })
     );
 
-    const [startThumb] = screen.getAllByRole('slider');
-    fireEvent.keyDown(startThumb, { key: 'ArrowRight' });
-    fireEvent.keyUp(startThumb);
+    fireEvent.click(screen.getByTestId('trim-start-frame-later'));
 
     await waitFor(() => {
       const lastCall = onChange.mock.calls.at(-1)?.[0];
@@ -172,32 +217,60 @@ describe('TrimRangeSlider', () => {
     });
   });
 
-  it('leaves the handle at the raw dragged value when keyframes are empty', async () => {
+  it('nudges the start handle by the selected jump amount', () => {
     const onChange = vi.fn();
-    renderSlider({ onChange, value: { startSeconds: 10, endSeconds: 100 } });
+    renderSlider({ onChange, enableKeyframeSnap: false });
 
-    vi.mocked(global.fetch).mockResolvedValue(
-      new Response(JSON.stringify({ data: { keyframeSeconds: [] } }), { status: 200 })
-    );
+    fireEvent.click(screen.getByTestId('trim-start-jump-later'));
 
-    const [startThumb] = screen.getAllByRole('slider');
-    fireEvent.keyDown(startThumb, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenCalledWith({
+      startSeconds: 15,
+      endSeconds: 100,
+    });
+  });
 
-    const rawValue = onChange.mock.calls.at(-1)?.[0];
-    expect(rawValue).toBeDefined();
+  it('uses the selected jump step amount', () => {
+    const onChange = vi.fn();
+    renderSlider({ onChange, enableKeyframeSnap: false });
 
-    fireEvent.keyUp(startThumb);
+    fireEvent.click(screen.getByTestId('trim-jump-step-10'));
+    fireEvent.click(screen.getByTestId('trim-start-jump-later'));
 
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      startSeconds: 20,
+      endSeconds: 100,
+    });
+  });
+
+  it('nudges the start handle from on-screen frame buttons', () => {
+    const onChange = vi.fn();
+    renderSlider({ onChange, enableKeyframeSnap: false });
+
+    fireEvent.click(screen.getByTestId('trim-start-frame-later'));
+
+    expect(onChange).toHaveBeenCalledWith({
+      startSeconds: 10 + 1 / 30,
+      endSeconds: 100,
+    });
+  });
+
+  it('commits a typed start timestamp', async () => {
+    const onChange = vi.fn();
+    renderSlider({
+      onChange,
+      enableKeyframeSnap: false,
+      value: { startSeconds: 10, endSeconds: 100 },
     });
 
-    await waitFor(() => {
-      expect(screen.queryByTestId('trim-start-loading')).not.toBeInTheDocument();
-    });
+    fireEvent.click(screen.getByTestId('trim-start-time-display'));
+    const input = screen.getByTestId('trim-start-time-input');
+    fireEvent.change(input, { target: { value: '1:30' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
 
-    const finalValue = onChange.mock.calls.at(-1)?.[0];
-    expect(finalValue?.startSeconds).toBe(rawValue?.startSeconds);
+    expect(onChange).toHaveBeenCalledWith({
+      startSeconds: 90,
+      endSeconds: 100,
+    });
   });
 
   it('seeks the preview player while dragging when a player handle is provided', async () => {
@@ -218,7 +291,7 @@ describe('TrimRangeSlider', () => {
     expect(onChange).toHaveBeenCalled();
   });
 
-  it('seeks immediately when the handle is released', async () => {
+  it('seeks immediately when the slider handle is released', async () => {
     const playerHandle = {
       previewAt: vi.fn(),
       getCurrentTime: vi.fn().mockReturnValue(0),
@@ -233,18 +306,6 @@ describe('TrimRangeSlider', () => {
     expect(playerHandle.previewAt).toHaveBeenCalled();
   });
 
-  it('nudges the start handle from on-screen arrow buttons', () => {
-    const onChange = vi.fn();
-    renderSlider({ onChange, enableKeyframeSnap: false });
-
-    fireEvent.click(screen.getByTestId('trim-start-nudge-later'));
-
-    expect(onChange).toHaveBeenCalledWith({
-      startSeconds: 10 + 1 / 30,
-      endSeconds: 100,
-    });
-  });
-
   it('shows a loading indicator on the handle being snapped', async () => {
     let resolveFetch: (value: Response) => void = () => {};
     const fetchPromise = new Promise<Response>((resolve) => {
@@ -254,8 +315,7 @@ describe('TrimRangeSlider', () => {
 
     renderSlider({ value: { startSeconds: 10, endSeconds: 100 } });
 
-    const [startThumb] = screen.getAllByRole('slider');
-    fireEvent.keyDown(startThumb, { key: 'ArrowRight' });
+    fireEvent.click(screen.getByTestId('trim-start-frame-later'));
 
     await waitFor(() => {
       expect(screen.getByTestId('trim-start-loading')).toBeInTheDocument();

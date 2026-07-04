@@ -208,6 +208,31 @@ export function StreamedLivestreamsHistoryClient() {
     [isDeletingId, loadHistory]
   );
 
+  const handleDeleteLivestreamById = useCallback(
+    async (livestreamId: string): Promise<boolean> => {
+      setIsDeletingId(livestreamId);
+      try {
+        const response = await fetch(`/api/livestreams/${livestreamId}`, { method: 'DELETE' });
+        if (!response.ok) {
+          const err = (await response.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(err?.message ?? 'Failed to delete livestream');
+        }
+        toast.success('Livestream deleted');
+        if (editingLivestream?.id === livestreamId) {
+          setEditingLivestream(null);
+        }
+        await loadHistory();
+        return true;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to delete livestream');
+        return false;
+      } finally {
+        setIsDeletingId(null);
+      }
+    },
+    [editingLivestream?.id, loadHistory]
+  );
+
   const handleDuplicateLivestream = useCallback(
     async (livestream: Livestream) => {
       if (isDuplicatingId) return;
@@ -316,6 +341,7 @@ export function StreamedLivestreamsHistoryClient() {
         scheduledFacebookLivestreams={scheduledFacebookLivestreams}
         onKeySlotChanged={loadHistory}
         onFacebookChanged={loadHistory}
+        onDelete={handleDeleteLivestreamById}
       />
     </>
   );
