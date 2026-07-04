@@ -50,6 +50,7 @@ import {
   partitionYouTubeCompatibleTags,
 } from '@/lib/platforms/sermon-audio-tags';
 import { cn } from '@/lib/utils';
+import { useMinSmViewport } from '@/lib/use-min-sm-viewport';
 import {
   cancelMultipartUploadJob,
   getPartByteRange,
@@ -614,6 +615,7 @@ export function DraftMetadataModal({
   disableInteractionLock = false,
 }: DraftMetadataModalProps) {
   const router = useRouter();
+  const isMinSmViewport = useMinSmViewport();
   const draftId = value?.id ?? null;
   const youtubeTargetActive = value?.targets.includes('youtube') ?? false;
   const vimeoTargetActive = value?.targets.includes('vimeo') ?? false;
@@ -6193,66 +6195,130 @@ export function DraftMetadataModal({
             {renderUploadHistorySection('draft-upload-history-panel', showUploadHistory, () =>
               setShowUploadHistory((prev) => !prev)
             )}
+
+            {!isMinSmViewport ? (
+              <DialogFooter className="mt-3 -mx-6 flex-col gap-2 border-t border-border bg-background px-6 pb-4 pt-3">
+                <div className="flex w-full items-center gap-2">
+                  {mode === 'edit' && onDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-background p-2 text-foreground transition-colors hover:bg-muted"
+                      aria-label="Delete draft"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void tryCloseModal();
+                    }}
+                    className="min-w-0 flex-1 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  data-tour="draft-save-button"
+                  onClick={() => {
+                    commitMetadataInputsBeforeSave();
+                    void (async () => {
+                      try {
+                        const r = await onSave({ closeAfterSave: true });
+                        if (r.message) toast.success(r.message);
+                      } catch (error) {
+                        console.error('Failed to save draft.', error);
+                      }
+                    })();
+                  }}
+                  disabled={!canSave}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                >
+                  {isSaving ? 'Saving...' : 'Save draft'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!validateBeforeUpload()) return;
+                    openUploadConfirmModal();
+                  }}
+                  disabled={uploading || !canUploadVideo}
+                  className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {youtubeImportDistributionQueued
+                    ? 'Upload queued'
+                    : uploading
+                      ? 'Uploading...'
+                      : cancelServerFailed
+                        ? 'Pending upload'
+                        : 'Upload & Save'}
+                </button>
+              </DialogFooter>
+            ) : null}
           </div>
         ) : null}
 
-        <DialogFooter className="mt-3 border-t border-border bg-background px-6 pb-6 pt-3">
-          <button
-            type="button"
-            onClick={() => {
-              void tryCloseModal();
-            }}
-            className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
-          >
-            Cancel
-          </button>
-          {mode === 'edit' && onDelete && value ? (
+        {isMinSmViewport ? (
+          <DialogFooter className="mt-3 shrink-0 flex flex-col gap-2 border-t border-border bg-background px-6 pb-6 pt-3 sm:flex-row sm:justify-end">
+            {mode === 'edit' && onDelete && value ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="inline-flex w-auto items-center justify-center rounded-md border border-border bg-background p-2 text-foreground transition-colors hover:bg-muted sm:mr-auto"
+                aria-label="Delete draft"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => setShowDeleteConfirm(true)}
-              className="inline-flex items-center justify-center rounded-md border border-border bg-background p-2 text-foreground transition-colors hover:bg-muted"
-              aria-label="Delete draft"
+              onClick={() => {
+                void tryCloseModal();
+              }}
+              className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
             >
-              <Trash2 className="h-4 w-4" />
+              Cancel
             </button>
-          ) : null}
-          <button
-            type="button"
-            data-tour="draft-save-button"
-            onClick={() => {
-              commitMetadataInputsBeforeSave();
-              void (async () => {
-                try {
-                  const r = await onSave({ closeAfterSave: true });
-                  if (r.message) toast.success(r.message);
-                } catch (error) {
-                  console.error('Failed to save draft.', error);
-                }
-              })();
-            }}
-            disabled={!canSave}
-            className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
-          >
-            {isSaving ? 'Saving...' : 'Save draft'}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!validateBeforeUpload()) return;
-              openUploadConfirmModal();
-            }}
-            disabled={uploading || !canUploadVideo}
-            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-          >
-            {youtubeImportDistributionQueued
-              ? 'Upload queued'
-              : uploading
-                ? 'Uploading...'
-                : cancelServerFailed
-                  ? 'Pending upload'
-                  : 'Upload & Save'}
-          </button>
-        </DialogFooter>
+            <button
+              type="button"
+              data-tour="draft-save-button"
+              onClick={() => {
+                commitMetadataInputsBeforeSave();
+                void (async () => {
+                  try {
+                    const r = await onSave({ closeAfterSave: true });
+                    if (r.message) toast.success(r.message);
+                  } catch (error) {
+                    console.error('Failed to save draft.', error);
+                  }
+                })();
+              }}
+              disabled={!canSave}
+              className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
+            >
+              {isSaving ? 'Saving...' : 'Save draft'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!validateBeforeUpload()) return;
+                openUploadConfirmModal();
+              }}
+              disabled={uploading || !canUploadVideo}
+              className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            >
+              {youtubeImportDistributionQueued
+                ? 'Upload queued'
+                : uploading
+                  ? 'Uploading...'
+                  : cancelServerFailed
+                    ? 'Pending upload'
+                    : 'Upload & Save'}
+            </button>
+          </DialogFooter>
+        ) : null}
       </DialogContent>
 
       <Dialog

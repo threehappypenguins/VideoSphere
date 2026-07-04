@@ -13,6 +13,7 @@ import {
   toLivestreamConnectionSnapshots,
   type LivestreamConnectionSnapshot,
 } from '@/lib/livestreams/schedulable-platforms';
+import { deleteLivestreamViaApi } from '@/lib/livestreams/delete-livestream-client';
 
 interface StreamedLivestreamsHistoryResponse extends ApiResponse<Livestream[]> {
   meta?: {
@@ -187,25 +188,31 @@ export function StreamedLivestreamsHistoryClient() {
     [editingLivestream, loadHistory]
   );
 
-  const handleDeleteLivestream = useCallback(
-    async (livestream: Livestream) => {
-      if (isDeletingId) return;
-      setIsDeletingId(livestream.id);
+  const handleDeleteLivestreamById = useCallback(
+    async (livestreamId: string): Promise<boolean> => {
+      setIsDeletingId(livestreamId);
       try {
-        const response = await fetch(`/api/livestreams/${livestream.id}`, { method: 'DELETE' });
-        if (!response.ok) {
-          const err = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(err?.message ?? 'Failed to delete livestream');
+        const deleted = await deleteLivestreamViaApi(livestreamId);
+        if (deleted && editingLivestream?.id === livestreamId) {
+          setEditingLivestream(null);
         }
-        toast.success('Livestream deleted');
-        await loadHistory();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to delete livestream');
+        if (deleted) {
+          await loadHistory();
+        }
+        return deleted;
       } finally {
         setIsDeletingId(null);
       }
     },
-    [isDeletingId, loadHistory]
+    [editingLivestream?.id, loadHistory]
+  );
+
+  const handleDeleteLivestream = useCallback(
+    async (livestream: Livestream) => {
+      if (isDeletingId) return;
+      await handleDeleteLivestreamById(livestream.id);
+    },
+    [isDeletingId, handleDeleteLivestreamById]
   );
 
   const handleDuplicateLivestream = useCallback(
@@ -316,6 +323,7 @@ export function StreamedLivestreamsHistoryClient() {
         scheduledFacebookLivestreams={scheduledFacebookLivestreams}
         onKeySlotChanged={loadHistory}
         onFacebookChanged={loadHistory}
+        onDelete={handleDeleteLivestreamById}
       />
     </>
   );

@@ -441,7 +441,10 @@ export function YouTubeImportModal({
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-y-auto sm:max-w-2xl"
+        onInteractOutside={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Import from YouTube</DialogTitle>
           <DialogDescription>
@@ -494,6 +497,7 @@ export function YouTubeImportModal({
                   onChange={(event) => setSourceUrlInput(event.target.value)}
                   placeholder="https://www.youtube.com/watch?v=…"
                   disabled={isResolving}
+                  className="placeholder:opacity-45"
                 />
                 <Button
                   type="button"
@@ -663,7 +667,7 @@ export function YouTubeImportModal({
               enableKeyframeSnap={showVideoPreview && !enableSmartCut}
             />
 
-            <DialogFooter className="px-0">
+            <DialogFooter className="gap-2 px-0">
               <Button
                 type="button"
                 variant="outline"
@@ -733,7 +737,7 @@ export function YouTubeImportModal({
                 </div>
 
                 {isActiveYoutubeImportStatus(jobStatus.status) ? (
-                  <DialogFooter className="px-0 sm:justify-between">
+                  <DialogFooter className="gap-2 px-0 sm:justify-between">
                     <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                       Continue in background
                     </Button>

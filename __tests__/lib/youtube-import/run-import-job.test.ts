@@ -53,14 +53,20 @@ vi.mock('@/lib/youtube-import/import-job-fs', () => ({
 
 import {
   buildYoutubeImportUploadKey,
-  buildYoutubeSectionSpecifier,
   computeDownloadPhaseProgressPercent,
   computeTrimOffsets,
   parseFfmpegTimeSeconds,
   parseYtDlpDownloadPercent,
+  parseYtDlpDownloadProgressLine,
+  parseYtDlpDownloadSizeToBytes,
   runYoutubeImportJob,
+  YtDlpMultiStreamDownloadProgressTracker,
 } from '@/lib/youtube-import/run-import-job';
-import { YT_DLP_IMPORT_DOWNLOAD_FORMAT } from '@/lib/youtube-import/yt-dlp-args';
+import {
+  YT_DLP_IMPORT_CONCURRENT_FRAGMENTS,
+  YT_DLP_IMPORT_DOWNLOAD_FORMAT,
+  YT_DLP_IMPORT_HTTP_CHUNK_SIZE,
+} from '@/lib/youtube-import/yt-dlp-args';
 
 type MockChild = EventEmitter & {
   stdout: EventEmitter;
@@ -116,6 +122,8 @@ const baseJob = {
   $updatedAt: '2000-01-01T00:00:00.000Z',
 };
 
+const FULL_SOURCE_DURATION_SECONDS = 3600;
+
 const WORK_DIR = '/tmp/yt-import/yt-import-job-abc';
 
 beforeEach(() => {
@@ -123,7 +131,7 @@ beforeEach(() => {
   mockMkdir.mockResolvedValue(undefined);
   mockMkdtemp.mockResolvedValue(WORK_DIR);
   mockRm.mockResolvedValue(undefined);
-  mockReadFile.mockResolvedValue(JSON.stringify({ section_start: 95 }));
+  mockReadFile.mockResolvedValue(JSON.stringify({ duration: FULL_SOURCE_DURATION_SECONDS }));
   mockStat.mockResolvedValue({ size: 4096 });
   mockGetYoutubeImportJobById.mockResolvedValue(baseJob);
   mockUpdateYoutubeImportJobStatus.mockResolvedValue(undefined);
@@ -149,7 +157,7 @@ beforeEach(() => {
       });
     }
     if (command === 'ffprobe') {
-      return createMockChild({ stdout: '120.5\n' });
+      return createMockChild({ stdout: `${FULL_SOURCE_DURATION_SECONDS}\n` });
     }
     if (command === 'ffmpeg') {
       return createMockChild({});
@@ -162,6 +170,58 @@ describe('parseYtDlpDownloadPercent', () => {
   it('parses yt-dlp download progress lines', () => {
     expect(parseYtDlpDownloadPercent('[download]  42.5% of file')).toBe(42.5);
     expect(parseYtDlpDownloadPercent('noise')).toBeNull();
+  });
+});
+
+describe('parseYtDlpDownloadSizeToBytes', () => {
+  it('converts binary and decimal size suffixes to bytes', () => {
+    expect(parseYtDlpDownloadSizeToBytes('10', 'MiB')).toBe(10 * 1024 ** 2);
+    expect(parseYtDlpDownloadSizeToBytes('1.5', 'GiB')).toBe(1.5 * 1024 ** 3);
+    expect(parseYtDlpDownloadSizeToBytes('512', 'KiB')).toBe(512 * 1024);
+  });
+});
+
+describe('parseYtDlpDownloadProgressLine', () => {
+  it('parses percent and total size from yt-dlp download output', () => {
+    expect(
+      parseYtDlpDownloadProgressLine('[download]  50.0% of ~ 745.00MiB at 5.00MiB/s ETA 01:14')
+    ).toEqual({
+      percent: 50,
+      totalBytes: 745 * 1024 ** 2,
+    });
+  });
+});
+
+describe('YtDlpMultiStreamDownloadProgressTracker', () => {
+  it('weights video and audio downloads into one continuous percent', () => {
+    const tracker = new YtDlpMultiStreamDownloadProgressTracker();
+
+    expect(tracker.update('[download]  50.0% of ~ 700.00MiB at 5.00MiB/s ETA 01:10')).toBeCloseTo(
+      50,
+      1
+    );
+    expect(tracker.update('[download] 100.0% of  700.00MiB in 00:02:10 at 5.00MiB/s')).toBeCloseTo(
+      100,
+      1
+    );
+    expect(tracker.update('[download]  50.0% of ~  50.00MiB at 2.00MiB/s ETA 00:12')).toBeCloseTo(
+      ((700 + 25) / 750) * 100,
+      1
+    );
+    expect(tracker.update('[download] 100.0% of   50.00MiB in 00:00:20 at 2.00MiB/s')).toBeCloseTo(
+      100,
+      1
+    );
+  });
+
+  it('does not reset when the next stream starts without size hints', () => {
+    const tracker = new YtDlpMultiStreamDownloadProgressTracker();
+
+    tracker.update('[download] 100.0% of  700.00MiB in 00:02:10 at 5.00MiB/s');
+    const afterAudioStarts = tracker.update('[download]   1.0% of file at 1.00MiB/s ETA 00:05');
+
+    expect(afterAudioStarts).toBeGreaterThan(45);
+    expect(afterAudioStarts).toBeLessThan(55);
   });
 });
 
@@ -185,7 +245,7 @@ describe('computeDownloadPhaseProgressPercent', () => {
       computeDownloadPhaseProgressPercent({
         downloadPercent: 50,
         ffmpegTimeSeconds: 10,
-        sectionDurationSeconds: 60,
+        sourceDurationSeconds: 60,
       })
     ).toBe(35);
   });
@@ -195,29 +255,21 @@ describe('computeDownloadPhaseProgressPercent', () => {
       computeDownloadPhaseProgressPercent({
         downloadPercent: null,
         ffmpegTimeSeconds: 30,
-        sectionDurationSeconds: 60,
+        sourceDurationSeconds: 60,
       })
     ).toBe(35);
   });
 });
 
-describe('buildYoutubeSectionSpecifier', () => {
-  it('fetches a lead-in before the requested trim start', () => {
-    expect(buildYoutubeSectionSpecifier(100, 160)).toBe('*0-160');
-    expect(buildYoutubeSectionSpecifier(200, 360)).toBe('*80-360');
-  });
-});
-
 describe('computeTrimOffsets', () => {
-  it('computes relative trim points inside a section download', () => {
+  it('computes absolute trim points inside a full source download', () => {
     expect(
       computeTrimOffsets({
         jobStartSeconds: 100,
         jobEndSeconds: 160,
-        sectionStartSeconds: 95,
-        downloadedDurationSeconds: 120,
+        downloadedDurationSeconds: 3600,
       })
-    ).toEqual({ relativeStart: 5, relativeEnd: 65 });
+    ).toEqual({ relativeStart: 100, relativeEnd: 160 });
   });
 });
 
@@ -235,8 +287,18 @@ describe('runYoutubeImportJob', () => {
     const ytDlpArgs = mockSpawnProcess.mock.calls.find(([command]) => command === 'yt-dlp')?.[1];
     expect(ytDlpArgs).toEqual(expect.arrayContaining(['-f', YT_DLP_IMPORT_DOWNLOAD_FORMAT]));
     expect(ytDlpArgs).toEqual(
-      expect.arrayContaining(['--download-sections', '*0-160', '--force-keyframes-at-cuts'])
+      expect.arrayContaining([
+        '--http-chunk-size',
+        YT_DLP_IMPORT_HTTP_CHUNK_SIZE,
+        '--concurrent-fragments',
+        String(YT_DLP_IMPORT_CONCURRENT_FRAGMENTS),
+      ])
     );
+    expect(ytDlpArgs).not.toEqual(expect.arrayContaining(['--download-sections']));
+    expect(ytDlpArgs).not.toEqual(expect.arrayContaining(['--force-keyframes-at-cuts']));
+
+    const ffmpegArgs = mockSpawnProcess.mock.calls.find(([command]) => command === 'ffmpeg')?.[1];
+    expect(ffmpegArgs).toEqual(expect.arrayContaining(['-ss', '100', '-t', '60']));
 
     expect(mockUpdateYoutubeImportJobStatus).toHaveBeenCalledWith('yt-import-1', {
       status: 'downloading',
@@ -282,9 +344,9 @@ describe('runYoutubeImportJob', () => {
       expect.objectContaining({
         inputPath: `${WORK_DIR}/download.mp4`,
         outputPath: `${WORK_DIR}/trimmed.mp4`,
-        relativeStart: 5,
-        relativeEnd: 65,
-        durationSeconds: 120.5,
+        relativeStart: 100,
+        relativeEnd: 160,
+        durationSeconds: FULL_SOURCE_DURATION_SECONDS,
         isCancelled: expect.any(Function),
       })
     );
@@ -308,29 +370,6 @@ describe('runYoutubeImportJob', () => {
     expect(mockUpdateUploadJobStatus).not.toHaveBeenCalled();
   });
 
-  it('updates progress from ffmpeg time output during section downloads', async () => {
-    mockSpawnProcess.mockImplementation((command: string) => {
-      if (command === 'yt-dlp') {
-        return createMockChild({
-          stderr: 'size=512kB time=00:00:30.00 bitrate=N/A\n',
-        });
-      }
-      if (command === 'ffprobe') {
-        return createMockChild({ stdout: '120.5\n' });
-      }
-      if (command === 'ffmpeg') {
-        return createMockChild({});
-      }
-      throw new Error(`Unexpected command: ${command}`);
-    });
-
-    await runYoutubeImportJob('yt-import-1');
-
-    expect(mockUpdateYoutubeImportJobStatus).toHaveBeenCalledWith('yt-import-1', {
-      progressPercent: 35,
-    });
-  });
-
   it('marks the job failed and still cleans up temp files on errors', async () => {
     mockSpawnProcess.mockImplementationOnce((command: string) => {
       if (command === 'yt-dlp') {
@@ -343,7 +382,7 @@ describe('runYoutubeImportJob', () => {
 
     expect(mockUpdateYoutubeImportJobStatus).toHaveBeenCalledWith('yt-import-1', {
       status: 'failed',
-      errorMessage: expect.stringContaining('yt-dlp section download failed'),
+      errorMessage: expect.stringContaining('yt-dlp source download failed'),
     });
     expect(mockUploadLocalFileToR2).not.toHaveBeenCalled();
     expect(mockRm).toHaveBeenCalledWith(WORK_DIR, { recursive: true, force: true });
@@ -364,7 +403,7 @@ describe('runYoutubeImportJob', () => {
       }
       if (command === 'ffprobe') {
         return createMockChild({
-          stdout: '120.5\n',
+          stdout: `${FULL_SOURCE_DURATION_SECONDS}\n`,
           onClose: () => {
             ffprobeDone = true;
           },
@@ -403,7 +442,6 @@ describe('runYoutubeImportJob', () => {
     let getCount = 0;
     mockGetYoutubeImportJobById.mockImplementation(async () => {
       getCount += 1;
-      // Startup reads plus immediate cancel poll see baseJob; cancellation on second scheduled poll.
       if (getCount < 5) {
         return baseJob;
       }
