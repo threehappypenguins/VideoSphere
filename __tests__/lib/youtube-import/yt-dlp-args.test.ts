@@ -2,8 +2,10 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   YT_DLP_DEFAULT_REMOTE_COMPONENTS,
   YT_DLP_IMPORT_DOWNLOAD_FORMAT,
+  YT_DLP_IMPORT_PLAYER_CLIENTS,
   buildYtDlpBaseArgs,
   buildYtDlpMetadataArgs,
+  buildYtDlpYoutubeExtractorArgs,
 } from '@/lib/youtube-import/yt-dlp-args';
 
 describe('buildYtDlpBaseArgs', () => {
@@ -17,6 +19,8 @@ describe('buildYtDlpBaseArgs', () => {
     expect(args).toContain('--no-update');
     expect(args).toContain('--js-runtimes');
     expect(args).toContainEqual(expect.stringMatching(/^node:/));
+    expect(args).toContain('--extractor-args');
+    expect(args).toContain(`youtube:player_client=${YT_DLP_IMPORT_PLAYER_CLIENTS}`);
     expect(args).toContain('--remote-components');
     expect(args).toContain(YT_DLP_DEFAULT_REMOTE_COMPONENTS);
   });
@@ -39,10 +43,33 @@ describe('buildYtDlpBaseArgs', () => {
 });
 
 describe('YT_DLP_IMPORT_DOWNLOAD_FORMAT', () => {
-  it('prefers m4a/mp4a audio over the default Opus DASH fallback', () => {
+  it('prefers direct HTTP streams before DASH and m4a/mp4a audio', () => {
+    expect(YT_DLP_IMPORT_DOWNLOAD_FORMAT).toContain('[protocol!*=dash]');
     expect(YT_DLP_IMPORT_DOWNLOAD_FORMAT).toContain('ba[ext=m4a]');
     expect(YT_DLP_IMPORT_DOWNLOAD_FORMAT).toContain('acodec^=mp4a');
     expect(YT_DLP_IMPORT_DOWNLOAD_FORMAT.endsWith('bv*+ba/b')).toBe(true);
+  });
+});
+
+describe('buildYtDlpYoutubeExtractorArgs', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('uses the default player clients', () => {
+    expect(buildYtDlpYoutubeExtractorArgs()).toEqual([
+      '--extractor-args',
+      `youtube:player_client=${YT_DLP_IMPORT_PLAYER_CLIENTS}`,
+    ]);
+  });
+
+  it('supports overriding player clients via env', () => {
+    vi.stubEnv('YT_DLP_PLAYER_CLIENTS', 'android_vr');
+
+    expect(buildYtDlpYoutubeExtractorArgs()).toEqual([
+      '--extractor-args',
+      'youtube:player_client=android_vr',
+    ]);
   });
 });
 

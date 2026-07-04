@@ -2184,7 +2184,7 @@ export function LivestreamMetadataModal({
             {!isMinSmViewport ? (
               <DialogFooter className="mt-3 -mx-6 flex-col gap-2 border-t border-border bg-background px-6 pb-4 pt-3">
                 <div className="flex w-full items-center gap-2">
-                  {mode === 'edit' && onDelete ? (
+                  {mode === 'edit' && onDelete && value ? (
                     <button
                       type="button"
                       onClick={() => setShowDeleteConfirm(true)}

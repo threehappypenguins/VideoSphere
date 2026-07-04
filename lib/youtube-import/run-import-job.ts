@@ -443,9 +443,11 @@ async function downloadYoutubeSource(
       '--merge-output-format',
       'mp4',
       '--retries',
-      '3',
+      '5',
       '--fragment-retries',
-      '3',
+      '10',
+      '--extractor-retries',
+      '5',
       '--write-info-json',
       '-o',
       outputTemplate,
@@ -611,6 +613,7 @@ export async function runYoutubeImportJob(jobId: string): Promise<void> {
     }
 
     const message = error instanceof Error ? error.message : String(error);
+    console.error(`[runYoutubeImportJob] Job ${jobId} failed:`, message);
     await updateYoutubeImportJobStatus(jobId, {
       status: 'failed',
       errorMessage: message,

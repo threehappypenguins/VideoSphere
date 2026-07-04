@@ -14,6 +14,14 @@ describe('getUserFriendlyYtDlpErrorMessage', () => {
     );
   });
 
+  it('returns a friendly message for HTTP 403 download blocks', () => {
+    const stderr = 'ERROR: unable to download video data: HTTP Error 403: Forbidden';
+
+    expect(getUserFriendlyYtDlpErrorMessage(stderr)).toBe(
+      'YouTube blocked the video download (HTTP 403). Retry the import; if it keeps failing, update yt-dlp on the server or contact support.'
+    );
+  });
+
   it('returns null for unrecognized stderr', () => {
     expect(getUserFriendlyYtDlpErrorMessage('Video unavailable')).toBeNull();
   });

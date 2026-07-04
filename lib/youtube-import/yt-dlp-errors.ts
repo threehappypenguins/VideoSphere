@@ -10,6 +10,10 @@ export function getUserFriendlyYtDlpErrorMessage(stderr: string): string | null 
     return 'This video is private. Make it public or unlisted on YouTube before importing.';
   }
 
+  if (normalized.includes('http error 403') || normalized.includes('403: forbidden')) {
+    return 'YouTube blocked the video download (HTTP 403). Retry the import; if it keeps failing, update yt-dlp on the server or contact support.';
+  }
+
   return null;
 }
 

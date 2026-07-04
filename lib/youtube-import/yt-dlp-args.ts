@@ -6,11 +6,12 @@ export const YT_DLP_DEFAULT_REMOTE_COMPONENTS = 'ejs:github';
 
 /**
  * yt-dlp format selector for YouTube import source downloads.
- * YouTube's default `bv*+ba` pairs best video with DASH Opus audio (typically 48 kHz),
- * even when the source livestream was ingested as MPEG-4 AAC (often 44.1 kHz).
- * Prefer m4a/mp4a audio so the merged MP4 stays AAC.
+ * Prefer direct HTTP progressive streams when available (fewer signed DASH fragments).
+ * Otherwise fall back to `bv*+ba` with m4a/mp4a audio so the merged MP4 stays AAC.
  */
 export const YT_DLP_IMPORT_DOWNLOAD_FORMAT =
+  'bv*[protocol^=http][protocol!*=dash]+ba[protocol^=http][protocol!*=dash][ext=m4a]/' +
+  'bv*[protocol^=http][protocol!*=dash]+ba[protocol^=http][protocol!*=dash]/' +
   'bv*+ba[ext=m4a]/bv*+ba[acodec^=mp4a.40.]/bv*+ba[acodec^=mp4a]/bv*+ba/b';
 
 /**
@@ -19,8 +20,17 @@ export const YT_DLP_IMPORT_DOWNLOAD_FORMAT =
  */
 export const YT_DLP_IMPORT_HTTP_CHUNK_SIZE = '10M';
 
-/** Number of DASH/HLS fragments to fetch in parallel during import downloads. */
-export const YT_DLP_IMPORT_CONCURRENT_FRAGMENTS = 4;
+/**
+ * Number of DASH/HLS fragments to fetch in parallel during import downloads.
+ * Serial downloads are gentler on googlevideo signed URLs and datacenter IPs.
+ */
+export const YT_DLP_IMPORT_CONCURRENT_FRAGMENTS = 1;
+
+/**
+ * Default YouTube player clients for import extraction.
+ * `android_vr` and `tv` avoid PO-token GVS requirements; `web_safari` can supply HLS.
+ */
+export const YT_DLP_IMPORT_PLAYER_CLIENTS = 'android_vr,tv,web_safari';
 
 function resolveDenoExecutable(): string | null {
   const candidates = [
@@ -63,11 +73,24 @@ function buildJsRuntimeArgs(): string[] {
 }
 
 /**
+ * Builds YouTube extractor arguments for import/metadata calls.
+ * @returns `--extractor-args` flag pair when player clients are configured.
+ */
+export function buildYtDlpYoutubeExtractorArgs(): string[] {
+  const clients = process.env.YT_DLP_PLAYER_CLIENTS?.trim() || YT_DLP_IMPORT_PLAYER_CLIENTS;
+  if (!clients) {
+    return [];
+  }
+
+  return ['--extractor-args', `youtube:player_client=${clients}`];
+}
+
+/**
  * Builds shared yt-dlp flags required for current YouTube extraction.
  * @returns Base argument list to prepend before command-specific yt-dlp options.
  */
 export function buildYtDlpBaseArgs(): string[] {
-  const args = ['--no-update', ...buildJsRuntimeArgs()];
+  const args = ['--no-update', ...buildJsRuntimeArgs(), ...buildYtDlpYoutubeExtractorArgs()];
 
   const remoteComponents = process.env.YT_DLP_REMOTE_COMPONENTS?.trim();
   if (remoteComponents && remoteComponents.toLowerCase() === 'none') {
