@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFile, mkdir, mkdtemp, rm, stat } from '@/lib/youtube-import/import-job-fs';
+import { mkdir, mkdtemp, rm, stat } from '@/lib/youtube-import/import-job-fs';
 import { join } from 'node:path';
 import { uploadLocalFileToR2 } from '@/lib/r2';
 import { createUploadJob, updateUploadJobStatus } from '@/lib/repositories/upload-jobs';
@@ -16,7 +16,9 @@ import {
 } from '@/lib/youtube-import/spawn-with-cancel';
 import {
   buildYtDlpBaseArgs,
+  YT_DLP_IMPORT_CONCURRENT_FRAGMENTS,
   YT_DLP_IMPORT_DOWNLOAD_FORMAT,
+  YT_DLP_IMPORT_HTTP_CHUNK_SIZE,
 } from '@/lib/youtube-import/yt-dlp-args';
 import type { YoutubeImportJob } from '@/types';
 
@@ -26,12 +28,6 @@ const TRIMMED_BASENAME = 'trimmed.mp4';
 const DOWNLOAD_PROGRESS_MAX = 70;
 const TRIM_PROGRESS = 85;
 const UPLOAD_PROGRESS = 95;
-
-/**
- * Extra seconds to fetch before the requested trim start so yt-dlp can snap to a
- * keyframe without dropping the user's in-point on long livestream VODs.
- */
-export const YOUTUBE_SECTION_DOWNLOAD_LEAD_SECONDS = 120;
 
 /**
  * Parses a yt-dlp `[download] …%` progress chunk.
@@ -49,8 +45,190 @@ export function parseYtDlpDownloadPercent(chunk: string): number | null {
 }
 
 /**
+ * Converts a yt-dlp human-readable size label to bytes.
+ * @param value - Numeric size amount from yt-dlp output.
+ * @param unit - Size unit suffix such as `MiB` or `GiB`.
+ * @returns Size in bytes, or `null` when the unit is unsupported.
+ */
+export function parseYtDlpDownloadSizeToBytes(value: string, unit: string): number | null {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) {
+    return null;
+  }
+
+  const multipliers: Record<string, number> = {
+    b: 1,
+    kib: 1024,
+    mib: 1024 ** 2,
+    gib: 1024 ** 3,
+    tib: 1024 ** 4,
+    kb: 1000,
+    mb: 1000 ** 2,
+    gb: 1000 ** 3,
+  };
+
+  const multiplier = multipliers[unit.toLowerCase()];
+  return multiplier == null ? null : amount * multiplier;
+}
+
+/**
+ * Parsed yt-dlp `[download]` progress for one stream.
+ * @property percent - Stream-local completion percent.
+ * @property totalBytes - Declared stream size when yt-dlp reports it.
+ */
+export interface YtDlpDownloadProgressLine {
+  /** Stream-local completion percent. */
+  percent: number;
+  /** Declared stream size when yt-dlp reports it. */
+  totalBytes: number | null;
+}
+
+/**
+ * Parses percent and optional total-size hints from a yt-dlp `[download]` line.
+ * @param chunk - stdout/stderr fragment from yt-dlp.
+ * @returns Parsed stream progress, or `null` when no `[download]` percent is present.
+ */
+export function parseYtDlpDownloadProgressLine(chunk: string): YtDlpDownloadProgressLine | null {
+  const percent = parseYtDlpDownloadPercent(chunk);
+  if (percent == null) {
+    return null;
+  }
+
+  const sizeMatch =
+    /\[download\][^\n]*%\s+of\s+~?\s*([\d.]+)\s*(KiB|MiB|GiB|TiB|KB|MB|GB|B)\b/i.exec(chunk);
+
+  return {
+    percent,
+    totalBytes: sizeMatch ? parseYtDlpDownloadSizeToBytes(sizeMatch[1], sizeMatch[2]) : null,
+  };
+}
+
+interface TrackedDownloadStream {
+  totalBytes: number | null;
+  completed: boolean;
+  lastPercent: number;
+}
+
+/**
+ * Aggregates per-stream yt-dlp `[download]` progress into one continuous 0–100% value.
+ * `bv*+ba` downloads video and audio separately; this weights each stream by size when
+ * available and falls back to equal per-stream weighting otherwise.
+ */
+export class YtDlpMultiStreamDownloadProgressTracker {
+  private streams: TrackedDownloadStream[] = [];
+  private currentStreamIndex = -1;
+
+  /**
+   * Incorporates one yt-dlp stdout/stderr chunk.
+   * @param chunk - stdout/stderr fragment from yt-dlp.
+   * @returns Combined download percent across all streams, or `null` when no progress line is present.
+   */
+  update(chunk: string): number | null {
+    const parsed = parseYtDlpDownloadProgressLine(chunk);
+    if (!parsed) {
+      return null;
+    }
+
+    this.ensureCurrentStream(parsed.percent, parsed.totalBytes);
+
+    const stream = this.streams[this.currentStreamIndex];
+    if (parsed.totalBytes != null) {
+      stream.totalBytes = parsed.totalBytes;
+    }
+    stream.lastPercent = parsed.percent;
+    if (parsed.percent >= 100) {
+      stream.completed = true;
+    }
+
+    return this.computeOverallPercent();
+  }
+
+  private ensureCurrentStream(percent: number, totalBytes: number | null): void {
+    const current =
+      this.currentStreamIndex >= 0 ? this.streams[this.currentStreamIndex] : undefined;
+
+    if (current == null) {
+      this.startNewStream(percent, totalBytes);
+      return;
+    }
+
+    if (current.completed) {
+      this.startNewStream(percent, totalBytes);
+      return;
+    }
+
+    const percentReset = current.lastPercent > 30 && percent < current.lastPercent - 10;
+    const sizeChanged =
+      totalBytes != null &&
+      current.totalBytes != null &&
+      Math.abs(totalBytes - current.totalBytes) / current.totalBytes > 0.05;
+
+    if (percentReset || sizeChanged) {
+      this.completeCurrentStream();
+      this.startNewStream(percent, totalBytes);
+    }
+  }
+
+  private startNewStream(percent: number, totalBytes: number | null): void {
+    this.streams.push({
+      totalBytes,
+      completed: false,
+      lastPercent: percent,
+    });
+    this.currentStreamIndex = this.streams.length - 1;
+  }
+
+  private completeCurrentStream(): void {
+    const current = this.streams[this.currentStreamIndex];
+    if (!current) {
+      return;
+    }
+
+    current.completed = true;
+    current.lastPercent = 100;
+  }
+
+  private computeOverallPercent(): number {
+    const allSizesKnown = this.streams.every(
+      (stream) => stream.totalBytes != null && stream.totalBytes > 0
+    );
+
+    if (allSizesKnown) {
+      let downloadedBytes = 0;
+      let totalBytes = 0;
+
+      for (const [index, stream] of this.streams.entries()) {
+        const streamTotal = stream.totalBytes ?? 0;
+        totalBytes += streamTotal;
+
+        if (stream.completed) {
+          downloadedBytes += streamTotal;
+        } else if (index === this.currentStreamIndex) {
+          downloadedBytes += (stream.lastPercent / 100) * streamTotal;
+        }
+      }
+
+      return totalBytes > 0 ? (downloadedBytes / totalBytes) * 100 : 0;
+    }
+
+    const streamWeight = 100 / this.streams.length;
+    let combinedPercent = 0;
+
+    for (const [index, stream] of this.streams.entries()) {
+      if (stream.completed) {
+        combinedPercent += streamWeight;
+      } else if (index === this.currentStreamIndex) {
+        combinedPercent += (stream.lastPercent / 100) * streamWeight;
+      }
+    }
+
+    return combinedPercent;
+  }
+}
+
+/**
  * Parses the latest non-negative `time=HH:MM:SS.ms` value from ffmpeg stderr.
- * Section downloads mux through ffmpeg and may not emit `[download] …%` until the end.
+ * Used as a fallback when yt-dlp delegates muxing to ffmpeg without `[download] …%` lines.
  * @param chunk - stdout/stderr fragment from yt-dlp/ffmpeg.
  * @returns Elapsed output seconds when present, otherwise `null`.
  */
@@ -76,13 +254,13 @@ export function parseFfmpegTimeSeconds(chunk: string): number | null {
 
 /**
  * Maps yt-dlp/ffmpeg progress signals to the download phase percent (0–70).
- * @param input - Parsed progress signals and clip duration.
+ * @param input - Parsed progress signals and optional source duration for ffmpeg fallback.
  * @returns Overall job percent for the download phase, or `null` when no signal is present.
  */
 export function computeDownloadPhaseProgressPercent(input: {
   downloadPercent: number | null;
   ffmpegTimeSeconds: number | null;
-  sectionDurationSeconds: number;
+  sourceDurationSeconds?: number;
   maxPercent?: number;
 }): number | null {
   const maxPercent = input.maxPercent ?? DOWNLOAD_PROGRESS_MAX;
@@ -92,10 +270,11 @@ export function computeDownloadPhaseProgressPercent(input: {
     ratio = Math.min(1, Math.max(0, input.downloadPercent / 100));
   } else if (
     input.ffmpegTimeSeconds != null &&
-    input.sectionDurationSeconds > 0 &&
+    input.sourceDurationSeconds != null &&
+    input.sourceDurationSeconds > 0 &&
     input.ffmpegTimeSeconds >= 0
   ) {
-    ratio = Math.min(1, input.ffmpegTimeSeconds / input.sectionDurationSeconds);
+    ratio = Math.min(1, input.ffmpegTimeSeconds / input.sourceDurationSeconds);
   }
 
   if (ratio == null) {
@@ -106,47 +285,27 @@ export function computeDownloadPhaseProgressPercent(input: {
 }
 
 /**
- * Computes ffmpeg copy-trim offsets inside a section download.
- * @param input - Requested trim points and the section yt-dlp actually fetched.
- * @returns Relative `-ss`/`-to` values for the downloaded file.
+ * Computes ffmpeg trim offsets inside a full source download.
+ * @param input - Requested trim points and the downloaded file duration.
+ * @returns Absolute `-ss`/`-t` values for the downloaded file.
  */
 export function computeTrimOffsets(input: {
   jobStartSeconds: number;
   jobEndSeconds: number;
-  sectionStartSeconds: number;
   downloadedDurationSeconds: number;
 }): { relativeStart: number; relativeEnd: number } {
-  const relativeStart = Math.max(0, input.jobStartSeconds - input.sectionStartSeconds);
-  const relativeEnd = Math.min(
-    input.downloadedDurationSeconds,
-    input.jobEndSeconds - input.sectionStartSeconds
-  );
+  const relativeStart = Math.max(0, input.jobStartSeconds);
+  const relativeEnd = Math.min(input.downloadedDurationSeconds, input.jobEndSeconds);
 
   if (
     !Number.isFinite(relativeStart) ||
     !Number.isFinite(relativeEnd) ||
     relativeEnd <= relativeStart
   ) {
-    throw new Error('Trim range is empty after section download');
+    throw new Error('Trim range is empty after source download');
   }
 
   return { relativeStart, relativeEnd };
-}
-
-/**
- * Builds the yt-dlp `--download-sections` specifier for a trim job.
- * Fetches a short lead-in before the requested start so section/keyframe snapping
- * does not omit the user's in-point.
- * @param jobStartSeconds - Requested trim start in seconds on the source timeline.
- * @param jobEndSeconds - Requested trim end in seconds on the source timeline.
- * @returns yt-dlp section specifier (e.g. `*3025-3258`).
- */
-export function buildYoutubeSectionSpecifier(
-  jobStartSeconds: number,
-  jobEndSeconds: number
-): string {
-  const leadStart = Math.max(0, jobStartSeconds - YOUTUBE_SECTION_DOWNLOAD_LEAD_SECONDS);
-  return `*${leadStart}-${jobEndSeconds}`;
 }
 
 /**
@@ -202,67 +361,37 @@ async function runSpawnStdout(
   return stdout.trim();
 }
 
-function parseSectionStartFromInfoJson(info: Record<string, unknown>): number | null {
-  if (typeof info.section_start === 'number' && Number.isFinite(info.section_start)) {
-    return info.section_start;
-  }
-
-  const requested = info.requested_downloads;
-  if (Array.isArray(requested) && requested.length > 0) {
-    const first = requested[0];
-    if (typeof first === 'object' && first !== null) {
-      const sectionStart = (first as Record<string, unknown>).section_start;
-      if (typeof sectionStart === 'number' && Number.isFinite(sectionStart)) {
-        return sectionStart;
-      }
-    }
-  }
-
-  return null;
-}
-
 async function readDownloadMetadata(
   workDir: string,
   jobId: string
 ): Promise<{
   downloadedPath: string;
-  sectionStartSeconds: number;
   downloadedDurationSeconds: number;
 }> {
   const downloadedPath = join(workDir, `${DOWNLOADED_BASENAME}.mp4`);
-  const infoPath = join(workDir, `${DOWNLOADED_BASENAME}.info.json`);
   const isCancelled = () => isImportJobCancelled(jobId);
 
-  const [infoRaw, durationRaw] = await Promise.all([
-    readFile(infoPath, 'utf8'),
-    runSpawnStdout(
-      'ffprobe',
-      [
-        '-v',
-        'error',
-        '-show_entries',
-        'format=duration',
-        '-of',
-        'default=noprint_wrappers=1:nokey=1',
-        downloadedPath,
-      ],
-      'ffprobe duration probe',
-      { isCancelled }
-    ),
-  ]);
-
-  const info = JSON.parse(infoRaw) as Record<string, unknown>;
-  const sectionStartSeconds = parseSectionStartFromInfoJson(info);
-  if (sectionStartSeconds == null) {
-    throw new Error('yt-dlp info JSON did not include section_start metadata');
-  }
+  const durationRaw = await runSpawnStdout(
+    'ffprobe',
+    [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      downloadedPath,
+    ],
+    'ffprobe duration probe',
+    { isCancelled }
+  );
 
   const downloadedDurationSeconds = Number(durationRaw);
   if (!Number.isFinite(downloadedDurationSeconds) || downloadedDurationSeconds <= 0) {
-    throw new Error('Downloaded section has invalid duration');
+    throw new Error('Downloaded source has invalid duration');
   }
 
-  return { downloadedPath, sectionStartSeconds, downloadedDurationSeconds };
+  return { downloadedPath, downloadedDurationSeconds };
 }
 
 async function isImportJobCancelled(jobId: string): Promise<boolean> {
@@ -270,29 +399,26 @@ async function isImportJobCancelled(jobId: string): Promise<boolean> {
   return current?.status === 'cancelled';
 }
 
-async function downloadYoutubeSection(
+async function downloadYoutubeSource(
   job: YoutubeImportJob,
   workDir: string,
   jobId: string
 ): Promise<{
   downloadedPath: string;
-  sectionStartSeconds: number;
   downloadedDurationSeconds: number;
 }> {
   const watchUrl = buildYouTubeWatchUrl(job.youtubeVideoId);
   const outputTemplate = join(workDir, `${DOWNLOADED_BASENAME}.%(ext)s`);
-  const section = buildYoutubeSectionSpecifier(job.startSeconds, job.endSeconds);
 
   let lastPersistedPercent = -1;
-  const sectionDurationSeconds = Math.max(1, job.endSeconds - job.startSeconds);
+  const progressTracker = new YtDlpMultiStreamDownloadProgressTracker();
 
   void updateYoutubeImportJobStatus(jobId, { progressPercent: 1 });
 
   const handleDownloadProgressChunk = (chunk: string) => {
     const overallPercent = computeDownloadPhaseProgressPercent({
-      downloadPercent: parseYtDlpDownloadPercent(chunk),
+      downloadPercent: progressTracker.update(chunk),
       ffmpegTimeSeconds: parseFfmpegTimeSeconds(chunk),
-      sectionDurationSeconds,
     });
     if (overallPercent == null || overallPercent === lastPersistedPercent) {
       return;
@@ -308,9 +434,10 @@ async function downloadYoutubeSection(
       ...buildYtDlpBaseArgs(),
       '--no-playlist',
       '--newline',
-      '--download-sections',
-      section,
-      '--force-keyframes-at-cuts',
+      '--http-chunk-size',
+      YT_DLP_IMPORT_HTTP_CHUNK_SIZE,
+      '--concurrent-fragments',
+      String(YT_DLP_IMPORT_CONCURRENT_FRAGMENTS),
       '-f',
       YT_DLP_IMPORT_DOWNLOAD_FORMAT,
       '--merge-output-format',
@@ -324,7 +451,7 @@ async function downloadYoutubeSection(
       outputTemplate,
       watchUrl,
     ],
-    'yt-dlp section download',
+    'yt-dlp source download',
     {
       onStderrChunk: handleDownloadProgressChunk,
       onStdoutChunk: handleDownloadProgressChunk,
@@ -335,11 +462,10 @@ async function downloadYoutubeSection(
   return readDownloadMetadata(workDir, jobId);
 }
 
-async function trimDownloadedSection(
+async function trimDownloadedSource(
   job: YoutubeImportJob,
   download: {
     downloadedPath: string;
-    sectionStartSeconds: number;
     downloadedDurationSeconds: number;
   },
   workDir: string,
@@ -348,9 +474,9 @@ async function trimDownloadedSection(
   const { relativeStart, relativeEnd } = computeTrimOffsets({
     jobStartSeconds: job.startSeconds,
     jobEndSeconds: job.endSeconds,
-    sectionStartSeconds: download.sectionStartSeconds,
     downloadedDurationSeconds: download.downloadedDurationSeconds,
   });
+  const trimDurationSeconds = relativeEnd - relativeStart;
 
   const trimmedPath = join(workDir, TRIMMED_BASENAME);
 
@@ -374,10 +500,10 @@ async function trimDownloadedSection(
         'error',
         '-ss',
         String(relativeStart),
-        '-to',
-        String(relativeEnd),
         '-i',
         download.downloadedPath,
+        '-t',
+        String(trimDurationSeconds),
         '-c',
         'copy',
         '-y',
@@ -397,8 +523,8 @@ async function trimDownloadedSection(
 }
 
 /**
- * Executes a single YouTube import/trim job end to end: downloads the
- * requested time range, trims it with a stream-copy ffmpeg pass, uploads
+ * Executes a single YouTube import/trim job end to end: downloads the full
+ * source video, trims the requested range with a local ffmpeg pass, uploads
  * the result to R2, and hands off to the standard upload/distribution
  * pipeline. Updates the job's status/progress as it proceeds so callers
  * polling `getYoutubeImportJobById` see live progress.
@@ -425,7 +551,7 @@ export async function runYoutubeImportJob(jobId: string): Promise<void> {
       await updateYoutubeImportJobStatus(jobId, { status: 'downloading', progressPercent: 0 });
     }
 
-    const download = await downloadYoutubeSection(job, workDir, jobId);
+    const download = await downloadYoutubeSource(job, workDir, jobId);
 
     if (await isImportJobCancelled(jobId)) {
       return;
@@ -435,7 +561,7 @@ export async function runYoutubeImportJob(jobId: string): Promise<void> {
       status: 'trimming',
       progressPercent: DOWNLOAD_PROGRESS_MAX,
     });
-    const trimmedPath = await trimDownloadedSection(job, download, workDir, jobId);
+    const trimmedPath = await trimDownloadedSource(job, download, workDir, jobId);
 
     if (await isImportJobCancelled(jobId)) {
       return;

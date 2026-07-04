@@ -5,13 +5,22 @@ import { execPath } from 'node:process';
 export const YT_DLP_DEFAULT_REMOTE_COMPONENTS = 'ejs:github';
 
 /**
- * yt-dlp format selector for YouTube import section downloads.
+ * yt-dlp format selector for YouTube import source downloads.
  * YouTube's default `bv*+ba` pairs best video with DASH Opus audio (typically 48 kHz),
  * even when the source livestream was ingested as MPEG-4 AAC (often 44.1 kHz).
  * Prefer m4a/mp4a audio so the merged MP4 stays AAC.
  */
 export const YT_DLP_IMPORT_DOWNLOAD_FORMAT =
   'bv*+ba[ext=m4a]/bv*+ba[acodec^=mp4a.40.]/bv*+ba[acodec^=mp4a]/bv*+ba/b';
+
+/**
+ * HTTP chunk size for YouTube import downloads.
+ * Stays at or under YouTube's undocumented ~10MB per-request throttle threshold.
+ */
+export const YT_DLP_IMPORT_HTTP_CHUNK_SIZE = '10M';
+
+/** Number of DASH/HLS fragments to fetch in parallel during import downloads. */
+export const YT_DLP_IMPORT_CONCURRENT_FRAGMENTS = 4;
 
 function resolveDenoExecutable(): string | null {
   const candidates = [

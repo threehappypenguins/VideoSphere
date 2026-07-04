@@ -1,29 +1,23 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 
 const MIN_SM_MEDIA_QUERY = '(min-width: 640px)';
 
-function subscribeToMinSmViewport(onStoreChange: () => void): () => void {
-  const mediaQueryList = window.matchMedia(MIN_SM_MEDIA_QUERY);
-  mediaQueryList.addEventListener('change', onStoreChange);
-  return () => mediaQueryList.removeEventListener('change', onStoreChange);
-}
-
-function getMinSmViewportSnapshot(): boolean {
-  return window.matchMedia(MIN_SM_MEDIA_QUERY).matches;
-}
-
-function getMinSmViewportServerSnapshot(): boolean {
-  return true;
-}
-
 /**
  * Tracks whether the viewport is at least Tailwind's `sm` breakpoint (640px).
+ * Defaults to `false` during SSR and the first client paint so server markup
+ * matches hydration; syncs to `matchMedia` after mount.
  * @returns `true` when `min-width: 640px` matches.
  */
 export function useMinSmViewport(): boolean {
-  return useSyncExternalStore(
-    subscribeToMinSmViewport,
-    getMinSmViewportSnapshot,
-    getMinSmViewportServerSnapshot
-  );
+  const [isMinSmViewport, setIsMinSmViewport] = useState(false);
+
+  useEffect(() => {
+    const mediaQueryList = window.matchMedia(MIN_SM_MEDIA_QUERY);
+    const syncViewport = () => setIsMinSmViewport(mediaQueryList.matches);
+    syncViewport();
+    mediaQueryList.addEventListener('change', syncViewport);
+    return () => mediaQueryList.removeEventListener('change', syncViewport);
+  }, []);
+
+  return isMinSmViewport;
 }
