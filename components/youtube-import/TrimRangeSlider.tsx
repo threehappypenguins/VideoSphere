@@ -184,6 +184,7 @@ function TrimTimestampField({
 }: TrimTimestampFieldProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const skipBlurCommitRef = useRef(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draftValue, setDraftValue] = useState('');
   const [hasError, setHasError] = useState(false);
@@ -192,6 +193,7 @@ function TrimTimestampField({
     if (disabled || isSnapping) {
       return;
     }
+    skipBlurCommitRef.current = false;
     setDraftValue(formatTrimTimeInputValue(seconds));
     setHasError(false);
     setIsEditing(true);
@@ -206,6 +208,7 @@ function TrimTimestampField({
   }, [isEditing]);
 
   const cancelEditing = () => {
+    skipBlurCommitRef.current = true;
     setIsEditing(false);
     setHasError(false);
   };
@@ -217,9 +220,19 @@ function TrimTimestampField({
       return;
     }
 
+    skipBlurCommitRef.current = true;
     setIsEditing(false);
     setHasError(false);
     onCommit(parsed);
+  };
+
+  const handleBlur = () => {
+    if (skipBlurCommitRef.current) {
+      skipBlurCommitRef.current = false;
+      return;
+    }
+
+    commitEditing();
   };
 
   const label = handle === 'start' ? 'Trim start time' : 'Trim end time';
@@ -243,7 +256,7 @@ function TrimTimestampField({
             setHasError(false);
           }
         }}
-        onBlur={commitEditing}
+        onBlur={handleBlur}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {
             event.preventDefault();

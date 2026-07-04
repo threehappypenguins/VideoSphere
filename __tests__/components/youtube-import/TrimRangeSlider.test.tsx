@@ -273,6 +273,39 @@ describe('TrimRangeSlider', () => {
     });
   });
 
+  it('commits a typed start timestamp only once when Enter is pressed', () => {
+    const onChange = vi.fn();
+    renderSlider({
+      onChange,
+      enableKeyframeSnap: false,
+      value: { startSeconds: 10, endSeconds: 100 },
+    });
+
+    fireEvent.click(screen.getByTestId('trim-start-time-display'));
+    const input = screen.getByTestId('trim-start-time-input');
+    fireEvent.change(input, { target: { value: '1:30' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards a typed start timestamp when Escape is pressed', () => {
+    const onChange = vi.fn();
+    renderSlider({
+      onChange,
+      enableKeyframeSnap: false,
+      value: { startSeconds: 10, endSeconds: 100 },
+    });
+
+    fireEvent.click(screen.getByTestId('trim-start-time-display'));
+    const input = screen.getByTestId('trim-start-time-input');
+    fireEvent.change(input, { target: { value: '1:30' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('trim-start-time-display')).toHaveTextContent('0:10');
+  });
+
   it('seeks the preview player while dragging when a player handle is provided', async () => {
     const playerHandle = {
       previewAt: vi.fn(),

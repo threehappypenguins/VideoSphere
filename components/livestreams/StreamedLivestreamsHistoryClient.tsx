@@ -13,6 +13,7 @@ import {
   toLivestreamConnectionSnapshots,
   type LivestreamConnectionSnapshot,
 } from '@/lib/livestreams/schedulable-platforms';
+import { deleteLivestreamViaApi } from '@/lib/livestreams/delete-livestream-client';
 
 interface StreamedLivestreamsHistoryResponse extends ApiResponse<Livestream[]> {
   meta?: {
@@ -187,50 +188,31 @@ export function StreamedLivestreamsHistoryClient() {
     [editingLivestream, loadHistory]
   );
 
-  const handleDeleteLivestream = useCallback(
-    async (livestream: Livestream) => {
-      if (isDeletingId) return;
-      setIsDeletingId(livestream.id);
-      try {
-        const response = await fetch(`/api/livestreams/${livestream.id}`, { method: 'DELETE' });
-        if (!response.ok) {
-          const err = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(err?.message ?? 'Failed to delete livestream');
-        }
-        toast.success('Livestream deleted');
-        await loadHistory();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to delete livestream');
-      } finally {
-        setIsDeletingId(null);
-      }
-    },
-    [isDeletingId, loadHistory]
-  );
-
   const handleDeleteLivestreamById = useCallback(
     async (livestreamId: string): Promise<boolean> => {
       setIsDeletingId(livestreamId);
       try {
-        const response = await fetch(`/api/livestreams/${livestreamId}`, { method: 'DELETE' });
-        if (!response.ok) {
-          const err = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(err?.message ?? 'Failed to delete livestream');
-        }
-        toast.success('Livestream deleted');
-        if (editingLivestream?.id === livestreamId) {
+        const deleted = await deleteLivestreamViaApi(livestreamId);
+        if (deleted && editingLivestream?.id === livestreamId) {
           setEditingLivestream(null);
         }
-        await loadHistory();
-        return true;
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to delete livestream');
-        return false;
+        if (deleted) {
+          await loadHistory();
+        }
+        return deleted;
       } finally {
         setIsDeletingId(null);
       }
     },
     [editingLivestream?.id, loadHistory]
+  );
+
+  const handleDeleteLivestream = useCallback(
+    async (livestream: Livestream) => {
+      if (isDeletingId) return;
+      await handleDeleteLivestreamById(livestream.id);
+    },
+    [isDeletingId, handleDeleteLivestreamById]
   );
 
   const handleDuplicateLivestream = useCallback(

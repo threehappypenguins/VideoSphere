@@ -21,6 +21,7 @@ import type {
   Livestream,
 } from '@/types';
 import { canEditLivestreamSchedule } from '@/lib/livestreams/livestream-edit-policy';
+import { deleteLivestreamViaApi } from '@/lib/livestreams/delete-livestream-client';
 import { partitionLivestreams } from '@/lib/livestreams/partition-livestreams';
 import {
   getSchedulableLivestreamPlatforms,
@@ -403,6 +404,25 @@ export default function LivestreamsPage() {
     setEditingLivestream(null);
   }, [createLivestreamSaved, editingLivestream, isCreateSession, loadLivestreams]);
 
+  const handleDeleteLivestreamById = useCallback(
+    async (livestreamId: string): Promise<boolean> => {
+      setIsDeletingId(livestreamId);
+      try {
+        const deleted = await deleteLivestreamViaApi(livestreamId);
+        if (deleted && editingLivestream?.id === livestreamId) {
+          setEditingLivestream(null);
+        }
+        if (deleted) {
+          await loadLivestreams();
+        }
+        return deleted;
+      } finally {
+        setIsDeletingId(null);
+      }
+    },
+    [editingLivestream?.id, loadLivestreams]
+  );
+
   const handleDeleteLivestream = useCallback(
     async (livestream: Livestream) => {
       if (editingLivestream?.id === livestream.id) {
@@ -414,50 +434,9 @@ export default function LivestreamsPage() {
       const confirmed = window.confirm(`Delete "${title}"? This cannot be undone.`);
       if (!confirmed) return;
 
-      setIsDeletingId(livestream.id);
-      try {
-        const response = await fetch(`/api/livestreams/${livestream.id}`, { method: 'DELETE' });
-        if (!response.ok) {
-          const err = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(err?.message ?? 'Failed to delete livestream');
-        }
-        toast.success('Livestream deleted');
-        if (editingLivestream?.id === livestream.id) {
-          setEditingLivestream(null);
-        }
-        await loadLivestreams();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to delete livestream');
-      } finally {
-        setIsDeletingId(null);
-      }
+      await handleDeleteLivestreamById(livestream.id);
     },
-    [editingLivestream?.id, loadLivestreams]
-  );
-
-  const handleDeleteLivestreamById = useCallback(
-    async (livestreamId: string): Promise<boolean> => {
-      setIsDeletingId(livestreamId);
-      try {
-        const response = await fetch(`/api/livestreams/${livestreamId}`, { method: 'DELETE' });
-        if (!response.ok) {
-          const err = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(err?.message ?? 'Failed to delete livestream');
-        }
-        toast.success('Livestream deleted');
-        if (editingLivestream?.id === livestreamId) {
-          setEditingLivestream(null);
-        }
-        await loadLivestreams();
-        return true;
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to delete livestream');
-        return false;
-      } finally {
-        setIsDeletingId(null);
-      }
-    },
-    [editingLivestream?.id, loadLivestreams]
+    [editingLivestream?.id, handleDeleteLivestreamById]
   );
 
   const handleDuplicateLivestream = useCallback(
