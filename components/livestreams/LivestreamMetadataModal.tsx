@@ -13,7 +13,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { flushSync } from 'react-dom';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { YouTubePlaylistCombobox } from '@/components/drafts/YouTubePlaylistCombobox';
 import { SearchableSelect } from '@/components/drafts/SearchableSelect';
@@ -28,6 +28,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Progress } from '@/components/ui/progress';
 import {
   Select,
@@ -89,6 +99,7 @@ import {
   type YouTubeAccountDefaults,
 } from '@/lib/platforms/youtube-account-defaults';
 import { cn } from '@/lib/utils';
+import { useMinSmViewport } from '@/lib/use-min-sm-viewport';
 import {
   getDefaultScheduleDate,
   getLocalTimeZone,
@@ -266,6 +277,12 @@ export interface LivestreamMetadataModalProps {
   onKeySlotChanged?: () => void | Promise<void>;
   /** Called after Facebook arm/end succeeds so the list can refresh. */
   onFacebookChanged?: () => void | Promise<void>;
+  /**
+   * Deletes the open livestream when the user confirms from the modal footer.
+   * @param livestreamId - Persisted livestream identifier.
+   * @returns Whether deletion succeeded.
+   */
+  onDelete?: (livestreamId: string) => Promise<boolean>;
 }
 
 /**
@@ -287,8 +304,10 @@ export function LivestreamMetadataModal({
   scheduledFacebookLivestreams = [],
   onKeySlotChanged,
   onFacebookChanged,
+  onDelete,
 }: LivestreamMetadataModalProps) {
   const router = useRouter();
+  const isMinSmViewport = useMinSmViewport();
   const livestreamId = value?.id ?? null;
   const isDraft = value?.status === 'draft';
   const isScheduled = value?.status === 'scheduled';
@@ -332,6 +351,8 @@ export function LivestreamMetadataModal({
   const [thumbnailFileName, setThumbnailFileName] = useState<string | null>(null);
   const [keySlotChanging, setKeySlotChanging] = useState(false);
   const [keySlotConflictWarning, setKeySlotConflictWarning] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
   const thumbnailRequestAbortRef = useRef<AbortController | null>(null);
   const thumbnailXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -1380,6 +1401,20 @@ export function LivestreamMetadataModal({
     onClose();
   };
 
+  const handleDeleteLivestream = async () => {
+    if (!value?.id || !onDelete) return;
+    setIsDeleting(true);
+    try {
+      const deleted = await onDelete(value.id);
+      if (deleted) {
+        setShowDeleteConfirm(false);
+        onClose();
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const canSave =
     Boolean(value) &&
     isMetadataEditable &&
@@ -1390,6 +1425,13 @@ export function LivestreamMetadataModal({
   const sharedThumbnailSelectionLabel =
     thumbnailFileName ??
     (value?.thumbnailR2Key || value?.thumbnailPreviewUrl ? 'Current thumbnail' : 'No file chosen');
+
+  const deleteAriaLabel = isDraft ? 'Delete livestream draft' : 'Delete livestream';
+  const deleteDialogTitle = isDraft ? 'Delete livestream draft?' : 'Delete livestream?';
+  const deleteDialogDescription = isDraft
+    ? 'This will permanently delete this livestream draft and cannot be undone.'
+    : 'This will permanently delete this livestream and cannot be undone.';
+  const deleteActionLabel = isDraft ? 'Delete draft' : 'Delete livestream';
 
   return (
     <Dialog
@@ -2132,65 +2174,171 @@ export function LivestreamMetadataModal({
                 </div>
               ) : null}
             </section>
+
+            {scheduleError ? (
+              <div className="pb-2">
+                <LivestreamScheduleInlineError message={scheduleError} />
+              </div>
+            ) : null}
+
+            {!isMinSmViewport ? (
+              <DialogFooter className="mt-3 -mx-6 flex-col gap-2 border-t border-border bg-background px-6 pb-4 pt-3">
+                <div className="flex w-full items-center gap-2">
+                  {mode === 'edit' && onDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      disabled={isScheduling || isDeleting}
+                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-background p-2 text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                      aria-label={deleteAriaLabel}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    disabled={isScheduling}
+                    className="min-w-0 flex-1 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {isMetadataEditable ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScheduleError(null);
+                      const validation = validateBeforeSave();
+                      if (!validation.ok) return;
+                      const persistable = buildPersistableValue(validation.tags);
+                      if (!persistable) return;
+                      void (async () => {
+                        try {
+                          const result = await onSave({
+                            closeAfterSave: true,
+                            values: persistable,
+                          });
+                          if (result.message) toast.success(result.message);
+                        } catch (error) {
+                          console.error('Failed to save livestream.', error);
+                        }
+                      })();
+                    }}
+                    disabled={!canSave || isSaving || isScheduling}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                  >
+                    {isSaving ? 'Saving…' : 'Save'}
+                  </button>
+                ) : null}
+                {isDraft ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleScheduleLivestream();
+                    }}
+                    disabled={thumbnailUploading || isSaving || isScheduling}
+                    className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {isScheduling ? 'Scheduling…' : 'Schedule livestream'}
+                  </button>
+                ) : null}
+              </DialogFooter>
+            ) : null}
           </div>
         ) : null}
 
         {scheduleError ? (
-          <div className="px-6 pb-2">
+          <div className="hidden px-6 pb-2 sm:block">
             <LivestreamScheduleInlineError message={scheduleError} />
           </div>
         ) : null}
 
-        <DialogFooter className="mt-3 border-t border-border bg-background px-6 pb-6 pt-3">
-          <button
-            type="button"
-            onClick={handleClose}
-            disabled={isScheduling}
-            className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          {isMetadataEditable ? (
+        {isMinSmViewport ? (
+          <DialogFooter className="mt-3 shrink-0 flex flex-col gap-2 border-t border-border bg-background px-6 pb-6 pt-3 sm:flex-row sm:justify-end">
+            {mode === 'edit' && onDelete && value ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isScheduling || isDeleting}
+                className="inline-flex w-auto items-center justify-center rounded-md border border-border bg-background p-2 text-foreground transition-colors hover:bg-muted disabled:opacity-60 sm:mr-auto"
+                aria-label={deleteAriaLabel}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => {
-                setScheduleError(null);
-                const validation = validateBeforeSave();
-                if (!validation.ok) return;
-                const persistable = buildPersistableValue(validation.tags);
-                if (!persistable) return;
-                void (async () => {
-                  try {
-                    const result = await onSave({
-                      closeAfterSave: true,
-                      values: persistable,
-                    });
-                    if (result.message) toast.success(result.message);
-                  } catch (error) {
-                    console.error('Failed to save livestream.', error);
-                  }
-                })();
-              }}
-              disabled={!canSave || isSaving || isScheduling}
-              className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
+              onClick={handleClose}
+              disabled={isScheduling}
+              className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-60"
             >
-              {isSaving ? 'Saving…' : 'Save'}
+              Cancel
             </button>
-          ) : null}
-          {isDraft ? (
-            <button
-              type="button"
-              onClick={() => {
-                void handleScheduleLivestream();
-              }}
-              disabled={thumbnailUploading || isSaving || isScheduling}
-              className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-            >
-              {isScheduling ? 'Scheduling…' : 'Schedule livestream'}
-            </button>
-          ) : null}
-        </DialogFooter>
+            {isMetadataEditable ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setScheduleError(null);
+                  const validation = validateBeforeSave();
+                  if (!validation.ok) return;
+                  const persistable = buildPersistableValue(validation.tags);
+                  if (!persistable) return;
+                  void (async () => {
+                    try {
+                      const result = await onSave({
+                        closeAfterSave: true,
+                        values: persistable,
+                      });
+                      if (result.message) toast.success(result.message);
+                    } catch (error) {
+                      console.error('Failed to save livestream.', error);
+                    }
+                  })();
+                }}
+                disabled={!canSave || isSaving || isScheduling}
+                className="rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-60"
+              >
+                {isSaving ? 'Saving…' : 'Save'}
+              </button>
+            ) : null}
+            {isDraft ? (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleScheduleLivestream();
+                }}
+                disabled={thumbnailUploading || isSaving || isScheduling}
+                className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              >
+                {isScheduling ? 'Scheduling…' : 'Schedule livestream'}
+              </button>
+            ) : null}
+          </DialogFooter>
+        ) : null}
       </DialogContent>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{deleteDialogTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{deleteDialogDescription}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteLivestream();
+              }}
+              className="bg-red-600 text-white hover:bg-red-700"
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting…' : deleteActionLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
