@@ -15,21 +15,15 @@ vi.mock('@/components/youtube-import/YouTubePreviewPlayer', () => ({
   YouTubePreviewPlayer: () => <div data-testid="youtube-preview-player" />,
 }));
 
-vi.mock('@/components/youtube-import/TrimRangeSlider', () => ({
-  TrimRangeSlider: ({
-    onChange,
-  }: {
-    onChange: (value: { startSeconds: number; endSeconds: number }) => void;
-  }) => (
-    <button
-      type="button"
-      onClick={() => onChange({ startSeconds: 5, endSeconds: 95 })}
-      data-testid="trim-range-slider"
-    >
-      Adjust trim
-    </button>
-  ),
+vi.mock('@/components/youtube-import/YouTubeEmbedPreviewPlayer', () => ({
+  YouTubeEmbedPreviewPlayer: () => <div data-testid="youtube-embed-preview-player" />,
 }));
+
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
 const DRAFT_ID = 'draft-1';
 const VIDEO_ID = 'dQw4w9WgXcQ';
@@ -39,8 +33,17 @@ const resolvedSource = {
   title: 'Sunday Service',
   durationSeconds: 3600,
   thumbnailUrl: 'https://img.youtube.com/high.jpg',
+  previewMode: 'direct' as const,
   previewStreamUrl: `/api/youtube-import/preview/stream?youtubeVideoId=${VIDEO_ID}`,
   previewExpiresAt: Date.now() + 3_600_000,
+};
+
+const embedResolvedSource = {
+  youtubeVideoId: VIDEO_ID,
+  title: 'Sunday Service',
+  durationSeconds: 3600,
+  thumbnailUrl: 'https://img.youtube.com/high.jpg',
+  previewMode: 'embed' as const,
 };
 
 const livestreamRow: Livestream = {
@@ -204,6 +207,7 @@ function renderModal(props: Partial<ComponentProps<typeof YouTubeImportModal>> =
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal('ResizeObserver', ResizeObserverMock);
 });
 
 afterEach(() => {
@@ -244,6 +248,41 @@ describe('YouTubeImportModal', () => {
         body: expect.any(String),
       })
     );
+  });
+
+  it('uses embed preview when resolve returns previewMode embed', async () => {
+    installFetchMock({
+      resolve: () => new Response(JSON.stringify({ data: embedResolvedSource }), { status: 200 }),
+    });
+    const user = userEvent.setup();
+
+    renderModal();
+
+    await waitFor(() => {
+      expect(screen.getByText('Sunday Morning Service')).toBeInTheDocument();
+    });
+
+    await user.type(
+      screen.getByLabelText(/youtube link/i),
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+    );
+    await user.click(screen.getByRole('button', { name: /use this link/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('youtube-embed-preview-player')).toBeInTheDocument();
+      expect(screen.queryByTestId('youtube-preview-player')).not.toBeInTheDocument();
+    });
+
+    const smartCutCheckbox = screen.getByRole('checkbox', { name: /smart cut/i });
+    expect(smartCutCheckbox).toBeChecked();
+    expect(smartCutCheckbox).toBeDisabled();
+
+    expect(screen.queryByTestId('trim-start-frame-earlier')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trim-start-frame-later')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trim-end-frame-earlier')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trim-end-frame-later')).not.toBeInTheDocument();
+    expect(screen.getByTestId('trim-start-jump-earlier')).toBeInTheDocument();
+    expect(screen.getByTestId('trim-jump-step-5')).toBeInTheDocument();
   });
 
   it('hides the preview player when Show video preview is unchecked', async () => {

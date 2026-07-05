@@ -44,6 +44,8 @@ export interface TrimRangeSliderProps {
   playerHandle?: YouTubePlayerHandle;
   /** When false, trim handles stay without keyframe probing after precise edits. */
   enableKeyframeSnap?: boolean;
+  /** When false, hides one-frame nudge buttons (embed preview mode). */
+  showFrameNudge?: boolean;
 }
 
 /**
@@ -302,6 +304,8 @@ interface TrimHandleControlsProps {
   disabled: boolean;
   /** Whether a keyframe snap is in progress for this handle. */
   isSnapping: boolean;
+  /** Whether frame-by-frame nudge buttons are shown. */
+  showFrameNudge: boolean;
   /** Selected coarse jump distance in seconds. */
   jumpStepSeconds: TrimJumpStepSeconds;
   /** Whether the jump-earlier button is enabled. */
@@ -337,6 +341,7 @@ function TrimHandleControls({
   seconds,
   disabled,
   isSnapping,
+  showFrameNudge,
   jumpStepSeconds,
   canJumpEarlier,
   canFrameEarlier,
@@ -362,18 +367,20 @@ function TrimHandleControls({
         <ChevronLeft aria-hidden="true" className="h-4 w-4" />
         <span className="text-xs tabular-nums">{jumpStepSeconds}s</span>
       </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="h-8 w-8 shrink-0 sm:h-9 sm:w-9"
-        aria-label={`Move trim ${handleLabel} one frame earlier`}
-        data-testid={`trim-${handle}-frame-earlier`}
-        disabled={!canFrameEarlier || isSnapping}
-        onClick={() => onNudge(-1, TRIM_NUDGE_STEP_SECONDS)}
-      >
-        <ChevronLeft aria-hidden="true" />
-      </Button>
+      {showFrameNudge ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0 sm:h-9 sm:w-9"
+          aria-label={`Move trim ${handleLabel} one frame earlier`}
+          data-testid={`trim-${handle}-frame-earlier`}
+          disabled={!canFrameEarlier || isSnapping}
+          onClick={() => onNudge(-1, TRIM_NUDGE_STEP_SECONDS)}
+        >
+          <ChevronLeft aria-hidden="true" />
+        </Button>
+      ) : null}
       <TrimTimestampField
         handle={handle}
         seconds={seconds}
@@ -382,18 +389,20 @@ function TrimHandleControls({
         widthClass={timestampWidthClass}
         onCommit={onCommitSeconds}
       />
-      <Button
-        type="button"
-        variant="outline"
-        size="icon"
-        className="h-8 w-8 shrink-0 sm:h-9 sm:w-9"
-        aria-label={`Move trim ${handleLabel} one frame later`}
-        data-testid={`trim-${handle}-frame-later`}
-        disabled={!canFrameLater || isSnapping}
-        onClick={() => onNudge(1, TRIM_NUDGE_STEP_SECONDS)}
-      >
-        <ChevronRight aria-hidden="true" />
-      </Button>
+      {showFrameNudge ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0 sm:h-9 sm:w-9"
+          aria-label={`Move trim ${handleLabel} one frame later`}
+          data-testid={`trim-${handle}-frame-later`}
+          disabled={!canFrameLater || isSnapping}
+          onClick={() => onNudge(1, TRIM_NUDGE_STEP_SECONDS)}
+        >
+          <ChevronRight aria-hidden="true" />
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="outline"
@@ -424,6 +433,7 @@ export function TrimRangeSlider({
   onChange,
   playerHandle,
   enableKeyframeSnap = true,
+  showFrameNudge = true,
 }: TrimRangeSliderProps) {
   const [jumpStepSeconds, setJumpStepSeconds] = useState<TrimJumpStepSeconds>(5);
   const [snappingHandle, setSnappingHandle] = useState<'start' | 'end' | null>(null);
@@ -649,6 +659,7 @@ export function TrimRangeSlider({
           seconds={value.startSeconds}
           disabled={disabled}
           isSnapping={snappingHandle === 'start'}
+          showFrameNudge={showFrameNudge}
           jumpStepSeconds={jumpStepSeconds}
           canJumpEarlier={startCanJumpEarlier}
           canFrameEarlier={startCanFrameEarlier}
@@ -708,6 +719,7 @@ export function TrimRangeSlider({
           seconds={value.endSeconds}
           disabled={disabled}
           isSnapping={snappingHandle === 'end'}
+          showFrameNudge={showFrameNudge}
           jumpStepSeconds={jumpStepSeconds}
           canJumpEarlier={endCanJumpEarlier}
           canFrameEarlier={endCanFrameEarlier}

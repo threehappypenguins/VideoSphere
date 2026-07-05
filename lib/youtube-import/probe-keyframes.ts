@@ -38,6 +38,18 @@ function getProcessTimeoutMs(): number {
 /** Default expiry when yt-dlp does not expose a format expiration timestamp. */
 const DEFAULT_DIRECT_MEDIA_URL_TTL_MS = 60 * 60 * 1000;
 
+/**
+ * Thrown when yt-dlp succeeds but returns no browser-streamable progressive MP4 format.
+ * Typical when YouTube has only DASH/HLS manifests (for example fresh `post_live` VODs).
+ */
+export class NoBrowserStreamableFormatError extends Error {
+  /** @param message - Human-readable failure reason. */
+  constructor(message: string) {
+    super(message);
+    this.name = 'NoBrowserStreamableFormatError';
+  }
+}
+
 /** Default symmetric ffprobe read window for UI scrubbing and generic probes. */
 export const DEFAULT_KEYFRAME_PROBE_WINDOW_SECONDS = 8;
 
@@ -324,12 +336,29 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
     throw new Error('yt-dlp metadata lookup returned invalid JSON');
   }
 
-  const selected = pickYtDlpProbeFormat(metadata.formats ?? []);
-  const url = selected?.url?.trim();
-  if (!url) {
-    throw new Error(
-      'yt-dlp did not return a playable video format (YouTube JS challenge solving may have failed on the server)'
+  const formats = metadata.formats ?? [];
+  if (formats.length === 0) {
+    throw new Error('yt-dlp metadata lookup did not return any video formats');
+  }
+
+  const selected = pickYtDlpProbeFormat(formats);
+  if (!selected) {
+    console.warn(
+      '[getDirectMediaUrl] No browser-streamable MP4 format; yt-dlp format list:',
+      formats.map((format) => ({
+        protocol: format.protocol ?? null,
+        ext: format.ext ?? null,
+        format_id: format.format_id ?? null,
+      }))
     );
+    throw new NoBrowserStreamableFormatError(
+      'yt-dlp returned formats but none are browser-streamable progressive MP4 (only DASH/HLS may be available while YouTube finishes VOD processing)'
+    );
+  }
+
+  const url = selected.url?.trim();
+  if (!url) {
+    throw new Error('yt-dlp selected format is missing a media URL');
   }
 
   const durationSeconds = metadata.duration;

@@ -40,6 +40,7 @@ vi.mock('@/lib/youtube-import/preview-media-url', () => ({
 }));
 
 import { POST } from '@/app/api/youtube-import/resolve/route';
+import { NoBrowserStreamableFormatError } from '@/lib/youtube-import/probe-keyframes';
 
 const USER_ID = 'user-123';
 const ACCESS_TOKEN = 'yt-access-token';
@@ -134,6 +135,7 @@ describe('POST /api/youtube-import/resolve', () => {
     const body = await response.json();
     expect(body.data).toEqual({
       ...resolvedMetadata,
+      previewMode: 'direct',
       previewStreamUrl: '/api/youtube-import/preview/stream?youtubeVideoId=dQw4w9WgXcQ',
       previewExpiresAt: expect.any(Number),
     });
@@ -198,6 +200,41 @@ describe('POST /api/youtube-import/resolve', () => {
     expect(response.status).toBe(502);
     const body = await response.json();
     expect(body.message).toBe('quotaExceeded');
+  });
+
+  it('returns embed preview mode when no browser-streamable format exists', async () => {
+    mockResolvePreviewDirectMediaUrl.mockRejectedValueOnce(
+      new NoBrowserStreamableFormatError(
+        'yt-dlp returned formats but none are browser-streamable progressive MP4'
+      )
+    );
+
+    const response = await POST(
+      createRequest({ sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' })
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data).toEqual({
+      ...resolvedMetadata,
+      previewMode: 'embed',
+    });
+    expect(body.data.previewStreamUrl).toBeUndefined();
+    expect(body.data.previewExpiresAt).toBeUndefined();
+  });
+
+  it('returns 502 when preview media resolution fails for other reasons', async () => {
+    mockResolvePreviewDirectMediaUrl.mockRejectedValueOnce(
+      new Error('yt-dlp metadata lookup failed')
+    );
+
+    const response = await POST(
+      createRequest({ sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' })
+    );
+
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.message).toBe('yt-dlp metadata lookup failed');
   });
 
   it('returns 400 when mapYouTubeImportResolvedSource rejects the video', async () => {

@@ -16,6 +16,7 @@ import {
   buildYoutubeImportPreviewStreamPath,
   resolvePreviewDirectMediaUrl,
 } from '@/lib/youtube-import/preview-media-url';
+import { NoBrowserStreamableFormatError } from '@/lib/youtube-import/probe-keyframes';
 import type { ApiError, ApiResponse } from '@/types';
 
 interface ResolveYouTubeImportRequestBody {
@@ -172,6 +173,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const previewMedia = await resolvePreviewDirectMediaUrl(userId, mapped.data.youtubeVideoId);
       previewExpiresAt = previewMedia.expiresAt;
     } catch (err) {
+      if (err instanceof NoBrowserStreamableFormatError) {
+        const res: ApiResponse<YouTubeImportResolvedSource> = {
+          data: {
+            ...mapped.data,
+            previewMode: 'embed',
+          },
+        };
+        return NextResponse.json(res, { status: 200 });
+      }
+
       const message =
         err instanceof Error && err.message.trim() !== ''
           ? err.message.trim()
@@ -182,6 +193,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const res: ApiResponse<YouTubeImportResolvedSource> = {
       data: {
         ...mapped.data,
+        previewMode: 'direct',
         previewStreamUrl: buildYoutubeImportPreviewStreamPath(mapped.data.youtubeVideoId),
         previewExpiresAt,
       },

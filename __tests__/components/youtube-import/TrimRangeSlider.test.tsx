@@ -38,14 +38,14 @@ function renderSlider(
 ) {
   const onChange = props.onChange ?? vi.fn();
   const initialValue = props.value ?? { startSeconds: 10, endSeconds: 100 };
+  const { onChange: _onChange, value: _value, ...sliderProps } = props;
   const view = render(
     <TrimRangeSliderHarness
-      durationSeconds={props.durationSeconds ?? 300}
-      youtubeVideoId={props.youtubeVideoId ?? VIDEO_ID}
+      durationSeconds={300}
+      youtubeVideoId={VIDEO_ID}
       initialValue={initialValue}
       onChange={onChange}
-      playerHandle={props.playerHandle}
-      enableKeyframeSnap={props.enableKeyframeSnap}
+      {...sliderProps}
     />
   );
   return { onChange, ...view };
@@ -199,6 +199,26 @@ describe('TrimRangeSlider', () => {
 
     expect(global.fetch).not.toHaveBeenCalled();
     expect(onChange).toHaveBeenCalled();
+  });
+
+  it('hides frame nudge buttons but keeps jump-step controls when showFrameNudge is false', () => {
+    renderSlider({ showFrameNudge: false });
+
+    expect(screen.queryByTestId('trim-start-frame-earlier')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trim-start-frame-later')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trim-end-frame-earlier')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trim-end-frame-later')).not.toBeInTheDocument();
+    expect(screen.getByTestId('trim-start-jump-earlier')).toBeInTheDocument();
+    expect(screen.getByTestId('trim-start-jump-later')).toBeInTheDocument();
+    expect(screen.getByTestId('trim-jump-step-5')).toBeInTheDocument();
+  });
+
+  it('does not request keyframes when showFrameNudge is false and snapping is disabled', () => {
+    renderSlider({ showFrameNudge: false, enableKeyframeSnap: false });
+
+    fireEvent.click(screen.getByTestId('trim-start-jump-later'));
+
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('snaps the moved handle to the closest returned keyframe after a frame nudge', async () => {
