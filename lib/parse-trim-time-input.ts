@@ -1,5 +1,3 @@
-import { formatVideoDuration } from '@/lib/format-video-duration';
-
 /** Preset jump distances for coarse trim nudges (seconds). */
 export const TRIM_JUMP_STEP_OPTIONS = [1, 5, 10] as const;
 
@@ -12,21 +10,49 @@ export const TRIM_JUMP_STEP_OPTIONS = [1, 5, 10] as const;
 export type TrimJumpStepSeconds = (typeof TRIM_JUMP_STEP_OPTIONS)[number];
 
 /**
+ * Formats the seconds component of a trim timestamp, optionally zero-padded.
+ * @param seconds - Seconds within the current minute (may include a fraction).
+ * @param pad - Whether whole-second values should be zero-padded to two digits.
+ * @returns Formatted seconds segment.
+ */
+function formatTrimSecondsComponent(seconds: number, pad: boolean): string {
+  const wholeSeconds = Math.floor(seconds);
+  const fraction = seconds - wholeSeconds;
+
+  if (fraction >= 0.001) {
+    const wholePart = pad ? String(wholeSeconds).padStart(2, '0') : String(wholeSeconds);
+    const fracText = seconds.toFixed(3).replace(/\.?0+$/, '');
+    const decimalPart = fracText.includes('.') ? fracText.slice(fracText.indexOf('.')) : '';
+    return `${wholePart}${decimalPart}`;
+  }
+
+  const text = String(wholeSeconds);
+  return pad ? text.padStart(2, '0') : text;
+}
+
+/**
  * Formats seconds for display inside an editable trim timestamp field.
- * Whole-second values use YouTube-style `H:MM:SS` / `M:SS`; fractional values use decimal seconds.
+ * Uses YouTube-style `H:MM:SS` / `M:SS` labels; fractional values keep colons
+ * (`1:33:15.867`) so editing matches the read-only display instead of raw seconds.
  * @param seconds - Timestamp in seconds.
  * @returns String suitable for pre-filling a trim time input.
  */
 export function formatTrimTimeInputValue(seconds: number): string {
   const safeSeconds = Math.max(0, seconds);
-  const wholeSeconds = Math.floor(safeSeconds);
-  const fraction = safeSeconds - wholeSeconds;
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainingSeconds = safeSeconds % 60;
 
-  if (fraction >= 0.001) {
-    return safeSeconds.toFixed(3).replace(/\.?0+$/, '');
+  if (hours > 0) {
+    const paddedMinutes = minutes.toString().padStart(2, '0');
+    return `${hours}:${paddedMinutes}:${formatTrimSecondsComponent(remainingSeconds, true)}`;
   }
 
-  return formatVideoDuration(safeSeconds);
+  if (minutes > 0) {
+    return `${minutes}:${formatTrimSecondsComponent(remainingSeconds, true)}`;
+  }
+
+  return formatTrimSecondsComponent(remainingSeconds, false);
 }
 
 /**

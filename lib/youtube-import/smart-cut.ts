@@ -636,6 +636,10 @@ export function buildSmartCutHeadSegmentArgs(
     ...buildSmartCutVideoEncodeArgs(frameRateRational),
     '-pix_fmt',
     'yuv420p',
+    '-bsf:v',
+    'h264_mp4toannexb',
+    '-f',
+    'mpegts',
     '-an',
     '-y',
     outputPath,
@@ -643,30 +647,11 @@ export function buildSmartCutHeadSegmentArgs(
 }
 
 /**
- * Computes the `-output_ts_offset` for a stream-copied continuation so its first
- * frame continues immediately after a rebased head segment.
- * @param encodeStart - Head segment trim start in seconds.
- * @param encodeEnd - Head segment trim end in seconds (copy boundary).
- * @param copyStart - Stream-copy start in seconds (normally equals `encodeEnd`).
- * @returns Timestamp offset in seconds for ffmpeg `-output_ts_offset`.
- */
-export function computeSmartCutCopyTimestampOffset(
-  encodeStart: number,
-  encodeEnd: number,
-  copyStart: number
-): number {
-  const headDurationSeconds = encodeEnd - encodeStart;
-  return headDurationSeconds - copyStart;
-}
-
-/**
  * Builds ffmpeg arguments for the stream-copied video continuation of an `encode-then-copy`
- * plan. `copyStart` is a keyframe; `-output_ts_offset` shifts copied PTS so the segment
- * continues where the rebased head segment ends.
+ * plan. Output is MPEG-TS with rebased timestamps (no `-copyts` — preserving source PTS in
+ * an MP4 mux produces an empty file when the seek point is deep into a long clip).
  * @param inputPath - Source media path.
- * @param outputPath - Copy segment `.mp4` output path.
- * @param encodeStart - Head segment trim start in seconds.
- * @param encodeEnd - Head segment trim end in seconds.
+ * @param outputPath - Copy segment `.ts` output path.
  * @param copyStart - Start of the copy segment — a known keyframe timestamp.
  * @param copyEnd - Trim end in seconds within the source file.
  * @returns ffmpeg argument vector.
@@ -674,8 +659,6 @@ export function computeSmartCutCopyTimestampOffset(
 export function buildSmartCutCopySegmentArgs(
   inputPath: string,
   outputPath: string,
-  encodeStart: number,
-  encodeEnd: number,
   copyStart: number,
   copyEnd: number
 ): string[] {
@@ -686,19 +669,18 @@ export function buildSmartCutCopySegmentArgs(
     'error',
     '-ss',
     String(copyStart),
-    '-copyts',
     '-i',
     inputPath,
     '-t',
     String(copyEnd - copyStart),
-    '-output_ts_offset',
-    String(computeSmartCutCopyTimestampOffset(encodeStart, encodeEnd, copyStart)),
     '-map',
     '0:v:0',
     '-c:v',
     'copy',
     '-bsf:v',
-    'dump_extra',
+    'h264_mp4toannexb',
+    '-f',
+    'mpegts',
     '-an',
     '-y',
     outputPath,
@@ -773,6 +755,8 @@ export function buildSmartCutConcatVideoArgs(concatListPath: string, outputPath:
     concatListPath,
     '-c',
     'copy',
+    '-bsf:v',
+    'h264_mp4toannexb',
     '-y',
     outputPath,
   ];
@@ -889,8 +873,8 @@ export async function trimWithSmartCut(input: {
     return input.outputPath;
   }
 
-  const headMp4Path = join(input.workDir, 'smart-cut-head.mp4');
-  const copyMp4Path = join(input.workDir, 'smart-cut-copy.mp4');
+  const headTsPath = join(input.workDir, 'smart-cut-head.ts');
+  const copyTsPath = join(input.workDir, 'smart-cut-copy.ts');
   const concatListPath = join(input.workDir, 'smart-cut-concat.txt');
   const joinedVideoPath = join(input.workDir, 'smart-cut-video.mp4');
   const audioPath = join(input.workDir, 'smart-cut-audio.m4a');
@@ -899,7 +883,7 @@ export async function trimWithSmartCut(input: {
     await runFfmpeg(
       buildSmartCutHeadSegmentArgs(
         input.inputPath,
-        headMp4Path,
+        headTsPath,
         plan.encodeStart,
         plan.encodeEnd,
         frameRateRational
@@ -910,14 +894,7 @@ export async function trimWithSmartCut(input: {
     await throwIfCancelled(input.isCancelled);
 
     await runFfmpeg(
-      buildSmartCutCopySegmentArgs(
-        input.inputPath,
-        copyMp4Path,
-        plan.encodeStart,
-        plan.encodeEnd,
-        plan.copyStart,
-        plan.copyEnd
-      ),
+      buildSmartCutCopySegmentArgs(input.inputPath, copyTsPath, plan.copyStart, plan.copyEnd),
       'ffmpeg smart-cut stream-copy video',
       spawnOptions
     );
@@ -932,7 +909,7 @@ export async function trimWithSmartCut(input: {
 
     await writeFile(
       concatListPath,
-      `${buildSmartCutConcatListContent([headMp4Path, copyMp4Path])}\n`,
+      `${buildSmartCutConcatListContent([headTsPath, copyTsPath])}\n`,
       'utf8'
     );
     await runFfmpeg(
@@ -949,8 +926,8 @@ export async function trimWithSmartCut(input: {
     );
   } finally {
     await Promise.all([
-      rm(headMp4Path, { force: true }).catch(() => {}),
-      rm(copyMp4Path, { force: true }).catch(() => {}),
+      rm(headTsPath, { force: true }).catch(() => {}),
+      rm(copyTsPath, { force: true }).catch(() => {}),
       rm(concatListPath, { force: true }).catch(() => {}),
       rm(joinedVideoPath, { force: true }).catch(() => {}),
       rm(audioPath, { force: true }).catch(() => {}),
