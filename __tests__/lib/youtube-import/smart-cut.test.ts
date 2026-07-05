@@ -11,7 +11,6 @@ import {
   buildSmartCutMuxVideoAudioArgs,
   buildSmartCutTrimFilterGraph,
   buildSmartCutVideoTrimFilterGraph,
-  computeSmartCutCopyTimestampOffset,
   findNextKeyframeAfter,
   isOnKeyframe,
   normalizeStandardFrameRate,
@@ -212,10 +211,10 @@ describe('buildSmartCutEncodeOnlyArgs', () => {
 });
 
 describe('buildSmartCutHeadSegmentArgs', () => {
-  it('outputs video-only MP4 with rebased PTS', () => {
+  it('outputs video-only MPEG-TS with rebased PTS', () => {
     const args = buildSmartCutHeadSegmentArgs(
       '/tmp/source.mp4',
-      '/tmp/head.mp4',
+      '/tmp/head.ts',
       12,
       20,
       '30000/1001'
@@ -227,51 +226,48 @@ describe('buildSmartCutHeadSegmentArgs', () => {
         buildSmartCutVideoTrimFilterGraph(12, 20),
         '-map',
         '[v]',
+        '-bsf:v',
+        'h264_mp4toannexb',
+        '-f',
+        'mpegts',
         '-an',
         '-y',
-        '/tmp/head.mp4',
+        '/tmp/head.ts',
       ])
     );
-    expect(args).not.toContain('h264_mp4toannexb');
     expect(args.filter((arg) => arg === '[a]')).toHaveLength(0);
     expect(args).not.toContain('-c:a');
   });
 });
 
-describe('computeSmartCutCopyTimestampOffset', () => {
-  it('offsets the copy segment to continue after the rebased head duration', () => {
-    expect(computeSmartCutCopyTimestampOffset(12, 20, 20)).toBe(-12);
-    expect(computeSmartCutCopyTimestampOffset(3281, 3289, 3289)).toBe(-3281);
-  });
-});
-
 describe('buildSmartCutCopySegmentArgs', () => {
-  it('copies video only from the keyframe boundary with a timestamp offset', () => {
-    const args = buildSmartCutCopySegmentArgs('/tmp/source.mp4', '/tmp/copy.mp4', 12, 20, 20, 47.5);
+  it('stream-copies video into MPEG-TS without -copyts', () => {
+    const args = buildSmartCutCopySegmentArgs('/tmp/source.mp4', '/tmp/copy.ts', 20, 47.5);
 
     expect(args).toEqual(
       expect.arrayContaining([
         '-ss',
         '20',
-        '-copyts',
         '-i',
         '/tmp/source.mp4',
         '-t',
         '27.5',
-        '-output_ts_offset',
-        '-12',
         '-map',
         '0:v:0',
         '-c:v',
         'copy',
         '-bsf:v',
-        'dump_extra',
+        'h264_mp4toannexb',
+        '-f',
+        'mpegts',
         '-an',
         '-y',
-        '/tmp/copy.mp4',
+        '/tmp/copy.ts',
       ])
     );
-    expect(args).not.toContain('mpegts');
+    expect(args).not.toContain('-copyts');
+    expect(args).not.toContain('-output_ts_offset');
+    expect(args).not.toContain('dump_extra');
   });
 });
 
@@ -297,6 +293,8 @@ describe('buildSmartCutConcatVideoArgs', () => {
         '/tmp/concat.txt',
         '-c',
         'copy',
+        '-bsf:v',
+        'h264_mp4toannexb',
         '-y',
         '/tmp/video.mp4',
       ])

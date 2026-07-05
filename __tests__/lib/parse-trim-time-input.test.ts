@@ -33,8 +33,16 @@ describe('formatTrimTimeInputValue', () => {
     expect(formatTrimTimeInputValue(3723)).toBe('1:02:03');
   });
 
-  it('formats fractional seconds as decimals', () => {
-    expect(formatTrimTimeInputValue(90.5)).toBe('90.5');
+  it('formats fractional seconds with colon timestamps', () => {
+    expect(formatTrimTimeInputValue(90.5)).toBe('1:30.5');
     expect(formatTrimTimeInputValue(10 + 1 / 30)).toBe('10.033');
+    expect(formatTrimTimeInputValue(5595.867)).toBe('1:33:15.867');
+    expect(formatTrimTimeInputValue(3723.25)).toBe('1:02:03.25');
+  });
+
+  it('round-trips through parseTrimTimeInput', () => {
+    for (const seconds of [90, 3723, 90.5, 5595.867, 10 + 1 / 30]) {
+      expect(parseTrimTimeInput(formatTrimTimeInputValue(seconds))).toBeCloseTo(seconds, 3);
+    }
   });
 });
