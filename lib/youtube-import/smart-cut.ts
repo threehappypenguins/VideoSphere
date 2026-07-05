@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { rm, writeFile } from 'node:fs/promises';
-import { probeNearbyKeyframes } from '@/lib/youtube-import/probe-keyframes';
+import { probeAllVideoKeyframes } from '@/lib/youtube-import/probe-keyframes';
 import {
   runSpawnWithCancel,
   YoutubeImportJobCancelledError,
@@ -818,25 +818,13 @@ export function buildSmartCutMuxVideoAudioArgs(
 }
 
 /**
- * Probes keyframes around both trim boundaries in a local media file.
+ * Reads all video keyframe timestamps from a local media file for smart-cut planning.
+ * Uses the MP4 sync-sample index (packet flags) — no frame decode required.
  * @param mediaPath - Local media file path.
- * @param startSeconds - Trim start in seconds within the file.
- * @param endSeconds - Trim end in seconds within the file.
- * @param durationSeconds - Total media duration in seconds.
- * @returns Merged keyframe timestamps.
+ * @returns Keyframe timestamps in seconds, sorted ascending.
  */
-export async function probeTrimBoundaryKeyframes(
-  mediaPath: string,
-  startSeconds: number,
-  endSeconds: number,
-  durationSeconds: number
-): Promise<number[]> {
-  const [nearStart, nearEnd] = await Promise.all([
-    probeNearbyKeyframes(mediaPath, startSeconds, durationSeconds),
-    probeNearbyKeyframes(mediaPath, endSeconds, durationSeconds),
-  ]);
-
-  return [...new Set([...nearStart, ...nearEnd])].sort((a, b) => a - b);
+export async function probeTrimBoundaryKeyframes(mediaPath: string): Promise<number[]> {
+  return probeAllVideoKeyframes(mediaPath);
 }
 
 /**
@@ -865,12 +853,7 @@ export async function trimWithSmartCut(input: {
     input.relativeEnd,
     sourceParams
   );
-  const keyframes = await probeTrimBoundaryKeyframes(
-    input.inputPath,
-    input.relativeStart,
-    effectiveEnd,
-    input.durationSeconds
-  );
+  const keyframes = await probeTrimBoundaryKeyframes(input.inputPath);
   const { frameRateRational, audioSampleRate } = sourceParams;
   const plan = planSmartCut(input.relativeStart, effectiveEnd, keyframes);
   logSmartCutPlan(plan, keyframes, input.relativeStart, effectiveEnd);

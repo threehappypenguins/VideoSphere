@@ -38,6 +38,45 @@ function getProcessTimeoutMs(): number {
 /** Default expiry when yt-dlp does not expose a format expiration timestamp. */
 const DEFAULT_DIRECT_MEDIA_URL_TTL_MS = 60 * 60 * 1000;
 
+/** Default symmetric ffprobe read window for UI scrubbing and generic probes. */
+export const DEFAULT_KEYFRAME_PROBE_WINDOW_SECONDS = 8;
+
+/**
+ * ffprobe read window around a timestamp.
+ * @property lookBackSeconds - Seconds to read before `nearSeconds`.
+ * @property lookForwardSeconds - Seconds to read after `nearSeconds`.
+ * @property windowSeconds - Symmetric centered window; equivalent to equal look-back/forward.
+ */
+export type KeyframeProbeWindowOptions =
+  | { lookBackSeconds: number; lookForwardSeconds: number; windowSeconds?: never }
+  | { windowSeconds?: number; lookBackSeconds?: never; lookForwardSeconds?: never };
+
+function resolveKeyframeProbeWindow(options?: KeyframeProbeWindowOptions): {
+  lookBackSeconds: number;
+  lookForwardSeconds: number;
+} {
+  if (options && 'lookBackSeconds' in options && options.lookBackSeconds != null) {
+    const { lookBackSeconds, lookForwardSeconds } = options;
+    if (!Number.isFinite(lookBackSeconds) || lookBackSeconds < 0) {
+      throw new Error('lookBackSeconds must be a non-negative number');
+    }
+    if (!Number.isFinite(lookForwardSeconds) || lookForwardSeconds <= 0) {
+      throw new Error('lookForwardSeconds must be a positive number');
+    }
+    return { lookBackSeconds, lookForwardSeconds };
+  }
+
+  const windowSeconds = options?.windowSeconds ?? DEFAULT_KEYFRAME_PROBE_WINDOW_SECONDS;
+  if (!Number.isFinite(windowSeconds) || windowSeconds <= 0) {
+    throw new Error('windowSeconds must be a positive number');
+  }
+
+  return {
+    lookBackSeconds: windowSeconds / 2,
+    lookForwardSeconds: windowSeconds / 2,
+  };
+}
+
 /** Maximum preview height — keeps browser range seeks on small progressive MP4s. */
 const PREVIEW_MAX_HEIGHT_PX = 360;
 
@@ -310,11 +349,39 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
 }
 
 /**
- * Parses ffprobe CSV frame output for keyframe timestamps.
- * Column order follows `-show_entries frame=key_frame,pts_time`.
- * `pts_time` is already an absolute stream timestamp; do not rebase it.
+ * Parses ffprobe CSV packet output for keyframe timestamps.
+ * Column order follows `-show_entries packet=pts_time,flags`.
+ * Keyframes carry `K` in the flags field (e.g. `6.639967,K__`). Reading packets
+ * uses the container sync-sample index and does not decode video frames.
  * @param stdout - Raw ffprobe stdout.
  * @returns Keyframe timestamps in seconds, sorted ascending.
+ */
+export function parseFfprobeKeyframePacketCsv(stdout: string): number[] {
+  const keyframes: number[] = [];
+
+  for (const line of stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const [ptsTimeRaw, flagsRaw] = trimmed.split(',');
+    if (!flagsRaw?.includes('K')) {
+      continue;
+    }
+
+    const seconds = Number(ptsTimeRaw);
+    if (Number.isFinite(seconds)) {
+      keyframes.push(seconds);
+    }
+  }
+
+  return keyframes.sort((a, b) => a - b);
+}
+
+/**
+ * @deprecated Frame-level ffprobe output (`frame=key_frame,pts_time`). Prefer
+ * {@link parseFfprobeKeyframePacketCsv} which reads the container index without decoding.
  */
 export function parseFfprobeKeyframeCsv(stdout: string): number[] {
   const keyframes: number[] = [];
@@ -339,27 +406,84 @@ export function parseFfprobeKeyframeCsv(stdout: string): number[] {
   return keyframes.sort((a, b) => a - b);
 }
 
+function buildFfprobePacketKeyframeArgs(mediaUrl: string, readInterval?: string): string[] {
+  const args = ['-v', 'error'];
+  if (readInterval) {
+    args.push('-read_intervals', readInterval);
+  }
+  args.push(
+    '-select_streams',
+    'v:0',
+    '-show_entries',
+    'packet=pts_time,flags',
+    '-of',
+    'csv=p=0',
+    mediaUrl
+  );
+  return args;
+}
+
 /**
- * Builds an ffprobe `-read_intervals` value centered on a timestamp.
+ * Runs ffprobe packet-level keyframe discovery (container index, no decode).
+ * @param mediaUrl - Local path or direct media URL readable by ffprobe.
+ * @param readInterval - Optional ffprobe `-read_intervals` value to limit the demux span.
+ * @returns Keyframe timestamps in seconds, or an empty array when probing fails.
+ */
+async function runFfprobePacketKeyframeProbe(
+  mediaUrl: string,
+  readInterval?: string
+): Promise<number[]> {
+  try {
+    const { stdout } = await runProcess(
+      'ffprobe',
+      buildFfprobePacketKeyframeArgs(mediaUrl, readInterval),
+      'ffprobe keyframe probe'
+    );
+
+    return parseFfprobeKeyframePacketCsv(stdout);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[ffprobe keyframe probe] failed:', message);
+    return [];
+  }
+}
+
+/**
+ * Reads every video keyframe timestamp from an MP4 sync-sample index.
+ * Suitable for local smart-cut planning — metadata-only, no frame decode.
+ * @param mediaUrl - Local media file path readable by ffprobe.
+ * @returns All keyframe timestamps in seconds, sorted ascending.
+ */
+export async function probeAllVideoKeyframes(mediaUrl: string): Promise<number[]> {
+  if (!mediaUrl.trim()) {
+    throw new Error('Media URL is required');
+  }
+
+  return runFfprobePacketKeyframeProbe(mediaUrl);
+}
+
+/**
+ * Builds an ffprobe `-read_intervals` value around a timestamp.
  * In ffprobe syntax, `%` separates the interval start time from its duration — it does
  * not mean "percentage of file". Both sides are absolute times in seconds (e.g. `10%+8`
  * reads from 10s for 8s).
  * @param nearSeconds - Approximate timestamp to search around.
- * @param windowSeconds - Total read window size in seconds.
  * @param durationSeconds - Total media duration in seconds (used to clamp the window at EOF).
+ * @param window - Symmetric centered window or asymmetric look-back/forward span.
  * @returns ffprobe read interval specification and the interval start in seconds.
  */
 export function buildFfprobeReadInterval(
   nearSeconds: number,
-  windowSeconds: number,
-  durationSeconds: number
+  durationSeconds: number,
+  window: KeyframeProbeWindowOptions = {}
 ): { readInterval: string; intervalStartSeconds: number } {
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     throw new Error('durationSeconds must be a positive number');
   }
 
-  const intervalStartSeconds = Math.max(0, nearSeconds - windowSeconds / 2);
-  const intervalEndSeconds = Math.min(durationSeconds, intervalStartSeconds + windowSeconds);
+  const { lookBackSeconds, lookForwardSeconds } = resolveKeyframeProbeWindow(window);
+  const intervalStartSeconds = Math.max(0, nearSeconds - lookBackSeconds);
+  const intervalEndSeconds = Math.min(durationSeconds, nearSeconds + lookForwardSeconds);
   const effectiveWindowSeconds = intervalEndSeconds - intervalStartSeconds;
 
   return {
@@ -369,18 +493,18 @@ export function buildFfprobeReadInterval(
 }
 
 /**
- * Probes nearby video keyframes using a narrow ffprobe read window.
+ * Probes nearby video keyframes using packet-level ffprobe (container index, no decode).
  * @param mediaUrl - Direct media URL readable by ffprobe.
  * @param nearSeconds - Approximate timestamp to search around.
  * @param durationSeconds - Total media duration in seconds.
- * @param windowSeconds - Total read window size in seconds.
+ * @param window - Symmetric centered window or asymmetric look-back/forward span.
  * @returns Keyframe timestamps found in the window, or an empty array when probing fails.
  */
 export async function probeNearbyKeyframes(
   mediaUrl: string,
   nearSeconds: number,
   durationSeconds: number,
-  windowSeconds = 8
+  window: KeyframeProbeWindowOptions = {}
 ): Promise<number[]> {
   if (!mediaUrl.trim()) {
     throw new Error('Media URL is required');
@@ -391,33 +515,7 @@ export async function probeNearbyKeyframes(
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     throw new Error('durationSeconds must be a positive number');
   }
-  if (!Number.isFinite(windowSeconds) || windowSeconds <= 0) {
-    throw new Error('windowSeconds must be a positive number');
-  }
 
-  const { readInterval } = buildFfprobeReadInterval(nearSeconds, windowSeconds, durationSeconds);
-
-  try {
-    const { stdout } = await runProcess(
-      'ffprobe',
-      [
-        '-read_intervals',
-        readInterval,
-        '-select_streams',
-        'v:0',
-        '-show_entries',
-        'frame=key_frame,pts_time',
-        '-of',
-        'csv=p=0',
-        mediaUrl,
-      ],
-      'ffprobe keyframe probe'
-    );
-
-    return parseFfprobeKeyframeCsv(stdout);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn('[probeNearbyKeyframes] ffprobe failed:', message);
-    return [];
-  }
+  const { readInterval } = buildFfprobeReadInterval(nearSeconds, durationSeconds, window);
+  return runFfprobePacketKeyframeProbe(mediaUrl, readInterval);
 }

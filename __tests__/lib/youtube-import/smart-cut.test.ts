@@ -79,6 +79,27 @@ describe('planSmartCut', () => {
     });
   });
 
+  it('uses the full keyframe index instead of jumping to the trim end', () => {
+    const incompleteBoundaryProbe = [4523.89, 4529.89, 5587.95, 5593.92];
+    const fullIndex = [4523.89, 4529.89, 4535.89, 4541.89, 4547.89, 5581.95, 5587.95, 5593.92];
+
+    expect(planSmartCut(4530.47, 5595.57, incompleteBoundaryProbe)).toEqual({
+      kind: 'encode-then-copy',
+      encodeStart: 4530.47,
+      encodeEnd: 5587.95,
+      copyStart: 5587.95,
+      copyEnd: 5595.57,
+    });
+
+    expect(planSmartCut(4530.47, 5595.57, fullIndex)).toEqual({
+      kind: 'encode-then-copy',
+      encodeStart: 4530.47,
+      encodeEnd: 4535.89,
+      copyStart: 4535.89,
+      copyEnd: 5595.57,
+    });
+  });
+
   it('throws when end is not after start', () => {
     expect(() => planSmartCut(30, 30, keyframes)).toThrow();
     expect(() => planSmartCut(30, 20, keyframes)).toThrow();

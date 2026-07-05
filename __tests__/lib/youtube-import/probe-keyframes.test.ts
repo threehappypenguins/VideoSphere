@@ -12,7 +12,9 @@ import {
   getDirectMediaUrl,
   isBrowserStreamableMp4Format,
   parseFfprobeKeyframeCsv,
+  parseFfprobeKeyframePacketCsv,
   pickYtDlpProbeFormat,
+  probeAllVideoKeyframes,
   probeNearbyKeyframes,
   setYouTubeImportProcessTimeoutMsForTests,
 } from '@/lib/youtube-import/probe-keyframes';
@@ -52,6 +54,24 @@ function createMockChild(options: {
   return child;
 }
 
+describe('parseFfprobeKeyframePacketCsv', () => {
+  it('parses keyframe rows from ffprobe packet csv output', () => {
+    const stdout = ['0.000000,K__', '0.040000,___', '2.000000,K__', '2.040000,___'].join('\n');
+
+    expect(parseFfprobeKeyframePacketCsv(stdout)).toEqual([0, 2]);
+  });
+
+  it('uses absolute pts_time values from ffprobe without rebasing', () => {
+    const stdout = ['32.800000,K__', '38.810000,K__'].join('\n');
+
+    expect(parseFfprobeKeyframePacketCsv(stdout)).toEqual([32.8, 38.81]);
+  });
+
+  it('returns an empty array when no keyframe packets are present', () => {
+    expect(parseFfprobeKeyframePacketCsv('0.040000,___\n0.080000,___\n')).toEqual([]);
+  });
+});
+
 describe('parseFfprobeKeyframeCsv', () => {
   it('parses keyframe rows from ffprobe csv output', () => {
     const stdout = ['1,0.000000', '0,0.040000', '1,2.000000', '0,2.040000'].join('\n');
@@ -72,26 +92,38 @@ describe('parseFfprobeKeyframeCsv', () => {
 
 describe('buildFfprobeReadInterval', () => {
   it('uses absolute seconds for the interval start, not a file percentage', () => {
-    expect(buildFfprobeReadInterval(14, 8, 100)).toEqual({
+    expect(buildFfprobeReadInterval(14, 100, { windowSeconds: 8 })).toEqual({
       readInterval: '10%+8',
       intervalStartSeconds: 10,
     });
 
     // On short clips, percent-of-file would accidentally match seconds — long durations expose the bug.
-    expect(buildFfprobeReadInterval(1500, 8, 3000)).toEqual({
+    expect(buildFfprobeReadInterval(1500, 3000, { windowSeconds: 8 })).toEqual({
       readInterval: '1496%+8',
       intervalStartSeconds: 1496,
     });
-    expect(buildFfprobeReadInterval(4683, 8, 6666)).toEqual({
+    expect(buildFfprobeReadInterval(4683, 6666, { windowSeconds: 8 })).toEqual({
       readInterval: '4679%+8',
       intervalStartSeconds: 4679,
     });
   });
 
   it('clamps the read window at EOF', () => {
-    expect(buildFfprobeReadInterval(2998, 8, 3000)).toEqual({
+    expect(buildFfprobeReadInterval(2998, 3000, { windowSeconds: 8 })).toEqual({
       readInterval: '2994%+6',
       intervalStartSeconds: 2994,
+    });
+  });
+
+  it('supports asymmetric forward-biased windows for trim-start probing', () => {
+    expect(
+      buildFfprobeReadInterval(4530.47, 6666, {
+        lookBackSeconds: 4,
+        lookForwardSeconds: 20,
+      })
+    ).toEqual({
+      readInterval: '4526.47%+24',
+      intervalStartSeconds: 4526.47,
     });
   });
 });
@@ -107,25 +139,29 @@ describe('probeNearbyKeyframes', () => {
     vi.useRealTimers();
   });
 
-  it('runs ffprobe with a centered read interval and returns parsed keyframes', async () => {
+  it('runs ffprobe with packet entries and a centered read interval', async () => {
     mockSpawnProcess.mockImplementationOnce(() =>
       createMockChild({
-        stdout: '1,10.000000\n0,10.040000\n1,12.000000\n',
+        stdout: '10.000000,K__\n10.040000,___\n12.000000,K__\n',
       })
     );
 
-    const keyframes = await probeNearbyKeyframes('https://example.com/video.mp4', 14, 100, 8);
+    const keyframes = await probeNearbyKeyframes('https://example.com/video.mp4', 14, 100, {
+      windowSeconds: 8,
+    });
 
     expect(keyframes).toEqual([10, 12]);
     expect(mockSpawnProcess).toHaveBeenCalledWith(
       'ffprobe',
       [
+        '-v',
+        'error',
         '-read_intervals',
         '10%+8',
         '-select_streams',
         'v:0',
         '-show_entries',
-        'frame=key_frame,pts_time',
+        'packet=pts_time,flags',
         '-of',
         'csv=p=0',
         'https://example.com/video.mp4',
@@ -137,7 +173,7 @@ describe('probeNearbyKeyframes', () => {
   it('returns an empty array when ffprobe finds no keyframes in the window', async () => {
     mockSpawnProcess.mockImplementationOnce(() =>
       createMockChild({
-        stdout: '0,1.000000\n0,1.040000\n',
+        stdout: '1.000000,___\n1.040000,___\n',
       })
     );
 
@@ -170,6 +206,77 @@ describe('probeNearbyKeyframes', () => {
 
     await expect(probeNearbyKeyframes('https://example.com/video.mp4', 5, 100)).resolves.toEqual(
       []
+    );
+  });
+
+  it('uses a forward-biased read interval when requested', async () => {
+    mockSpawnProcess.mockImplementationOnce(() =>
+      createMockChild({
+        stdout: '4535.890000,K__\n',
+      })
+    );
+
+    const keyframes = await probeNearbyKeyframes('https://example.com/video.mp4', 4530.47, 6666, {
+      lookBackSeconds: 4,
+      lookForwardSeconds: 20,
+    });
+
+    expect(keyframes).toEqual([4535.89]);
+    expect(mockSpawnProcess).toHaveBeenCalledWith(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-read_intervals',
+        '4526.47%+24',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'packet=pts_time,flags',
+        '-of',
+        'csv=p=0',
+        'https://example.com/video.mp4',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+  });
+});
+
+describe('probeAllVideoKeyframes', () => {
+  beforeEach(() => {
+    mockSpawnProcess.mockReset();
+    setYouTubeImportProcessTimeoutMsForTests(null);
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('reads the full sync-sample index without read_intervals', async () => {
+    mockSpawnProcess.mockImplementationOnce(() =>
+      createMockChild({
+        stdout: '4523.890000,K__\n4529.890000,K__\n4535.890000,K__\n',
+      })
+    );
+
+    const keyframes = await probeAllVideoKeyframes('/tmp/livestream-test.mp4');
+
+    expect(keyframes).toEqual([4523.89, 4529.89, 4535.89]);
+    expect(mockSpawnProcess).toHaveBeenCalledWith(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'packet=pts_time,flags',
+        '-of',
+        'csv=p=0',
+        '/tmp/livestream-test.mp4',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
     );
   });
 });
