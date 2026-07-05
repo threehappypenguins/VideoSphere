@@ -10,6 +10,7 @@ import {
   YouTubePreviewPlayer,
   type YouTubePlayerHandle,
 } from '@/components/youtube-import/YouTubePreviewPlayer';
+import { YouTubeEmbedPreviewPlayer } from '@/components/youtube-import/YouTubeEmbedPreviewPlayer';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -37,6 +38,7 @@ import {
   isActiveYoutubeImportStatus,
 } from '@/lib/youtube-import/import-job-ui';
 import type { ApiResponse, Livestream, YoutubeImportJob } from '@/types';
+import type { YouTubeImportResolvedSource } from '@/lib/youtube-import/resolve-source';
 
 /** Poll interval for in-flight import jobs (matches draft upload polling). */
 const IMPORT_JOB_POLL_INTERVAL_MS = 3000;
@@ -50,18 +52,12 @@ const LIVESTREAM_IMPORT_PAGE_SIZE = 2;
 type YouTubeImportModalStep = 'source' | 'editor' | 'progress';
 
 /**
- * Resolved YouTube source metadata from the resolve API.
+ * Resolved YouTube source stored in modal state, matching the resolve API plus caller context.
  */
-interface ResolvedYouTubeSource {
-  youtubeVideoId: string;
-  title: string;
-  durationSeconds: number;
-  thumbnailUrl: string;
-  previewStreamUrl: string;
-  previewExpiresAt: number;
+type ResolvedYouTubeSource = YouTubeImportResolvedSource & {
   sourceUrl?: string;
   livestreamId?: string;
-}
+};
 
 interface LivestreamsListResponse extends ApiResponse<Livestream[]> {
   meta?: {
@@ -213,14 +209,7 @@ export function YouTubeImportModal({
         });
 
         const payload = (await response.json().catch(() => null)) as
-          | ApiResponse<{
-              youtubeVideoId: string;
-              title: string;
-              durationSeconds: number;
-              thumbnailUrl: string;
-              previewStreamUrl: string;
-              previewExpiresAt: number;
-            }>
+          | ApiResponse<YouTubeImportResolvedSource>
           | { message?: string }
           | null;
 
@@ -240,6 +229,7 @@ export function YouTubeImportModal({
 
         setResolvedSource(resolved);
         setTrimRange({ startSeconds: 0, endSeconds: resolved.durationSeconds });
+        setEnableSmartCut(true);
         setStep('editor');
       } catch (error) {
         setErrorMessage(
@@ -286,7 +276,7 @@ export function YouTubeImportModal({
           sourceUrl: resolvedSource.sourceUrl,
           startSeconds: trimRange.startSeconds,
           endSeconds: trimRange.endSeconds,
-          smartCut: enableSmartCut,
+          smartCut: resolvedSource.previewMode === 'embed' ? true : enableSmartCut,
         }),
       });
 
@@ -438,6 +428,11 @@ export function YouTubeImportModal({
   }, [jobStatus, onImportComplete]);
 
   const canShowMoreLivestreams = livestreams.length < livestreamsTotal;
+  const previewMode = resolvedSource?.previewMode ?? 'direct';
+  const isEmbedPreview = previewMode === 'embed';
+  const smartCutTooltip = isEmbedPreview
+    ? 'Smart cut is required while YouTube is still processing this video. Without a scrubbable direct stream, trim points cannot be verified frame-by-frame — import applies frame-accurate cuts after download.'
+    : 'Frame-accurate trim at import time. Disables keyframe snapping while you adjust the handles.';
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
@@ -622,11 +617,12 @@ export function YouTubeImportModal({
                 </label>
                 <label
                   className="inline-flex items-center gap-2 text-sm text-foreground"
-                  title="Frame-accurate trim at import time. Disables keyframe snapping while you adjust the handles."
+                  title={smartCutTooltip}
                 >
                   <input
                     type="checkbox"
-                    checked={enableSmartCut}
+                    checked={previewMode === 'embed' ? true : enableSmartCut}
+                    disabled={previewMode === 'embed'}
                     onChange={(event) => setEnableSmartCut(event.target.checked)}
                     className="rounded border-border"
                   />
@@ -637,18 +633,28 @@ export function YouTubeImportModal({
 
             {showVideoPreview ? (
               <>
-                <YouTubePreviewPlayer
-                  key={resolvedSource.youtubeVideoId}
-                  youtubeVideoId={resolvedSource.youtubeVideoId}
-                  streamUrl={resolvedSource.previewStreamUrl}
-                  previewExpiresAt={resolvedSource.previewExpiresAt}
-                  playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
-                />
+                {resolvedSource.previewMode === 'embed' ? (
+                  <YouTubeEmbedPreviewPlayer
+                    key={resolvedSource.youtubeVideoId}
+                    youtubeVideoId={resolvedSource.youtubeVideoId}
+                    playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
+                  />
+                ) : (
+                  <YouTubePreviewPlayer
+                    key={resolvedSource.youtubeVideoId}
+                    youtubeVideoId={resolvedSource.youtubeVideoId}
+                    streamUrl={resolvedSource.previewStreamUrl}
+                    previewExpiresAt={resolvedSource.previewExpiresAt}
+                    playerRef={playerRef as RefObject<YouTubePlayerHandle | null>}
+                  />
+                )}
 
                 <p className="text-xs text-muted-foreground">
-                  Drag the handles to choose where the imported clip starts and ends. The preview
-                  may look lower quality than the final video. Private videos must still be
-                  accessible to your connected YouTube account.
+                  Drag the handles to choose where the imported clip starts and ends.
+                  {resolvedSource.previewMode === 'embed'
+                    ? ' Embed preview has reduced trim precision; smart cut produces frame-accurate cuts after download.'
+                    : ' The preview may look lower quality than the final video.'}{' '}
+                  Private videos must still be accessible to your connected YouTube account.
                 </p>
               </>
             ) : (
@@ -664,7 +670,8 @@ export function YouTubeImportModal({
               value={trimRange}
               onChange={setTrimRange}
               playerHandle={showVideoPreview ? playerHandle : undefined}
-              enableKeyframeSnap={showVideoPreview && !enableSmartCut}
+              enableKeyframeSnap={showVideoPreview && !enableSmartCut && previewMode === 'direct'}
+              showFrameNudge={previewMode === 'direct'}
             />
 
             <DialogFooter className="gap-2 px-0">

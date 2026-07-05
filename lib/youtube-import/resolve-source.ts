@@ -38,14 +38,30 @@ export interface YouTubeImportResolvedMetadata {
 }
 
 /**
- * Full resolved import source including proxied preview stream details.
+ * Preview playback mode for the import trim editor.
+ * @property direct - Proxied yt-dlp progressive MP4 in an HTML5 video element.
+ * @property embed - YouTube IFrame Player when no direct stream is available.
  */
-export interface YouTubeImportResolvedSource extends YouTubeImportResolvedMetadata {
-  /** Same-origin preview stream URL for the trim editor. */
-  previewStreamUrl: string;
-  /** Approximate Unix expiry for the proxied preview media URL. */
-  previewExpiresAt: number;
-}
+export type YouTubeImportPreviewMode = 'direct' | 'embed';
+
+/**
+ * Full resolved import source including preview stream details or embed fallback.
+ */
+export type YouTubeImportResolvedSource = YouTubeImportResolvedMetadata &
+  (
+    | {
+        /** Proxied yt-dlp stream for HTML5 preview. */
+        previewMode: 'direct';
+        /** Same-origin preview stream URL for the trim editor. */
+        previewStreamUrl: string;
+        /** Approximate Unix expiry for the proxied preview media URL. */
+        previewExpiresAt: number;
+      }
+    | {
+        /** YouTube embed player when no browser-streamable direct format exists. */
+        previewMode: 'embed';
+      }
+  );
 
 /**
  * Parses a YouTube watch URL, short URL, `/live/` URL, or bare 11-character id.
