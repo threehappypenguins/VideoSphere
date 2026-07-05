@@ -11,6 +11,7 @@ import {
   buildFfprobeReadInterval,
   getDirectMediaUrl,
   isBrowserStreamableMp4Format,
+  NoBrowserStreamableFormatError,
   parseFfprobeKeyframeCsv,
   parseFfprobeKeyframePacketCsv,
   pickYtDlpProbeFormat,
@@ -492,5 +493,50 @@ describe('getDirectMediaUrl', () => {
     );
 
     await expect(getDirectMediaUrl('dQw4w9WgXcQ')).rejects.toThrow(/timed out after 50ms/);
+  });
+
+  it('throws NoBrowserStreamableFormatError when only DASH/HLS formats exist', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mockSpawnProcess.mockImplementationOnce(() =>
+      createMockChild({
+        stdout: JSON.stringify({
+          duration: 3600,
+          formats: [
+            {
+              url: 'https://example.com/manifest.mpd',
+              height: 720,
+              vcodec: 'avc1',
+              acodec: 'none',
+              ext: 'mp4',
+              protocol: 'http_dash_segments',
+              format_id: '137',
+            },
+            {
+              url: 'https://example.com/playlist.m3u8',
+              height: 720,
+              vcodec: 'avc1',
+              acodec: 'mp4a',
+              ext: 'mp4',
+              protocol: 'm3u8_native',
+              format_id: '96',
+            },
+          ],
+        }),
+      })
+    );
+
+    await expect(getDirectMediaUrl('dQw4w9WgXcQ')).rejects.toBeInstanceOf(
+      NoBrowserStreamableFormatError
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[getDirectMediaUrl] No browser-streamable MP4 format; yt-dlp format list:',
+      [
+        { protocol: 'http_dash_segments', ext: 'mp4', format_id: '137' },
+        { protocol: 'm3u8_native', ext: 'mp4', format_id: '96' },
+      ]
+    );
+
+    warnSpy.mockRestore();
   });
 });
