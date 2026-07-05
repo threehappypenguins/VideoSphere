@@ -539,4 +539,27 @@ describe('getDirectMediaUrl', () => {
 
     warnSpy.mockRestore();
   });
+
+  it('throws a generic Error when yt-dlp returns no formats', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    mockSpawnProcess.mockImplementationOnce(() =>
+      createMockChild({
+        stdout: JSON.stringify({
+          duration: 3600,
+          formats: [],
+        }),
+      })
+    );
+
+    const error = await getDirectMediaUrl('dQw4w9WgXcQ').catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(NoBrowserStreamableFormatError);
+    expect((error as Error).message).toBe(
+      'yt-dlp metadata lookup did not return any video formats'
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
 });

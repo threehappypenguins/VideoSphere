@@ -337,6 +337,10 @@ export async function getDirectMediaUrl(youtubeVideoId: string): Promise<YouTube
   }
 
   const formats = metadata.formats ?? [];
+  if (formats.length === 0) {
+    throw new Error('yt-dlp metadata lookup did not return any video formats');
+  }
+
   const selected = pickYtDlpProbeFormat(formats);
   if (!selected) {
     console.warn(

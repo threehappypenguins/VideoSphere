@@ -235,8 +235,8 @@ function YouTubeEmbedPreviewPlayerInner({
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Preview uses YouTube&apos;s embed player. Trim points are approximate until import; smart
-          cut snaps to the nearest keyframe in the downloaded file.
+          Preview uses YouTube&apos;s embed player. Trim points are approximate in the preview;
+          smart cut produces frame-accurate cuts after download.
         </p>
       )}
     </div>

@@ -431,7 +431,7 @@ export function YouTubeImportModal({
   const previewMode = resolvedSource?.previewMode ?? 'direct';
   const isEmbedPreview = previewMode === 'embed';
   const smartCutTooltip = isEmbedPreview
-    ? 'Smart cut is required while YouTube is still processing this video. Without a scrubbable direct stream, trim points cannot be verified frame-by-frame — import snaps to the nearest keyframe instead.'
+    ? 'Smart cut is required while YouTube is still processing this video. Without a scrubbable direct stream, trim points cannot be verified frame-by-frame — import applies frame-accurate cuts after download.'
     : 'Frame-accurate trim at import time. Disables keyframe snapping while you adjust the handles.';
 
   return (
@@ -652,7 +652,7 @@ export function YouTubeImportModal({
                 <p className="text-xs text-muted-foreground">
                   Drag the handles to choose where the imported clip starts and ends.
                   {resolvedSource.previewMode === 'embed'
-                    ? ' Embed preview has reduced trim precision; smart cut refines cut points after download.'
+                    ? ' Embed preview has reduced trim precision; smart cut produces frame-accurate cuts after download.'
                     : ' The preview may look lower quality than the final video.'}{' '}
                   Private videos must still be accessible to your connected YouTube account.
                 </p>
