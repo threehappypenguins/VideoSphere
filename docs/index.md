@@ -9,9 +9,10 @@ For homelab or production use — no source checkout required if you use the pub
 1. [Deployment Guide](/deployment-guide) — run the pre-built image with Docker Compose or Portainer
 2. [R2 Storage](/setup/r2/r2-module) — create a Cloudflare R2 bucket and API credentials (required for uploads)
 3. [Google OAuth](/setup/google/google-oauth) — sign-in with Google, YouTube connection, and Google Drive connection (optional per integration)
-4. [Password Recovery](/password-recovery) — reset accounts when SMTP is not configured (CLI, admin links, container access)
+4. [Vimeo OAuth](/setup/vimeo/vimeo-oauth) — Vimeo connection and Upload Access approval (single-account limitation; see guide)
+5. [Password Recovery](/password-recovery) — reset accounts when SMTP is not configured (CLI, admin links, container access)
 
-After the stack is running, connect platforms under **Profile → Connections** in the app. OAuth setup screenshots: [Google OAuth](/setup/google/google-oauth). Optional: add an [OpenRouter](https://openrouter.ai/) API key for AI metadata generation (see the deployment guide env table).
+After the stack is running, connect platforms under **Profile → Connections** in the app. Setup guides: [Google OAuth](/setup/google/google-oauth), [Vimeo OAuth](/setup/vimeo/vimeo-oauth), [SermonAudio API](/setup/sermon-audio/sa-api). Optional: add an [OpenRouter](https://openrouter.ai/) API key for AI metadata generation (see the deployment guide env table).
 
 Want to smoke-test the production image on your machine before going live? See [Local Docker Testing](/local-docker-testing).
 
