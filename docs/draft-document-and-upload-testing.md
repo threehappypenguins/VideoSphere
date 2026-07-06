@@ -1,13 +1,15 @@
 # Draft `document` JSON, platform upload `document`, and manual upload testing
 
+For the dashboard workflow (metadata modal, upload history, YouTube import), see [Uploads, Livestreams & Distribution](/uploads-and-distribution).
+
 This guide covers:
 
 1. How MongoDB stores draft and platform-upload payloads in the `document` field (stringified JSON).
 2. The **draft JSON shape** for frontend and API use, with a **short** sample for quick tests and a **long** sample for full UI wiring.
-3. **Field reference** (YouTube / Vimeo / OAuth; backup destinations: Google Drive, SFTP).
+3. **Field reference** (YouTube, Vimeo, Facebook, SermonAudio; backup destinations: Google Drive, SFTP, SMB).
 4. **End-to-end manual steps**: presign → PUT to R2 with `curl` → complete → distribute.
 
-Canonical TypeScript types live in [`types/index.ts`](../types/index.ts) (`Draft`, `DraftPlatforms`, `YouTubeDraftFields`, `VimeoDraftFields`). Parsing and merge helpers live in [`lib/draft-upload-metadata.ts`](../lib/draft-upload-metadata.ts).
+Canonical TypeScript types live in [`types/index.ts`](../types/index.ts) (`Draft`, `DraftPlatforms`, `YouTubeDraftFields`, `VimeoDraftFields`, `FacebookDraftFields`, `SermonAudioDraftFields`). Parsing and merge helpers live in [`lib/draft-upload-metadata.ts`](../lib/draft-upload-metadata.ts).
 
 ---
 
@@ -17,17 +19,18 @@ Canonical TypeScript types live in [`types/index.ts`](../types/index.ts) (`Draft
 
 - Each document includes a `document` field: a single JSON string (validated and bounded by application limits).
 - That string must deserialize to an object with at least:
-  - **`targets`**: one or more of `"youtube"`, `"vimeo"`, `"google_drive"`, `"sftp"` (order preserved, deduped by the API when saving).
+  - **`targets`**: one or more of `"youtube"`, `"vimeo"`, `"facebook"`, `"sermon_audio"`, `"google_drive"`, `"sftp"`, `"smb"` (order preserved, deduped by the API when saving).
   - **`title`**, **`description`**, **`visibility`** (`public` | `unlisted` | `private`).
-  - **`tags`**: string array — **one shared list** for every platform (not per-platform).
-  - **`platforms`**: object with optional **`youtube`** and **`vimeo`** nested objects (platform-only fields), and optional **`sftp`** (empty object placeholder). **Google Drive** is selected via **`targets` only** — there is no `platforms.google_drive` key.
+  - **`tags`**: string array — **one shared list** for every platform (not per-platform), unless a platform override is set.
+  - **`platforms`**: optional nested objects for publish targets (`youtube`, `vimeo`, `facebook`, `sermon_audio`) and backup title overrides (`google_drive`, `sftp`, `smb`).
+  - Optional document-root fields: **`labels`** (VideoSphere-only tags), **`backupNaming`** (filename rules for backup targets), **`thumbnailR2Key`** / **`thumbnailContentType`** (default thumbnail for distribution).
 
 The app’s draft APIs (`POST/PATCH /api/drafts`, `GET /api/drafts`, …) read and write this structure; the repository persists it as **`document`** on the `drafts` collection.
 
 ### `platform_uploads` collection
 
 - Each document has a **`document`** field: JSON string snapshot **at distribution time**.
-- Typical contents: `title`, `description`, `tags`, `visibility`, optional `categoryId` / `madeForKids` (YouTube), `vimeoCategoryUris`, and optional audit copies **`draftYoutube`** / **`draftVimeo`** (the `platforms.youtube` / `platforms.vimeo` slices from the draft when distribute ran).
+- Typical contents: `title`, `description`, `tags`, `visibility`, platform-specific fields (YouTube `categoryId`, Vimeo `categoryUris`, etc.), and optional audit copies of the draft platform slices (`draftYoutube`, `draftVimeo`, …) captured when distribute ran.
 - Purpose: debugging, support, and correlating what was sent to each platform without re-reading the draft.
 
 See [`lib/platform-upload-document.ts`](../lib/platform-upload-document.ts) for the stored shape and size limit (`MAX_PLATFORM_UPLOAD_DOCUMENT_CHARS`).
@@ -38,7 +41,9 @@ See [`lib/platform-upload-document.ts`](../lib/platform-upload-document.ts) for 
 
 1. **Load**: `GET /api/drafts` or `GET /api/drafts/[id]` returns a `Draft` with **`targets`**, **`title`**, **`description`**, **`tags`**, **`visibility`**, and **`platforms`** already parsed from `document` (you do not manually parse raw MongoDB documents in the client if you use these routes).
 2. **Save**: `POST /api/drafts` or `PATCH /api/drafts/[id]` with a JSON body using the **same keys** as the stored document: `targets`, `title`, `description`, `visibility`, `tags`, `platforms` (partial updates on PATCH merge per server rules).
-3. **Validate in UI** using the types in `types/index.ts` so `platforms.youtube` / `platforms.vimeo` stay consistent with the server.
+3. **Validate in UI** using the types in `types/index.ts` so `platforms.*` slices stay consistent with the server.
+
+The Uploads UI (`/dashboard/uploads`) opens **`DraftMetadataModal`** for editing. Deep-link with `?editDraft=[id]` or `?createDraftId=[id]` after creating a draft from the dashboard.
 
 ---
 
@@ -136,16 +141,54 @@ Sent on Vimeo **`POST /me/videos`** using **snake_case** on the wire where the A
 
 ---
 
-## Backup destinations (Google Drive, SFTP)
+## Field reference: `platforms.facebook`
 
-These targets copy the uploaded video to a connected backup account. Neither has publish-specific draft fields today. Include **`google_drive`** only in **`targets`** (no `platforms.google_drive` — it is not part of `DraftPlatforms`). For **SFTP**, you may include **`platforms.sftp: {}`** so server-side draft parsing preserves the backup target through merge; otherwise omit it.
+Facebook Reels upload via Graph API resumable upload + finish call. See [`lib/platforms/facebook.ts`](../lib/platforms/facebook.ts).
+
+| Field | Role |
+|--------|------|
+| `titleOverride` | Reel title when different from document-root `title` |
+| `descriptionOverride` | Reel description override |
+| `videoState` | `PUBLISHED` (default) or `SCHEDULED` |
+| `scheduledPublishTime` | Unix seconds; required when `videoState` is `SCHEDULED` (10 min–75 days ahead) |
+| `thumbnailR2KeyOverride` | Per-platform thumbnail R2 key when overriding the draft default |
+
+Connect flow: [`GET /api/platforms/connect/facebook`](../app/api/platforms/connect/facebook/route.ts) → OAuth → page/profile selection.
+
+---
+
+## Field reference: `platforms.sermon_audio`
+
+Maps to SermonAudio `POST /v2/node/sermons` and follow-up publish PATCH. See [`lib/platforms/sermon-audio.ts`](../lib/platforms/sermon-audio.ts) and `SermonAudioDraftFields` in `types/index.ts`.
+
+| Field | Role |
+|--------|------|
+| `titleOverride`, `descriptionOverride`, `tagsOverride` | Per-platform copy overrides |
+| `speakerName`, `speakerID` | SermonAudio speaker |
+| `preachDate` | `YYYY-MM-DD` preach date |
+| `eventType` | From `GET /v2/node/filter_options/sermon_event_types` |
+| `subtitle`, `seriesID` | Series / sub-heading |
+| `bibleText`, `displayTitle` | Scripture reference and short title |
+| `languageCode` | From `GET /v2/node/languages` (default `en`) |
+| `autoPublishOnProcessed` | Auto-publish after SA processing (default on) |
+| `publishTimestamp` | Scheduled publish (Unix seconds); disables auto-publish |
+| `crossPublish` | Cross Publish settings for YouTube, Facebook, X, Instagram |
+
+Connect flow: [`POST /api/platforms/connect/sermon-audio`](../app/api/platforms/connect/sermon-audio/route.ts) (API key form; no OAuth).
+
+---
+
+## Backup destinations (Google Drive, SFTP, SMB)
+
+These targets copy the uploaded video to a connected backup account. Publish-specific fields are minimal; optional **`titleOverride`** on `platforms.google_drive`, `platforms.sftp`, or `platforms.smb` changes the remote filename. Document-root **`backupNaming`** controls date/series/suffix prefixes for all backup targets.
 
 | Destination | Connect flow | Server env |
 |-------------|--------------|------------|
 | Google Drive | OAuth: [`/api/platforms/connect/drive`](../app/api/platforms/connect/drive/route.ts) → [`/api/platforms/callback/drive`](../app/api/platforms/callback/drive/route.ts) | `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` |
 | SFTP | Form in Connected Accounts → [`POST /api/platforms/connect/sftp`](../app/api/platforms/connect/sftp/route.ts) (SSH key or password) | None — credentials stored encrypted per user |
+| SMB | Form in Connected Accounts → [`POST /api/platforms/connect/smb`](../app/api/platforms/connect/smb/route.ts) | None — credentials stored encrypted per user |
 
-Upload implementations: [`lib/platforms/google-drive.ts`](../lib/platforms/google-drive.ts), [`lib/platforms/sftp.ts`](../lib/platforms/sftp.ts).
+Upload implementations: [`lib/platforms/google-drive.ts`](../lib/platforms/google-drive.ts), [`lib/platforms/sftp.ts`](../lib/platforms/sftp.ts), [`lib/platforms/smb.ts`](../lib/platforms/smb.ts).
 
 ---
 
@@ -261,6 +304,9 @@ You should get **`202`** with a **`jobId`** while distribution runs asynchronous
 | Distribute | `app/api/uploads/distribute/route.ts` |
 | YouTube upload + playlists | `lib/platforms/youtube.ts` |
 | Vimeo upload | `lib/platforms/vimeo.ts` |
+| Facebook Reels upload | `lib/platforms/facebook.ts` |
+| SermonAudio upload | `lib/platforms/sermon-audio.ts` |
 | Google Drive backup | `lib/platforms/google-drive.ts` |
 | SFTP backup | `lib/platforms/sftp.ts` |
+| SMB backup | `lib/platforms/smb.ts` |
 | MongoDB schema notes | `docs/mongodb-data-model.md` |

@@ -4,19 +4,48 @@ export default defineConfig({
   title: 'VideoSphere Docs',
   description: 'Project documentation for VideoSphere.',
   base: '/',
-  ignoreDeadLinks: true,
+  // TypeDoc HTML lives in docs/public/typedoc (gitignored; run `pnpm docs:api` first).
+  ignoreDeadLinks: [/^\/typedoc(\/|$)/],
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
+      { text: 'Deploy', link: '/deployment-guide' },
+      { text: 'Contributing', link: '/contributing' },
       { text: 'API', link: '/api/' },
-      { text: 'Development Workflow', link: '/daily-dev-workflow' },
-      { text: 'Testing', link: '/testing' },
     ],
     sidebar: [
+      {
+        text: 'Using VideoSphere',
+        items: [{ text: 'Uploads, Livestreams & Distribution', link: '/uploads-and-distribution' }],
+      },
+      {
+        text: 'Deploy & Operate',
+        items: [
+          { text: 'Deployment Guide', link: '/deployment-guide' },
+          { text: 'R2 Storage', link: '/setup/r2/r2-module' },
+          { text: 'Password Recovery', link: '/password-recovery' },
+          { text: 'Local Docker Testing', link: '/local-docker-testing' },
+        ],
+      },
+      {
+        text: 'Development',
+        items: [
+          { text: 'Contributing', link: '/contributing' },
+          { text: 'Daily Dev Workflow', link: '/daily-dev-workflow' },
+          { text: 'MongoDB Data Model', link: '/mongodb-data-model' },
+          { text: 'Draft Document & Upload Testing', link: '/draft-document-and-upload-testing' },
+          { text: 'Code Quality', link: '/code-quality' },
+          { text: 'Testing', link: '/testing' },
+          { text: 'Accessibility', link: '/accessibility' },
+          { text: 'Performance', link: '/performance' },
+          { text: 'TypeScript', link: '/typescript' },
+        ],
+      },
       {
         text: 'API',
         items: [
           { text: 'API Reference', link: '/api/' },
+          { text: 'API Routes Guide', link: '/api-routes' },
           {
             text: 'Generated API Docs (TypeDoc)',
             link: '/typedoc/index.html',
@@ -26,19 +55,12 @@ export default defineConfig({
         ],
       },
       {
-        text: 'Guides',
+        text: 'Contributor Tooling',
         items: [
-          { text: 'Daily Dev Workflow', link: '/daily-dev-workflow' },
-          { text: 'MongoDB Data Model', link: '/mongodb-data-model' },
-          { text: 'Code Quality', link: '/code-quality' },
-          { text: 'Testing', link: '/testing' },
-          { text: 'Deployment Guide', link: '/deployment-guide' },
-          { text: 'Local Docker Testing', link: '/local-docker-testing' },
+          { text: 'Dev Container', link: '/devcontainer' },
+          { text: 'Context7 MCP Setup', link: '/context7-setup' },
+          { text: 'Figma MCP Setup', link: '/figma-mcp-setup' },
         ],
-      },
-      {
-        text: 'Credentials Setup',
-        items: [{ text: 'R2 Storage', link: '/setup/r2/r2-module' }],
       },
     ],
   },

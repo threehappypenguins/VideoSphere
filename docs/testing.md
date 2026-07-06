@@ -39,66 +39,44 @@ Use them for runtime accessibility concerns that linting cannot fully verify, su
 
 For presign → `curl` to R2 → complete → distribute, and for the **`document`** JSON on **`drafts`** and **`platform_uploads`**, see **[draft-document-and-upload-testing.md](/draft-document-and-upload-testing)**.
 
-## Writing Your First Component Test
+## Writing a Component Test
 
-Here's a step-by-step example of testing a simple component.
-
-### 1. Create a component
+This project keeps tests under `__tests__/`, mirroring the source layout. Here is a real example from `__tests__/components/EmptyState.test.tsx`:
 
 ```tsx
-// components/ui/Button.tsx
-interface ButtonProps {
-  label: string;
-  onClick: () => void;
-}
-
-export default function Button({ label, onClick }: ButtonProps) {
-  return (
-    <button onClick={onClick} className="rounded bg-primary px-4 py-2 text-white">
-      {label}
-    </button>
-  );
-}
-```
-
-### 2. Write a test
-
-```tsx
-// components/ui/Button.test.tsx
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi } from 'vitest';
-import Button from './Button';
+import EmptyState from '@/components/EmptyState';
 
-describe('Button', () => {
-  it('renders with the correct label', () => {
-    render(<Button label="Click me" onClick={() => {}} />);
-    expect(screen.getByText('Click me')).toBeInTheDocument();
+describe('EmptyState', () => {
+  it('always renders the title', () => {
+    render(<EmptyState title="No items" />);
+    expect(screen.getByRole('heading', { name: 'No items' })).toBeInTheDocument();
   });
 
-  it('calls onClick when clicked', async () => {
-    const handleClick = vi.fn();
-    render(<Button label="Click me" onClick={handleClick} />);
-
-    await userEvent.click(screen.getByText('Click me'));
-
-    expect(handleClick).toHaveBeenCalledTimes(1);
+  it('calls onClick when the CTA button is clicked', async () => {
+    const onClick = vi.fn();
+    const user = userEvent.setup();
+    render(<EmptyState title="No items" action={{ label: 'Add item', onClick }} />);
+    await user.click(screen.getByRole('button', { name: 'Add item' }));
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
 ```
 
-### 3. Run the test
+Run a single file:
 
 ```bash
-pnpm test
+pnpm test run __tests__/components/EmptyState.test.tsx
 ```
 
 ## Where to Put Test Files
 
 You have two options — pick one and be consistent:
 
-1. **Next to the file**: `components/ui/Button.test.tsx` (recommended)
-2. **In `__tests__/`**: `__tests__/Button.test.tsx`
+1. **In `__tests__/`** (project convention): `__tests__/components/EmptyState.test.tsx`
+2. **Next to the file**: `components/EmptyState.test.tsx`
 
 ## Interpreting Test Results
 

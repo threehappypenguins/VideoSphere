@@ -31,7 +31,7 @@ const PASSWORD_STRENGTH_LABEL_TONE = [
 
 /**
  * Returns Tailwind classes for a password strength label with a readable frosted scrim.
- * @param score - Password strength score from {@link scorePasswordStrength}.
+ * @param score - Password strength score from {@link lib/auth/password!scorePasswordStrength}.
  * @returns Class string for the strength label element.
  */
 export function authPasswordStrengthLabelClass(score: number): string {

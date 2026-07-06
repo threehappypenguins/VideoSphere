@@ -2,6 +2,8 @@
 
 Use this checklist **before you start work** and **when you finish work** so your environment is ready and your changes pass CI.
 
+For the full development hub (setup, API docs, contributor tooling), see [Development & Contributing](/contributing).
+
 For first-run setup after cloning the repository (environment variables, MongoDB, admin account), see [SETUP.md](https://github.com/threehappypenguins/VideoSphere/blob/main/SETUP.md) in the repository root.
 
 ## Prerequisites
@@ -20,7 +22,7 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Open [http://localhost:9624](http://localhost:9624) (or your LAN host IP on port 9624).
+Open `http://localhost:9624` (or your LAN host IP on port 9624).
 
 ---
 
@@ -107,3 +109,19 @@ docker compose --env-file .env.local up -d --build
 ```
 
 For production with a pre-built image, see the [Deployment Guide](/deployment-guide).
+
+---
+
+## Troubleshooting
+
+### `tsc` errors in `.next/types/validator.ts` after deleting routes
+
+`tsconfig.json` includes Next.js generated types under `.next/types/`. If you remove or rename App Router pages, a stale `.next` folder can still reference old paths until Next regenerates them.
+
+```bash
+rm -rf .next
+pnpm build   # or `pnpm dev` for a shorter regen during active work
+pnpm type-check
+```
+
+Fresh clones and CI do not hit this (no `.next` yet). It only affects local trees that had run `dev` or `build` before the route change.

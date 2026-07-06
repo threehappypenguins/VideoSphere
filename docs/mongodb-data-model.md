@@ -1,16 +1,20 @@
 # MongoDB Data Model
 
-VideoSphere stores application data in MongoDB via Mongoose models in [lib/models](../lib/models).
+VideoSphere stores application data in MongoDB via Mongoose models in `lib/models/`.
 
 ## Collections
 
-- `user_profiles`
-- `drafts`
-- `upload_jobs`
-- `platform_uploads`
-- `connected_accounts`
-- `upload_usage`
-- `processed_webhook_events`
+| Collection | Model | Purpose |
+| ---------- | ----- | ------- |
+| `user_profiles` | `UserProfile` | Accounts, roles, preferences |
+| `drafts` | `Draft` | Upload metadata drafts (`document` JSON string) |
+| `upload_jobs` | `UploadJob` | R2 staging upload jobs linked to drafts |
+| `platform_uploads` | `PlatformUpload` | Per-platform distribution attempts and snapshots |
+| `connected_accounts` | `ConnectedAccount` | OAuth tokens and backup credentials (encrypted) |
+| `livestreams` | `Livestream` | Scheduled YouTube/Facebook livestream metadata |
+| `youtube_import_jobs` | `YoutubeImportJob` | YouTube URL import jobs (yt-dlp → R2 → distribute) |
+| `invites` | `InviteToken` | Admin invite tokens for signup |
+| `password_reset_tokens` | `PasswordResetToken` | Password reset links |
 
 ## ID and Timestamp Conventions
 
@@ -27,13 +31,23 @@ See [draft-document-and-upload-testing.md](./draft-document-and-upload-testing.m
 
 ## Encryption at Rest for Connected Account Secrets
 
-Connected account tokens and SFTP credentials are encrypted before persistence.
+Connected account tokens, SFTP credentials, SMB credentials, and SermonAudio API keys are encrypted before persistence.
 
 - Key env var: `TOKEN_ENCRYPTION_KEY`
 - Algorithm: AES-256-GCM
 - Implementation: [lib/crypto/token-encryption.ts](../lib/crypto/token-encryption.ts)
 
-Supported `connected_accounts.platform` values: `youtube`, `vimeo`, `google_drive`, `sftp`.
+Supported `connected_accounts.platform` values:
+
+| Platform | Connect method |
+| -------- | -------------- |
+| `youtube` | OAuth |
+| `vimeo` | OAuth |
+| `google_drive` | OAuth |
+| `facebook` | OAuth (page/profile selection) |
+| `sftp` | Form (host, user, key or password) |
+| `smb` | Form (host, share, domain, credentials) |
+| `sermon_audio` | Form (API key) |
 
 ## Migration Notes
 

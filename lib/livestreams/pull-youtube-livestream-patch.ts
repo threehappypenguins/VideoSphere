@@ -14,7 +14,7 @@ function tagsEqual(a: readonly string[], b: readonly string[]): boolean {
  * Builds a partial livestream update from metadata fetched on YouTube.
  * YouTube is treated as the source of truth on pull — only changed fields are included.
  * @param livestream - Current local livestream row.
- * @param metadata - Metadata from {@link getYouTubeLiveBroadcastMetadata}.
+ * @param metadata - Metadata from {@link lib/platforms/youtube-livestream-api!getYouTubeLiveBroadcastMetadata}.
  * @returns Patch to apply, or `null` when the local row already matches YouTube.
  */
 export function buildLivestreamPatchFromYouTubeMetadata(

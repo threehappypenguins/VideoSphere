@@ -260,7 +260,13 @@ it('has no accessibility violations', async () => {
 });
 ```
 
-Current automated a11y coverage includes the landing page, login and signup flows, dashboard summary, draft metadata modal, and navigation bar.
+Current automated a11y coverage (files matching `**/*.a11y.test.{ts,tsx}`):
+
+- Landing page (`__tests__/pages/home.a11y.test.tsx`)
+- Login and signup flows (`__tests__/pages/auth.a11y.test.tsx`)
+- Dashboard summary (`__tests__/pages/dashboard.a11y.test.tsx`)
+- Draft metadata modal (`__tests__/components/DraftMetadataModal.a11y.test.tsx`)
+- Navigation bar (`__tests__/components/Navbar.a11y.test.tsx`)
 
 ## Useful Resources
 
