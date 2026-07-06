@@ -8,7 +8,7 @@ vi.mock('next/navigation', () => ({
   redirect: redirectMock,
 }));
 
-import EditDraftPage from '@/app/(dashboard)/dashboard/drafts/[id]/page';
+import EditDraftPage from '@/app/(dashboard)/dashboard/uploads/[id]/page';
 
 describe('EditDraftPage', () => {
   it('redirects to the drafts page with editDraft query', async () => {
