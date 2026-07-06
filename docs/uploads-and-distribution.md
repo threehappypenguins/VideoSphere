@@ -17,7 +17,7 @@ Open **Profile → Connections** (`/profile/connections`) before your first uplo
 | **YouTube** | Video publish | OAuth — **Connect YouTube** | `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET` | OAuth consent; optional **main** and **temporary** stream keys (for livestreams) |
 | **Vimeo** | Video publish | OAuth — **Connect Vimeo** | `VIMEO_CLIENT_ID`, `VIMEO_CLIENT_SECRET` | OAuth only |
 | **Facebook** | Video publish (Reels) | OAuth — **Connect Facebook** | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | OAuth, then pick a **Facebook Page** on the setup screen |
-| **SermonAudio** | Video publish | Form — API key | None (per-user key in DB) | Broadcaster ID, API key, optional label |
+| **SermonAudio** | Video publish | Form — API key | None (per-user key in DB) | [Broadcaster ID & API key](/setup/sermon-audio/sa-api); optional label |
 | **Google Drive** | Backup copy | OAuth — **Connect Google Drive** | `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` | OAuth, then backup folder path |
 | **SFTP** | Backup copy | Form — host & credentials | None | Host, port, username, remote path, SSH key or password |
 | **SMB** | Backup copy | Form — share & credentials | None | Host, share name, domain, username, password, remote path |
@@ -26,7 +26,7 @@ Open **Profile → Connections** (`/profile/connections`) before your first uplo
 
 All OAuth redirect URIs depend on `NEXT_PUBLIC_APP_URL` matching the URL you use in the browser.
 
-Detailed setup screenshots for R2 are in [R2 Storage](/setup/r2/r2-module). Google sign-in and platform OAuth (YouTube, Google Drive) are in [Google OAuth](/setup/google/google-oauth).
+Detailed setup screenshots for R2 are in [R2 Storage](/setup/r2/r2-module). Google sign-in and platform OAuth (YouTube, Google Drive) are in [Google OAuth](/setup/google/google-oauth). SermonAudio Broadcaster ID and API key: [SermonAudio API](/setup/sermon-audio/sa-api).
 
 ---
 
