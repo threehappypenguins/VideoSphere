@@ -23,6 +23,7 @@ export default defineConfig({
         items: [
           { text: 'Deployment Guide', link: '/deployment-guide' },
           { text: 'R2 Storage', link: '/setup/r2/r2-module' },
+          { text: 'Google OAuth', link: '/setup/google/google-oauth' },
           { text: 'Password Recovery', link: '/password-recovery' },
           { text: 'Local Docker Testing', link: '/local-docker-testing' },
         ],

@@ -26,7 +26,7 @@ Open **Profile → Connections** (`/profile/connections`) before your first uplo
 
 All OAuth redirect URIs depend on `NEXT_PUBLIC_APP_URL` matching the URL you use in the browser.
 
-Detailed setup screenshots for R2 are in [R2 Storage](/setup/r2/r2-module). Step-by-step OAuth app configuration is in the [Deployment Guide](/deployment-guide) environment table.
+Detailed setup screenshots for R2 are in [R2 Storage](/setup/r2/r2-module). Google sign-in and platform OAuth (YouTube, Google Drive) are in [Google OAuth](/setup/google/google-oauth).
 
 ---
 
