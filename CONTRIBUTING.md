@@ -139,20 +139,6 @@ When reviewing a teammate's PR:
 
 Minimum requirement: **1 approving review** before merge.
 
----
-
-## ⚠️ AI Git Operations — ABSOLUTE RULE
-
-> **AI agents must NEVER perform any git operations of any kind.**
->
-> This includes: commits, pushes, pulls, merges, branch creation, PR creation, or any other GitHub activity.
->
-> Every commit must be performed by a **human team member** using standard git commands.
-
-AI writes code → **You** review it → **You** commit it → **You** push it.
-
----
-
 ## Quick Reference
 
 ```bash

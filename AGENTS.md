@@ -7,15 +7,7 @@ This repository uses AI coding assistants. Follow these rules on every task.
 1. Check current documentation before writing or modifying code.
 2. Do not introduce deprecated APIs, options, or patterns.
 3. Document all exported/public APIs with TypeDoc comments.
-4. AI agents must never perform any git or GitHub operations.
-5. Prefer maintainable, testable, and minimal changes that match existing project style.
-
-## Git and GitHub Operations (Absolute Rule)
-
-- AI agents must NEVER perform git or GitHub operations of any kind.
-- Prohibited actions include commits, pushes, pulls, merges, rebases, branch creation/deletion, tags, PR creation/updates, reviews, issue edits, and any other GitHub activity.
-- All repository operations must be done by a human team member.
-- Workflow: AI writes code -> human reviews -> human stages/commits/pushes.
+4. Prefer maintainable, testable, and minimal changes that match existing project style.
 
 ## Documentation Requirements (Mandatory)
 
