@@ -53,6 +53,6 @@ The docs are built with [VitePress](https://vitepress.dev/) from the `docs/` fol
 | `pnpm docs:preview` | Preview the built output locally |
 | `pnpm docs:api` | Regenerate TypeDoc output at `docs/public/typedoc` |
 
-Typical workflow: edit markdown → `pnpm docs:dev` while writing → `pnpm docs:build` before opening a PR.
+Typical workflow: edit markdown → `pnpm docs:dev` while writing → `pnpm docs:build` before opening a PR against `dev`.
 
 Docs deploy automatically to [videosphere.sarahpoulin.ca](https://videosphere.sarahpoulin.ca/) on pushes to `main`.

@@ -30,13 +30,13 @@ Open `http://localhost:9624` (or your LAN host IP on port 9624).
 
 Do these at the beginning of each development session.
 
-### Update `main` and create a branch
+### Update `dev` and create a branch
 
-Always start from the latest `main` so you don’t base your work on outdated code.
+Always start from the latest `dev` so you don’t base your work on outdated code.
 
 ```bash
-git checkout main
-git pull origin main
+git checkout dev
+git pull origin dev
 git checkout -b feature/your-feature-name
 ```
 
@@ -62,7 +62,7 @@ pnpm build
 | `pnpm test run`   | Runs tests once (no watch mode).                   |
 | `pnpm build`      | Builds the app (catches type and build errors).   |
 
-**Order:** Run them in this order. Fix any errors before moving to the next. If everything passes, your branch is ready to push and open a PR.
+**Order:** Run them in this order. Fix any errors before moving to the next. If everything passes, your branch is ready to push and open a PR against `dev`.
 
 ---
 
@@ -70,7 +70,7 @@ pnpm build
 
 **Start of day:**
 
-1. `git checkout main && git pull origin main`
+1. `git checkout dev && git pull origin dev`
 2. `git checkout -b feature/your-branch-name`
 3. `pnpm dev`
 
@@ -81,7 +81,7 @@ pnpm build
 3. `pnpm test run`
 4. `pnpm build`
 
-Then commit (if you haven’t already), push, and open a PR.
+Then commit (if you haven’t already), push, and open a PR against `dev`.
 
 ---
 

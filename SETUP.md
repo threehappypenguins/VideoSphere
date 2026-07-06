@@ -161,7 +161,7 @@ pnpm test run
 pnpm build
 ```
 
-If all pass, push your branch and open a PR.
+If all pass, push your branch and open a PR against `dev`.
 
 ---
 

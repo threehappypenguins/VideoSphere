@@ -19,7 +19,7 @@ git commit --no-verify -m "your message"
 
 ## Branching Strategy
 
-Use feature branches when a change is large or you want a pull request for CI. Direct commits to `main` are fine for solo maintenance when you have run the checks locally.
+Use feature branches when a change is large or you want a pull request for CI. Direct commits to `dev` are fine for solo maintenance when you have run the checks locally.
 
 ### Branch Naming Convention
 
@@ -40,9 +40,9 @@ type/short-description
 ### Workflow
 
 ```bash
-# 1. Start from an up-to-date main branch
-git checkout main
-git pull origin main
+# 1. Start from an up-to-date dev branch
+git checkout dev
+git pull origin dev
 
 # 2. Create your feature branch
 git checkout -b feat/your-feature-name
@@ -54,11 +54,11 @@ git commit -m "feat: add user login form"
 # 4. Push your branch
 git push origin feat/your-feature-name
 
-# 5. Open a Pull Request on GitHub
+# 5. Open a Pull Request on GitHub against dev
 
 # 6. After the PR is merged, clean up
-git checkout main
-git pull origin main
+git checkout dev
+git pull origin dev
 git branch -d feat/your-feature-name
 ```
 
@@ -90,7 +90,7 @@ To **build and run** the image locally (amd64 smoke test, OAuth, production serv
 
 ## Pull Request Process
 
-1. **Open a PR** against `main` with a clear title and description
+1. **Open a PR** against `dev` with a clear title and description
 2. **Keep PRs focused** — one feature or fix per PR when possible
 3. **Ensure CI passes** — lint, type-check, build, and tests must all be green
 4. **Merge when ready** — squash or merge commit, whichever you prefer
