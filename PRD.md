@@ -637,7 +637,6 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | **Docker Compose**| Local development stack                       |
 | **GitHub Actions**| CI pipeline (lint, format, type-check, build) |
 | **Husky**         | Git hooks (pre-commit linting)                |
-| **Commitlint**    | Conventional Commits enforcement              |
 
 ### Testing
 
@@ -816,8 +815,6 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | Zero ESLint errors              | Enforced by CI      |
 | Zero TypeScript errors          | Enforced by CI      |
 | Consistent code formatting      | Enforced by Prettier|
-| Conventional commits on all PRs | Enforced by commitlint |
-| Code review on all PRs          | Required by branch protection |
 
 ---
 

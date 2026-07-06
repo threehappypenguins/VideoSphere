@@ -61,42 +61,14 @@ When you run `git commit`:
 1. **`pre-commit` hook** runs lint-staged:
    - ESLint checks and fixes `.ts` and `.tsx` files
    - Prettier formats all staged files
-2. **`commit-msg` hook** runs commitlint:
-   - Validates your commit message follows Conventional Commits format
 
-If either check fails, the commit is **blocked**. Fix the issues and try again.
-
-## Conventional Commits
-
-All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
-
-```
-type: description
-```
-
-### All Valid Types
-
-| Type       | Description                          | Example                            |
-| ---------- | ------------------------------------ | ---------------------------------- |
-| `feat`     | New feature                          | `feat: add search functionality`   |
-| `fix`      | Bug fix                              | `fix: correct date formatting`     |
-| `docs`     | Documentation changes                | `docs: update deployment guide`    |
-| `style`    | Formatting only (no logic change)    | `style: fix indentation in utils`  |
-| `refactor` | Code reorganization (no feature/fix) | `refactor: simplify auth logic`    |
-| `test`     | Adding or updating tests             | `test: add button component tests` |
-| `chore`    | Maintenance tasks                    | `chore: update dependencies`       |
-| `perf`     | Performance improvement              | `perf: lazy load dashboard charts` |
-| `ci`       | CI/CD changes                        | `ci: add preview deployment step`  |
-| `build`    | Build system changes                 | `build: upgrade Tailwind to v4`    |
-| `revert`   | Revert a previous commit             | `revert: undo auth flow changes`   |
+If the check fails, the commit is **blocked**. Fix the issues and try again.
 
 ### When a Commit Is Blocked
 
 If your commit is rejected:
 
 1. **Linting failure**: Run `pnpm lint:fix` and `pnpm format`, then re-stage and commit
-2. **Commit message failure**: Rewrite your message following the format above
-3. **Tip**: Use `git commit -m "feat: your description"` to ensure the format is correct
 
 ## Extending the Configuration
 
@@ -120,7 +92,6 @@ Edit `.prettierrc` to adjust formatting preferences. See [Prettier Options](http
 
 - [ESLint Documentation](https://eslint.org/docs/latest/)
 - [Prettier Documentation](https://prettier.io/docs/en/)
-- [Conventional Commits Specification](https://www.conventionalcommits.org/)
 - [Husky Documentation](https://typicode.github.io/husky/)
 
 ## Export Doc Comment Convention
