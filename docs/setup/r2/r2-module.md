@@ -16,18 +16,94 @@ Cloudflare R2 integration for VideoSphere. Provides utility functions for genera
 
 Create an R2 account and bucket in Cloudflare Dashboard:
 
-1. **Cloudflare Dashboard** → **R2** → **Create bucket**
-2. **R2 → API Tokens** → **Create API Token**
-   - Permissions: `s3.read`, `s3.write`
-   - TTL: Long-lived (90+ days)
+1. **Cloudflare Dashboard** → **Storage & databases** → **R2 Object Storage** → **Overview** → **Create bucket**
+![Create bucket button](./r2-01.png)
 
-3. Add credentials to `.env.local`:
-```bash
-R2_ACCOUNT_ID=your-account-id
-R2_ACCESS_KEY_ID=your-access-key
-R2_SECRET_ACCESS_KEY=your-secret-key
-R2_BUCKET_NAME=videosphere-uploads
-```
+2. Call it `videosphere-uploads` and keep the defaults.
+![Configure create bucket](./r2-02.png)
+
+3. Click on R2 Object Storage
+![R2 Object storage link](./r2-03.png)
+
+4. **Account Details** → **Manage**
+![Manage link under Account Details](./r2-04.png)
+
+5. **Account API Tokens** → **Create Account API token**
+![Create Account API token button](./r2-05.png)
+
+6. **Create Account API Token**
+  - Permissions: `Object Read & Write`
+  - Specify bucket(s): `Apply to specific buckets only` and choose `videosphere-uploads`
+![Create Account API Token page](./r2-06.png)
+
+7. Add credentials to `.env.local` (**hint**: Account ID is found in Account Details in step 4):
+    ```bash
+    R2_ACCOUNT_ID=your-account-id
+    R2_ACCESS_KEY_ID=your-access-key
+    R2_SECRET_ACCESS_KEY=your-secret-key
+    R2_BUCKET_NAME=videosphere-uploads
+    ```
+    ![Create Account API token page](./r2-07.png)
+
+8. Click on R2 Object Storage:
+![R2 Object Storage link](./r2-08.png)
+
+9. Click on your new bucket:
+![videosphere-uploads bucket](./r2-09.png)
+
+10. Go to the bucket **Settings*:
+![bucket settings link](./r2-10.png)
+
+11. Go to **CORS Policy**:
+![CORS Policy link](./r2-11.png)
+
+12. Add a **CORS Policy**:
+![Add CORS Policy](./r2-12.png)
+
+13. Copy and Paste the following (change the domain):
+    ```
+    [
+      {
+        "AllowedOrigins": [
+          "https://mydomain.com"
+        ],
+        "AllowedMethods": [
+          "GET",
+          "PUT",
+          "POST",
+          "DELETE",
+          "HEAD"
+        ],
+        "AllowedHeaders": [
+          "*"
+        ],
+        "ExposeHeaders": [
+          "ETag"
+        ],
+        "MaxAgeSeconds": 3600
+      }
+    ]
+    ```
+
+    If you are doing local development, you can add more domains:
+
+    ```
+    "AllowedOrigins": [
+      "http://localhost:9624",
+      "https://mydomain.com"
+    ],
+    ```
+    ![CORS Policy details](./r2-13.png)
+
+14. Edit **Object Lifecycle Rules**
+![Object Lifecycle Rules edit button](./r2-14.png)
+
+15. **Object Lifecycle Rules**
+
+    Suggested rules (feel free to change accordingly):
+    - Delete uploaded objects after `2` `Days`
+    - Abort incomplete multipart uploads after `1` `Days`
+![Object Lifecycle Rules details](./r2-15.png)
 
 ## API Reference
 
