@@ -1,59 +1,36 @@
 # VideoSphere Documentation
 
-VideoSphere is an open-source, self-hosted video distribution platform. Upload once to Cloudflare R2, then distribute to YouTube, Vimeo, Google Drive, SFTP, SMB backup, and more — with metadata drafts and AI-assisted descriptions.
+VideoSphere is an open-source, self-hosted video distribution platform. Upload once to Cloudflare R2, then distribute to YouTube, Vimeo, Facebook, SermonAudio, Google Drive, SFTP, and SMB — with metadata drafts, labels, thumbnails, scheduling, AI-assisted descriptions, YouTube import, and livestream scheduling.
 
-Use these docs to run a production deployment, configure platform integrations, develop locally, and contribute safely.
+## Start Here (deploy & operate)
 
-## Start Here
+For homelab or production use — no source checkout required if you use the published Docker image.
 
-- [Deployment Guide](/deployment-guide) — run the pre-built Docker image (Portainer or Compose)
-- [Local Docker Testing](/local-docker-testing) — build and run the image on your machine
-- [Daily Dev Workflow](/daily-dev-workflow) — local development checklist and pnpm scripts
-- [MongoDB Data Model](/mongodb-data-model)
-- [Code Quality](/code-quality)
-- [Testing](/testing)
+1. [Deployment Guide](/deployment-guide) — run the pre-built image with Docker Compose or Portainer
+2. [R2 Storage](/setup/r2/r2-module) — create a Cloudflare R2 bucket and API credentials (required for uploads)
+3. [Google OAuth](/setup/google/google-oauth) — sign-in with Google, YouTube connection, and Google Drive connection (optional per integration)
+4. [Vimeo OAuth](/setup/vimeo/vimeo-oauth) — Vimeo connection and Upload Access approval (single-account limitation; see guide)
+5. [Facebook OAuth](/setup/facebook/fb-oauth) — Facebook Page connection for Reels publishing
+6. [Password Recovery](/password-recovery) — reset accounts when SMTP is not configured (CLI, admin links, container access)
 
-## Tech Stack
+After the stack is running, connect platforms under **Profile → Connections** in the app. Setup guides: [Google OAuth](/setup/google/google-oauth), [Vimeo OAuth](/setup/vimeo/vimeo-oauth), [Facebook OAuth](/setup/facebook/fb-oauth), [SermonAudio API](/setup/sermon-audio/sa-api). Optional: add an [OpenRouter](https://openrouter.ai/) API key for AI metadata generation (see the deployment guide env table).
 
-| Technology      | Purpose           |
-| --------------- | ----------------- |
-| Next.js 16      | React framework (App Router, API routes) |
-| React 19        | UI components     |
-| TypeScript      | Type safety       |
-| Tailwind CSS 4  | Styling           |
-| MongoDB 8       | Application data  |
-| Cloudflare R2   | Temporary upload staging |
-| Vitest          | Unit and component tests |
-| ESLint + Prettier | Linting and formatting |
+Want to smoke-test the production image on your machine before going live? See [Local Docker Testing](/local-docker-testing).
 
-## Repository Layout
+## Development & contributing
 
-```
-├── app/                    # Next.js App Router pages and API routes
-├── components/             # Reusable React components
-├── hooks/                  # Custom React hooks
-├── lib/                    # Server utilities and shared logic
-├── types/                  # TypeScript type definitions
-├── docs/                   # This documentation site (VitePress)
-├── __tests__/              # Test files
-├── portainer-stack.yml     # Production stack template (pre-built image)
-├── docker-compose.yml      # Local development stack (build from source)
-└── Dockerfile              # Production container image
-```
+Cloning the repo, changing code, or updating docs? See **[Development & Contributing](/contributing)**.
 
-## Editing This Documentation
+## Using the app
 
-The docs site is built with [VitePress](https://vitepress.dev/) from files in the `docs/` folder.
+Full walkthrough: **[Uploads, Livestreams & Distribution](/uploads-and-distribution)** — platform connections, draft metadata modal, file upload, YouTube import, livestream scheduling, and upload history.
 
-| Command            | Purpose |
-| ------------------ | ------- |
-| `pnpm docs:dev`    | Local preview with live reload (regenerates API docs first) |
-| `pnpm docs:build`  | Production build — run before merging docs changes |
-| `pnpm docs:preview`| Preview the built output locally |
-| `pnpm docs:api`    | Regenerate TypeDoc output at `docs/public/typedoc` |
+| Area | Route | Notes |
+| ---- | ----- | ----- |
+| **Uploads** | `/dashboard/uploads` | Draft list and metadata editor (`DraftMetadataModal`) |
+| **Upload history** | `/dashboard/uploads/history` | Completed and failed jobs; retry and discard |
+| **Livestreams** | `/dashboard/livestreams` | YouTube scheduled broadcasts (Facebook scheduling disabled for new schedules) |
+| **Connections** | `/profile/connections` | OAuth and credential setup per platform |
+| **Admin** | `/dashboard/users`, `/admin/dashboard` | User management and stats |
 
-Typical workflow: edit markdown → `pnpm docs:dev` while writing → `pnpm docs:build` before opening a PR.
-
-API reference while previewing locally: `/api/` and `/typedoc/index.html`.
-
-Docs deploy automatically to [videosphere.sarahpoulin.ca](https://videosphere.sarahpoulin.ca/) via [deploy-docs-pages.yml](https://github.com/threehappypenguins/VideoSphere/blob/main/.github/workflows/deploy-docs-pages.yml) on pushes to `main`.
+Draft data APIs remain under `/api/drafts/*`; the dashboard nav label is **Uploads**.

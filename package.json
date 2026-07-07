@@ -71,8 +71,6 @@
   },
   "devDependencies": {
     "@anthropic-ai/claude-code": "^2.1.87",
-    "@commitlint/cli": "^20",
-    "@commitlint/config-conventional": "^20",
     "@svgr/webpack": "^8.1.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6",

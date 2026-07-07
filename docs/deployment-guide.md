@@ -20,8 +20,8 @@ Pin a specific tag instead of `latest` when you want controlled rollouts.
 - Docker (Compose v2 or Portainer)
 - MongoDB 8 (included in the stack below, or external)
 - [Cloudflare R2](/setup/r2/r2-module) bucket for temporary media staging
-- Platform OAuth credentials (YouTube, Vimeo, Google Drive; plus Facebook if enabled)
-- Per-user connection credentials entered in the app (SermonAudio API keys, SFTP host/auth, SMB share credentials)
+- Platform OAuth credentials — [Google OAuth](/setup/google/google-oauth) (sign-in, YouTube, Google Drive), [Vimeo OAuth](/setup/vimeo/vimeo-oauth), [Facebook OAuth](/setup/facebook/fb-oauth)
+- Per-user connection credentials entered in the app — [SermonAudio API](/setup/sermon-audio/sa-api), SFTP host/auth, SMB share credentials
 - OpenRouter API key for AI metadata generation (optional)
 
 ## Required Environment Variables

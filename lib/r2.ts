@@ -570,7 +570,7 @@ export interface GetObjectStreamOptions {
   signal?: AbortSignal;
   /**
    * When set, requests only bytes from this index through EOF (S3 `Range: bytes=N-`).
-   * Returned {@link contentLength} is still the full object size for resumable upload headers.
+   * The returned `contentLength` is still the full object size for resumable upload headers.
    */
   rangeStart?: number;
 }
@@ -670,7 +670,7 @@ async function openObjectNodeStream(
 }
 
 /**
- * Stream object bytes from R2 as a Node.js {@link Readable}.
+ * Stream object bytes from R2 as a Node.js `Readable` stream.
  * Prefer this for ffmpeg stdin piping; avoid converting to a Web ReadableStream first.
  * @param key - R2 object key.
  * @param options - Optional abort signal and byte range for partial reads.

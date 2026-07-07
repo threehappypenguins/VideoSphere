@@ -1,14 +1,21 @@
 # API Routes
 
-This directory contains your Next.js App Router API route handlers.
+This directory contains Next.js App Router route handlers (`route.ts` files).
 
-## Existing Routes
+## Route Domains
 
-- **`/api/health`** — Health check endpoint (GET)
-- **`/api/example`** — Example CRUD endpoint (GET, POST)
+| Path prefix | Purpose |
+| ----------- | ------- |
+| `/api/health` | Health check (`GET`) |
+| `/api/auth/*` | Login, session, profile, OAuth, TOTP, invites |
+| `/api/drafts/*` | Draft CRUD, labels, thumbnails, YouTube import per draft |
+| `/api/uploads/*` | Presign, complete, distribute, upload jobs |
+| `/api/youtube-import/*` | Resolve URL, preview, start/run import jobs |
+| `/api/platforms/*` | Connect/callback flows and platform metadata helpers |
+| `/api/livestreams/*` | Livestream CRUD, schedule, thumbnails |
+| `/api/ai/generate-metadata` | AI metadata generation (OpenRouter) |
+| `/api/admin/*` | Users, invites, stats |
 
-## Adding New Routes
+For handler patterns and HTTP conventions, see [docs/api-routes.md](/docs/api-routes.md).
 
-To create a new API route, add a `route.ts` file in a new directory under `app/api/`.
-
-For detailed guidance, see **[/docs/api-routes.md](/docs/api-routes.md)**.
+Generated TypeDoc output for exported symbols: run `pnpm docs:api`, then open `/typedoc/index.html` in the docs site.

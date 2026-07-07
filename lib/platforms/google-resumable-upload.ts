@@ -33,7 +33,7 @@ export interface OpenedRangedVideoStream {
 
 /**
  * Opens an independent stream for resumable upload, optionally starting at a byte offset
- * (for example via {@link getObjectWebStream} with `rangeStart`).
+ * (for example via {@link lib/r2!getObjectWebStream} with `rangeStart`).
  */
 export type OpenRangedVideoStream = (
   options: RangedVideoStreamOpenOptions
@@ -345,8 +345,8 @@ async function skipStreamBytes(
 
 /**
  * Resumable upload in 256 KiB–aligned chunks (Google's recommended protocol).
- * When {@link startOffset} is greater than zero, {@link stream} must already begin at that
- * byte index unless {@link streamStartsAtOffset} is false (non-seekable sources).
+ * When `input.startOffset` is greater than zero, `input.stream` must already begin at that
+ * byte index unless `input.streamStartsAtOffset` is false (non-seekable sources).
  * @param input - Session URL, stream, and platform-specific error mapping.
  * @returns Platform upload result on success or failure.
  */
@@ -358,8 +358,8 @@ export async function uploadGoogleResumableInChunks(input: {
   contentType: string;
   startOffset?: number;
   /**
-   * When true (default), {@link stream} already begins at {@link startOffset} (e.g. R2 Range GET).
-   * When false, bytes before {@link startOffset} are read from {@link stream} and discarded.
+   * When true (default), the stream already begins at `startOffset` (e.g. R2 Range GET).
+   * When false, bytes before `startOffset` are read from the stream and discarded.
    */
   streamStartsAtOffset?: boolean;
   onBytesConfirmed?: (bytesConfirmed: number) => Promise<void>;

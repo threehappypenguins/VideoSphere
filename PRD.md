@@ -144,7 +144,7 @@ The primary user journey follows this sequence:
  OAuth2 connect       Title, description, tags, thumbnails,            Upload to Cloudflare    VideoSphere uploads
  YouTube, Vimeo,      visibility, per-platform overrides,              R2 as temporary         to each platform
  Facebook +           and which platforms to target — all on           staging storage          via API; user
- SermonAudio API key  the draft edit page (/dashboard/drafts/[id])                              tracks job status
+ SermonAudio API key  the Uploads metadata modal (/dashboard/uploads)                            tracks job status
 ```
 
 ### Detailed Flow
@@ -157,7 +157,7 @@ The primary user journey follows this sequence:
    - Connected accounts are stored securely (OAuth tokens and API keys persisted encrypted in MongoDB).
 
 2. **Create Draft with Metadata**
-   - User clicks "New Draft" on the Dashboard and is taken to `/dashboard/drafts/[id]`.
+   - User clicks "New Draft" on the Dashboard, which creates a draft and opens the metadata modal on `/dashboard/uploads?createDraftId=[id]`.
    - User enters a default title, description, and tags that apply to all selected platforms.
    - User selects which connected platforms this video should be distributed to (e.g., YouTube + Vimeo + SermonAudio + Facebook) directly on the draft form.
    - Optionally, user clicks "Customize per platform" to override title/description/tags for a specific platform.
@@ -168,7 +168,7 @@ The primary user journey follows this sequence:
    - Draft is saved to MongoDB and can be returned to later.
 
 3. **Upload Video File**
-   - From the draft edit page, user clicks "Upload Video" to navigate to `/dashboard/drafts/[id]/upload`.
+   - From the draft metadata modal, user clicks "Upload Video" to navigate to `/dashboard/uploads/[id]/upload`.
    - User selects a video file (max 5 GB) via file picker or drag-and-drop.
    - File is uploaded directly to **Cloudflare R2** as temporary staging storage via a presigned PUT URL.
    - A progress bar shows upload percentage.
@@ -345,10 +345,10 @@ The primary user journey follows this sequence:
 /login                      Sign in (email/password, Google OAuth, GitHub OAuth)
 /signup                     Create account
 /dashboard                  Main user dashboard (upload jobs, drafts, quick actions)
-/dashboard/drafts           List of saved drafts
-/dashboard/drafts/[id]      Edit a specific draft
-/dashboard/drafts/[id]/upload Upload entrypoint for a draft (upload → distribute flow)
-/dashboard/history          Completed and failed upload history
+/dashboard/uploads                    List of saved drafts (Uploads page)
+/dashboard/uploads?editDraft=[id]   Edit a specific draft (opens metadata modal; `/dashboard/uploads/[id]` redirects here)
+/dashboard/uploads/[id]/upload      Upload entrypoint for a draft (upload → distribute flow)
+/dashboard/uploads/history            Completed and failed upload history
 /profile                    User profile, account status, connected accounts
 /profile/connections        Manage connected platform accounts (OAuth)
 /admin/dashboard            Admin-only: user management, stats, error logs
@@ -637,7 +637,6 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | **Docker Compose**| Local development stack                       |
 | **GitHub Actions**| CI pipeline (lint, format, type-check, build) |
 | **Husky**         | Git hooks (pre-commit linting)                |
-| **Commitlint**    | Conventional Commits enforcement              |
 
 ### Testing
 
@@ -816,8 +815,6 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | Zero ESLint errors              | Enforced by CI      |
 | Zero TypeScript errors          | Enforced by CI      |
 | Consistent code formatting      | Enforced by Prettier|
-| Conventional commits on all PRs | Enforced by commitlint |
-| Code review on all PRs          | Required by branch protection |
 
 ---
 

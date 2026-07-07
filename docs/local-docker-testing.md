@@ -74,7 +74,7 @@ Replace `amd64-test` with your tag if you built a different one.
 
 ## 4. Verify
 
-1. Open [http://localhost:9624](http://localhost:9624) (or your `NEXT_PUBLIC_APP_URL`)
+1. Open `http://localhost:9624` (or your `NEXT_PUBLIC_APP_URL`)
 2. Sign in or complete first-run setup at `/setup`
 3. Check logs: `docker logs -f videosphere-test`
 

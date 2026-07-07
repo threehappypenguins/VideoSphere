@@ -39,9 +39,8 @@ docs/
 .DS_Store
 Thumbs.db
 
-# Husky, commitlint (dev-only)
+# Husky (dev-only)
 .husky/
-commitlint.config.js
 
 # Debug and logs
 *.log

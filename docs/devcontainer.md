@@ -49,7 +49,6 @@ The dev container comes pre-configured with:
 | **Vitest Explorer** | Run and view Vitest tests from the VS Code sidebar |
 | **GitLens** | Enhanced Git history, blame annotations, and branch visualisation |
 | **GitHub Pull Requests** | Create, review, and merge pull requests directly in VS Code |
-| **Conventional Commits** | Guided commit message builder following conventional commit format |
 | **GitHub Copilot** | AI coding assistant |
 | **GitHub Copilot Chat** | Conversational AI assistance |
 | **Code Spell Checker** | Catches typos in code and comments |

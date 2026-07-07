@@ -14,8 +14,7 @@ const SERMONAUDIO_UI_PROCESSING_MAX_ATTEMPTS = 120;
 
 /**
  * Stop UI polling for SermonAudio auto-publish after the server-side processing budget
- * ({@link SERMONAUDIO_UI_PROCESSING_MAX_ATTEMPTS} × {@link SERMONAUDIO_UI_PROCESSING_POLL_INTERVAL_MS}
- * ≈ 1 hour) plus a 15-minute buffer. Rows older than this with no status change are treated as
+ * (120 attempts × 30_000 ms poll interval ≈ 1 hour) plus a 15-minute buffer. Rows older than this with no status change are treated as
  * terminal so stuck historical jobs do not poll forever.
  */
 export const SERMONAUDIO_AUTO_PUBLISH_UI_STALE_MS =

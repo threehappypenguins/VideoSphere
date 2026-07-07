@@ -300,8 +300,8 @@ export interface VimeoDraftFields extends PerPlatformOverrides {
   /**
    * Stored Vimeo upload license selection.
    * @remarks
-   * - `undefined` — no draft override; UI falls back to {@link VimeoAccountDefaults.license}
-   *   and seeding may copy the connected account default onto the draft.
+   * - `undefined` — no draft override; UI falls back to {@link lib/platforms/vimeo-account-defaults!VimeoAccountDefaults}
+   *   `license` and seeding may copy the connected account default onto the draft.
    * - `null` — explicit “no Creative Commons license” override (Vimeo upload UI label:
    *   “Select a license…”, **not** “All Rights Reserved”).
    * - `'by-nc'`, etc. — explicit Creative Commons license code from `GET /creativecommons`.

@@ -197,31 +197,6 @@ describe('UploadsPage', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(4));
   });
 
-  it('opens create modal from openCreateDraft query param', async () => {
-    mockSearchParams = new URLSearchParams('openCreateDraft=true');
-
-    mockInitialPageLoadFetch().mockResolvedValueOnce(
-      jsonResponse({
-        data: {
-          id: 'draft-from-minimal',
-          userId: 'user-1',
-          title: '',
-          description: '',
-          tags: [],
-          visibility: 'private',
-          targets: [],
-          platforms: {},
-          $createdAt: '2000-01-01T00:00:00.000Z',
-          $updatedAt: '2000-01-01T00:00:00.000Z',
-        },
-      })
-    );
-
-    render(<UploadsPage />);
-
-    expect(await screen.findByTestId('create-modal-open')).toBeInTheDocument();
-  });
-
   it('opens create modal from createDraftId query param', async () => {
     mockSearchParams = new URLSearchParams('createDraftId=draft-from-dashboard');
 

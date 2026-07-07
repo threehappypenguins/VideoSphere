@@ -106,34 +106,33 @@ const nextConfig = {
 
 ## Font Optimization
 
-This project uses `next/font` to load the Inter font. It automatically:
+This project uses `next/font/local` to self-host fonts from `app/fonts/` at build time — no runtime Google Fonts requests.
 
-- Self-hosts the font (no external requests to Google)
 - Eliminates layout shift with `font-display: swap`
-- Generates optimal font subsets
+- Inlines font files in the production bundle
 
 See the current setup in `app/layout.tsx`:
 
 ```tsx
-import { Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 
-const inter = Inter({
-  subsets: ['latin'],
+const inter = localFont({
+  src: [{ path: './fonts/InterVariable.woff2', weight: '100 900', style: 'normal' }],
   variable: '--font-inter',
+  display: 'swap',
+});
+
+const apfelGrotezk = localFont({
+  src: [
+    { path: './fonts/ApfelGrotezk-Regular.otf', weight: '400', style: 'normal' },
+    // … additional weights
+  ],
+  variable: '--font-apfel-grotezk',
+  display: 'swap',
 });
 ```
 
-### Adding More Fonts
-
-```tsx
-import { Inter, Roboto_Mono } from 'next/font/google';
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const robotoMono = Roboto_Mono({ subsets: ['latin'], variable: '--font-mono' });
-
-// Apply both in the body className
-<body className={`${inter.variable} ${robotoMono.variable}`}>
-```
+Body text uses the Inter CSS variable via `font-sans` in `globals.css`. Display headings use Apfel Grotezk where styled in components.
 
 ## Metadata for SEO
 

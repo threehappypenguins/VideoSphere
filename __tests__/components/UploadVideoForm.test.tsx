@@ -152,7 +152,7 @@ function getFileInput(): HTMLInputElement {
 }
 
 async function startUpload(user: ReturnType<typeof userEvent.setup>, file: File) {
-  render(<UploadVideoForm draftId="draft-123" backHref="/dashboard/drafts/draft-123" />);
+  render(<UploadVideoForm draftId="draft-123" backHref="/dashboard/uploads?editDraft=draft-123" />);
   await user.upload(getFileInput(), file);
   await user.click(screen.getByRole('button', { name: 'Upload' }));
 }

@@ -2,6 +2,8 @@
 
 Use this checklist **before you start work** and **when you finish work** so your environment is ready and your changes pass CI.
 
+For the full development hub (setup, API docs, contributor tooling), see [Development & Contributing](/contributing).
+
 For first-run setup after cloning the repository (environment variables, MongoDB, admin account), see [SETUP.md](https://github.com/threehappypenguins/VideoSphere/blob/main/SETUP.md) in the repository root.
 
 ## Prerequisites
@@ -20,7 +22,7 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Open [http://localhost:9624](http://localhost:9624) (or your LAN host IP on port 9624).
+Open `http://localhost:9624` (or your LAN host IP on port 9624).
 
 ---
 
@@ -28,13 +30,13 @@ Open [http://localhost:9624](http://localhost:9624) (or your LAN host IP on port
 
 Do these at the beginning of each development session.
 
-### Update `main` and create a branch
+### Update `dev` and create a branch
 
-Always start from the latest `main` so you don’t base your work on outdated code.
+Always start from the latest `dev` so you don’t base your work on outdated code.
 
 ```bash
-git checkout main
-git pull origin main
+git checkout dev
+git pull origin dev
 git checkout -b feature/your-feature-name
 ```
 
@@ -60,7 +62,7 @@ pnpm build
 | `pnpm test run`   | Runs tests once (no watch mode).                   |
 | `pnpm build`      | Builds the app (catches type and build errors).   |
 
-**Order:** Run them in this order. Fix any errors before moving to the next. If everything passes, your branch is ready to push and open a PR.
+**Order:** Run them in this order. Fix any errors before moving to the next. If everything passes, your branch is ready to push and open a PR against `dev`.
 
 ---
 
@@ -68,7 +70,7 @@ pnpm build
 
 **Start of day:**
 
-1. `git checkout main && git pull origin main`
+1. `git checkout dev && git pull origin dev`
 2. `git checkout -b feature/your-branch-name`
 3. `pnpm dev`
 
@@ -79,7 +81,7 @@ pnpm build
 3. `pnpm test run`
 4. `pnpm build`
 
-Then commit (if you haven’t already), push, and open a PR.
+Then commit (if you haven’t already), push, and open a PR against `dev`.
 
 ---
 
@@ -107,3 +109,19 @@ docker compose --env-file .env.local up -d --build
 ```
 
 For production with a pre-built image, see the [Deployment Guide](/deployment-guide).
+
+---
+
+## Troubleshooting
+
+### `tsc` errors in `.next/types/validator.ts` after deleting routes
+
+`tsconfig.json` includes Next.js generated types under `.next/types/`. If you remove or rename App Router pages, a stale `.next` folder can still reference old paths until Next regenerates them.
+
+```bash
+rm -rf .next
+pnpm build   # or `pnpm dev` for a shorter regen during active work
+pnpm type-check
+```
+
+Fresh clones and CI do not hit this (no `.next` yet). It only affects local trees that had run `dev` or `build` before the route change.

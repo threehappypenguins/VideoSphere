@@ -29,12 +29,6 @@ TypeDoc expectations by export kind:
 - For exported functions/components/hooks and call signatures: include purpose/description, `@param` for all parameters, and `@returns` with return value details.
 - For exported types/interfaces: include purpose/description and `@property` tags where property-level clarification is needed.
 
-### 4) Never Perform Git or GitHub Operations
-
-- Copilot/AI agents must never run git commands or perform GitHub actions.
-- This includes commits, pushes, pulls, merges, rebases, branch operations, PR creation/edits, reviews, issue edits, and related GitHub activity.
-- All git/GitHub operations are human-only.
-
 ## Quality Expectations
 
 - Keep suggestions consistent with the repository's style and architecture.

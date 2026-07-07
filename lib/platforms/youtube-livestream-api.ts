@@ -575,7 +575,7 @@ export async function deleteYouTubeLiveBroadcast(
  * Looks up a YouTube live stream id by matching the stream key against `liveStreams.list`.
  * @param accessToken - OAuth access token with YouTube live streaming scopes.
  * @param streamKey - Plaintext ingestion stream name to match.
- * @param signal - Optional abort signal.
+ * @param options - Optional preferred stream id and abort signal.
  * @returns Matching live stream id, or upstream/not-found error details.
  */
 export async function findYouTubeLiveStreamIdByKey(

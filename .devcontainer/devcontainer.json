@@ -41,7 +41,6 @@
         // --- Git & GitHub workflow ---
         "eamodio.gitlens",
         "GitHub.vscode-pull-request-github",
-        "vivaxy.vscode-conventional-commits",
 
         // --- AI assistance ---
         "GitHub.copilot",

@@ -162,7 +162,7 @@ export function getYouTubeImportMaxDurationSeconds(): number {
 /**
  * Returns true when a `videos.list` item is a completed live broadcast archive.
  * Rejects upcoming and in-progress live streams using the same signals as
- * {@link isYouTubeCompletedLiveArchiveVideo} in `lib/platforms/youtube-api.ts`.
+ * {@link lib/platforms/youtube-api!isYouTubeCompletedLiveArchiveVideo}.
  * @param video - `videos.list` item from the YouTube Data API.
  * @returns Whether the video can be imported as a completed broadcast.
  */

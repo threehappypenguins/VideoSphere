@@ -38,7 +38,7 @@ async function resolveFacebookPageAccessTokenForUser(userId: string): Promise<st
 /**
  * Polls Facebook `LiveVideo.status` for armed livestreams and syncs local lifecycle state.
  *
- * Runs in-process on the same timer as {@link reconcileLivestreamKeysAndStatus}. It will not run
+ * Runs in-process on the same timer as {@link lib/livestreams/reconcile-stream-keys!reconcileLivestreamKeysAndStatus}. It will not run
  * reliably if multiple app instances are deployed behind a load balancer without leader election.
  * @param _options - Optional clock override reserved for tests.
  * @returns Count of lifecycle updates performed.

@@ -9,46 +9,30 @@ app/
   api/
     health/
       route.ts    →  GET /api/health
-    example/
-      route.ts    →  GET /api/example, POST /api/example
-    users/
-      route.ts    →  GET /api/users, POST /api/users
+    drafts/
+      route.ts    →  GET /api/drafts, POST /api/drafts
       [id]/
-        route.ts  →  GET /api/users/:id, PUT /api/users/:id, DELETE /api/users/:id
+        route.ts  →  GET /api/drafts/:id, PATCH /api/drafts/:id, DELETE /api/drafts/:id
+    uploads/
+      presign/
+        route.ts  →  POST /api/uploads/presign
 ```
 
 ## HTTP Method Handlers
 
 ```typescript
-// app/api/example/route.ts
+// app/api/drafts/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET — Retrieve data
 export async function GET() {
-  return NextResponse.json({ message: 'Hello' }, { status: 200 });
+  return NextResponse.json({ data: [] }, { status: 200 });
 }
 
 // POST — Create data
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  return NextResponse.json({ created: body }, { status: 201 });
-}
-
-// PUT — Replace data
-export async function PUT(request: NextRequest) {
-  const body = await request.json();
-  return NextResponse.json({ updated: body }, { status: 200 });
-}
-
-// PATCH — Partially update data
-export async function PATCH(request: NextRequest) {
-  const body = await request.json();
-  return NextResponse.json({ patched: body }, { status: 200 });
-}
-
-// DELETE — Remove data
-export async function DELETE() {
-  return NextResponse.json({ deleted: true }, { status: 200 });
+  return NextResponse.json({ data: body }, { status: 201 });
 }
 ```
 
@@ -147,11 +131,22 @@ export async function createUser(formData: FormData) {
 
 Server Actions are great for form submissions and mutations. Use API routes when you need a traditional REST API.
 
-## Example Routes in This Project
+## Routes in This Project
 
-- `GET /api/health` — Health check endpoint
-- `GET /api/example` — Returns a list of example items
-- `POST /api/example` — Creates a new example item with validation
+VideoSphere uses route handlers under `app/api/`. Common entry points:
+
+| Method | Route | Purpose |
+| ------ | ----- | ------- |
+| `GET` | `/api/health` | Health check |
+| `POST` | `/api/drafts` | Create a draft |
+| `GET` | `/api/drafts` | List drafts |
+| `PATCH` | `/api/drafts/[id]` | Update draft metadata |
+| `POST` | `/api/uploads/presign` | Get presigned R2 upload URL |
+| `POST` | `/api/uploads/[jobId]/complete` | Confirm R2 upload |
+| `POST` | `/api/uploads/distribute` | Start platform distribution |
+| `POST` | `/api/ai/generate-metadata` | Generate title, description, tags |
+
+See `app/api/README.md` in the repository for route domains. Run `pnpm docs:api` for full TypeDoc output.
 
 ## Useful Resources
 

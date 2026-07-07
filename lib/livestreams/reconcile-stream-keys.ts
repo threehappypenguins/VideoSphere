@@ -60,10 +60,10 @@ async function resolveYouTubeAccessTokenForUser(userId: string): Promise<string 
 /**
  * Polls YouTube lifecycle status for armed livestreams and repairs broadcast→stream bindings.
  *
- * Temp→main key promotion is handled by {@link syncTempToMainPromotionSchedule} at the exact
+ * Temp→main key promotion is handled by {@link lib/livestreams/temp-to-main-promotion-scheduler!syncTempToMainPromotionSchedule} at the exact
  * configured lead time before start, not by this interval pass.
  *
- * Runs in-process on a timer started from {@link connectToDatabase}. It will not run reliably if
+ * Runs in-process on a timer started from {@link lib/mongodb!connectToDatabase}. It will not run reliably if
  * multiple app instances are deployed behind a load balancer without leader election.
  * @param options - Optional clock override for tests.
  * @returns Counts of lifecycle updates and binding repairs performed.

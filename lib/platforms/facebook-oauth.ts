@@ -32,6 +32,7 @@ export const FACEBOOK_RUPLOAD_PATH_PREFIX = `/video-upload${facebookGraphApiVers
 export const FACEBOOK_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
+  'pages_read_user_content',
   'pages_manage_posts',
 ].join(',');
 
