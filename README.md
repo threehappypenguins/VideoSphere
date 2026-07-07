@@ -12,6 +12,8 @@ Full documentation lives at **[videosphere.sarahpoulin.ca](https://videosphere.s
 
 To deploy a pre-built container in production, see the **[Deployment Guide](https://videosphere.sarahpoulin.ca/deployment-guide.html)**.
 
+To develop from a source clone (`pnpm dev`), see **[Local Setup](https://videosphere.sarahpoulin.ca/local-setup)**.
+
 ## License
 
 This project is open source.

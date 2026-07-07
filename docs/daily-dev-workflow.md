@@ -4,7 +4,7 @@ Use this checklist **before you start work** and **when you finish work** so you
 
 For the full development hub (setup, API docs, contributor tooling), see [Development & Contributing](/contributing).
 
-For first-run setup after cloning the repository (environment variables, MongoDB, admin account), see [SETUP.md](https://github.com/threehappypenguins/VideoSphere/blob/main/SETUP.md) in the repository root.
+For first-run setup after cloning the repository (environment variables, MongoDB, admin account), see [Local Setup](/local-setup).
 
 ## Prerequisites
 
