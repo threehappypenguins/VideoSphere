@@ -6,6 +6,24 @@ VideoSphere is an open-source, self-hosted video distribution platform. Upload a
 
 VideoSphere runs as a Docker container you control — suitable for homelabs, churches, and small teams who want their own infrastructure.
 
+## Screenshots
+
+### Dashboard
+
+![Dashboard with upload stats and quick actions](docs/images/app-preview-01.png)
+
+### Platform connections
+
+![Connected accounts for video platforms and backup destinations](docs/images/app-preview-02.png)
+
+### Draft metadata
+
+![Draft metadata modal — labels, platforms, title, and privacy](docs/images/app-preview-03.png)
+
+### Upload & schedule
+
+![Draft metadata modal — thumbnail, video upload, and scheduling](docs/images/app-preview-04.png)
+
 ## Documentation
 
 Full documentation lives at **[videosphere.sarahpoulin.ca](https://videosphere.sarahpoulin.ca/)**.
