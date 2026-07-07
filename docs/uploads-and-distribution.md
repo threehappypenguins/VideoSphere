@@ -26,7 +26,7 @@ Open **Profile → Connections** (`/profile/connections`) before your first uplo
 
 All OAuth redirect URIs depend on `NEXT_PUBLIC_APP_URL` matching the URL you use in the browser.
 
-Detailed setup screenshots for R2 are in [R2 Storage](/setup/r2/r2-module). Google sign-in and platform OAuth (YouTube, Google Drive) are in [Google OAuth](/setup/google/google-oauth). Vimeo OAuth (including Upload Access approval): [Vimeo OAuth](/setup/vimeo/vimeo-oauth). SermonAudio Broadcaster ID and API key: [SermonAudio API](/setup/sermon-audio/sa-api).
+Detailed setup screenshots for R2 are in [R2 Storage](/setup/r2/r2-module). Google sign-in and platform OAuth (YouTube, Google Drive) are in [Google OAuth](/setup/google/google-oauth). Vimeo OAuth (including Upload Access approval): [Vimeo OAuth](/setup/vimeo/vimeo-oauth). Facebook Page OAuth and permissions: [Facebook OAuth](/setup/facebook/fb-oauth). SermonAudio Broadcaster ID and API key: [SermonAudio API](/setup/sermon-audio/sa-api).
 
 ---
 

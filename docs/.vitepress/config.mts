@@ -25,6 +25,7 @@ export default defineConfig({
           { text: 'R2 Storage', link: '/setup/r2/r2-module' },
           { text: 'Google OAuth', link: '/setup/google/google-oauth' },
           { text: 'Vimeo OAuth', link: '/setup/vimeo/vimeo-oauth' },
+          { text: 'Facebook OAuth', link: '/setup/facebook/fb-oauth' },
           { text: 'SermonAudio API', link: '/setup/sermon-audio/sa-api' },
           { text: 'Password Recovery', link: '/password-recovery' },
           { text: 'Local Docker Testing', link: '/local-docker-testing' },

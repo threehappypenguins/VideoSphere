@@ -68,6 +68,8 @@ describe('GET /api/platforms/connect/facebook', () => {
     const scope = location.searchParams.get('scope')!;
     expect(scope).toContain('pages_show_list');
     expect(scope).toContain('pages_manage_posts');
+    expect(scope).toContain('pages_read_engagement');
+    expect(scope).toContain('pages_read_user_content');
     expect(scope).not.toContain('publish_video');
   });
 

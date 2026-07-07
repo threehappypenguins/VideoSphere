@@ -58,14 +58,10 @@ SFTP and SMB backup destinations are configured per user in Connected Accounts (
 
 For SMB, use the share name exactly as listed by `smbclient -L` (case-sensitive, e.g. `Storage`). If smbclient shows `WORKGROUP\youruser`, leave the domain field blank — VideoSphere defaults to `WORKGROUP` for NTLMv2 auth on Samba.
 
-For Facebook OAuth credentials:
+For Facebook OAuth credentials, see [docs/setup/facebook/fb-oauth.md](docs/setup/facebook/fb-oauth.md) (Meta app, redirect URI, and Page permissions). Copy into `.env.local`:
 
-1. Create an app in Facebook Developer Console.
-2. Enable "Manage Everything on your Page" as a use case and configure OAuth redirect URI:
-   - `http://localhost:9624/api/platforms/callback/facebook` (local)
-3. Copy the app credentials into:
-   - `FACEBOOK_APP_ID`
-   - `FACEBOOK_APP_SECRET`
+- `FACEBOOK_APP_ID`
+- `FACEBOOK_APP_SECRET`
 
 ## 3. Start MongoDB
 
