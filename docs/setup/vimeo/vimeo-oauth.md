@@ -59,7 +59,7 @@ The maintainer’s experience:
 
 1. Sign in at [developer.vimeo.com](https://developer.vimeo.com/) and click **+ Create an app** (top right).
 
-![Vimeo Developer — Create an app](./vimeo-1.png)
+![Vimeo Developer — Create an app](./vimeo-01.png)
 
 2. Fill in the form:
 
@@ -70,7 +70,7 @@ The maintainer’s experience:
 
    Click **Create App**.
 
-![Create a new app](./vimeo-2.png)
+![Create a new app](./vimeo-02.png)
 
 ---
 
@@ -78,7 +78,7 @@ The maintainer’s experience:
 
 3. On the app **General information** page, copy the **Client identifier** (this is `VIMEO_CLIENT_ID`), and then open **Authentication → Manage App Secrets** in the left sidebar.
 
-![Client identifier and Manage App Secrets](./vimeo-3.png)
+![Client identifier and Manage App Secrets](./vimeo-03.png)
 
 4. On **Manage App Secrets**, copy the **Client secret** (`VIMEO_CLIENT_SECRET`), then under **Your callback URLs**, click **Add URL+** and add the following callback URLs:
 
@@ -87,14 +87,14 @@ The maintainer’s experience:
 
    Add one URL per deployment origin. The path must be exactly `/api/platforms/callback/vimeo`.
 
-![Manage App Secrets](./vimeo-4.png)
+![Manage App Secrets](./vimeo-04.png)
 
 ---
 
 ## Part 4 — App URL
 
 5. Next to **Your callback URLs**, click **Edit**.
-![OAuth Redirect Authentication — Add URL](./vimeo-5.png)
+![OAuth Redirect Authentication — Add URL](./vimeo-05.png)
 
 6. Enter the **App description** which is what users see when they authenticate.
 
@@ -102,7 +102,7 @@ The maintainer’s experience:
 
 8. Confirm callback URLs and the multi-user access choice. Click **Update**.
 
-![Edit app settings — App URL and callback URLs](./vimeo-6.png)
+![Edit app settings — App URL and callback URLs](./vimeo-06.png)
 
 ---
 
@@ -110,7 +110,7 @@ The maintainer’s experience:
 
 9. Open **Permissions** in the left sidebar. Initially you should see:
 
-![Permissions — upload request under review](./vimeo-7.png)
+![Permissions — upload request under review](./vimeo-07.png)
 
    - **Upload Access:** *Your upload request is being reviewed.*
    - **Video File Access:** paid-plan note (optional for VideoSphere uploads)
@@ -119,7 +119,7 @@ The maintainer’s experience:
 
 11. After Vimeo approves, **Upload Access** text changes to reference the Vimeo Partners program:
 
-![Permissions — after Upload Access approval](./vimeo-8.png)
+![Permissions — after Upload Access approval](./vimeo-08.png)
 
 Approval here enables uploads for the **developer account**. It does **not** mean other VideoSphere users can connect their own Vimeo accounts — see [Important limitations](#important-limitations-read-first).
 
