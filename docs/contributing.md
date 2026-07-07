@@ -6,7 +6,7 @@ If you only want to **run VideoSphere in production** (Docker, Portainer, homela
 
 ## First-time local setup
 
-1. Clone the repo and install dependencies — see [SETUP.md](https://github.com/threehappypenguins/VideoSphere/blob/main/SETUP.md) in the repository root (environment variables, MongoDB, first admin account).
+1. Clone the repo and run through [Local Setup](/local-setup) (environment variables, MongoDB, first admin account).
 2. Follow the [Daily Dev Workflow](/daily-dev-workflow) checklist before and after each coding session.
 
 ## Before you open a pull request

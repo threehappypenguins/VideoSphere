@@ -34,6 +34,7 @@ export default defineConfig({
       {
         text: 'Development',
         items: [
+          { text: 'Local Setup', link: '/local-setup' },
           { text: 'Contributing', link: '/contributing' },
           { text: 'Daily Dev Workflow', link: '/daily-dev-workflow' },
           { text: 'MongoDB Data Model', link: '/mongodb-data-model' },

@@ -1,8 +1,8 @@
-# First-Run Setup Guide
+# Local Setup (clone & `pnpm dev`)
 
 Complete these steps after cloning the repository. This guide is MongoDB-first and self-hostable.
 
-**Documentation:** [videosphere.sarahpoulin.ca](https://videosphere.sarahpoulin.ca/) — including the [Deployment Guide](https://videosphere.sarahpoulin.ca/deployment-guide.html) for running the pre-built Docker image in production.
+For production with the pre-built Docker image, see the [Deployment Guide](/deployment-guide) instead.
 
 ## Prerequisites
 
@@ -17,8 +17,8 @@ Complete these steps after cloning the repository. This guide is MongoDB-first a
 ## 1. Clone and Install
 
 ```bash
-git clone [your-repo-url]
-cd [your-repo-name]
+git clone https://github.com/threehappypenguins/VideoSphere.git
+cd VideoSphere
 pnpm install
 ```
 
@@ -58,7 +58,7 @@ SFTP and SMB backup destinations are configured per user in Connected Accounts (
 
 For SMB, use the share name exactly as listed by `smbclient -L` (case-sensitive, e.g. `Storage`). If smbclient shows `WORKGROUP\youruser`, leave the domain field blank — VideoSphere defaults to `WORKGROUP` for NTLMv2 auth on Samba.
 
-For Facebook OAuth credentials, see [docs/setup/facebook/fb-oauth.md](docs/setup/facebook/fb-oauth.md) (Meta app, redirect URI, and Page permissions). Copy into `.env.local`:
+For Facebook OAuth credentials, see [Facebook OAuth](/setup/facebook/fb-oauth) (Meta app, redirect URI, and Page permissions). Copy into `.env.local`:
 
 - `FACEBOOK_APP_ID`
 - `FACEBOOK_APP_SECRET`
@@ -82,7 +82,7 @@ docker compose --env-file .env.local up -d mongo
 This project ships a self-contained compose stack with `mongo:8` and persistent storage.
 Mongo runs as a **standalone** instance (not a replica set), so multi-document transactions are
 unavailable; password reset completion is documented in
-[docs/password-recovery.md](docs/password-recovery.md#reset-completion-why-not-mongodb-transactions).
+[Password Recovery](/password-recovery#reset-completion-why-not-mongodb-transactions).
 Compose interpolation for `${MONGO_ROOT_PASSWORD}` reads from the shell environment or
 an explicit Compose env file, so this command must include `--env-file .env.local`.
 
@@ -119,7 +119,7 @@ pnpm dev
 
 Open the app in your browser using the address you will actually use to reach the server:
 
-- **Same machine as the app:** [http://localhost:9624](http://localhost:9624)
+- **Same machine as the app:** `http://localhost:9624`
 - **Homelab / LAN (Odroid, NAS, Pi, etc.):** `http://<host-ip>:9624` — for example `http://192.168.1.38:9624`
 
 Use whichever address matches how you browse to the box. Many self-hosted setups never use `localhost` because the app runs on another device on your network.
@@ -157,7 +157,7 @@ pnpm test run
 pnpm build
 ```
 
-If all pass, push your branch and open a PR against `dev`.
+If all pass, push your branch and open a PR against `dev`. See [Contributing](/contributing) and [Daily Dev Workflow](/daily-dev-workflow) for the full developer checklist.
 
 ---
 
@@ -181,7 +181,7 @@ With Docker Compose, uncomment `network_mode: host` on the `app` service (see `d
 
 ## Testing a local Docker build
 
-To build the production image and run it on your machine (instead of `pnpm dev`), see [docs/local-docker-testing.md](docs/local-docker-testing.md). Typical amd64 build:
+To build the production image and run it on your machine (instead of `pnpm dev`), see [Local Docker Testing](/local-docker-testing). Typical amd64 build:
 
 ```bash
 ./scripts/docker-build-platform.sh linux/amd64 videosphere:amd64-test
@@ -191,4 +191,10 @@ To build the production image and run it on your machine (instead of `pnpm dev`)
 
 - This repository uses MongoDB for auth/session-related data and application persistence.
 - Docker deployment uses app + MongoDB from one compose file.
-- For production deployment, see the [Deployment Guide](https://videosphere.sarahpoulin.ca/deployment-guide.html).
+- For production deployment, see the [Deployment Guide](/deployment-guide).
+
+## Related documentation
+
+- [Development & Contributing](/contributing) — docs hub for contributors
+- [Daily Dev Workflow](/daily-dev-workflow) — pre-commit and pre-PR checks
+- [`.env.example`](https://github.com/threehappypenguins/VideoSphere/blob/main/.env.example) — full environment variable list in the repository

@@ -118,5 +118,5 @@ docker compose --env-file .env.local down
 ## Related
 
 - [Deployment Guide](/deployment-guide) — production with pre-built registry images
-- [SETUP.md](https://github.com/threehappypenguins/VideoSphere/blob/main/SETUP.md) — first-run setup and Mongo options
+- [Local Setup](/local-setup) — first-run setup and Mongo options
 - [CONTRIBUTING.md](https://github.com/threehappypenguins/VideoSphere/blob/main/CONTRIBUTING.md) — multi-arch build verification before merge

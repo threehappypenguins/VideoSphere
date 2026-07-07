@@ -793,7 +793,7 @@ All API routes follow Next.js App Router **Route Handlers** (`app/api/`).
 | 4 | **Cloudflare R2 storage costs** grow with uncleaned files  | Medium | Medium      | Enforce 72-hour TTL cleanup; delete temp files immediately after successful distribution.     |
 | 5 | **YouTube API quota** (10,000 units/day default) exhausted | High   | Low         | Monitor quota usage; warn users when approaching limits; apply for higher quota if needed.    |
 | 6 | **AI API downtime** prevents metadata generation           | Low    | Low         | Metadata generation is optional; users can always enter metadata manually. Show graceful error.|
-| 7 | **Docker/MongoDB setup** issues slow onboarding            | Medium | Medium      | Detailed SETUP.md; Dev Container as fallback; team support during first day.                  |
+| 7 | **Docker/MongoDB setup** issues slow onboarding            | Medium | Medium      | Detailed `docs/local-setup.md` guide; Dev Container as fallback.                  |
 
 ---
 

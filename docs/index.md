@@ -19,7 +19,7 @@ Want to smoke-test the production image on your machine before going live? See [
 
 ## Development & contributing
 
-Cloning the repo, changing code, or updating docs? See **[Development & Contributing](/contributing)**.
+Cloning the repo, changing code, or updating docs? Start with **[Local Setup](/local-setup)**, then see **[Development & Contributing](/contributing)**.
 
 ## Using the app
 
