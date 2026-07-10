@@ -60,15 +60,16 @@ function tryDecryptStoredTokenField(
 }
 
 /**
- * Decrypts a required OAuth token field. Empty ciphertext means the token was cleared
- * (e.g. after `invalid_grant`) and returns `''` without attempting decrypt.
- * Undecryptable refresh tokens are treated as cleared so API routes can prompt reconnect
- * instead of returning 500.
+ * Decrypts a stored OAuth access or refresh token ciphertext.
+ * Empty/undefined ciphertext returns `''` for either field (no decrypt attempt).
+ * On `TokenDecryptError`, refresh tokens are treated as cleared (`''`) so callers
+ * can prompt reconnect; access-token decrypt failures still throw.
  * @param ciphertext - Encrypted value from MongoDB (or `''` when cleared).
- * @param fieldLabel - Field name for log messages.
+ * @param fieldLabel - Which token field is being read (affects decrypt-error handling).
  * @param rowId - Connected account row id.
  * @param platform - Connected account platform.
- * @returns Decrypted plaintext, or `''` when absent/cleared (refresh) or undecryptable (refresh only).
+ * @returns Decrypted plaintext, or `''` when ciphertext is empty/undefined, or when
+ *   a refresh token fails to decrypt.
  */
 function decryptStoredOAuthTokenField(
   ciphertext: string | undefined,

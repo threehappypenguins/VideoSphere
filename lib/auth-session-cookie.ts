@@ -35,12 +35,18 @@ export function getSessionCookieName(projectId?: string): string {
   return process.env.JWT_SESSION_COOKIE_NAME || 'videosphere_session';
 }
 
-/** Default session lifetime: 10 years (effectively non-expiring for personal/homelab use). */
+/**
+ * Default JWT `exp` and cookie `Max-Age` in seconds (10 years).
+ * Browsers often clamp or evict persistent cookies sooner (e.g. Chromium ~400 days),
+ * so operators may still see logouts before the JWT itself would expire.
+ */
 export const DEFAULT_JWT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 10;
 
 /**
  * Returns httpOnly session cookie options, including JWT/cookie lifetime.
  * Override with `JWT_SESSION_MAX_AGE_SECONDS` (positive integer seconds).
+ * Cookie `Max-Age` matches the JWT lifetime, but browsers may not honor values
+ * beyond their own persistent-cookie caps.
  * @returns Cookie attributes used when issuing or clearing the session cookie.
  */
 export function getSessionCookieOptions(): {
