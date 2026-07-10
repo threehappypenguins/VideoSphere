@@ -35,6 +35,7 @@ vi.mock('@/lib/models/ConnectedAccount', () => ({
 
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import {
+  clearOAuthRefreshToken,
   createConnectedAccount,
   deleteConnectedAccount,
   getConnectedAccount,
@@ -229,5 +230,53 @@ describe('connected-accounts repository (mongo)', () => {
     expect(account?.accessToken).toBe('access-plain');
     expect(account).not.toHaveProperty('youtubeMainStreamKey');
     expect(account?.hasYoutubeMainStreamKey).toBe(true);
+  });
+
+  it('treats a cleared plaintext refresh token as empty without throwing', async () => {
+    const encryptedAccess = encryptToken('access-plain');
+    const doc = {
+      ...baseDoc,
+      accessToken: encryptedAccess,
+      refreshToken: '',
+    };
+
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(doc) });
+
+    const account = await getConnectedAccountWithTokens('user-1', 'youtube');
+
+    expect(account?.accessToken).toBe('access-plain');
+    expect(account?.refreshToken).toBe('');
+    expect(account?.hasRefreshToken).toBe(false);
+  });
+
+  it('treats an undecryptable refresh token as cleared without throwing', async () => {
+    const encryptedAccess = encryptToken('access-plain');
+    const doc = {
+      ...baseDoc,
+      accessToken: encryptedAccess,
+      refreshToken: 'not-valid-ciphertext',
+    };
+
+    mockFindOne.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(doc) });
+
+    const account = await getConnectedAccountWithTokens('user-1', 'youtube');
+
+    expect(account?.accessToken).toBe('access-plain');
+    expect(account?.refreshToken).toBe('');
+    expect(account?.hasRefreshToken).toBe(false);
+  });
+
+  it('clears the refresh token to plaintext empty so reconnect is required', async () => {
+    const clearedDoc = { ...baseDoc, refreshToken: '' };
+    mockFindByIdAndUpdate.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(clearedDoc) });
+
+    const result = await clearOAuthRefreshToken('conn-1');
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledWith(
+      'conn-1',
+      { refreshToken: '' },
+      { returnDocument: 'after', runValidators: true }
+    );
+    expect(result?.hasRefreshToken).toBe(false);
   });
 });
