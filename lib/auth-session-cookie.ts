@@ -35,9 +35,13 @@ export function getSessionCookieName(projectId?: string): string {
   return process.env.JWT_SESSION_COOKIE_NAME || 'videosphere_session';
 }
 
+/** Default session lifetime: 10 years (effectively non-expiring for personal/homelab use). */
+export const DEFAULT_JWT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 10;
+
 /**
- * Executes get session cookie options.
- * @returns The computed result.
+ * Returns httpOnly session cookie options, including JWT/cookie lifetime.
+ * Override with `JWT_SESSION_MAX_AGE_SECONDS` (positive integer seconds).
+ * @returns Cookie attributes used when issuing or clearing the session cookie.
  */
 export function getSessionCookieOptions(): {
   path: string;
@@ -46,9 +50,11 @@ export function getSessionCookieOptions(): {
   secure: boolean;
   maxAge: number;
 } {
-  const defaultMaxAgeSeconds = 60 * 60 * 24 * 7;
   const parsed = Number(process.env.JWT_SESSION_MAX_AGE_SECONDS);
-  const maxAge = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : defaultMaxAgeSeconds;
+  const maxAge =
+    Number.isFinite(parsed) && parsed > 0
+      ? Math.floor(parsed)
+      : DEFAULT_JWT_SESSION_MAX_AGE_SECONDS;
   return {
     path: '/',
     httpOnly: true,

@@ -59,6 +59,40 @@ function tryDecryptStoredTokenField(
   }
 }
 
+/**
+ * Decrypts a required OAuth token field. Empty ciphertext means the token was cleared
+ * (e.g. after `invalid_grant`) and returns `''` without attempting decrypt.
+ * Undecryptable refresh tokens are treated as cleared so API routes can prompt reconnect
+ * instead of returning 500.
+ * @param ciphertext - Encrypted value from MongoDB (or `''` when cleared).
+ * @param fieldLabel - Field name for log messages.
+ * @param rowId - Connected account row id.
+ * @param platform - Connected account platform.
+ * @returns Decrypted plaintext, or `''` when absent/cleared (refresh) or undecryptable (refresh only).
+ */
+function decryptStoredOAuthTokenField(
+  ciphertext: string | undefined,
+  fieldLabel: 'accessToken' | 'refreshToken',
+  rowId: string,
+  platform: string
+): string {
+  const raw = String(ciphertext ?? '').trim();
+  if (!raw) return '';
+  try {
+    return decryptToken(raw);
+  } catch (error) {
+    if (fieldLabel === 'refreshToken' && isTokenDecryptError(error)) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[connected-accounts] Could not decrypt ${fieldLabel} for row ${rowId} (${platform}); treating as cleared:`,
+        message
+      );
+      return '';
+    }
+    throw error;
+  }
+}
+
 function rowToConnectedAccount(doc: ConnectedAccountDocument): ConnectedAccount {
   const refresh = String(doc.refreshToken ?? '');
   return {
@@ -104,6 +138,10 @@ function hasRefreshTokenFromStoredRow(doc: ConnectedAccountDocument): boolean {
   } catch (error) {
     const rowId = String(doc._id ?? 'unknown');
     const platform = String(doc.platform ?? 'unknown');
+    if (isTokenDecryptError(error)) {
+      // Cleared grants use plaintext ''; corrupt/short values are treated as absent.
+      return false;
+    }
     console.error(
       `[connected-accounts] Failed to decrypt refreshToken for row ${rowId} (${platform})`,
       error
@@ -289,8 +327,13 @@ export async function getConnectedAccountWithTokens(
   const platformLabel = String(doc.platform);
   const decrypted: ConnectedAccountDocument = {
     ...doc,
-    accessToken: decryptToken(String(doc.accessToken)),
-    refreshToken: decryptToken(String(doc.refreshToken)),
+    accessToken: decryptStoredOAuthTokenField(doc.accessToken, 'accessToken', rowId, platformLabel),
+    refreshToken: decryptStoredOAuthTokenField(
+      doc.refreshToken,
+      'refreshToken',
+      rowId,
+      platformLabel
+    ),
   };
   const account = rowToConnectedAccount(decrypted);
   const youtubeMainStreamKey = tryDecryptStoredTokenField(
@@ -359,6 +402,8 @@ export async function updateTokens(
 
 /**
  * Clears a stored OAuth refresh token after the provider reports the grant is invalid.
+ * Stores plaintext `''` (not ciphertext) so `hasRefreshToken` is false; readers must
+ * treat empty refresh ciphertext as cleared and must not call `decryptToken` on it.
  * The row is kept so the UI can prompt the user to reconnect.
  * @param id - Connected account row id.
  * @returns Updated public account row, or null when the row no longer exists.

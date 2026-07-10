@@ -124,7 +124,7 @@ describe('POST /api/auth/login', () => {
     expect(mockGetUserAuthCredentialsByEmail).toHaveBeenCalledWith('creator@example.com');
     expect(mockBcryptCompare).toHaveBeenCalledWith('password123', 'stored-password-hash');
     expect(mockJwtSetSubject).toHaveBeenCalledWith('user-1');
-    expect(mockJwtSetExpirationTime).toHaveBeenCalledWith('604800s');
+    expect(mockJwtSetExpirationTime).toHaveBeenCalledWith('315360000s');
     expect(mockJwtSign).toHaveBeenCalledTimes(1);
 
     const setCookie = res.headers.get('set-cookie') ?? '';
