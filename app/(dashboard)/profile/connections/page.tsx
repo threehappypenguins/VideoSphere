@@ -450,26 +450,28 @@ function ConnectionPlatformRow({
       />
     ) : null;
 
+  const actionGroupClassName = 'flex shrink-0 flex-wrap items-center gap-2';
+
   return (
     <div
       data-platform={platform}
-      className="flex items-center justify-between rounded-xl border border-border bg-background p-5"
+      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-xl border border-border bg-background p-5"
     >
-      <div className="flex items-center gap-4">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-lg">
+      <div className="flex min-w-0 items-center gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-lg">
           {isPlatformBrandIcon(platform) ? (
             <PlatformIcon platform={platform} size={36} />
           ) : (
             meta.emoji
           )}
         </div>
-        <div>
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-medium text-foreground">{meta.label}</p>
             <StatusBadge status={status} />
           </div>
           {account && (
-            <p className="text-sm text-muted-foreground">
+            <p className="truncate text-sm text-muted-foreground">
               {status === 'expired' ? 'Was connected as ' : 'Connected as '}
               <span className="font-medium text-foreground">{account.platformName}</span>
             </p>
@@ -482,7 +484,7 @@ function ConnectionPlatformRow({
 
       {status === 'connected' && account ? (
         platform === 'sftp' ? (
-          <div className="flex items-center gap-2">
+          <div className={actionGroupClassName}>
             <SftpConnectButton
               label="Edit"
               existingConnection={sftpExistingConnection!}
@@ -494,7 +496,7 @@ function ConnectionPlatformRow({
             />
           </div>
         ) : platform === 'smb' ? (
-          <div className="flex items-center gap-2">
+          <div className={actionGroupClassName}>
             <SmbConnectButton
               label="Edit"
               existingConnection={smbExistingConnection!}
@@ -506,7 +508,7 @@ function ConnectionPlatformRow({
             />
           </div>
         ) : platform === 'sermon_audio' ? (
-          <div className="flex items-center gap-2">
+          <div className={actionGroupClassName}>
             <SermonAudioConnectButton
               label="Edit"
               existingConnection={sermonAudioExistingConnection!}
@@ -518,7 +520,7 @@ function ConnectionPlatformRow({
             />
           </div>
         ) : platform === 'facebook' ? (
-          <div className="flex items-center gap-2">
+          <div className={actionGroupClassName}>
             <FacebookConnectButton
               label="Edit"
               existingConnection={facebookExistingConnection}
@@ -530,7 +532,7 @@ function ConnectionPlatformRow({
             />
           </div>
         ) : platform === 'google_drive' && googleDriveExistingConnection ? (
-          <div className="flex items-center gap-2">
+          <div className={actionGroupClassName}>
             <GoogleDriveConnectButton
               label="Edit"
               existingConnection={googleDriveExistingConnection}
@@ -543,7 +545,7 @@ function ConnectionPlatformRow({
             />
           </div>
         ) : platform === 'youtube' && youtubeStreamKeysExistingConnection ? (
-          <div className="flex items-center gap-2">
+          <div className={actionGroupClassName}>
             {youtubeStreamKeysEditButton}
             <DisconnectButton
               action={disconnectPlatform.bind(null, account.id)}
@@ -557,7 +559,7 @@ function ConnectionPlatformRow({
           />
         )
       ) : status === 'expired' && account ? (
-        <div className="flex items-center gap-2">
+        <div className={actionGroupClassName}>
           {meta.connectHref ? (
             <>
               <ConnectButton href={meta.connectHref} label="Reconnect" />
