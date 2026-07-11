@@ -1,5 +1,6 @@
 'use client';
 
+import { Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import {
@@ -42,12 +43,16 @@ export function YouTubeStreamKeysButton({
   const [tempStreamKey, setTempStreamKey] = useState('');
   const [clearMainStreamKey, setClearMainStreamKey] = useState(false);
   const [clearTempStreamKey, setClearTempStreamKey] = useState(false);
+  const [showMainStreamKey, setShowMainStreamKey] = useState(false);
+  const [showTempStreamKey, setShowTempStreamKey] = useState(false);
 
   const resetForm = () => {
     setMainStreamKey('');
     setTempStreamKey('');
     setClearMainStreamKey(false);
     setClearTempStreamKey(false);
+    setShowMainStreamKey(false);
+    setShowTempStreamKey(false);
     setError(null);
   };
 
@@ -167,27 +172,44 @@ export function YouTubeStreamKeysButton({
                   </button>
                 ) : null}
               </div>
-              <input
-                id="youtube-main-stream-key"
-                type="password"
-                value={mainStreamKey}
-                autoComplete="off"
-                disabled={submitting}
-                placeholder={
-                  clearMainStreamKey
-                    ? 'Stored key will be removed on save'
-                    : existingConnection.hasMainStreamKey
-                      ? 'Leave blank to keep the stored key'
-                      : 'Enter your main stream key'
-                }
-                onChange={(event) => {
-                  setMainStreamKey(event.target.value);
-                  if (event.target.value.trim() !== '') {
-                    setClearMainStreamKey(false);
+              <div className="relative mt-2">
+                <input
+                  id="youtube-main-stream-key"
+                  type={showMainStreamKey ? 'text' : 'password'}
+                  value={mainStreamKey}
+                  autoComplete="off"
+                  disabled={submitting}
+                  placeholder={
+                    clearMainStreamKey
+                      ? 'Stored key will be removed on save'
+                      : existingConnection.hasMainStreamKey
+                        ? 'Leave blank to keep the stored key'
+                        : 'Enter your main stream key'
                   }
-                }}
-                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-60"
-              />
+                  onChange={(event) => {
+                    setMainStreamKey(event.target.value);
+                    if (event.target.value.trim() !== '') {
+                      setClearMainStreamKey(false);
+                    }
+                  }}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 pr-11 text-sm text-foreground disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowMainStreamKey((visible) => !visible)}
+                  aria-label={showMainStreamKey ? 'Hide main stream key' : 'Show main stream key'}
+                  aria-pressed={showMainStreamKey}
+                  aria-controls="youtube-main-stream-key"
+                  disabled={submitting}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {showMainStreamKey ? (
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
               {clearMainStreamKey ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   The stored main key will be removed when you save.{' '}
@@ -225,27 +247,46 @@ export function YouTubeStreamKeysButton({
                   </button>
                 ) : null}
               </div>
-              <input
-                id="youtube-temp-stream-key"
-                type="password"
-                value={tempStreamKey}
-                autoComplete="off"
-                disabled={submitting}
-                placeholder={
-                  clearTempStreamKey
-                    ? 'Stored key will be removed on save'
-                    : existingConnection.hasTempStreamKey
-                      ? 'Leave blank to keep the stored key'
-                      : 'Enter your temporary stream key'
-                }
-                onChange={(event) => {
-                  setTempStreamKey(event.target.value);
-                  if (event.target.value.trim() !== '') {
-                    setClearTempStreamKey(false);
+              <div className="relative mt-2">
+                <input
+                  id="youtube-temp-stream-key"
+                  type={showTempStreamKey ? 'text' : 'password'}
+                  value={tempStreamKey}
+                  autoComplete="off"
+                  disabled={submitting}
+                  placeholder={
+                    clearTempStreamKey
+                      ? 'Stored key will be removed on save'
+                      : existingConnection.hasTempStreamKey
+                        ? 'Leave blank to keep the stored key'
+                        : 'Enter your temporary stream key'
                   }
-                }}
-                className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-60"
-              />
+                  onChange={(event) => {
+                    setTempStreamKey(event.target.value);
+                    if (event.target.value.trim() !== '') {
+                      setClearTempStreamKey(false);
+                    }
+                  }}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 pr-11 text-sm text-foreground disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowTempStreamKey((visible) => !visible)}
+                  aria-label={
+                    showTempStreamKey ? 'Hide temporary stream key' : 'Show temporary stream key'
+                  }
+                  aria-pressed={showTempStreamKey}
+                  aria-controls="youtube-temp-stream-key"
+                  disabled={submitting}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {showTempStreamKey ? (
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
               {clearTempStreamKey ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   The stored temporary key will be removed when you save.{' '}

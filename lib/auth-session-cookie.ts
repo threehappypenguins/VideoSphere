@@ -36,8 +36,18 @@ export function getSessionCookieName(projectId?: string): string {
 }
 
 /**
- * Executes get session cookie options.
- * @returns The computed result.
+ * Default JWT `exp` and cookie `Max-Age` in seconds (10 years).
+ * Browsers often clamp or evict persistent cookies sooner (e.g. Chromium ~400 days),
+ * so operators may still see logouts before the JWT itself would expire.
+ */
+export const DEFAULT_JWT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 10;
+
+/**
+ * Returns httpOnly session cookie options, including JWT/cookie lifetime.
+ * Override with `JWT_SESSION_MAX_AGE_SECONDS` (positive integer seconds).
+ * Cookie `Max-Age` matches the JWT lifetime, but browsers may not honor values
+ * beyond their own persistent-cookie caps.
+ * @returns Cookie attributes used when issuing or clearing the session cookie.
  */
 export function getSessionCookieOptions(): {
   path: string;
@@ -46,9 +56,11 @@ export function getSessionCookieOptions(): {
   secure: boolean;
   maxAge: number;
 } {
-  const defaultMaxAgeSeconds = 60 * 60 * 24 * 7;
   const parsed = Number(process.env.JWT_SESSION_MAX_AGE_SECONDS);
-  const maxAge = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : defaultMaxAgeSeconds;
+  const maxAge =
+    Number.isFinite(parsed) && parsed > 0
+      ? Math.floor(parsed)
+      : DEFAULT_JWT_SESSION_MAX_AGE_SECONDS;
   return {
     path: '/',
     httpOnly: true,
