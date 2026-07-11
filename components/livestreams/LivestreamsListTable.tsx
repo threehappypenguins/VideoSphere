@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { Copy, Loader2, Trash2 } from 'lucide-react';
+import { getLivestreamListThumbnailUrl } from '@/lib/livestreams/youtube-thumbnail-preview';
 import type { Livestream, LivestreamStatus } from '@/types';
 
 /** Maximum streamed livestreams shown on the main livestreams page before linking to history. */
@@ -69,6 +70,25 @@ export function formatKeySwapNote(livestream: Livestream): string | null {
     return 'Key: temp (queued)';
   }
   return null;
+}
+
+/**
+ * Renders a compact livestream thumbnail for list rows.
+ * @param props - Component props.
+ * @param props.livestream - Livestream row used to resolve the thumbnail URL.
+ * @returns Thumbnail placeholder with an image when a URL is available.
+ */
+function LivestreamListThumbnail({ livestream }: { livestream: Livestream }) {
+  const thumbnailUrl = getLivestreamListThumbnailUrl(livestream);
+
+  return (
+    <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded bg-muted">
+      {thumbnailUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- YouTube CDN thumbnails are not in next/image remotePatterns.
+        <img src={thumbnailUrl} alt="" className="h-full w-full object-cover" />
+      ) : null}
+    </div>
+  );
 }
 
 interface LivestreamActionsProps {
@@ -222,26 +242,29 @@ function LivestreamMobileRow({
         aria-label={`Edit livestream "${title}"`}
         className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       />
-      <div className="relative z-0">
-        <span className="text-sm font-medium text-foreground">{title}</span>
-        {keySwapNote ? (
-          <span className="mt-0.5 block text-xs text-muted-foreground">{keySwapNote}</span>
-        ) : null}
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-          {showScheduledColumn ? (
-            <span className="text-xs text-muted-foreground">
-              {formatScheduledDateTime(livestream.scheduledStartTime)}
-            </span>
+      <div className="relative z-0 flex items-start gap-3">
+        <LivestreamListThumbnail livestream={livestream} />
+        <div className="min-w-0 flex-1">
+          <span className="text-sm font-medium text-foreground">{title}</span>
+          {keySwapNote ? (
+            <span className="mt-0.5 block text-xs text-muted-foreground">{keySwapNote}</span>
           ) : null}
-          <StatusBadge status={livestream.status} />
-          <div className="relative z-20 ml-auto pointer-events-auto">
-            <LivestreamActions
-              livestream={livestream}
-              onDelete={onDelete}
-              onDuplicate={onDuplicate}
-              isDeletingId={isDeletingId}
-              isDuplicatingId={isDuplicatingId}
-            />
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+            {showScheduledColumn ? (
+              <span className="text-xs text-muted-foreground">
+                {formatScheduledDateTime(livestream.scheduledStartTime)}
+              </span>
+            ) : null}
+            <StatusBadge status={livestream.status} />
+            <div className="relative z-20 ml-auto pointer-events-auto">
+              <LivestreamActions
+                livestream={livestream}
+                onDelete={onDelete}
+                onDuplicate={onDuplicate}
+                isDeletingId={isDeletingId}
+                isDuplicatingId={isDuplicatingId}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -332,14 +355,17 @@ export function LivestreamsTableContent({
                         }
                       }}
                       aria-label={`Edit livestream "${title}"`}
-                      className="flex min-h-12 w-full flex-col justify-center px-4 py-3 text-left"
+                      className="flex min-h-12 w-full items-center gap-3 px-4 py-3 text-left"
                     >
-                      <span className="block max-w-full truncate text-foreground">{title}</span>
-                      {keySwapNote ? (
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {keySwapNote}
-                        </span>
-                      ) : null}
+                      <LivestreamListThumbnail livestream={livestream} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block max-w-full truncate text-foreground">{title}</span>
+                        {keySwapNote ? (
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {keySwapNote}
+                          </span>
+                        ) : null}
+                      </span>
                     </button>
                   </td>
                   {showScheduledColumn ? (
