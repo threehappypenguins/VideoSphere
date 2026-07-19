@@ -5,7 +5,6 @@ import { getAppBaseUrl } from '@/lib/app-port';
 import {
   GOOGLE_AUTH_OAUTH_STATE_COOKIE,
   parseGoogleOAuthStateCookie,
-  revokeGoogleOAuthTokens,
   type GoogleOAuthGrant,
   type GoogleOAuthState,
 } from '@/lib/auth/google-oauth';
@@ -99,11 +98,13 @@ function oauthErrorResponse(
 }
 
 /**
- * Revokes an unused Google grant, then redirects with the OAuth error code.
+ * Redirects with the OAuth error code after a failed Google sign-in/connect attempt.
+ * Does not call Google's revoke endpoint: sign-in, YouTube, and Drive clients share one
+ * Cloud project, and revoking a mid-flow sign-in grant can invalidate platform refresh tokens.
  * @param origin - Request origin.
  * @param state - Parsed OAuth state cookie.
  * @param code - Error code for the redirect query string.
- * @param grant - Google tokens to revoke when the user will not receive a session.
+ * @param grant - Unused; kept so call sites stay stable after removing remote revoke.
  * @returns Redirect response with the OAuth state cookie cleared.
  */
 async function oauthErrorResponseAfterGrant(
@@ -112,9 +113,7 @@ async function oauthErrorResponseAfterGrant(
   code: string,
   grant?: GoogleOAuthGrant
 ): Promise<NextResponse> {
-  if (grant?.accessToken || grant?.refreshToken) {
-    await revokeGoogleOAuthTokens(grant);
-  }
+  void grant;
   return oauthErrorResponse(origin, state, code);
 }
 

@@ -31,6 +31,10 @@ async function clearRevokedOAuthRefreshTokenIfNeeded(
 ): Promise<void> {
   if (!isOAuthRefreshTokenRevokedError(details)) return;
   try {
+    console.warn(
+      `[token-refresh] Clearing ${account.platform} refresh token for account ${account.id} after provider reported a revoked/expired grant:`,
+      details
+    );
     await clearOAuthRefreshToken(account.id);
   } catch (err) {
     console.error(

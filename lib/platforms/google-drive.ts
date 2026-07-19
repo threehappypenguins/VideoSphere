@@ -15,6 +15,7 @@ import {
   uploadGoogleResumableInChunks,
   uploadGoogleResumableSinglePut,
 } from '@/lib/platforms/google-resumable-upload';
+import { coalesceOAuthRefreshToken } from '@/lib/platforms/oauth-refresh-token';
 
 type PlatformUploadFailure = Extract<PlatformUploadResult, { ok: false }>;
 
@@ -505,7 +506,7 @@ export async function refreshGoogleDriveAccessToken(input: {
     return {
       ok: true,
       accessToken: payload.access_token,
-      refreshToken: payload.refresh_token ?? input.refreshToken,
+      refreshToken: coalesceOAuthRefreshToken(payload.refresh_token, input.refreshToken),
       tokenExpiry: new Date(Date.now() + payload.expires_in * 1000).toISOString(),
     };
   } catch (error) {

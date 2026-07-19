@@ -117,17 +117,6 @@ function mockGoogleSuccess(options?: { refreshToken?: string }) {
     });
 }
 
-function expectGoogleTokensRevoked(expectedTokens: string[] = ['access-token']) {
-  const revokeCalls = mockFetch.mock.calls.filter(([url]) =>
-    String(url).includes('https://oauth2.googleapis.com/revoke')
-  );
-  expect(revokeCalls.length).toBeGreaterThanOrEqual(1);
-  const bodies = revokeCalls.map((call) => String((call[1] as RequestInit | undefined)?.body));
-  for (const token of expectedTokens) {
-    expect(bodies.some((body) => body.includes(`token=${token}`))).toBe(true);
-  }
-}
-
 function expectGoogleTokensNotRevoked() {
   const revokeCalls = mockFetch.mock.calls.filter(([url]) =>
     String(url).includes('https://oauth2.googleapis.com/revoke')
@@ -314,7 +303,7 @@ describe('GET /api/auth/oauth/callback', () => {
     const res = await GET(validRequest(loginCookie()));
 
     expect(mockCreateUser).not.toHaveBeenCalled();
-    expectGoogleTokensRevoked(['refresh-token', 'access-token']);
+    expectGoogleTokensNotRevoked();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_registration_disabled'
@@ -328,7 +317,7 @@ describe('GET /api/auth/oauth/callback', () => {
     const res = await GET(validRequest(loginCookie()));
 
     expect(mockCreateUser).not.toHaveBeenCalled();
-    expectGoogleTokensRevoked();
+    expectGoogleTokensNotRevoked();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_callback_failed'
@@ -341,7 +330,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
     const res = await GET(validRequest(setupCookie()));
 
-    expectGoogleTokensRevoked();
+    expectGoogleTokensNotRevoked();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/login?error=oauth_setup_completed'
@@ -354,7 +343,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
     const res = await GET(validRequest(inviteCookie()));
 
-    expectGoogleTokensRevoked();
+    expectGoogleTokensNotRevoked();
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/invite/invite-token-1?error=oauth_invite_invalid'
@@ -417,7 +406,7 @@ describe('GET /api/auth/oauth/callback', () => {
 
     expect(mockGetUserById).not.toHaveBeenCalled();
     expect(mockPersistGoogleAuthForUser).not.toHaveBeenCalled();
-    expectGoogleTokensRevoked(['refresh-token', 'access-token']);
+    expectGoogleTokensNotRevoked();
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/profile?error=oauth_connect_failed'
     );
@@ -430,6 +419,7 @@ describe('GET /api/auth/oauth/callback', () => {
     const res = await GET(validRequest(connectCookie()));
 
     expect(mockPersistGoogleAuthForUser).not.toHaveBeenCalled();
+    expectGoogleTokensNotRevoked();
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/profile?error=oauth_connect_failed'
     );
@@ -447,7 +437,7 @@ describe('GET /api/auth/oauth/callback', () => {
     const res = await GET(validRequest(connectCookie()));
 
     expect(mockPersistGoogleAuthForUser).not.toHaveBeenCalled();
-    expectGoogleTokensRevoked(['refresh-token', 'access-token']);
+    expectGoogleTokensNotRevoked();
     expect(res.headers.get('location')).toBe(
       'http://localhost:3000/profile?error=oauth_connect_email_mismatch'
     );

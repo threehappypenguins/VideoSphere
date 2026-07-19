@@ -33,7 +33,11 @@ export async function getConnectedAccountsWithHealth(
           await refreshTokenIfNeeded(withTokens, { force: true });
           publicAccount = (await getConnectedAccountForUser(account.id, userId)) ?? publicAccount;
           connectionStatus = getConnectionStatus(publicAccount);
-        } catch {
+        } catch (err) {
+          console.warn(
+            `[getConnectedAccountsWithHealth] ${account.platform} token health check failed for account ${account.id}; marking expired:`,
+            err
+          );
           publicAccount = (await getConnectedAccountForUser(account.id, userId)) ?? {
             ...account,
             hasRefreshToken: false,
