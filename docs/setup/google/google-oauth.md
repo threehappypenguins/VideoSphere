@@ -109,6 +109,8 @@ If the app stays as **Testing**, only accounts listed as test users can complete
 
 Create **three** clients. Use **Web application** as the application type for each. Store credentials in the same place as your other VideoSphere secrets: `.env.local` for local dev or Docker Compose, or **Environment variables** on a Portainer stack (see [Deployment Guide](/deployment-guide)).
 
+> **Same Cloud project:** Sign-in, YouTube, and Drive clients normally share one OAuth consent screen. Google treats that as one app grant for the user — revoking a token from one client can invalidate the others. VideoSphere therefore does **not** call Google's revoke endpoint when disconnecting Google **sign-in** or abandoning a failed sign-in; it only clears local sign-in credentials so YouTube/Drive stay connected. Platform disconnect (YouTube/Drive) still revokes that platform's token.
+
 ### Google Sign-in client
 
 20. On **Clients**, click **+ Create client**.

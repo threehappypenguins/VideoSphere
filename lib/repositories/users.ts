@@ -23,7 +23,6 @@ import {
   upsertDraftLabelNamesInLibrary,
 } from '@/lib/draft-labels';
 import type { DraftLabelDefinition } from '@/types';
-import { revokeGoogleOAuthTokens } from '@/lib/auth/google-oauth';
 import { decryptToken, encryptToken } from '@/lib/crypto/token-encryption';
 import { connectToDatabase } from '@/lib/mongodb';
 import { UserProfileModel, type UserProfileDocument } from '@/lib/models/UserProfile';
@@ -669,10 +668,16 @@ export async function getUserAuthProviderById(userId: string): Promise<UserAuthP
 }
 
 /**
- * Revokes stored Google login tokens so the app is removed from the user's Google account access list.
- * Best-effort: silently no-ops when no refresh token is stored; logs decryption/revoke failures.
+ * Drops locally stored Google sign-in credentials from consideration before switching
+ * the account to password auth.
+ *
+ * Does **not** call Google's revoke endpoint. VideoSphere's sign-in, YouTube, and Drive
+ * OAuth clients share one Cloud project / consent screen; revoking a sign-in token can
+ * invalidate YouTube and Drive refresh tokens for the same user. Local `googleRefreshToken`
+ * is removed by {@link revertGoogleAuthToPassword}. Users can remove VideoSphere from
+ * Google Account → Third-party access if they want a full remote revoke.
  * @param userId - Auth user id.
- * @returns Resolves when the revoke attempt finishes (including no-op cases).
+ * @returns Resolves when the check finishes (including no-op cases).
  */
 export async function revokeStoredGoogleAuthForUser(userId: string): Promise<void> {
   await connectToDatabase();
@@ -686,15 +691,10 @@ export async function revokeStoredGoogleAuthForUser(userId: string): Promise<voi
   const encrypted = doc.googleRefreshToken?.trim();
   if (!encrypted) return;
 
-  try {
-    const refreshToken = decryptToken(encrypted);
-    await revokeGoogleOAuthTokens({ refreshToken });
-  } catch (error) {
-    console.warn(
-      `[revokeStoredGoogleAuthForUser] Failed to revoke Google auth for ${userId}`,
-      error
-    );
-  }
+  // Intentionally skip Google's /revoke for sign-in tokens (same-project grant coupling).
+  console.info(
+    `[revokeStoredGoogleAuthForUser] Skipping remote Google revoke for ${userId}; clearing local Google sign-in credentials only to avoid invalidating YouTube/Drive grants in the same Cloud project.`
+  );
 }
 
 /**

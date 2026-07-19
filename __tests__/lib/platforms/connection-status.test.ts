@@ -44,6 +44,16 @@ describe('connection-status', () => {
     expect(accountNeedsOAuthHealthProbe(account)).toBe(true);
   });
 
+  it('treats OAuth rows with a future access expiry but no refresh token as expired', () => {
+    const account = youtubeAccount({
+      tokenExpiry: new Date(Date.now() + 3_600_000).toISOString(),
+      hasRefreshToken: false,
+    });
+    expect(getConnectionStatus(account)).toBe('expired');
+    expect(accountNeedsOAuthHealthProbe(account)).toBe(false);
+    expect(isUsablePlatformConnection(account)).toBe(false);
+  });
+
   it('prefers server-verified connectionStatus over static derivation', () => {
     const account = youtubeAccount({
       tokenExpiry: new Date(Date.now() - 1000).toISOString(),

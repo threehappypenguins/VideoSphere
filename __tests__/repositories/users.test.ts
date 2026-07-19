@@ -204,7 +204,7 @@ describe('users repository (mongo)', () => {
     expect(user.platformDefaults?.youtube?.categoryId).toBe('22');
   });
 
-  it('revokes stored Google refresh token for Google auth users', async () => {
+  it('skips remote Google revoke for Google auth users (same-project grant coupling)', async () => {
     const encrypted = encryptToken('stored-refresh-token');
     mockFindById.mockReturnValueOnce({
       select: () => ({
@@ -214,13 +214,10 @@ describe('users repository (mongo)', () => {
         }),
       }),
     });
-    mockRevokeGoogleOAuthTokens.mockResolvedValueOnce(undefined);
 
     await revokeStoredGoogleAuthForUser('auth-user-1');
 
-    expect(mockRevokeGoogleOAuthTokens).toHaveBeenCalledWith({
-      refreshToken: 'stored-refresh-token',
-    });
+    expect(mockRevokeGoogleOAuthTokens).not.toHaveBeenCalled();
   });
 
   it('skips Google revoke for password auth users', async () => {

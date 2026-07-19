@@ -53,6 +53,9 @@ export function isSermonAudioConnectionReady(account: ConnectedAccountPublic): b
 /**
  * Derives connection status from token expiry, refresh-token presence, and platform-specific fields.
  * Does not call remote OAuth providers.
+ * For YouTube / Google Drive / Facebook, a refresh token is required for `connected`: an access
+ * token that has not yet hit `tokenExpiry` is not enough, because a cleared or revoked refresh
+ * grant cannot be renewed and the access token may already be dead at the provider.
  * @param account - Public connected account row, if any.
  * @returns Static connection status for UI and API filtering.
  */
@@ -69,16 +72,15 @@ export function getConnectionStatus(
   if (account.platform === 'sermon_audio') {
     return isSermonAudioConnectionReady(account) ? 'connected' : 'expired';
   }
+  if (
+    account.platform === 'youtube' ||
+    account.platform === 'google_drive' ||
+    account.platform === 'facebook'
+  ) {
+    return account.hasRefreshToken ? 'connected' : 'expired';
+  }
   const expiryMs = new Date(account.tokenExpiry).getTime();
   if (!Number.isNaN(expiryMs) && expiryMs > Date.now()) return 'connected';
-  if (
-    (account.platform === 'youtube' ||
-      account.platform === 'google_drive' ||
-      account.platform === 'facebook') &&
-    account.hasRefreshToken
-  ) {
-    return 'connected';
-  }
   return 'expired';
 }
 

@@ -18,6 +18,7 @@ import { getAppBaseUrl } from '@/lib/app-port';
 import { YOUTUBE_OAUTH_STATE_COOKIE } from '@/lib/platforms/oauth-state-cookies';
 import { htmlRedirect } from '@/lib/api/html-redirect';
 import { isTokenDecryptError } from '@/lib/crypto/token-encryption';
+import { coalesceOAuthRefreshToken } from '@/lib/platforms/oauth-refresh-token';
 import {
   createConnectedAccount,
   getConnectedAccountRowId,
@@ -199,7 +200,10 @@ export async function GET(req: NextRequest) {
       previousPlatformUserId = existing?.platformUserId?.trim() || null;
     }
 
-    const refreshTokenToStore = tokens.refresh_token ?? existingRefreshToken;
+    const refreshTokenToStore = coalesceOAuthRefreshToken(
+      tokens.refresh_token,
+      existingRefreshToken
+    );
     if (existingId) {
       await updateConnection(
         existingId,
@@ -210,6 +214,12 @@ export async function GET(req: NextRequest) {
         platformName
       );
     } else {
+      if (!refreshTokenToStore) {
+        console.error(
+          '[GET /api/platforms/callback/youtube] Google did not return a refresh token; cannot create YouTube connection'
+        );
+        return htmlRedirect(failureUrl, YOUTUBE_OAUTH_STATE_COOKIE);
+      }
       await createConnectedAccount({
         userId,
         platform: 'youtube',

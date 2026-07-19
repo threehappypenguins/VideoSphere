@@ -378,7 +378,14 @@ export async function getConnectedAccountForUser(
 
 /**
  * Refresh stored OAuth tokens for a connected account.
+ * When `refreshToken` is empty, the existing stored refresh token is left unchanged
+ * so a missing/empty provider value cannot wipe a still-valid grant.
  * Returns public shape (no tokens) so callers never receive secrets.
+ * @param id - Connected account row id.
+ * @param accessToken - New access token plaintext.
+ * @param refreshToken - New refresh token plaintext, or empty to preserve the stored one.
+ * @param tokenExpiry - ISO expiry for the new access token.
+ * @returns Updated public account row, or null when the row no longer exists.
  */
 export async function updateTokens(
   id: string,
@@ -387,11 +394,12 @@ export async function updateTokens(
   tokenExpiry: string
 ): Promise<ConnectedAccountPublic | null> {
   await connectToDatabase();
+  const trimmedRefresh = refreshToken.trim();
   const updated = await ConnectedAccountModel.findByIdAndUpdate(
     id,
     {
       accessToken: encryptToken(accessToken),
-      refreshToken: encryptToken(refreshToken),
+      ...(trimmedRefresh ? { refreshToken: encryptToken(trimmedRefresh) } : {}),
       tokenExpiry,
     },
     { returnDocument: 'after', runValidators: true }
@@ -424,6 +432,7 @@ export async function clearOAuthRefreshToken(id: string): Promise<ConnectedAccou
 /**
  * Update tokens and platform metadata (name, userId) for an existing connection.
  * Use this on reconnection so the stored channel name/id stays current.
+ * When `refreshToken` is empty, the existing stored refresh token is left unchanged.
  * Returns public shape (no tokens) so callers never receive secrets.
  */
 export async function updateConnection(
@@ -459,11 +468,12 @@ export async function updateConnection(
           facebookPageId: facebookFields.facebookPageId ?? null,
         }
       : {};
+  const trimmedRefresh = refreshToken.trim();
   const updated = await ConnectedAccountModel.findByIdAndUpdate(
     id,
     {
       accessToken: encryptToken(accessToken),
-      refreshToken: encryptToken(refreshToken),
+      ...(trimmedRefresh ? { refreshToken: encryptToken(trimmedRefresh) } : {}),
       tokenExpiry,
       platformUserId,
       platformName,

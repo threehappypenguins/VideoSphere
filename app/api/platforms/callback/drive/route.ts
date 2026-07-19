@@ -7,6 +7,7 @@ import {
   parseGoogleDrivePlatformUserId,
   serializeGoogleDrivePlatformUserId,
 } from '@/lib/platforms/google-drive';
+import { coalesceOAuthRefreshToken } from '@/lib/platforms/oauth-refresh-token';
 import {
   createConnectedAccount,
   getConnectedAccountRowId,
@@ -166,7 +167,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const refreshTokenToStore = tokens.refresh_token ?? existingRefreshToken;
+    const refreshTokenToStore = coalesceOAuthRefreshToken(
+      tokens.refresh_token,
+      existingRefreshToken
+    );
     const preservedRootFolderId = existingPlatformUserId
       ? parseGoogleDrivePlatformUserId(existingPlatformUserId).rootFolderId
       : undefined;
@@ -185,6 +189,12 @@ export async function GET(req: NextRequest) {
         platformName
       );
     } else {
+      if (!refreshTokenToStore) {
+        console.error(
+          '[GET /api/platforms/callback/drive] Google did not return a refresh token; cannot create Google Drive connection'
+        );
+        return htmlRedirect(failureUrl, GOOGLE_DRIVE_OAUTH_STATE_COOKIE);
+      }
       await createConnectedAccount({
         userId,
         platform: 'google_drive',

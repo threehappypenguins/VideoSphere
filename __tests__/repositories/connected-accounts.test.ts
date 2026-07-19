@@ -279,4 +279,19 @@ describe('connected-accounts repository (mongo)', () => {
     );
     expect(result?.hasRefreshToken).toBe(false);
   });
+
+  it('preserves the stored refresh token when updateTokens receives an empty refresh', async () => {
+    mockFindByIdAndUpdate.mockReturnValueOnce({ lean: vi.fn().mockResolvedValue(baseDoc) });
+
+    await updateTokens('conn-1', 'new-access', '', '2027-01-01T00:00:00.000Z');
+
+    expect(mockFindByIdAndUpdate).toHaveBeenCalledTimes(1);
+    const [, updatePayload] = mockFindByIdAndUpdate.mock.calls[0] as [
+      string,
+      { accessToken: string; refreshToken?: string; tokenExpiry: string },
+    ];
+    expect(decryptToken(updatePayload.accessToken)).toBe('new-access');
+    expect(updatePayload).not.toHaveProperty('refreshToken');
+    expect(updatePayload.tokenExpiry).toBe('2027-01-01T00:00:00.000Z');
+  });
 });
