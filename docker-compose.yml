@@ -40,8 +40,17 @@ services:
       - mongo-data:/data/db
     # Cap WiredTiger cache on memory-constrained hosts (e.g. 4GB Odroid); default is ~50% of (RAM - 1GB).
     command: ['mongod', '--wiredTigerCacheSizeGB', '0.5']
+    # mongosh writes ~/.mongodb/mongosh/*_log on every invocation unless
+    # disableLogging is set in /etc/mongosh.conf before the process starts
+    # (config.set in --eval is too late). See:
+    # https://www.mongodb.com/docs/mongodb-shell/logs/disable/
     healthcheck:
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      test:
+        - CMD-SHELL
+        - >-
+          test -f /etc/mongosh.conf
+          || printf 'mongosh:\n  disableLogging: true\n  enableTelemetry: false\n' > /etc/mongosh.conf;
+          mongosh --quiet --eval "db.adminCommand('ping')"
       interval: 10s
       timeout: 5s
       retries: 5

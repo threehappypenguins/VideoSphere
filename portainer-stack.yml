@@ -37,17 +37,20 @@
 # Multi-arch image: linux/amd64, linux/arm64 (Odroid HC4 and similar).
 # Docker pulls the variant that matches your host. 32-bit ARM (e.g. HC2) is not supported.
 #
-# DATA LOCATION (backups):
+# DATA LOCATION:
 #   VideoSphere itself is stateless — uploaded media goes to Cloudflare R2, not local
-#   disk, so the "app" container has nothing to back up and uses no bind mount.
-#   MongoDB is the only thing that needs to live on disk. By default it's stored in a
-#   named Docker volume managed by Docker (usually under /var/lib/docker/volumes/...).
+#   disk, so the "app" container has nothing durable on disk and uses no bind mount.
+#   MongoDB is the only local state. By default it's stored in a named Docker volume
+#   (usually under /var/lib/docker/volumes/...).
 #
-#   To control exactly where that data lives on your host (e.g. so it's covered by your
-#   existing backup job), this stack bind-mounts it instead, under:
+#   Back up with mongodump (portable archive), not by tarballing live /data/db files.
+#   See docs/deployment-guide.md → "MongoDB backup and restore".
+#
+#   To control where WiredTiger files live on the host (layout / capacity — not a
+#   backup method), this stack can bind-mount instead, under:
 #     /srv/AppData/videosphere/mongo
 #
-#   Before deploying, create that folder on the Portainer host:
+#   Before deploying a bind mount, create that folder on the Portainer host:
 #     mkdir -p /srv/AppData/videosphere/mongo
 #
 #   If you'd rather use a Docker-managed named volume instead (no host path to manage),
@@ -116,8 +119,17 @@ services:
       # - /srv/AppData/videosphere/mongo:/data/db # modify address to the left of the colon accordingly
     # Cap WiredTiger cache on memory-constrained hosts (e.g. 4GB Odroid); default is ~50% of (RAM - 1GB).
     command: ['mongod', '--wiredTigerCacheSizeGB', '0.5']
+    # mongosh writes ~/.mongodb/mongosh/*_log on every invocation unless
+    # disableLogging is set in /etc/mongosh.conf before the process starts
+    # (config.set in --eval is too late). See:
+    # https://www.mongodb.com/docs/mongodb-shell/logs/disable/
     healthcheck:
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      test:
+        - CMD-SHELL
+        - >-
+          test -f /etc/mongosh.conf
+          || printf 'mongosh:\n  disableLogging: true\n  enableTelemetry: false\n' > /etc/mongosh.conf;
+          mongosh --quiet --eval "db.adminCommand('ping')"
       interval: 10s
       timeout: 5s
       retries: 5
