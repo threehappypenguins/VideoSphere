@@ -48,9 +48,9 @@ services:
       test:
         - CMD-SHELL
         - >-
-          test -f /etc/mongosh.conf
-          || printf 'mongosh:\n  disableLogging: true\n  enableTelemetry: false\n' > /etc/mongosh.conf;
-          mongosh --quiet --eval "db.adminCommand('ping')"
+          (test -f /etc/mongosh.conf
+          || printf 'mongosh:\n  disableLogging: true\n  enableTelemetry: false\n' > /etc/mongosh.conf)
+          && mongosh --quiet --eval "db.adminCommand('ping')"
       interval: 10s
       timeout: 5s
       retries: 5
