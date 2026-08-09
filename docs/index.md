@@ -6,7 +6,7 @@ VideoSphere is an open-source, self-hosted video distribution platform. Upload o
 
 For homelab or production use — no source checkout required if you use the published Docker image.
 
-1. [Deployment Guide](/deployment-guide) — run the pre-built image with Docker Compose or Portainer
+1. [Deployment Guide](/deployment-guide) — run the pre-built image with Docker Compose or Portainer (includes MongoDB `mongodump` / `mongorestore` backup steps)
 2. [R2 Storage](/setup/r2/r2-module) — create a Cloudflare R2 bucket and API credentials (required for uploads)
 3. [Google OAuth](/setup/google/google-oauth) — sign-in with Google, YouTube connection, and Google Drive connection (optional per integration)
 4. [Vimeo OAuth](/setup/vimeo/vimeo-oauth) — Vimeo connection and Upload Access approval (single-account limitation; see guide)
