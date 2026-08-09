@@ -63,15 +63,74 @@ The repository ships a ready-to-paste stack: [`portainer-stack.yml`](https://git
 
 The default stack uses `ghcr.io/threehappypenguins/videosphere:latest` and `mongo:8`, publishes the app on port **9624**, and stores MongoDB in a named Docker volume.
 
-### Host path for MongoDB backups
+### Optional host path for MongoDB data
 
-To put database files in a known host directory (e.g. for your existing backup job), create the folder on the Portainer host (modify folder structure accordingly). For example:
+To put WiredTiger data files in a known host directory (disk layout / capacity planning — not a substitute for backups), create the folder on the Portainer host and follow the bind-mount instructions in the comments at the top of `portainer-stack.yml`. For example:
 
 ```bash
 mkdir -p /srv/AppData/videosphere/mongo
 ```
 
-Then follow the bind-mount instructions in the comments at the top of `portainer-stack.yml`.
+Back up with `mongodump` (next section). Do not archive the live `/data/db` directory (or a host bind mount of it) while `mongod` is running.
+
+## MongoDB backup and restore
+
+The app is stateless — uploaded media lives in Cloudflare R2. **MongoDB is the only local state to back up** (users, sessions, drafts, connected-account tokens, upload history, and so on).
+
+Prefer a portable `mongodump` archive over tarballing live WiredTiger files. A dump is consistent enough for VideoSphere’s data model (standalone Mongo; no multi-document transactional / financial workloads). Point-in-time `--oplog` dumps require a replica set and are not needed here.
+
+Default container name: `videosphere-mongo`. Confirm with:
+
+```bash
+docker ps --format '{{.Names}}' | grep -i mongo
+```
+
+### Backup (`mongodump`)
+
+Credentials are already in the mongo container as `MONGO_INITDB_ROOT_USERNAME` / `MONGO_INITDB_ROOT_PASSWORD`.
+
+```bash
+# 1. Dump a compressed archive inside the container
+STAMP=$(date -u +%Y-%m-%d)
+docker exec videosphere-mongo sh -c \
+  'mongodump -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" \
+    --authenticationDatabase admin --archive=/tmp/videosphere-mongo.dump.gz --gzip'
+
+# 2. Copy it to your staging/backup directory on the host
+mkdir -p /path/to/backup-staging
+docker cp "videosphere-mongo:/tmp/videosphere-mongo.dump.gz" \
+  "/path/to/backup-staging/videosphere-mongo-${STAMP}.gz"
+
+# 3. Remove the temp file from the container
+docker exec videosphere-mongo rm -f /tmp/videosphere-mongo.dump.gz
+```
+
+If you also archive VideoSphere config or other host folders, **exclude**:
+
+- the live Mongo data directory (Docker volume or bind mount under `/data/db`)
+- any `~/.mongodb/mongosh/` log trees (health probes used to spam these; they are not backup artifacts)
+
+Keep the `.gz` dump as the database backup artifact.
+
+### Restore (`mongorestore`)
+
+Restore replaces data in the running instance. Stop or pause writers if you need a quiet window; then:
+
+```bash
+# Copy the archive into the container
+docker cp /path/to/videosphere-mongo-2026-08-15.gz videosphere-mongo:/tmp/restore.gz
+
+# Restore (--drop replaces existing collections that appear in the archive)
+docker exec videosphere-mongo sh -c \
+  'mongorestore -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" \
+    --authenticationDatabase admin --archive=/tmp/restore.gz --gzip --drop'
+
+docker exec videosphere-mongo rm -f /tmp/restore.gz
+```
+
+Omit `--drop` only when you intentionally want to merge into existing collections. After a full disaster-recovery restore, restart the app container if sessions or cached state look stale.
+
+Official reference: [MongoDB backup methods](https://www.mongodb.com/docs/manual/core/backups/).
 
 ## Option B: Docker Compose
 
@@ -110,8 +169,14 @@ services:
       MONGO_INITDB_DATABASE: videosphere
     volumes:
       - mongo-data:/data/db
+    # Disable mongosh persistent logs for health probes (see docker-compose.yml).
     healthcheck:
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      test:
+        - CMD-SHELL
+        - >-
+          (test -f /etc/mongosh.conf
+          || printf 'mongosh:\n  disableLogging: true\n  enableTelemetry: false\n' > /etc/mongosh.conf)
+          && mongosh --quiet --eval "db.adminCommand('ping')"
       interval: 10s
       timeout: 5s
       retries: 5
