@@ -52,7 +52,7 @@ The metadata modal (`DraftMetadataModal`) is the main editor. Typical sections:
 1. **Labels** — organizational tags inside VideoSphere only (not sent to platforms).
 2. **Platforms** — toggle which connected targets this upload should use; link to Connections if a platform is missing.
 3. **Backup naming** — when Google Drive, SFTP, or SMB is selected: date prefix, series, suffix, year folder, optional metadata atoms.
-4. **AI metadata** — optional prompt to generate title, description, and tags (requires `OPENROUTER_API_KEY` on the server and AI access for the user).
+4. **Metadata** — enter title, description, and tags manually (or paste from your own tools).
 5. **Title, description, tags** — shared defaults with optional per-platform overrides (YouTube, Vimeo, SermonAudio, Facebook).
 6. **Platform-specific fields** — categories, playlists, scheduling, SermonAudio speaker/series, Facebook publish time, etc.
 7. **Thumbnail** — default image plus optional per-platform overrides.

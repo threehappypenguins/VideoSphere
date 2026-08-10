@@ -843,21 +843,96 @@ export interface ExampleItem {
 }
 
 // =============================================================================
-// AI Metadata Generation types (PRD: AI-01 through AI-06, AI-08)
+// Live audio translation
 // =============================================================================
 
-/** Structured metadata returned by the AI metadata generation endpoint. */
-export interface GeneratedMetadata {
-  title: string;
-  description: string;
-  tags: string[];
+/**
+ * Speech-to-text backend for live translation ingest.
+ */
+export type LiveTranslationSttProvider = 'openrouter' | 'groq';
+
+/**
+ * Public-safe view of a user's live translation channel (no secrets).
+ */
+export interface LiveTranslationChannelPublic {
+  /** Channel document id. */
+  id: string;
+  /** Owning user id. */
+  userId: string;
+  /** Public URL slug (`/listen/{slug}`). */
+  slug: string;
+  /** Whether the public page is enabled. */
+  publicEnabled: boolean;
+  /** Source spoken language (ISO-639-1). */
+  sourceLanguage: string;
+  /** Target caption/listen languages (ISO-639-1 or BCP-47). */
+  enabledLanguages: string[];
+  /** Active STT backend. */
+  sttProvider: LiveTranslationSttProvider;
+  /**
+   * STT model id for `sttProvider`.
+   * API alias of the stored `openRouterSttModel` field.
+   */
+  sttModel: string | null;
+  /**
+   * @deprecated Prefer `sttModel`. Kept for older clients during the STT-provider split.
+   */
+  openRouterSttModel: string | null;
+  /** OpenRouter translation model id when set. */
+  openRouterTranslateModel: string | null;
+  /** Google Cloud TTS voice name when set. */
+  gcpTtsVoice: string | null;
+  /** Whether an OpenRouter API key is stored. */
+  hasOpenRouterKey: boolean;
+  /** Whether a Groq API key is stored. */
+  hasGroqKey: boolean;
+  /** Whether a GCP service-account JSON is stored. */
+  hasGcpServiceAccount: boolean;
+  /** Whether a stream key hash is stored (plaintext is never returned after mint). */
+  hasStreamKey: boolean;
+  /** Captions/translation ready for this channel owner. */
+  translationReady: boolean;
+  /** TTS listen ready for this channel owner. */
+  listenReady: boolean;
+  /** ISO timestamp when the channel was created. */
+  createdAt: string;
+  /** ISO timestamp when the channel was last updated. */
+  updatedAt: string;
 }
 
-/** Request body for POST /api/ai/generate-metadata. */
-export interface GenerateMetadataRequest {
-  fileName: string;
-  userPrompt?: string;
-  platforms: ConnectedAccountPlatform[];
+/**
+ * Owner-facing channel payload including optional one-time stream key plaintext.
+ */
+export interface LiveTranslationChannelOwnerView extends LiveTranslationChannelPublic {
+  /**
+   * Plaintext stream key, only present immediately after create/rotate.
+   * @property streamKeyPlaintext - RTMP/path stream key shown once to the owner.
+   */
+  streamKeyPlaintext?: string;
+  /** Suggested RTMP publish URL base when MediaMTX public host is configured. */
+  rtmpPublishUrl: string | null;
+  /** Whether optional MediaMTX ingest host env is configured. */
+  rtmpConfigured: boolean;
+}
+
+/**
+ * Public listen page metadata (no auth).
+ */
+export interface LiveTranslationPublicMeta {
+  /** Public slug. */
+  slug: string;
+  /** Whether the page is enabled. */
+  publicEnabled: boolean;
+  /** Whether the owner has translation credentials/models configured. */
+  translationReady: boolean;
+  /** Whether listen/TTS is available. */
+  listenAvailable: boolean;
+  /** Source language code. */
+  sourceLanguage: string;
+  /** Languages listeners may select. */
+  enabledLanguages: string[];
+  /** Whether ingest is currently live. */
+  live: boolean;
 }
 
 /**

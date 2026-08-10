@@ -144,7 +144,10 @@ VideoSphere uses route handlers under `app/api/`. Common entry points:
 | `POST` | `/api/uploads/presign` | Get presigned R2 upload URL |
 | `POST` | `/api/uploads/[jobId]/complete` | Confirm R2 upload |
 | `POST` | `/api/uploads/distribute` | Start platform distribution |
-| `POST` | `/api/ai/generate-metadata` | Generate title, description, tags |
+| `GET`/`PATCH`/`DELETE` | `/api/translation/channel` | Owner live-translation channel (create happens via credentials PUT) |
+| `PUT` | `/api/translation/credentials` | Store per-user OpenRouter / Groq / GCP credentials |
+| `GET` | `/api/translation/public/[slug]` | Public listen page metadata |
+| `GET` | `/api/translation/public/[slug]/events` | Public caption SSE stream |
 
 See `app/api/README.md` in the repository for route domains. Run `pnpm docs:api` for full TypeDoc output.
 

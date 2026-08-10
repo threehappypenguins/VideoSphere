@@ -1,0 +1,369 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+
+const TARGET_SAMPLE_RATE = 16000;
+const CHUNK_MS = 4000;
+/** Inaudible but non-zero — Chromium can skip ScriptProcessor when gain is exactly 0. */
+const MONITOR_GAIN = 0.0001;
+
+/**
+ * True when the device is the browser system-default input entry.
+ * @param device - MediaDeviceInfo from enumerateDevices.
+ * @returns Whether this is the system default device.
+ */
+function isSystemDefaultInput(device: MediaDeviceInfo): boolean {
+  if (device.deviceId === 'default') return true;
+  return device.label.toLowerCase().startsWith('default');
+}
+
+/**
+ * Prefers the OS/browser system default input when present.
+ * @param inputs - Audio input devices.
+ * @returns Preferred deviceId, or empty string.
+ */
+function preferSystemDefaultInputId(inputs: MediaDeviceInfo[]): string {
+  const systemDefault = inputs.find((d) => d.deviceId === 'default');
+  if (systemDefault?.deviceId) return systemDefault.deviceId;
+  const labeled = inputs.find((d) => isSystemDefaultInput(d));
+  return labeled?.deviceId || inputs[0]?.deviceId || '';
+}
+
+/**
+ * Peak absolute sample in a float buffer.
+ * @param samples - Channel data.
+ * @returns Peak in [0, 1].
+ */
+function peakAbs(samples: Float32Array): number {
+  let peak = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const a = Math.abs(samples[i] ?? 0);
+    if (a > peak) peak = a;
+  }
+  return peak;
+}
+
+/**
+ * Mix multi-channel ScriptProcessor input down to mono.
+ * @param event - Audio processing event.
+ * @returns Mono float samples for this frame.
+ */
+function monoFromProcessorEvent(event: AudioProcessingEvent): Float32Array {
+  const channels = event.inputBuffer.numberOfChannels;
+  const length = event.inputBuffer.length;
+  if (channels <= 1) {
+    return new Float32Array(event.inputBuffer.getChannelData(0));
+  }
+  const out = new Float32Array(length);
+  for (let c = 0; c < channels; c += 1) {
+    const data = event.inputBuffer.getChannelData(c);
+    for (let i = 0; i < length; i += 1) {
+      out[i]! += data[i] ?? 0;
+    }
+  }
+  const inv = 1 / channels;
+  for (let i = 0; i < length; i += 1) {
+    out[i]! *= inv;
+  }
+  return out;
+}
+
+/**
+ * Browser microphone / input-device capture that streams PCM chunks to the owner ingest API.
+ * @param props - Whether translation is ready and optional status callback.
+ * @returns Capture controls UI.
+ */
+export function AddAudioCapture(props: {
+  enabled: boolean;
+  onLiveChange?: (live: boolean) => void;
+}) {
+  const { enabled, onLiveChange } = props;
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState<string>('');
+  const [capturing, setCapturing] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const streamRef = useRef<MediaStream | null>(null);
+  const contextRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const monitorGainRef = useRef<GainNode | null>(null);
+  const pcmChunksRef = useRef<Float32Array[]>([]);
+  const samplesCollectedRef = useRef(0);
+  const sendingRef = useRef(false);
+  const levelRef = useRef(0);
+  const capturingRef = useRef(false);
+  const onLiveChangeRef = useRef(onLiveChange);
+  onLiveChangeRef.current = onLiveChange;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDevices() {
+      try {
+        // Permission prompt so labels populate
+        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tmp.getTracks().forEach((t) => t.stop());
+        const list = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const inputs = list.filter((d) => d.kind === 'audioinput');
+        setDevices(inputs);
+        setDeviceId(preferSystemDefaultInputId(inputs));
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not access audio devices');
+        }
+      }
+    }
+    void loadDevices();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      // Only tear down an active session on real unmount.
+      if (capturingRef.current) {
+        void stopCapture();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount cleanup only
+  }, []);
+
+  async function flushPcm() {
+    if (sendingRef.current) return;
+    const chunks = pcmChunksRef.current;
+    if (chunks.length === 0) return;
+    pcmChunksRef.current = [];
+    samplesCollectedRef.current = 0;
+
+    let total = 0;
+    for (const c of chunks) total += c.length;
+    const merged = new Float32Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+
+    // Downsample to 16k mono PCM16
+    const context = contextRef.current;
+    const inputRate = context?.sampleRate ?? TARGET_SAMPLE_RATE;
+    const ratio = inputRate / TARGET_SAMPLE_RATE;
+    const outLength = Math.floor(merged.length / ratio);
+    if (outLength <= 0) return;
+    const pcm = new Int16Array(outLength);
+    for (let i = 0; i < outLength; i += 1) {
+      const sample = merged[Math.floor(i * ratio)] ?? 0;
+      const s = Math.max(-1, Math.min(1, sample));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+
+    const bytes = new Uint8Array(pcm.buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+      binary += String.fromCharCode(bytes[i]!);
+    }
+    const pcmBase64 = btoa(binary);
+
+    sendingRef.current = true;
+    try {
+      const res = await fetch('/api/translation/ingest/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ pcmBase64, sampleRate: TARGET_SAMPLE_RATE }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { message?: string } | null;
+        setError(data?.message || 'Failed to send audio chunk');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send audio chunk');
+    } finally {
+      sendingRef.current = false;
+    }
+  }
+
+  async function startCapture() {
+    setError(null);
+    if (!enabled) {
+      setError('Configure OpenRouter key and models before adding audio.');
+      return;
+    }
+    try {
+      // Avoid forcing channelCount:1 — some devices go silent under that constraint.
+      const audioConstraints: MediaTrackConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      };
+      if (deviceId && deviceId !== 'default') {
+        audioConstraints.deviceId = { exact: deviceId };
+      } else if (deviceId === 'default') {
+        audioConstraints.deviceId = { ideal: 'default' };
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+      });
+      streamRef.current = stream;
+
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const context = new AudioContextCtor();
+      contextRef.current = context;
+      if (context.state === 'suspended') {
+        await context.resume();
+      }
+      const source = context.createMediaStreamSource(stream);
+      sourceRef.current = source;
+
+      // ScriptProcessor must be connected to context.destination or Chromium may never
+      // fire onaudioprocess (MediaStreamDestination-only graphs are unreliable).
+      const inputChannels = Math.min(2, Math.max(1, stream.getAudioTracks()[0]?.getSettings().channelCount ?? 1));
+      const processor = context.createScriptProcessor(4096, inputChannels, 1);
+      processorRef.current = processor;
+      const samplesPerChunk = Math.floor((TARGET_SAMPLE_RATE * CHUNK_MS) / 1000);
+
+      const monitorGain = context.createGain();
+      monitorGain.gain.value = MONITOR_GAIN;
+      monitorGainRef.current = monitorGain;
+
+      processor.onaudioprocess = (event) => {
+        const mono = monoFromProcessorEvent(event);
+        const framePeak = peakAbs(mono);
+        const next =
+          framePeak > levelRef.current
+            ? framePeak
+            : levelRef.current * 0.85 + framePeak * 0.15;
+        levelRef.current = next;
+        setLevel(next);
+
+        pcmChunksRef.current.push(mono);
+        samplesCollectedRef.current += Math.floor(
+          mono.length * (TARGET_SAMPLE_RATE / context.sampleRate)
+        );
+        if (samplesCollectedRef.current >= samplesPerChunk) {
+          void flushPcm();
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(monitorGain);
+      monitorGain.connect(context.destination);
+      capturingRef.current = true;
+      setCapturing(true);
+      onLiveChangeRef.current?.(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start audio capture');
+    }
+  }
+
+  async function stopCapture() {
+    capturingRef.current = false;
+    try {
+      await flushPcm();
+    } catch {
+      // ignore
+    }
+    processorRef.current?.disconnect();
+    sourceRef.current?.disconnect();
+    monitorGainRef.current?.disconnect();
+    processorRef.current = null;
+    sourceRef.current = null;
+    monitorGainRef.current = null;
+    if (contextRef.current) {
+      void contextRef.current.close();
+      contextRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    levelRef.current = 0;
+    setCapturing(false);
+    setLevel(0);
+    onLiveChangeRef.current?.(false);
+    try {
+      await fetch('/api/translation/ingest/audio', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  // Sqrt scale so quiet speech still moves the bar visibly.
+  const meterPercent = Math.min(100, Math.round(Math.sqrt(Math.max(0, level)) * 100));
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="translation-audio-device">Audio input</Label>
+        <select
+          id="translation-audio-device"
+          className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
+          value={deviceId}
+          disabled={capturing || devices.length === 0}
+          onChange={(e) => setDeviceId(e.target.value)}
+        >
+          {devices.length === 0 ? (
+            <option value="">No devices found</option>
+          ) : (
+            devices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || `Microphone ${d.deviceId.slice(0, 6)}`}
+              </option>
+            ))
+          )}
+        </select>
+        <p className="text-muted-foreground text-xs">
+          Starts on your system default. If captions look wrong (e.g. only &quot;Thank you&quot;),
+          switch to the named microphone that matches your hardware.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div
+          className="bg-muted h-3 w-48 overflow-hidden rounded"
+          role="meter"
+          aria-label="Input level"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={meterPercent}
+        >
+          <div
+            className="bg-primary h-full transition-[width] duration-75"
+            style={{ width: `${meterPercent}%` }}
+          />
+        </div>
+        {capturing ? (
+          <Button type="button" variant="destructive" onClick={() => void stopCapture()}>
+            Stop audio
+          </Button>
+        ) : (
+          <Button type="button" disabled={!enabled} onClick={() => void startCapture()}>
+            Add audio
+          </Button>
+        )}
+      </div>
+      {capturing ? (
+        <p className="text-muted-foreground text-xs">
+          Input level — speak and this bar should move. If it stays flat, pick another mic.
+        </p>
+      ) : null}
+
+      {error ? <p className="text-destructive text-sm">{error}</p> : null}
+      {!enabled ? (
+        <p className="text-muted-foreground text-sm">
+          Translation stays off until you add your OpenRouter API key, STT model, and translation
+          model.
+        </p>
+      ) : null}
+    </div>
+  );
+}

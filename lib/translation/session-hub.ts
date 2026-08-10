@@ -1,0 +1,641 @@
+// =============================================================================
+// In-process live translation session hub (refcount + fan-out)
+// =============================================================================
+// Single-node only. Multi-replica would need sticky sessions or shared pub/sub.
+// =============================================================================
+
+import { randomUUID } from 'node:crypto';
+import { getRuntimeSecretsForUser } from '@/lib/repositories/live-translation-channels';
+import { normalizeTranslationLanguageCode } from '@/lib/translation/languages';
+import { transcribeAudio } from '@/lib/translation/transcribe';
+import { translateTextWithOpenRouter } from '@/lib/translation/openrouter-translate';
+import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
+import { pcm16MonoToWav } from '@/lib/translation/pcm-wav';
+
+const MAX_SEGMENTS = 40;
+/** Brief grace for EventSource reconnects; then language work + cached captions are dropped. */
+const LANGUAGE_IDLE_MS = 3_000;
+const INGEST_IDLE_MS = 45_000;
+/** Backoff after OpenRouter 429 so free shared pools are not hammered every chunk. */
+const TRANSLATE_RATE_LIMIT_BACKOFF_MS = 20_000;
+
+/** Caption/audio event pushed to public SSE subscribers. */
+export interface TranslationHubEvent {
+  type: 'caption' | 'status' | 'error' | 'heartbeat';
+  segmentId?: string;
+  language?: string;
+  text?: string;
+  audioUrl?: string;
+  live?: boolean;
+  message?: string;
+  ts: number;
+}
+
+type Subscriber = {
+  id: string;
+  language: string;
+  wantAudio: boolean;
+  send: (event: TranslationHubEvent) => void;
+  lastHeartbeatAt: number;
+};
+
+type SegmentTranslation = {
+  text: string;
+  audioId?: string;
+};
+
+type Segment = {
+  id: string;
+  sourceText: string;
+  createdAt: number;
+  byLanguage: Map<string, SegmentTranslation>;
+};
+
+type LanguageBucket = {
+  subscribers: Set<Subscriber>;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  busy: boolean;
+  queue: string[]; // segment ids awaiting translate
+  /** When set, pause translate attempts until this timestamp (OpenRouter 429 backoff). */
+  rateLimitedUntil: number;
+  rateLimitNotifiedAt: number;
+};
+
+type ChannelSession = {
+  channelId: string;
+  userId: string;
+  ingestActive: boolean;
+  lastIngestAt: number;
+  ingestIdleTimer: ReturnType<typeof setTimeout> | null;
+  processingAudio: boolean;
+  audioQueue: Array<{ pcm: Buffer; sampleRate: number }>;
+  segments: Segment[];
+  languages: Map<string, LanguageBucket>;
+  audioBytes: Map<string, { mime: string; data: Buffer; expiresAt: number }>;
+};
+
+const sessions = new Map<string, ChannelSession>();
+
+function now(): number {
+  return Date.now();
+}
+
+function getOrCreateSession(channelId: string, userId: string): ChannelSession {
+  let session = sessions.get(channelId);
+  if (!session) {
+    session = {
+      channelId,
+      userId,
+      ingestActive: false,
+      lastIngestAt: 0,
+      ingestIdleTimer: null,
+      processingAudio: false,
+      audioQueue: [],
+      segments: [],
+      languages: new Map(),
+      audioBytes: new Map(),
+    };
+    sessions.set(channelId, session);
+  }
+  return session;
+}
+
+function broadcastLanguage(
+  session: ChannelSession,
+  language: string,
+  event: TranslationHubEvent
+): void {
+  const bucket = session.languages.get(language);
+  if (!bucket) return;
+  for (const sub of bucket.subscribers) {
+    try {
+      sub.send(event);
+    } catch {
+      bucket.subscribers.delete(sub);
+    }
+  }
+}
+
+function broadcastAll(session: ChannelSession, event: TranslationHubEvent): void {
+  for (const language of session.languages.keys()) {
+    broadcastLanguage(session, language, event);
+  }
+}
+
+function pruneAudio(session: ChannelSession): void {
+  const t = now();
+  for (const [id, entry] of session.audioBytes) {
+    if (entry.expiresAt <= t) session.audioBytes.delete(id);
+  }
+}
+
+function trimSegments(session: ChannelSession): void {
+  while (session.segments.length > MAX_SEGMENTS) {
+    const removed = session.segments.shift();
+    if (!removed) break;
+    for (const tr of removed.byLanguage.values()) {
+      if (tr.audioId) session.audioBytes.delete(tr.audioId);
+    }
+  }
+}
+
+function maybeTeardown(session: ChannelSession): void {
+  const hasSubs = [...session.languages.values()].some((b) => b.subscribers.size > 0);
+  if (!session.ingestActive && !hasSubs && session.audioQueue.length === 0) {
+    if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
+    for (const bucket of session.languages.values()) {
+      if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+    }
+    sessions.delete(session.channelId);
+  }
+}
+
+/**
+ * Drops a language bucket and any per-segment captions/audio cached for it.
+ * Source transcripts on segments remain in `sourceText` for fresh STT reuse.
+ * @param session - Channel session.
+ * @param language - Normalized language code.
+ */
+function purgeLanguageData(session: ChannelSession, language: string): void {
+  const bucket = session.languages.get(language);
+  if (bucket?.idleTimer) clearTimeout(bucket.idleTimer);
+  session.languages.delete(language);
+  for (const segment of session.segments) {
+    const tr = segment.byLanguage.get(language);
+    if (tr?.audioId) session.audioBytes.delete(tr.audioId);
+    segment.byLanguage.delete(language);
+  }
+  maybeTeardown(session);
+}
+
+function scheduleLanguageIdle(session: ChannelSession, language: string): void {
+  const bucket = session.languages.get(language);
+  if (!bucket) return;
+  if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+  bucket.queue.length = 0;
+  bucket.idleTimer = setTimeout(() => {
+    const current = session.languages.get(language);
+    if (!current || current.subscribers.size > 0) return;
+    // No active listeners → stop work and discard cached captions for this language.
+    purgeLanguageData(session, language);
+  }, LANGUAGE_IDLE_MS);
+}
+
+async function ensureLanguageWork(
+  session: ChannelSession,
+  language: string,
+  wantAudio: boolean
+): Promise<void> {
+  let bucket = session.languages.get(language);
+  if (!bucket) {
+    bucket = {
+      subscribers: new Set(),
+      idleTimer: null,
+      busy: false,
+      queue: [],
+      rateLimitedUntil: 0,
+      rateLimitNotifiedAt: 0,
+    };
+    session.languages.set(language, bucket);
+    // Live-only: do not backfill/translate historical segments for late joiners.
+  }
+  if (bucket.idleTimer) {
+    clearTimeout(bucket.idleTimer);
+    bucket.idleTimer = null;
+  }
+  void processLanguageQueue(session, language, wantAudio);
+}
+
+async function processLanguageQueue(
+  session: ChannelSession,
+  language: string,
+  preferAudio: boolean
+): Promise<void> {
+  const bucket = session.languages.get(language);
+  if (!bucket || bucket.busy) return;
+
+  const waitMs = bucket.rateLimitedUntil - now();
+  if (waitMs > 0) {
+    setTimeout(() => {
+      void processLanguageQueue(session, language, preferAudio);
+    }, waitMs);
+    return;
+  }
+
+  bucket.busy = true;
+
+  try {
+    while (bucket.queue.length > 0 && bucket.subscribers.size > 0) {
+      const segmentId = bucket.queue.shift();
+      if (!segmentId) break;
+      const segment = session.segments.find((s) => s.id === segmentId);
+      if (!segment) continue;
+
+      const needsAudio = [...bucket.subscribers].some((s) => s.wantAudio) || preferAudio;
+      let existing = segment.byLanguage.get(language);
+
+      if (!existing) {
+        const secrets = await getRuntimeSecretsForUser(session.userId);
+        if (!secrets?.translationReady) {
+          broadcastLanguage(session, language, {
+            type: 'error',
+            message: 'Translation is not configured for this channel.',
+            ts: now(),
+          });
+          break;
+        }
+
+        const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
+        const isSourceLanguage = language === sourceLanguage;
+
+        // Same as source → captions are the STT transcript only (never call translate).
+        if (isSourceLanguage) {
+          existing = { text: segment.sourceText };
+          segment.byLanguage.set(language, existing);
+        } else {
+          if (!secrets.openRouterApiKey || !secrets.openRouterTranslateModel) {
+            broadcastLanguage(session, language, {
+              type: 'error',
+              message: 'Translation is not configured for this channel.',
+              ts: now(),
+            });
+            break;
+          }
+
+          try {
+            const text = await translateTextWithOpenRouter({
+              apiKey: secrets.openRouterApiKey,
+              model: secrets.openRouterTranslateModel,
+              text: segment.sourceText,
+              sourceLanguage,
+              targetLanguage: language,
+            });
+            existing = { text };
+            segment.byLanguage.set(language, existing);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Translation failed';
+            const rateLimited = /\(429\)/.test(message) || /rate.?limit/i.test(message);
+            if (rateLimited) {
+              bucket.queue.unshift(segmentId);
+              bucket.rateLimitedUntil = now() + TRANSLATE_RATE_LIMIT_BACKOFF_MS;
+              if (now() - bucket.rateLimitNotifiedAt > TRANSLATE_RATE_LIMIT_BACKOFF_MS) {
+                bucket.rateLimitNotifiedAt = now();
+                broadcastLanguage(session, language, {
+                  type: 'error',
+                  message:
+                    'Translation is temporarily rate-limited (common on free OpenRouter models). Pausing briefly, then retrying.',
+                  ts: now(),
+                });
+              }
+              break;
+            }
+            broadcastLanguage(session, language, {
+              type: 'error',
+              message: 'Translation failed for a caption segment. Continuing with the next one.',
+              ts: now(),
+            });
+            continue;
+          }
+        }
+      }
+
+      // Abort if listeners left while awaiting translate/TTS.
+      if (bucket.subscribers.size === 0) {
+        bucket.queue.length = 0;
+        break;
+      }
+
+      if (needsAudio && !existing.audioId) {
+        const secrets = await getRuntimeSecretsForUser(session.userId);
+        if (secrets?.listenReady && secrets.gcpServiceAccountJson && secrets.gcpTtsVoice) {
+          try {
+            const mp3 = await synthesizeSpeechWithGcp({
+              serviceAccountJson: secrets.gcpServiceAccountJson,
+              voiceName: secrets.gcpTtsVoice,
+              languageCode: language,
+              text: existing.text,
+            });
+            if (mp3.length > 0) {
+              const audioId = randomUUID();
+              session.audioBytes.set(audioId, {
+                mime: 'audio/mpeg',
+                data: mp3,
+                expiresAt: now() + 10 * 60_000,
+              });
+              existing.audioId = audioId;
+              pruneAudio(session);
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'TTS failed';
+            broadcastLanguage(session, language, {
+              type: 'error',
+              message,
+              ts: now(),
+            });
+          }
+        }
+      }
+
+      if (bucket.subscribers.size === 0) {
+        bucket.queue.length = 0;
+        break;
+      }
+
+      broadcastLanguage(session, language, {
+        type: 'caption',
+        segmentId: segment.id,
+        language,
+        text: existing.text,
+        audioUrl: existing.audioId
+          ? `/api/translation/public/audio/${existing.audioId}`
+          : undefined,
+        ts: segment.createdAt,
+      });
+    }
+  } finally {
+    bucket.busy = false;
+    if (bucket.queue.length > 0 && bucket.subscribers.size > 0) {
+      const delay = Math.max(0, bucket.rateLimitedUntil - now());
+      if (delay > 0) {
+        setTimeout(() => {
+          void processLanguageQueue(session, language, preferAudio);
+        }, delay);
+      } else {
+        void processLanguageQueue(session, language, preferAudio);
+      }
+    }
+  }
+}
+
+function enqueueSegmentForActiveLanguages(
+  session: ChannelSession,
+  segmentId: string,
+  sourceLanguage: string
+): void {
+  for (const [language, bucket] of session.languages) {
+    if (bucket.subscribers.size === 0) continue;
+    if (language === sourceLanguage) {
+      // Transcript already broadcast from STT; only queue when someone wants TTS.
+      const needsAudio = [...bucket.subscribers].some((s) => s.wantAudio);
+      if (!needsAudio) continue;
+    }
+    bucket.queue.push(segmentId);
+    void processLanguageQueue(session, language, false);
+  }
+}
+
+async function processAudioQueue(session: ChannelSession): Promise<void> {
+  if (session.processingAudio) return;
+  session.processingAudio = true;
+  try {
+    while (session.audioQueue.length > 0) {
+      const item = session.audioQueue.shift();
+      if (!item) break;
+
+      const secrets = await getRuntimeSecretsForUser(session.userId);
+      if (!secrets?.translationReady || !secrets.sttModel) {
+        broadcastAll(session, {
+          type: 'error',
+          message: 'Translation is not configured for this channel.',
+          ts: now(),
+        });
+        session.audioQueue.length = 0;
+        break;
+      }
+
+      const wav = pcm16MonoToWav(item.pcm, item.sampleRate);
+      let text = '';
+      try {
+        text = await transcribeAudio({
+          provider: secrets.sttProvider,
+          openRouterApiKey: secrets.openRouterApiKey,
+          groqApiKey: secrets.groqApiKey,
+          model: secrets.sttModel,
+          audio: wav,
+          format: 'wav',
+          language: secrets.sourceLanguage,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'STT failed';
+        broadcastAll(session, { type: 'error', message, ts: now() });
+        continue;
+      }
+
+      if (!text) continue;
+
+      const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
+      const segment: Segment = {
+        id: randomUUID(),
+        sourceText: text,
+        createdAt: now(),
+        byLanguage: new Map(),
+      };
+      // Source language captions are the transcript itself (no translate call).
+      segment.byLanguage.set(sourceLanguage, { text });
+      session.segments.push(segment);
+      trimSegments(session);
+      enqueueSegmentForActiveLanguages(session, segment.id, sourceLanguage);
+
+      // Fans subscribed to the source language get live captions without a translate worker.
+      broadcastLanguage(session, sourceLanguage, {
+        type: 'caption',
+        segmentId: segment.id,
+        language: sourceLanguage,
+        text,
+        ts: segment.createdAt,
+      });
+    }
+  } finally {
+    session.processingAudio = false;
+    if (session.audioQueue.length > 0) {
+      void processAudioQueue(session);
+    }
+  }
+}
+
+/**
+ * Marks ingest as live for a channel and resets the idle timer.
+ * @param channelId - Channel document id.
+ * @param userId - Owning user id.
+ */
+export function markIngestActive(channelId: string, userId: string): void {
+  const session = getOrCreateSession(channelId, userId);
+  session.ingestActive = true;
+  session.lastIngestAt = now();
+  if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
+  session.ingestIdleTimer = setTimeout(() => {
+    session.ingestActive = false;
+    broadcastAll(session, { type: 'status', live: false, ts: now() });
+    maybeTeardown(session);
+  }, INGEST_IDLE_MS);
+  broadcastAll(session, { type: 'status', live: true, ts: now() });
+}
+
+/**
+ * Queues PCM audio from the owner for shared STT.
+ * @param channelId - Channel document id.
+ * @param userId - Owning user id.
+ * @param pcm - 16-bit LE mono PCM.
+ * @param sampleRate - Sample rate Hz.
+ */
+export function enqueueOwnerPcm(
+  channelId: string,
+  userId: string,
+  pcm: Buffer,
+  sampleRate: number
+): void {
+  const session = getOrCreateSession(channelId, userId);
+  markIngestActive(channelId, userId);
+  session.audioQueue.push({ pcm, sampleRate });
+  void processAudioQueue(session);
+}
+
+/**
+ * Returns whether ingest is currently considered live for a channel.
+ * @param channelId - Channel document id.
+ * @returns True when ingest is active.
+ */
+export function isChannelLive(channelId: string): boolean {
+  return Boolean(sessions.get(channelId)?.ingestActive);
+}
+
+/**
+ * Counts subscribers for status endpoints.
+ * @param channelId - Channel document id.
+ * @returns Per-language counts and totals.
+ */
+export function getSubscriberStats(channelId: string): {
+  live: boolean;
+  totalSubscribers: number;
+  byLanguage: Record<string, number>;
+} {
+  const session = sessions.get(channelId);
+  if (!session) {
+    return { live: false, totalSubscribers: 0, byLanguage: {} };
+  }
+  const byLanguage: Record<string, number> = {};
+  let total = 0;
+  for (const [language, bucket] of session.languages) {
+    byLanguage[language] = bucket.subscribers.size;
+    total += bucket.subscribers.size;
+  }
+  return { live: session.ingestActive, totalSubscribers: total, byLanguage };
+}
+
+/**
+ * Subscribes a public listener to a language stream with refcount semantics.
+ * First subscriber for a non-source language starts translate(+TTS) work.
+ * Source language is transcription-only. Last leave clears that language’s cache after a short grace.
+ * @param params - Channel, user, language, audio preference, and send callback.
+ * @returns Unsubscribe function.
+ */
+export function subscribePublicListener(params: {
+  channelId: string;
+  userId: string;
+  language: string;
+  wantAudio: boolean;
+  send: (event: TranslationHubEvent) => void;
+}): () => void {
+  const { channelId, userId, wantAudio, send } = params;
+  const language = normalizeTranslationLanguageCode(params.language);
+  const session = getOrCreateSession(channelId, userId);
+  const subscriber: Subscriber = {
+    id: randomUUID(),
+    language,
+    wantAudio,
+    send,
+    lastHeartbeatAt: now(),
+  };
+
+  void ensureLanguageWork(session, language, wantAudio).then(() => {
+    const bucket = session.languages.get(language);
+    if (!bucket) return;
+    bucket.subscribers.add(subscriber);
+
+    send({ type: 'status', live: session.ingestActive, ts: now() });
+    // No historical caption replay — only live segments from this point forward.
+    void processLanguageQueue(session, language, wantAudio);
+  });
+
+  return () => {
+    const bucket = session.languages.get(language);
+    if (!bucket) {
+      maybeTeardown(session);
+      return;
+    }
+    bucket.subscribers.delete(subscriber);
+    if (bucket.subscribers.size === 0) {
+      // Stop pending translate work immediately; purge cached captions after reconnect grace.
+      bucket.queue.length = 0;
+      scheduleLanguageIdle(session, language);
+    }
+    maybeTeardown(session);
+  };
+}
+
+/**
+ * Looks up short-lived TTS audio bytes by id.
+ * @param audioId - Audio segment id from caption events.
+ * @returns Mime + bytes, or null when missing/expired.
+ */
+export function getAudioBytes(audioId: string): { mime: string; data: Buffer } | null {
+  for (const session of sessions.values()) {
+    pruneAudio(session);
+    const entry = session.audioBytes.get(audioId);
+    if (entry) {
+      return { mime: entry.mime, data: entry.data };
+    }
+  }
+  return null;
+}
+
+/**
+ * Marks ingest stopped immediately (owner clicked stop).
+ * @param channelId - Channel document id.
+ */
+export function markIngestStopped(channelId: string): void {
+  const session = sessions.get(channelId);
+  if (!session) return;
+  session.ingestActive = false;
+  if (session.ingestIdleTimer) {
+    clearTimeout(session.ingestIdleTimer);
+    session.ingestIdleTimer = null;
+  }
+  broadcastAll(session, { type: 'status', live: false, ts: now() });
+  maybeTeardown(session);
+}
+
+/**
+ * Tears down an in-memory session after the channel document is deleted.
+ * @param channelId - Channel document id.
+ */
+export function disposeChannelSession(channelId: string): void {
+  const session = sessions.get(channelId);
+  if (!session) return;
+  if (session.ingestIdleTimer) {
+    clearTimeout(session.ingestIdleTimer);
+    session.ingestIdleTimer = null;
+  }
+  for (const bucket of session.languages.values()) {
+    if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+  }
+  broadcastAll(session, {
+    type: 'error',
+    message: 'This translation channel was deleted.',
+    ts: now(),
+  });
+  sessions.delete(channelId);
+}
+
+/**
+ * Test helper: clears all in-memory sessions.
+ */
+export function __resetTranslationSessionsForTests(): void {
+  for (const session of sessions.values()) {
+    if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
+    for (const bucket of session.languages.values()) {
+      if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+    }
+  }
+  sessions.clear();
+}

@@ -23,7 +23,7 @@ interface DraftModalCardProps {
 }
 
 /**
- * Groups draft modal content in a card matching AI metadata, thumbnail, and upload sections.
+ * Groups draft modal content in a card matching thumbnail and upload sections.
  * @param props - Component props.
  * @param ref - Ref forwarded to the card section element.
  * @returns Card section wrapper.
