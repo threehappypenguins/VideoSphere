@@ -181,7 +181,8 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json(
           {
             error: 'Bad Request',
-            message: 'sttProvider must be openrouter, groq, or gcp',
+            message:
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, or groq',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }

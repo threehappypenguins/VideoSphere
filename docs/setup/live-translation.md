@@ -8,34 +8,47 @@ A translation **channel** (including the public slug) is created only when you s
 
 1. Open **Dashboard → Translation**.
 2. Choose **Configure AI**, then pick providers **separately** (no automatic fallback):
-   - **STT provider** — Groq (Whisper), OpenRouter, or Google Cloud Speech-to-Text.
-   - **Caption translation provider** — Google Cloud Translation (NMT), Groq chat, or OpenRouter chat.
-3. The modal shows each provider’s **free / rate limits**, **post-free pricing**, and a link to the vendor’s pricing or limits page (same idea as the GCP TTS voice-model dropdown).
+   - **STT provider** — streaming ASR: **Deepgram**, **AssemblyAI**, **Gladia**, **Speechmatics**, or **Soniox** (STT+translation). **Groq Whisper** remains a chunked free-tier fallback (~4s windows).
+   - **Caption translation provider** — Google Cloud Translation (NMT), Groq chat, or OpenRouter chat. **Hidden when STT is Soniox** (Soniox returns translated captions directly).
+3. The modal shows each provider’s **free / rate limits**, **post-free pricing**, and a link to the vendor’s pricing or limits page.
 4. Paste only the keys required for your choices:
+   - Streaming ASR key for the selected STT provider (Deepgram / AssemblyAI / Gladia / Speechmatics / Soniox).
    - Groq key when STT or translate uses Groq ([console.groq.com](https://console.groq.com/)).
-   - OpenRouter key when STT or translate uses OpenRouter.
-   - Google Cloud service account JSON when STT or translate uses GCP (or reuse one already saved under Google Cloud TTS). Enable **Cloud Speech-to-Text API** and/or **Cloud Translation API** on that project. For caption translation (Advanced / v3), also grant the service account **Cloud Translation API User** (`roles/cloudtranslate.user`) — enabling the API alone is not enough.
-5. Enter the **STT model id** (e.g. `whisper-large-v3-turbo`, `latest_long` for GCP). For OpenRouter or Groq caption translation, also enter a **chat translation model id**. GCP NMT does not need a chat model.
+   - OpenRouter key when translate uses OpenRouter.
+   - Google Cloud service account JSON when translate uses GCP (or reuse one already saved under Google Cloud TTS). Enable **Cloud Translation API** on that project and grant the service account **Cloud Translation API User** (`roles/cloudtranslate.user`).
+5. For **Groq** STT only, enter the **Whisper model id** (e.g. `whisper-large-v3-turbo`). Streaming ASR providers do not need a model id. For OpenRouter or Groq caption translation, also enter a **chat translation model id**. GCP NMT does not need a chat model.
 6. In **Languages**, set the **source** language and at least one **target** listen language, then save. Mandarin (`Chinese - Mandarin` / 普通话) and Cantonese (`Chinese - Cantonese` / 粤语) are separate targets so translation text and GCP voices stay aligned.
+   - **Deepgram** Mandarin uses `language=zh`.
+   - **AssemblyAI** Mandarin uses Universal-3.5 Pro (`u3-rt-pro`) on the streaming WebSocket.
 7. Optionally configure the **Public translation page** (enable + slug) when you are ready to share `/listen/{slug}`.
-8. Use **Add audio** on the machine running the dashboard page. Capture starts on the **system default** input; watch the level meter while speaking. Near-silent / cutoff chunks are skipped (and lone Whisper fillers like “Thank you” are dropped) so pauses do not become fake captions. **Stop audio** tears down the mic graph immediately and drops queued STT work.
+8. Use **Add audio** on the machine running the dashboard page. Capture starts on the **system default** input; watch the level meter while speaking. Owner mic ingest alone does **not** open billable STT — upstream ASR starts only when at least one public listener has chosen a language (and stops when the last listener leaves). Streaming STT sends ~**250ms** PCM frames; Groq sends ~**4s** chunks. Near-silent / cutoff chunks are skipped (and lone Whisper fillers like “Thank you” are dropped) so pauses do not become fake captions. **Stop audio** tears down the mic graph immediately and closes upstream ASR sockets / drops queued STT work.
 
-### Recommended free path for full sermons (~2×50 min/week)
+### How streaming vs Groq works
+
+| Mode | Behavior |
+| --- | --- |
+| Streaming (Deepgram, AssemblyAI, Gladia, Speechmatics) | Session hub opens one long-lived provider WebSocket. Finals create caption segments and enqueue separate MT (+ optional async TTS). |
+| Soniox | One Soniox WebSocket **per active listen language** (one-way translation to that target). Same PCM is fanned out. Translated finals skip the separate MT provider. |
+| Groq (chunked) | Existing HTTP Whisper batch path (~4s windows) for free-tier fallback. |
+
+Legacy channels that still have STT set to OpenRouter or GCP Speech-to-Text must **reconfigure AI** — those STT backends are no longer supported on the live path.
+
+### Recommended path for full sermons (~2×50 min/week)
 
 | Stage | Provider | Why |
 | --- | --- | --- |
-| STT | **Groq Whisper** | Free plan can cover sermon audio (RPM/RPD/audio-seconds); GCP STT free tier is only **~60 minutes/month**. |
-| Captions | **Google Cloud Translation (NMT)** | First **~500,000 characters/month** free — usually enough for a few target languages at sermon volume. OpenRouter `:free` (~50 RPD) is not. |
+| STT | **Deepgram** (or another streaming ASR) | Low-latency captions; signup credits cover early services. Use **Groq Whisper** only if you need a free chunked fallback. |
+| Captions | **Google Cloud Translation (NMT)** (unless Soniox STT) | First **~500,000 characters/month** free — usually enough for a few target languages at sermon volume. OpenRouter `:free` (~50 RPD) is not. |
 | Spoken listen | **GCP TTS** (Standard / WaveNet) | Large free character allowances; configure voices after languages. |
 
-Public listeners open `/listen/{slug}` (no login). Choosing the **source language** shows live **transcription only** (no translate API call). Other languages start translate(+optional TTS) only while at least one listener is connected; when the last listener leaves a language, pending work stops and that language’s caption cache is dropped after a short reconnect grace (a few seconds). Switching languages does not replay old captions — you only see new live segments.
+Public listeners open `/listen/{slug}` (no login). Choosing a language (while the owner is capturing) opens STT for the channel; choosing the **source language** shows live **transcription only** (no translate API call). Other languages start translate(+optional TTS) only while at least one listener is connected; when the last listener leaves the channel, upstream STT closes immediately. When the last listener leaves a language, pending translate work stops and that language’s caption cache is dropped after a short reconnect grace (a few seconds). Switching languages does not replay old captions — you only see new live segments.
 
-Captions are pushed as soon as STT + translation finish (~4s mic windows). Spoken listen synthesizes TTS in the background and attaches audio afterward, so turning on Listen does not delay the text.
+With streaming ASR, interim captions update in place; Deepgram also splits long continuous speech into sentence-sized finals (so captions/TTS do not wait for a multi-minute pause). Spoken listen synthesizes TTS only after those finals. Captions are pushed as soon as STT (+ translation when needed) finish. TTS for upcoming lines starts in parallel and is delivered in order, and the listen client prefetches the next clip while the current one plays — short gaps can still happen when the speaker pauses or GCP synthesis lags a long line.
 
 ## Enable listen (spoken translation)
 
 1. Save **Languages** first (source + at least one target).
-2. In Google Cloud: enable **Cloud Text-to-Speech** (and Translation/Speech APIs if you use those providers), create a service account, download the JSON key. If you use GCP caption translation, assign **Cloud Translation API User** to that service account.
+2. In Google Cloud: enable **Cloud Text-to-Speech** (and Translation API if you use GCP translate), create a service account, download the JSON key. If you use GCP caption translation, assign **Cloud Translation API User** to that service account.
 3. On the Translation page under **Google Cloud TTS**, upload/paste the JSON and **Load voices**. Choose a **voice model** first (Standard / WaveNet / Neural2 / Chirp 3 HD / etc.) — the dropdown shows each model’s **free monthly character limit** from [Google Cloud TTS pricing](https://cloud.google.com/text-to-speech/pricing). Then pick a voice **per language** within that model. Saving validates credentials and voice names via Google `listVoices`.
 4. On `/listen`, spoken audio is offered only for languages that have a configured voice; other languages stay captions-only. Channel “Listen ready” means SA + at least one language voice are set (and translation is already ready).
 

@@ -68,28 +68,77 @@ function CaptionStream(props: CaptionStreamProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const queueRef = useRef<string[]>([]);
   const playingRef = useRef(false);
+  const objectUrlRef = useRef<string | null>(null);
+  /** Prefetched clip object URLs (and in-flight fetches) keyed by audio API path. */
+  const prefetchRef = useRef<Map<string, Promise<string>>>(new Map());
+  /** Ignore media errors raised while we intentionally swap `audio.src`. */
+  const ignoreAudioErrorRef = useRef(false);
   const seenRef = useRef<Set<string>>(new Set());
+  const queuedAudioRef = useRef<Set<string>>(new Set());
   const wantAudioRef = useRef(wantAudio && audioAvailable);
   const pumpAudioRef = useRef<() => Promise<void>>(async () => {});
+  const enqueueSpokenUrlRef = useRef<(url: string) => void>(() => undefined);
 
   useEffect(() => {
     wantAudioRef.current = wantAudio && audioAvailable;
   }, [wantAudio, audioAvailable]);
 
   /**
+   * Starts fetching a clip into an object URL so playback can start without a gap.
+   * @param url - Public audio API path.
+   */
+  function prefetchAudioUrl(url: string): void {
+    if (prefetchRef.current.has(url)) return;
+    const job = (async () => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Audio HTTP ${res.status}`);
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
+    })();
+    prefetchRef.current.set(url, job);
+    void job.catch(() => {
+      prefetchRef.current.delete(url);
+    });
+  }
+
+  useEffect(() => {
+    enqueueSpokenUrlRef.current = (url: string) => {
+      if (queuedAudioRef.current.has(url)) return;
+      queuedAudioRef.current.add(url);
+      queueRef.current.push(url);
+      prefetchAudioUrl(url);
+      const upcoming = queueRef.current[1];
+      if (upcoming) prefetchAudioUrl(upcoming);
+      void pumpAudioRef.current();
+    };
+  });
+
+  /**
    * Stops TTS playback and drops queued clips (used when the listener mutes).
    */
   function stopSpokenAudio() {
     queueRef.current = [];
+    queuedAudioRef.current.clear();
     playingRef.current = false;
+    for (const pending of prefetchRef.current.values()) {
+      void pending.then((objectUrl) => URL.revokeObjectURL(objectUrl)).catch(() => undefined);
+    }
+    prefetchRef.current.clear();
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
     const audio = audioRef.current;
     if (!audio) return;
     try {
+      ignoreAudioErrorRef.current = true;
       audio.pause();
       audio.removeAttribute('src');
       audio.load();
     } catch {
       // ignore
+    } finally {
+      ignoreAudioErrorRef.current = false;
     }
   }
 
@@ -103,16 +152,43 @@ function CaptionStream(props: CaptionStreamProps) {
       const next = queueRef.current.shift();
       if (!next) return;
       playingRef.current = true;
+      const upcoming = queueRef.current[0];
+      if (upcoming) prefetchAudioUrl(upcoming);
       const audio = audioRef.current;
       if (!audio) {
         playingRef.current = false;
         return;
       }
       try {
-        audio.src = next;
+        prefetchAudioUrl(next);
+        const prefetch = prefetchRef.current.get(next);
+        const objectUrl = prefetch ? await prefetch : null;
+        prefetchRef.current.delete(next);
+        if (!objectUrl) {
+          throw new Error('Missing audio prefetch');
+        }
+        if (!wantAudioRef.current) {
+          URL.revokeObjectURL(objectUrl);
+          playingRef.current = false;
+          return;
+        }
+        ignoreAudioErrorRef.current = true;
+        try {
+          if (objectUrlRef.current) {
+            URL.revokeObjectURL(objectUrlRef.current);
+            objectUrlRef.current = null;
+          }
+          audio.pause();
+          objectUrlRef.current = objectUrl;
+          audio.src = objectUrl;
+        } finally {
+          await Promise.resolve();
+          ignoreAudioErrorRef.current = false;
+        }
         await audio.play();
       } catch {
         playingRef.current = false;
+        ignoreAudioErrorRef.current = false;
         if (!wantAudioRef.current) return;
         setError('Spoken audio failed to play. Check volume, then tap Listen again.');
         void pumpAudioRef.current();
@@ -174,10 +250,17 @@ function CaptionStream(props: CaptionStreamProps) {
         }
         if (event.type === 'caption' && event.segmentId && event.text) {
           if (seenRef.current.has(event.segmentId)) {
+            // Same segment: update text in place (streaming partials → final).
+            setLines((prev) =>
+              prev.map((line) =>
+                line.id === event.segmentId
+                  ? { ...line, text: event.text!, ts: event.ts ?? line.ts }
+                  : line
+              )
+            );
             // Same segment may arrive again later with a TTS audio URL.
             if (wantAudioRef.current && event.audioUrl) {
-              queueRef.current.push(event.audioUrl);
-              void pumpAudioRef.current();
+              enqueueSpokenUrlRef.current(event.audioUrl);
             }
             return;
           }
@@ -189,8 +272,7 @@ function CaptionStream(props: CaptionStreamProps) {
             ].slice(-80)
           );
           if (wantAudioRef.current && event.audioUrl) {
-            queueRef.current.push(event.audioUrl);
-            void pumpAudioRef.current();
+            enqueueSpokenUrlRef.current(event.audioUrl);
           }
         }
       } catch {
@@ -231,6 +313,8 @@ function CaptionStream(props: CaptionStreamProps) {
           void pumpAudioRef.current();
         }}
         onError={() => {
+          // Swapping `src` often emits a spurious error for the previous resource.
+          if (ignoreAudioErrorRef.current) return;
           playingRef.current = false;
           if (!wantAudioRef.current) {
             stopSpokenAudio();

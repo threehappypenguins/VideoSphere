@@ -11,12 +11,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+import type { LiveTranslationSttProvider } from '@/lib/translation/capabilities';
+import { isStreamingSttProvider } from '@/lib/translation/capabilities';
+
 const TARGET_SAMPLE_RATE = 16000;
-/**
- * Mic chunk length before STT. Shorter = fresher captions; longer = fewer free-tier RPM.
- * ~4s ≈ 15 STT requests/min (fits typical Groq free ~20 RPM with headroom).
- */
-const CHUNK_MS = 4000;
+/** Streaming ASR: short frames for low latency. */
+const STREAMING_CHUNK_MS = 250;
+/** Groq chunked Whisper: longer windows to stay under free RPM. */
+const GROQ_CHUNK_MS = 4000;
 /** Inaudible but non-zero — Chromium can skip ScriptProcessor when gain is exactly 0. */
 const MONITOR_GAIN = 0.0001;
 /**
@@ -88,14 +90,20 @@ function monoFromProcessorEvent(event: AudioProcessingEvent): Float32Array {
 
 /**
  * Browser microphone / input-device capture that streams PCM chunks to the owner ingest API.
- * @param props - Whether translation is ready and optional status callback.
+ * @param props - Whether translation is ready, STT provider (controls chunk length), and optional status callback.
  * @returns Capture controls UI.
  */
 export function AddAudioCapture(props: {
   enabled: boolean;
+  /** Active STT provider — streaming uses ~250ms frames; Groq uses ~4s. */
+  sttProvider?: LiveTranslationSttProvider | null;
   onLiveChange?: (live: boolean) => void;
 }) {
-  const { enabled, onLiveChange } = props;
+  const { enabled, sttProvider, onLiveChange } = props;
+  const chunkMs =
+    sttProvider && isStreamingSttProvider(sttProvider) ? STREAMING_CHUNK_MS : GROQ_CHUNK_MS;
+  const chunkMsRef = useRef(chunkMs);
+  chunkMsRef.current = chunkMs;
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string>('');
   const [capturing, setCapturing] = useState(false);
@@ -262,7 +270,7 @@ export function AddAudioCapture(props: {
       );
       const processor = context.createScriptProcessor(4096, inputChannels, 1);
       processorRef.current = processor;
-      const samplesPerChunk = Math.floor((TARGET_SAMPLE_RATE * CHUNK_MS) / 1000);
+      const samplesPerChunk = Math.floor((TARGET_SAMPLE_RATE * chunkMsRef.current) / 1000);
 
       const monitorGain = context.createGain();
       monitorGain.gain.value = MONITOR_GAIN;
@@ -428,8 +436,8 @@ export function AddAudioCapture(props: {
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
       {!enabled ? (
         <p className="text-muted-foreground text-sm">
-          Translation stays off until you add your OpenRouter API key, STT model, and translation
-          model.
+          Translation stays off until you configure streaming ASR (or Groq) and caption translation
+          in Configure AI.
         </p>
       ) : null}
     </div>

@@ -5,12 +5,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
 import { clearCredential } from '@/lib/repositories/live-translation-channels';
+import { normalizeCredentialKind } from '@/lib/translation/capabilities';
 import type { ApiError } from '@/types';
 
 /**
  * Clears a stored credential for the authenticated owner.
  * @param req - Incoming request.
- * @param context - Route params with kind `openrouter` | `groq` | `gcp`.
+ * @param context - Route params with credential kind.
  * @returns Updated owner channel view.
  */
 export async function DELETE(req: NextRequest, context: { params: Promise<{ kind: string }> }) {
@@ -23,12 +24,14 @@ export async function DELETE(req: NextRequest, context: { params: Promise<{ kind
       );
     }
 
-    const { kind } = await context.params;
-    if (kind !== 'openrouter' && kind !== 'groq' && kind !== 'gcp') {
+    const { kind: rawKind } = await context.params;
+    const kind = normalizeCredentialKind(rawKind);
+    if (!kind) {
       return NextResponse.json(
         {
           error: 'Bad Request',
-          message: 'kind must be openrouter, groq, or gcp',
+          message:
+            'kind must be openrouter, groq, gcp, deepgram, assemblyai, gladia, speechmatics, or soniox',
           statusCode: 400,
         } satisfies ApiError,
         { status: 400 }

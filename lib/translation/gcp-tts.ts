@@ -7,6 +7,34 @@ import { parseGcpServiceAccountJson } from '@/lib/translation/gcp-sa';
 import { languageCodeHintFromVoiceName } from '@/lib/translation/gcp-tts-voices';
 
 /**
+ * Classic `synthesizeSpeech` rejects oversized `input.text` payloads.
+ * Stay under Google's ~5KB limit with headroom for UTF-8.
+ */
+export const GCP_TTS_MAX_INPUT_CHARS = 4_500;
+
+/**
+ * Truncates TTS input at a sentence/word boundary when over the API limit.
+ * @param text - Raw caption text.
+ * @param maxChars - Maximum characters to keep.
+ * @returns Safe synthesize input.
+ */
+export function clampGcpTtsInput(text: string, maxChars: number = GCP_TTS_MAX_INPUT_CHARS): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  const slice = trimmed.slice(0, maxChars);
+  const sentence = Math.max(
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('! '),
+    slice.lastIndexOf('? ')
+  );
+  if (sentence >= Math.floor(maxChars / 2)) {
+    return slice.slice(0, sentence + 1).trim();
+  }
+  const sp = slice.lastIndexOf(' ');
+  return (sp > 0 ? slice.slice(0, sp) : slice).trim();
+}
+
+/**
  * Synthesizes speech for translated text using the owner's GCP credentials.
  * @param params - Service account JSON, voice name, language code, and text.
  * @returns MP3 audio bytes.
@@ -21,7 +49,7 @@ export async function synthesizeSpeechWithGcp(params: {
   if (!voiceName.trim()) {
     throw new Error('GCP TTS requires a per-user voice name.');
   }
-  const trimmed = text.trim();
+  const trimmed = clampGcpTtsInput(text);
   if (!trimmed) {
     return Buffer.alloc(0);
   }

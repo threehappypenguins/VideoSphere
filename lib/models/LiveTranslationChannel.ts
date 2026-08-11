@@ -15,21 +15,29 @@ export interface LiveTranslationChannelDocument {
   sourceLanguage: string;
   enabledLanguages: string[];
   streamKeyHash?: string;
-  /** STT backend: `openrouter`, `groq`, or `gcp` (unset until the owner chooses). */
-  sttProvider?: LiveTranslationSttProvider;
-  /** Caption translation backend: `openrouter`, `groq`, or `gcp` (unset until chosen; no auto-fallback). */
+  /**
+   * STT backend: streaming ASR or Groq chunked Whisper.
+   * Legacy `openrouter` / `gcp` values are ignored at runtime.
+   */
+  sttProvider?: LiveTranslationSttProvider | string;
+  /** Caption translation backend (unused when STT is Soniox). */
   textTranslateProvider?: LiveTranslationTextTranslateProvider;
   openRouterApiKeyEncrypted?: string;
   groqApiKeyEncrypted?: string;
+  deepgramApiKeyEncrypted?: string;
+  assemblyaiApiKeyEncrypted?: string;
+  gladiaApiKeyEncrypted?: string;
+  speechmaticsApiKeyEncrypted?: string;
+  sonioxApiKeyEncrypted?: string;
   gcpServiceAccountJsonEncrypted?: string;
   /**
-   * STT model id for `sttProvider`.
-   * Field name is historical; used for OpenRouter, Groq, and GCP recognition models.
+   * STT model id for Groq Whisper.
+   * Field name is historical; unused for streaming ASR providers.
    */
   openRouterSttModel?: string;
   /**
    * Chat translation model id for OpenRouter or Groq.
-   * Unused when `textTranslateProvider` is `gcp`.
+   * Unused when `textTranslateProvider` is `gcp` or STT is Soniox.
    */
   openRouterTranslateModel?: string;
   /** Per-language GCP TTS voices: ISO code → voice resource name. */
@@ -51,7 +59,17 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
       type: String,
       required: false,
       trim: true,
-      enum: ['openrouter', 'groq', 'gcp'],
+      // Keep legacy values in enum so old documents still load; normalizeSttProvider drops them.
+      enum: [
+        'deepgram',
+        'assemblyai',
+        'gladia',
+        'speechmatics',
+        'soniox',
+        'groq',
+        'openrouter',
+        'gcp',
+      ],
     },
     textTranslateProvider: {
       type: String,
@@ -61,6 +79,11 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
     },
     openRouterApiKeyEncrypted: { type: String, required: false },
     groqApiKeyEncrypted: { type: String, required: false },
+    deepgramApiKeyEncrypted: { type: String, required: false },
+    assemblyaiApiKeyEncrypted: { type: String, required: false },
+    gladiaApiKeyEncrypted: { type: String, required: false },
+    speechmaticsApiKeyEncrypted: { type: String, required: false },
+    sonioxApiKeyEncrypted: { type: String, required: false },
     gcpServiceAccountJsonEncrypted: { type: String, required: false },
     openRouterSttModel: { type: String, required: false, trim: true },
     openRouterTranslateModel: { type: String, required: false, trim: true },

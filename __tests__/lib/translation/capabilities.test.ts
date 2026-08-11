@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   isListenReady,
+  isSttReady,
   isTextTranslateReady,
   isTranslationReady,
   normalizeSttProvider,
   normalizeTextTranslateProvider,
+  sttProvidesBuiltInTranslation,
 } from '@/lib/translation/capabilities';
 
 describe('translation capabilities', () => {
-  it('returns null for unset or unknown STT providers', () => {
+  it('normalizes streaming STT providers and treats legacy openrouter/gcp as unset', () => {
     expect(normalizeSttProvider(undefined)).toBeNull();
     expect(normalizeSttProvider('groq')).toBe('groq');
-    expect(normalizeSttProvider('gcp')).toBe('gcp');
-    expect(normalizeSttProvider('openrouter')).toBe('openrouter');
+    expect(normalizeSttProvider('deepgram')).toBe('deepgram');
+    expect(normalizeSttProvider('soniox')).toBe('soniox');
+    expect(normalizeSttProvider('gcp')).toBeNull();
+    expect(normalizeSttProvider('openrouter')).toBeNull();
     expect(normalizeSttProvider('other')).toBeNull();
   });
 
@@ -29,6 +33,7 @@ describe('translation capabilities', () => {
       isTranslationReady({
         hasOpenRouterKey: true,
         hasGroqKey: true,
+        hasDeepgramKey: true,
         sttModel: 'whisper-large-v3-turbo',
         openRouterTranslateModel: 'model',
         hasGcpServiceAccount: true,
@@ -37,15 +42,43 @@ describe('translation capabilities', () => {
     ).toBe(false);
   });
 
-  it('requires OpenRouter translate + OpenRouter STT when both providers are openrouter', () => {
+  it('allows Deepgram STT + GCP Translation with only a Deepgram key', () => {
+    expect(
+      isSttReady({
+        sttProvider: 'deepgram',
+        hasDeepgramKey: true,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
+        hasGcpServiceAccount: true,
+        gcpTtsVoices: {},
+      })
+    ).toBe(true);
+
     expect(
       isTranslationReady({
-        sttProvider: 'openrouter',
-        textTranslateProvider: 'openrouter',
-        hasOpenRouterKey: true,
+        sttProvider: 'deepgram',
+        textTranslateProvider: 'gcp',
+        hasDeepgramKey: true,
+        hasOpenRouterKey: false,
         hasGroqKey: false,
-        sttModel: 'openai/whisper-large-v3',
-        openRouterTranslateModel: 'some/model',
+        sttModel: '',
+        openRouterTranslateModel: '',
+        hasGcpServiceAccount: true,
+        gcpTtsVoices: {},
+      })
+    ).toBe(true);
+  });
+
+  it('treats Soniox as STT+MT without a separate translate provider', () => {
+    expect(sttProvidesBuiltInTranslation('soniox')).toBe(true);
+    expect(
+      isTextTranslateReady({
+        sttProvider: 'soniox',
+        hasSonioxKey: true,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
         hasGcpServiceAccount: false,
         gcpTtsVoices: {},
       })
@@ -53,11 +86,24 @@ describe('translation capabilities', () => {
 
     expect(
       isTranslationReady({
-        sttProvider: 'openrouter',
-        textTranslateProvider: 'openrouter',
+        sttProvider: 'soniox',
+        textTranslateProvider: null,
+        hasSonioxKey: true,
         hasOpenRouterKey: false,
-        sttModel: 'openai/whisper-large-v3',
-        openRouterTranslateModel: 'some/model',
+        sttModel: '',
+        openRouterTranslateModel: '',
+        hasGcpServiceAccount: false,
+        gcpTtsVoices: {},
+      })
+    ).toBe(true);
+
+    expect(
+      isTranslationReady({
+        sttProvider: 'soniox',
+        hasSonioxKey: false,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
         hasGcpServiceAccount: false,
         gcpTtsVoices: {},
       })
@@ -90,21 +136,6 @@ describe('translation capabilities', () => {
     ).toBe(true);
   });
 
-  it('allows GCP STT when SA and recognition model are set', () => {
-    expect(
-      isTranslationReady({
-        sttProvider: 'gcp',
-        textTranslateProvider: 'gcp',
-        hasOpenRouterKey: false,
-        hasGroqKey: false,
-        sttModel: 'latest_long',
-        openRouterTranslateModel: '',
-        hasGcpServiceAccount: true,
-        gcpTtsVoices: {},
-      })
-    ).toBe(true);
-  });
-
   it('does not treat GCP SA as OpenRouter translate fallback', () => {
     expect(
       isTextTranslateReady({
@@ -118,7 +149,7 @@ describe('translation capabilities', () => {
     ).toBe(false);
   });
 
-  it('requires Groq key for STT when provider is groq', () => {
+  it('requires Groq key and model for chunked Groq STT', () => {
     expect(
       isTranslationReady({
         sttProvider: 'groq',
@@ -127,6 +158,18 @@ describe('translation capabilities', () => {
         hasGroqKey: false,
         sttModel: 'whisper-large-v3-turbo',
         openRouterTranslateModel: 'openai/gpt-oss-20b:free',
+        hasGcpServiceAccount: false,
+        gcpTtsVoices: {},
+      })
+    ).toBe(false);
+
+    expect(
+      isSttReady({
+        sttProvider: 'groq',
+        hasGroqKey: true,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
         hasGcpServiceAccount: false,
         gcpTtsVoices: {},
       })
@@ -149,11 +192,12 @@ describe('translation capabilities', () => {
 
     expect(
       isListenReady({
-        sttProvider: 'openrouter',
-        textTranslateProvider: 'openrouter',
+        sttProvider: 'deepgram',
+        textTranslateProvider: 'gcp',
+        hasDeepgramKey: false,
         hasOpenRouterKey: false,
-        sttModel: 'stt',
-        openRouterTranslateModel: 'tr',
+        sttModel: '',
+        openRouterTranslateModel: '',
         hasGcpServiceAccount: true,
         gcpTtsVoices: { es: 'es-US-Neural2-A' },
       })

@@ -7,9 +7,16 @@
 import { randomUUID } from 'node:crypto';
 import { getRuntimeSecretsForUser } from '@/lib/repositories/live-translation-channels';
 import {
+  isStreamingSttProvider,
+  sttProvidesBuiltInTranslation,
+  type LiveTranslationStreamingSttProvider,
+} from '@/lib/translation/capabilities';
+import {
   normalizeTranslationLanguageCode,
   sttLanguageHintForTranslationLanguage,
 } from '@/lib/translation/languages';
+import { createStreamingAsrSession } from '@/lib/translation/streaming-asr';
+import type { StreamingAsrEvent, StreamingAsrSession } from '@/lib/translation/streaming-asr/types';
 import { transcribeAudio } from '@/lib/translation/transcribe';
 import {
   GroqTranslateRateLimitError,
@@ -74,6 +81,14 @@ type LanguageBucket = {
   idleTimer: ReturnType<typeof setTimeout> | null;
   busy: boolean;
   queue: string[]; // segment ids awaiting translate
+  /** Segment ids waiting for ordered TTS delivery (never coalesced). */
+  ttsQueue: string[];
+  ttsBusy: boolean;
+  /**
+   * In-flight TTS synthesis by segment id. Jobs start as soon as a segment is
+   * queued so later lines synthesize while earlier ones play; delivery stays ordered.
+   */
+  ttsJobs: Map<string, Promise<TtsJobResult | null>>;
   /** When set, pause translate attempts until this timestamp (OpenRouter 429 backoff). */
   rateLimitedUntil: number;
   rateLimitNotifiedAt: number;
@@ -81,6 +96,14 @@ type LanguageBucket = {
   consecutiveRateLimits: number;
   /** Single retry timer while rate-limited (avoids thundering herd). */
   rateLimitTimer: ReturnType<typeof setTimeout> | null;
+};
+
+/** Successful TTS job payload ready to broadcast. */
+type TtsJobResult = {
+  segmentId: string;
+  text: string;
+  audioId: string;
+  createdAt: number;
 };
 
 type ChannelSession = {
@@ -100,6 +123,16 @@ type ChannelSession = {
   segments: Segment[];
   languages: Map<string, LanguageBucket>;
   audioBytes: Map<string, { mime: string; data: Buffer; expiresAt: number }>;
+  /** Non-Soniox streaming ASR (single upstream). */
+  streamingAsr: StreamingAsrSession | null;
+  /** In-flight open for non-Soniox streaming ASR. */
+  streamingAsrStarting: Promise<void> | null;
+  /** Soniox: one session per active listen language. */
+  sonioxByLanguage: Map<string, StreamingAsrSession>;
+  /** In-flight Soniox open per language. */
+  sonioxStarting: Map<string, Promise<void>>;
+  /** Partial caption segment id for the active utterance (streaming). */
+  streamingPartialSegmentId: string | null;
 };
 
 /**
@@ -143,6 +176,11 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
       segments: [],
       languages: new Map(),
       audioBytes: new Map(),
+      streamingAsr: null,
+      streamingAsrStarting: null,
+      sonioxByLanguage: new Map(),
+      sonioxStarting: new Map(),
+      streamingPartialSegmentId: null,
     };
     sessions.set(channelId, session);
   }
@@ -175,6 +213,9 @@ function sttRateLimitBackoffMs(consecutive: number): number {
  * @param bucket - Language work queue.
  */
 function coalesceLanguageQueueToLatest(bucket: LanguageBucket): void {
+  // Spoken listen needs every caption line — dropping the middle of the queue
+  // leaves gaps in the audio (captions still appear from STT/partials).
+  if ([...bucket.subscribers].some((s) => s.wantAudio)) return;
   if (bucket.queue.length <= 1) return;
   const keep = bucket.queue[bucket.queue.length - 1];
   bucket.queue.length = 0;
@@ -247,15 +288,430 @@ function trimSegments(session: ChannelSession): void {
   }
 }
 
+/**
+ * Returns whether any public listener is currently subscribed.
+ * @param session - Channel session.
+ * @returns True when at least one listen language has a subscriber.
+ */
+function sessionHasListeners(session: ChannelSession): boolean {
+  return [...session.languages.values()].some((b) => b.subscribers.size > 0);
+}
+
 function maybeTeardown(session: ChannelSession): void {
-  const hasSubs = [...session.languages.values()].some((b) => b.subscribers.size > 0);
+  const hasSubs = sessionHasListeners(session);
   if (!session.ingestActive && !hasSubs && session.audioQueue.length === 0) {
     if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
     for (const bucket of session.languages.values()) {
       if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
       if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
     }
+    void closeAllStreamingAsr(session);
     sessions.delete(session.channelId);
+  }
+}
+
+/**
+ * Closes the shared (non-Soniox) streaming ASR socket without touching Soniox maps.
+ * Used when the last listener leaves while owner ingest may still be active.
+ * @param session - Channel session.
+ */
+async function closeSingleStreamingAsr(session: ChannelSession): Promise<void> {
+  const single = session.streamingAsr;
+  session.streamingAsr = null;
+  session.streamingAsrStarting = null;
+  session.streamingPartialSegmentId = null;
+  if (single) {
+    await single.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Closes all upstream streaming ASR sockets for a session.
+ * @param session - Channel session.
+ */
+async function closeAllStreamingAsr(session: ChannelSession): Promise<void> {
+  const single = session.streamingAsr;
+  session.streamingAsr = null;
+  session.streamingAsrStarting = null;
+  session.streamingPartialSegmentId = null;
+  const soniox = [...session.sonioxByLanguage.entries()];
+  session.sonioxByLanguage.clear();
+  session.sonioxStarting.clear();
+  await Promise.allSettled([
+    single ? single.close() : Promise.resolve(),
+    ...soniox.map(([, s]) => s.close()),
+  ]);
+}
+
+/**
+ * Returns the streaming API key for the configured provider.
+ * @param secrets - Runtime secrets.
+ * @param provider - Streaming provider id.
+ * @returns API key or null.
+ */
+function streamingApiKeyForProvider(
+  secrets: NonNullable<Awaited<ReturnType<typeof getRuntimeSecretsForUser>>>,
+  provider: LiveTranslationStreamingSttProvider
+): string | null {
+  if (provider === 'deepgram') return secrets.deepgramApiKey;
+  if (provider === 'assemblyai') return secrets.assemblyaiApiKey;
+  if (provider === 'gladia') return secrets.gladiaApiKey;
+  if (provider === 'speechmatics') return secrets.speechmaticsApiKey;
+  if (provider === 'soniox') return secrets.sonioxApiKey;
+  return null;
+}
+
+/**
+ * Handles a streaming ASR event for non-Soniox providers (source text only).
+ * @param session - Channel session.
+ * @param event - ASR event.
+ * @param sourceLanguage - Normalized source language.
+ */
+function handleSourceStreamingEvent(
+  session: ChannelSession,
+  event: StreamingAsrEvent,
+  sourceLanguage: string
+): void {
+  if (event.kind === 'error') {
+    broadcastAll(session, {
+      type: 'error',
+      message: event.message.slice(0, 280),
+      ts: now(),
+    });
+    return;
+  }
+
+  const text = sanitizeSttTranscript(event.text);
+  if (!text) return;
+
+  if (event.kind === 'partial') {
+    let segmentId = session.streamingPartialSegmentId;
+    if (!segmentId) {
+      segmentId = randomUUID();
+      session.streamingPartialSegmentId = segmentId;
+      const segment: Segment = {
+        id: segmentId,
+        sourceText: text,
+        createdAt: now(),
+        byLanguage: new Map([[sourceLanguage, { text }]]),
+      };
+      session.segments.push(segment);
+      trimSegments(session);
+    } else {
+      const segment = session.segments.find((s) => s.id === segmentId);
+      if (segment) {
+        segment.sourceText = text;
+        segment.byLanguage.set(sourceLanguage, { text });
+      }
+    }
+    broadcastLanguage(session, sourceLanguage, {
+      type: 'caption',
+      segmentId,
+      language: sourceLanguage,
+      text,
+      ts: now(),
+    });
+    return;
+  }
+
+  // final
+  let segmentId = session.streamingPartialSegmentId;
+  session.streamingPartialSegmentId = null;
+  if (!segmentId) {
+    segmentId = randomUUID();
+    const segment: Segment = {
+      id: segmentId,
+      sourceText: text,
+      createdAt: now(),
+      byLanguage: new Map([[sourceLanguage, { text }]]),
+    };
+    session.segments.push(segment);
+    trimSegments(session);
+  } else {
+    const segment = session.segments.find((s) => s.id === segmentId);
+    if (segment) {
+      segment.sourceText = text;
+      segment.byLanguage.set(sourceLanguage, { text });
+    }
+  }
+
+  broadcastLanguage(session, sourceLanguage, {
+    type: 'caption',
+    segmentId,
+    language: sourceLanguage,
+    text,
+    ts: now(),
+  });
+  enqueueSegmentForActiveLanguages(session, segmentId, sourceLanguage);
+}
+
+/**
+ * Handles Soniox events for a specific listen-language stream.
+ * Target streams ignore originals; source streams ignore translations.
+ * @param session - Channel session.
+ * @param listenLanguage - Language this Soniox socket was opened for.
+ * @param sourceLanguage - Channel source language.
+ * @param event - ASR event.
+ */
+function handleSonioxStreamingEvent(
+  session: ChannelSession,
+  listenLanguage: string,
+  sourceLanguage: string,
+  event: StreamingAsrEvent
+): void {
+  if (event.kind === 'error') {
+    broadcastLanguage(session, listenLanguage, {
+      type: 'error',
+      message: event.message.slice(0, 280),
+      ts: now(),
+    });
+    return;
+  }
+
+  const isSourceStream = listenLanguage === sourceLanguage;
+  if (isSourceStream && event.isTranslation) return;
+  if (!isSourceStream && !event.isTranslation) return;
+
+  const text = sanitizeSttTranscript(event.text);
+  if (!text) return;
+  const language = listenLanguage;
+
+  if (event.kind === 'partial') {
+    let segmentId = session.streamingPartialSegmentId;
+    if (!segmentId) {
+      segmentId = randomUUID();
+      session.streamingPartialSegmentId = segmentId;
+      const segment: Segment = {
+        id: segmentId,
+        sourceText: isSourceStream ? text : '',
+        createdAt: now(),
+        byLanguage: new Map([[language, { text }]]),
+      };
+      session.segments.push(segment);
+      trimSegments(session);
+    } else {
+      const segment = session.segments.find((s) => s.id === segmentId);
+      if (segment) {
+        if (isSourceStream) segment.sourceText = text;
+        segment.byLanguage.set(language, { text });
+      }
+    }
+    broadcastLanguage(session, language, {
+      type: 'caption',
+      segmentId,
+      language,
+      text,
+      ts: now(),
+    });
+    return;
+  }
+
+  let segmentId = session.streamingPartialSegmentId;
+  // Keep partial id across languages until all streams finalize — reset only on source finals
+  // or when this language finalizes a standalone segment.
+  if (isSourceStream) {
+    session.streamingPartialSegmentId = null;
+  }
+  if (!segmentId) {
+    segmentId = randomUUID();
+    const segment: Segment = {
+      id: segmentId,
+      sourceText: isSourceStream ? text : '',
+      createdAt: now(),
+      byLanguage: new Map([[language, { text }]]),
+    };
+    session.segments.push(segment);
+    trimSegments(session);
+  } else {
+    const segment = session.segments.find((s) => s.id === segmentId);
+    if (segment) {
+      if (isSourceStream) segment.sourceText = text;
+      segment.byLanguage.set(language, { text });
+    }
+  }
+
+  broadcastLanguage(session, language, {
+    type: 'caption',
+    segmentId,
+    language,
+    text,
+    ts: now(),
+  });
+
+  // Queue for TTS only (translation already present on the segment).
+  const bucket = session.languages.get(language);
+  if (bucket && [...bucket.subscribers].some((s) => s.wantAudio)) {
+    enqueueTts(session, language, segmentId);
+  }
+}
+
+/**
+ * Ensures a non-Soniox streaming ASR session is open.
+ * Opens only while owner ingest is active and at least one listener is subscribed.
+ * @param session - Channel session.
+ */
+async function ensureSingleStreamingAsr(session: ChannelSession): Promise<void> {
+  if (!session.ingestActive || !sessionHasListeners(session)) {
+    await closeSingleStreamingAsr(session);
+    return;
+  }
+  if (session.streamingAsr) return;
+  if (session.streamingAsrStarting) {
+    await session.streamingAsrStarting;
+    return;
+  }
+
+  session.streamingAsrStarting = (async () => {
+    if (!session.ingestActive || !sessionHasListeners(session)) return;
+    const secrets = await getRuntimeSecretsForUser(session.userId);
+    if (!secrets?.translationReady || !secrets.sttProvider) {
+      broadcastAll(session, {
+        type: 'error',
+        message: 'Translation is not configured for this channel.',
+        ts: now(),
+      });
+      return;
+    }
+    if (!isStreamingSttProvider(secrets.sttProvider) || secrets.sttProvider === 'soniox') {
+      return;
+    }
+    const provider = secrets.sttProvider as LiveTranslationStreamingSttProvider;
+    const apiKey = streamingApiKeyForProvider(secrets, provider);
+    if (!apiKey) {
+      broadcastAll(session, {
+        type: 'error',
+        message: `Missing API key for ${provider}.`,
+        ts: now(),
+      });
+      return;
+    }
+    const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
+    try {
+      const asr = await createStreamingAsrSession(provider, {
+        apiKey,
+        sourceLanguage,
+        onEvent: (event) => handleSourceStreamingEvent(session, event, sourceLanguage),
+      });
+      if (!session.ingestActive || !sessionHasListeners(session)) {
+        await asr.close().catch(() => undefined);
+        return;
+      }
+      session.streamingAsr = asr;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start streaming ASR';
+      broadcastAll(session, { type: 'error', message, ts: now() });
+    }
+  })();
+
+  try {
+    await session.streamingAsrStarting;
+  } finally {
+    session.streamingAsrStarting = null;
+  }
+}
+
+/**
+ * Opens/closes Soniox sessions so each active listen language has a stream.
+ * Requires owner ingest — listeners alone do not open billable sockets.
+ * @param session - Channel session.
+ */
+async function syncSonioxSessions(session: ChannelSession): Promise<void> {
+  const secrets = await getRuntimeSecretsForUser(session.userId);
+  if (!secrets || secrets.sttProvider !== 'soniox' || !secrets.sonioxApiKey) return;
+
+  if (!session.ingestActive) {
+    for (const [language, asr] of [...session.sonioxByLanguage.entries()]) {
+      session.sonioxByLanguage.delete(language);
+      void asr.close();
+    }
+    return;
+  }
+
+  const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
+  const wanted = new Set<string>();
+  for (const [language, bucket] of session.languages) {
+    if (bucket.subscribers.size > 0) wanted.add(language);
+  }
+
+  for (const [language, asr] of [...session.sonioxByLanguage.entries()]) {
+    if (!wanted.has(language)) {
+      session.sonioxByLanguage.delete(language);
+      void asr.close();
+    }
+  }
+
+  for (const language of wanted) {
+    if (session.sonioxByLanguage.has(language) || session.sonioxStarting.has(language)) continue;
+    const starting = (async () => {
+      try {
+        const asr = await createStreamingAsrSession('soniox', {
+          apiKey: secrets.sonioxApiKey!,
+          sourceLanguage,
+          targetLanguage: language === sourceLanguage ? undefined : language,
+          onEvent: (event) => handleSonioxStreamingEvent(session, language, sourceLanguage, event),
+        });
+        if (![...session.languages.values()].some((b) => b.subscribers.size > 0)) {
+          await asr.close();
+          return;
+        }
+        if (!session.languages.get(language)?.subscribers.size) {
+          await asr.close();
+          return;
+        }
+        session.sonioxByLanguage.set(language, asr);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to start Soniox ASR';
+        broadcastLanguage(session, language, { type: 'error', message, ts: now() });
+      } finally {
+        session.sonioxStarting.delete(language);
+      }
+    })();
+    session.sonioxStarting.set(language, starting);
+    await starting;
+  }
+}
+
+/**
+ * Forwards PCM into the appropriate streaming ASR path.
+ * @param session - Channel session.
+ * @param pcm - PCM16 buffer.
+ * @param sampleRate - Sample rate.
+ */
+async function writePcmToStreamingAsr(
+  session: ChannelSession,
+  pcm: Buffer,
+  sampleRate: number
+): Promise<void> {
+  if (isNearSilentPcm16(pcm)) return;
+
+  // No listeners → do not open or bill upstream ASR (owner mic/level meter still works).
+  if (!sessionHasListeners(session)) {
+    await closeSingleStreamingAsr(session);
+    await syncSonioxSessions(session);
+    return;
+  }
+
+  const secrets = await getRuntimeSecretsForUser(session.userId);
+  if (!secrets?.translationReady || !secrets.sttProvider) {
+    broadcastAll(session, {
+      type: 'error',
+      message: 'Translation is not configured for this channel.',
+      ts: now(),
+    });
+    return;
+  }
+
+  if (secrets.sttProvider === 'soniox') {
+    await syncSonioxSessions(session);
+    for (const asr of session.sonioxByLanguage.values()) {
+      asr.writePcm(pcm, sampleRate);
+    }
+    return;
+  }
+
+  if (isStreamingSttProvider(secrets.sttProvider)) {
+    await ensureSingleStreamingAsr(session);
+    session.streamingAsr?.writePcm(pcm, sampleRate);
   }
 }
 
@@ -274,6 +730,11 @@ function purgeLanguageData(session: ChannelSession, language: string): void {
     const tr = segment.byLanguage.get(language);
     if (tr?.audioId) session.audioBytes.delete(tr.audioId);
     segment.byLanguage.delete(language);
+  }
+  const soniox = session.sonioxByLanguage.get(language);
+  if (soniox) {
+    session.sonioxByLanguage.delete(language);
+    void soniox.close();
   }
   maybeTeardown(session);
 }
@@ -336,6 +797,14 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
         if (isSourceLanguage) {
           existing = { text: segment.sourceText };
           segment.byLanguage.set(language, existing);
+        } else if (sttProvidesBuiltInTranslation(secrets.sttProvider)) {
+          // Soniox should have already filled byLanguage; skip separate MT.
+          broadcastLanguage(session, language, {
+            type: 'error',
+            message: 'Waiting for Soniox translation for this language.',
+            ts: now(),
+          });
+          continue;
         } else {
           try {
             const text = await translateLiveCaptionText({
@@ -398,6 +867,8 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
       // Abort if listeners left while awaiting translate.
       if (bucket.subscribers.size === 0) {
         bucket.queue.length = 0;
+        bucket.ttsQueue.length = 0;
+        bucket.ttsJobs.clear();
         break;
       }
 
@@ -416,51 +887,7 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
       // Re-check after awaits — mute must stop new TTS immediately.
       const stillWantsAudio = [...bucket.subscribers].some((s) => s.wantAudio);
       if (stillWantsAudio && !existing.audioId) {
-        const translation = existing;
-        const segmentIdForAudio = segment.id;
-        const createdAt = segment.createdAt;
-        // Fire-and-forget so the next caption can translate without waiting on speech.
-        void (async () => {
-          const secrets = await getRuntimeSecretsForUser(session.userId);
-          const voiceName = gcpTtsVoiceForLanguage(secrets?.gcpTtsVoices, language);
-          if (!secrets?.gcpServiceAccountJson || !voiceName) return;
-          if (![...bucket.subscribers].some((s) => s.wantAudio)) return;
-          try {
-            const mp3 = await synthesizeSpeechWithGcp({
-              serviceAccountJson: secrets.gcpServiceAccountJson,
-              voiceName,
-              languageCode: languageCodeHintFromVoiceName(voiceName) || language,
-              text: translation.text,
-            });
-            if (mp3.length === 0) return;
-            if (![...bucket.subscribers].some((s) => s.wantAudio)) return;
-            if (translation.audioId) return;
-            const audioId = randomUUID();
-            session.audioBytes.set(audioId, {
-              mime: 'audio/mpeg',
-              data: mp3,
-              expiresAt: now() + 10 * 60_000,
-            });
-            translation.audioId = audioId;
-            pruneAudio(session);
-            if (bucket.subscribers.size === 0) return;
-            broadcastLanguage(session, language, {
-              type: 'caption',
-              segmentId: segmentIdForAudio,
-              language,
-              text: translation.text,
-              audioUrl: `/api/translation/public/audio/${audioId}`,
-              ts: createdAt,
-            });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'TTS failed';
-            broadcastLanguage(session, language, {
-              type: 'error',
-              message,
-              ts: now(),
-            });
-          }
-        })();
+        enqueueTts(session, language, segment.id);
       }
     }
   } finally {
@@ -475,6 +902,146 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
       }
     }
   }
+}
+
+/**
+ * Starts GCP TTS for a segment immediately (parallel-safe). Delivery remains ordered
+ * via `processTtsQueue`, which awaits jobs in queue order before broadcasting URLs.
+ * @param session - Channel session.
+ * @param language - Listen language.
+ * @param segmentId - Segment to speak.
+ */
+function ensureTtsJob(session: ChannelSession, language: string, segmentId: string): void {
+  const bucket = session.languages.get(language);
+  if (!bucket || bucket.ttsJobs.has(segmentId)) return;
+
+  const job = (async (): Promise<TtsJobResult | null> => {
+    const segment = session.segments.find((s) => s.id === segmentId);
+    if (!segment) return null;
+    const translation = segment.byLanguage.get(language);
+    if (!translation?.text?.trim()) return null;
+    if (translation.audioId) {
+      return {
+        segmentId,
+        text: translation.text,
+        audioId: translation.audioId,
+        createdAt: segment.createdAt,
+      };
+    }
+
+    const textForTts = translation.text;
+    const createdAt = segment.createdAt;
+    try {
+      const secrets = await getRuntimeSecretsForUser(session.userId);
+      const voiceName = gcpTtsVoiceForLanguage(secrets?.gcpTtsVoices, language);
+      if (!secrets?.gcpServiceAccountJson || !voiceName) return null;
+      if (![...(session.languages.get(language)?.subscribers ?? [])].some((s) => s.wantAudio)) {
+        return null;
+      }
+      const mp3 = await synthesizeSpeechWithGcp({
+        serviceAccountJson: secrets.gcpServiceAccountJson,
+        voiceName,
+        languageCode: languageCodeHintFromVoiceName(voiceName) || language,
+        text: textForTts,
+      });
+      if (mp3.length === 0) return null;
+      if (![...(session.languages.get(language)?.subscribers ?? [])].some((s) => s.wantAudio)) {
+        return null;
+      }
+      if (translation.audioId) {
+        return {
+          segmentId,
+          text: textForTts,
+          audioId: translation.audioId,
+          createdAt,
+        };
+      }
+      const audioId = randomUUID();
+      session.audioBytes.set(audioId, {
+        mime: 'audio/mpeg',
+        data: mp3,
+        expiresAt: now() + 10 * 60_000,
+      });
+      translation.audioId = audioId;
+      pruneAudio(session);
+      return { segmentId, text: textForTts, audioId, createdAt };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'TTS failed';
+      broadcastLanguage(session, language, {
+        type: 'error',
+        message,
+        ts: now(),
+      });
+      return null;
+    }
+  })();
+
+  bucket.ttsJobs.set(segmentId, job);
+}
+
+/**
+ * Delivers spoken audio URLs in caption order.
+ * Synthesis starts as soon as each segment is queued (see `ensureTtsJob`) so later
+ * lines prepare while earlier clips play — reducing gaps without skipping lines.
+ * @param session - Channel session.
+ * @param language - Listen language.
+ */
+async function processTtsQueue(session: ChannelSession, language: string): Promise<void> {
+  const bucket = session.languages.get(language);
+  if (!bucket || bucket.ttsBusy) return;
+  bucket.ttsBusy = true;
+  try {
+    while (bucket.ttsQueue.length > 0) {
+      if (![...bucket.subscribers].some((s) => s.wantAudio)) {
+        bucket.ttsQueue.length = 0;
+        bucket.ttsJobs.clear();
+        break;
+      }
+      const segmentId = bucket.ttsQueue.shift();
+      if (!segmentId) break;
+
+      ensureTtsJob(session, language, segmentId);
+      const job = bucket.ttsJobs.get(segmentId);
+      const result = job ? await job : null;
+      bucket.ttsJobs.delete(segmentId);
+
+      if (!result) continue;
+      if (bucket.subscribers.size === 0) break;
+      if (![...bucket.subscribers].some((s) => s.wantAudio)) {
+        bucket.ttsQueue.length = 0;
+        bucket.ttsJobs.clear();
+        break;
+      }
+      broadcastLanguage(session, language, {
+        type: 'caption',
+        segmentId: result.segmentId,
+        language,
+        text: result.text,
+        audioUrl: `/api/translation/public/audio/${result.audioId}`,
+        ts: result.createdAt,
+      });
+    }
+  } finally {
+    bucket.ttsBusy = false;
+    if (bucket.ttsQueue.length > 0 && [...bucket.subscribers].some((s) => s.wantAudio)) {
+      void processTtsQueue(session, language);
+    }
+  }
+}
+
+/**
+ * Enqueues a segment for ordered spoken delivery and starts synthesis immediately.
+ * @param session - Channel session.
+ * @param language - Listen language.
+ * @param segmentId - Segment id.
+ */
+function enqueueTts(session: ChannelSession, language: string, segmentId: string): void {
+  const bucket = session.languages.get(language);
+  if (!bucket) return;
+  if (![...bucket.subscribers].some((s) => s.wantAudio)) return;
+  bucket.ttsQueue.push(segmentId);
+  ensureTtsJob(session, language, segmentId);
+  void processTtsQueue(session, language);
 }
 
 function enqueueSegmentForActiveLanguages(
@@ -499,7 +1066,7 @@ function enqueueSegmentForActiveLanguages(
 
 async function processAudioQueue(session: ChannelSession): Promise<void> {
   if (session.processingAudio) return;
-  if (!session.ingestActive) {
+  if (!session.ingestActive || !sessionHasListeners(session)) {
     session.audioQueue.length = 0;
     return;
   }
@@ -518,7 +1085,7 @@ async function processAudioQueue(session: ChannelSession): Promise<void> {
   session.processingAudio = true;
   try {
     while (session.audioQueue.length > 0) {
-      if (!session.ingestActive) {
+      if (!session.ingestActive || !sessionHasListeners(session)) {
         session.audioQueue.length = 0;
         break;
       }
@@ -532,7 +1099,7 @@ async function processAudioQueue(session: ChannelSession): Promise<void> {
       if (!item) break;
 
       const secrets = await getRuntimeSecretsForUser(session.userId);
-      if (!secrets?.translationReady || !secrets.sttModel) {
+      if (!secrets?.translationReady || secrets.sttProvider !== 'groq' || !secrets.sttModel) {
         broadcastAll(session, {
           type: 'error',
           message: 'Translation is not configured for this channel.',
@@ -654,6 +1221,7 @@ export function markIngestActive(channelId: string, userId: string): void {
   if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
   session.ingestIdleTimer = setTimeout(() => {
     session.ingestActive = false;
+    void closeAllStreamingAsr(session);
     broadcastAll(session, { type: 'status', live: false, ts: now() });
     maybeTeardown(session);
   }, INGEST_IDLE_MS);
@@ -662,6 +1230,9 @@ export function markIngestActive(channelId: string, userId: string): void {
 
 /**
  * Queues PCM audio from the owner for shared STT.
+ * Marks the channel live for listeners, but upstream STT only runs while at least
+ * one public listener is subscribed (and stops when the last listener leaves).
+ * Streaming providers receive frames immediately; Groq uses the chunked queue.
  * @param channelId - Channel document id.
  * @param userId - Owning user id.
  * @param pcm - 16-bit LE mono PCM.
@@ -675,10 +1246,30 @@ export function enqueueOwnerPcm(
 ): void {
   const session = getOrCreateSession(channelId, userId);
   markIngestActive(channelId, userId);
-  session.audioQueue.push({ pcm, sampleRate });
-  // Live-only: never accumulate an STT backlog that will thrash free rate limits.
-  coalesceAudioQueueToLatest(session);
-  void processAudioQueue(session);
+
+  void (async () => {
+    const secrets = await getRuntimeSecretsForUser(userId);
+    if (!secrets?.sttProvider) {
+      broadcastAll(session, {
+        type: 'error',
+        message: 'Translation is not configured for this channel.',
+        ts: now(),
+      });
+      return;
+    }
+    if (isStreamingSttProvider(secrets.sttProvider)) {
+      await writePcmToStreamingAsr(session, pcm, sampleRate);
+      return;
+    }
+    // Groq chunked fallback — skip provider calls with nobody listening.
+    if (!sessionHasListeners(session)) {
+      session.audioQueue.length = 0;
+      return;
+    }
+    session.audioQueue.push({ pcm, sampleRate });
+    coalesceAudioQueueToLatest(session);
+    void processAudioQueue(session);
+  })();
 }
 
 /**
@@ -715,8 +1306,10 @@ export function getSubscriberStats(channelId: string): {
 
 /**
  * Subscribes a public listener to a language stream with refcount semantics.
- * First subscriber for a non-source language starts translate(+TTS) work.
- * Source language is transcription-only. Last leave clears that language’s cache after a short grace.
+ * First subscriber (with owner ingest active) opens billable STT; first subscriber
+ * for a non-source language also starts translate(+TTS) work.
+ * Source language is transcription-only. Last leave closes upstream STT immediately
+ * and clears that language’s caption cache after a short grace.
  * @param params - Channel, user, language, audio preference, and send callback.
  * @returns Unsubscribe function.
  */
@@ -747,6 +1340,9 @@ export function subscribePublicListener(params: {
         idleTimer: null,
         busy: false,
         queue: [],
+        ttsQueue: [],
+        ttsBusy: false,
+        ttsJobs: new Map(),
         rateLimitedUntil: 0,
         rateLimitNotifiedAt: 0,
         consecutiveRateLimits: 0,
@@ -778,6 +1374,9 @@ export function subscribePublicListener(params: {
     }
   }
   void processLanguageQueue(session, language);
+  // Open billable ASR only when ingest is already live and someone is listening.
+  void syncSonioxSessions(session);
+  void ensureSingleStreamingAsr(session);
 
   return () => {
     const bucket = session.languages.get(language);
@@ -787,10 +1386,18 @@ export function subscribePublicListener(params: {
     }
     bucket.subscribers.delete(subscriber);
     if (bucket.subscribers.size === 0) {
-      // Stop pending translate work immediately; purge cached captions after reconnect grace.
+      // Stop pending translate/TTS work immediately; purge cached captions after reconnect grace.
       bucket.queue.length = 0;
+      bucket.ttsQueue.length = 0;
+      bucket.ttsJobs.clear();
       scheduleLanguageIdle(session, language);
     }
+    if (!sessionHasListeners(session)) {
+      // Stop STT billing as soon as the last listener leaves (owner may still be live).
+      session.audioQueue.length = 0;
+      void closeSingleStreamingAsr(session);
+    }
+    void syncSonioxSessions(session);
     maybeTeardown(session);
   };
 }
@@ -830,6 +1437,7 @@ export function markIngestStopped(channelId: string): void {
     clearTimeout(session.ingestIdleTimer);
     session.ingestIdleTimer = null;
   }
+  void closeAllStreamingAsr(session);
   broadcastAll(session, { type: 'status', live: false, ts: now() });
   maybeTeardown(session);
 }
@@ -854,6 +1462,7 @@ export function disposeChannelSession(channelId: string): void {
     if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
     if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
   }
+  void closeAllStreamingAsr(session);
   broadcastAll(session, {
     type: 'error',
     message: 'This translation channel was deleted.',
@@ -873,6 +1482,7 @@ export function __resetTranslationSessionsForTests(): void {
       if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
       if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
     }
+    void closeAllStreamingAsr(session);
   }
   sessions.clear();
 }

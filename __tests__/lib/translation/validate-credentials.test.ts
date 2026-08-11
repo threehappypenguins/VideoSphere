@@ -9,6 +9,9 @@ describe('validateTranslationAiConfig', () => {
 
   it('rejects an invalid OpenRouter API key before listing models', async () => {
     const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('api.deepgram.com')) {
+        return Response.json({ projects: [] });
+      }
       if (String(url).includes('/api/v1/key')) {
         return new Response('unauthorized', { status: 401 });
       }
@@ -18,10 +21,11 @@ describe('validateTranslationAiConfig', () => {
 
     const result = await validateTranslationAiConfig({
       openRouterApiKey: 'sk-bad',
+      deepgramApiKey: 'dg-ok',
       hasGcpServiceAccount: false,
-      sttProvider: 'openrouter',
+      sttProvider: 'deepgram',
       textTranslateProvider: 'openrouter',
-      sttModel: 'openai/whisper-large-v3',
+      sttModel: '',
       translateModel: 'openai/gpt-4o-mini',
     });
 
@@ -30,7 +34,7 @@ describe('validateTranslationAiConfig', () => {
       message: 'OpenRouter API key is invalid.',
       fields: ['openRouterKey'],
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it('rejects unknown OpenRouter translation models', async () => {
@@ -45,16 +49,20 @@ describe('validateTranslationAiConfig', () => {
             data: [{ id: 'openai/gpt-4o-mini', architecture: { input_modalities: ['text'] } }],
           });
         }
+        if (String(url).includes('api.deepgram.com')) {
+          return Response.json({ projects: [] });
+        }
         throw new Error(`Unexpected fetch: ${url}`);
       })
     );
 
     const result = await validateTranslationAiConfig({
       openRouterApiKey: 'sk-ok',
+      deepgramApiKey: 'dg-ok',
       hasGcpServiceAccount: false,
-      sttProvider: 'openrouter',
+      sttProvider: 'deepgram',
       textTranslateProvider: 'openrouter',
-      sttModel: 'openai/whisper-large-v3',
+      sttModel: '',
       translateModel: 'missing/model',
     });
 
@@ -65,7 +73,7 @@ describe('validateTranslationAiConfig', () => {
     }
   });
 
-  it('accepts valid OpenRouter STT + translate models', async () => {
+  it('accepts Deepgram STT + OpenRouter translate models', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -76,15 +84,14 @@ describe('validateTranslationAiConfig', () => {
           return Response.json({
             data: [
               {
-                id: 'openai/whisper-large-v3',
-                architecture: { input_modalities: ['audio'] },
-              },
-              {
                 id: 'openai/gpt-4o-mini',
                 architecture: { input_modalities: ['text'] },
               },
             ],
           });
+        }
+        if (String(url).includes('api.deepgram.com')) {
+          return Response.json({ projects: [] });
         }
         throw new Error(`Unexpected fetch: ${url}`);
       })
@@ -92,10 +99,11 @@ describe('validateTranslationAiConfig', () => {
 
     const result = await validateTranslationAiConfig({
       openRouterApiKey: 'sk-ok',
+      deepgramApiKey: 'dg-ok',
       hasGcpServiceAccount: false,
-      sttProvider: 'openrouter',
+      sttProvider: 'deepgram',
       textTranslateProvider: 'openrouter',
-      sttModel: 'openai/whisper-large-v3',
+      sttModel: '',
       translateModel: 'openai/gpt-4o-mini',
     });
 
@@ -196,14 +204,25 @@ describe('validateTranslationAiConfig', () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it('requires GCP SA when STT or translate uses gcp', async () => {
+  it('requires GCP SA when translate uses gcp', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('api.deepgram.com')) {
+          return Response.json({ projects: [] });
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      })
+    );
+
     const result = await validateTranslationAiConfig({
       openRouterApiKey: '',
       groqApiKey: '',
+      deepgramApiKey: 'dg-ok',
       hasGcpServiceAccount: false,
-      sttProvider: 'gcp',
+      sttProvider: 'deepgram',
       textTranslateProvider: 'gcp',
-      sttModel: 'latest_long',
+      sttModel: '',
       translateModel: '',
     });
 
@@ -211,5 +230,19 @@ describe('validateTranslationAiConfig', () => {
     if (result.ok === false) {
       expect(result.fields).toContain('gcpJson');
     }
+  });
+
+  it('accepts Soniox without a separate translate provider', async () => {
+    const result = await validateTranslationAiConfig({
+      openRouterApiKey: '',
+      sonioxApiKey: 'sx-ok-long-enough',
+      hasGcpServiceAccount: false,
+      sttProvider: 'soniox',
+      textTranslateProvider: null,
+      sttModel: '',
+      translateModel: '',
+    });
+
+    expect(result).toEqual({ ok: true });
   });
 });

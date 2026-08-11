@@ -2,12 +2,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/repositories/live-translation-channels', () => ({
   getRuntimeSecretsForUser: vi.fn(async () => ({
-    sttProvider: 'openrouter',
+    sttProvider: 'groq',
     textTranslateProvider: 'openrouter',
     openRouterApiKey: 'key',
-    groqApiKey: null,
+    groqApiKey: 'gsk',
+    deepgramApiKey: null,
+    assemblyaiApiKey: null,
+    gladiaApiKey: null,
+    speechmaticsApiKey: null,
+    sonioxApiKey: null,
     gcpServiceAccountJson: null,
-    sttModel: 'stt',
+    sttModel: 'whisper-large-v3-turbo',
     openRouterTranslateModel: 'tr',
     gcpTtsVoices: {},
     sourceLanguage: 'en',
@@ -45,6 +50,12 @@ vi.mock('@/lib/translation/gcp-tts', () => ({
   synthesizeSpeechWithGcp: vi.fn(async () => Buffer.alloc(0)),
 }));
 
+const createStreamingAsrSession = vi.fn();
+
+vi.mock('@/lib/translation/streaming-asr', () => ({
+  createStreamingAsrSession: (...args: unknown[]) => createStreamingAsrSession(...args),
+}));
+
 import {
   __resetTranslationSessionsForTests,
   enqueueOwnerPcm,
@@ -52,6 +63,7 @@ import {
   markIngestStopped,
   subscribePublicListener,
 } from '@/lib/translation/session-hub';
+import { getRuntimeSecretsForUser } from '@/lib/repositories/live-translation-channels';
 import { translateLiveCaptionText } from '@/lib/translation/translate-text';
 import { transcribeAudio } from '@/lib/translation/transcribe';
 
@@ -72,6 +84,7 @@ describe('translation session hub', () => {
   afterEach(() => {
     __resetTranslationSessionsForTests();
     vi.clearAllMocks();
+    createStreamingAsrSession.mockReset();
     vi.useRealTimers();
   });
 
@@ -223,6 +236,32 @@ describe('translation session hub', () => {
     unsub2();
   });
 
+  it('does not call STT until a public listener has chosen a language', async () => {
+    enqueueOwnerPcm('ch-idle', 'user-1', loudPcm(3200), 16000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(transcribeAudio).not.toHaveBeenCalled();
+    expect(getSubscriberStats('ch-idle').live).toBe(true);
+
+    const captions: string[] = [];
+    const unsub = subscribePublicListener({
+      channelId: 'ch-idle',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'caption' && event.text) captions.push(event.text);
+      },
+    });
+
+    enqueueOwnerPcm('ch-idle', 'user-1', loudPcm(3200), 16000);
+    await vi.waitFor(() => {
+      expect(captions).toContain('hello');
+    });
+    expect(transcribeAudio).toHaveBeenCalled();
+    unsub();
+  });
+
   it('drops queued PCM when ingest is stopped so STT does not keep running', async () => {
     let releaseStt: (() => void) | undefined;
     const sttGate = new Promise<void>((resolve) => {
@@ -231,6 +270,18 @@ describe('translation session hub', () => {
     vi.mocked(transcribeAudio).mockImplementationOnce(async () => {
       await sttGate;
       return 'still-going';
+    });
+
+    const unsub = subscribePublicListener({
+      channelId: 'ch-stop',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: () => undefined,
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-stop').totalSubscribers).toBe(1);
     });
 
     enqueueOwnerPcm('ch-stop', 'user-1', loudPcm(3200), 16000);
@@ -250,6 +301,7 @@ describe('translation session hub', () => {
     // In-flight call may finish, but queued chunks must not start new STT work.
     expect(transcribeAudio).toHaveBeenCalledTimes(1);
     expect(getSubscriberStats('ch-stop').live).toBe(false);
+    unsub();
   });
 
   it('backs off STT after a 429 instead of draining the queue immediately', async () => {
@@ -257,6 +309,18 @@ describe('translation session hub', () => {
     vi.mocked(transcribeAudio)
       .mockRejectedValueOnce(new Error('Groq STT error (429): rate_limit_exceeded'))
       .mockResolvedValue('hello');
+
+    const unsub = subscribePublicListener({
+      channelId: 'ch-429',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: () => undefined,
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-429').totalSubscribers).toBe(1);
+    });
 
     enqueueOwnerPcm('ch-429', 'user-1', loudPcm(3200), 16000);
 
@@ -272,6 +336,7 @@ describe('translation session hub', () => {
     await vi.waitFor(() => {
       expect(transcribeAudio).toHaveBeenCalledTimes(2);
     });
+    unsub();
   });
 
   it('drops older PCM while STT is rate-limited so recovery does not burn quota', async () => {
@@ -368,5 +433,141 @@ describe('translation session hub', () => {
     expect(translateLiveCaptionText).toHaveBeenCalledTimes(2);
     expect(vi.mocked(translateLiveCaptionText).mock.calls[1]?.[0]?.text).toBe('three');
     unsub();
+  });
+
+  it('opens and closes Soniox streams per active listen language only while ingest is live', async () => {
+    const closed: string[] = [];
+    createStreamingAsrSession.mockImplementation(
+      async (_provider: string, options: { targetLanguage?: string }) => {
+        const label = options.targetLanguage ?? 'source';
+        return {
+          writePcm: vi.fn(),
+          close: vi.fn(async () => {
+            closed.push(label);
+          }),
+        };
+      }
+    );
+
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
+      sttProvider: 'soniox',
+      textTranslateProvider: null,
+      openRouterApiKey: null,
+      groqApiKey: null,
+      deepgramApiKey: null,
+      assemblyaiApiKey: null,
+      gladiaApiKey: null,
+      speechmaticsApiKey: null,
+      sonioxApiKey: 'sx-test',
+      gcpServiceAccountJson: null,
+      sttModel: null,
+      openRouterTranslateModel: null,
+      gcpTtsVoices: {},
+      sourceLanguage: 'en',
+      enabledLanguages: ['es', 'fr'],
+      translationReady: true,
+      listenReady: false,
+    } as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>);
+
+    const unsubEs = subscribePublicListener({
+      channelId: 'ch-soniox',
+      userId: 'user-1',
+      language: 'es',
+      wantAudio: false,
+      send: () => undefined,
+    });
+    const unsubFr = subscribePublicListener({
+      channelId: 'ch-soniox',
+      userId: 'user-1',
+      language: 'fr',
+      wantAudio: false,
+      send: () => undefined,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    // Listeners alone must not open billable Soniox sockets.
+    expect(createStreamingAsrSession).not.toHaveBeenCalled();
+
+    enqueueOwnerPcm('ch-soniox', 'user-1', loudPcm(3200), 16000);
+
+    await vi.waitFor(() => {
+      expect(createStreamingAsrSession).toHaveBeenCalledTimes(2);
+    });
+
+    expect(createStreamingAsrSession).toHaveBeenCalledWith(
+      'soniox',
+      expect.objectContaining({ targetLanguage: 'es' })
+    );
+    expect(createStreamingAsrSession).toHaveBeenCalledWith(
+      'soniox',
+      expect.objectContaining({ targetLanguage: 'fr' })
+    );
+
+    unsubEs();
+    await vi.waitFor(() => {
+      expect(closed).toContain('es');
+    });
+    expect(closed).not.toContain('fr');
+
+    unsubFr();
+    await vi.waitFor(() => {
+      expect(closed).toContain('fr');
+    });
+  });
+
+  it('opens Deepgram only while listeners are present and closes when the last leaves', async () => {
+    const writePcm = vi.fn();
+    const close = vi.fn(async () => undefined);
+    createStreamingAsrSession.mockResolvedValue({ writePcm, close });
+
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
+      sttProvider: 'deepgram',
+      textTranslateProvider: 'openrouter',
+      openRouterApiKey: 'key',
+      groqApiKey: null,
+      deepgramApiKey: 'dg-test',
+      assemblyaiApiKey: null,
+      gladiaApiKey: null,
+      speechmaticsApiKey: null,
+      sonioxApiKey: null,
+      gcpServiceAccountJson: null,
+      sttModel: null,
+      openRouterTranslateModel: 'tr',
+      gcpTtsVoices: {},
+      sourceLanguage: 'en',
+      enabledLanguages: ['es'],
+      translationReady: true,
+      listenReady: false,
+    } as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>);
+
+    enqueueOwnerPcm('ch-dg', 'user-1', loudPcm(3200), 16000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(createStreamingAsrSession).not.toHaveBeenCalled();
+
+    const unsub = subscribePublicListener({
+      channelId: 'ch-dg',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: () => undefined,
+    });
+
+    enqueueOwnerPcm('ch-dg', 'user-1', loudPcm(3200), 16000);
+    await vi.waitFor(() => {
+      expect(createStreamingAsrSession).toHaveBeenCalledWith(
+        'deepgram',
+        expect.objectContaining({ apiKey: 'dg-test' })
+      );
+    });
+    await vi.waitFor(() => {
+      expect(writePcm).toHaveBeenCalled();
+    });
+
+    unsub();
+    await vi.waitFor(() => {
+      expect(close).toHaveBeenCalled();
+    });
   });
 });

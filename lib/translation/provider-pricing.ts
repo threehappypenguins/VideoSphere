@@ -2,6 +2,8 @@
 // Live-translation provider free-tier / pricing hints (UI + docs)
 // =============================================================================
 
+import type { LiveTranslationSttProvider } from '@/lib/translation/capabilities';
+
 /**
  * Pricing summary shown next to STT / translate provider pickers.
  */
@@ -21,54 +23,78 @@ export interface TranslationProviderPricingInfo {
 /** OpenRouter free-model rate-limit docs. */
 export const OPENROUTER_LIMITS_URL = 'https://openrouter.ai/docs/api-reference/limits';
 
-/** OpenRouter models catalog (STT and chat pricing vary by model). */
-export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/models';
-
 /** Groq rate-limits docs (free plan RPM/RPD/ASH). */
 export const GROQ_RATE_LIMITS_URL = 'https://console.groq.com/docs/rate-limits';
 
-/**
- * GroqCloud model catalog with published per-model rates (including Whisper).
- * Prefer this over marketing URLs — `groq.com/pricing` is not a pricing page.
- */
-export const GROQ_PRICING_URL = 'https://console.groq.com/docs/models';
-
-/** Google Cloud Speech-to-Text pricing. */
-export const GCP_STT_PRICING_URL = 'https://cloud.google.com/speech-to-text/pricing';
-
 /** Google Cloud Translation pricing. */
 export const GCP_TRANSLATE_PRICING_URL = 'https://cloud.google.com/translate/pricing';
+
+/** Deepgram pricing. */
+export const DEEPGRAM_PRICING_URL = 'https://deepgram.com/pricing';
+
+/** AssemblyAI pricing. */
+export const ASSEMBLYAI_PRICING_URL = 'https://www.assemblyai.com/pricing';
+
+/** Gladia pricing. */
+export const GLADIA_PRICING_URL = 'https://www.gladia.io/pricing';
+
+/** Speechmatics pricing. */
+export const SPEECHMATICS_PRICING_URL = 'https://www.speechmatics.com/pricing';
+
+/** Soniox docs / pricing. */
+export const SONIOX_DOCS_URL = 'https://soniox.com/docs';
 
 /**
  * Speech-to-text provider pricing hints for the Configure AI UI.
  */
 export const STT_PROVIDER_PRICING: Record<
-  'openrouter' | 'groq' | 'gcp',
+  LiveTranslationSttProvider,
   TranslationProviderPricingInfo
 > = {
-  openrouter: {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    freeUsageLimit:
-      ':free models ≈ 20 RPM / 50 RPD (1,000 RPD after ≥$10 lifetime credits). Paid STT models bill per catalog rate.',
-    priceAfterFree: 'Model catalog rate (duration or tokens); no OpenRouter markup on model cost.',
-    pricingUrl: OPENROUTER_MODELS_URL,
+  deepgram: {
+    id: 'deepgram',
+    label: 'Deepgram',
+    freeUsageLimit: 'New accounts typically receive ~$200 signup credit (one-time).',
+    priceAfterFree: 'Nova-3 streaming roughly US$0.34–0.46 / hour after credits.',
+    pricingUrl: DEEPGRAM_PRICING_URL,
+  },
+  assemblyai: {
+    id: 'assemblyai',
+    label: 'AssemblyAI',
+    freeUsageLimit: '$50 one-time free credits (no card required).',
+    priceAfterFree:
+      'Streaming billed on WebSocket session open time (~US$0.15–0.45 / hour by model).',
+    pricingUrl: ASSEMBLYAI_PRICING_URL,
+  },
+  gladia: {
+    id: 'gladia',
+    label: 'Gladia',
+    freeUsageLimit: '€50 one-time free credits (~60+ hours real-time at Starter rates).',
+    priceAfterFree: 'Starter real-time ~US$0.75 / hour after credits.',
+    pricingUrl: GLADIA_PRICING_URL,
+  },
+  speechmatics: {
+    id: 'speechmatics',
+    label: 'Speechmatics',
+    freeUsageLimit: '$100 one-time credit to get started (no card required).',
+    priceAfterFree: 'Pro usage billed per hour after credits (see portal rates).',
+    pricingUrl: SPEECHMATICS_PRICING_URL,
+  },
+  soniox: {
+    id: 'soniox',
+    label: 'Soniox',
+    freeUsageLimit: 'Check console for trial / credits; STT+translation on one stream.',
+    priceAfterFree: 'Real-time STT roughly ~US$0.12 / hour (token-based; confirm in console).',
+    pricingUrl: SONIOX_DOCS_URL,
   },
   groq: {
     id: 'groq',
-    label: 'Groq',
+    label: 'Groq (chunked fallback)',
     freeUsageLimit:
-      'Whisper free plan ≈ 20 RPM / 2,000 RPD · 7,200 audio-seconds/hour · 28,800 audio-seconds/day.',
+      'Whisper free plan ≈ 20 RPM / 2,000 RPD · 7,200 audio-seconds/hour · 28,800 audio-seconds/day. Not streaming ASR.',
     priceAfterFree:
       'Developer plan billed per audio hour (see GroqCloud models docs); higher RPM/ASH.',
     pricingUrl: GROQ_RATE_LIMITS_URL,
-  },
-  gcp: {
-    id: 'gcp',
-    label: 'Google Cloud',
-    freeUsageLimit: 'First 60 minutes of audio / month free (V1 standard recognition).',
-    priceAfterFree: 'About US$0.016 / minute after the free 60 minutes (standard recognition).',
-    pricingUrl: GCP_STT_PRICING_URL,
   },
 };
 
@@ -110,9 +136,7 @@ export const TRANSLATE_PROVIDER_PRICING: Record<
  * @param id - STT provider.
  * @returns Pricing info.
  */
-export function sttProviderPricing(
-  id: 'openrouter' | 'groq' | 'gcp'
-): TranslationProviderPricingInfo {
+export function sttProviderPricing(id: LiveTranslationSttProvider): TranslationProviderPricingInfo {
   return STT_PROVIDER_PRICING[id];
 }
 

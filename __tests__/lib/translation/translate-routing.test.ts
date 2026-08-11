@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { gcpSttLanguageCode } from '@/lib/translation/gcp-stt';
 import { gcpTranslateLanguageCode } from '@/lib/translation/gcp-translate';
 import { openRouterTranslateModelsList } from '@/lib/translation/openrouter-translate';
 import {
   STT_PROVIDER_PRICING,
   TRANSLATE_PROVIDER_PRICING,
 } from '@/lib/translation/provider-pricing';
+import {
+  assemblyaiLanguageParam,
+  deepgramLanguageParam,
+} from '@/lib/translation/streaming-asr/types';
 
 describe('gcpTranslateLanguageCode', () => {
   it('maps Mandarin and Cantonese to Cloud Translation tags', () => {
@@ -19,11 +22,10 @@ describe('gcpTranslateLanguageCode', () => {
   });
 });
 
-describe('gcpSttLanguageCode', () => {
-  it('maps common codes to Speech BCP-47 tags', () => {
-    expect(gcpSttLanguageCode('en')).toBe('en-US');
-    expect(gcpSttLanguageCode('zh')).toBe('zh-CN');
-    expect(gcpSttLanguageCode('yue')).toBe('yue-HK');
+describe('streaming ASR language params', () => {
+  it('maps Mandarin for Deepgram and AssemblyAI', () => {
+    expect(deepgramLanguageParam('zh')).toBe('zh');
+    expect(assemblyaiLanguageParam('zh')).toBe('zh');
   });
 });
 
@@ -42,9 +44,18 @@ describe('openRouterTranslateModelsList', () => {
 
 describe('provider pricing metadata', () => {
   it('exposes pricing URLs for every STT and translate provider', () => {
-    for (const id of ['openrouter', 'groq', 'gcp'] as const) {
+    for (const id of [
+      'deepgram',
+      'assemblyai',
+      'gladia',
+      'speechmatics',
+      'soniox',
+      'groq',
+    ] as const) {
       expect(STT_PROVIDER_PRICING[id].pricingUrl).toMatch(/^https:\/\//);
       expect(STT_PROVIDER_PRICING[id].freeUsageLimit.length).toBeGreaterThan(10);
+    }
+    for (const id of ['openrouter', 'groq', 'gcp'] as const) {
       expect(TRANSLATE_PROVIDER_PRICING[id].pricingUrl).toMatch(/^https:\/\//);
       expect(TRANSLATE_PROVIDER_PRICING[id].freeUsageLimit.length).toBeGreaterThan(10);
     }

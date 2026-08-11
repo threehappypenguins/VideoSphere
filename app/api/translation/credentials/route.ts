@@ -13,12 +13,15 @@ import {
   setGcpServiceAccountJson,
   setGroqApiKey,
   setOpenRouterApiKey,
+  setStreamingAsrApiKey,
   updateChannelForUser,
   type LiveTranslationChannelPatch,
 } from '@/lib/repositories/live-translation-channels';
 import {
+  isStreamingSttProvider,
   normalizeSttProvider,
   normalizeTextTranslateProvider,
+  sttProvidesBuiltInTranslation,
 } from '@/lib/translation/capabilities';
 import { languagesForTtsConfig, normalizeGcpTtsVoices } from '@/lib/translation/gcp-tts-voices';
 import { parseGcpServiceAccountJson } from '@/lib/translation/gcp-sa';
@@ -26,8 +29,16 @@ import { validateTranslationAiConfig } from '@/lib/translation/validate-credenti
 import { validateGcpTtsConfig } from '@/lib/translation/validate-gcp-tts';
 import type { ApiError, LiveTranslationChannelOwnerView } from '@/types';
 
+const STREAMING_KEY_FIELDS = [
+  'deepgramApiKey',
+  'assemblyaiApiKey',
+  'gladiaApiKey',
+  'speechmaticsApiKey',
+  'sonioxApiKey',
+] as const;
+
 /**
- * Stores per-user OpenRouter / Groq / GCP credentials (encrypted) and model fields.
+ * Stores per-user AI credentials (encrypted) and model fields.
  * Creates the channel on first AI credential save after live provider validation.
  * Never returns secret plaintext.
  * @param req - Incoming request.
@@ -70,6 +81,7 @@ export async function PUT(req: NextRequest) {
     const isAiConfig =
       raw.openRouterApiKey !== undefined ||
       raw.groqApiKey !== undefined ||
+      STREAMING_KEY_FIELDS.some((k) => raw[k] !== undefined) ||
       raw.sttProvider !== undefined ||
       raw.textTranslateProvider !== undefined ||
       raw.sttModel !== undefined ||
@@ -87,50 +99,49 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    // Shape-check credential strings before any network validation or writes.
-    if (raw.openRouterApiKey !== undefined) {
-      if (typeof raw.openRouterApiKey !== 'string' || !raw.openRouterApiKey.trim()) {
+    const requireNonEmptyString = (field: string, formField: string): NextResponse | null => {
+      if (raw[field] === undefined) return null;
+      if (typeof raw[field] !== 'string' || !String(raw[field]).trim()) {
         return NextResponse.json(
           {
             error: 'Bad Request',
-            message: 'openRouterApiKey must be a non-empty string',
-            fields: ['openRouterKey'],
+            message: `${field} must be a non-empty string`,
+            fields: [formField],
             statusCode: 400,
           } satisfies ApiError & { fields: string[] },
           { status: 400 }
         );
       }
+      return null;
+    };
+
+    for (const [field, formField] of [
+      ['openRouterApiKey', 'openRouterKey'],
+      ['groqApiKey', 'groqKey'],
+      ['deepgramApiKey', 'deepgramKey'],
+      ['assemblyaiApiKey', 'assemblyaiKey'],
+      ['gladiaApiKey', 'gladiaKey'],
+      ['speechmaticsApiKey', 'speechmaticsKey'],
+      ['sonioxApiKey', 'sonioxKey'],
+    ] as const) {
+      const bad = requireNonEmptyString(field, formField);
+      if (bad) return bad;
     }
-    if (raw.groqApiKey !== undefined) {
-      if (typeof raw.groqApiKey !== 'string' || !raw.groqApiKey.trim()) {
-        return NextResponse.json(
-          {
-            error: 'Bad Request',
-            message: 'groqApiKey must be a non-empty string',
-            fields: ['groqKey'],
-            statusCode: 400,
-          } satisfies ApiError & { fields: string[] },
-          { status: 400 }
-        );
-      }
-    }
+
     if (raw.sttProvider !== undefined) {
-      if (
-        raw.sttProvider !== 'openrouter' &&
-        raw.sttProvider !== 'groq' &&
-        raw.sttProvider !== 'gcp'
-      ) {
+      if (!normalizeSttProvider(typeof raw.sttProvider === 'string' ? raw.sttProvider : null)) {
         return NextResponse.json(
           {
             error: 'Bad Request',
-            message: 'sttProvider must be openrouter, groq, or gcp',
+            message:
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, or groq',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
         );
       }
     }
-    if (raw.textTranslateProvider !== undefined) {
+    if (raw.textTranslateProvider !== undefined && raw.textTranslateProvider !== null) {
       if (
         raw.textTranslateProvider !== 'openrouter' &&
         raw.textTranslateProvider !== 'groq' &&
@@ -157,6 +168,26 @@ export async function PUT(req: NextRequest) {
         typeof raw.groqApiKey === 'string' && raw.groqApiKey.trim()
           ? raw.groqApiKey.trim()
           : (secrets?.groqApiKey ?? '');
+      const deepgramApiKey =
+        typeof raw.deepgramApiKey === 'string' && raw.deepgramApiKey.trim()
+          ? raw.deepgramApiKey.trim()
+          : (secrets?.deepgramApiKey ?? '');
+      const assemblyaiApiKey =
+        typeof raw.assemblyaiApiKey === 'string' && raw.assemblyaiApiKey.trim()
+          ? raw.assemblyaiApiKey.trim()
+          : (secrets?.assemblyaiApiKey ?? '');
+      const gladiaApiKey =
+        typeof raw.gladiaApiKey === 'string' && raw.gladiaApiKey.trim()
+          ? raw.gladiaApiKey.trim()
+          : (secrets?.gladiaApiKey ?? '');
+      const speechmaticsApiKey =
+        typeof raw.speechmaticsApiKey === 'string' && raw.speechmaticsApiKey.trim()
+          ? raw.speechmaticsApiKey.trim()
+          : (secrets?.speechmaticsApiKey ?? '');
+      const sonioxApiKey =
+        typeof raw.sonioxApiKey === 'string' && raw.sonioxApiKey.trim()
+          ? raw.sonioxApiKey.trim()
+          : (secrets?.sonioxApiKey ?? '');
 
       const gcpJsonFromBody =
         typeof raw.gcpServiceAccountJson === 'string' ? raw.gcpServiceAccountJson.trim() : '';
@@ -166,11 +197,6 @@ export async function PUT(req: NextRequest) {
 
       const sttProvider = normalizeSttProvider(
         typeof raw.sttProvider === 'string' ? raw.sttProvider : (secrets?.sttProvider ?? null)
-      );
-      const textTranslateProvider = normalizeTextTranslateProvider(
-        typeof raw.textTranslateProvider === 'string'
-          ? raw.textTranslateProvider
-          : (secrets?.textTranslateProvider ?? null)
       );
 
       if (!sttProvider) {
@@ -184,7 +210,16 @@ export async function PUT(req: NextRequest) {
           { status: 400 }
         );
       }
-      if (!textTranslateProvider) {
+
+      const textTranslateProvider = sttProvidesBuiltInTranslation(sttProvider)
+        ? null
+        : normalizeTextTranslateProvider(
+            typeof raw.textTranslateProvider === 'string'
+              ? raw.textTranslateProvider
+              : (secrets?.textTranslateProvider ?? null)
+          );
+
+      if (!sttProvidesBuiltInTranslation(sttProvider) && !textTranslateProvider) {
         return NextResponse.json(
           {
             error: 'Bad Request',
@@ -212,18 +247,26 @@ export async function PUT(req: NextRequest) {
         secrets?.openRouterTranslateModel?.trim() ||
         '';
 
+      const hasAnyStreamingKey =
+        Boolean(deepgramApiKey) ||
+        Boolean(assemblyaiApiKey) ||
+        Boolean(gladiaApiKey) ||
+        Boolean(speechmaticsApiKey) ||
+        Boolean(sonioxApiKey);
+
       if (
         !existing &&
         !openRouterApiKey &&
         !groqApiKey &&
-        !(sttProvider === 'gcp' && hasGcpServiceAccount)
+        !hasAnyStreamingKey &&
+        !(textTranslateProvider === 'gcp' && hasGcpServiceAccount)
       ) {
         return NextResponse.json(
           {
             error: 'Bad Request',
             message:
-              'Add a Groq key, OpenRouter key, or Google Cloud service account to create a translation channel.',
-            fields: ['openRouterKey', 'groqKey', 'gcpJson'],
+              'Add an API key for your selected STT provider to create a translation channel.',
+            fields: ['sttProvider'],
             statusCode: 400,
           } satisfies ApiError & { fields: string[] },
           { status: 400 }
@@ -233,6 +276,11 @@ export async function PUT(req: NextRequest) {
       const validated = await validateTranslationAiConfig({
         openRouterApiKey,
         groqApiKey,
+        deepgramApiKey,
+        assemblyaiApiKey,
+        gladiaApiKey,
+        speechmaticsApiKey,
+        sonioxApiKey,
         hasGcpServiceAccount,
         sttProvider,
         textTranslateProvider,
@@ -255,7 +303,6 @@ export async function PUT(req: NextRequest) {
     const updatingGcpJson = raw.gcpServiceAccountJson !== undefined;
     const updatingGcpVoices = raw.gcpTtsVoices !== undefined;
 
-    // Live-validate GCP TTS when saving JSON and/or voices.
     if (updatingGcpJson || updatingGcpVoices) {
       if (updatingGcpJson && typeof raw.gcpServiceAccountJson !== 'string') {
         return NextResponse.json(
@@ -304,7 +351,6 @@ export async function PUT(req: NextRequest) {
         ? normalizeGcpTtsVoices(raw.gcpTtsVoices)
         : normalizeGcpTtsVoices(secrets?.gcpTtsVoices);
 
-      // SA-only saves (AI modal for Speech/Translation) skip TTS voice checks.
       const shouldValidateTts = updatingGcpVoices || Object.keys(voices).length > 0;
       if (shouldValidateTts) {
         const channelForLangs = existing ?? (await getChannelByUserId(userId));
@@ -377,11 +423,24 @@ export async function PUT(req: NextRequest) {
     if (raw.openRouterApiKey !== undefined) {
       view = await setOpenRouterApiKey(userId, String(raw.openRouterApiKey));
     }
-
     if (raw.groqApiKey !== undefined) {
       view = await setGroqApiKey(userId, String(raw.groqApiKey));
     }
-
+    if (raw.deepgramApiKey !== undefined) {
+      view = await setStreamingAsrApiKey(userId, 'deepgram', String(raw.deepgramApiKey));
+    }
+    if (raw.assemblyaiApiKey !== undefined) {
+      view = await setStreamingAsrApiKey(userId, 'assemblyai', String(raw.assemblyaiApiKey));
+    }
+    if (raw.gladiaApiKey !== undefined) {
+      view = await setStreamingAsrApiKey(userId, 'gladia', String(raw.gladiaApiKey));
+    }
+    if (raw.speechmaticsApiKey !== undefined) {
+      view = await setStreamingAsrApiKey(userId, 'speechmatics', String(raw.speechmaticsApiKey));
+    }
+    if (raw.sonioxApiKey !== undefined) {
+      view = await setStreamingAsrApiKey(userId, 'soniox', String(raw.sonioxApiKey));
+    }
     if (raw.gcpServiceAccountJson !== undefined) {
       view = await setGcpServiceAccountJson(userId, String(raw.gcpServiceAccountJson).trim());
     }
@@ -394,16 +453,21 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json(
           {
             error: 'Bad Request',
-            message: 'sttProvider must be openrouter, groq, or gcp',
+            message:
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, or groq',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
         );
       }
       modelPatch.sttProvider = sttProvider;
+      if (sttProvidesBuiltInTranslation(sttProvider)) {
+        // Clear unused MT provider when switching to Soniox.
+        modelPatch.textTranslateProvider = undefined;
+      }
     }
 
-    if (raw.textTranslateProvider !== undefined) {
+    if (raw.textTranslateProvider !== undefined && raw.textTranslateProvider !== null) {
       const textTranslateProvider = normalizeTextTranslateProvider(
         String(raw.textTranslateProvider)
       );
@@ -443,6 +507,15 @@ export async function PUT(req: NextRequest) {
 
     if (raw.gcpTtsVoices !== undefined) {
       modelPatch.gcpTtsVoices = normalizeGcpTtsVoices(raw.gcpTtsVoices);
+    }
+
+    // When selecting a streaming STT provider, Groq model is optional — clear empty.
+    if (
+      modelPatch.sttProvider &&
+      isStreamingSttProvider(modelPatch.sttProvider) &&
+      modelPatch.sttModel === undefined
+    ) {
+      // leave existing model stored; unused at runtime
     }
 
     if (Object.keys(modelPatch).length > 0) {

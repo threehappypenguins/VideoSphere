@@ -14,6 +14,8 @@ import {
   isTranslationReady,
   normalizeSttProvider,
   normalizeTextTranslateProvider,
+  sttProvidesBuiltInTranslation,
+  type LiveTranslationCredentialKind,
   type LiveTranslationSttProvider,
   type LiveTranslationTextTranslateProvider,
   type TranslationCapabilityInput,
@@ -61,6 +63,11 @@ export function capabilityInputFromDoc(
     textTranslateProvider: normalizeTextTranslateProvider(doc.textTranslateProvider),
     hasOpenRouterKey: hasEncrypted(doc.openRouterApiKeyEncrypted),
     hasGroqKey: hasEncrypted(doc.groqApiKeyEncrypted),
+    hasDeepgramKey: hasEncrypted(doc.deepgramApiKeyEncrypted),
+    hasAssemblyaiKey: hasEncrypted(doc.assemblyaiApiKeyEncrypted),
+    hasGladiaKey: hasEncrypted(doc.gladiaApiKeyEncrypted),
+    hasSpeechmaticsKey: hasEncrypted(doc.speechmaticsApiKeyEncrypted),
+    hasSonioxKey: hasEncrypted(doc.sonioxApiKeyEncrypted),
     sttModel: doc.openRouterSttModel ?? null,
     openRouterTranslateModel: doc.openRouterTranslateModel ?? null,
     hasGcpServiceAccount,
@@ -81,7 +88,9 @@ export function toOwnerView(
   const capability = capabilityInputFromDoc(doc);
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const sttProvider = normalizeSttProvider(doc.sttProvider);
-  const textTranslateProvider = normalizeTextTranslateProvider(doc.textTranslateProvider);
+  const textTranslateProvider = sttProvidesBuiltInTranslation(sttProvider)
+    ? null
+    : normalizeTextTranslateProvider(doc.textTranslateProvider);
 
   const streamKeyPlaintext = extras?.streamKeyPlaintext;
   const rtmpPublishUrl = streamKeyPlaintext ? buildRtmpPublishUrl(streamKeyPlaintext) : null;
@@ -101,6 +110,11 @@ export function toOwnerView(
     gcpTtsVoices: normalizeGcpTtsVoices(doc.gcpTtsVoices),
     hasOpenRouterKey: capability.hasOpenRouterKey,
     hasGroqKey: Boolean(capability.hasGroqKey),
+    hasDeepgramKey: Boolean(capability.hasDeepgramKey),
+    hasAssemblyaiKey: Boolean(capability.hasAssemblyaiKey),
+    hasGladiaKey: Boolean(capability.hasGladiaKey),
+    hasSpeechmaticsKey: Boolean(capability.hasSpeechmaticsKey),
+    hasSonioxKey: Boolean(capability.hasSonioxKey),
     hasGcpServiceAccount: capability.hasGcpServiceAccount,
     hasStreamKey: hasEncrypted(doc.streamKeyHash),
     translationReady: isTranslationReady(capability),
@@ -373,24 +387,104 @@ export async function setGcpServiceAccountJson(
 }
 
 /**
+ * Stores an encrypted streaming ASR API key for the channel owner.
+ * @param userId - Owner user id.
+ * @param kind - Streaming provider credential kind.
+ * @param apiKey - Plaintext API key.
+ * @returns Updated owner view, or null when channel missing.
+ */
+export async function setStreamingAsrApiKey(
+  userId: string,
+  kind: 'deepgram' | 'assemblyai' | 'gladia' | 'speechmatics' | 'soniox',
+  apiKey: string
+): Promise<LiveTranslationChannelOwnerView | null> {
+  await connectToDatabase();
+  const field =
+    kind === 'deepgram'
+      ? 'deepgramApiKeyEncrypted'
+      : kind === 'assemblyai'
+        ? 'assemblyaiApiKeyEncrypted'
+        : kind === 'gladia'
+          ? 'gladiaApiKeyEncrypted'
+          : kind === 'speechmatics'
+            ? 'speechmaticsApiKeyEncrypted'
+            : 'sonioxApiKeyEncrypted';
+  const updated = await LiveTranslationChannelModel.findOneAndUpdate(
+    { userId },
+    { $set: { [field]: encryptToken(apiKey.trim()) } },
+    { returnDocument: 'after' }
+  )
+    .lean()
+    .exec();
+  return updated ? toOwnerView(updated) : null;
+}
+
+/**
  * Clears a stored credential kind for the channel owner.
+ * Also clears STT / translate provider selections that depended on that credential
+ * so the dashboard does not keep advertising a provider without its key.
  * @param userId - Owner user id.
  * @param kind - Which credential to clear.
  * @returns Updated owner view, or null when channel missing.
  */
 export async function clearCredential(
   userId: string,
-  kind: 'openrouter' | 'groq' | 'gcp'
+  kind: LiveTranslationCredentialKind
 ): Promise<LiveTranslationChannelOwnerView | null> {
   await connectToDatabase();
+  const existing = await LiveTranslationChannelModel.findOne({ userId }).lean().exec();
+  if (!existing) return null;
+
+  const sttProvider = normalizeSttProvider(existing.sttProvider);
+  const textTranslateProvider = normalizeTextTranslateProvider(existing.textTranslateProvider);
+
   // Clearing GCP removes both the encrypted SA JSON and the voice name so
   // "Add Google Cloud TTS" does not prefill a stale voice after remove.
-  const unset =
+  const unset: Record<string, 1> =
     kind === 'openrouter'
       ? { openRouterApiKeyEncrypted: 1 }
       : kind === 'groq'
         ? { groqApiKeyEncrypted: 1 }
-        : { gcpServiceAccountJsonEncrypted: 1, gcpTtsVoices: 1 };
+        : kind === 'gcp'
+          ? { gcpServiceAccountJsonEncrypted: 1, gcpTtsVoices: 1 }
+          : kind === 'deepgram'
+            ? { deepgramApiKeyEncrypted: 1 }
+            : kind === 'assemblyai'
+              ? { assemblyaiApiKeyEncrypted: 1 }
+              : kind === 'gladia'
+                ? { gladiaApiKeyEncrypted: 1 }
+                : kind === 'speechmatics'
+                  ? { speechmaticsApiKeyEncrypted: 1 }
+                  : { sonioxApiKeyEncrypted: 1 };
+
+  if (kind === 'groq') {
+    if (sttProvider === 'groq') {
+      unset.sttProvider = 1;
+      unset.openRouterSttModel = 1;
+    }
+    if (textTranslateProvider === 'groq') {
+      unset.textTranslateProvider = 1;
+      unset.openRouterTranslateModel = 1;
+    }
+  } else if (kind === 'openrouter') {
+    if (textTranslateProvider === 'openrouter') {
+      unset.textTranslateProvider = 1;
+      unset.openRouterTranslateModel = 1;
+    }
+  } else if (kind === 'gcp') {
+    if (textTranslateProvider === 'gcp') {
+      unset.textTranslateProvider = 1;
+    }
+  } else if (
+    (kind === 'deepgram' && sttProvider === 'deepgram') ||
+    (kind === 'assemblyai' && sttProvider === 'assemblyai') ||
+    (kind === 'gladia' && sttProvider === 'gladia') ||
+    (kind === 'speechmatics' && sttProvider === 'speechmatics') ||
+    (kind === 'soniox' && sttProvider === 'soniox')
+  ) {
+    unset.sttProvider = 1;
+  }
+
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $unset: unset },
@@ -429,6 +523,11 @@ export interface LiveTranslationRuntimeSecrets {
   textTranslateProvider: LiveTranslationTextTranslateProvider | null;
   openRouterApiKey: string | null;
   groqApiKey: string | null;
+  deepgramApiKey: string | null;
+  assemblyaiApiKey: string | null;
+  gladiaApiKey: string | null;
+  speechmaticsApiKey: string | null;
+  sonioxApiKey: string | null;
   gcpServiceAccountJson: string | null;
   sttModel: string | null;
   openRouterTranslateModel: string | null;
@@ -452,18 +551,30 @@ export async function getRuntimeSecretsForUser(
 
   const openRouterApiKey = tryDecrypt(doc.openRouterApiKeyEncrypted);
   const groqApiKey = tryDecrypt(doc.groqApiKeyEncrypted);
+  const deepgramApiKey = tryDecrypt(doc.deepgramApiKeyEncrypted);
+  const assemblyaiApiKey = tryDecrypt(doc.assemblyaiApiKeyEncrypted);
+  const gladiaApiKey = tryDecrypt(doc.gladiaApiKeyEncrypted);
+  const speechmaticsApiKey = tryDecrypt(doc.speechmaticsApiKeyEncrypted);
+  const sonioxApiKey = tryDecrypt(doc.sonioxApiKeyEncrypted);
   const gcpServiceAccountJson = tryDecrypt(doc.gcpServiceAccountJsonEncrypted);
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const openRouterTranslateModel = doc.openRouterTranslateModel?.trim() || null;
   const gcpTtsVoices = normalizeGcpTtsVoices(doc.gcpTtsVoices);
   const hasGcpServiceAccount = Boolean(gcpServiceAccountJson);
   const sttProvider = normalizeSttProvider(doc.sttProvider);
-  const textTranslateProvider = normalizeTextTranslateProvider(doc.textTranslateProvider);
+  const textTranslateProvider = sttProvidesBuiltInTranslation(sttProvider)
+    ? null
+    : normalizeTextTranslateProvider(doc.textTranslateProvider);
   const capability: TranslationCapabilityInput = {
     sttProvider,
     textTranslateProvider,
     hasOpenRouterKey: Boolean(openRouterApiKey),
     hasGroqKey: Boolean(groqApiKey),
+    hasDeepgramKey: Boolean(deepgramApiKey),
+    hasAssemblyaiKey: Boolean(assemblyaiApiKey),
+    hasGladiaKey: Boolean(gladiaApiKey),
+    hasSpeechmaticsKey: Boolean(speechmaticsApiKey),
+    hasSonioxKey: Boolean(sonioxApiKey),
     sttModel,
     openRouterTranslateModel,
     hasGcpServiceAccount,
@@ -475,6 +586,11 @@ export async function getRuntimeSecretsForUser(
     textTranslateProvider,
     openRouterApiKey,
     groqApiKey,
+    deepgramApiKey,
+    assemblyaiApiKey,
+    gladiaApiKey,
+    speechmaticsApiKey,
+    sonioxApiKey,
     gcpServiceAccountJson,
     sttModel,
     openRouterTranslateModel,

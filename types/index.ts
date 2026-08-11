@@ -848,11 +848,19 @@ export interface ExampleItem {
 
 /**
  * Speech-to-text backend for live translation ingest.
+ * Streaming providers plus Groq (chunked Whisper fallback).
  */
-export type LiveTranslationSttProvider = 'openrouter' | 'groq' | 'gcp';
+export type LiveTranslationSttProvider =
+  | 'deepgram'
+  | 'assemblyai'
+  | 'gladia'
+  | 'speechmatics'
+  | 'soniox'
+  | 'groq';
 
 /**
  * Caption text-translation backend (explicit choice; no auto-fallback).
+ * Unused when `sttProvider` is `soniox`.
  */
 export type LiveTranslationTextTranslateProvider = 'openrouter' | 'groq' | 'gcp';
 
@@ -874,11 +882,14 @@ export interface LiveTranslationChannelPublic {
   enabledLanguages: string[];
   /** Active STT backend, or `null` when not chosen yet. */
   sttProvider: LiveTranslationSttProvider | null;
-  /** Active caption translation backend, or `null` when not chosen yet. */
+  /**
+   * Active caption translation backend, or `null` when not chosen yet.
+   * Always `null` when STT is Soniox (built-in MT).
+   */
   textTranslateProvider: LiveTranslationTextTranslateProvider | null;
   /**
-   * STT model id for `sttProvider`.
-   * API alias of the stored `openRouterSttModel` field.
+   * STT model id for Groq Whisper.
+   * Unused for streaming ASR providers. API alias of stored `openRouterSttModel`.
    */
   sttModel: string | null;
   /**
@@ -887,7 +898,7 @@ export interface LiveTranslationChannelPublic {
   openRouterSttModel: string | null;
   /**
    * Chat translation model id for OpenRouter or Groq when set.
-   * Unused when `textTranslateProvider` is `gcp`.
+   * Unused when `textTranslateProvider` is `gcp` or STT is Soniox.
    */
   openRouterTranslateModel: string | null;
   /**
@@ -899,6 +910,16 @@ export interface LiveTranslationChannelPublic {
   hasOpenRouterKey: boolean;
   /** Whether a Groq API key is stored. */
   hasGroqKey: boolean;
+  /** Whether a Deepgram API key is stored. */
+  hasDeepgramKey: boolean;
+  /** Whether an AssemblyAI API key is stored. */
+  hasAssemblyaiKey: boolean;
+  /** Whether a Gladia API key is stored. */
+  hasGladiaKey: boolean;
+  /** Whether a Speechmatics API key is stored. */
+  hasSpeechmaticsKey: boolean;
+  /** Whether a Soniox API key is stored. */
+  hasSonioxKey: boolean;
   /** Whether a GCP service-account JSON is stored. */
   hasGcpServiceAccount: boolean;
   /** Whether a stream key hash is stored (plaintext is never returned after mint). */
