@@ -30,6 +30,8 @@ A translation **channel** (including the public slug) is created only when you s
 
 Public listeners open `/listen/{slug}` (no login). Choosing the **source language** shows live **transcription only** (no translate API call). Other languages start translate(+optional TTS) only while at least one listener is connected; when the last listener leaves a language, pending work stops and that language’s caption cache is dropped after a short reconnect grace (a few seconds). Switching languages does not replay old captions — you only see new live segments.
 
+Captions are pushed as soon as STT + translation finish (~4s mic windows). Spoken listen synthesizes TTS in the background and attaches audio afterward, so turning on Listen does not delay the text.
+
 ## Enable listen (spoken translation)
 
 1. Save **Languages** first (source + at least one target).

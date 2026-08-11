@@ -395,51 +395,13 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
         }
       }
 
-      // Abort if listeners left while awaiting translate/TTS.
+      // Abort if listeners left while awaiting translate.
       if (bucket.subscribers.size === 0) {
         bucket.queue.length = 0;
         break;
       }
 
-      // Re-check after awaits — mute must stop new TTS immediately.
-      const stillWantsAudio = [...bucket.subscribers].some((s) => s.wantAudio);
-      if (stillWantsAudio && !existing.audioId) {
-        const secrets = await getRuntimeSecretsForUser(session.userId);
-        const voiceName = gcpTtsVoiceForLanguage(secrets?.gcpTtsVoices, language);
-        if (secrets?.gcpServiceAccountJson && voiceName) {
-          try {
-            const mp3 = await synthesizeSpeechWithGcp({
-              serviceAccountJson: secrets.gcpServiceAccountJson,
-              voiceName,
-              languageCode: languageCodeHintFromVoiceName(voiceName) || language,
-              text: existing.text,
-            });
-            if (mp3.length > 0 && [...bucket.subscribers].some((s) => s.wantAudio)) {
-              const audioId = randomUUID();
-              session.audioBytes.set(audioId, {
-                mime: 'audio/mpeg',
-                data: mp3,
-                expiresAt: now() + 10 * 60_000,
-              });
-              existing.audioId = audioId;
-              pruneAudio(session);
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'TTS failed';
-            broadcastLanguage(session, language, {
-              type: 'error',
-              message,
-              ts: now(),
-            });
-          }
-        }
-      }
-
-      if (bucket.subscribers.size === 0) {
-        bucket.queue.length = 0;
-        break;
-      }
-
+      // Captions first — do not wait on TTS (spoken audio follows on a second event).
       broadcastLanguage(session, language, {
         type: 'caption',
         segmentId: segment.id,
@@ -450,6 +412,56 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
           : undefined,
         ts: segment.createdAt,
       });
+
+      // Re-check after awaits — mute must stop new TTS immediately.
+      const stillWantsAudio = [...bucket.subscribers].some((s) => s.wantAudio);
+      if (stillWantsAudio && !existing.audioId) {
+        const translation = existing;
+        const segmentIdForAudio = segment.id;
+        const createdAt = segment.createdAt;
+        // Fire-and-forget so the next caption can translate without waiting on speech.
+        void (async () => {
+          const secrets = await getRuntimeSecretsForUser(session.userId);
+          const voiceName = gcpTtsVoiceForLanguage(secrets?.gcpTtsVoices, language);
+          if (!secrets?.gcpServiceAccountJson || !voiceName) return;
+          if (![...bucket.subscribers].some((s) => s.wantAudio)) return;
+          try {
+            const mp3 = await synthesizeSpeechWithGcp({
+              serviceAccountJson: secrets.gcpServiceAccountJson,
+              voiceName,
+              languageCode: languageCodeHintFromVoiceName(voiceName) || language,
+              text: translation.text,
+            });
+            if (mp3.length === 0) return;
+            if (![...bucket.subscribers].some((s) => s.wantAudio)) return;
+            if (translation.audioId) return;
+            const audioId = randomUUID();
+            session.audioBytes.set(audioId, {
+              mime: 'audio/mpeg',
+              data: mp3,
+              expiresAt: now() + 10 * 60_000,
+            });
+            translation.audioId = audioId;
+            pruneAudio(session);
+            if (bucket.subscribers.size === 0) return;
+            broadcastLanguage(session, language, {
+              type: 'caption',
+              segmentId: segmentIdForAudio,
+              language,
+              text: translation.text,
+              audioUrl: `/api/translation/public/audio/${audioId}`,
+              ts: createdAt,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'TTS failed';
+            broadcastLanguage(session, language, {
+              type: 'error',
+              message,
+              ts: now(),
+            });
+          }
+        })();
+      }
     }
   } finally {
     bucket.busy = false;

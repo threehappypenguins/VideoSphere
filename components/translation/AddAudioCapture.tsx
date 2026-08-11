@@ -12,8 +12,11 @@ import {
 } from '@/components/ui/select';
 
 const TARGET_SAMPLE_RATE = 16000;
-/** Longer chunks = fewer free-tier STT requests per minute (~7.5/min vs ~15/min at 4s). */
-const CHUNK_MS = 8000;
+/**
+ * Mic chunk length before STT. Shorter = fresher captions; longer = fewer free-tier RPM.
+ * ~4s ≈ 15 STT requests/min (fits typical Groq free ~20 RPM with headroom).
+ */
+const CHUNK_MS = 4000;
 /** Inaudible but non-zero — Chromium can skip ScriptProcessor when gain is exactly 0. */
 const MONITOR_GAIN = 0.0001;
 /**
