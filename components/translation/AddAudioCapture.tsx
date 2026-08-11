@@ -687,9 +687,7 @@ export function AddAudioCapture(props: {
         )}
       </div>
       <p className="text-muted-foreground text-xs">
-        {ingesting
-          ? 'Live — sending this input to translation. Quiet/cutoff chunks are skipped so Whisper does not invent filler like “Thank you”.'
-          : 'Level preview only until you click Add audio (no STT usage yet).'}
+        {ingesting ? 'Live — sending this input.' : 'Level preview only until you click Add audio.'}
       </p>
 
       {error ? <p className="text-destructive text-sm">{error}</p> : null}

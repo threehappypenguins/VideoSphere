@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Volume2 } from 'lucide-react';
 import type { LiveTranslationPublicMeta } from '@/types';
-import { TranslationLanguageSearchList } from '@/components/translation/TranslationLanguageSearchList';
+import { TranslationLanguageCombobox } from '@/components/translation/TranslationLanguageCombobox';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -50,6 +51,8 @@ function getListenLanguageServerSnapshot(): string | null {
 type CaptionStreamProps = {
   slug: string;
   language: string;
+  /** Owner is currently sending audio — open the caption SSE only while true. */
+  live: boolean;
   wantAudio: boolean;
   audioAvailable: boolean;
   onLiveChange: (live: boolean) => void;
@@ -58,11 +61,12 @@ type CaptionStreamProps = {
 /**
  * SSE caption + optional TTS queue for one listen language.
  * Remount (via parent `key`) when the language changes so caption state resets cleanly.
+ * When the owner stops ingest, the SSE disconnects but the latest captions stay on screen.
  * @param props - Stream connection options.
  * @returns Caption list and hidden audio element.
  */
 function CaptionStream(props: CaptionStreamProps) {
-  const { slug, language, wantAudio, audioAvailable, onLiveChange } = props;
+  const { slug, language, live, wantAudio, audioAvailable, onLiveChange } = props;
   const [lines, setLines] = useState<CaptionLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -75,13 +79,13 @@ function CaptionStream(props: CaptionStreamProps) {
   const ignoreAudioErrorRef = useRef(false);
   const seenRef = useRef<Set<string>>(new Set());
   const queuedAudioRef = useRef<Set<string>>(new Set());
-  const wantAudioRef = useRef(wantAudio && audioAvailable);
+  const wantAudioRef = useRef(live && wantAudio && audioAvailable);
   const pumpAudioRef = useRef<() => Promise<void>>(async () => {});
   const enqueueSpokenUrlRef = useRef<(url: string) => void>(() => undefined);
 
   useEffect(() => {
-    wantAudioRef.current = wantAudio && audioAvailable;
-  }, [wantAudio, audioAvailable]);
+    wantAudioRef.current = live && wantAudio && audioAvailable;
+  }, [audioAvailable, live, wantAudio]);
 
   /**
    * Starts fetching a clip into an object URL so playback can start without a gap.
@@ -197,7 +201,7 @@ function CaptionStream(props: CaptionStreamProps) {
   });
 
   useEffect(() => {
-    if (!wantAudio) {
+    if (!live || !wantAudio) {
       stopSpokenAudio();
       if ('mediaSession' in navigator) {
         try {
@@ -219,9 +223,16 @@ function CaptionStream(props: CaptionStreamProps) {
         // Media Session unsupported quirks
       }
     }
-  }, [wantAudio]);
+  }, [live, wantAudio]);
 
   useEffect(() => {
+    // Keep the latest captions on screen after ingest stops — only disconnect the SSE.
+    if (!live) {
+      stopSpokenAudio();
+      setError(null);
+      return;
+    }
+
     const params = new URLSearchParams({
       language,
       wantAudio: wantAudio && audioAvailable ? '1' : '0',
@@ -292,7 +303,7 @@ function CaptionStream(props: CaptionStreamProps) {
         stopSpokenAudio();
       }
     };
-  }, [audioAvailable, language, onLiveChange, slug, wantAudio]);
+  }, [audioAvailable, language, live, onLiveChange, slug, wantAudio]);
 
   return (
     <>
@@ -327,7 +338,11 @@ function CaptionStream(props: CaptionStreamProps) {
 
       <ol className="flex flex-1 flex-col gap-3 overflow-y-auto pb-8">
         {lines.length === 0 ? (
-          <li className="text-muted-foreground text-sm">Captions will appear here in real time.</li>
+          <li className="text-muted-foreground text-sm">
+            {live
+              ? 'Captions will appear here in real time.'
+              : 'There is currently no audio input. Captions will appear here once the speaker is live.'}
+          </li>
         ) : (
           lines.map((line) => (
             <li
@@ -342,6 +357,9 @@ function CaptionStream(props: CaptionStreamProps) {
     </>
   );
 }
+
+/** How often to re-check public meta while the owner is not sending audio. */
+const LIVE_STATUS_POLL_MS = 2500;
 
 /**
  * Mobile-first public captions + optional TTS listen client (no login).
@@ -389,6 +407,37 @@ export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
     language && (meta.audioLanguages ?? []).includes(language)
   );
   const wantAudio = wantAudioRequested && audioAvailableForLanguage;
+  /** Only open the caption SSE while the owner is actually ingesting. */
+  const streamActive = Boolean(language && live);
+
+  // Lightweight poll until CaptionStream is connected (it then owns live via SSE).
+  useEffect(() => {
+    if (streamActive) return;
+    let cancelled = false;
+
+    async function refreshLiveStatus(): Promise<void> {
+      try {
+        const res = await fetch(`/api/translation/public/${encodeURIComponent(meta.slug)}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as Partial<LiveTranslationPublicMeta>;
+        if (typeof data.live === 'boolean') setLive(data.live);
+      } catch {
+        // ignore transient network errors; next poll retries
+      }
+    }
+
+    void refreshLiveStatus();
+    const timer = setInterval(() => {
+      void refreshLiveStatus();
+    }, LIVE_STATUS_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [meta.slug, streamActive]);
 
   /**
    * Updates the selected language and persists it for this slug in localStorage.
@@ -405,42 +454,52 @@ export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
       <header className="mb-6 space-y-1">
         <p className="text-muted-foreground text-xs tracking-[0.2em] uppercase">VideoSphere</p>
         <h1 className="text-2xl font-semibold tracking-tight">Live audio translation</h1>
-        <p className="text-muted-foreground text-sm">{live ? 'Live now' : 'Waiting for audio…'}</p>
+        {live ? (
+          <p className="text-muted-foreground text-sm">Live now</p>
+        ) : (
+          <p className="text-muted-foreground text-sm">There is currently no audio input.</p>
+        )}
       </header>
 
       <div className="mb-4 space-y-2">
-        <Label htmlFor="listen-language-search">Language</Label>
-        <TranslationLanguageSearchList
-          mode="single"
-          id="listen-language-search"
-          listLabel="Available languages"
-          labelStyle="public"
-          options={languageOptions}
-          value={language ?? ''}
-          onValueChange={setLanguage}
-        />
+        <Label htmlFor="listen-language">Language</Label>
+        <div className="flex items-center gap-2">
+          <TranslationLanguageCombobox
+            id="listen-language"
+            className="min-w-0 flex-1"
+            listLabel="Available languages"
+            labelStyle="public"
+            options={languageOptions}
+            value={language ?? ''}
+            onValueChange={setLanguage}
+          />
+          {language && audioAvailableForLanguage ? (
+            <Button
+              type="button"
+              variant={wantAudio ? 'default' : 'outline'}
+              size="icon"
+              className="size-11 shrink-0"
+              aria-pressed={wantAudio}
+              aria-label={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
+              title={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
+              onClick={() => setWantAudioRequested((v) => !v)}
+            >
+              <Volume2 className="size-5" aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
         {!language ? (
           <p className="text-muted-foreground text-xs">Select a language to follow captions.</p>
+        ) : !live ? (
+          <p className="text-muted-foreground text-xs">
+            Latest captions stay on screen. New lines appear when audio starts again.
+          </p>
+        ) : wantAudio ? (
+          <p className="text-muted-foreground text-xs">
+            Audio may continue with the screen locked, depending on your browser.
+          </p>
         ) : null}
       </div>
-
-      {language && audioAvailableForLanguage ? (
-        <div className="mb-6">
-          <Button
-            type="button"
-            variant={wantAudio ? 'default' : 'outline'}
-            className="w-full"
-            onClick={() => setWantAudioRequested((v) => !v)}
-          >
-            {wantAudio ? 'Listening — tap to mute' : 'Listen to translation'}
-          </Button>
-          <p className="text-muted-foreground mt-2 text-xs">
-            Audio may continue when your screen locks or you switch apps, depending on your browser.
-          </p>
-        </div>
-      ) : language ? (
-        <p className="text-muted-foreground mb-6 text-sm">Captions only for this language.</p>
-      ) : null}
 
       {!language ? (
         <ol className="flex flex-1 flex-col gap-3 overflow-y-auto pb-8">
@@ -451,6 +510,7 @@ export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
           key={language}
           slug={meta.slug}
           language={language}
+          live={live}
           wantAudio={wantAudio}
           audioAvailable={audioAvailableForLanguage}
           onLiveChange={setLive}
