@@ -13,7 +13,10 @@ import {
 
 import type { LiveTranslationSttProvider } from '@/lib/translation/capabilities';
 import { isStreamingSttProvider } from '@/lib/translation/capabilities';
-import { TRANSLATION_INGEST_INTENT_KEY } from '@/lib/translation/dev-session-flags';
+import {
+  TRANSLATION_INGEST_INTENT_KEY,
+  TRANSLATION_PREFERRED_AUDIO_INPUT_KEY,
+} from '@/lib/translation/dev-session-flags';
 
 const TARGET_SAMPLE_RATE = 16000;
 /** Streaming ASR: short frames for low latency. */
@@ -77,6 +80,34 @@ function clearIngestIntent(): void {
 }
 
 /**
+ * Reads the last selected audio input from localStorage.
+ * @returns Device id when previously chosen, otherwise null.
+ */
+function readPreferredAudioInputId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const id = localStorage.getItem(TRANSLATION_PREFERRED_AUDIO_INPUT_KEY);
+    return id && id.trim() ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persists the last selected audio input across browser sessions.
+ * @param deviceId - Chosen input device id.
+ */
+function writePreferredAudioInputId(deviceId: string): void {
+  if (typeof window === 'undefined') return;
+  if (!deviceId) return;
+  try {
+    localStorage.setItem(TRANSLATION_PREFERRED_AUDIO_INPUT_KEY, deviceId);
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+/**
  * True when the device is the browser system-default input entry.
  * @param device - MediaDeviceInfo from enumerateDevices.
  * @returns Whether this is the system default device.
@@ -96,6 +127,36 @@ function preferSystemDefaultInputId(inputs: MediaDeviceInfo[]): string {
   if (systemDefault?.deviceId) return systemDefault.deviceId;
   const labeled = inputs.find((d) => isSystemDefaultInput(d));
   return labeled?.deviceId || inputs[0]?.deviceId || '';
+}
+
+/**
+ * Picks the audio input to use for this session.
+ * Order: keep current (when asked) → live-ingest intent → last selected → system default.
+ * @param inputs - Enumerated audioinput devices.
+ * @param options - Preference sources.
+ * @param options.preferExisting - Keep the currently selected device when still present.
+ * @param options.currentDeviceId - Current React/device ref id.
+ * @param options.intentDeviceId - Device from remount ingest intent, if any.
+ * @returns Device id to select, or empty string when no inputs exist.
+ */
+function resolveAudioInputId(
+  inputs: MediaDeviceInfo[],
+  options: {
+    preferExisting: boolean;
+    currentDeviceId: string;
+    intentDeviceId?: string | null;
+  }
+): string {
+  const candidates = [
+    options.preferExisting ? options.currentDeviceId : '',
+    options.intentDeviceId ?? '',
+    readPreferredAudioInputId() ?? '',
+  ].filter(Boolean);
+
+  for (const id of candidates) {
+    if (inputs.some((d) => d.deviceId === id)) return id;
+  }
+  return preferSystemDefaultInputId(inputs);
 }
 
 /**
@@ -176,7 +237,9 @@ export function AddAudioCapture(props: {
   const chunkMsRef = useRef(chunkMs);
   chunkMsRef.current = chunkMs;
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState<string>(() => readIngestIntent()?.deviceId ?? '');
+  const [deviceId, setDeviceId] = useState<string>(
+    () => readIngestIntent()?.deviceId ?? readPreferredAudioInputId() ?? ''
+  );
   const [ingesting, setIngesting] = useState(() => Boolean(readIngestIntent()));
   const [previewActive, setPreviewActive] = useState(false);
   const [switchingDevice, setSwitchingDevice] = useState(false);
@@ -346,13 +409,14 @@ export function AddAudioCapture(props: {
         if (cancelled) return '';
         const inputs = list.filter((d) => d.kind === 'audioinput');
         setDevices(inputs);
-        const intent = readIngestIntent();
-        const preferred =
-          (preferExisting ? deviceIdRef.current : '') || intent?.deviceId || deviceIdRef.current;
-        const stillPresent = Boolean(preferred && inputs.some((d) => d.deviceId === preferred));
-        const nextId = stillPresent ? preferred! : preferSystemDefaultInputId(inputs);
+        const nextId = resolveAudioInputId(inputs, {
+          preferExisting,
+          currentDeviceId: deviceIdRef.current,
+          intentDeviceId: readIngestIntent()?.deviceId,
+        });
         setDeviceId(nextId);
         if (nextId) {
+          writePreferredAudioInputId(nextId);
           await openMic(nextId);
           if (!cancelled) setError(null);
         }
@@ -491,6 +555,7 @@ export function AddAudioCapture(props: {
       samplesCollectedRef.current = 0;
       ingestingRef.current = true;
       writeIngestIntent(deviceIdRef.current);
+      writePreferredAudioInputId(deviceIdRef.current);
       setIngesting(true);
       onLiveChangeRef.current?.(true);
     } catch (err) {
@@ -531,6 +596,7 @@ export function AddAudioCapture(props: {
   async function changeDevice(nextDeviceId: string) {
     if (!nextDeviceId || nextDeviceId === deviceIdRef.current) return;
     setDeviceId(nextDeviceId);
+    writePreferredAudioInputId(nextDeviceId);
     setSwitchingDevice(true);
     setError(null);
     try {
