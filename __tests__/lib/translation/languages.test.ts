@@ -28,6 +28,19 @@ describe('translation languages', () => {
     });
   });
 
+  it('lists curated languages alphabetically by English name', () => {
+    const names = TRANSLATION_LANGUAGES.map((l) => l.name);
+    const sorted = [...names].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    expect(names).toEqual(sorted);
+  });
+
+  it('returns filtered languages in English-name order', () => {
+    const hits = filterTranslationLanguages(TRANSLATION_LANGUAGES, 'ch');
+    const names = hits.map((l) => l.name);
+    const sorted = [...names].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    expect(names).toEqual(sorted);
+  });
+
   it('recognizes curated codes case-insensitively', () => {
     expect(isKnownTranslationLanguage('EN')).toBe(true);
     expect(isKnownTranslationLanguage('es')).toBe(true);

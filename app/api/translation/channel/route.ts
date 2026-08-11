@@ -12,7 +12,10 @@ import {
   updateChannelForUser,
   type LiveTranslationChannelPatch,
 } from '@/lib/repositories/live-translation-channels';
-import { normalizeSttProvider } from '@/lib/translation/capabilities';
+import {
+  normalizeSttProvider,
+  normalizeTextTranslateProvider,
+} from '@/lib/translation/capabilities';
 import {
   getTranslationSlugValidationError,
   normalizeTranslationSlug,
@@ -171,17 +174,37 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (raw.sttProvider !== undefined) {
-      if (raw.sttProvider !== 'openrouter' && raw.sttProvider !== 'groq') {
+      const sttProvider = normalizeSttProvider(
+        typeof raw.sttProvider === 'string' ? raw.sttProvider : null
+      );
+      if (!sttProvider) {
         return NextResponse.json(
           {
             error: 'Bad Request',
-            message: 'sttProvider must be openrouter or groq',
+            message: 'sttProvider must be openrouter, groq, or gcp',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
         );
       }
-      patch.sttProvider = normalizeSttProvider(raw.sttProvider);
+      patch.sttProvider = sttProvider;
+    }
+
+    if (raw.textTranslateProvider !== undefined) {
+      const textTranslateProvider = normalizeTextTranslateProvider(
+        typeof raw.textTranslateProvider === 'string' ? raw.textTranslateProvider : null
+      );
+      if (!textTranslateProvider) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'textTranslateProvider must be openrouter, groq, or gcp',
+            statusCode: 400,
+          } satisfies ApiError,
+          { status: 400 }
+        );
+      }
+      patch.textTranslateProvider = textTranslateProvider;
     }
 
     for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel'] as const) {

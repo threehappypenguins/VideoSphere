@@ -2,7 +2,10 @@
 // Per-language GCP TTS voice helpers
 // =============================================================================
 
-import { normalizeTranslationLanguageCode } from '@/lib/translation/languages';
+import {
+  normalizeTranslationLanguageCode,
+  translationLanguageLabel,
+} from '@/lib/translation/languages';
 
 /**
  * Reported SSML gender from Google Cloud `listVoices`.
@@ -175,6 +178,7 @@ export function gcpTtsVoiceForLanguage(
 
 /**
  * Languages that should have optional TTS voice dropdowns (source + targets).
+ * Source is listed first; targets follow alphabetically by English name.
  * @param sourceLanguage - Channel source language.
  * @param enabledLanguages - Enabled listen target languages.
  * @returns Deduped normalized language codes.
@@ -186,7 +190,12 @@ export function languagesForTtsConfig(
   const source = normalizeTranslationLanguageCode(sourceLanguage) || 'en';
   const targets = enabledLanguages
     .map(normalizeTranslationLanguageCode)
-    .filter((code): code is string => Boolean(code) && code !== source);
+    .filter((code): code is string => Boolean(code) && code !== source)
+    .sort((a, b) =>
+      translationLanguageLabel(a).localeCompare(translationLanguageLabel(b), 'en', {
+        sensitivity: 'base',
+      })
+    );
   return [source, ...targets];
 }
 

@@ -16,7 +16,10 @@ import {
   updateChannelForUser,
   type LiveTranslationChannelPatch,
 } from '@/lib/repositories/live-translation-channels';
-import { normalizeSttProvider } from '@/lib/translation/capabilities';
+import {
+  normalizeSttProvider,
+  normalizeTextTranslateProvider,
+} from '@/lib/translation/capabilities';
 import { languagesForTtsConfig, normalizeGcpTtsVoices } from '@/lib/translation/gcp-tts-voices';
 import { parseGcpServiceAccountJson } from '@/lib/translation/gcp-sa';
 import { validateTranslationAiConfig } from '@/lib/translation/validate-credentials';
@@ -68,6 +71,7 @@ export async function PUT(req: NextRequest) {
       raw.openRouterApiKey !== undefined ||
       raw.groqApiKey !== undefined ||
       raw.sttProvider !== undefined ||
+      raw.textTranslateProvider !== undefined ||
       raw.sttModel !== undefined ||
       raw.openRouterSttModel !== undefined ||
       raw.openRouterTranslateModel !== undefined;
@@ -111,11 +115,31 @@ export async function PUT(req: NextRequest) {
       }
     }
     if (raw.sttProvider !== undefined) {
-      if (raw.sttProvider !== 'openrouter' && raw.sttProvider !== 'groq') {
+      if (
+        raw.sttProvider !== 'openrouter' &&
+        raw.sttProvider !== 'groq' &&
+        raw.sttProvider !== 'gcp'
+      ) {
         return NextResponse.json(
           {
             error: 'Bad Request',
-            message: 'sttProvider must be openrouter or groq',
+            message: 'sttProvider must be openrouter, groq, or gcp',
+            statusCode: 400,
+          } satisfies ApiError,
+          { status: 400 }
+        );
+      }
+    }
+    if (raw.textTranslateProvider !== undefined) {
+      if (
+        raw.textTranslateProvider !== 'openrouter' &&
+        raw.textTranslateProvider !== 'groq' &&
+        raw.textTranslateProvider !== 'gcp'
+      ) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'textTranslateProvider must be openrouter, groq, or gcp',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
@@ -134,11 +158,43 @@ export async function PUT(req: NextRequest) {
           ? raw.groqApiKey.trim()
           : (secrets?.groqApiKey ?? '');
 
-      const sttProvider = normalizeSttProvider(
-        typeof raw.sttProvider === 'string'
-          ? raw.sttProvider
-          : (secrets?.sttProvider ?? 'openrouter')
+      const gcpJsonFromBody =
+        typeof raw.gcpServiceAccountJson === 'string' ? raw.gcpServiceAccountJson.trim() : '';
+      const hasGcpServiceAccount = Boolean(
+        gcpJsonFromBody || secrets?.gcpServiceAccountJson?.trim()
       );
+
+      const sttProvider = normalizeSttProvider(
+        typeof raw.sttProvider === 'string' ? raw.sttProvider : (secrets?.sttProvider ?? null)
+      );
+      const textTranslateProvider = normalizeTextTranslateProvider(
+        typeof raw.textTranslateProvider === 'string'
+          ? raw.textTranslateProvider
+          : (secrets?.textTranslateProvider ?? null)
+      );
+
+      if (!sttProvider) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'Select an STT provider.',
+            fields: ['sttProvider'],
+            statusCode: 400,
+          } satisfies ApiError & { fields: string[] },
+          { status: 400 }
+        );
+      }
+      if (!textTranslateProvider) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'Select a caption translation provider.',
+            fields: ['textTranslateProvider'],
+            statusCode: 400,
+          } satisfies ApiError & { fields: string[] },
+          { status: 400 }
+        );
+      }
 
       const sttFromBody =
         typeof raw.sttModel === 'string'
@@ -156,12 +212,18 @@ export async function PUT(req: NextRequest) {
         secrets?.openRouterTranslateModel?.trim() ||
         '';
 
-      if (!existing && !openRouterApiKey) {
+      if (
+        !existing &&
+        !openRouterApiKey &&
+        !groqApiKey &&
+        !(sttProvider === 'gcp' && hasGcpServiceAccount)
+      ) {
         return NextResponse.json(
           {
             error: 'Bad Request',
-            message: 'OpenRouter API key is required to create a translation channel',
-            fields: ['openRouterKey'],
+            message:
+              'Add a Groq key, OpenRouter key, or Google Cloud service account to create a translation channel.',
+            fields: ['openRouterKey', 'groqKey', 'gcpJson'],
             statusCode: 400,
           } satisfies ApiError & { fields: string[] },
           { status: 400 }
@@ -171,7 +233,9 @@ export async function PUT(req: NextRequest) {
       const validated = await validateTranslationAiConfig({
         openRouterApiKey,
         groqApiKey,
+        hasGcpServiceAccount,
         sttProvider,
+        textTranslateProvider,
         sttModel,
         translateModel,
       });
@@ -236,66 +300,70 @@ export async function PUT(req: NextRequest) {
         );
       }
 
-      const channelForLangs = existing ?? (await getChannelByUserId(userId));
-      const sourceLanguage = channelForLangs?.sourceLanguage || 'en';
-      const enabledLanguages = [...(channelForLangs?.enabledLanguages ?? [])];
-      if (enabledLanguages.length === 0) {
-        return NextResponse.json(
-          {
-            error: 'Bad Request',
-            message: 'Configure at least one listen language before saving Google Cloud TTS.',
-            statusCode: 400,
-          } satisfies ApiError,
-          { status: 400 }
-        );
-      }
-
       const voices = updatingGcpVoices
         ? normalizeGcpTtsVoices(raw.gcpTtsVoices)
         : normalizeGcpTtsVoices(secrets?.gcpTtsVoices);
 
-      if (updatingGcpVoices && Object.keys(voices).length === 0) {
-        return NextResponse.json(
-          {
-            error: 'Bad Request',
-            message: 'Choose a TTS voice for at least one language.',
-            fields: ['ttsVoice'],
-            statusCode: 400,
-          } satisfies ApiError & { fields: string[] },
-          { status: 400 }
-        );
-      }
-
-      const allowed = new Set(languagesForTtsConfig(sourceLanguage, enabledLanguages));
-      for (const lang of Object.keys(voices)) {
-        if (!allowed.has(lang)) {
+      // SA-only saves (AI modal for Speech/Translation) skip TTS voice checks.
+      const shouldValidateTts = updatingGcpVoices || Object.keys(voices).length > 0;
+      if (shouldValidateTts) {
+        const channelForLangs = existing ?? (await getChannelByUserId(userId));
+        const sourceLanguage = channelForLangs?.sourceLanguage || 'en';
+        const enabledLanguages = [...(channelForLangs?.enabledLanguages ?? [])];
+        if (enabledLanguages.length === 0) {
           return NextResponse.json(
             {
               error: 'Bad Request',
-              message: `Language "${lang}" is not in your configured languages.`,
+              message: 'Configure at least one listen language before saving Google Cloud TTS.',
+              statusCode: 400,
+            } satisfies ApiError,
+            { status: 400 }
+          );
+        }
+
+        if (updatingGcpVoices && Object.keys(voices).length === 0) {
+          return NextResponse.json(
+            {
+              error: 'Bad Request',
+              message: 'Choose a TTS voice for at least one language.',
               fields: ['ttsVoice'],
               statusCode: 400,
             } satisfies ApiError & { fields: string[] },
             { status: 400 }
           );
         }
-      }
 
-      const validated = await validateGcpTtsConfig({
-        serviceAccountJson,
-        voices,
-      });
-      if (validated.ok === false) {
-        return NextResponse.json(
-          {
-            error: 'Bad Request',
-            message: validated.message,
-            fields: validated.fields,
-            language: validated.language,
-            statusCode: 400,
-          } satisfies ApiError & { fields: typeof validated.fields; language?: string },
-          { status: 400 }
-        );
+        const allowed = new Set(languagesForTtsConfig(sourceLanguage, enabledLanguages));
+        for (const lang of Object.keys(voices)) {
+          if (!allowed.has(lang)) {
+            return NextResponse.json(
+              {
+                error: 'Bad Request',
+                message: `Language "${lang}" is not in your configured languages.`,
+                fields: ['ttsVoice'],
+                statusCode: 400,
+              } satisfies ApiError & { fields: string[] },
+              { status: 400 }
+            );
+          }
+        }
+
+        const validated = await validateGcpTtsConfig({
+          serviceAccountJson,
+          voices,
+        });
+        if (validated.ok === false) {
+          return NextResponse.json(
+            {
+              error: 'Bad Request',
+              message: validated.message,
+              fields: validated.fields,
+              language: validated.language,
+              statusCode: 400,
+            } satisfies ApiError & { fields: typeof validated.fields; language?: string },
+            { status: 400 }
+          );
+        }
       }
     }
 
@@ -321,7 +389,35 @@ export async function PUT(req: NextRequest) {
     const modelPatch: LiveTranslationChannelPatch = {};
 
     if (raw.sttProvider !== undefined) {
-      modelPatch.sttProvider = normalizeSttProvider(String(raw.sttProvider));
+      const sttProvider = normalizeSttProvider(String(raw.sttProvider));
+      if (!sttProvider) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'sttProvider must be openrouter, groq, or gcp',
+            statusCode: 400,
+          } satisfies ApiError,
+          { status: 400 }
+        );
+      }
+      modelPatch.sttProvider = sttProvider;
+    }
+
+    if (raw.textTranslateProvider !== undefined) {
+      const textTranslateProvider = normalizeTextTranslateProvider(
+        String(raw.textTranslateProvider)
+      );
+      if (!textTranslateProvider) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'textTranslateProvider must be openrouter, groq, or gcp',
+            statusCode: 400,
+          } satisfies ApiError,
+          { status: 400 }
+        );
+      }
+      modelPatch.textTranslateProvider = textTranslateProvider;
     }
 
     for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel'] as const) {

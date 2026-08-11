@@ -2,26 +2,45 @@
 // Validate live-translation AI keys + model ids against provider APIs
 // =============================================================================
 
-import type { LiveTranslationSttProvider } from '@/lib/translation/capabilities';
+import type {
+  LiveTranslationSttProvider,
+  LiveTranslationTextTranslateProvider,
+} from '@/lib/translation/capabilities';
 
 const OPENROUTER_KEY_URL = 'https://openrouter.ai/api/v1/key';
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
 const GROQ_MODELS_URL = 'https://api.groq.com/openai/v1/models';
 const VALIDATE_TIMEOUT_MS = 15_000;
 
+/** Common Cloud Speech-to-Text V1 recognition model ids. */
+const GCP_STT_MODELS = new Set([
+  'default',
+  'latest_long',
+  'latest_short',
+  'command_and_search',
+  'phone_call',
+  'video',
+  'medical_conversation',
+  'medical_dictation',
+]);
+
 /**
  * Inputs used to validate AI credentials before they are persisted.
  */
 export interface ValidateTranslationAiConfigInput {
-  /** OpenRouter API key (required for translation). */
+  /** OpenRouter API key when STT or translate uses OpenRouter. */
   openRouterApiKey: string;
-  /** Groq API key when STT provider is Groq. */
+  /** Groq API key when STT or translate uses Groq. */
   groqApiKey?: string | null;
+  /** Whether a GCP service account is already stored or included in this save. */
+  hasGcpServiceAccount: boolean;
   /** Active STT provider. */
   sttProvider: LiveTranslationSttProvider;
+  /** Active caption translation provider (explicit; no auto-fallback). */
+  textTranslateProvider: LiveTranslationTextTranslateProvider;
   /** STT model id for the active provider. */
   sttModel: string;
-  /** OpenRouter chat model id used for translation. */
+  /** Chat model id for OpenRouter or Groq translate (unused for GCP). */
   translateModel: string;
 }
 
@@ -34,7 +53,7 @@ export type ValidateTranslationAiConfigResult =
       ok: false;
       message: string;
       /** Form fields that should be highlighted for this error. */
-      fields: Array<'openRouterKey' | 'groqKey' | 'sttModel' | 'translateModel'>;
+      fields: Array<'openRouterKey' | 'groqKey' | 'sttModel' | 'translateModel' | 'gcpJson'>;
     };
 
 type OpenRouterModel = {
@@ -156,19 +175,19 @@ function findOpenRouterModel(
 function openRouterModelAcceptsAudio(model: OpenRouterModel): boolean {
   const modalities = model.architecture?.input_modalities;
   if (!Array.isArray(modalities) || modalities.length === 0) {
-    // Some rows omit architecture; do not block solely on missing metadata.
     return true;
   }
   return modalities.some((m) => typeof m === 'string' && m.toLowerCase() === 'audio');
 }
 
 /**
- * Validates a Groq API key and that the STT model id is available to that key.
+ * Lists Groq models available to an API key.
  * @param apiKey - Groq API key.
- * @param sttModel - Whisper (or other) model id.
- * @returns Error message when invalid; otherwise null.
+ * @returns Model rows, or an error message.
  */
-async function validateGroqStt(apiKey: string, sttModel: string): Promise<string | null> {
+async function listGroqModels(
+  apiKey: string
+): Promise<{ ok: true; models: GroqModel[] } | { ok: false; message: string }> {
   let response: Response;
   try {
     response = await fetchWithTimeout(GROQ_MODELS_URL, {
@@ -179,27 +198,23 @@ async function validateGroqStt(apiKey: string, sttModel: string): Promise<string
       },
     });
   } catch {
-    return 'Could not reach Groq to validate your API key. Try again.';
+    return { ok: false, message: 'Could not reach Groq to validate your API key. Try again.' };
   }
   if (response.status === 401 || response.status === 403) {
-    return 'Groq API key is invalid.';
+    return { ok: false, message: 'Groq API key is invalid.' };
   }
   if (!response.ok) {
-    return `Groq key check failed (${response.status}). Try again.`;
+    return { ok: false, message: `Groq key check failed (${response.status}). Try again.` };
   }
   const json = (await response.json()) as { data?: unknown };
   const models = Array.isArray(json.data) ? (json.data as GroqModel[]) : [];
-  const found = models.some((m) => typeof m.id === 'string' && m.id === sttModel);
-  if (!found) {
-    return `Groq STT model "${sttModel}" was not found for this API key.`;
-  }
-  return null;
+  return { ok: true, models };
 }
 
 /**
- * Validates OpenRouter + optional Groq credentials and model ids against live provider APIs.
+ * Validates STT + translate credentials against live provider APIs.
  * Call before persisting AI settings so misconfiguration fails in the settings UI.
- * @param input - Effective keys, provider, and model ids to validate.
+ * @param input - Effective keys, providers, and model ids to validate.
  * @returns Success, or a user-facing error message.
  */
 export async function validateTranslationAiConfig(
@@ -209,73 +224,136 @@ export async function validateTranslationAiConfig(
   const sttModel = input.sttModel.trim();
   const translateModel = input.translateModel.trim();
   const groqApiKey = input.groqApiKey?.trim() || '';
+  const needsOpenRouterStt = input.sttProvider === 'openrouter';
+  const needsOpenRouterTranslate = input.textTranslateProvider === 'openrouter';
+  const needsGroqStt = input.sttProvider === 'groq';
+  const needsGroqTranslate = input.textTranslateProvider === 'groq';
+  const needsGcp = input.sttProvider === 'gcp' || input.textTranslateProvider === 'gcp';
 
-  if (!openRouterApiKey) {
-    return {
-      ok: false,
-      message: 'OpenRouter API key is required.',
-      fields: ['openRouterKey'],
-    };
-  }
   if (!sttModel) {
     return { ok: false, message: 'STT model id is required.', fields: ['sttModel'] };
   }
-  if (!translateModel) {
+
+  if (needsGcp && !input.hasGcpServiceAccount) {
     return {
       ok: false,
-      message: 'Translation model id is required.',
+      message:
+        'A Google Cloud service account is required when STT or translation uses Google Cloud. ' +
+        'Paste the JSON here or save it under Google Cloud TTS first.',
+      fields: ['gcpJson'],
+    };
+  }
+
+  if (input.sttProvider === 'gcp' && !GCP_STT_MODELS.has(sttModel)) {
+    return {
+      ok: false,
+      message: `Unknown GCP Speech-to-Text model "${sttModel}". Try latest_long or latest_short.`,
+      fields: ['sttModel'],
+    };
+  }
+
+  if ((needsOpenRouterTranslate || needsGroqTranslate) && !translateModel) {
+    return {
+      ok: false,
+      message: 'Translation model id is required for OpenRouter or Groq caption translation.',
       fields: ['translateModel'],
     };
   }
-  if (input.sttProvider === 'groq' && !groqApiKey) {
+
+  if ((needsOpenRouterStt || needsOpenRouterTranslate) && !openRouterApiKey) {
     return {
       ok: false,
-      message: 'Groq API key is required when STT provider is Groq.',
+      message: needsOpenRouterStt
+        ? 'OpenRouter API key is required for OpenRouter STT.'
+        : 'OpenRouter API key is required for OpenRouter translation.',
+      fields: ['openRouterKey'],
+    };
+  }
+
+  if ((needsGroqStt || needsGroqTranslate) && !groqApiKey) {
+    return {
+      ok: false,
+      message: needsGroqStt
+        ? 'Groq API key is required when STT provider is Groq.'
+        : 'Groq API key is required when translation provider is Groq.',
       fields: ['groqKey'],
     };
   }
 
-  const keyError = await validateOpenRouterApiKey(openRouterApiKey);
-  if (keyError) {
-    return { ok: false, message: keyError, fields: ['openRouterKey'] };
-  }
-
-  const catalog = await listOpenRouterModels(openRouterApiKey);
-  if (catalog.ok === false) {
-    return { ok: false, message: catalog.message, fields: ['openRouterKey'] };
-  }
-
-  const translate = findOpenRouterModel(catalog.models, translateModel);
-  if (!translate) {
-    return {
-      ok: false,
-      message: `OpenRouter translation model "${translateModel}" was not found.`,
-      fields: ['translateModel'],
-    };
-  }
-
-  if (input.sttProvider === 'openrouter') {
-    const stt = findOpenRouterModel(catalog.models, sttModel);
-    if (!stt) {
-      return {
-        ok: false,
-        message: `OpenRouter STT model "${sttModel}" was not found.`,
-        fields: ['sttModel'],
-      };
+  if (needsOpenRouterStt || needsOpenRouterTranslate) {
+    const keyError = await validateOpenRouterApiKey(openRouterApiKey);
+    if (keyError) {
+      return { ok: false, message: keyError, fields: ['openRouterKey'] };
     }
-    if (!openRouterModelAcceptsAudio(stt)) {
-      return {
-        ok: false,
-        message: `OpenRouter model "${sttModel}" does not accept audio input (not usable for STT).`,
-        fields: ['sttModel'],
-      };
+
+    const catalog = await listOpenRouterModels(openRouterApiKey);
+    if (catalog.ok === false) {
+      return { ok: false, message: catalog.message, fields: ['openRouterKey'] };
     }
-  } else {
-    const groqError = await validateGroqStt(groqApiKey, sttModel);
-    if (groqError) {
-      const fields: Array<'openRouterKey' | 'groqKey' | 'sttModel' | 'translateModel'> =
-        /STT model/i.test(groqError) ? ['sttModel'] : ['groqKey'];
-      return { ok: false, message: groqError, fields };
+
+    if (needsOpenRouterTranslate) {
+      const translate = findOpenRouterModel(catalog.models, translateModel);
+      if (!translate) {
+        return {
+          ok: false,
+          message: `OpenRouter translation model "${translateModel}" was not found.`,
+          fields: ['translateModel'],
+        };
+      }
+    }
+
+    if (needsOpenRouterStt) {
+      const stt = findOpenRouterModel(catalog.models, sttModel);
+      if (!stt) {
+        return {
+          ok: false,
+          message: `OpenRouter STT model "${sttModel}" was not found.`,
+          fields: ['sttModel'],
+        };
+      }
+      if (!openRouterModelAcceptsAudio(stt)) {
+        return {
+          ok: false,
+          message: `OpenRouter model "${sttModel}" does not accept audio input (not usable for STT).`,
+          fields: ['sttModel'],
+        };
+      }
+    }
+  }
+
+  if (needsGroqStt || needsGroqTranslate) {
+    const catalog = await listGroqModels(groqApiKey);
+    if (catalog.ok === false) {
+      return { ok: false, message: catalog.message, fields: ['groqKey'] };
+    }
+
+    if (needsGroqStt) {
+      const found = catalog.models.some((m) => typeof m.id === 'string' && m.id === sttModel);
+      if (!found) {
+        return {
+          ok: false,
+          message: `Groq STT model "${sttModel}" was not found for this API key.`,
+          fields: ['sttModel'],
+        };
+      }
+    }
+
+    if (needsGroqTranslate) {
+      const found = catalog.models.some((m) => typeof m.id === 'string' && m.id === translateModel);
+      if (!found) {
+        return {
+          ok: false,
+          message: `Groq translation model "${translateModel}" was not found for this API key.`,
+          fields: ['translateModel'],
+        };
+      }
+      if (/whisper/i.test(translateModel)) {
+        return {
+          ok: false,
+          message: 'Pick a Groq chat model for translation (not a Whisper STT model).',
+          fields: ['translateModel'],
+        };
+      }
     }
   }
 

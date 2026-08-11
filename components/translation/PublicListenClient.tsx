@@ -69,10 +69,36 @@ function CaptionStream(props: CaptionStreamProps) {
   const queueRef = useRef<string[]>([]);
   const playingRef = useRef(false);
   const seenRef = useRef<Set<string>>(new Set());
+  const wantAudioRef = useRef(wantAudio && audioAvailable);
   const pumpAudioRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
+    wantAudioRef.current = wantAudio && audioAvailable;
+  }, [wantAudio, audioAvailable]);
+
+  /**
+   * Stops TTS playback and drops queued clips (used when the listener mutes).
+   */
+  function stopSpokenAudio() {
+    queueRef.current = [];
+    playingRef.current = false;
+    const audio = audioRef.current;
+    if (!audio) return;
+    try {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
     pumpAudioRef.current = async () => {
+      if (!wantAudioRef.current) {
+        stopSpokenAudio();
+        return;
+      }
       if (playingRef.current) return;
       const next = queueRef.current.shift();
       if (!next) return;
@@ -87,13 +113,26 @@ function CaptionStream(props: CaptionStreamProps) {
         await audio.play();
       } catch {
         playingRef.current = false;
+        if (!wantAudioRef.current) return;
+        setError('Spoken audio failed to play. Check volume, then tap Listen again.');
         void pumpAudioRef.current();
       }
     };
   });
 
   useEffect(() => {
-    if (wantAudio && 'mediaSession' in navigator) {
+    if (!wantAudio) {
+      stopSpokenAudio();
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.playbackState = 'paused';
+        } catch {
+          // Media Session unsupported quirks
+        }
+      }
+      return;
+    }
+    if ('mediaSession' in navigator) {
       try {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: 'Live audio translation',
@@ -136,7 +175,7 @@ function CaptionStream(props: CaptionStreamProps) {
         if (event.type === 'caption' && event.segmentId && event.text) {
           if (seenRef.current.has(event.segmentId)) {
             // Same segment may arrive again later with a TTS audio URL.
-            if (wantAudio && audioAvailable && event.audioUrl) {
+            if (wantAudioRef.current && event.audioUrl) {
               queueRef.current.push(event.audioUrl);
               void pumpAudioRef.current();
             }
@@ -149,7 +188,7 @@ function CaptionStream(props: CaptionStreamProps) {
               { id: event.segmentId!, text: event.text!, ts: event.ts ?? Date.now() },
             ].slice(-80)
           );
-          if (wantAudio && audioAvailable && event.audioUrl) {
+          if (wantAudioRef.current && event.audioUrl) {
             queueRef.current.push(event.audioUrl);
             void pumpAudioRef.current();
           }
@@ -165,6 +204,11 @@ function CaptionStream(props: CaptionStreamProps) {
 
     return () => {
       source.close();
+      // Closing the SSE also mutes locally so a reconnect with wantAudio=0 cannot
+      // keep draining a stale clip queue from the previous connection.
+      if (!(wantAudio && audioAvailable)) {
+        stopSpokenAudio();
+      }
     };
   }, [audioAvailable, language, onLiveChange, slug, wantAudio]);
 
@@ -180,6 +224,19 @@ function CaptionStream(props: CaptionStreamProps) {
         playsInline
         onEnded={() => {
           playingRef.current = false;
+          if (!wantAudioRef.current) {
+            stopSpokenAudio();
+            return;
+          }
+          void pumpAudioRef.current();
+        }}
+        onError={() => {
+          playingRef.current = false;
+          if (!wantAudioRef.current) {
+            stopSpokenAudio();
+            return;
+          }
+          setError('Spoken audio clip was missing or expired. Keep listening for the next line.');
           void pumpAudioRef.current();
         }}
       />
@@ -215,7 +272,13 @@ export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
         .map(normalizeTranslationLanguageCode)
         .filter(Boolean)
     );
-    return [...set];
+    return [...set].sort((a, b) =>
+      resolveTranslationLanguageOption(a).name.localeCompare(
+        resolveTranslationLanguageOption(b).name,
+        'en',
+        { sensitivity: 'base' }
+      )
+    );
   }, [meta.enabledLanguages, meta.sourceLanguage]);
 
   const languageOptions = useMemo(

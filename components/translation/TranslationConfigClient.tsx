@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-import type { LiveTranslationChannelOwnerView, LiveTranslationSttProvider } from '@/types';
+import type {
+  LiveTranslationChannelOwnerView,
+  LiveTranslationSttProvider,
+  LiveTranslationTextTranslateProvider,
+} from '@/types';
 import { AddAudioCapture } from '@/components/translation/AddAudioCapture';
 import { TranslationLanguageSearchList } from '@/components/translation/TranslationLanguageSearchList';
 import { Button } from '@/components/ui/button';
@@ -28,9 +32,17 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
   TRANSLATION_LANGUAGES,
+  compareTranslationLanguageOptions,
   normalizeTranslationLanguageCode,
   resolveTranslationLanguageOption,
 } from '@/lib/translation/languages';
@@ -47,6 +59,14 @@ import {
   gcpVoiceMatchesListenLanguage,
   languagesForTtsConfig,
 } from '@/lib/translation/gcp-tts-voices';
+import {
+  GROQ_PRICING_URL,
+  sttProviderPricing,
+  translateProviderPricing,
+} from '@/lib/translation/provider-pricing';
+
+/** Radix Select sentinel so empty selection stays controlled (not `undefined`). */
+const SELECT_UNSET = '__unset__';
 
 type GcpVoiceOption = {
   name: string;
@@ -56,7 +76,7 @@ type GcpVoiceOption = {
 
 /**
  * Owner dashboard UI for per-user live audio translation configuration and ingest.
- * Progressive disclosure: STT provider (OpenRouter or Groq) + OpenRouter translation,
+ * Progressive disclosure: separate STT + caption-translate providers (with free-tier hints),
  * then optional GCP TTS, public page, audio, and RTMP.
  * @returns Translation settings page content.
  */
@@ -74,11 +94,16 @@ export function TranslationConfigClient() {
   const [aiOpen, setAiOpen] = useState(false);
   const [gcpOpen, setGcpOpen] = useState(false);
 
-  const [sttProvider, setSttProvider] = useState<LiveTranslationSttProvider>('openrouter');
+  const [sttProvider, setSttProvider] = useState<LiveTranslationSttProvider | ''>('');
+  const [textTranslateProvider, setTextTranslateProvider] = useState<
+    LiveTranslationTextTranslateProvider | ''
+  >('');
   const [openRouterKey, setOpenRouterKey] = useState('');
   const [showOpenRouterKey, setShowOpenRouterKey] = useState(false);
   const [groqKey, setGroqKey] = useState('');
   const [showGroqKey, setShowGroqKey] = useState(false);
+  const [aiGcpJson, setAiGcpJson] = useState('');
+  const [aiGcpJsonFileName, setAiGcpJsonFileName] = useState<string | null>(null);
   const [sttModel, setSttModel] = useState('');
   const [translateModel, setTranslateModel] = useState('');
 
@@ -89,6 +114,7 @@ export function TranslationConfigClient() {
   const [ttsVoiceFamily, setTtsVoiceFamily] = useState<GcpTtsVoiceFamilyId | ''>('');
   const [loadingGcpVoices, setLoadingGcpVoices] = useState(false);
   const [previewingVoiceLang, setPreviewingVoiceLang] = useState<string | null>(null);
+  const aiGcpJsonFileInputRef = useRef<HTMLInputElement | null>(null);
   const gcpJsonFileInputRef = useRef<HTMLInputElement | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
@@ -112,7 +138,8 @@ export function TranslationConfigClient() {
         Boolean
       )
     );
-    setSttProvider(view.sttProvider ?? 'openrouter');
+    setSttProvider(view.sttProvider ?? '');
+    setTextTranslateProvider(view.textTranslateProvider ?? '');
     setSttModel(view.sttModel ?? view.openRouterSttModel ?? '');
     setTranslateModel(view.openRouterTranslateModel ?? '');
     setTtsVoices(view.gcpTtsVoices ?? {});
@@ -155,6 +182,112 @@ export function TranslationConfigClient() {
       delete next[field];
       return next;
     });
+  }
+
+  /**
+   * Loads a service-account JSON file into the AI modal paste field.
+   * @param file - Selected `.json` file from the file picker.
+   */
+  function loadAiGcpJsonFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      const trimmed = text.trim();
+      if (!trimmed) {
+        setAiFieldErrors((prev) => ({
+          ...prev,
+          gcpJson: 'The selected file was empty.',
+        }));
+        return;
+      }
+      try {
+        JSON.parse(trimmed);
+      } catch {
+        setAiFieldErrors((prev) => ({
+          ...prev,
+          gcpJson: 'The selected file is not valid JSON.',
+        }));
+        return;
+      }
+      setAiGcpJson(trimmed);
+      setAiGcpJsonFileName(file.name);
+      clearAiFieldError('gcpJson');
+      toast.success(`Loaded ${file.name}`);
+    };
+    reader.onerror = () => {
+      setAiFieldErrors((prev) => ({
+        ...prev,
+        gcpJson: 'Could not read the selected file.',
+      }));
+    };
+    reader.readAsText(file);
+  }
+
+  /**
+   * Renders the AI-modal GCP service-account upload + paste fields.
+   * @param opts - Field ids and helper copy for STT vs translate.
+   * @returns Form fields matching the TTS modal upload pattern.
+   */
+  function renderAiGcpJsonFields(opts: {
+    fileInputId: string;
+    textareaId: string;
+    helpText: string;
+  }) {
+    return (
+      <div className="space-y-2">
+        <Label htmlFor={opts.fileInputId}>Service account JSON file</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={aiGcpJsonFileInputRef}
+            id={opts.fileInputId}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              loadAiGcpJsonFile(file);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => aiGcpJsonFileInputRef.current?.click()}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+          >
+            Choose file
+          </button>
+          <span className="text-muted-foreground max-w-full truncate text-xs">
+            {aiGcpJsonFileName ?? 'No file selected'}
+          </span>
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Choose the JSON key downloaded from Google Cloud, or paste it below.
+        </p>
+        <Label htmlFor={opts.textareaId}>Google Cloud service account JSON</Label>
+        <Textarea
+          id={opts.textareaId}
+          rows={5}
+          aria-invalid={aiFieldErrors.gcpJson ? true : undefined}
+          className={invalidInputClass(Boolean(aiFieldErrors.gcpJson), 'font-mono text-xs')}
+          placeholder='{ "type": "service_account", ... }'
+          value={aiGcpJson}
+          onChange={(e) => {
+            setAiGcpJson(e.target.value);
+            setAiGcpJsonFileName(null);
+            clearAiFieldError('gcpJson');
+          }}
+        />
+        {aiFieldErrors.gcpJson ? (
+          <p className="text-destructive text-xs" role="alert">
+            {aiFieldErrors.gcpJson}
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-xs">{opts.helpText}</p>
+        )}
+      </div>
+    );
   }
 
   function clearGcpFieldError(field: string) {
@@ -201,7 +334,10 @@ export function TranslationConfigClient() {
     setShowOpenRouterKey(false);
     setGroqKey('');
     setShowGroqKey(false);
-    setSttProvider(channel?.sttProvider ?? 'openrouter');
+    setAiGcpJson('');
+    setAiGcpJsonFileName(null);
+    setSttProvider(channel?.sttProvider ?? '');
+    setTextTranslateProvider(channel?.textTranslateProvider ?? '');
     setSttModel(channel?.sttModel ?? channel?.openRouterSttModel ?? '');
     setTranslateModel(channel?.openRouterTranslateModel ?? '');
     setAiFieldErrors({});
@@ -398,20 +534,35 @@ export function TranslationConfigClient() {
   async function saveAiModal() {
     const orKey = openRouterKey.trim();
     const gKey = groqKey.trim();
+    const gcpJsonTrimmed = aiGcpJson.trim();
     const stt = sttModel.trim();
     const translate = translateModel.trim();
+    const needsOpenRouter = sttProvider === 'openrouter' || textTranslateProvider === 'openrouter';
+    const needsGroq = sttProvider === 'groq' || textTranslateProvider === 'groq';
+    const needsGcp = sttProvider === 'gcp' || textTranslateProvider === 'gcp';
+    const hasGcp = Boolean(channel?.hasGcpServiceAccount || gcpJsonTrimmed);
 
     const errors: Record<string, string> = {};
-    if (!channel?.hasOpenRouterKey && !orKey) {
+    if (!sttProvider) {
+      errors.sttProvider = 'Select an STT provider.';
+    }
+    if (!textTranslateProvider) {
+      errors.textTranslateProvider = 'Select a caption translation provider.';
+    }
+    if (needsOpenRouter && !channel?.hasOpenRouterKey && !orKey) {
       errors.openRouterKey = 'Paste your OpenRouter API key.';
     }
-    if (sttProvider === 'groq' && !channel?.hasGroqKey && !gKey) {
+    if (needsGroq && !channel?.hasGroqKey && !gKey) {
       errors.groqKey = 'Paste your Groq API key.';
     }
-    if (!stt) {
+    if (needsGcp && !hasGcp) {
+      errors.gcpJson =
+        'Upload or paste a Google Cloud service account JSON, or save one under Google Cloud TTS first.';
+    }
+    if (sttProvider && !stt) {
       errors.sttModel = 'Enter an STT model id.';
     }
-    if (!translate) {
+    if (textTranslateProvider && textTranslateProvider !== 'gcp' && !translate) {
       errors.translateModel = 'Enter a translation model id.';
     }
     if (Object.keys(errors).length > 0) {
@@ -421,15 +572,23 @@ export function TranslationConfigClient() {
     }
     setAiFieldErrors({});
 
+    if (!sttProvider || !textTranslateProvider) {
+      return;
+    }
+
     setSaving(true);
     try {
       const body: Record<string, string> = {
         sttProvider,
+        textTranslateProvider,
         sttModel: stt,
-        openRouterTranslateModel: translate,
       };
+      if (textTranslateProvider !== 'gcp') {
+        body.openRouterTranslateModel = translate;
+      }
       if (orKey) body.openRouterApiKey = orKey;
       if (gKey) body.groqApiKey = gKey;
+      if (gcpJsonTrimmed) body.gcpServiceAccountJson = gcpJsonTrimmed;
 
       const res = await fetch('/api/translation/credentials', {
         method: 'PUT',
@@ -452,6 +611,7 @@ export function TranslationConfigClient() {
       applyChannel(data);
       setOpenRouterKey('');
       setGroqKey('');
+      setAiGcpJson('');
       setShowOpenRouterKey(false);
       setShowGroqKey(false);
       setAiFieldErrors({});
@@ -580,7 +740,8 @@ export function TranslationConfigClient() {
       setSourceLanguage('en');
       setEnabledLanguages([]);
       setStreamKeyPlaintext(null);
-      setSttProvider('openrouter');
+      setSttProvider('');
+      setTextTranslateProvider('');
       setSttModel('');
       setTranslateModel('');
       setTtsVoices({});
@@ -677,7 +838,7 @@ export function TranslationConfigClient() {
     if (!curated.some((lang) => lang.code === sourceCode) && sourceCode) {
       curated.push(resolveTranslationLanguageOption(sourceCode));
     }
-    return curated;
+    return curated.sort(compareTranslationLanguageOptions);
   }, [sourceCode]);
 
   const targetOptions = useMemo(() => {
@@ -687,7 +848,7 @@ export function TranslationConfigClient() {
       .map(normalizeTranslationLanguageCode)
       .filter((code) => code && code !== sourceCode && !curatedCodes.has(code))
       .map((code) => resolveTranslationLanguageOption(code));
-    return [...curated, ...legacy];
+    return [...curated, ...legacy].sort(compareTranslationLanguageOptions);
   }, [enabledLanguages, sourceCode]);
 
   async function rotateStreamKey() {
@@ -715,7 +876,26 @@ export function TranslationConfigClient() {
   }
 
   const hasOpenRouter = channel?.hasOpenRouterKey ?? false;
-  const sttLabel = channel?.sttProvider === 'groq' ? 'Groq' : 'OpenRouter';
+  const sttPricing = sttProvider ? sttProviderPricing(sttProvider) : null;
+  const translatePricing = textTranslateProvider
+    ? translateProviderPricing(textTranslateProvider)
+    : null;
+  const sttLabel =
+    channel?.sttProvider === 'groq'
+      ? 'Groq'
+      : channel?.sttProvider === 'gcp'
+        ? 'Google Cloud'
+        : channel?.sttProvider === 'openrouter'
+          ? 'OpenRouter'
+          : 'Not set';
+  const translateLabel =
+    channel?.textTranslateProvider === 'groq'
+      ? 'Groq'
+      : channel?.textTranslateProvider === 'gcp'
+        ? 'Google Cloud'
+        : channel?.textTranslateProvider === 'openrouter'
+          ? 'OpenRouter'
+          : 'Not set';
   const sectionClassName = 'mt-8 space-y-4 rounded-xl border border-border bg-background p-6';
   const languagesReady = (channel?.enabledLanguages?.length ?? 0) > 0;
   const ttsModalLanguages = channel
@@ -725,6 +905,18 @@ export function TranslationConfigClient() {
   const gcpVoiceFamilies = gcpTtsVoiceFamiliesInCatalog(gcpVoiceOptions.map((v) => v.name));
   const selectedFamilyInfo = ttsVoiceFamily ? gcpTtsVoiceFamilyInfo(ttsVoiceFamily) : null;
 
+  /** Credential UI for STT follows the STT dropdown only. */
+  const showSttOpenRouterKey = sttProvider === 'openrouter';
+  const showSttGroqKey = sttProvider === 'groq';
+  const showSttGcpSa = sttProvider === 'gcp';
+  /** Credential UI for translate follows the translate dropdown; skip duplicate when same as STT. */
+  const showTranslateOpenRouterKey =
+    textTranslateProvider === 'openrouter' && sttProvider !== 'openrouter';
+  const showTranslateGroqKey = textTranslateProvider === 'groq' && sttProvider !== 'groq';
+  const showTranslateGcpSa = textTranslateProvider === 'gcp' && sttProvider !== 'gcp';
+  const translateReusesSttCredentials =
+    Boolean(sttProvider) && Boolean(textTranslateProvider) && textTranslateProvider === sttProvider;
+
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="space-y-2">
@@ -732,9 +924,10 @@ export function TranslationConfigClient() {
           Live audio translation
         </h1>
         <p className="text-muted-foreground text-shadow-bg">
-          Your keys and models stay on your account. Other users cannot use them. Choose OpenRouter
-          or Groq for speech-to-text; translation always uses OpenRouter. Google Cloud TTS is
-          optional for spoken audio. A channel is created only when you configure AI.
+          Your keys stay on your account. Pick STT and caption translation separately (OpenRouter,
+          Groq, or Google Cloud) — there is no automatic fallback. Recommended free path for full
+          sermons: Groq STT + Google Cloud Translation (+ optional GCP TTS). A channel is created
+          only when you configure AI.
         </p>
         <div className="flex flex-wrap gap-2 text-sm">
           <span
@@ -755,11 +948,14 @@ export function TranslationConfigClient() {
       <section className={sectionClassName}>
         <h2 className="text-xl font-semibold text-foreground">Speech-to-text &amp; translation</h2>
         <p className="text-muted-foreground text-sm">
-          Pick an STT provider, then set model ids. Translation always needs an OpenRouter key and
-          chat model (free models work). Groq Whisper is a good free option for STT testing. Saving
-          AI settings creates your translation channel and public slug.
+          Choose providers independently. Free-tier limits and pricing links appear in Configure AI.
+          Saving AI settings creates your translation channel and public slug.
         </p>
-        {channel && (channel.translationReady || hasOpenRouter || channel.hasGroqKey) ? (
+        {channel &&
+        (channel.translationReady ||
+          hasOpenRouter ||
+          channel.hasGroqKey ||
+          channel.hasGcpServiceAccount) ? (
           <div className="space-y-3">
             <p className="text-sm">
               STT: {sttLabel}
@@ -769,16 +965,17 @@ export function TranslationConfigClient() {
                   · <code className="text-xs">{channel.sttModel}</code>
                 </>
               ) : null}
-              {hasOpenRouter ? <> · OpenRouter key: configured</> : null}
-              {channel.sttProvider === 'groq' && channel.hasGroqKey ? (
-                <> · Groq key: configured</>
-              ) : null}
-              {channel.openRouterTranslateModel ? (
+              {' · '}
+              Translate: {translateLabel}
+              {channel.textTranslateProvider !== 'gcp' && channel.openRouterTranslateModel ? (
                 <>
                   {' '}
-                  · Translate: <code className="text-xs">{channel.openRouterTranslateModel}</code>
+                  · <code className="text-xs">{channel.openRouterTranslateModel}</code>
                 </>
               ) : null}
+              {hasOpenRouter ? <> · OpenRouter key: configured</> : null}
+              {channel.hasGroqKey ? <> · Groq key: configured</> : null}
+              {channel.hasGcpServiceAccount ? <> · GCP SA: configured</> : null}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" disabled={saving} onClick={openAiModal}>
@@ -888,35 +1085,69 @@ export function TranslationConfigClient() {
             </p>
           ) : channel.hasGcpServiceAccount ? (
             <div className="space-y-3">
-              <p className="text-sm">Service account: configured</p>
               {Object.keys(configuredTtsVoices).length > 0 ? (
-                <ul className="space-y-1 text-sm">
-                  {Object.entries(configuredTtsVoices).map(([lang, voice]) => (
-                    <li key={lang}>
-                      {resolveTranslationLanguageOption(lang).name}{' '}
-                      <span className="text-muted-foreground">→</span>{' '}
-                      <code className="text-xs">{voice}</code>
-                      <span className="text-muted-foreground text-xs">
-                        {' '}
-                        ({gcpTtsVoiceFamilyInfo(classifyGcpTtsVoiceFamily(voice)).label})
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" disabled={saving} onClick={openGcpModal}>
-                  Edit Google Cloud TTS
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={saving}
-                  onClick={() => void clearCredential('gcp')}
-                >
-                  Remove Google Cloud TTS
-                </Button>
-              </div>
+                <>
+                  <p className="text-sm">Spoken translation voices are configured.</p>
+                  <ul className="space-y-1 text-sm">
+                    {Object.entries(configuredTtsVoices).map(([lang, voice]) => (
+                      <li key={lang}>
+                        {resolveTranslationLanguageOption(lang).name}{' '}
+                        <span className="text-muted-foreground">→</span>{' '}
+                        <code className="text-xs">{voice}</code>
+                        <span className="text-muted-foreground text-xs">
+                          {' '}
+                          ({gcpTtsVoiceFamilyInfo(classifyGcpTtsVoiceFamily(voice)).label})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={openGcpModal}
+                    >
+                      Edit Google Cloud TTS
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={() => void clearCredential('gcp')}
+                    >
+                      Remove Google Cloud TTS
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                    <span className="font-medium text-foreground">TTS setup incomplete.</span>{' '}
+                    <span className="text-muted-foreground">
+                      A Google Cloud service account is already saved from STT or caption
+                      translation, but Listen still needs a voice model and one voice per language.
+                    </span>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" disabled={saving} onClick={openGcpModal}>
+                      Finish TTS setup
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={() => void clearCredential('gcp')}
+                    >
+                      Remove Google Cloud credentials
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    Removing credentials also clears the service account used for Google Cloud STT
+                    or Translation on this channel.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <Button type="button" variant="outline" disabled={saving} onClick={openGcpModal}>
@@ -1057,161 +1288,412 @@ export function TranslationConfigClient() {
       ) : null}
 
       <Dialog open={aiOpen} onOpenChange={setAiOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Configure speech-to-text &amp; translation</DialogTitle>
             <DialogDescription>
-              Choose OpenRouter or Groq for STT. Translation always uses OpenRouter (free chat
-              models are fine). Keys stay on your account only.
+              Choose STT and caption translation separately. Each dropdown shows that provider’s
+              credentials. VideoSphere does not fall back between providers.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="modal-stt-provider">STT provider</Label>
-              <select
-                id="modal-stt-provider"
-                className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-                value={sttProvider}
-                onChange={(e) => {
-                  setSttProvider(e.target.value as LiveTranslationSttProvider);
-                  clearAiFieldError('groqKey');
-                }}
-              >
-                <option value="openrouter">OpenRouter</option>
-                <option value="groq">Groq (Whisper)</option>
-              </select>
-            </div>
-
-            {sttProvider === 'groq' ? (
+          <div className="space-y-6 py-2">
+            <div className="space-y-3">
               <div className="space-y-2">
-                <Label htmlFor="modal-groq-key">Groq API key</Label>
-                <div className="relative">
-                  <Input
-                    id="modal-groq-key"
-                    type={showGroqKey ? 'text' : 'password'}
-                    autoComplete="off"
-                    aria-invalid={aiFieldErrors.groqKey ? true : undefined}
-                    className={invalidInputClass(Boolean(aiFieldErrors.groqKey), 'pr-10')}
-                    placeholder={
-                      channel?.hasGroqKey ? '•••• configured — paste to replace' : 'gsk_…'
+                <Label htmlFor="modal-stt-provider">STT provider</Label>
+                <Select
+                  value={sttProvider || SELECT_UNSET}
+                  onValueChange={(next) => {
+                    if (next === SELECT_UNSET) {
+                      setSttProvider('');
+                      setSttModel('');
+                      clearAiFieldError('sttProvider');
+                      return;
                     }
-                    value={groqKey}
-                    onChange={(e) => {
-                      setGroqKey(e.target.value);
-                      clearAiFieldError('groqKey');
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowGroqKey((v) => !v)}
-                    className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
-                    aria-label={showGroqKey ? 'Hide Groq API key' : 'Show Groq API key'}
-                    aria-pressed={showGroqKey}
+                    const value = next as LiveTranslationSttProvider;
+                    setSttProvider(value);
+                    setSttModel('');
+                    clearAiFieldError('sttProvider');
+                    clearAiFieldError('groqKey');
+                    clearAiFieldError('openRouterKey');
+                    clearAiFieldError('gcpJson');
+                    clearAiFieldError('sttModel');
+                  }}
+                >
+                  <SelectTrigger
+                    id="modal-stt-provider"
+                    aria-invalid={aiFieldErrors.sttProvider ? true : undefined}
+                    className={invalidInputClass(Boolean(aiFieldErrors.sttProvider))}
                   >
-                    {showGroqKey ? (
-                      <EyeOff className="h-4 w-4" aria-hidden="true" />
-                    ) : (
-                      <Eye className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </button>
-                </div>
-                {aiFieldErrors.groqKey ? (
+                    <SelectValue placeholder="Please select…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SELECT_UNSET}>Please select…</SelectItem>
+                    <SelectItem value="gcp">Google Cloud Speech-to-Text</SelectItem>
+                    <SelectItem value="groq">Groq (Whisper)</SelectItem>
+                    <SelectItem value="openrouter">OpenRouter</SelectItem>
+                  </SelectContent>
+                </Select>
+                {aiFieldErrors.sttProvider ? (
                   <p className="text-destructive text-xs" role="alert">
-                    {aiFieldErrors.groqKey}
+                    {aiFieldErrors.sttProvider}
+                  </p>
+                ) : sttPricing ? (
+                  <p className="text-muted-foreground text-xs">
+                    Free / limits: {sttPricing.freeUsageLimit} After free:{' '}
+                    {sttPricing.priceAfterFree}{' '}
+                    <a
+                      href={sttPricing.pricingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2"
+                    >
+                      Pricing
+                    </a>
+                    {sttProvider === 'groq' ? (
+                      <>
+                        {' · '}
+                        <a
+                          href={GROQ_PRICING_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline underline-offset-2"
+                        >
+                          Groq pricing
+                        </a>
+                      </>
+                    ) : null}
                   </p>
                 ) : null}
               </div>
-            ) : null}
 
-            <div className="space-y-2">
-              <Label htmlFor="modal-or-key">OpenRouter API key</Label>
-              <div className="relative">
-                <Input
-                  id="modal-or-key"
-                  type={showOpenRouterKey ? 'text' : 'password'}
-                  autoComplete="off"
-                  aria-invalid={aiFieldErrors.openRouterKey ? true : undefined}
-                  className={invalidInputClass(Boolean(aiFieldErrors.openRouterKey), 'pr-10')}
-                  placeholder={hasOpenRouter ? '•••• configured — paste to replace' : 'sk-or-…'}
-                  value={openRouterKey}
-                  onChange={(e) => {
-                    setOpenRouterKey(e.target.value);
-                    clearAiFieldError('openRouterKey');
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowOpenRouterKey((v) => !v)}
-                  className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
-                  aria-label={showOpenRouterKey ? 'Hide API key' : 'Show API key'}
-                  aria-pressed={showOpenRouterKey}
-                >
-                  {showOpenRouterKey ? (
-                    <EyeOff className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <Eye className="h-4 w-4" aria-hidden="true" />
-                  )}
-                </button>
-              </div>
-              {aiFieldErrors.openRouterKey ? (
-                <p className="text-destructive text-xs" role="alert">
-                  {aiFieldErrors.openRouterKey}
-                </p>
-              ) : (
-                <p className="text-muted-foreground text-xs">
-                  {sttProvider === 'openrouter'
-                    ? 'Used for both speech-to-text and translation.'
-                    : 'Required for translation only when STT uses Groq.'}
-                </p>
-              )}
-            </div>
+              {showSttGroqKey ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-stt-groq-key">Groq API key</Label>
+                  <div className="relative">
+                    <Input
+                      id="modal-stt-groq-key"
+                      type={showGroqKey ? 'text' : 'password'}
+                      autoComplete="off"
+                      aria-invalid={aiFieldErrors.groqKey ? true : undefined}
+                      className={invalidInputClass(Boolean(aiFieldErrors.groqKey), 'pr-10')}
+                      placeholder={
+                        channel?.hasGroqKey ? '•••• configured — paste to replace' : 'gsk_…'
+                      }
+                      value={groqKey}
+                      onChange={(e) => {
+                        setGroqKey(e.target.value);
+                        clearAiFieldError('groqKey');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGroqKey((v) => !v)}
+                      className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
+                      aria-label={showGroqKey ? 'Hide Groq API key' : 'Show Groq API key'}
+                      aria-pressed={showGroqKey}
+                    >
+                      {showGroqKey ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                  {aiFieldErrors.groqKey ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.groqKey}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
-            <div className="space-y-2">
-              <Label htmlFor="modal-stt-model">STT model id</Label>
-              <Input
-                id="modal-stt-model"
-                aria-invalid={aiFieldErrors.sttModel ? true : undefined}
-                className={invalidInputClass(Boolean(aiFieldErrors.sttModel))}
-                placeholder={
-                  sttProvider === 'groq'
-                    ? 'e.g. whisper-large-v3-turbo'
-                    : 'e.g. openai/whisper-large-v3'
-                }
-                value={sttModel}
-                onChange={(e) => {
-                  setSttModel(e.target.value);
-                  clearAiFieldError('sttModel');
-                }}
-              />
-              {aiFieldErrors.sttModel ? (
-                <p className="text-destructive text-xs" role="alert">
-                  {aiFieldErrors.sttModel}
-                </p>
+              {showSttOpenRouterKey ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-stt-or-key">OpenRouter API key</Label>
+                  <div className="relative">
+                    <Input
+                      id="modal-stt-or-key"
+                      type={showOpenRouterKey ? 'text' : 'password'}
+                      autoComplete="off"
+                      aria-invalid={aiFieldErrors.openRouterKey ? true : undefined}
+                      className={invalidInputClass(Boolean(aiFieldErrors.openRouterKey), 'pr-10')}
+                      placeholder={hasOpenRouter ? '•••• configured — paste to replace' : 'sk-or-…'}
+                      value={openRouterKey}
+                      onChange={(e) => {
+                        setOpenRouterKey(e.target.value);
+                        clearAiFieldError('openRouterKey');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowOpenRouterKey((v) => !v)}
+                      className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
+                      aria-label={showOpenRouterKey ? 'Hide API key' : 'Show API key'}
+                      aria-pressed={showOpenRouterKey}
+                    >
+                      {showOpenRouterKey ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                  {aiFieldErrors.openRouterKey ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.openRouterKey}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showSttGcpSa ? (
+                channel?.hasGcpServiceAccount ? (
+                  <p className="text-muted-foreground text-xs">
+                    Using the Google Cloud service account already saved on this channel. Enable
+                    Cloud Speech-to-Text API on that project.
+                  </p>
+                ) : (
+                  renderAiGcpJsonFields({
+                    fileInputId: 'modal-stt-gcp-json-file',
+                    textareaId: 'modal-stt-gcp-json',
+                    helpText:
+                      'Enable Cloud Speech-to-Text API on this project. The same JSON can be reused for Translation and TTS.',
+                  })
+                )
+              ) : null}
+
+              {sttProvider ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-stt-model">STT model id</Label>
+                  <Input
+                    id="modal-stt-model"
+                    aria-invalid={aiFieldErrors.sttModel ? true : undefined}
+                    className={invalidInputClass(Boolean(aiFieldErrors.sttModel))}
+                    placeholder={
+                      sttProvider === 'groq'
+                        ? 'e.g. whisper-large-v3-turbo'
+                        : sttProvider === 'gcp'
+                          ? 'e.g. latest_long'
+                          : 'e.g. openai/whisper-large-v3'
+                    }
+                    value={sttModel}
+                    onChange={(e) => {
+                      setSttModel(e.target.value);
+                      clearAiFieldError('sttModel');
+                    }}
+                  />
+                  {aiFieldErrors.sttModel ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.sttModel}
+                    </p>
+                  ) : sttProvider === 'gcp' ? (
+                    <p className="text-muted-foreground text-xs">
+                      Recognition model for Cloud Speech-to-Text (try <code>latest_long</code> for
+                      sermons). Free tier is only ~60 minutes/month.
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="modal-tr-model">Translation model id (OpenRouter)</Label>
-              <Input
-                id="modal-tr-model"
-                aria-invalid={aiFieldErrors.translateModel ? true : undefined}
-                className={invalidInputClass(Boolean(aiFieldErrors.translateModel))}
-                placeholder="e.g. openai/gpt-oss-20b:free"
-                value={translateModel}
-                onChange={(e) => {
-                  setTranslateModel(e.target.value);
-                  clearAiFieldError('translateModel');
-                }}
-              />
-              {aiFieldErrors.translateModel ? (
-                <p className="text-destructive text-xs" role="alert">
-                  {aiFieldErrors.translateModel}
-                </p>
-              ) : (
+
+            <div className="border-border border-t pt-4 space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="modal-translate-provider">Caption translation provider</Label>
+                <Select
+                  value={textTranslateProvider || SELECT_UNSET}
+                  onValueChange={(next) => {
+                    if (next === SELECT_UNSET) {
+                      setTextTranslateProvider('');
+                      setTranslateModel('');
+                      clearAiFieldError('textTranslateProvider');
+                      return;
+                    }
+                    const value = next as LiveTranslationTextTranslateProvider;
+                    setTextTranslateProvider(value);
+                    setTranslateModel('');
+                    clearAiFieldError('textTranslateProvider');
+                    clearAiFieldError('groqKey');
+                    clearAiFieldError('openRouterKey');
+                    clearAiFieldError('translateModel');
+                    clearAiFieldError('gcpJson');
+                  }}
+                >
+                  <SelectTrigger
+                    id="modal-translate-provider"
+                    aria-invalid={aiFieldErrors.textTranslateProvider ? true : undefined}
+                    className={invalidInputClass(Boolean(aiFieldErrors.textTranslateProvider))}
+                  >
+                    <SelectValue placeholder="Please select…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SELECT_UNSET}>Please select…</SelectItem>
+                    <SelectItem value="gcp">Google Cloud Translation (NMT)</SelectItem>
+                    <SelectItem value="groq">Groq (chat)</SelectItem>
+                    <SelectItem value="openrouter">OpenRouter (chat)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {aiFieldErrors.textTranslateProvider ? (
+                  <p className="text-destructive text-xs" role="alert">
+                    {aiFieldErrors.textTranslateProvider}
+                  </p>
+                ) : translatePricing ? (
+                  <p className="text-muted-foreground text-xs">
+                    Free / limits: {translatePricing.freeUsageLimit} After free:{' '}
+                    {translatePricing.priceAfterFree}{' '}
+                    <a
+                      href={translatePricing.pricingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2"
+                    >
+                      Pricing
+                    </a>
+                  </p>
+                ) : null}
+              </div>
+
+              {translateReusesSttCredentials && textTranslateProvider ? (
                 <p className="text-muted-foreground text-xs">
-                  Free models are supported. Live translation may pause briefly when the shared free
-                  pool returns 429; VideoSphere keeps only the latest audio/caption and retries.
+                  Uses the same{' '}
+                  {textTranslateProvider === 'groq'
+                    ? 'Groq API key'
+                    : textTranslateProvider === 'gcp'
+                      ? 'Google Cloud service account'
+                      : 'OpenRouter API key'}{' '}
+                  as STT above.
                 </p>
-              )}
+              ) : null}
+
+              {showTranslateGroqKey ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-tr-groq-key">Groq API key</Label>
+                  <div className="relative">
+                    <Input
+                      id="modal-tr-groq-key"
+                      type={showGroqKey ? 'text' : 'password'}
+                      autoComplete="off"
+                      aria-invalid={aiFieldErrors.groqKey ? true : undefined}
+                      className={invalidInputClass(Boolean(aiFieldErrors.groqKey), 'pr-10')}
+                      placeholder={
+                        channel?.hasGroqKey ? '•••• configured — paste to replace' : 'gsk_…'
+                      }
+                      value={groqKey}
+                      onChange={(e) => {
+                        setGroqKey(e.target.value);
+                        clearAiFieldError('groqKey');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGroqKey((v) => !v)}
+                      className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
+                      aria-label={showGroqKey ? 'Hide Groq API key' : 'Show Groq API key'}
+                      aria-pressed={showGroqKey}
+                    >
+                      {showGroqKey ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                  {aiFieldErrors.groqKey ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.groqKey}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showTranslateOpenRouterKey ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-tr-or-key">OpenRouter API key</Label>
+                  <div className="relative">
+                    <Input
+                      id="modal-tr-or-key"
+                      type={showOpenRouterKey ? 'text' : 'password'}
+                      autoComplete="off"
+                      aria-invalid={aiFieldErrors.openRouterKey ? true : undefined}
+                      className={invalidInputClass(Boolean(aiFieldErrors.openRouterKey), 'pr-10')}
+                      placeholder={hasOpenRouter ? '•••• configured — paste to replace' : 'sk-or-…'}
+                      value={openRouterKey}
+                      onChange={(e) => {
+                        setOpenRouterKey(e.target.value);
+                        clearAiFieldError('openRouterKey');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowOpenRouterKey((v) => !v)}
+                      className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
+                      aria-label={showOpenRouterKey ? 'Hide API key' : 'Show API key'}
+                      aria-pressed={showOpenRouterKey}
+                    >
+                      {showOpenRouterKey ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                  {aiFieldErrors.openRouterKey ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.openRouterKey}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showTranslateGcpSa ? (
+                channel?.hasGcpServiceAccount ? (
+                  <p className="text-muted-foreground text-xs">
+                    Using the Google Cloud service account already saved on this channel. Enable
+                    Cloud Translation API on that project.
+                  </p>
+                ) : (
+                  renderAiGcpJsonFields({
+                    fileInputId: 'modal-tr-gcp-json-file',
+                    textareaId: 'modal-tr-gcp-json',
+                    helpText:
+                      'Enable Cloud Translation API on this project. The same JSON can be reused for TTS voices.',
+                  })
+                )
+              ) : null}
+
+              {textTranslateProvider === 'groq' || textTranslateProvider === 'openrouter' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-tr-model">
+                    Translation model id (
+                    {textTranslateProvider === 'groq' ? 'Groq chat' : 'OpenRouter'})
+                  </Label>
+                  <Input
+                    id="modal-tr-model"
+                    aria-invalid={aiFieldErrors.translateModel ? true : undefined}
+                    className={invalidInputClass(Boolean(aiFieldErrors.translateModel))}
+                    placeholder={
+                      textTranslateProvider === 'groq'
+                        ? 'e.g. llama-3.1-8b-instant'
+                        : 'e.g. openai/gpt-oss-20b:free'
+                    }
+                    value={translateModel}
+                    onChange={(e) => {
+                      setTranslateModel(e.target.value);
+                      clearAiFieldError('translateModel');
+                    }}
+                  />
+                  {aiFieldErrors.translateModel ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.translateModel}
+                    </p>
+                  ) : textTranslateProvider === 'openrouter' ? (
+                    <p className="text-muted-foreground text-xs">
+                      OpenRouter <code className="text-xs">:free</code> models (~50 requests/day)
+                      are not enough for a full sermon. Prefer Google Cloud Translation for live
+                      services.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
           <DialogFooter>
@@ -1243,13 +1725,18 @@ export function TranslationConfigClient() {
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {channel?.hasGcpServiceAccount ? 'Edit Google Cloud TTS' : 'Add Google Cloud TTS'}
+              {Object.keys(channel?.gcpTtsVoices ?? {}).length > 0
+                ? 'Edit Google Cloud TTS'
+                : channel?.hasGcpServiceAccount
+                  ? 'Finish Google Cloud TTS setup'
+                  : 'Add Google Cloud TTS'}
             </DialogTitle>
             <DialogDescription>
-              Upload or paste a service account JSON key, load voices, choose a{' '}
-              <strong className="font-medium text-foreground">voice model</strong> (see free monthly
-              character limits), then pick one voice per language. At least one voice is required
-              for spoken translation. Pricing:{' '}
+              {channel?.hasGcpServiceAccount &&
+              Object.keys(channel?.gcpTtsVoices ?? {}).length === 0
+                ? 'Your service account is already saved. Load voices, choose a voice model, then pick one voice per language.'
+                : 'Upload or paste a service account JSON key, load voices, choose a voice model (see free monthly character limits), then pick one voice per language.'}{' '}
+              At least one voice is required for spoken translation. Pricing:{' '}
               <a
                 href={GCP_TTS_PRICING_URL}
                 target="_blank"
@@ -1374,24 +1861,32 @@ export function TranslationConfigClient() {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="modal-tts-model">Voice model</Label>
-                  <select
-                    id="modal-tts-model"
-                    className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-                    value={ttsVoiceFamily}
-                    onChange={(e) => {
-                      onTtsVoiceFamilyChange((e.target.value || '') as GcpTtsVoiceFamilyId | '');
+                  <Select
+                    value={ttsVoiceFamily || SELECT_UNSET}
+                    onValueChange={(value) => {
+                      if (value === SELECT_UNSET) {
+                        onTtsVoiceFamilyChange('');
+                        clearGcpFieldError('ttsVoice');
+                        return;
+                      }
+                      onTtsVoiceFamilyChange(value as GcpTtsVoiceFamilyId);
                       clearGcpFieldError('ttsVoice');
                     }}
                   >
-                    <option value="">Select a model…</option>
-                    {gcpVoiceFamilies.map((family) => (
-                      <option key={family.id} value={family.id}>
-                        {family.freeUsageLimit
-                          ? `${family.label} — ${family.freeUsageLimit}`
-                          : family.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id="modal-tts-model">
+                      <SelectValue placeholder="Select a model…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SELECT_UNSET}>Select a model…</SelectItem>
+                      {gcpVoiceFamilies.map((family) => (
+                        <SelectItem key={family.id} value={family.id}>
+                          {family.freeUsageLimit
+                            ? `${family.label} — ${family.freeUsageLimit}`
+                            : family.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   {selectedFamilyInfo ? (
                     selectedFamilyInfo.freeUsageLimit ? (
                       <p className="text-muted-foreground text-xs">
@@ -1446,37 +1941,46 @@ export function TranslationConfigClient() {
                         <div key={lang} className="space-y-2">
                           <Label htmlFor={fieldId}>{langLabel} voice</Label>
                           <div className="flex flex-wrap items-center gap-2">
-                            <select
-                              id={fieldId}
-                              aria-invalid={fieldError ? true : undefined}
-                              className={invalidInputClass(
-                                Boolean(fieldError),
-                                'border-input bg-background min-w-0 flex-1 rounded-md border px-3 py-2 text-sm'
-                              )}
-                              value={ttsVoices[lang] ?? ''}
-                              onChange={(e) => {
-                                const value = e.target.value;
+                            <Select
+                              value={ttsVoices[lang] || SELECT_UNSET}
+                              onValueChange={(value) => {
                                 setTtsVoices((prev) => {
                                   const next = { ...prev };
-                                  if (value) next[lang] = value;
+                                  if (value && value !== SELECT_UNSET) next[lang] = value;
                                   else delete next[lang];
                                   return next;
                                 });
                                 clearGcpFieldError(fieldId);
                                 clearGcpFieldError('ttsVoice');
                               }}
+                              disabled={options.length === 0}
                             >
-                              <option value="">
-                                {options.length > 0
-                                  ? 'Select a voice…'
-                                  : 'No voices for this language in the selected model'}
-                              </option>
-                              {options.map((voice) => (
-                                <option key={voice.name} value={voice.name}>
-                                  {formatGcpTtsVoiceOptionLabel(voice)}
-                                </option>
-                              ))}
-                            </select>
+                              <SelectTrigger
+                                id={fieldId}
+                                aria-invalid={fieldError ? true : undefined}
+                                className={invalidInputClass(Boolean(fieldError), 'min-w-0 flex-1')}
+                              >
+                                <SelectValue
+                                  placeholder={
+                                    options.length > 0
+                                      ? 'Select a voice…'
+                                      : 'No voices for this language in the selected model'
+                                  }
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={SELECT_UNSET}>
+                                  {options.length > 0
+                                    ? 'Select a voice…'
+                                    : 'No voices for this language in the selected model'}
+                                </SelectItem>
+                                {options.map((voice) => (
+                                  <SelectItem key={voice.name} value={voice.name}>
+                                    {formatGcpTtsVoiceOptionLabel(voice)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             <Button
                               type="button"
                               variant="outline"

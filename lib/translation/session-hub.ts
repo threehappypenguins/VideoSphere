@@ -11,13 +11,18 @@ import {
   sttLanguageHintForTranslationLanguage,
 } from '@/lib/translation/languages';
 import { transcribeAudio } from '@/lib/translation/transcribe';
-import { translateTextWithOpenRouter } from '@/lib/translation/openrouter-translate';
+import {
+  GroqTranslateRateLimitError,
+  OpenRouterTranslateRateLimitError,
+  translateLiveCaptionText,
+} from '@/lib/translation/translate-text';
 import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
 import { pcm16MonoToWav } from '@/lib/translation/pcm-wav';
 import {
   gcpTtsVoiceForLanguage,
   languageCodeHintFromVoiceName,
 } from '@/lib/translation/gcp-tts-voices';
+import { isNearSilentPcm16, sanitizeSttTranscript } from '@/lib/translation/stt-quality';
 
 const MAX_SEGMENTS = 40;
 /** Brief grace for EventSource reconnects; then language work + cached captions are dropped. */
@@ -97,7 +102,24 @@ type ChannelSession = {
   audioBytes: Map<string, { mime: string; data: Buffer; expiresAt: number }>;
 };
 
-const sessions = new Map<string, ChannelSession>();
+/**
+ * Process-wide session store. Must live on `globalThis` so Next.js route modules
+ * (and HMR reloads) share one Map — otherwise TTS bytes are stored by the SSE
+ * route and `/api/translation/public/audio/...` looks up an empty Map → 404.
+ */
+type GlobalWithTranslationSessions = typeof globalThis & {
+  __videosphereTranslationSessions?: Map<string, ChannelSession>;
+};
+
+function getSessionsMap(): Map<string, ChannelSession> {
+  const g = globalThis as GlobalWithTranslationSessions;
+  if (!g.__videosphereTranslationSessions) {
+    g.__videosphereTranslationSessions = new Map();
+  }
+  return g.__videosphereTranslationSessions;
+}
+
+const sessions = getSessionsMap();
 
 function now(): number {
   return Date.now();
@@ -173,20 +195,14 @@ function translateRateLimitBackoffMs(consecutive: number): number {
  * Schedules a single delayed `processLanguageQueue` while rate-limited.
  * @param session - Channel session.
  * @param language - Listen language code.
- * @param preferAudio - Whether TTS was requested by the latest subscriber.
  * @param waitMs - Delay before retry.
  */
-function scheduleTranslateRetry(
-  session: ChannelSession,
-  language: string,
-  preferAudio: boolean,
-  waitMs: number
-): void {
+function scheduleTranslateRetry(session: ChannelSession, language: string, waitMs: number): void {
   const bucket = session.languages.get(language);
   if (!bucket || bucket.rateLimitTimer) return;
   bucket.rateLimitTimer = setTimeout(() => {
     bucket.rateLimitTimer = null;
-    void processLanguageQueue(session, language, preferAudio);
+    void processLanguageQueue(session, language);
   }, waitMs);
 }
 
@@ -199,7 +215,9 @@ function broadcastLanguage(
   if (!bucket) return;
   for (const sub of bucket.subscribers) {
     try {
-      sub.send(event);
+      // Captions-only listeners must not receive TTS URLs (mute / never tapped Listen).
+      const payload = event.audioUrl && !sub.wantAudio ? { ...event, audioUrl: undefined } : event;
+      sub.send(payload);
     } catch {
       bucket.subscribers.delete(sub);
     }
@@ -277,45 +295,14 @@ function scheduleLanguageIdle(session: ChannelSession, language: string): void {
   }, LANGUAGE_IDLE_MS);
 }
 
-async function ensureLanguageWork(
-  session: ChannelSession,
-  language: string,
-  wantAudio: boolean
-): Promise<void> {
-  let bucket = session.languages.get(language);
-  if (!bucket) {
-    bucket = {
-      subscribers: new Set(),
-      idleTimer: null,
-      busy: false,
-      queue: [],
-      rateLimitedUntil: 0,
-      rateLimitNotifiedAt: 0,
-      consecutiveRateLimits: 0,
-      rateLimitTimer: null,
-    };
-    session.languages.set(language, bucket);
-    // Live-only: do not backfill/translate historical segments for late joiners.
-  }
-  if (bucket.idleTimer) {
-    clearTimeout(bucket.idleTimer);
-    bucket.idleTimer = null;
-  }
-  void processLanguageQueue(session, language, wantAudio);
-}
-
-async function processLanguageQueue(
-  session: ChannelSession,
-  language: string,
-  preferAudio: boolean
-): Promise<void> {
+async function processLanguageQueue(session: ChannelSession, language: string): Promise<void> {
   const bucket = session.languages.get(language);
   if (!bucket || bucket.busy) return;
 
   const waitMs = bucket.rateLimitedUntil - now();
   if (waitMs > 0) {
     coalesceLanguageQueueToLatest(bucket);
-    scheduleTranslateRetry(session, language, preferAudio, waitMs);
+    scheduleTranslateRetry(session, language, waitMs);
     return;
   }
 
@@ -328,7 +315,7 @@ async function processLanguageQueue(
       const segment = session.segments.find((s) => s.id === segmentId);
       if (!segment) continue;
 
-      const needsAudio = [...bucket.subscribers].some((s) => s.wantAudio) || preferAudio;
+      // Live preference only — do not sticky-prefer TTS after the listener mutes.
       let existing = segment.byLanguage.get(language);
 
       if (!existing) {
@@ -350,19 +337,13 @@ async function processLanguageQueue(
           existing = { text: segment.sourceText };
           segment.byLanguage.set(language, existing);
         } else {
-          if (!secrets.openRouterApiKey || !secrets.openRouterTranslateModel) {
-            broadcastLanguage(session, language, {
-              type: 'error',
-              message: 'Translation is not configured for this channel.',
-              ts: now(),
-            });
-            break;
-          }
-
           try {
-            const text = await translateTextWithOpenRouter({
-              apiKey: secrets.openRouterApiKey,
-              model: secrets.openRouterTranslateModel,
+            const text = await translateLiveCaptionText({
+              provider: secrets.textTranslateProvider,
+              gcpServiceAccountJson: secrets.gcpServiceAccountJson,
+              openRouterApiKey: secrets.openRouterApiKey,
+              groqApiKey: secrets.groqApiKey,
+              openRouterTranslateModel: secrets.openRouterTranslateModel,
               text: segment.sourceText,
               sourceLanguage,
               targetLanguage: language,
@@ -372,19 +353,33 @@ async function processLanguageQueue(
             bucket.consecutiveRateLimits = 0;
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Translation failed';
-            const rateLimited = /\(429\)/.test(message) || /rate.?limit/i.test(message);
-            if (rateLimited) {
+            const rateLimitError =
+              error instanceof OpenRouterTranslateRateLimitError ||
+              error instanceof GroqTranslateRateLimitError
+                ? error
+                : /\(429\)/.test(message)
+                  ? new OpenRouterTranslateRateLimitError(message)
+                  : null;
+            if (rateLimitError) {
               bucket.queue.push(segmentId);
               coalesceLanguageQueueToLatest(bucket);
               bucket.consecutiveRateLimits += 1;
-              const backoffMs = translateRateLimitBackoffMs(bucket.consecutiveRateLimits);
+              const headerBackoffMs =
+                rateLimitError.retryAfterSeconds != null
+                  ? rateLimitError.retryAfterSeconds * 1000
+                  : 0;
+              const backoffMs = Math.max(
+                headerBackoffMs,
+                translateRateLimitBackoffMs(bucket.consecutiveRateLimits)
+              );
               bucket.rateLimitedUntil = now() + backoffMs;
               if (now() - bucket.rateLimitNotifiedAt > TRANSLATE_RATE_LIMIT_BACKOFF_MS) {
                 bucket.rateLimitNotifiedAt = now();
                 broadcastLanguage(session, language, {
                   type: 'error',
                   message:
-                    'Translation is temporarily rate-limited (common on free OpenRouter models). Pausing, then retrying the latest caption. For steady live captions, use a paid or BYOK translation model.',
+                    'Translation is temporarily rate-limited. Pausing, then retrying the latest caption. ' +
+                    'Tip: with a GCP service account, VideoSphere uses Cloud Translation (much higher free monthly quota) instead of OpenRouter :free models.',
                   ts: now(),
                 });
               }
@@ -392,7 +387,7 @@ async function processLanguageQueue(
             }
             broadcastLanguage(session, language, {
               type: 'error',
-              message: 'Translation failed for a caption segment. Continuing with the next one.',
+              message: message.slice(0, 280) || 'Translation failed for a caption segment.',
               ts: now(),
             });
             continue;
@@ -406,7 +401,9 @@ async function processLanguageQueue(
         break;
       }
 
-      if (needsAudio && !existing.audioId) {
+      // Re-check after awaits — mute must stop new TTS immediately.
+      const stillWantsAudio = [...bucket.subscribers].some((s) => s.wantAudio);
+      if (stillWantsAudio && !existing.audioId) {
         const secrets = await getRuntimeSecretsForUser(session.userId);
         const voiceName = gcpTtsVoiceForLanguage(secrets?.gcpTtsVoices, language);
         if (secrets?.gcpServiceAccountJson && voiceName) {
@@ -417,7 +414,7 @@ async function processLanguageQueue(
               languageCode: languageCodeHintFromVoiceName(voiceName) || language,
               text: existing.text,
             });
-            if (mp3.length > 0) {
+            if (mp3.length > 0 && [...bucket.subscribers].some((s) => s.wantAudio)) {
               const audioId = randomUUID();
               session.audioBytes.set(audioId, {
                 mime: 'audio/mpeg',
@@ -460,9 +457,9 @@ async function processLanguageQueue(
       const delay = Math.max(0, bucket.rateLimitedUntil - now());
       if (delay > 0) {
         coalesceLanguageQueueToLatest(bucket);
-        scheduleTranslateRetry(session, language, preferAudio, delay);
+        scheduleTranslateRetry(session, language, delay);
       } else {
-        void processLanguageQueue(session, language, preferAudio);
+        void processLanguageQueue(session, language);
       }
     }
   }
@@ -484,7 +481,7 @@ function enqueueSegmentForActiveLanguages(
     if (bucket.rateLimitedUntil > now()) {
       coalesceLanguageQueueToLatest(bucket);
     }
-    void processLanguageQueue(session, language, false);
+    void processLanguageQueue(session, language);
   }
 }
 
@@ -539,18 +536,27 @@ async function processAudioQueue(session: ChannelSession): Promise<void> {
         break;
       }
 
+      // Skip near-silence before STT — Whisper invents “Thank you” / outros on cutoff.
+      if (isNearSilentPcm16(item.pcm)) {
+        continue;
+      }
+
       const wav = pcm16MonoToWav(item.pcm, item.sampleRate);
       let text = '';
       try {
-        text = await transcribeAudio({
-          provider: secrets.sttProvider,
-          openRouterApiKey: secrets.openRouterApiKey,
-          groqApiKey: secrets.groqApiKey,
-          model: secrets.sttModel,
-          audio: wav,
-          format: 'wav',
-          language: sttLanguageHintForTranslationLanguage(secrets.sourceLanguage),
-        });
+        text = sanitizeSttTranscript(
+          await transcribeAudio({
+            provider: secrets.sttProvider,
+            openRouterApiKey: secrets.openRouterApiKey,
+            groqApiKey: secrets.groqApiKey,
+            gcpServiceAccountJson: secrets.gcpServiceAccountJson,
+            model: secrets.sttModel,
+            audio: wav,
+            format: 'wav',
+            sampleRateHertz: item.sampleRate,
+            language: sttLanguageHintForTranslationLanguage(secrets.sourceLanguage),
+          })
+        );
         session.sttConsecutiveRateLimits = 0;
       } catch (error) {
         const message = error instanceof Error ? error.message : 'STT failed';
@@ -720,15 +726,46 @@ export function subscribePublicListener(params: {
     lastHeartbeatAt: now(),
   };
 
-  void ensureLanguageWork(session, language, wantAudio).then(() => {
-    const bucket = session.languages.get(language);
-    if (!bucket) return;
+  // Add subscriber before any queue work so mute/wantAudio is visible to in-flight TTS checks.
+  const bucketReady = (() => {
+    let bucket = session.languages.get(language);
+    if (!bucket) {
+      bucket = {
+        subscribers: new Set(),
+        idleTimer: null,
+        busy: false,
+        queue: [],
+        rateLimitedUntil: 0,
+        rateLimitNotifiedAt: 0,
+        consecutiveRateLimits: 0,
+        rateLimitTimer: null,
+      };
+      session.languages.set(language, bucket);
+    }
+    if (bucket.idleTimer) {
+      clearTimeout(bucket.idleTimer);
+      bucket.idleTimer = null;
+    }
     bucket.subscribers.add(subscriber);
+    return bucket;
+  })();
 
-    send({ type: 'status', live: session.ingestActive, ts: now() });
-    // No historical caption replay — only live segments from this point forward.
-    void processLanguageQueue(session, language, wantAudio);
-  });
+  send({ type: 'status', live: session.ingestActive, ts: now() });
+  // No historical caption replay — only live segments from this point forward.
+  // If this listener wants speech, finish TTS for the latest already-translated
+  // segment (e.g. they tapped Listen after captions-only).
+  if (wantAudio) {
+    for (let i = session.segments.length - 1; i >= 0; i -= 1) {
+      const segment = session.segments[i];
+      if (!segment) continue;
+      const existing = segment.byLanguage.get(language);
+      if (existing && !existing.audioId) {
+        bucketReady.queue.push(segment.id);
+        break;
+      }
+    }
+  }
+  void processLanguageQueue(session, language);
 
   return () => {
     const bucket = session.languages.get(language);

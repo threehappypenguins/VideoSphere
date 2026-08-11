@@ -13,7 +13,9 @@ import {
   isListenReady,
   isTranslationReady,
   normalizeSttProvider,
+  normalizeTextTranslateProvider,
   type LiveTranslationSttProvider,
+  type LiveTranslationTextTranslateProvider,
   type TranslationCapabilityInput,
 } from '@/lib/translation/capabilities';
 import {
@@ -53,13 +55,15 @@ function tryDecrypt(ciphertext: string | undefined): string | null {
 export function capabilityInputFromDoc(
   doc: LiveTranslationChannelDocument
 ): TranslationCapabilityInput {
+  const hasGcpServiceAccount = hasEncrypted(doc.gcpServiceAccountJsonEncrypted);
   return {
     sttProvider: normalizeSttProvider(doc.sttProvider),
+    textTranslateProvider: normalizeTextTranslateProvider(doc.textTranslateProvider),
     hasOpenRouterKey: hasEncrypted(doc.openRouterApiKeyEncrypted),
     hasGroqKey: hasEncrypted(doc.groqApiKeyEncrypted),
     sttModel: doc.openRouterSttModel ?? null,
     openRouterTranslateModel: doc.openRouterTranslateModel ?? null,
-    hasGcpServiceAccount: hasEncrypted(doc.gcpServiceAccountJsonEncrypted),
+    hasGcpServiceAccount,
     gcpTtsVoices: normalizeGcpTtsVoices(doc.gcpTtsVoices),
   };
 }
@@ -77,6 +81,7 @@ export function toOwnerView(
   const capability = capabilityInputFromDoc(doc);
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const sttProvider = normalizeSttProvider(doc.sttProvider);
+  const textTranslateProvider = normalizeTextTranslateProvider(doc.textTranslateProvider);
 
   const streamKeyPlaintext = extras?.streamKeyPlaintext;
   const rtmpPublishUrl = streamKeyPlaintext ? buildRtmpPublishUrl(streamKeyPlaintext) : null;
@@ -89,6 +94,7 @@ export function toOwnerView(
     sourceLanguage: doc.sourceLanguage || 'en',
     enabledLanguages: [...(doc.enabledLanguages ?? [])],
     sttProvider,
+    textTranslateProvider,
     sttModel,
     openRouterSttModel: sttModel,
     openRouterTranslateModel: doc.openRouterTranslateModel?.trim() || null,
@@ -145,7 +151,6 @@ export async function getOrCreateChannelForUser(
     publicEnabled: false,
     sourceLanguage: 'en',
     enabledLanguages: [],
-    sttProvider: 'openrouter',
     streamKeyHash: hashStreamKey(streamKeyPlaintext),
     createdAt: now,
     updatedAt: now,
@@ -213,6 +218,7 @@ export interface LiveTranslationChannelPatch {
   sourceLanguage?: string;
   enabledLanguages?: string[];
   sttProvider?: LiveTranslationSttProvider;
+  textTranslateProvider?: LiveTranslationTextTranslateProvider;
   /** STT model id (stored as `openRouterSttModel`). */
   sttModel?: string | null;
   /** @deprecated Prefer `sttModel`. */
@@ -238,7 +244,14 @@ export async function updateChannelForUser(
   if (patch.publicEnabled !== undefined) $set.publicEnabled = patch.publicEnabled;
   if (patch.sourceLanguage !== undefined) $set.sourceLanguage = patch.sourceLanguage;
   if (patch.enabledLanguages !== undefined) $set.enabledLanguages = patch.enabledLanguages;
-  if (patch.sttProvider !== undefined) $set.sttProvider = normalizeSttProvider(patch.sttProvider);
+  if (patch.sttProvider !== undefined) {
+    const sttProvider = normalizeSttProvider(patch.sttProvider);
+    if (sttProvider) $set.sttProvider = sttProvider;
+  }
+  if (patch.textTranslateProvider !== undefined) {
+    const textTranslateProvider = normalizeTextTranslateProvider(patch.textTranslateProvider);
+    if (textTranslateProvider) $set.textTranslateProvider = textTranslateProvider;
+  }
   const sttModel = patch.sttModel !== undefined ? patch.sttModel : patch.openRouterSttModel;
   if (sttModel !== undefined) {
     $set.openRouterSttModel = sttModel?.trim() || null;
@@ -278,7 +291,7 @@ export async function updateChannelForUser(
     const updated = await LiveTranslationChannelModel.findOneAndUpdate(
       { userId },
       { $set },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -310,7 +323,7 @@ export async function setOpenRouterApiKey(
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $set: { openRouterApiKeyEncrypted: encryptToken(apiKey.trim()) } },
-    { new: true }
+    { returnDocument: 'after' }
   )
     .lean()
     .exec();
@@ -331,7 +344,7 @@ export async function setGroqApiKey(
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $set: { groqApiKeyEncrypted: encryptToken(apiKey.trim()) } },
-    { new: true }
+    { returnDocument: 'after' }
   )
     .lean()
     .exec();
@@ -352,7 +365,7 @@ export async function setGcpServiceAccountJson(
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $set: { gcpServiceAccountJsonEncrypted: encryptToken(json) } },
-    { new: true }
+    { returnDocument: 'after' }
   )
     .lean()
     .exec();
@@ -381,7 +394,7 @@ export async function clearCredential(
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $unset: unset },
-    { new: true }
+    { returnDocument: 'after' }
   )
     .lean()
     .exec();
@@ -401,7 +414,7 @@ export async function rotateStreamKey(
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $set: { streamKeyHash: hashStreamKey(streamKeyPlaintext) } },
-    { new: true }
+    { returnDocument: 'after' }
   )
     .lean()
     .exec();
@@ -412,7 +425,8 @@ export async function rotateStreamKey(
  * Server-only decrypted credentials for pipeline workers.
  */
 export interface LiveTranslationRuntimeSecrets {
-  sttProvider: LiveTranslationSttProvider;
+  sttProvider: LiveTranslationSttProvider | null;
+  textTranslateProvider: LiveTranslationTextTranslateProvider | null;
   openRouterApiKey: string | null;
   groqApiKey: string | null;
   gcpServiceAccountJson: string | null;
@@ -442,19 +456,23 @@ export async function getRuntimeSecretsForUser(
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const openRouterTranslateModel = doc.openRouterTranslateModel?.trim() || null;
   const gcpTtsVoices = normalizeGcpTtsVoices(doc.gcpTtsVoices);
+  const hasGcpServiceAccount = Boolean(gcpServiceAccountJson);
   const sttProvider = normalizeSttProvider(doc.sttProvider);
+  const textTranslateProvider = normalizeTextTranslateProvider(doc.textTranslateProvider);
   const capability: TranslationCapabilityInput = {
     sttProvider,
+    textTranslateProvider,
     hasOpenRouterKey: Boolean(openRouterApiKey),
     hasGroqKey: Boolean(groqApiKey),
     sttModel,
     openRouterTranslateModel,
-    hasGcpServiceAccount: Boolean(gcpServiceAccountJson),
+    hasGcpServiceAccount,
     gcpTtsVoices,
   };
 
   return {
     sttProvider,
+    textTranslateProvider,
     openRouterApiKey,
     groqApiKey,
     gcpServiceAccountJson,

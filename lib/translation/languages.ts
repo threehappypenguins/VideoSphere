@@ -25,47 +25,64 @@ export interface TranslationLanguageOption {
  *
  * Mandarin (`zh`) and Cantonese (`yue`) are separate so translate text and TTS voices
  * stay aligned (GCP uses `cmn-*` vs `yue-HK-*`).
+ *
+ * Ordered alphabetically by English `name` for admin and listen pickers.
  */
 export const TRANSLATION_LANGUAGES: readonly TranslationLanguageOption[] = [
+  { code: 'af', name: 'Afrikaans', nativeName: 'Afrikaans' },
+  { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
+  { code: 'bn', name: 'Bengali', nativeName: 'বাংলা' },
+  { code: 'yue', name: 'Chinese - Cantonese', nativeName: '粤语' },
+  { code: 'zh', name: 'Chinese - Mandarin', nativeName: '普通话' },
+  { code: 'cs', name: 'Czech', nativeName: 'Čeština' },
+  { code: 'da', name: 'Danish', nativeName: 'Dansk' },
+  { code: 'nl', name: 'Dutch', nativeName: 'Nederlands' },
   { code: 'en', name: 'English', nativeName: 'English' },
-  { code: 'es', name: 'Spanish', nativeName: 'Español' },
-  { code: 'pt', name: 'Portuguese', nativeName: 'Português' },
+  { code: 'fi', name: 'Finnish', nativeName: 'Suomi' },
   { code: 'fr', name: 'French', nativeName: 'Français' },
   { code: 'de', name: 'German', nativeName: 'Deutsch' },
-  { code: 'it', name: 'Italian', nativeName: 'Italiano' },
-  { code: 'nl', name: 'Dutch', nativeName: 'Nederlands' },
-  { code: 'pl', name: 'Polish', nativeName: 'Polski' },
-  { code: 'ru', name: 'Russian', nativeName: 'Русский' },
-  { code: 'uk', name: 'Ukrainian', nativeName: 'Українська' },
-  { code: 'zh', name: 'Chinese - Mandarin', nativeName: '普通话' },
-  { code: 'yue', name: 'Chinese - Cantonese', nativeName: '粤语' },
-  { code: 'ja', name: 'Japanese', nativeName: '日本語' },
-  { code: 'ko', name: 'Korean', nativeName: '한국어' },
-  { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
-  { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी' },
-  { code: 'bn', name: 'Bengali', nativeName: 'বাংলা' },
-  { code: 'tr', name: 'Turkish', nativeName: 'Türkçe' },
-  { code: 'vi', name: 'Vietnamese', nativeName: 'Tiếng Việt' },
-  { code: 'th', name: 'Thai', nativeName: 'ไทย' },
-  { code: 'id', name: 'Indonesian', nativeName: 'Bahasa Indonesia' },
-  { code: 'ms', name: 'Malay', nativeName: 'Bahasa Melayu' },
-  { code: 'sv', name: 'Swedish', nativeName: 'Svenska' },
-  { code: 'da', name: 'Danish', nativeName: 'Dansk' },
-  { code: 'no', name: 'Norwegian', nativeName: 'Norsk' },
-  { code: 'fi', name: 'Finnish', nativeName: 'Suomi' },
-  { code: 'tl', name: 'Tagalog', nativeName: 'Tagalog' },
   { code: 'el', name: 'Greek', nativeName: 'Ελληνικά' },
   { code: 'he', name: 'Hebrew', nativeName: 'עברית' },
-  { code: 'cs', name: 'Czech', nativeName: 'Čeština' },
-  { code: 'ro', name: 'Romanian', nativeName: 'Română' },
+  { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी' },
   { code: 'hu', name: 'Hungarian', nativeName: 'Magyar' },
+  { code: 'id', name: 'Indonesian', nativeName: 'Bahasa Indonesia' },
+  { code: 'it', name: 'Italian', nativeName: 'Italiano' },
+  { code: 'ja', name: 'Japanese', nativeName: '日本語' },
+  { code: 'ko', name: 'Korean', nativeName: '한국어' },
+  { code: 'ms', name: 'Malay', nativeName: 'Bahasa Melayu' },
+  { code: 'no', name: 'Norwegian', nativeName: 'Norsk' },
+  { code: 'pl', name: 'Polish', nativeName: 'Polski' },
+  { code: 'pt', name: 'Portuguese', nativeName: 'Português' },
+  { code: 'ro', name: 'Romanian', nativeName: 'Română' },
+  { code: 'ru', name: 'Russian', nativeName: 'Русский' },
+  { code: 'es', name: 'Spanish', nativeName: 'Español' },
+  { code: 'sw', name: 'Swahili', nativeName: 'Kiswahili' },
+  { code: 'sv', name: 'Swedish', nativeName: 'Svenska' },
+  { code: 'tl', name: 'Tagalog', nativeName: 'Tagalog' },
   { code: 'ta', name: 'Tamil', nativeName: 'தமிழ்' },
   { code: 'te', name: 'Telugu', nativeName: 'తెలుగు' },
-  { code: 'sw', name: 'Swahili', nativeName: 'Kiswahili' },
-  { code: 'af', name: 'Afrikaans', nativeName: 'Afrikaans' },
+  { code: 'th', name: 'Thai', nativeName: 'ไทย' },
+  { code: 'tr', name: 'Turkish', nativeName: 'Türkçe' },
+  { code: 'uk', name: 'Ukrainian', nativeName: 'Українська' },
+  { code: 'vi', name: 'Vietnamese', nativeName: 'Tiếng Việt' },
 ] as const;
 
 const BY_CODE = new Map(TRANSLATION_LANGUAGES.map((lang) => [lang.code, lang]));
+
+/**
+ * Sorts language options alphabetically by English display name.
+ * @param a - First option.
+ * @param b - Second option.
+ * @returns `localeCompare` result for English names (then codes as tiebreaker).
+ */
+export function compareTranslationLanguageOptions(
+  a: TranslationLanguageOption,
+  b: TranslationLanguageOption
+): number {
+  const byName = a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+  if (byName !== 0) return byName;
+  return a.code.localeCompare(b.code, 'en');
+}
 
 /**
  * Returns whether a code is in the curated translation language list.
@@ -150,23 +167,26 @@ function searchableText(value: string): string {
 /**
  * Filters language options by English name, native name, or code (live search).
  * Matching ignores case and diacritics (e.g. `franc` matches `Français`).
+ * Results are sorted alphabetically by English name.
  * @param options - Candidate languages.
  * @param query - User search text.
- * @returns Matching options in original order.
+ * @returns Matching options in English-name order.
  */
 export function filterTranslationLanguages(
   options: readonly TranslationLanguageOption[],
   query: string
 ): TranslationLanguageOption[] {
   const q = searchableText(query);
-  if (!q) return [...options];
-  return options.filter((lang) => {
-    return (
-      searchableText(lang.code).includes(q) ||
-      searchableText(lang.name).includes(q) ||
-      searchableText(lang.nativeName).includes(q)
-    );
-  });
+  const matched = !q
+    ? [...options]
+    : options.filter((lang) => {
+        return (
+          searchableText(lang.code).includes(q) ||
+          searchableText(lang.name).includes(q) ||
+          searchableText(lang.nativeName).includes(q)
+        );
+      });
+  return matched.sort(compareTranslationLanguageOptions);
 }
 
 /**

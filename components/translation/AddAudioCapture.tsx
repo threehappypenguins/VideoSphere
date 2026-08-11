@@ -3,12 +3,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const TARGET_SAMPLE_RATE = 16000;
 /** Longer chunks = fewer free-tier STT requests per minute (~7.5/min vs ~15/min at 4s). */
 const CHUNK_MS = 8000;
 /** Inaudible but non-zero — Chromium can skip ScriptProcessor when gain is exactly 0. */
 const MONITOR_GAIN = 0.0001;
+/**
+ * Peak below this → skip upload (Whisper invents “Thank you” on silence/cutoff).
+ * Kept modest so quiet speech still goes through; server also gates RMS.
+ */
+const SILENCE_PEAK = 0.015;
 
 /**
  * True when the device is the browser system-default input entry.
@@ -154,6 +166,9 @@ export function AddAudioCapture(props: {
       merged.set(c, offset);
       offset += c.length;
     }
+
+    // Near-silent chunks still trigger Whisper filler captions — skip before upload.
+    if (peakAbs(merged) < SILENCE_PEAK) return;
 
     // Downsample to 16k mono PCM16
     const context = contextRef.current;
@@ -341,31 +356,39 @@ export function AddAudioCapture(props: {
 
   // Sqrt scale so quiet speech still moves the bar visibly.
   const meterPercent = Math.min(100, Math.round(Math.sqrt(Math.max(0, level)) * 100));
+  /** Radix Select sentinel so empty selection stays controlled. */
+  const deviceUnset = '__unset__';
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="translation-audio-device">Audio input</Label>
-        <select
-          id="translation-audio-device"
-          className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
-          value={deviceId}
+        <Select
+          value={deviceId || deviceUnset}
           disabled={capturing || devices.length === 0}
-          onChange={(e) => setDeviceId(e.target.value)}
+          onValueChange={(next) => {
+            if (next === deviceUnset) return;
+            setDeviceId(next);
+          }}
         >
-          {devices.length === 0 ? (
-            <option value="">No devices found</option>
-          ) : (
-            devices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
+          <SelectTrigger id="translation-audio-device">
+            <SelectValue placeholder={devices.length === 0 ? 'No devices found' : 'Select input'} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={deviceUnset}>
+              {devices.length === 0 ? 'No devices found' : 'Select input'}
+            </SelectItem>
+            {devices.map((d) => (
+              <SelectItem key={d.deviceId} value={d.deviceId}>
                 {d.label || `Microphone ${d.deviceId.slice(0, 6)}`}
-              </option>
-            ))
-          )}
-        </select>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <p className="text-muted-foreground text-xs">
-          Starts on your system default. If captions look wrong (e.g. only &quot;Thank you&quot;),
-          switch to the named microphone that matches your hardware.
+          Starts on your system default. Quiet/cutoff chunks are skipped so Whisper does not invent
+          filler like &quot;Thank you&quot;. If captions are still wrong, switch to the named mic
+          that matches your hardware.
         </p>
       </div>
 

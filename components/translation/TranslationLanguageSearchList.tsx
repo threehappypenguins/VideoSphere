@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import {
   filterTranslationLanguages,
@@ -69,8 +69,28 @@ export function TranslationLanguageSearchList(props: TranslationLanguageSearchLi
   const { options, id, listLabel, className, labelStyle = 'admin' } = props;
   const listId = useId();
   const [query, setQuery] = useState('');
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const selectedOptionRef = useRef<HTMLButtonElement | null>(null);
 
   const filtered = useMemo(() => filterTranslationLanguages(options, query), [options, query]);
+  const selectedCode = props.mode === 'single' ? props.value : '';
+
+  // Keep the selected single-select option in the list viewport (e.g. default English mid A–Z).
+  useEffect(() => {
+    if (props.mode !== 'single' || !selectedCode) return;
+    const list = listRef.current;
+    const option = selectedOptionRef.current;
+    if (!list || !option) return;
+    const listRect = list.getBoundingClientRect();
+    const optionRect = option.getBoundingClientRect();
+    const optionTop = optionRect.top - listRect.top + list.scrollTop;
+    const optionBottom = optionTop + option.offsetHeight;
+    const viewTop = list.scrollTop;
+    const viewBottom = viewTop + list.clientHeight;
+    if (optionTop < viewTop || optionBottom > viewBottom) {
+      list.scrollTop = Math.max(0, optionTop - list.clientHeight / 2 + option.offsetHeight / 2);
+    }
+  }, [props.mode, selectedCode, filtered]);
 
   return (
     <div className={cn('space-y-2', className)}>
@@ -85,6 +105,7 @@ export function TranslationLanguageSearchList(props: TranslationLanguageSearchLi
         aria-autocomplete="list"
       />
       <div
+        ref={listRef}
         id={listId}
         role="listbox"
         aria-label={listLabel}
@@ -101,6 +122,7 @@ export function TranslationLanguageSearchList(props: TranslationLanguageSearchLi
             return (
               <button
                 key={lang.code}
+                ref={selected ? selectedOptionRef : undefined}
                 type="button"
                 role="option"
                 aria-selected={selected}

@@ -849,7 +849,12 @@ export interface ExampleItem {
 /**
  * Speech-to-text backend for live translation ingest.
  */
-export type LiveTranslationSttProvider = 'openrouter' | 'groq';
+export type LiveTranslationSttProvider = 'openrouter' | 'groq' | 'gcp';
+
+/**
+ * Caption text-translation backend (explicit choice; no auto-fallback).
+ */
+export type LiveTranslationTextTranslateProvider = 'openrouter' | 'groq' | 'gcp';
 
 /**
  * Public-safe view of a user's live translation channel (no secrets).
@@ -867,8 +872,10 @@ export interface LiveTranslationChannelPublic {
   sourceLanguage: string;
   /** Target caption/listen languages (ISO-639-1 or BCP-47). */
   enabledLanguages: string[];
-  /** Active STT backend. */
-  sttProvider: LiveTranslationSttProvider;
+  /** Active STT backend, or `null` when not chosen yet. */
+  sttProvider: LiveTranslationSttProvider | null;
+  /** Active caption translation backend, or `null` when not chosen yet. */
+  textTranslateProvider: LiveTranslationTextTranslateProvider | null;
   /**
    * STT model id for `sttProvider`.
    * API alias of the stored `openRouterSttModel` field.
@@ -878,7 +885,10 @@ export interface LiveTranslationChannelPublic {
    * @deprecated Prefer `sttModel`. Kept for older clients during the STT-provider split.
    */
   openRouterSttModel: string | null;
-  /** OpenRouter translation model id when set. */
+  /**
+   * Chat translation model id for OpenRouter or Groq when set.
+   * Unused when `textTranslateProvider` is `gcp`.
+   */
   openRouterTranslateModel: string | null;
   /**
    * Per-language Google Cloud TTS voices (ISO code → voice resource name).

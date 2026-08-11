@@ -20,9 +20,15 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.1006.0
         version: 3.1006.0
+      '@google-cloud/speech':
+        specifier: ^8.0.0
+        version: 8.0.0
       '@google-cloud/text-to-speech':
         specifier: ^6.4.1
         version: 6.4.1
+      '@google-cloud/translate':
+        specifier: ^9.4.2
+        version: 9.4.2
       '@heroicons/react':
         specifier: ^2.2.0
         version: 2.2.0(react@19.2.3)
@@ -1563,8 +1569,36 @@ packages:
   '@gilbarbara/types@0.2.2':
     resolution: {integrity: sha512-QuQDBRRcm1Q8AbSac2W1YElurOhprj3Iko/o+P1fJxUWS4rOGKMVli98OXS7uo4z+cKAif6a+L9bcZFSyauQpQ==}
 
+  '@google-cloud/common@6.1.0':
+    resolution: {integrity: sha512-Ohjxjvusr65+SiEVBrilpyn1ir9CM8ZqWjcf7bA8ph1GCunxI6bbwtcl7iGl67A7Lr4Nz7WpNzITNETwggc7pw==}
+    engines: {node: '>=18'}
+
+  '@google-cloud/common@7.0.0':
+    resolution: {integrity: sha512-KpCaTMcEXU/PoO7306kexyVOtRjYrlQncoB8dy1Fb//e1fykuEMGzOop7viu07YwUHakymHZd09wDMeEYc6kew==}
+    engines: {node: '>=22'}
+
+  '@google-cloud/projectify@4.0.0':
+    resolution: {integrity: sha512-MmaX6HeSvyPbWGwFq7mXdo0uQZLGBYCwziiLIGq5JVX+/bdI3SAq6bP98trV5eTWfLuvsMcIC1YJOF2vfteLFA==}
+    engines: {node: '>=14.0.0'}
+
+  '@google-cloud/promisify@4.1.0':
+    resolution: {integrity: sha512-G/FQx5cE/+DqBbOpA5jKsegGwdPniU6PuIEMt+qxWgFxvxuFOzVmp6zYchtYuwAWV5/8Dgs0yAmjvNZv3uXLQg==}
+    engines: {node: '>=18'}
+
+  '@google-cloud/promisify@5.1.0':
+    resolution: {integrity: sha512-/j9zzWDxsgKg0hMuFBmLGI8ES9xj4DjXvQnDCKl0w5ed7WE3CGsgHmUoC35rvfBXshSW+5StQGnCUD+RBqITKA==}
+    engines: {node: '>=18'}
+
+  '@google-cloud/speech@8.0.0':
+    resolution: {integrity: sha512-lq5FfzovzSV5L3J5fKz/lzcBlowHoMl0VreV1yzKhkpvLk+neoJonUDtUNqVCEPlGP4fTvFFGf+GAr/B4rpqfw==}
+    engines: {node: '>=22'}
+
   '@google-cloud/text-to-speech@6.4.1':
     resolution: {integrity: sha512-iF1SpBPbP019zoLYzIJXp/yDumrSNl19T7hXP4Lg8d2cnNtxoQKQuNOpiwFrxEKV3CBJpp7OY5+z7/K73zNr5w==}
+    engines: {node: '>=18'}
+
+  '@google-cloud/translate@9.4.2':
+    resolution: {integrity: sha512-evN00jJr1PfStM0+4OQhZH4LEW8NhIF1VJUMDf3f93KGR0HptNd94a/KVpeqxrVTkCYOdXP39x52wWVcxoHmwQ==}
     engines: {node: '>=18'}
 
   '@grpc/grpc-js@1.14.4':
@@ -3043,6 +3077,9 @@ packages:
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
+  '@types/duplexify@3.6.5':
+    resolution: {integrity: sha512-fB56ACzlW91UdZ5F3VXplVMDngO8QaX5Y2mjvADtN01TT2TMy4WjF0Lg+tFDvt4uMBeTe4SgaD+qCrA7dL5/tA==}
+
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
 
@@ -3069,6 +3106,9 @@ packages:
 
   '@types/node@24.13.2':
     resolution: {integrity: sha512-fRa09kZTgu8o71KFcDjUFuc7F+dEbZYZmkI0mg5YBTRs0yMKjYHsq/c0urDKeDb+D5qVgXOdFcuu+DZPKOITwA==}
+
+  '@types/pumpify@1.4.5':
+    resolution: {integrity: sha512-BGVAQyK5yJdfIII230fVYGY47V63hUNAhryuuS3b4lEN2LNwxUXFKsEf8QLDCjmZuimlj23BHppJgcrGvNtqKg==}
 
   '@types/react-dom@19.2.3':
     resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
@@ -3492,6 +3532,10 @@ packages:
   arraybuffer.prototype.slice@1.0.4:
     resolution: {integrity: sha512-BNoCY6SXXPQ7gF2opIP4GBE+Xw7U+pHMYKuzjgCN3GwiaIR09UUeKfheyIry77QtrCBlC0KK0q5/TER/tYh3PQ==}
     engines: {node: '>= 0.4'}
+
+  arrify@2.0.1:
+    resolution: {integrity: sha512-3duEwti880xqi4eAMN8AyR4a0ByT90zoYdLlevfrvU43vb0YZwZVfxOgxWrLXXXpyugL0hNZc9G6BiB5B3nUug==}
+    engines: {node: '>=8'}
 
   asn1@0.2.6:
     resolution: {integrity: sha512-ix/FxPn0MDjeyJ7i/yoHGFt/EX6LyNbxSEhPPXODPL+KB0VPk86UYfL0lMdy+KCnv+fmvIzySwaK5COwqVbWTQ==}
@@ -4208,9 +4252,17 @@ packages:
     resolution: {integrity: sha512-RB5vLV+vvQeoFPCX4QMK6/hjVkbIamPp1QSUD0CiZcnj12qbpiL+pLbYtgD+oZkWl0tl9z+o2Utp+MpM3QRhBA==}
     engines: {node: '>=18'}
 
+  gcp-metadata@8.1.2:
+    resolution: {integrity: sha512-zV/5HKTfCeKWnxG0Dmrw51hEWFGfcF2xiXqcA3+J90WDuP0SvoiSO5ORvcBsifmx/FoIjgQN3oNOGaQ5PhLFkg==}
+    engines: {node: '>=18'}
+
   gcp-metadata@8.1.4:
     resolution: {integrity: sha512-iJ9KMsiu+xKtNRX0PmGLSaIU3bUBAyzWTyqKemKPzNPsmmsBCQYmlNg+brEbES7IHSXtdVwzBPzx1vz3FAaipw==}
     engines: {node: '>=18'}
+
+  gcp-metadata@9.0.2:
+    resolution: {integrity: sha512-zzoIz7qKIxyDp7Zghb12kl+n5Y1ofqYX97O/5MelKuFuDolvmT9RuIBGpEnHjqS4GBzPgMZFqH+WSUafRkn5dQ==}
+    engines: {node: '>=22'}
 
   generator-function@2.0.1:
     resolution: {integrity: sha512-SFdFmIJi+ybC0vjlHN0ZGVGHc3lgE0DxPAT0djjVg+kjOnSqclqmj0KQ7ykTOLP6YxoqOvuAODGdcHJn+43q3g==}
@@ -4276,13 +4328,29 @@ packages:
     resolution: {integrity: sha512-7ABviyMOlX5hIVD60YOfHw4/CxOfBhyduaYB+wbFWCWoni4N7SLcV46hrVRktuBbZjFC9ONyqamZITN7q3n32w==}
     engines: {node: '>=18'}
 
+  google-auth-library@10.9.1:
+    resolution: {integrity: sha512-i1ydyHrqcIxXkWh/uBmVkzCvIuq5yiK2ATndIe5XxKholrG/MTYP9xGYka4sQhrbIAgGjL2B6NOE7rFaiF3fXw==}
+    engines: {node: '>=18'}
+
+  google-auth-library@11.0.1:
+    resolution: {integrity: sha512-ZqfaYduu9ASUaFuUk5dF9g9QvufdhhSj7jFiEnCrTQcH57sFPKYetM0iU4dcKkQk6CqC1xpSrVr5uQ9NhqjNOg==}
+    engines: {node: '>=22'}
+
   google-gax@5.0.8:
     resolution: {integrity: sha512-M4vpZcXQIC1gqIVGQ7eaU3jXQA6zecStyTXu514TYfThlgSurYJOxHZo9fzU6hAgwPWvuEynAVHWyaIk80VeEA==}
     engines: {node: '>=18'}
 
+  google-gax@6.0.1:
+    resolution: {integrity: sha512-alzECOlNct1KTBeL9PQ6GIxJHvUQAp1MtffaSMx5+8f4hGRoDaET9oIWbHUtzfrFXRUsf6lnznum09yAKhU7AA==}
+    engines: {node: '>=22'}
+
   google-logging-utils@1.1.3:
     resolution: {integrity: sha512-eAmLkjDjAFCVXg7A1unxHsLf961m6y17QFqXqAXGj/gVkKFrEICfStRfwUlGNfeCEjNRa32JEWOUTlYXPyyKvA==}
     engines: {node: '>=14'}
+
+  google-logging-utils@2.0.1:
+    resolution: {integrity: sha512-HMhaQghlOTvbcb3c4T5jmmOMtG3JUF1iOQMezaJXL86CDS+Tm2vHd0IeLFRAx3+ewd+bo9E1HFHoy17X5aJa9A==}
+    engines: {node: '>=22'}
 
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
@@ -4341,8 +4409,15 @@ packages:
     resolution: {integrity: sha512-CV9TW3Y3f8/wT0BRFc1/KAVQ3TUHiXmaAb6VW9vtiMFf7SLoMd1PdAc4W3KFOFETBJUb90KatHqlsZMWV+R9Gg==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
 
+  html-entities@2.6.0:
+    resolution: {integrity: sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ==}
+
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
+
+  html-tags@3.3.1:
+    resolution: {integrity: sha512-ztqyC3kLto0e9WbNp0aeP+M3kTt+nbaIveGmUxAtZa+8iFgKLUOD4YKM5j+f3QD89bra7UeumolZHKuOXnTmeQ==}
+    engines: {node: '>=8'}
 
   html-void-elements@3.0.0:
     resolution: {integrity: sha512-bEqo66MRXsUGxWHV5IP0PUiAWwoEjba4VCzg0LjFJBpchPaTfyfCKTG6bc5F8ucKec3q5y6qOdGyYTSBEvhCrg==}
@@ -4451,6 +4526,10 @@ packages:
   is-glob@4.0.3:
     resolution: {integrity: sha512-xelSayHH36ZgE7ZWhli7pW34hNbNl8Ojv5KVmkJD4hBdD3th8Tfk9vYasLM+mXWOZhFkgZfxhLSnrwRr4elSSg==}
     engines: {node: '>=0.10.0'}
+
+  is-html@2.0.0:
+    resolution: {integrity: sha512-S+OpgB5i7wzIue/YSE5hg0e5ZYfG3hhpNh9KGl6ayJ38p7ED6wxQLd1TV91xHpcTvw90KMJ9EwN3F/iNflHBVg==}
+    engines: {node: '>=8'}
 
   is-lite@2.0.0:
     resolution: {integrity: sha512-70f2BMIQlbSUXVKaZUd9a9fJH3IH1PDckV0m4BIIO4LjnNYvOh4Ng7vXIXEwpA0KDZknRq+7fHwGTu0jIdx28g==}
@@ -5161,9 +5240,19 @@ packages:
     resolution: {integrity: sha512-E1sbAYg3aEbXrq0n1ojJkRHQJGE1kaE/O6GLA94y8rnJBfgvOPTOd1b9hOceQK1FFZI9qMh1vBERCyO2ifubcw==}
     engines: {node: '>=18'}
 
+  proto3-json-serializer@4.0.0:
+    resolution: {integrity: sha512-wmqCtRKee5QmyECztI41t+Dz6niXOKh7W5f8LwISBlpX5RKI/MNtrDjp1z1PEzO8+Ls12RppfJfZe4gwV/MKaQ==}
+    engines: {node: '>=22'}
+
   protobufjs@7.6.5:
     resolution: {integrity: sha512-/FPD0nUc9jH6rfFjji9IBqOz4pcSE3CsT1m7Ep6Mdb0LxSUMj8hgl6GomOvZzpNpAqqGaXA0P3VSrZLFzIhQrw==}
     engines: {node: '>=12.0.0'}
+
+  pump@3.0.4:
+    resolution: {integrity: sha512-VS7sjc6KR7e1ukRFhQSY5LM2uBWAUPiOPa/A3mkKmiMwSmRFUITt0xuj+/lesgnCv+dPIEYlkzrcyXgquIHMcA==}
+
+  pumpify@2.0.1:
+    resolution: {integrity: sha512-m7KOje7jZxrmutanlkS1daj1dS6z6BgslzOXmcSEpIlCxM3VJH7lG5QLeck/6hgF6F4crFf01UtQmNsJfweTAw==}
 
   punycode.js@2.3.1:
     resolution: {integrity: sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA==}
@@ -5327,6 +5416,10 @@ packages:
   retry-request@8.0.4:
     resolution: {integrity: sha512-pI6/7eabUYkZxamkOq0g0uMxKLLGnjzhefY+vL8bVXag5rto4OU2YBTPytWLuHH7aEKD6fn7kJycQfid0Mwnkw==}
     engines: {node: '>=18'}
+
+  retry-request@9.0.0:
+    resolution: {integrity: sha512-7Q9AhXYdREejrp1q/ihZptocxjzdlFFDkALSRUi40+B+TebUZw5aXgwjjj3Tl98lfMzOgEw/CI2Ral+7DBHkvg==}
+    engines: {node: '>=22'}
 
   reusify@1.1.0:
     resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
@@ -7844,9 +7937,64 @@ snapshots:
     dependencies:
       type-fest: 4.41.0
 
+  '@google-cloud/common@6.1.0':
+    dependencies:
+      '@google-cloud/projectify': 4.0.0
+      '@google-cloud/promisify': 4.1.0
+      arrify: 2.0.1
+      duplexify: 4.1.3
+      extend: 3.0.2
+      google-auth-library: 10.9.1
+      html-entities: 2.6.0
+      retry-request: 8.0.4
+      teeny-request: 10.1.4
+    transitivePeerDependencies:
+      - supports-color
+
+  '@google-cloud/common@7.0.0':
+    dependencies:
+      '@google-cloud/projectify': 4.0.0
+      '@google-cloud/promisify': 4.1.0
+      arrify: 2.0.1
+      duplexify: 4.1.3
+      extend: 3.0.2
+      google-auth-library: 10.9.1
+      html-entities: 2.6.0
+      retry-request: 8.0.4
+      teeny-request: 10.1.4
+    transitivePeerDependencies:
+      - supports-color
+
+  '@google-cloud/projectify@4.0.0': {}
+
+  '@google-cloud/promisify@4.1.0': {}
+
+  '@google-cloud/promisify@5.1.0': {}
+
+  '@google-cloud/speech@8.0.0':
+    dependencies:
+      '@google-cloud/common': 7.0.0
+      '@types/pumpify': 1.4.5
+      google-gax: 6.0.1
+      pumpify: 2.0.1
+      stream-events: 1.0.5
+    transitivePeerDependencies:
+      - supports-color
+
   '@google-cloud/text-to-speech@6.4.1':
     dependencies:
       google-gax: 5.0.8
+    transitivePeerDependencies:
+      - supports-color
+
+  '@google-cloud/translate@9.4.2':
+    dependencies:
+      '@google-cloud/common': 6.1.0
+      '@google-cloud/promisify': 5.1.0
+      arrify: 2.0.1
+      extend: 3.0.2
+      google-gax: 5.0.8
+      is-html: 2.0.0
     transitivePeerDependencies:
       - supports-color
 
@@ -9276,6 +9424,10 @@ snapshots:
 
   '@types/deep-eql@4.0.2': {}
 
+  '@types/duplexify@3.6.5':
+    dependencies:
+      '@types/node': 24.13.2
+
   '@types/estree@1.0.8': {}
 
   '@types/hast@3.0.4':
@@ -9302,6 +9454,11 @@ snapshots:
   '@types/node@24.13.2':
     dependencies:
       undici-types: 7.18.2
+
+  '@types/pumpify@1.4.5':
+    dependencies:
+      '@types/duplexify': 3.6.5
+      '@types/node': 24.13.2
 
   '@types/react-dom@19.2.3(@types/react@19.2.14)':
     dependencies:
@@ -9783,6 +9940,8 @@ snapshots:
       es-errors: 1.3.0
       get-intrinsic: 1.3.0
       is-array-buffer: 3.0.5
+
+  arrify@2.0.1: {}
 
   asn1@0.2.6:
     dependencies:
@@ -10687,10 +10846,26 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  gcp-metadata@8.1.2:
+    dependencies:
+      gaxios: 7.3.0
+      google-logging-utils: 1.1.3
+      json-bigint: 1.0.0
+    transitivePeerDependencies:
+      - supports-color
+
   gcp-metadata@8.1.4:
     dependencies:
       gaxios: 7.1.3
       google-logging-utils: 1.1.3
+      json-bigint: 1.0.0
+    transitivePeerDependencies:
+      - supports-color
+
+  gcp-metadata@9.0.2:
+    dependencies:
+      gaxios: 7.3.0
+      google-logging-utils: 2.0.1
       json-bigint: 1.0.0
     transitivePeerDependencies:
       - supports-color
@@ -10771,6 +10946,28 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  google-auth-library@10.9.1:
+    dependencies:
+      base64-js: 1.5.1
+      ecdsa-sig-formatter: 1.0.11
+      gaxios: 7.3.0
+      gcp-metadata: 8.1.2
+      google-logging-utils: 1.1.3
+      jws: 4.0.1
+    transitivePeerDependencies:
+      - supports-color
+
+  google-auth-library@11.0.1:
+    dependencies:
+      base64-js: 1.5.1
+      ecdsa-sig-formatter: 1.0.11
+      gaxios: 7.3.0
+      gcp-metadata: 9.0.2
+      google-logging-utils: 2.0.1
+      jws: 4.0.1
+    transitivePeerDependencies:
+      - supports-color
+
   google-gax@5.0.8:
     dependencies:
       '@grpc/grpc-js': 1.14.4
@@ -10787,7 +10984,24 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  google-gax@6.0.1:
+    dependencies:
+      '@grpc/grpc-js': 1.14.4
+      '@grpc/proto-loader': 0.8.1
+      duplexify: 4.1.3
+      google-auth-library: 11.0.1
+      google-logging-utils: 2.0.1
+      node-fetch: 3.3.2
+      object-hash: 3.0.0
+      proto3-json-serializer: 4.0.0
+      protobufjs: 7.6.5
+      retry-request: 9.0.0
+    transitivePeerDependencies:
+      - supports-color
+
   google-logging-utils@1.1.3: {}
+
+  google-logging-utils@2.0.1: {}
 
   gopd@1.2.0: {}
 
@@ -10854,7 +11068,11 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
+  html-entities@2.6.0: {}
+
   html-escaper@2.0.2: {}
+
+  html-tags@3.3.1: {}
 
   html-void-elements@3.0.0: {}
 
@@ -10966,6 +11184,10 @@ snapshots:
   is-glob@4.0.3:
     dependencies:
       is-extglob: 2.1.1
+
+  is-html@2.0.0:
+    dependencies:
+      html-tags: 3.3.1
 
   is-lite@2.0.0: {}
 
@@ -11664,6 +11886,10 @@ snapshots:
     dependencies:
       protobufjs: 7.6.5
 
+  proto3-json-serializer@4.0.0:
+    dependencies:
+      protobufjs: 7.6.5
+
   protobufjs@7.6.5:
     dependencies:
       '@protobufjs/aspromise': 1.1.2
@@ -11677,6 +11903,17 @@ snapshots:
       '@protobufjs/utf8': 1.1.2
       '@types/node': 24.13.2
       long: 5.3.2
+
+  pump@3.0.4:
+    dependencies:
+      end-of-stream: 1.4.5
+      once: 1.4.0
+
+  pumpify@2.0.1:
+    dependencies:
+      duplexify: 4.1.3
+      inherits: 2.0.4
+      pump: 3.0.4
 
   punycode.js@2.3.1: {}
 
@@ -11849,6 +12086,13 @@ snapshots:
       signal-exit: 4.1.0
 
   retry-request@8.0.4:
+    dependencies:
+      extend: 3.0.2
+      teeny-request: 10.1.4
+    transitivePeerDependencies:
+      - supports-color
+
+  retry-request@9.0.0:
     dependencies:
       extend: 3.0.2
       teeny-request: 10.1.4

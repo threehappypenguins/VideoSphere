@@ -1,5 +1,8 @@
 import mongoose, { Schema } from 'mongoose';
-import type { LiveTranslationSttProvider } from '@/lib/translation/capabilities';
+import type {
+  LiveTranslationSttProvider,
+  LiveTranslationTextTranslateProvider,
+} from '@/lib/translation/capabilities';
 
 /**
  * Raw MongoDB document shape for the `live_translation_channels` collection.
@@ -12,16 +15,22 @@ export interface LiveTranslationChannelDocument {
   sourceLanguage: string;
   enabledLanguages: string[];
   streamKeyHash?: string;
-  /** STT backend: `openrouter` (default) or `groq`. */
+  /** STT backend: `openrouter`, `groq`, or `gcp` (unset until the owner chooses). */
   sttProvider?: LiveTranslationSttProvider;
+  /** Caption translation backend: `openrouter`, `groq`, or `gcp` (unset until chosen; no auto-fallback). */
+  textTranslateProvider?: LiveTranslationTextTranslateProvider;
   openRouterApiKeyEncrypted?: string;
   groqApiKeyEncrypted?: string;
   gcpServiceAccountJsonEncrypted?: string;
   /**
    * STT model id for `sttProvider`.
-   * Field name is historical; used for both OpenRouter and Groq.
+   * Field name is historical; used for OpenRouter, Groq, and GCP recognition models.
    */
   openRouterSttModel?: string;
+  /**
+   * Chat translation model id for OpenRouter or Groq.
+   * Unused when `textTranslateProvider` is `gcp`.
+   */
   openRouterTranslateModel?: string;
   /** Per-language GCP TTS voices: ISO code → voice resource name. */
   gcpTtsVoices?: Record<string, string>;
@@ -42,8 +51,13 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
       type: String,
       required: false,
       trim: true,
-      enum: ['openrouter', 'groq'],
-      default: 'openrouter',
+      enum: ['openrouter', 'groq', 'gcp'],
+    },
+    textTranslateProvider: {
+      type: String,
+      required: false,
+      trim: true,
+      enum: ['openrouter', 'groq', 'gcp'],
     },
     openRouterApiKeyEncrypted: { type: String, required: false },
     groqApiKeyEncrypted: { type: String, required: false },

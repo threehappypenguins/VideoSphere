@@ -1,17 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetTranslationSessionsForTests,
-  enqueueOwnerPcm,
-  getSubscriberStats,
-  markIngestStopped,
-  subscribePublicListener,
-} from '@/lib/translation/session-hub';
-import { translateTextWithOpenRouter } from '@/lib/translation/openrouter-translate';
-import { transcribeAudio } from '@/lib/translation/transcribe';
 
 vi.mock('@/lib/repositories/live-translation-channels', () => ({
   getRuntimeSecretsForUser: vi.fn(async () => ({
     sttProvider: 'openrouter',
+    textTranslateProvider: 'openrouter',
     openRouterApiKey: 'key',
     groqApiKey: null,
     gcpServiceAccountJson: null,
@@ -25,8 +17,24 @@ vi.mock('@/lib/repositories/live-translation-channels', () => ({
   })),
 }));
 
-vi.mock('@/lib/translation/openrouter-translate', () => ({
-  translateTextWithOpenRouter: vi.fn(async () => 'hola'),
+vi.mock('@/lib/translation/translate-text', () => ({
+  translateLiveCaptionText: vi.fn(async () => 'hola'),
+  OpenRouterTranslateRateLimitError: class OpenRouterTranslateRateLimitError extends Error {
+    retryAfterSeconds: number | null = null;
+    constructor(message: string, retryAfterSeconds: number | null = null) {
+      super(message);
+      this.name = 'OpenRouterTranslateRateLimitError';
+      this.retryAfterSeconds = retryAfterSeconds;
+    }
+  },
+  GroqTranslateRateLimitError: class GroqTranslateRateLimitError extends Error {
+    retryAfterSeconds: number | null = null;
+    constructor(message: string, retryAfterSeconds: number | null = null) {
+      super(message);
+      this.name = 'GroqTranslateRateLimitError';
+      this.retryAfterSeconds = retryAfterSeconds;
+    }
+  },
 }));
 
 vi.mock('@/lib/translation/transcribe', () => ({
@@ -36,6 +44,29 @@ vi.mock('@/lib/translation/transcribe', () => ({
 vi.mock('@/lib/translation/gcp-tts', () => ({
   synthesizeSpeechWithGcp: vi.fn(async () => Buffer.alloc(0)),
 }));
+
+import {
+  __resetTranslationSessionsForTests,
+  enqueueOwnerPcm,
+  getSubscriberStats,
+  markIngestStopped,
+  subscribePublicListener,
+} from '@/lib/translation/session-hub';
+import { translateLiveCaptionText } from '@/lib/translation/translate-text';
+import { transcribeAudio } from '@/lib/translation/transcribe';
+
+/**
+ * Non-silent PCM16 mono so the session hub silence gate does not skip the chunk.
+ * @param byteLength - Buffer size in bytes (even).
+ * @returns PCM filled with a mid-level sample.
+ */
+function loudPcm(byteLength: number): Buffer {
+  const buf = Buffer.alloc(byteLength);
+  for (let i = 0; i + 1 < buf.length; i += 2) {
+    buf.writeInt16LE(8_000, i);
+  }
+  return buf;
+}
 
 describe('translation session hub', () => {
   afterEach(() => {
@@ -81,14 +112,14 @@ describe('translation session hub', () => {
       expect(getSubscriberStats('ch-en').totalSubscribers).toBe(1);
     });
 
-    enqueueOwnerPcm('ch-en', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-en', 'user-1', loudPcm(3200), 16000);
 
     await vi.waitFor(() => {
       expect(captions).toContain('hello');
     });
 
     expect(transcribeAudio).toHaveBeenCalled();
-    expect(translateTextWithOpenRouter).not.toHaveBeenCalled();
+    expect(translateLiveCaptionText).not.toHaveBeenCalled();
     unsub();
   });
 
@@ -108,16 +139,16 @@ describe('translation session hub', () => {
       expect(getSubscriberStats('ch-switch').byLanguage.es).toBe(1);
     });
 
-    enqueueOwnerPcm('ch-switch', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-switch', 'user-1', loudPcm(3200), 16000);
     await vi.waitFor(() => {
       expect(esCaptions).toContain('hola');
     });
-    expect(translateTextWithOpenRouter).toHaveBeenCalledTimes(1);
+    expect(translateLiveCaptionText).toHaveBeenCalledTimes(1);
 
     unsubEs();
 
     const frCaptions: string[] = [];
-    vi.mocked(translateTextWithOpenRouter).mockResolvedValueOnce('bonjour');
+    vi.mocked(translateLiveCaptionText).mockResolvedValueOnce('bonjour');
     const unsubFr = subscribePublicListener({
       channelId: 'ch-switch',
       userId: 'user-1',
@@ -135,7 +166,7 @@ describe('translation session hub', () => {
     // No historical Spanish replay after switching — French only sees new live work.
     expect(frCaptions).toEqual([]);
 
-    enqueueOwnerPcm('ch-switch', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-switch', 'user-1', loudPcm(3200), 16000);
     await vi.waitFor(() => {
       expect(frCaptions).toContain('bonjour');
     });
@@ -160,7 +191,7 @@ describe('translation session hub', () => {
       expect(getSubscriberStats('ch-purge').totalSubscribers).toBe(1);
     });
 
-    enqueueOwnerPcm('ch-purge', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-purge', 'user-1', loudPcm(3200), 16000);
     await vi.waitFor(() => {
       expect(esCaptions).toContain('hola');
     });
@@ -202,9 +233,9 @@ describe('translation session hub', () => {
       return 'still-going';
     });
 
-    enqueueOwnerPcm('ch-stop', 'user-1', Buffer.alloc(3200), 16000);
-    enqueueOwnerPcm('ch-stop', 'user-1', Buffer.alloc(3200), 16000);
-    enqueueOwnerPcm('ch-stop', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-stop', 'user-1', loudPcm(3200), 16000);
+    enqueueOwnerPcm('ch-stop', 'user-1', loudPcm(3200), 16000);
+    enqueueOwnerPcm('ch-stop', 'user-1', loudPcm(3200), 16000);
 
     await vi.waitFor(() => {
       expect(transcribeAudio).toHaveBeenCalledTimes(1);
@@ -227,7 +258,7 @@ describe('translation session hub', () => {
       .mockRejectedValueOnce(new Error('Groq STT error (429): rate_limit_exceeded'))
       .mockResolvedValue('hello');
 
-    enqueueOwnerPcm('ch-429', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-429', 'user-1', loudPcm(3200), 16000);
 
     await vi.waitFor(() => {
       expect(transcribeAudio).toHaveBeenCalledTimes(1);
@@ -271,14 +302,14 @@ describe('translation session hub', () => {
       expect(getSubscriberStats('ch-stt-coalesce').byLanguage.en).toBe(1);
     });
 
-    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', Buffer.alloc(100), 16000);
+    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', loudPcm(100), 16000);
     await vi.waitFor(() => {
       expect(transcribeAudio).toHaveBeenCalledTimes(1);
     });
 
     // These would previously pile up and get drained after backoff.
-    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', Buffer.alloc(200), 16000);
-    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', Buffer.alloc(300), 16000);
+    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', loudPcm(200), 16000);
+    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', loudPcm(300), 16000);
 
     await vi.advanceTimersByTimeAsync(15_000);
     await vi.waitFor(() => {
@@ -297,7 +328,7 @@ describe('translation session hub', () => {
     vi.useFakeTimers();
     const captions: string[] = [];
     const errors: string[] = [];
-    vi.mocked(translateTextWithOpenRouter)
+    vi.mocked(translateLiveCaptionText)
       .mockRejectedValueOnce(new Error('OpenRouter translate error (429): rate limited'))
       .mockResolvedValue('hola-latest');
     vi.mocked(transcribeAudio).mockResolvedValueOnce('one').mockResolvedValue('three');
@@ -317,14 +348,14 @@ describe('translation session hub', () => {
       expect(getSubscriberStats('ch-tr-429').byLanguage.es).toBe(1);
     });
 
-    enqueueOwnerPcm('ch-tr-429', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-tr-429', 'user-1', loudPcm(3200), 16000);
     await vi.waitFor(() => {
-      expect(translateTextWithOpenRouter).toHaveBeenCalledTimes(1);
+      expect(translateLiveCaptionText).toHaveBeenCalledTimes(1);
     });
     expect(errors.some((m) => /rate-limited/i.test(m))).toBe(true);
 
     // Another live chunk while translate is paused.
-    enqueueOwnerPcm('ch-tr-429', 'user-1', Buffer.alloc(3200), 16000);
+    enqueueOwnerPcm('ch-tr-429', 'user-1', loudPcm(3200), 16000);
     await vi.waitFor(() => {
       expect(transcribeAudio).toHaveBeenCalledTimes(2);
     });
@@ -334,8 +365,8 @@ describe('translation session hub', () => {
       expect(captions).toContain('hola-latest');
     });
 
-    expect(translateTextWithOpenRouter).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(translateTextWithOpenRouter).mock.calls[1]?.[0]?.text).toBe('three');
+    expect(translateLiveCaptionText).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(translateLiveCaptionText).mock.calls[1]?.[0]?.text).toBe('three');
     unsub();
   });
 });
