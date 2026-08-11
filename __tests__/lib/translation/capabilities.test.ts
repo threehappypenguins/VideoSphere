@@ -21,7 +21,7 @@ describe('translation capabilities', () => {
         sttModel: 'openai/whisper-large-v3',
         openRouterTranslateModel: 'some/model',
         hasGcpServiceAccount: false,
-        gcpTtsVoice: null,
+        gcpTtsVoices: {},
       })
     ).toBe(true);
 
@@ -32,7 +32,7 @@ describe('translation capabilities', () => {
         sttModel: 'openai/whisper-large-v3',
         openRouterTranslateModel: 'some/model',
         hasGcpServiceAccount: false,
-        gcpTtsVoice: null,
+        gcpTtsVoices: {},
       })
     ).toBe(false);
 
@@ -43,7 +43,7 @@ describe('translation capabilities', () => {
         sttModel: '',
         openRouterTranslateModel: 'some/model',
         hasGcpServiceAccount: false,
-        gcpTtsVoice: null,
+        gcpTtsVoices: {},
       })
     ).toBe(false);
   });
@@ -57,7 +57,7 @@ describe('translation capabilities', () => {
         sttModel: 'whisper-large-v3-turbo',
         openRouterTranslateModel: 'openai/gpt-oss-20b:free',
         hasGcpServiceAccount: false,
-        gcpTtsVoice: null,
+        gcpTtsVoices: {},
       })
     ).toBe(true);
 
@@ -69,7 +69,7 @@ describe('translation capabilities', () => {
         sttModel: 'whisper-large-v3-turbo',
         openRouterTranslateModel: 'openai/gpt-oss-20b:free',
         hasGcpServiceAccount: false,
-        gcpTtsVoice: null,
+        gcpTtsVoices: {},
       })
     ).toBe(false);
 
@@ -81,7 +81,7 @@ describe('translation capabilities', () => {
         sttModel: 'whisper-large-v3-turbo',
         openRouterTranslateModel: 'openai/gpt-oss-20b:free',
         hasGcpServiceAccount: false,
-        gcpTtsVoice: null,
+        gcpTtsVoices: {},
       })
     ).toBe(false);
   });
@@ -94,7 +94,7 @@ describe('translation capabilities', () => {
         sttModel: 'stt',
         openRouterTranslateModel: 'tr',
         hasGcpServiceAccount: true,
-        gcpTtsVoice: 'es-US-Neural2-A',
+        gcpTtsVoices: { es: 'es-US-Neural2-A' },
       })
     ).toBe(true);
 
@@ -105,7 +105,7 @@ describe('translation capabilities', () => {
         sttModel: 'stt',
         openRouterTranslateModel: 'tr',
         hasGcpServiceAccount: true,
-        gcpTtsVoice: null,
+        gcpTtsVoices: {},
       })
     ).toBe(false);
 
@@ -116,7 +116,7 @@ describe('translation capabilities', () => {
         sttModel: 'stt',
         openRouterTranslateModel: 'tr',
         hasGcpServiceAccount: true,
-        gcpTtsVoice: 'es-US-Neural2-A',
+        gcpTtsVoices: { es: 'es-US-Neural2-A' },
       })
     ).toBe(false);
   });

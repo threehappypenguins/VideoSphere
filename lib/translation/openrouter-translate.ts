@@ -2,6 +2,8 @@
 // OpenRouter text translation (per-user key + model; no shared defaults)
 // =============================================================================
 
+import { translationPromptLanguageName } from '@/lib/translation/languages';
+
 /**
  * Translates source text into a target language via OpenRouter chat completions.
  * @param params - Per-user API key, model, source text, and language codes.
@@ -24,6 +26,8 @@ export async function translateTextWithOpenRouter(params: {
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim() || 'http://localhost:9624';
   const appName = process.env.NEXT_PUBLIC_APP_NAME?.trim() || 'VideoSphere';
+  const sourceName = translationPromptLanguageName(sourceLanguage);
+  const targetName = translationPromptLanguageName(targetLanguage);
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -41,11 +45,12 @@ export async function translateTextWithOpenRouter(params: {
           role: 'system',
           content:
             'You are a precise live interpreter. Translate the user message into the target language. ' +
+            'When the target is Mandarin or Cantonese, write natural text for that variety (not the other). ' +
             'Return ONLY the translation text with no quotes, labels, or commentary.',
         },
         {
           role: 'user',
-          content: `Source language: ${sourceLanguage}\nTarget language: ${targetLanguage}\n\nText:\n${trimmed}`,
+          content: `Source language: ${sourceName}\nTarget language: ${targetName}\n\nText:\n${trimmed}`,
         },
       ],
     }),

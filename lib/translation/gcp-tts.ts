@@ -4,6 +4,7 @@
 
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { parseGcpServiceAccountJson } from '@/lib/translation/gcp-sa';
+import { languageCodeHintFromVoiceName } from '@/lib/translation/gcp-tts-voices';
 
 /**
  * Synthesizes speech for translated text using the owner's GCP credentials.
@@ -38,27 +39,39 @@ export async function synthesizeSpeechWithGcp(params: {
     projectId: parsed.value.project_id,
   });
 
-  const [response] = await client.synthesizeSpeech({
-    input: { text: trimmed },
-    voice: {
-      languageCode: languageCode.trim() || voiceName.trim().slice(0, 5),
-      name: voiceName.trim(),
-    },
-    audioConfig: { audioEncoding: 'MP3' },
-  });
+  // GCP requires languageCode to match the voice (e.g. es-US), not a bare ISO code.
+  const resolvedLanguage =
+    languageCodeHintFromVoiceName(voiceName) || languageCode.trim() || 'en-US';
 
-  const audio = response.audioContent;
-  if (!audio) {
-    throw new Error('GCP TTS returned empty audio.');
+  try {
+    const [response] = await client.synthesizeSpeech({
+      input: { text: trimmed },
+      voice: {
+        languageCode: resolvedLanguage,
+        name: voiceName.trim(),
+      },
+      audioConfig: { audioEncoding: 'MP3' },
+    });
+
+    const audio = response.audioContent;
+    if (!audio) {
+      throw new Error('GCP TTS returned empty audio.');
+    }
+    if (Buffer.isBuffer(audio)) {
+      return audio;
+    }
+    if (audio instanceof Uint8Array) {
+      return Buffer.from(audio);
+    }
+    if (typeof audio === 'string') {
+      return Buffer.from(audio, 'base64');
+    }
+    return Buffer.from(audio as ArrayBuffer);
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      // ignore
+    }
   }
-  if (Buffer.isBuffer(audio)) {
-    return audio;
-  }
-  if (audio instanceof Uint8Array) {
-    return Buffer.from(audio);
-  }
-  if (typeof audio === 'string') {
-    return Buffer.from(audio, 'base64');
-  }
-  return Buffer.from(audio as ArrayBuffer);
 }

@@ -50,14 +50,14 @@ type TranslationLanguageSearchListProps = (SingleProps | MultipleProps) & {
  * @param labelStyle - Admin vs public labeling.
  * @returns Display string.
  */
-function rowLabel(
-  lang: TranslationLanguageOption,
-  labelStyle: 'admin' | 'public'
-): string {
+function rowLabel(lang: TranslationLanguageOption, labelStyle: 'admin' | 'public'): string {
   if (labelStyle === 'public') {
     return translationLanguagePublicLabel(lang.code);
   }
-  return `${lang.name} (${lang.code})`;
+  if (lang.name.localeCompare(lang.nativeName, undefined, { sensitivity: 'accent' }) === 0) {
+    return `${lang.name} (${lang.code})`;
+  }
+  return `${lang.name} (${lang.nativeName}) · ${lang.code}`;
 }
 
 /**
@@ -70,10 +70,7 @@ export function TranslationLanguageSearchList(props: TranslationLanguageSearchLi
   const listId = useId();
   const [query, setQuery] = useState('');
 
-  const filtered = useMemo(
-    () => filterTranslationLanguages(options, query),
-    [options, query]
-  );
+  const filtered = useMemo(() => filterTranslationLanguages(options, query), [options, query]);
 
   return (
     <div className={cn('space-y-2', className)}>
@@ -95,7 +92,9 @@ export function TranslationLanguageSearchList(props: TranslationLanguageSearchLi
         className="border-input bg-background max-h-56 space-y-1 overflow-y-auto rounded-md border p-2"
       >
         {filtered.length === 0 ? (
-          <p className="text-muted-foreground px-1 py-2 text-sm">No languages match “{query.trim()}”.</p>
+          <p className="text-muted-foreground px-1 py-2 text-sm">
+            No languages match “{query.trim()}”.
+          </p>
         ) : props.mode === 'single' ? (
           filtered.map((lang) => {
             const selected = props.value === lang.code;

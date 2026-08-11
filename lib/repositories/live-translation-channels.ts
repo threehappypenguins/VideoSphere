@@ -16,6 +16,12 @@ import {
   type LiveTranslationSttProvider,
   type TranslationCapabilityInput,
 } from '@/lib/translation/capabilities';
+import {
+  languagesForTtsConfig,
+  normalizeGcpTtsVoices,
+  pruneGcpTtsVoicesToLanguages,
+  type GcpTtsVoicesMap,
+} from '@/lib/translation/gcp-tts-voices';
 import { buildRtmpPublishUrl, isRtmpConfigured } from '@/lib/translation/rtmp-config';
 import { generateStreamKeyPlaintext, hashStreamKey } from '@/lib/translation/stream-key';
 import { suggestTranslationSlug } from '@/lib/translation/slug';
@@ -54,7 +60,7 @@ export function capabilityInputFromDoc(
     sttModel: doc.openRouterSttModel ?? null,
     openRouterTranslateModel: doc.openRouterTranslateModel ?? null,
     hasGcpServiceAccount: hasEncrypted(doc.gcpServiceAccountJsonEncrypted),
-    gcpTtsVoice: doc.gcpTtsVoice ?? null,
+    gcpTtsVoices: normalizeGcpTtsVoices(doc.gcpTtsVoices),
   };
 }
 
@@ -86,7 +92,7 @@ export function toOwnerView(
     sttModel,
     openRouterSttModel: sttModel,
     openRouterTranslateModel: doc.openRouterTranslateModel?.trim() || null,
-    gcpTtsVoice: doc.gcpTtsVoice?.trim() || null,
+    gcpTtsVoices: normalizeGcpTtsVoices(doc.gcpTtsVoices),
     hasOpenRouterKey: capability.hasOpenRouterKey,
     hasGroqKey: Boolean(capability.hasGroqKey),
     hasGcpServiceAccount: capability.hasGcpServiceAccount,
@@ -212,7 +218,7 @@ export interface LiveTranslationChannelPatch {
   /** @deprecated Prefer `sttModel`. */
   openRouterSttModel?: string | null;
   openRouterTranslateModel?: string | null;
-  gcpTtsVoice?: string | null;
+  gcpTtsVoices?: GcpTtsVoicesMap | null;
 }
 
 /**
@@ -240,8 +246,27 @@ export async function updateChannelForUser(
   if (patch.openRouterTranslateModel !== undefined) {
     $set.openRouterTranslateModel = patch.openRouterTranslateModel?.trim() || null;
   }
-  if (patch.gcpTtsVoice !== undefined) {
-    $set.gcpTtsVoice = patch.gcpTtsVoice?.trim() || null;
+  if (patch.gcpTtsVoices !== undefined) {
+    $set.gcpTtsVoices = normalizeGcpTtsVoices(patch.gcpTtsVoices);
+  }
+
+  // Drop TTS voices for languages that are no longer source/enabled.
+  if (patch.sourceLanguage !== undefined || patch.enabledLanguages !== undefined) {
+    const current = await getChannelByUserId(userId);
+    if (current) {
+      const source =
+        patch.sourceLanguage !== undefined ? patch.sourceLanguage : current.sourceLanguage || 'en';
+      const enabled =
+        patch.enabledLanguages !== undefined
+          ? patch.enabledLanguages
+          : [...(current.enabledLanguages ?? [])];
+      const active = languagesForTtsConfig(source, enabled);
+      const existingVoices =
+        patch.gcpTtsVoices !== undefined
+          ? normalizeGcpTtsVoices(patch.gcpTtsVoices)
+          : normalizeGcpTtsVoices(current.gcpTtsVoices);
+      $set.gcpTtsVoices = pruneGcpTtsVoicesToLanguages(existingVoices, active);
+    }
   }
 
   if (Object.keys($set).length === 0) {
@@ -345,12 +370,14 @@ export async function clearCredential(
   kind: 'openrouter' | 'groq' | 'gcp'
 ): Promise<LiveTranslationChannelOwnerView | null> {
   await connectToDatabase();
+  // Clearing GCP removes both the encrypted SA JSON and the voice name so
+  // "Add Google Cloud TTS" does not prefill a stale voice after remove.
   const unset =
     kind === 'openrouter'
       ? { openRouterApiKeyEncrypted: 1 }
       : kind === 'groq'
         ? { groqApiKeyEncrypted: 1 }
-        : { gcpServiceAccountJsonEncrypted: 1 };
+        : { gcpServiceAccountJsonEncrypted: 1, gcpTtsVoices: 1 };
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $unset: unset },
@@ -391,7 +418,7 @@ export interface LiveTranslationRuntimeSecrets {
   gcpServiceAccountJson: string | null;
   sttModel: string | null;
   openRouterTranslateModel: string | null;
-  gcpTtsVoice: string | null;
+  gcpTtsVoices: GcpTtsVoicesMap;
   sourceLanguage: string;
   enabledLanguages: string[];
   translationReady: boolean;
@@ -414,7 +441,7 @@ export async function getRuntimeSecretsForUser(
   const gcpServiceAccountJson = tryDecrypt(doc.gcpServiceAccountJsonEncrypted);
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const openRouterTranslateModel = doc.openRouterTranslateModel?.trim() || null;
-  const gcpTtsVoice = doc.gcpTtsVoice?.trim() || null;
+  const gcpTtsVoices = normalizeGcpTtsVoices(doc.gcpTtsVoices);
   const sttProvider = normalizeSttProvider(doc.sttProvider);
   const capability: TranslationCapabilityInput = {
     sttProvider,
@@ -423,7 +450,7 @@ export async function getRuntimeSecretsForUser(
     sttModel,
     openRouterTranslateModel,
     hasGcpServiceAccount: Boolean(gcpServiceAccountJson),
-    gcpTtsVoice,
+    gcpTtsVoices,
   };
 
   return {
@@ -433,7 +460,7 @@ export async function getRuntimeSecretsForUser(
     gcpServiceAccountJson,
     sttModel,
     openRouterTranslateModel,
-    gcpTtsVoice,
+    gcpTtsVoices,
     sourceLanguage: doc.sourceLanguage || 'en',
     enabledLanguages: [...(doc.enabledLanguages ?? [])],
     translationReady: isTranslationReady(capability),

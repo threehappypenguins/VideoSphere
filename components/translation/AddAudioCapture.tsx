@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
 const TARGET_SAMPLE_RATE = 16000;
-const CHUNK_MS = 4000;
+/** Longer chunks = fewer free-tier STT requests per minute (~7.5/min vs ~15/min at 4s). */
+const CHUNK_MS = 8000;
 /** Inaudible but non-zero — Chromium can skip ScriptProcessor when gain is exactly 0. */
 const MONITOR_GAIN = 0.0001;
 
@@ -96,6 +97,7 @@ export function AddAudioCapture(props: {
   const sendingRef = useRef(false);
   const levelRef = useRef(0);
   const capturingRef = useRef(false);
+  const ingestAbortRef = useRef<AbortController | null>(null);
   const onLiveChangeRef = useRef(onLiveChange);
   onLiveChangeRef.current = onLiveChange;
 
@@ -130,10 +132,14 @@ export function AddAudioCapture(props: {
         void stopCapture();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- unmount cleanup only
   }, []);
 
+  /**
+   * Sends buffered PCM to the ingest API when capture is still live.
+   * @returns Void.
+   */
   async function flushPcm() {
+    if (!capturingRef.current) return;
     if (sendingRef.current) return;
     const chunks = pcmChunksRef.current;
     if (chunks.length === 0) return;
@@ -169,21 +175,28 @@ export function AddAudioCapture(props: {
     }
     const pcmBase64 = btoa(binary);
 
+    const abort = new AbortController();
+    ingestAbortRef.current = abort;
     sendingRef.current = true;
     try {
       const res = await fetch('/api/translation/ingest/audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: abort.signal,
         body: JSON.stringify({ pcmBase64, sampleRate: TARGET_SAMPLE_RATE }),
       });
+      if (!capturingRef.current) return;
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { message?: string } | null;
         setError(data?.message || 'Failed to send audio chunk');
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (!capturingRef.current) return;
       setError(err instanceof Error ? err.message : 'Failed to send audio chunk');
     } finally {
+      if (ingestAbortRef.current === abort) ingestAbortRef.current = null;
       sendingRef.current = false;
     }
   }
@@ -225,7 +238,10 @@ export function AddAudioCapture(props: {
 
       // ScriptProcessor must be connected to context.destination or Chromium may never
       // fire onaudioprocess (MediaStreamDestination-only graphs are unreliable).
-      const inputChannels = Math.min(2, Math.max(1, stream.getAudioTracks()[0]?.getSettings().channelCount ?? 1));
+      const inputChannels = Math.min(
+        2,
+        Math.max(1, stream.getAudioTracks()[0]?.getSettings().channelCount ?? 1)
+      );
       const processor = context.createScriptProcessor(4096, inputChannels, 1);
       processorRef.current = processor;
       const samplesPerChunk = Math.floor((TARGET_SAMPLE_RATE * CHUNK_MS) / 1000);
@@ -235,12 +251,13 @@ export function AddAudioCapture(props: {
       monitorGainRef.current = monitorGain;
 
       processor.onaudioprocess = (event) => {
+        // Stop can race ScriptProcessor callbacks; ignore anything after tear-down starts.
+        if (!capturingRef.current) return;
+
         const mono = monoFromProcessorEvent(event);
         const framePeak = peakAbs(mono);
         const next =
-          framePeak > levelRef.current
-            ? framePeak
-            : levelRef.current * 0.85 + framePeak * 0.15;
+          framePeak > levelRef.current ? framePeak : levelRef.current * 0.85 + framePeak * 0.15;
         levelRef.current = next;
         setLevel(next);
 
@@ -265,28 +282,53 @@ export function AddAudioCapture(props: {
   }
 
   async function stopCapture() {
+    // Flip this first so in-flight onaudioprocess / flushPcm bail out immediately.
     capturingRef.current = false;
-    try {
-      await flushPcm();
-    } catch {
-      // ignore
+    pcmChunksRef.current = [];
+    samplesCollectedRef.current = 0;
+    ingestAbortRef.current?.abort();
+    ingestAbortRef.current = null;
+
+    const processor = processorRef.current;
+    if (processor) {
+      processor.onaudioprocess = null;
+      try {
+        processor.disconnect();
+      } catch {
+        // already disconnected
+      }
     }
-    processorRef.current?.disconnect();
-    sourceRef.current?.disconnect();
-    monitorGainRef.current?.disconnect();
+    try {
+      sourceRef.current?.disconnect();
+    } catch {
+      // already disconnected
+    }
+    try {
+      monitorGainRef.current?.disconnect();
+    } catch {
+      // already disconnected
+    }
     processorRef.current = null;
     sourceRef.current = null;
     monitorGainRef.current = null;
-    if (contextRef.current) {
-      void contextRef.current.close();
-      contextRef.current = null;
+
+    const context = contextRef.current;
+    contextRef.current = null;
+    if (context) {
+      try {
+        await context.close();
+      } catch {
+        // ignore
+      }
     }
+
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     levelRef.current = 0;
     setCapturing(false);
     setLevel(0);
     onLiveChangeRef.current?.(false);
+
     try {
       await fetch('/api/translation/ingest/audio', {
         method: 'DELETE',

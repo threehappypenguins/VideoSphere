@@ -23,7 +23,8 @@ export interface LiveTranslationChannelDocument {
    */
   openRouterSttModel?: string;
   openRouterTranslateModel?: string;
-  gcpTtsVoice?: string;
+  /** Per-language GCP TTS voices: ISO code → voice resource name. */
+  gcpTtsVoices?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,7 +50,7 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
     gcpServiceAccountJsonEncrypted: { type: String, required: false },
     openRouterSttModel: { type: String, required: false, trim: true },
     openRouterTranslateModel: { type: String, required: false, trim: true },
-    gcpTtsVoice: { type: String, required: false, trim: true },
+    gcpTtsVoices: { type: Map, of: String, required: false },
   },
   { timestamps: true }
 );

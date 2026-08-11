@@ -880,8 +880,11 @@ export interface LiveTranslationChannelPublic {
   openRouterSttModel: string | null;
   /** OpenRouter translation model id when set. */
   openRouterTranslateModel: string | null;
-  /** Google Cloud TTS voice name when set. */
-  gcpTtsVoice: string | null;
+  /**
+   * Per-language Google Cloud TTS voices (ISO code → voice resource name).
+   * Empty object when none configured.
+   */
+  gcpTtsVoices: Record<string, string>;
   /** Whether an OpenRouter API key is stored. */
   hasOpenRouterKey: boolean;
   /** Whether a Groq API key is stored. */
@@ -925,8 +928,10 @@ export interface LiveTranslationPublicMeta {
   publicEnabled: boolean;
   /** Whether the owner has translation credentials/models configured. */
   translationReady: boolean;
-  /** Whether listen/TTS is available. */
+  /** Whether listen/TTS is available for at least one language. */
   listenAvailable: boolean;
+  /** Languages that have a configured TTS voice (spoken audio). */
+  audioLanguages: string[];
   /** Source language code. */
   sourceLanguage: string;
   /** Languages listeners may select. */

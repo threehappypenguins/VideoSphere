@@ -17,8 +17,10 @@ import {
   type LiveTranslationChannelPatch,
 } from '@/lib/repositories/live-translation-channels';
 import { normalizeSttProvider } from '@/lib/translation/capabilities';
+import { languagesForTtsConfig, normalizeGcpTtsVoices } from '@/lib/translation/gcp-tts-voices';
 import { parseGcpServiceAccountJson } from '@/lib/translation/gcp-sa';
 import { validateTranslationAiConfig } from '@/lib/translation/validate-credentials';
+import { validateGcpTtsConfig } from '@/lib/translation/validate-gcp-tts';
 import type { ApiError, LiveTranslationChannelOwnerView } from '@/types';
 
 /**
@@ -186,6 +188,117 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    const updatingGcpJson = raw.gcpServiceAccountJson !== undefined;
+    const updatingGcpVoices = raw.gcpTtsVoices !== undefined;
+
+    // Live-validate GCP TTS when saving JSON and/or voices.
+    if (updatingGcpJson || updatingGcpVoices) {
+      if (updatingGcpJson && typeof raw.gcpServiceAccountJson !== 'string') {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'gcpServiceAccountJson must be a string',
+            fields: ['gcpJson'],
+            statusCode: 400,
+          } satisfies ApiError & { fields: string[] },
+          { status: 400 }
+        );
+      }
+
+      const secrets = existing ? await getRuntimeSecretsForUser(userId) : null;
+      const serviceAccountJson =
+        updatingGcpJson && typeof raw.gcpServiceAccountJson === 'string'
+          ? raw.gcpServiceAccountJson.trim()
+          : (secrets?.gcpServiceAccountJson?.trim() ?? '');
+
+      if (!serviceAccountJson) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'Google Cloud service account JSON is required.',
+            fields: ['gcpJson'],
+            statusCode: 400,
+          } satisfies ApiError & { fields: string[] },
+          { status: 400 }
+        );
+      }
+
+      const parsed = parseGcpServiceAccountJson(serviceAccountJson);
+      if (parsed.ok === false) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: parsed.error,
+            fields: ['gcpJson'],
+            statusCode: 400,
+          } satisfies ApiError & { fields: string[] },
+          { status: 400 }
+        );
+      }
+
+      const channelForLangs = existing ?? (await getChannelByUserId(userId));
+      const sourceLanguage = channelForLangs?.sourceLanguage || 'en';
+      const enabledLanguages = [...(channelForLangs?.enabledLanguages ?? [])];
+      if (enabledLanguages.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'Configure at least one listen language before saving Google Cloud TTS.',
+            statusCode: 400,
+          } satisfies ApiError,
+          { status: 400 }
+        );
+      }
+
+      const voices = updatingGcpVoices
+        ? normalizeGcpTtsVoices(raw.gcpTtsVoices)
+        : normalizeGcpTtsVoices(secrets?.gcpTtsVoices);
+
+      if (updatingGcpVoices && Object.keys(voices).length === 0) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'Choose a TTS voice for at least one language.',
+            fields: ['ttsVoice'],
+            statusCode: 400,
+          } satisfies ApiError & { fields: string[] },
+          { status: 400 }
+        );
+      }
+
+      const allowed = new Set(languagesForTtsConfig(sourceLanguage, enabledLanguages));
+      for (const lang of Object.keys(voices)) {
+        if (!allowed.has(lang)) {
+          return NextResponse.json(
+            {
+              error: 'Bad Request',
+              message: `Language "${lang}" is not in your configured languages.`,
+              fields: ['ttsVoice'],
+              statusCode: 400,
+            } satisfies ApiError & { fields: string[] },
+            { status: 400 }
+          );
+        }
+      }
+
+      const validated = await validateGcpTtsConfig({
+        serviceAccountJson,
+        voices,
+      });
+      if (validated.ok === false) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: validated.message,
+            fields: validated.fields,
+            language: validated.language,
+            statusCode: 400,
+          } satisfies ApiError & { fields: typeof validated.fields; language?: string },
+          { status: 400 }
+        );
+      }
+    }
+
     if (!existing) {
       const user = await getUserById(userId);
       await getOrCreateChannelForUser(userId, user?.name || user?.email);
@@ -202,30 +315,7 @@ export async function PUT(req: NextRequest) {
     }
 
     if (raw.gcpServiceAccountJson !== undefined) {
-      if (typeof raw.gcpServiceAccountJson !== 'string') {
-        return NextResponse.json(
-          {
-            error: 'Bad Request',
-            message: 'gcpServiceAccountJson must be a string',
-            fields: ['gcpJson'],
-            statusCode: 400,
-          } satisfies ApiError & { fields: string[] },
-          { status: 400 }
-        );
-      }
-      const parsed = parseGcpServiceAccountJson(raw.gcpServiceAccountJson);
-      if (parsed.ok === false) {
-        return NextResponse.json(
-          {
-            error: 'Bad Request',
-            message: parsed.error,
-            fields: ['gcpJson'],
-            statusCode: 400,
-          } satisfies ApiError & { fields: string[] },
-          { status: 400 }
-        );
-      }
-      view = await setGcpServiceAccountJson(userId, raw.gcpServiceAccountJson.trim());
+      view = await setGcpServiceAccountJson(userId, String(raw.gcpServiceAccountJson).trim());
     }
 
     const modelPatch: LiveTranslationChannelPatch = {};
@@ -234,7 +324,7 @@ export async function PUT(req: NextRequest) {
       modelPatch.sttProvider = normalizeSttProvider(String(raw.sttProvider));
     }
 
-    for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel', 'gcpTtsVoice'] as const) {
+    for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel'] as const) {
       if (raw[key] !== undefined) {
         if (raw[key] !== null && typeof raw[key] !== 'string') {
           return NextResponse.json(
@@ -249,12 +339,14 @@ export async function PUT(req: NextRequest) {
         const value = raw[key] === null ? null : String(raw[key]).trim() || null;
         if (key === 'sttModel' || key === 'openRouterSttModel') {
           modelPatch.sttModel = value;
-        } else if (key === 'openRouterTranslateModel') {
-          modelPatch.openRouterTranslateModel = value;
         } else {
-          modelPatch.gcpTtsVoice = value;
+          modelPatch.openRouterTranslateModel = value;
         }
       }
+    }
+
+    if (raw.gcpTtsVoices !== undefined) {
+      modelPatch.gcpTtsVoices = normalizeGcpTtsVoices(raw.gcpTtsVoices);
     }
 
     if (Object.keys(modelPatch).length > 0) {

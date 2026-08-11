@@ -3,7 +3,10 @@
 // =============================================================================
 
 import { NextRequest } from 'next/server';
-import { getChannelBySlug, capabilityInputFromDoc } from '@/lib/repositories/live-translation-channels';
+import {
+  getChannelBySlug,
+  capabilityInputFromDoc,
+} from '@/lib/repositories/live-translation-channels';
 import { isTranslationReady } from '@/lib/translation/capabilities';
 import { normalizeTranslationLanguageCode } from '@/lib/translation/languages';
 import { subscribePublicListener, type TranslationHubEvent } from '@/lib/translation/session-hub';

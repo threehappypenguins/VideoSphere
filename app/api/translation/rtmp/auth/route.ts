@@ -6,7 +6,10 @@
 // =============================================================================
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getChannelByStreamKey, capabilityInputFromDoc } from '@/lib/repositories/live-translation-channels';
+import {
+  getChannelByStreamKey,
+  capabilityInputFromDoc,
+} from '@/lib/repositories/live-translation-channels';
 import { isTranslationReady } from '@/lib/translation/capabilities';
 
 /**

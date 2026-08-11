@@ -184,7 +184,7 @@ export async function PATCH(req: NextRequest) {
       patch.sttProvider = normalizeSttProvider(raw.sttProvider);
     }
 
-    for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel', 'gcpTtsVoice'] as const) {
+    for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel'] as const) {
       if (raw[key] !== undefined) {
         if (raw[key] !== null && typeof raw[key] !== 'string') {
           return NextResponse.json(
@@ -199,10 +199,8 @@ export async function PATCH(req: NextRequest) {
         const value = raw[key] === null ? null : String(raw[key]).trim() || null;
         if (key === 'sttModel' || key === 'openRouterSttModel') {
           patch.sttModel = value;
-        } else if (key === 'openRouterTranslateModel') {
-          patch.openRouterTranslateModel = value;
         } else {
-          patch.gcpTtsVoice = value;
+          patch.openRouterTranslateModel = value;
         }
       }
     }

@@ -1,12 +1,15 @@
 // =============================================================================
-// Curated live-translation language codes (ISO 639-1)
+// Curated live-translation language codes
 // =============================================================================
 
 /**
  * A language option for source / target pickers.
  */
 export interface TranslationLanguageOption {
-  /** ISO 639-1 code passed to STT, translate prompts, and TTS. */
+  /**
+   * Language code passed to STT, translate prompts, and TTS matching.
+   * Usually ISO 639-1; Cantonese uses ISO 639-3 `yue`.
+   */
   code: string;
   /** English display name. */
   name: string;
@@ -17,8 +20,11 @@ export interface TranslationLanguageOption {
 /**
  * Languages curated for the suggested stack:
  * Groq/OpenRouter Whisper STT (`whisper-large-v3*`) plus OpenRouter chat translate
- * (e.g. `openai/gpt-oss-20b:free`). Codes are ISO 639-1; this is not fetched from
- * provider APIs — models do not expose a reliable language catalog.
+ * (e.g. `openai/gpt-oss-20b:free`). This is not fetched from provider APIs — models
+ * do not expose a reliable language catalog.
+ *
+ * Mandarin (`zh`) and Cantonese (`yue`) are separate so translate text and TTS voices
+ * stay aligned (GCP uses `cmn-*` vs `yue-HK-*`).
  */
 export const TRANSLATION_LANGUAGES: readonly TranslationLanguageOption[] = [
   { code: 'en', name: 'English', nativeName: 'English' },
@@ -31,7 +37,8 @@ export const TRANSLATION_LANGUAGES: readonly TranslationLanguageOption[] = [
   { code: 'pl', name: 'Polish', nativeName: 'Polski' },
   { code: 'ru', name: 'Russian', nativeName: 'Русский' },
   { code: 'uk', name: 'Ukrainian', nativeName: 'Українська' },
-  { code: 'zh', name: 'Chinese', nativeName: '中文' },
+  { code: 'zh', name: 'Chinese - Mandarin', nativeName: '普通话' },
+  { code: 'yue', name: 'Chinese - Cantonese', nativeName: '粤语' },
   { code: 'ja', name: 'Japanese', nativeName: '日本語' },
   { code: 'ko', name: 'Korean', nativeName: '한국어' },
   { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
@@ -71,7 +78,7 @@ export function isKnownTranslationLanguage(code: string): boolean {
 
 /**
  * Resolves the English display label for a language code.
- * @param code - ISO 639-1 (or legacy free-text) code.
+ * @param code - Language code (or legacy free-text).
  * @returns Curated English name, or the raw code when unknown.
  */
 export function translationLanguageLabel(code: string): string {
@@ -82,8 +89,8 @@ export function translationLanguageLabel(code: string): string {
 /**
  * Builds the public listen-page label: English name plus native autonym in parentheses.
  * Omits the parenthetical when the native name matches the English name.
- * @param code - ISO 639-1 (or legacy free-text) code.
- * @returns Label such as `French (Français)` or `Chinese (中文)`.
+ * @param code - Language code (or legacy free-text).
+ * @returns Label such as `French (Français)` or `Chinese - Mandarin (普通话)`.
  */
 export function translationLanguagePublicLabel(code: string): string {
   const normalized = code.trim().toLowerCase();
@@ -95,6 +102,27 @@ export function translationLanguagePublicLabel(code: string): string {
     return lang.name;
   }
   return `${lang.name} (${lang.nativeName})`;
+}
+
+/**
+ * Human-readable language name for translation model prompts (English + native when useful).
+ * @param code - Language code.
+ * @returns Prompt-facing name such as `Chinese - Mandarin (普通话)`.
+ */
+export function translationPromptLanguageName(code: string): string {
+  return translationLanguagePublicLabel(code);
+}
+
+/**
+ * Whisper / Groq STT `language` hint for a curated translation language.
+ * @param code - Channel source language code.
+ * @returns Provider language tag (e.g. `zh`, `yue`).
+ */
+export function sttLanguageHintForTranslationLanguage(code: string): string {
+  const normalized = normalizeTranslationLanguageCode(code);
+  // Whisper-compatible tags: Mandarin stays `zh`; Cantonese uses `yue` when supported.
+  if (normalized === 'zh' || normalized === 'yue') return normalized;
+  return normalized || 'en';
 }
 
 /**
@@ -116,11 +144,7 @@ export function resolveTranslationLanguageOption(code: string): TranslationLangu
  * @returns Normalized searchable string.
  */
 function searchableText(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '');
+  return value.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
 }
 
 /**

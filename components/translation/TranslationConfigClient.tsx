@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import type { LiveTranslationChannelOwnerView, LiveTranslationSttProvider } from '@/types';
@@ -34,6 +34,25 @@ import {
   normalizeTranslationLanguageCode,
   resolveTranslationLanguageOption,
 } from '@/lib/translation/languages';
+import {
+  GCP_TTS_PRICING_URL,
+  classifyGcpTtsVoiceFamily,
+  gcpTtsVoiceFamiliesInCatalog,
+  gcpTtsVoiceFamilyInfo,
+  inferGcpTtsVoiceFamily,
+  type GcpTtsVoiceFamilyId,
+} from '@/lib/translation/gcp-tts-voice-families';
+import {
+  formatGcpTtsVoiceOptionLabel,
+  gcpVoiceMatchesListenLanguage,
+  languagesForTtsConfig,
+} from '@/lib/translation/gcp-tts-voices';
+
+type GcpVoiceOption = {
+  name: string;
+  languageCodes: string[];
+  ssmlGender?: 'male' | 'female' | 'neutral' | null;
+};
 
 /**
  * Owner dashboard UI for per-user live audio translation configuration and ingest.
@@ -64,7 +83,15 @@ export function TranslationConfigClient() {
   const [translateModel, setTranslateModel] = useState('');
 
   const [gcpJson, setGcpJson] = useState('');
-  const [ttsVoice, setTtsVoice] = useState('');
+  const [gcpJsonFileName, setGcpJsonFileName] = useState<string | null>(null);
+  const [ttsVoices, setTtsVoices] = useState<Record<string, string>>({});
+  const [gcpVoiceOptions, setGcpVoiceOptions] = useState<GcpVoiceOption[]>([]);
+  const [ttsVoiceFamily, setTtsVoiceFamily] = useState<GcpTtsVoiceFamilyId | ''>('');
+  const [loadingGcpVoices, setLoadingGcpVoices] = useState(false);
+  const [previewingVoiceLang, setPreviewingVoiceLang] = useState<string | null>(null);
+  const gcpJsonFileInputRef = useRef<HTMLInputElement | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewObjectUrlRef = useRef<string | null>(null);
   /** Field id → error message (client blank checks and server validation). */
   const [aiFieldErrors, setAiFieldErrors] = useState<Record<string, string>>({});
   const [gcpFieldErrors, setGcpFieldErrors] = useState<Record<string, string>>({});
@@ -88,7 +115,7 @@ export function TranslationConfigClient() {
     setSttProvider(view.sttProvider ?? 'openrouter');
     setSttModel(view.sttModel ?? view.openRouterSttModel ?? '');
     setTranslateModel(view.openRouterTranslateModel ?? '');
-    setTtsVoice(view.gcpTtsVoice ?? '');
+    setTtsVoices(view.gcpTtsVoices ?? {});
     if (view.streamKeyPlaintext) {
       setStreamKeyPlaintext(view.streamKeyPlaintext);
     }
@@ -146,10 +173,7 @@ export function TranslationConfigClient() {
    * @returns Combined className string.
    */
   function invalidInputClass(hasError: boolean, extra?: string): string {
-    return [
-      extra,
-      hasError ? 'border-destructive focus-visible:ring-destructive' : undefined,
-    ]
+    return [extra, hasError ? 'border-destructive focus-visible:ring-destructive' : undefined]
       .filter(Boolean)
       .join(' ');
   }
@@ -186,9 +210,189 @@ export function TranslationConfigClient() {
 
   function openGcpModal() {
     setGcpJson('');
-    setTtsVoice(channel?.gcpTtsVoice ?? '');
+    setGcpJsonFileName(null);
+    const existing = channel?.gcpTtsVoices ?? {};
+    setTtsVoices(existing);
+    setGcpVoiceOptions([]);
+    setTtsVoiceFamily(inferGcpTtsVoiceFamily(Object.values(existing)) ?? '');
     setGcpFieldErrors({});
+    stopVoicePreview();
+    setPreviewingVoiceLang(null);
     setGcpOpen(true);
+  }
+
+  /**
+   * Voices for a listen language, optionally restricted to the selected model family.
+   * @param lang - ISO language code.
+   * @param voices - Full catalog from GCP.
+   * @param family - Selected model family, or empty for language-only filter.
+   * @returns Matching voice options.
+   */
+  function voiceOptionsForLanguage(
+    lang: string,
+    voices: GcpVoiceOption[],
+    family: GcpTtsVoiceFamilyId | ''
+  ): GcpVoiceOption[] {
+    return voices.filter((voice) => {
+      if (!gcpVoiceMatchesListenLanguage(voice, lang)) return false;
+      if (!family) return true;
+      return classifyGcpTtsVoiceFamily(voice.name) === family;
+    });
+  }
+
+  function applyLoadedVoices(voices: GcpVoiceOption[], preferredVoices?: Record<string, string>) {
+    setGcpVoiceOptions(voices);
+    const families = gcpTtsVoiceFamiliesInCatalog(voices.map((v) => v.name));
+    const configured = preferredVoices ?? ttsVoices;
+    const inferred = inferGcpTtsVoiceFamily(Object.values(configured));
+    // Prefer the family already configured; otherwise require an explicit model choice.
+    const nextFamily = inferred && families.some((f) => f.id === inferred) ? inferred : '';
+    setTtsVoiceFamily(nextFamily);
+    if (nextFamily) {
+      const kept: Record<string, string> = {};
+      for (const [lang, voice] of Object.entries(configured)) {
+        if (classifyGcpTtsVoiceFamily(voice) === nextFamily) kept[lang] = voice;
+      }
+      setTtsVoices(kept);
+    } else {
+      // Keep configured voices until the admin picks a model (then they are filtered).
+      setTtsVoices(configured);
+    }
+  }
+
+  function stopVoicePreview() {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    if (previewObjectUrlRef.current) {
+      URL.revokeObjectURL(previewObjectUrlRef.current);
+      previewObjectUrlRef.current = null;
+    }
+  }
+
+  function onTtsVoiceFamilyChange(next: GcpTtsVoiceFamilyId | '') {
+    setTtsVoiceFamily(next);
+    stopVoicePreview();
+    setPreviewingVoiceLang(null);
+    if (!next) {
+      setTtsVoices({});
+      return;
+    }
+    setTtsVoices((prev) => {
+      const kept: Record<string, string> = {};
+      for (const [lang, voice] of Object.entries(prev)) {
+        if (classifyGcpTtsVoiceFamily(voice) === next) kept[lang] = voice;
+      }
+      return kept;
+    });
+  }
+
+  async function previewGcpVoice(lang: string, voiceName: string) {
+    const voice = voiceName.trim();
+    if (!voice) {
+      toast.error('Select a voice to preview');
+      return;
+    }
+    const json = gcpJson.trim();
+    if (!channel?.hasGcpServiceAccount && !json) {
+      setGcpFieldErrors((prev) => ({
+        ...prev,
+        gcpJson: 'Upload or paste your Google Cloud service account JSON.',
+      }));
+      toast.error('Upload or paste service account JSON first');
+      return;
+    }
+
+    stopVoicePreview();
+    setPreviewingVoiceLang(lang);
+    try {
+      const body: Record<string, string> = { voiceName: voice, language: lang };
+      if (json) body.gcpServiceAccountJson = json;
+
+      const res = await fetch('/api/translation/gcp-voice-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          message?: string;
+          fields?: string[];
+        };
+        const message = data.message || 'Failed to preview voice';
+        const fromApi = fieldErrorsFromApi(data.fields, message);
+        if (Object.keys(fromApi).length > 0) {
+          setGcpFieldErrors((prev) => ({ ...prev, ...fromApi }));
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      previewObjectUrlRef.current = url;
+      const audio = new Audio(url);
+      previewAudioRef.current = audio;
+      audio.onended = () => {
+        stopVoicePreview();
+      };
+      await audio.play();
+    } catch (error) {
+      stopVoicePreview();
+      toast.error(error instanceof Error ? error.message : 'Failed to preview voice');
+    } finally {
+      setPreviewingVoiceLang(null);
+    }
+  }
+
+  async function loadGcpVoices(jsonOverride?: string) {
+    const json = (jsonOverride ?? gcpJson).trim();
+    if (!channel?.hasGcpServiceAccount && !json) {
+      setGcpFieldErrors((prev) => ({
+        ...prev,
+        gcpJson: 'Upload or paste your Google Cloud service account JSON.',
+      }));
+      toast.error('Upload or paste service account JSON first');
+      return;
+    }
+
+    setLoadingGcpVoices(true);
+    try {
+      const body: Record<string, string> = {};
+      if (json) body.gcpServiceAccountJson = json;
+
+      const res = await fetch('/api/translation/gcp-voices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as {
+        voices?: GcpVoiceOption[];
+        message?: string;
+        fields?: string[];
+      };
+      if (!res.ok) {
+        const message = data.message || 'Failed to load GCP voices';
+        const fromApi = fieldErrorsFromApi(data.fields, message);
+        if (Object.keys(fromApi).length > 0) {
+          setGcpFieldErrors((prev) => ({ ...prev, ...fromApi }));
+        }
+        throw new Error(message);
+      }
+      applyLoadedVoices(
+        data.voices ?? [],
+        Object.keys(ttsVoices).length > 0 ? ttsVoices : (channel?.gcpTtsVoices ?? {})
+      );
+      clearGcpFieldError('gcpJson');
+      toast.success('Voices loaded — choose a model, then a voice per language');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load voices');
+    } finally {
+      setLoadingGcpVoices(false);
+    }
   }
 
   async function saveAiModal() {
@@ -262,14 +466,22 @@ export function TranslationConfigClient() {
 
   async function saveGcpModal() {
     const json = gcpJson.trim();
-    const voice = ttsVoice.trim();
+
+    const voicesToSave: Record<string, string> = {};
+    for (const [lang, voice] of Object.entries(ttsVoices)) {
+      const trimmed = voice.trim();
+      if (trimmed) voicesToSave[lang] = trimmed;
+    }
 
     const errors: Record<string, string> = {};
     if (!channel?.hasGcpServiceAccount && !json) {
-      errors.gcpJson = 'Paste your Google Cloud service account JSON.';
+      errors.gcpJson = 'Upload or paste your Google Cloud service account JSON.';
     }
-    if (!voice) {
-      errors.ttsVoice = 'Enter a GCP TTS voice name.';
+    if (gcpVoiceOptions.length > 0 && !ttsVoiceFamily) {
+      errors.ttsVoice = 'Choose a voice model before selecting voices.';
+    }
+    if (Object.keys(voicesToSave).length === 0) {
+      errors.ttsVoice = errors.ttsVoice || 'Choose a TTS voice for at least one language.';
     }
     if (Object.keys(errors).length > 0) {
       setGcpFieldErrors(errors);
@@ -280,7 +492,7 @@ export function TranslationConfigClient() {
 
     setSaving(true);
     try {
-      const body: Record<string, string> = { gcpTtsVoice: voice };
+      const body: Record<string, unknown> = { gcpTtsVoices: voicesToSave };
       if (json) body.gcpServiceAccountJson = json;
 
       const res = await fetch('/api/translation/credentials', {
@@ -292,10 +504,15 @@ export function TranslationConfigClient() {
       const data = (await res.json()) as LiveTranslationChannelOwnerView & {
         message?: string;
         fields?: string[];
+        language?: string;
       };
       if (!res.ok) {
         const message = data.message || 'Failed to save Google Cloud TTS settings';
         const fromApi = fieldErrorsFromApi(data.fields, message);
+        if (data.language) {
+          fromApi[`ttsVoice-${data.language}`] = message;
+          delete fromApi.ttsVoice;
+        }
         if (Object.keys(fromApi).length > 0) {
           setGcpFieldErrors(fromApi);
         }
@@ -303,6 +520,9 @@ export function TranslationConfigClient() {
       }
       applyChannel(data);
       setGcpJson('');
+      setGcpJsonFileName(null);
+      setGcpVoiceOptions([]);
+      setTtsVoiceFamily('');
       setGcpFieldErrors({});
       setGcpOpen(false);
       toast.success('Google Cloud TTS saved for your account only');
@@ -363,7 +583,7 @@ export function TranslationConfigClient() {
       setSttProvider('openrouter');
       setSttModel('');
       setTranslateModel('');
-      setTtsVoice('');
+      setTtsVoices({});
       setAiOpen(false);
       setGcpOpen(false);
       toast.success('Translation channel deleted');
@@ -374,13 +594,43 @@ export function TranslationConfigClient() {
     }
   }
 
-  async function savePublicPageSettings() {
+  async function saveLanguagesSettings() {
     setSaving(true);
     try {
       const targets = [...new Set(enabledLanguages.map(normalizeTranslationLanguageCode))]
         .filter(Boolean)
         .filter((code) => code !== normalizeTranslationLanguageCode(sourceLanguage));
 
+      if (targets.length === 0) {
+        toast.error('Choose at least one target language');
+        return;
+      }
+
+      const res = await fetch('/api/translation/channel', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          sourceLanguage: normalizeTranslationLanguageCode(sourceLanguage) || 'en',
+          enabledLanguages: targets,
+        }),
+      });
+      const data = (await res.json()) as LiveTranslationChannelOwnerView & {
+        message?: string;
+      };
+      if (!res.ok) throw new Error(data.message || 'Failed to save languages');
+      applyChannel(data);
+      toast.success('Languages saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function savePublicPageSettings() {
+    setSaving(true);
+    try {
       const res = await fetch('/api/translation/channel', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -388,8 +638,6 @@ export function TranslationConfigClient() {
         body: JSON.stringify({
           slug: publicEnabled ? slug : undefined,
           publicEnabled,
-          sourceLanguage: normalizeTranslationLanguageCode(sourceLanguage) || 'en',
-          enabledLanguages: targets,
         }),
       });
       const data = (await res.json()) as LiveTranslationChannelOwnerView & {
@@ -469,11 +717,20 @@ export function TranslationConfigClient() {
   const hasOpenRouter = channel?.hasOpenRouterKey ?? false;
   const sttLabel = channel?.sttProvider === 'groq' ? 'Groq' : 'OpenRouter';
   const sectionClassName = 'mt-8 space-y-4 rounded-xl border border-border bg-background p-6';
+  const languagesReady = (channel?.enabledLanguages?.length ?? 0) > 0;
+  const ttsModalLanguages = channel
+    ? languagesForTtsConfig(channel.sourceLanguage, channel.enabledLanguages)
+    : [];
+  const configuredTtsVoices = channel?.gcpTtsVoices ?? {};
+  const gcpVoiceFamilies = gcpTtsVoiceFamiliesInCatalog(gcpVoiceOptions.map((v) => v.name));
+  const selectedFamilyInfo = ttsVoiceFamily ? gcpTtsVoiceFamilyInfo(ttsVoiceFamily) : null;
 
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Live audio translation</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">
+          Live audio translation
+        </h1>
         <p className="text-muted-foreground text-shadow-bg">
           Your keys and models stay on your account. Other users cannot use them. Choose OpenRouter
           or Groq for speech-to-text; translation always uses OpenRouter. Google Cloud TTS is
@@ -558,22 +815,95 @@ export function TranslationConfigClient() {
 
       {channel?.translationReady ? (
         <section className={sectionClassName}>
+          <h2 className="text-xl font-semibold text-foreground">Languages</h2>
+          <p className="text-muted-foreground text-sm">
+            Set the spoken source language and at least one listen target. Save languages before
+            configuring Google Cloud TTS voices.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="source-lang-search">Source language</Label>
+              <TranslationLanguageSearchList
+                mode="single"
+                id="source-lang-search"
+                listLabel="Source languages"
+                options={sourceOptions}
+                value={sourceCode}
+                onValueChange={(value) => {
+                  setSourceLanguage(value);
+                  setEnabledLanguages((prev) =>
+                    prev
+                      .map(normalizeTranslationLanguageCode)
+                      .filter((code) => code && code !== value)
+                  );
+                }}
+              />
+              <p className="text-muted-foreground text-xs">Spoken language for speech-to-text.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="target-langs-search">Target languages</Label>
+              <TranslationLanguageSearchList
+                mode="multiple"
+                id="target-langs-search"
+                listLabel="Target languages"
+                options={targetOptions}
+                value={enabledLanguages.map(normalizeTranslationLanguageCode).filter(Boolean)}
+                onToggle={toggleTargetLanguage}
+              />
+              <p className="text-muted-foreground text-xs">
+                Languages listeners can follow on the public page. Select at least one.
+              </p>
+            </div>
+          </div>
+          <Button type="button" disabled={saving} onClick={() => void saveLanguagesSettings()}>
+            Save languages
+          </Button>
+        </section>
+      ) : null}
+
+      {channel?.translationReady ? (
+        <section className={sectionClassName}>
           <h2 className="text-xl font-semibold text-foreground">Google Cloud TTS</h2>
           <p className="text-muted-foreground text-sm">
-            Optional. Enables spoken translation on the public page. Requires a service account JSON
-            and a TTS voice name.
+            Optional. After validating your service account JSON, choose a{' '}
+            <span className="text-foreground">voice model</span> (with free monthly character
+            limits), then one voice per language for spoken translation.
           </p>
-          {channel.hasGcpServiceAccount ? (
+          <p className="text-muted-foreground text-sm">
+            See Google&apos;s{' '}
+            <a
+              href={GCP_TTS_PRICING_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-foreground underline underline-offset-2"
+            >
+              Text-to-Speech pricing
+            </a>{' '}
+            for free usage limits and rates. Billing must be enabled on the GCP project; usage above
+            the free allotment is charged automatically.
+          </p>
+          {!languagesReady ? (
+            <p className="text-muted-foreground text-sm">
+              Choose and save at least one target language before adding Google Cloud TTS.
+            </p>
+          ) : channel.hasGcpServiceAccount ? (
             <div className="space-y-3">
-              <p className="text-sm">
-                Service account: configured
-                {channel.gcpTtsVoice ? (
-                  <>
-                    {' '}
-                    · Voice: <code className="text-xs">{channel.gcpTtsVoice}</code>
-                  </>
-                ) : null}
-              </p>
+              <p className="text-sm">Service account: configured</p>
+              {Object.keys(configuredTtsVoices).length > 0 ? (
+                <ul className="space-y-1 text-sm">
+                  {Object.entries(configuredTtsVoices).map(([lang, voice]) => (
+                    <li key={lang}>
+                      {resolveTranslationLanguageOption(lang).name}{' '}
+                      <span className="text-muted-foreground">→</span>{' '}
+                      <code className="text-xs">{voice}</code>
+                      <span className="text-muted-foreground text-xs">
+                        {' '}
+                        ({gcpTtsVoiceFamilyInfo(classifyGcpTtsVoiceFamily(voice)).label})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" disabled={saving} onClick={openGcpModal}>
                   Edit Google Cloud TTS
@@ -600,8 +930,8 @@ export function TranslationConfigClient() {
         <section className={sectionClassName}>
           <h2 className="text-xl font-semibold text-foreground">Public translation page</h2>
           <p className="text-muted-foreground text-sm">
-            A page where viewers can follow the translation in real time. Listening is optional when
-            Google Cloud TTS is configured.
+            Share a public URL where viewers follow translation in real time. Enable the page and
+            choose a slug; language options come from your saved Languages settings.
           </p>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -620,48 +950,13 @@ export function TranslationConfigClient() {
               onChange={(e) => setSlug(e.target.value)}
             />
             <p className="text-muted-foreground text-sm break-all">
-              {publicEnabled ? publicUrl || '—' : 'Enable the public page to edit the slug and share the URL.'}
+              {publicEnabled
+                ? publicUrl || '—'
+                : 'Enable the public page to edit the slug and share the URL.'}
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="source-lang-search">Source language</Label>
-              <TranslationLanguageSearchList
-                mode="single"
-                id="source-lang-search"
-                listLabel="Source languages"
-                options={sourceOptions}
-                value={sourceCode}
-                onValueChange={(value) => {
-                  setSourceLanguage(value);
-                  setEnabledLanguages((prev) =>
-                    prev
-                      .map(normalizeTranslationLanguageCode)
-                      .filter((code) => code && code !== value)
-                  );
-                }}
-              />
-              <p className="text-muted-foreground text-xs">
-                Spoken language for STT. Curated for Whisper + OpenRouter chat translate models.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="target-langs-search">Target languages</Label>
-              <TranslationLanguageSearchList
-                mode="multiple"
-                id="target-langs-search"
-                listLabel="Target languages"
-                options={targetOptions}
-                value={enabledLanguages.map(normalizeTranslationLanguageCode).filter(Boolean)}
-                onToggle={toggleTargetLanguage}
-              />
-              <p className="text-muted-foreground text-xs">
-                Listeners can pick these on the public page. Use checkboxes to select more than one.
-              </p>
-            </div>
-          </div>
           <Button type="button" disabled={saving} onClick={() => void savePublicPageSettings()}>
-            Save public page & languages
+            Save public page
           </Button>
         </section>
       ) : null}
@@ -766,8 +1061,8 @@ export function TranslationConfigClient() {
           <DialogHeader>
             <DialogTitle>Configure speech-to-text &amp; translation</DialogTitle>
             <DialogDescription>
-              Choose OpenRouter or Groq for STT. Translation always uses OpenRouter (free chat models
-              are fine). Keys stay on your account only.
+              Choose OpenRouter or Groq for STT. Translation always uses OpenRouter (free chat
+              models are fine). Keys stay on your account only.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -837,9 +1132,7 @@ export function TranslationConfigClient() {
                   autoComplete="off"
                   aria-invalid={aiFieldErrors.openRouterKey ? true : undefined}
                   className={invalidInputClass(Boolean(aiFieldErrors.openRouterKey), 'pr-10')}
-                  placeholder={
-                    hasOpenRouter ? '•••• configured — paste to replace' : 'sk-or-…'
-                  }
+                  placeholder={hasOpenRouter ? '•••• configured — paste to replace' : 'sk-or-…'}
                   value={openRouterKey}
                   onChange={(e) => {
                     setOpenRouterKey(e.target.value);
@@ -913,7 +1206,12 @@ export function TranslationConfigClient() {
                 <p className="text-destructive text-xs" role="alert">
                   {aiFieldErrors.translateModel}
                 </p>
-              ) : null}
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Free models are supported. Live translation may pause briefly when the shared free
+                  pool returns 429; VideoSphere keeps only the latest audio/caption and retries.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -932,18 +1230,103 @@ export function TranslationConfigClient() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={gcpOpen} onOpenChange={setGcpOpen}>
+      <Dialog
+        open={gcpOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            stopVoicePreview();
+            setPreviewingVoiceLang(null);
+          }
+          setGcpOpen(open);
+        }}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {channel?.hasGcpServiceAccount ? 'Edit Google Cloud TTS' : 'Add Google Cloud TTS'}
             </DialogTitle>
             <DialogDescription>
-              Paste a service account JSON key and the TTS voice name. Both are required for spoken
-              translation.
+              Upload or paste a service account JSON key, load voices, choose a{' '}
+              <strong className="font-medium text-foreground">voice model</strong> (see free monthly
+              character limits), then pick one voice per language. At least one voice is required
+              for spoken translation. Pricing:{' '}
+              <a
+                href={GCP_TTS_PRICING_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2"
+              >
+                cloud.google.com/text-to-speech/pricing
+              </a>
+              .
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="modal-gcp-json-file">Service account JSON file</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  ref={gcpJsonFileInputRef}
+                  id="modal-gcp-json-file"
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const text = typeof reader.result === 'string' ? reader.result : '';
+                      const trimmed = text.trim();
+                      if (!trimmed) {
+                        setGcpFieldErrors((prev) => ({
+                          ...prev,
+                          gcpJson: 'The selected file was empty.',
+                        }));
+                        return;
+                      }
+                      try {
+                        JSON.parse(trimmed);
+                      } catch {
+                        setGcpFieldErrors((prev) => ({
+                          ...prev,
+                          gcpJson: 'The selected file is not valid JSON.',
+                        }));
+                        return;
+                      }
+                      setGcpJson(trimmed);
+                      setGcpJsonFileName(file.name);
+                      clearGcpFieldError('gcpJson');
+                      toast.success(`Loaded ${file.name}`);
+                      void loadGcpVoices(trimmed);
+                    };
+                    reader.onerror = () => {
+                      setGcpFieldErrors((prev) => ({
+                        ...prev,
+                        gcpJson: 'Could not read the selected file.',
+                      }));
+                    };
+                    reader.readAsText(file);
+                    // Allow re-selecting the same file after a failed attempt.
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => gcpJsonFileInputRef.current?.click()}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                >
+                  Choose file
+                </button>
+                <span className="max-w-full truncate text-xs text-muted-foreground">
+                  {gcpJsonFileName ?? 'No file selected'}
+                </span>
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Choose the JSON key downloaded from Google Cloud, or paste it below.
+              </p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="modal-gcp-json">Service account JSON</Label>
               <Textarea
@@ -953,12 +1336,13 @@ export function TranslationConfigClient() {
                 className={invalidInputClass(Boolean(gcpFieldErrors.gcpJson), 'font-mono text-xs')}
                 placeholder={
                   channel?.hasGcpServiceAccount
-                    ? '{ /* configured — paste full JSON to replace */ }'
+                    ? '{ /* configured — upload or paste full JSON to replace */ }'
                     : '{ "type": "service_account", ... }'
                 }
                 value={gcpJson}
                 onChange={(e) => {
                   setGcpJson(e.target.value);
+                  setGcpJsonFileName(null);
                   clearGcpFieldError('gcpJson');
                 }}
               />
@@ -969,27 +1353,164 @@ export function TranslationConfigClient() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="modal-tts-voice">TTS voice name</Label>
-              <Input
-                id="modal-tts-voice"
-                aria-invalid={gcpFieldErrors.ttsVoice ? true : undefined}
-                className={invalidInputClass(Boolean(gcpFieldErrors.ttsVoice))}
-                placeholder="e.g. es-US-Neural2-A"
-                value={ttsVoice}
-                onChange={(e) => {
-                  setTtsVoice(e.target.value);
-                  clearGcpFieldError('ttsVoice');
-                }}
-              />
-              {gcpFieldErrors.ttsVoice ? (
-                <p className="text-destructive text-xs" role="alert">
-                  {gcpFieldErrors.ttsVoice}
-                </p>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={saving || loadingGcpVoices}
+                  onClick={() => void loadGcpVoices()}
+                >
+                  {loadingGcpVoices ? 'Loading voices…' : 'Load voices'}
+                </Button>
+                <span className="text-muted-foreground text-xs">
+                  {gcpVoiceOptions.length > 0
+                    ? `${gcpVoiceOptions.length} voices available`
+                    : 'Load voices after pasting or uploading JSON'}
+                </span>
+              </div>
             </div>
+            {gcpVoiceOptions.length > 0 ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="modal-tts-model">Voice model</Label>
+                  <select
+                    id="modal-tts-model"
+                    className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
+                    value={ttsVoiceFamily}
+                    onChange={(e) => {
+                      onTtsVoiceFamilyChange((e.target.value || '') as GcpTtsVoiceFamilyId | '');
+                      clearGcpFieldError('ttsVoice');
+                    }}
+                  >
+                    <option value="">Select a model…</option>
+                    {gcpVoiceFamilies.map((family) => (
+                      <option key={family.id} value={family.id}>
+                        {family.freeUsageLimit
+                          ? `${family.label} — ${family.freeUsageLimit}`
+                          : family.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedFamilyInfo ? (
+                    selectedFamilyInfo.freeUsageLimit ? (
+                      <p className="text-muted-foreground text-xs">
+                        Included monthly: {selectedFamilyInfo.freeUsageLimit}. After that:{' '}
+                        {selectedFamilyInfo.priceAfterFree}. Details:{' '}
+                        <a
+                          href={GCP_TTS_PRICING_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline underline-offset-2"
+                        >
+                          Text-to-Speech pricing
+                        </a>
+                        .
+                      </p>
+                    ) : (
+                      <p className="text-muted-foreground text-xs">
+                        Unclassified voice type — check{' '}
+                        <a
+                          href={GCP_TTS_PRICING_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline underline-offset-2"
+                        >
+                          Text-to-Speech pricing
+                        </a>{' '}
+                        for rates.
+                      </p>
+                    )
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      Choose a model first so voice lists stay short and match one pricing tier.
+                    </p>
+                  )}
+                </div>
+                {ttsVoiceFamily ? (
+                  <>
+                    <p className="text-muted-foreground text-xs">
+                      Use Preview to hear a short sample (uses a few characters of your GCP TTS
+                      quota).
+                    </p>
+                    {ttsModalLanguages.map((lang) => {
+                      const fieldId = `ttsVoice-${lang}`;
+                      const langLabel = resolveTranslationLanguageOption(lang).name;
+                      const options = voiceOptionsForLanguage(
+                        lang,
+                        gcpVoiceOptions,
+                        ttsVoiceFamily
+                      );
+                      const fieldError = gcpFieldErrors[fieldId] ?? gcpFieldErrors.ttsVoice;
+                      return (
+                        <div key={lang} className="space-y-2">
+                          <Label htmlFor={fieldId}>{langLabel} voice</Label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <select
+                              id={fieldId}
+                              aria-invalid={fieldError ? true : undefined}
+                              className={invalidInputClass(
+                                Boolean(fieldError),
+                                'border-input bg-background min-w-0 flex-1 rounded-md border px-3 py-2 text-sm'
+                              )}
+                              value={ttsVoices[lang] ?? ''}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setTtsVoices((prev) => {
+                                  const next = { ...prev };
+                                  if (value) next[lang] = value;
+                                  else delete next[lang];
+                                  return next;
+                                });
+                                clearGcpFieldError(fieldId);
+                                clearGcpFieldError('ttsVoice');
+                              }}
+                            >
+                              <option value="">
+                                {options.length > 0
+                                  ? 'Select a voice…'
+                                  : 'No voices for this language in the selected model'}
+                              </option>
+                              {options.map((voice) => (
+                                <option key={voice.name} value={voice.name}>
+                                  {formatGcpTtsVoiceOptionLabel(voice)}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={saving || !ttsVoices[lang] || previewingVoiceLang === lang}
+                              onClick={() => void previewGcpVoice(lang, ttsVoices[lang] ?? '')}
+                            >
+                              {previewingVoiceLang === lang ? 'Loading…' : 'Preview'}
+                            </Button>
+                          </div>
+                          {fieldError ? (
+                            <p className="text-destructive text-xs" role="alert">
+                              {fieldError}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </>
+                ) : null}
+              </div>
+            ) : gcpFieldErrors.ttsVoice ? (
+              <p className="text-destructive text-xs" role="alert">
+                {gcpFieldErrors.ttsVoice}
+              </p>
+            ) : null}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={saving} onClick={() => setGcpOpen(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={() => setGcpOpen(false)}
+            >
               Cancel
             </Button>
             <Button type="button" disabled={saving} onClick={() => void saveGcpModal()}>

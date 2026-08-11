@@ -5,7 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedSessionUserId } from '@/lib/api/auth';
-import { getChannelByUserId, capabilityInputFromDoc } from '@/lib/repositories/live-translation-channels';
+import {
+  getChannelByUserId,
+  capabilityInputFromDoc,
+} from '@/lib/repositories/live-translation-channels';
 import { isTranslationReady } from '@/lib/translation/capabilities';
 import { enqueueOwnerPcm, markIngestStopped } from '@/lib/translation/session-hub';
 import type { ApiError } from '@/types';

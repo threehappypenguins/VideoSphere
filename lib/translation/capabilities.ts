@@ -2,6 +2,8 @@
 // Live translation capability gates (per-user, no shared defaults)
 // =============================================================================
 
+import { hasAnyGcpTtsVoice } from '@/lib/translation/gcp-tts-voices';
+
 /**
  * Supported speech-to-text backends for live translation ingest.
  */
@@ -12,9 +14,7 @@ export type LiveTranslationSttProvider = 'openrouter' | 'groq';
  * @param value - Raw provider string.
  * @returns Canonical provider; defaults to `openrouter`.
  */
-export function normalizeSttProvider(
-  value: string | null | undefined
-): LiveTranslationSttProvider {
+export function normalizeSttProvider(value: string | null | undefined): LiveTranslationSttProvider {
   return value === 'groq' ? 'groq' : 'openrouter';
 }
 
@@ -37,8 +37,8 @@ export interface TranslationCapabilityInput {
   openRouterTranslateModel: string | null | undefined;
   /** Whether a GCP service-account JSON is stored. */
   hasGcpServiceAccount: boolean;
-  /** GCP TTS voice name. */
-  gcpTtsVoice: string | null | undefined;
+  /** Per-language GCP TTS voice names (ISO code → voice resource name). */
+  gcpTtsVoices: Record<string, string> | null | undefined;
 }
 
 /**
@@ -62,12 +62,12 @@ export function isTranslationReady(input: TranslationCapabilityInput): boolean {
 
 /**
  * Returns whether translated TTS listen may run for this channel owner.
- * Requires translation readiness plus GCP SA + TTS voice.
+ * Requires translation readiness plus GCP SA and at least one language voice.
  * @param input - Stored capability fields for one user channel.
  * @returns True when listen/TTS is ready.
  */
 export function isListenReady(input: TranslationCapabilityInput): boolean {
   return (
-    isTranslationReady(input) && input.hasGcpServiceAccount && Boolean(input.gcpTtsVoice?.trim())
+    isTranslationReady(input) && input.hasGcpServiceAccount && hasAnyGcpTtsVoice(input.gcpTtsVoices)
   );
 }

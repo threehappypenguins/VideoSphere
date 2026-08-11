@@ -6,18 +6,31 @@
 
 import { randomUUID } from 'node:crypto';
 import { getRuntimeSecretsForUser } from '@/lib/repositories/live-translation-channels';
-import { normalizeTranslationLanguageCode } from '@/lib/translation/languages';
+import {
+  normalizeTranslationLanguageCode,
+  sttLanguageHintForTranslationLanguage,
+} from '@/lib/translation/languages';
 import { transcribeAudio } from '@/lib/translation/transcribe';
 import { translateTextWithOpenRouter } from '@/lib/translation/openrouter-translate';
 import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
 import { pcm16MonoToWav } from '@/lib/translation/pcm-wav';
+import {
+  gcpTtsVoiceForLanguage,
+  languageCodeHintFromVoiceName,
+} from '@/lib/translation/gcp-tts-voices';
 
 const MAX_SEGMENTS = 40;
 /** Brief grace for EventSource reconnects; then language work + cached captions are dropped. */
 const LANGUAGE_IDLE_MS = 3_000;
 const INGEST_IDLE_MS = 45_000;
-/** Backoff after OpenRouter 429 so free shared pools are not hammered every chunk. */
+/** Base backoff after OpenRouter translate 429 (free shared pools). */
 const TRANSLATE_RATE_LIMIT_BACKOFF_MS = 20_000;
+/** Cap for exponential translate 429 backoff. */
+const TRANSLATE_RATE_LIMIT_BACKOFF_MAX_MS = 60_000;
+/** Base backoff after Groq/OpenRouter STT 429 (free tiers are often ~20 RPM). */
+const STT_RATE_LIMIT_BACKOFF_MS = 15_000;
+/** Cap for exponential STT 429 backoff. */
+const STT_RATE_LIMIT_BACKOFF_MAX_MS = 60_000;
 
 /** Caption/audio event pushed to public SSE subscribers. */
 export interface TranslationHubEvent {
@@ -59,6 +72,10 @@ type LanguageBucket = {
   /** When set, pause translate attempts until this timestamp (OpenRouter 429 backoff). */
   rateLimitedUntil: number;
   rateLimitNotifiedAt: number;
+  /** Consecutive translate 429s (drives exponential backoff; reset on success). */
+  consecutiveRateLimits: number;
+  /** Single retry timer while rate-limited (avoids thundering herd). */
+  rateLimitTimer: ReturnType<typeof setTimeout> | null;
 };
 
 type ChannelSession = {
@@ -69,6 +86,12 @@ type ChannelSession = {
   ingestIdleTimer: ReturnType<typeof setTimeout> | null;
   processingAudio: boolean;
   audioQueue: Array<{ pcm: Buffer; sampleRate: number }>;
+  /** When set, pause STT attempts until this timestamp (provider 429 backoff). */
+  sttRateLimitedUntil: number;
+  sttRateLimitNotifiedAt: number;
+  sttRateLimitTimer: ReturnType<typeof setTimeout> | null;
+  /** Consecutive STT 429s (drives exponential backoff; reset on success). */
+  sttConsecutiveRateLimits: number;
   segments: Segment[];
   languages: Map<string, LanguageBucket>;
   audioBytes: Map<string, { mime: string; data: Buffer; expiresAt: number }>;
@@ -91,6 +114,10 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
       ingestIdleTimer: null,
       processingAudio: false,
       audioQueue: [],
+      sttRateLimitedUntil: 0,
+      sttRateLimitNotifiedAt: 0,
+      sttRateLimitTimer: null,
+      sttConsecutiveRateLimits: 0,
       segments: [],
       languages: new Map(),
       audioBytes: new Map(),
@@ -98,6 +125,69 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
     sessions.set(channelId, session);
   }
   return session;
+}
+
+/**
+ * Keeps only the newest PCM chunk (live captions should not burn quota on a backlog).
+ * @param session - Channel session.
+ */
+function coalesceAudioQueueToLatest(session: ChannelSession): void {
+  if (session.audioQueue.length <= 1) return;
+  const keep = session.audioQueue[session.audioQueue.length - 1];
+  session.audioQueue.length = 0;
+  if (keep) session.audioQueue.push(keep);
+}
+
+/**
+ * Computes STT 429 backoff with exponential growth.
+ * @param consecutive - Consecutive 429 count (1-based after increment).
+ * @returns Delay in milliseconds.
+ */
+function sttRateLimitBackoffMs(consecutive: number): number {
+  const exp = Math.max(0, consecutive - 1);
+  return Math.min(STT_RATE_LIMIT_BACKOFF_MAX_MS, STT_RATE_LIMIT_BACKOFF_MS * 2 ** exp);
+}
+
+/**
+ * Keeps only the newest queued segment id (live captions should not replay a backlog).
+ * @param bucket - Language work queue.
+ */
+function coalesceLanguageQueueToLatest(bucket: LanguageBucket): void {
+  if (bucket.queue.length <= 1) return;
+  const keep = bucket.queue[bucket.queue.length - 1];
+  bucket.queue.length = 0;
+  if (keep) bucket.queue.push(keep);
+}
+
+/**
+ * Computes translate 429 backoff with exponential growth.
+ * @param consecutive - Consecutive 429 count for this language (1-based after increment).
+ * @returns Delay in milliseconds.
+ */
+function translateRateLimitBackoffMs(consecutive: number): number {
+  const exp = Math.max(0, consecutive - 1);
+  return Math.min(TRANSLATE_RATE_LIMIT_BACKOFF_MAX_MS, TRANSLATE_RATE_LIMIT_BACKOFF_MS * 2 ** exp);
+}
+
+/**
+ * Schedules a single delayed `processLanguageQueue` while rate-limited.
+ * @param session - Channel session.
+ * @param language - Listen language code.
+ * @param preferAudio - Whether TTS was requested by the latest subscriber.
+ * @param waitMs - Delay before retry.
+ */
+function scheduleTranslateRetry(
+  session: ChannelSession,
+  language: string,
+  preferAudio: boolean,
+  waitMs: number
+): void {
+  const bucket = session.languages.get(language);
+  if (!bucket || bucket.rateLimitTimer) return;
+  bucket.rateLimitTimer = setTimeout(() => {
+    bucket.rateLimitTimer = null;
+    void processLanguageQueue(session, language, preferAudio);
+  }, waitMs);
 }
 
 function broadcastLanguage(
@@ -145,6 +235,7 @@ function maybeTeardown(session: ChannelSession): void {
     if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
     for (const bucket of session.languages.values()) {
       if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+      if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
     }
     sessions.delete(session.channelId);
   }
@@ -159,6 +250,7 @@ function maybeTeardown(session: ChannelSession): void {
 function purgeLanguageData(session: ChannelSession, language: string): void {
   const bucket = session.languages.get(language);
   if (bucket?.idleTimer) clearTimeout(bucket.idleTimer);
+  if (bucket?.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
   session.languages.delete(language);
   for (const segment of session.segments) {
     const tr = segment.byLanguage.get(language);
@@ -172,6 +264,10 @@ function scheduleLanguageIdle(session: ChannelSession, language: string): void {
   const bucket = session.languages.get(language);
   if (!bucket) return;
   if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+  if (bucket.rateLimitTimer) {
+    clearTimeout(bucket.rateLimitTimer);
+    bucket.rateLimitTimer = null;
+  }
   bucket.queue.length = 0;
   bucket.idleTimer = setTimeout(() => {
     const current = session.languages.get(language);
@@ -195,6 +291,8 @@ async function ensureLanguageWork(
       queue: [],
       rateLimitedUntil: 0,
       rateLimitNotifiedAt: 0,
+      consecutiveRateLimits: 0,
+      rateLimitTimer: null,
     };
     session.languages.set(language, bucket);
     // Live-only: do not backfill/translate historical segments for late joiners.
@@ -216,9 +314,8 @@ async function processLanguageQueue(
 
   const waitMs = bucket.rateLimitedUntil - now();
   if (waitMs > 0) {
-    setTimeout(() => {
-      void processLanguageQueue(session, language, preferAudio);
-    }, waitMs);
+    coalesceLanguageQueueToLatest(bucket);
+    scheduleTranslateRetry(session, language, preferAudio, waitMs);
     return;
   }
 
@@ -272,18 +369,22 @@ async function processLanguageQueue(
             });
             existing = { text };
             segment.byLanguage.set(language, existing);
+            bucket.consecutiveRateLimits = 0;
           } catch (error) {
             const message = error instanceof Error ? error.message : 'Translation failed';
             const rateLimited = /\(429\)/.test(message) || /rate.?limit/i.test(message);
             if (rateLimited) {
-              bucket.queue.unshift(segmentId);
-              bucket.rateLimitedUntil = now() + TRANSLATE_RATE_LIMIT_BACKOFF_MS;
+              bucket.queue.push(segmentId);
+              coalesceLanguageQueueToLatest(bucket);
+              bucket.consecutiveRateLimits += 1;
+              const backoffMs = translateRateLimitBackoffMs(bucket.consecutiveRateLimits);
+              bucket.rateLimitedUntil = now() + backoffMs;
               if (now() - bucket.rateLimitNotifiedAt > TRANSLATE_RATE_LIMIT_BACKOFF_MS) {
                 bucket.rateLimitNotifiedAt = now();
                 broadcastLanguage(session, language, {
                   type: 'error',
                   message:
-                    'Translation is temporarily rate-limited (common on free OpenRouter models). Pausing briefly, then retrying.',
+                    'Translation is temporarily rate-limited (common on free OpenRouter models). Pausing, then retrying the latest caption. For steady live captions, use a paid or BYOK translation model.',
                   ts: now(),
                 });
               }
@@ -307,12 +408,13 @@ async function processLanguageQueue(
 
       if (needsAudio && !existing.audioId) {
         const secrets = await getRuntimeSecretsForUser(session.userId);
-        if (secrets?.listenReady && secrets.gcpServiceAccountJson && secrets.gcpTtsVoice) {
+        const voiceName = gcpTtsVoiceForLanguage(secrets?.gcpTtsVoices, language);
+        if (secrets?.gcpServiceAccountJson && voiceName) {
           try {
             const mp3 = await synthesizeSpeechWithGcp({
               serviceAccountJson: secrets.gcpServiceAccountJson,
-              voiceName: secrets.gcpTtsVoice,
-              languageCode: language,
+              voiceName,
+              languageCode: languageCodeHintFromVoiceName(voiceName) || language,
               text: existing.text,
             });
             if (mp3.length > 0) {
@@ -357,9 +459,8 @@ async function processLanguageQueue(
     if (bucket.queue.length > 0 && bucket.subscribers.size > 0) {
       const delay = Math.max(0, bucket.rateLimitedUntil - now());
       if (delay > 0) {
-        setTimeout(() => {
-          void processLanguageQueue(session, language, preferAudio);
-        }, delay);
+        coalesceLanguageQueueToLatest(bucket);
+        scheduleTranslateRetry(session, language, preferAudio, delay);
       } else {
         void processLanguageQueue(session, language, preferAudio);
       }
@@ -380,15 +481,44 @@ function enqueueSegmentForActiveLanguages(
       if (!needsAudio) continue;
     }
     bucket.queue.push(segmentId);
+    if (bucket.rateLimitedUntil > now()) {
+      coalesceLanguageQueueToLatest(bucket);
+    }
     void processLanguageQueue(session, language, false);
   }
 }
 
 async function processAudioQueue(session: ChannelSession): Promise<void> {
   if (session.processingAudio) return;
+  if (!session.ingestActive) {
+    session.audioQueue.length = 0;
+    return;
+  }
+  if (session.sttRateLimitedUntil > now()) {
+    coalesceAudioQueueToLatest(session);
+    const waitMs = session.sttRateLimitedUntil - now();
+    if (!session.sttRateLimitTimer) {
+      session.sttRateLimitTimer = setTimeout(() => {
+        session.sttRateLimitTimer = null;
+        void processAudioQueue(session);
+      }, waitMs);
+    }
+    return;
+  }
+
   session.processingAudio = true;
   try {
     while (session.audioQueue.length > 0) {
+      if (!session.ingestActive) {
+        session.audioQueue.length = 0;
+        break;
+      }
+      if (session.sttRateLimitedUntil > now()) {
+        break;
+      }
+
+      // Live-only: drop older pending chunks before each STT call.
+      coalesceAudioQueueToLatest(session);
       const item = session.audioQueue.shift();
       if (!item) break;
 
@@ -403,6 +533,12 @@ async function processAudioQueue(session: ChannelSession): Promise<void> {
         break;
       }
 
+      // Owner stopped while we were loading secrets / awaiting prior STT.
+      if (!session.ingestActive) {
+        session.audioQueue.length = 0;
+        break;
+      }
+
       const wav = pcm16MonoToWav(item.pcm, item.sampleRate);
       let text = '';
       try {
@@ -413,12 +549,37 @@ async function processAudioQueue(session: ChannelSession): Promise<void> {
           model: secrets.sttModel,
           audio: wav,
           format: 'wav',
-          language: secrets.sourceLanguage,
+          language: sttLanguageHintForTranslationLanguage(secrets.sourceLanguage),
         });
+        session.sttConsecutiveRateLimits = 0;
       } catch (error) {
         const message = error instanceof Error ? error.message : 'STT failed';
+        const rateLimited = /\(429\)/.test(message) || /rate.?limit/i.test(message);
+        if (rateLimited) {
+          // Keep only the newest chunk so recovery does not burn free RPM on a backlog.
+          session.audioQueue.push(item);
+          coalesceAudioQueueToLatest(session);
+          session.sttConsecutiveRateLimits += 1;
+          session.sttRateLimitedUntil =
+            now() + sttRateLimitBackoffMs(session.sttConsecutiveRateLimits);
+          if (now() - session.sttRateLimitNotifiedAt > STT_RATE_LIMIT_BACKOFF_MS) {
+            session.sttRateLimitNotifiedAt = now();
+            broadcastAll(session, {
+              type: 'error',
+              message:
+                'Speech-to-text is temporarily rate-limited (common on free STT tiers). Pausing, then retrying the latest audio only.',
+              ts: now(),
+            });
+          }
+          break;
+        }
         broadcastAll(session, { type: 'error', message, ts: now() });
         continue;
+      }
+
+      if (!session.ingestActive) {
+        session.audioQueue.length = 0;
+        break;
       }
 
       if (!text) continue;
@@ -447,8 +608,18 @@ async function processAudioQueue(session: ChannelSession): Promise<void> {
     }
   } finally {
     session.processingAudio = false;
-    if (session.audioQueue.length > 0) {
-      void processAudioQueue(session);
+    if (session.ingestActive && session.audioQueue.length > 0) {
+      if (session.sttRateLimitedUntil > now()) {
+        const waitMs = session.sttRateLimitedUntil - now();
+        if (!session.sttRateLimitTimer) {
+          session.sttRateLimitTimer = setTimeout(() => {
+            session.sttRateLimitTimer = null;
+            void processAudioQueue(session);
+          }, waitMs);
+        }
+      } else {
+        void processAudioQueue(session);
+      }
     }
   }
 }
@@ -487,6 +658,8 @@ export function enqueueOwnerPcm(
   const session = getOrCreateSession(channelId, userId);
   markIngestActive(channelId, userId);
   session.audioQueue.push({ pcm, sampleRate });
+  // Live-only: never accumulate an STT backlog that will thrash free rate limits.
+  coalesceAudioQueueToLatest(session);
   void processAudioQueue(session);
 }
 
@@ -591,12 +764,19 @@ export function getAudioBytes(audioId: string): { mime: string; data: Buffer } |
 
 /**
  * Marks ingest stopped immediately (owner clicked stop).
+ * Drops queued PCM so STT does not keep calling providers after stop.
  * @param channelId - Channel document id.
  */
 export function markIngestStopped(channelId: string): void {
   const session = sessions.get(channelId);
   if (!session) return;
   session.ingestActive = false;
+  session.audioQueue.length = 0;
+  session.sttRateLimitedUntil = 0;
+  if (session.sttRateLimitTimer) {
+    clearTimeout(session.sttRateLimitTimer);
+    session.sttRateLimitTimer = null;
+  }
   if (session.ingestIdleTimer) {
     clearTimeout(session.ingestIdleTimer);
     session.ingestIdleTimer = null;
@@ -616,8 +796,14 @@ export function disposeChannelSession(channelId: string): void {
     clearTimeout(session.ingestIdleTimer);
     session.ingestIdleTimer = null;
   }
+  if (session.sttRateLimitTimer) {
+    clearTimeout(session.sttRateLimitTimer);
+    session.sttRateLimitTimer = null;
+  }
+  session.audioQueue.length = 0;
   for (const bucket of session.languages.values()) {
     if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+    if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
   }
   broadcastAll(session, {
     type: 'error',
@@ -633,8 +819,10 @@ export function disposeChannelSession(channelId: string): void {
 export function __resetTranslationSessionsForTests(): void {
   for (const session of sessions.values()) {
     if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
+    if (session.sttRateLimitTimer) clearTimeout(session.sttRateLimitTimer);
     for (const bucket of session.languages.values()) {
       if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
+      if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
     }
   }
   sessions.clear();
