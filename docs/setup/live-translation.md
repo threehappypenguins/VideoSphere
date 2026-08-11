@@ -45,6 +45,8 @@ Public listeners open `/listen/{slug}` (no login). Choosing a language (while th
 
 With streaming ASR, interim captions update in place; Deepgram also splits long continuous speech into sentence-sized finals (so captions/TTS do not wait for a multi-minute pause). Spoken listen synthesizes TTS only after those finals. Captions are pushed as soon as STT (+ translation when needed) finish. TTS for upcoming lines starts in parallel and is delivered in order, and the listen client prefetches the next clip while the current one plays — short gaps can still happen when the speaker pauses or GCP synthesis lags a long line.
 
+Caption translation clarifies a few ambiguous English sermon collocations in the source before every MT call (so “sinned against the Lord” is not read as fight/defy). OpenRouter / Groq also get a sermon-aware prompt, recent prior source finals, and a Mandarin/Cantonese safety repair if the model still emits 对抗 for that confession. Soniox built-in translation is unchanged.
+
 ## Enable listen (spoken translation)
 
 1. Save **Languages** first (source + at least one target).

@@ -3,6 +3,10 @@
 // =============================================================================
 
 import { translationPromptLanguageName } from '@/lib/translation/languages';
+import {
+  liveSermonTranslateSystemPrompt,
+  liveSermonTranslateUserPrompt,
+} from '@/lib/translation/mt-prompt';
 
 /**
  * Thrown when Groq returns HTTP 429 for a translate call.
@@ -38,7 +42,7 @@ function parseRetryAfterSeconds(raw: string | null): number | null {
 
 /**
  * Translates source text into a target language via Groq chat completions.
- * @param params - Per-user API key, model, source text, and language codes.
+ * @param params - Per-user API key, model, source text, languages, and optional prior context.
  * @returns Translated text.
  * @see https://console.groq.com/docs/text-chat
  */
@@ -48,9 +52,12 @@ export async function translateTextWithGroq(params: {
   text: string;
   sourceLanguage: string;
   targetLanguage: string;
+  /** Prior source finals for idiom/pronoun disambiguation. */
+  recentSourceContext?: string | null;
   signal?: AbortSignal;
 }): Promise<string> {
-  const { apiKey, model, text, sourceLanguage, targetLanguage, signal } = params;
+  const { apiKey, model, text, sourceLanguage, targetLanguage, recentSourceContext, signal } =
+    params;
   if (!apiKey.trim() || !model.trim()) {
     throw new Error('Groq translation requires a per-user API key and model.');
   }
@@ -72,14 +79,16 @@ export async function translateTextWithGroq(params: {
       messages: [
         {
           role: 'system',
-          content:
-            'You are a precise live interpreter. Translate the user message into the target language. ' +
-            'When the target is Mandarin or Cantonese, write natural text for that variety (not the other). ' +
-            'Return ONLY the translation text with no quotes, labels, or commentary.',
+          content: liveSermonTranslateSystemPrompt(targetLanguage),
         },
         {
           role: 'user',
-          content: `Source language: ${sourceName}\nTarget language: ${targetName}\n\nText:\n${trimmed}`,
+          content: liveSermonTranslateUserPrompt({
+            sourceLanguageName: sourceName,
+            targetLanguageName: targetName,
+            text: trimmed,
+            recentSourceContext,
+          }),
         },
       ],
     }),

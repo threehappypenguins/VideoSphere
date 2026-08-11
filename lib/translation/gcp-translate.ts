@@ -5,6 +5,7 @@
 import { TranslationServiceClient } from '@google-cloud/translate';
 import { parseGcpServiceAccountJson } from '@/lib/translation/gcp-sa';
 import { normalizeTranslationLanguageCode } from '@/lib/translation/languages';
+import { clarifySermonSourceForMt } from '@/lib/translation/sermon-source-clarify';
 
 /**
  * Maps a VideoSphere listen/source language code to a Cloud Translation BCP-47 tag.
@@ -34,7 +35,7 @@ export function gcpTranslateLanguageCode(code: string): string {
 /**
  * Translates text with Cloud Translation Advanced (NMT) using the owner's service account.
  * Prefer this for live sermons: monthly free NMT quota is far more suitable than OpenRouter `:free` (50 RPD).
- * @param params - Service account JSON, text, and language codes.
+ * @param params - Service account JSON, text, language codes, and optional clarify skip.
  * @returns Translated text.
  * @see https://docs.cloud.google.com/translate/docs/advanced/translating-text-v3
  */
@@ -43,10 +44,17 @@ export async function translateTextWithGcp(params: {
   text: string;
   sourceLanguage: string;
   targetLanguage: string;
+  /**
+   * When true, skip local sermon clarify (caller already clarified).
+   * @default false
+   */
+  skipSermonClarify?: boolean;
 }): Promise<string> {
-  const { serviceAccountJson, text, sourceLanguage, targetLanguage } = params;
+  const { serviceAccountJson, text, sourceLanguage, targetLanguage, skipSermonClarify } = params;
   const trimmed = text.trim();
   if (!trimmed) return '';
+  // NMT has no system prompt; clarify biblical collocations unless the dispatcher did.
+  const contents = skipSermonClarify ? trimmed : clarifySermonSourceForMt(trimmed);
 
   const parsed = parseGcpServiceAccountJson(serviceAccountJson);
   if (parsed.ok === false) {
@@ -68,7 +76,7 @@ export async function translateTextWithGcp(params: {
   try {
     const [response] = await client.translateText({
       parent,
-      contents: [trimmed],
+      contents: [contents],
       mimeType: 'text/plain',
       sourceLanguageCode: source,
       targetLanguageCode: target,

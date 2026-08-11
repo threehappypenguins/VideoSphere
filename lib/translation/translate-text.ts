@@ -15,13 +15,19 @@ import {
   OpenRouterTranslateRateLimitError,
   translateTextWithOpenRouter,
 } from '@/lib/translation/openrouter-translate';
+import {
+  clarifySermonSourceForMt,
+  repairSermonTranslation,
+} from '@/lib/translation/sermon-source-clarify';
 
 export { GroqTranslateRateLimitError, OpenRouterTranslateRateLimitError };
 
 /**
  * Translates live caption text for a listen language using the owner-selected provider only.
  * Does not fall back across providers when credentials are missing.
- * @param params - Provider, credentials, and text.
+ * Applies sermon source clarification for all providers, then a Mandarin/Cantonese
+ * safety repair when “sin against” is still rendered as fight/defy.
+ * @param params - Provider, credentials, text, and optional prior source context.
  * @returns Translated text.
  */
 export async function translateLiveCaptionText(params: {
@@ -34,6 +40,11 @@ export async function translateLiveCaptionText(params: {
   text: string;
   sourceLanguage: string;
   targetLanguage: string;
+  /**
+   * Prior source finals for chat MT disambiguation (ignored by GCP NMT).
+   * Prefer several short recent lines over a long dump.
+   */
+  recentSourceContext?: string | null;
   signal?: AbortSignal;
 }): Promise<string> {
   const trimmed = params.text.trim();
@@ -44,47 +55,60 @@ export async function translateLiveCaptionText(params: {
     throw new Error('Caption translation provider is not configured.');
   }
 
+  const clarified = clarifySermonSourceForMt(trimmed, params.recentSourceContext);
+
+  let translated = '';
+
   if (provider === 'gcp') {
     const gcpJson = params.gcpServiceAccountJson?.trim();
     if (!gcpJson) {
       throw new Error('GCP translation requires a Google Cloud service account on this channel.');
     }
-    return translateTextWithGcp({
+    translated = await translateTextWithGcp({
       serviceAccountJson: gcpJson,
-      text: trimmed,
+      text: clarified,
       sourceLanguage: params.sourceLanguage,
       targetLanguage: params.targetLanguage,
+      /** Already clarified upstream; skip a second rewrite. */
+      skipSermonClarify: true,
     });
-  }
-
-  if (provider === 'groq') {
+  } else if (provider === 'groq') {
     const apiKey = params.groqApiKey?.trim();
     const model = params.openRouterTranslateModel?.trim();
     if (!apiKey || !model) {
       throw new Error('Groq translation requires a per-user API key and chat model id.');
     }
-    return translateTextWithGroq({
+    translated = await translateTextWithGroq({
       apiKey,
       model,
-      text: trimmed,
+      text: clarified,
       sourceLanguage: params.sourceLanguage,
       targetLanguage: params.targetLanguage,
+      recentSourceContext: params.recentSourceContext,
+      signal: params.signal,
+    });
+  } else {
+    const apiKey = params.openRouterApiKey?.trim();
+    const model = params.openRouterTranslateModel?.trim();
+    if (!apiKey || !model) {
+      throw new Error('OpenRouter translation requires a per-user API key and model.');
+    }
+
+    translated = await translateTextWithOpenRouter({
+      apiKey,
+      model,
+      text: clarified,
+      sourceLanguage: params.sourceLanguage,
+      targetLanguage: params.targetLanguage,
+      recentSourceContext: params.recentSourceContext,
       signal: params.signal,
     });
   }
 
-  const apiKey = params.openRouterApiKey?.trim();
-  const model = params.openRouterTranslateModel?.trim();
-  if (!apiKey || !model) {
-    throw new Error('OpenRouter translation requires a per-user API key and model.');
-  }
-
-  return translateTextWithOpenRouter({
-    apiKey,
-    model,
-    text: trimmed,
-    sourceLanguage: params.sourceLanguage,
+  return repairSermonTranslation({
+    sourceText: `${trimmed}\n${clarified}`,
+    recentSourceContext: params.recentSourceContext,
+    translatedText: translated,
     targetLanguage: params.targetLanguage,
-    signal: params.signal,
   });
 }

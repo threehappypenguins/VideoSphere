@@ -23,6 +23,8 @@ import {
   OpenRouterTranslateRateLimitError,
   translateLiveCaptionText,
 } from '@/lib/translation/translate-text';
+import { buildRecentSourceContext } from '@/lib/translation/mt-prompt';
+import { repairSermonTranslation } from '@/lib/translation/sermon-source-clarify';
 import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
 import { pcm16MonoToWav } from '@/lib/translation/pcm-wav';
 import {
@@ -472,9 +474,26 @@ function handleSonioxStreamingEvent(
   if (isSourceStream && event.isTranslation) return;
   if (!isSourceStream && !event.isTranslation) return;
 
-  const text = sanitizeSttTranscript(event.text);
-  if (!text) return;
+  const rawText = sanitizeSttTranscript(event.text);
+  if (!rawText) return;
   const language = listenLanguage;
+  // Soniox skips our MT stack; still run Mandarin/Cantonese confession repairs.
+  const partialId = session.streamingPartialSegmentId;
+  const text = !isSourceStream
+    ? repairSermonTranslation({
+        sourceText:
+          (partialId && session.segments.find((s) => s.id === partialId)?.sourceText) || '',
+        recentSourceContext: partialId
+          ? buildRecentSourceContext(session.segments, partialId)
+          : session.segments
+              .slice(-4)
+              .map((s) => s.sourceText)
+              .filter(Boolean)
+              .join('\n'),
+        translatedText: rawText,
+        targetLanguage: language,
+      })
+    : rawText;
 
   if (event.kind === 'partial') {
     let segmentId = session.streamingPartialSegmentId;
@@ -816,6 +835,7 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
               text: segment.sourceText,
               sourceLanguage,
               targetLanguage: language,
+              recentSourceContext: buildRecentSourceContext(session.segments, segmentId),
             });
             existing = { text };
             segment.byLanguage.set(language, existing);
