@@ -13,6 +13,7 @@ import {
 
 import type { LiveTranslationSttProvider } from '@/lib/translation/capabilities';
 import { isStreamingSttProvider } from '@/lib/translation/capabilities';
+import { TRANSLATION_INGEST_INTENT_KEY } from '@/lib/translation/dev-session-flags';
 
 const TARGET_SAMPLE_RATE = 16000;
 /** Streaming ASR: short frames for low latency. */
@@ -26,6 +27,54 @@ const MONITOR_GAIN = 0.0001;
  * Kept modest so quiet speech still goes through; server also gates RMS.
  */
 const SILENCE_PEAK = 0.015;
+
+type IngestIntent = {
+  /** Selected audio input device id. */
+  deviceId: string;
+};
+
+/**
+ * Reads persisted ingest intent from sessionStorage.
+ * @returns Intent when the owner had live ingest before a remount, otherwise null.
+ */
+function readIngestIntent(): IngestIntent | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(TRANSLATION_INGEST_INTENT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<IngestIntent>;
+    if (typeof parsed.deviceId !== 'string' || !parsed.deviceId) return null;
+    return { deviceId: parsed.deviceId };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persists that the owner wants ingest kept alive across remounts.
+ * @param deviceId - Active input device id.
+ */
+function writeIngestIntent(deviceId: string): void {
+  if (typeof window === 'undefined') return;
+  if (!deviceId) return;
+  try {
+    sessionStorage.setItem(TRANSLATION_INGEST_INTENT_KEY, JSON.stringify({ deviceId }));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+/**
+ * Clears persisted ingest intent (explicit Stop audio).
+ */
+function clearIngestIntent(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(TRANSLATION_INGEST_INTENT_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 /**
  * True when the device is the browser system-default input entry.
@@ -89,7 +138,29 @@ function monoFromProcessorEvent(event: AudioProcessingEvent): Float32Array {
 }
 
 /**
+ * Builds getUserMedia audio constraints for a selected device id.
+ * @param selectedDeviceId - Enumerated deviceId (may be `default`).
+ * @returns MediaTrackConstraints for the mic.
+ */
+function audioConstraintsForDevice(selectedDeviceId: string): MediaTrackConstraints {
+  // Avoid forcing channelCount:1 — some devices go silent under that constraint.
+  const audioConstraints: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+  if (selectedDeviceId && selectedDeviceId !== 'default') {
+    audioConstraints.deviceId = { exact: selectedDeviceId };
+  } else if (selectedDeviceId === 'default') {
+    audioConstraints.deviceId = { ideal: 'default' };
+  }
+  return audioConstraints;
+}
+
+/**
  * Browser microphone / input-device capture that streams PCM chunks to the owner ingest API.
+ * Opens a live level preview before ingest so the owner can verify the mic, and allows
+ * switching inputs while ingest is already running.
  * @param props - Whether translation is ready, STT provider (controls chunk length), and optional status callback.
  * @returns Capture controls UI.
  */
@@ -105,8 +176,10 @@ export function AddAudioCapture(props: {
   const chunkMsRef = useRef(chunkMs);
   chunkMsRef.current = chunkMs;
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState<string>('');
-  const [capturing, setCapturing] = useState(false);
+  const [deviceId, setDeviceId] = useState<string>(() => readIngestIntent()?.deviceId ?? '');
+  const [ingesting, setIngesting] = useState(() => Boolean(readIngestIntent()));
+  const [previewActive, setPreviewActive] = useState(false);
+  const [switchingDevice, setSwitchingDevice] = useState(false);
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,50 +192,223 @@ export function AddAudioCapture(props: {
   const samplesCollectedRef = useRef(0);
   const sendingRef = useRef(false);
   const levelRef = useRef(0);
-  const capturingRef = useRef(false);
+  /** Mic graph is open for metering (and possibly ingest). */
+  const micOpenRef = useRef(false);
+  /** When true, PCM frames are uploaded to the ingest API. */
+  const ingestingRef = useRef(Boolean(readIngestIntent()));
+  const deviceIdRef = useRef(deviceId);
+  deviceIdRef.current = deviceId;
   const ingestAbortRef = useRef<AbortController | null>(null);
+  const openGenerationRef = useRef(0);
   const onLiveChangeRef = useRef(onLiveChange);
   onLiveChangeRef.current = onLiveChange;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const startIngestRef = useRef<() => Promise<void>>(async () => undefined);
+
+  /**
+   * Tears down the Web Audio graph and MediaStream without ending the server ingest session.
+   * @param options - Optional flags.
+   * @param options.silent - Skip React state updates (unmount cleanup).
+   * @returns Void.
+   */
+  async function closeMicGraph(options?: { silent?: boolean }): Promise<void> {
+    micOpenRef.current = false;
+    pcmChunksRef.current = [];
+    samplesCollectedRef.current = 0;
+
+    const processor = processorRef.current;
+    if (processor) {
+      processor.onaudioprocess = null;
+      try {
+        processor.disconnect();
+      } catch {
+        // already disconnected
+      }
+    }
+    try {
+      sourceRef.current?.disconnect();
+    } catch {
+      // already disconnected
+    }
+    try {
+      monitorGainRef.current?.disconnect();
+    } catch {
+      // already disconnected
+    }
+    processorRef.current = null;
+    sourceRef.current = null;
+    monitorGainRef.current = null;
+
+    const context = contextRef.current;
+    contextRef.current = null;
+    if (context) {
+      try {
+        await context.close();
+      } catch {
+        // ignore
+      }
+    }
+
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    levelRef.current = 0;
+    if (!options?.silent) {
+      setLevel(0);
+      setPreviewActive(false);
+    }
+  }
+
+  /**
+   * Opens (or reopens) the selected mic for level preview and optional ingest.
+   * @param selectedDeviceId - Device to open.
+   * @returns Void.
+   */
+  async function openMic(selectedDeviceId: string): Promise<void> {
+    if (!selectedDeviceId) return;
+    const generation = ++openGenerationRef.current;
+    await closeMicGraph();
+    if (generation !== openGenerationRef.current) return;
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: audioConstraintsForDevice(selectedDeviceId),
+    });
+    if (generation !== openGenerationRef.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    streamRef.current = stream;
+
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const context = new AudioContextCtor();
+    contextRef.current = context;
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+    if (generation !== openGenerationRef.current) {
+      await closeMicGraph();
+      return;
+    }
+
+    const source = context.createMediaStreamSource(stream);
+    sourceRef.current = source;
+
+    // ScriptProcessor must be connected to context.destination or Chromium may never
+    // fire onaudioprocess (MediaStreamDestination-only graphs are unreliable).
+    const inputChannels = Math.min(
+      2,
+      Math.max(1, stream.getAudioTracks()[0]?.getSettings().channelCount ?? 1)
+    );
+    const processor = context.createScriptProcessor(4096, inputChannels, 1);
+    processorRef.current = processor;
+    const samplesPerChunk = () => Math.floor((TARGET_SAMPLE_RATE * chunkMsRef.current) / 1000);
+
+    const monitorGain = context.createGain();
+    monitorGain.gain.value = MONITOR_GAIN;
+    monitorGainRef.current = monitorGain;
+
+    processor.onaudioprocess = (event) => {
+      if (!micOpenRef.current) return;
+
+      const mono = monoFromProcessorEvent(event);
+      const framePeak = peakAbs(mono);
+      const next =
+        framePeak > levelRef.current ? framePeak : levelRef.current * 0.85 + framePeak * 0.15;
+      levelRef.current = next;
+      setLevel(next);
+
+      if (!ingestingRef.current) return;
+
+      pcmChunksRef.current.push(mono);
+      samplesCollectedRef.current += Math.floor(
+        mono.length * (TARGET_SAMPLE_RATE / context.sampleRate)
+      );
+      if (samplesCollectedRef.current >= samplesPerChunk()) {
+        void flushPcm();
+      }
+    };
+
+    source.connect(processor);
+    processor.connect(monitorGain);
+    monitorGain.connect(context.destination);
+    micOpenRef.current = true;
+    setPreviewActive(true);
+  }
 
   useEffect(() => {
     let cancelled = false;
-    async function loadDevices() {
+
+    async function refreshDevices(preferExisting: boolean): Promise<string> {
       try {
-        // Permission prompt so labels populate
-        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
-        tmp.getTracks().forEach((t) => t.stop());
         const list = await navigator.mediaDevices.enumerateDevices();
-        if (cancelled) return;
+        if (cancelled) return '';
         const inputs = list.filter((d) => d.kind === 'audioinput');
         setDevices(inputs);
-        setDeviceId(preferSystemDefaultInputId(inputs));
+        const intent = readIngestIntent();
+        const preferred =
+          (preferExisting ? deviceIdRef.current : '') || intent?.deviceId || deviceIdRef.current;
+        const stillPresent = Boolean(preferred && inputs.some((d) => d.deviceId === preferred));
+        const nextId = stillPresent ? preferred! : preferSystemDefaultInputId(inputs);
+        setDeviceId(nextId);
+        if (nextId) {
+          await openMic(nextId);
+          if (!cancelled) setError(null);
+        }
+        return nextId;
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not access audio devices');
+        }
+        return '';
+      }
+    }
+
+    async function bootstrap() {
+      try {
+        // Permission prompt so labels populate, then keep a live preview open.
+        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tmp.getTracks().forEach((t) => t.stop());
+        if (cancelled) return;
+        const nextId = await refreshDevices(true);
+        // Survive dashboard remounts (common in next dev when /listen SSE first compiles).
+        if (!cancelled && nextId && readIngestIntent() && enabledRef.current) {
+          await startIngestRef.current();
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Could not access audio devices');
         }
       }
     }
-    void loadDevices();
+
+    void bootstrap();
+
+    const onDeviceChange = () => {
+      void refreshDevices(true);
+    };
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
+
     return () => {
       cancelled = true;
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
+      openGenerationRef.current += 1;
+      // Close the mic graph only — do NOT DELETE ingest or clear sessionStorage.
+      // React remounts (HMR / dashboard reload) must be able to auto-resume.
+      ingestingRef.current = false;
+      ingestAbortRef.current?.abort();
+      void closeMicGraph({ silent: true });
     };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      // Only tear down an active session on real unmount.
-      if (capturingRef.current) {
-        void stopCapture();
-      }
-    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount bootstrap only
   }, []);
 
   /**
-   * Sends buffered PCM to the ingest API when capture is still live.
+   * Sends buffered PCM to the ingest API when ingest is still live.
    * @returns Void.
    */
   async function flushPcm() {
-    if (!capturingRef.current) return;
+    if (!ingestingRef.current) return;
     if (sendingRef.current) return;
     const chunks = pcmChunksRef.current;
     if (chunks.length === 0) return;
@@ -212,14 +458,14 @@ export function AddAudioCapture(props: {
         signal: abort.signal,
         body: JSON.stringify({ pcmBase64, sampleRate: TARGET_SAMPLE_RATE }),
       });
-      if (!capturingRef.current) return;
+      if (!ingestingRef.current) return;
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { message?: string } | null;
         setError(data?.message || 'Failed to send audio chunk');
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      if (!capturingRef.current) return;
+      if (!ingestingRef.current) return;
       setError(err instanceof Error ? err.message : 'Failed to send audio chunk');
     } finally {
       if (ingestAbortRef.current === abort) ingestAbortRef.current = null;
@@ -227,132 +473,44 @@ export function AddAudioCapture(props: {
     }
   }
 
-  async function startCapture() {
+  /**
+   * Starts uploading live PCM to the translation ingest API.
+   * @returns Void.
+   */
+  async function startIngest() {
     setError(null);
-    if (!enabled) {
-      setError('Configure OpenRouter key and models before adding audio.');
+    if (!enabledRef.current) {
+      setError('Configure AI providers before adding audio.');
       return;
     }
     try {
-      // Avoid forcing channelCount:1 — some devices go silent under that constraint.
-      const audioConstraints: MediaTrackConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      };
-      if (deviceId && deviceId !== 'default') {
-        audioConstraints.deviceId = { exact: deviceId };
-      } else if (deviceId === 'default') {
-        audioConstraints.deviceId = { ideal: 'default' };
+      if (!micOpenRef.current) {
+        await openMic(deviceIdRef.current);
       }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
-      });
-      streamRef.current = stream;
-
-      const AudioContextCtor =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const context = new AudioContextCtor();
-      contextRef.current = context;
-      if (context.state === 'suspended') {
-        await context.resume();
-      }
-      const source = context.createMediaStreamSource(stream);
-      sourceRef.current = source;
-
-      // ScriptProcessor must be connected to context.destination or Chromium may never
-      // fire onaudioprocess (MediaStreamDestination-only graphs are unreliable).
-      const inputChannels = Math.min(
-        2,
-        Math.max(1, stream.getAudioTracks()[0]?.getSettings().channelCount ?? 1)
-      );
-      const processor = context.createScriptProcessor(4096, inputChannels, 1);
-      processorRef.current = processor;
-      const samplesPerChunk = Math.floor((TARGET_SAMPLE_RATE * chunkMsRef.current) / 1000);
-
-      const monitorGain = context.createGain();
-      monitorGain.gain.value = MONITOR_GAIN;
-      monitorGainRef.current = monitorGain;
-
-      processor.onaudioprocess = (event) => {
-        // Stop can race ScriptProcessor callbacks; ignore anything after tear-down starts.
-        if (!capturingRef.current) return;
-
-        const mono = monoFromProcessorEvent(event);
-        const framePeak = peakAbs(mono);
-        const next =
-          framePeak > levelRef.current ? framePeak : levelRef.current * 0.85 + framePeak * 0.15;
-        levelRef.current = next;
-        setLevel(next);
-
-        pcmChunksRef.current.push(mono);
-        samplesCollectedRef.current += Math.floor(
-          mono.length * (TARGET_SAMPLE_RATE / context.sampleRate)
-        );
-        if (samplesCollectedRef.current >= samplesPerChunk) {
-          void flushPcm();
-        }
-      };
-
-      source.connect(processor);
-      processor.connect(monitorGain);
-      monitorGain.connect(context.destination);
-      capturingRef.current = true;
-      setCapturing(true);
+      pcmChunksRef.current = [];
+      samplesCollectedRef.current = 0;
+      ingestingRef.current = true;
+      writeIngestIntent(deviceIdRef.current);
+      setIngesting(true);
       onLiveChangeRef.current?.(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start audio capture');
     }
   }
+  startIngestRef.current = startIngest;
 
-  async function stopCapture() {
-    // Flip this first so in-flight onaudioprocess / flushPcm bail out immediately.
-    capturingRef.current = false;
+  /**
+   * Stops uploading PCM (keeps the mic preview open for level checks).
+   * @returns Void.
+   */
+  async function stopIngest() {
+    ingestingRef.current = false;
+    clearIngestIntent();
     pcmChunksRef.current = [];
     samplesCollectedRef.current = 0;
     ingestAbortRef.current?.abort();
     ingestAbortRef.current = null;
-
-    const processor = processorRef.current;
-    if (processor) {
-      processor.onaudioprocess = null;
-      try {
-        processor.disconnect();
-      } catch {
-        // already disconnected
-      }
-    }
-    try {
-      sourceRef.current?.disconnect();
-    } catch {
-      // already disconnected
-    }
-    try {
-      monitorGainRef.current?.disconnect();
-    } catch {
-      // already disconnected
-    }
-    processorRef.current = null;
-    sourceRef.current = null;
-    monitorGainRef.current = null;
-
-    const context = contextRef.current;
-    contextRef.current = null;
-    if (context) {
-      try {
-        await context.close();
-      } catch {
-        // ignore
-      }
-    }
-
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    levelRef.current = 0;
-    setCapturing(false);
-    setLevel(0);
+    setIngesting(false);
     onLiveChangeRef.current?.(false);
 
     try {
@@ -365,10 +523,33 @@ export function AddAudioCapture(props: {
     }
   }
 
+  /**
+   * Switches the active input device, preserving ingest when it was already live.
+   * @param nextDeviceId - Newly selected device id.
+   * @returns Void.
+   */
+  async function changeDevice(nextDeviceId: string) {
+    if (!nextDeviceId || nextDeviceId === deviceIdRef.current) return;
+    setDeviceId(nextDeviceId);
+    setSwitchingDevice(true);
+    setError(null);
+    try {
+      await openMic(nextDeviceId);
+      if (ingestingRef.current) {
+        writeIngestIntent(nextDeviceId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not switch audio input');
+    } finally {
+      setSwitchingDevice(false);
+    }
+  }
+
   // Sqrt scale so quiet speech still moves the bar visibly.
   const meterPercent = Math.min(100, Math.round(Math.sqrt(Math.max(0, level)) * 100));
   /** Radix Select sentinel so empty selection stays controlled. */
   const deviceUnset = '__unset__';
+  const meterLooksLive = previewActive && meterPercent > 2;
 
   return (
     <div className="space-y-4">
@@ -376,10 +557,10 @@ export function AddAudioCapture(props: {
         <Label htmlFor="translation-audio-device">Audio input</Label>
         <Select
           value={deviceId || deviceUnset}
-          disabled={capturing || devices.length === 0}
+          disabled={devices.length === 0 || switchingDevice}
           onValueChange={(next) => {
             if (next === deviceUnset) return;
-            setDeviceId(next);
+            void changeDevice(next);
           }}
         >
           <SelectTrigger id="translation-audio-device">
@@ -397,17 +578,16 @@ export function AddAudioCapture(props: {
           </SelectContent>
         </Select>
         <p className="text-muted-foreground text-xs">
-          Starts on your system default. Quiet/cutoff chunks are skipped so Whisper does not invent
-          filler like &quot;Thank you&quot;. If captions are still wrong, switch to the named mic
-          that matches your hardware.
+          Preview opens on your system default. Speak and confirm the level meter moves before
+          adding audio. You can switch inputs anytime — including while live.
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div
           className="bg-muted h-3 w-48 overflow-hidden rounded"
           role="meter"
-          aria-label="Input level"
+          aria-label="Input level preview"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={meterPercent}
@@ -417,21 +597,34 @@ export function AddAudioCapture(props: {
             style={{ width: `${meterPercent}%` }}
           />
         </div>
-        {capturing ? (
-          <Button type="button" variant="destructive" onClick={() => void stopCapture()}>
+        <span className="text-muted-foreground text-xs tabular-nums" aria-live="polite">
+          {switchingDevice
+            ? 'Switching…'
+            : previewActive
+              ? meterLooksLive
+                ? 'Hearing input'
+                : 'Silent — speak or pick another mic'
+              : 'Waiting for mic…'}
+        </span>
+        {ingesting ? (
+          <Button type="button" variant="destructive" onClick={() => void stopIngest()}>
             Stop audio
           </Button>
         ) : (
-          <Button type="button" disabled={!enabled} onClick={() => void startCapture()}>
+          <Button
+            type="button"
+            disabled={!enabled || !previewActive || switchingDevice}
+            onClick={() => void startIngest()}
+          >
             Add audio
           </Button>
         )}
       </div>
-      {capturing ? (
-        <p className="text-muted-foreground text-xs">
-          Input level — speak and this bar should move. If it stays flat, pick another mic.
-        </p>
-      ) : null}
+      <p className="text-muted-foreground text-xs">
+        {ingesting
+          ? 'Live — sending this input to translation. Quiet/cutoff chunks are skipped so Whisper does not invent filler like “Thank you”.'
+          : 'Level preview only until you click Add audio (no STT usage yet).'}
+      </p>
 
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
       {!enabled ? (

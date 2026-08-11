@@ -13,7 +13,7 @@ import {
   languagesForTtsConfig,
   normalizeGcpTtsVoices,
 } from '@/lib/translation/gcp-tts-voices';
-import { isChannelLive } from '@/lib/translation/session-hub';
+import { isChannelLive } from '@/lib/translation/is-channel-live';
 import { normalizeTranslationSlug } from '@/lib/translation/slug';
 import type { ApiError, LiveTranslationPublicMeta } from '@/types';
 

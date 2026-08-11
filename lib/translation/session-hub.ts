@@ -32,6 +32,9 @@ import {
   languageCodeHintFromVoiceName,
 } from '@/lib/translation/gcp-tts-voices';
 import { isNearSilentPcm16, sanitizeSttTranscript } from '@/lib/translation/stt-quality';
+import { TRANSLATION_SESSIONS_GLOBAL_KEY } from '@/lib/translation/is-channel-live';
+
+export { isChannelLive } from '@/lib/translation/is-channel-live';
 
 const MAX_SEGMENTS = 40;
 /** Brief grace for EventSource reconnects; then language work + cached captions are dropped. */
@@ -143,15 +146,15 @@ type ChannelSession = {
  * route and `/api/translation/public/audio/...` looks up an empty Map → 404.
  */
 type GlobalWithTranslationSessions = typeof globalThis & {
-  __videosphereTranslationSessions?: Map<string, ChannelSession>;
+  [TRANSLATION_SESSIONS_GLOBAL_KEY]?: Map<string, ChannelSession>;
 };
 
 function getSessionsMap(): Map<string, ChannelSession> {
   const g = globalThis as GlobalWithTranslationSessions;
-  if (!g.__videosphereTranslationSessions) {
-    g.__videosphereTranslationSessions = new Map();
+  if (!g[TRANSLATION_SESSIONS_GLOBAL_KEY]) {
+    g[TRANSLATION_SESSIONS_GLOBAL_KEY] = new Map();
   }
-  return g.__videosphereTranslationSessions;
+  return g[TRANSLATION_SESSIONS_GLOBAL_KEY];
 }
 
 const sessions = getSessionsMap();
@@ -1290,15 +1293,6 @@ export function enqueueOwnerPcm(
     coalesceAudioQueueToLatest(session);
     void processAudioQueue(session);
   })();
-}
-
-/**
- * Returns whether ingest is currently considered live for a channel.
- * @param channelId - Channel document id.
- * @returns True when ingest is active.
- */
-export function isChannelLive(channelId: string): boolean {
-  return Boolean(sessions.get(channelId)?.ingestActive);
 }
 
 /**

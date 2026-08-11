@@ -89,7 +89,8 @@ Then commit (if you haven’t already), push, and open a PR against `dev`.
 
 | Script               | Command                 | Description                     |
 | -------------------- | ----------------------- | ------------------------------- |
-| `pnpm dev`           | `next dev --webpack`    | Start dev server on port 9624   |
+| `pnpm dev`           | `next dev` (Turbopack)  | Start dev server on port 9624   |
+| `pnpm dev:webpack`   | `next dev --webpack`    | Same, Webpack bundler (legacy)  |
 | `pnpm build`         | `next build`            | Create production build         |
 | `pnpm start`         | `next start`            | Start production server         |
 | `pnpm lint`          | `eslint .`              | Run ESLint                      |
