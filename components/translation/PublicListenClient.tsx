@@ -18,6 +18,7 @@ import {
   normalizeTranslationLanguageCode,
   resolveTranslationLanguageOption,
 } from '@/lib/translation/languages';
+import { musicMarkerText } from '@/lib/translation/activity-marker';
 import {
   readListenLanguagePreference,
   writeListenLanguagePreference,
@@ -34,6 +35,8 @@ type CaptionLine = {
   id: string;
   text: string;
   ts: number;
+  /** Marker lines stand in for captions during singing/music. */
+  kind?: 'caption' | 'marker';
 };
 
 /**
@@ -355,6 +358,26 @@ function CaptionStream({
     void playNextTts();
   });
 
+  /**
+   * Records a speech/music transition.
+   *
+   * Entering music appends a marker line in the listener's own language so the pause
+   * in captions reads as intentional rather than as a broken stream.
+   * @param next - Activity reported by the hub.
+   */
+  function applyActivity(next: 'speech' | 'music'): void {
+    if (next !== 'music') return;
+    setPartial('');
+    setLines((prev) => {
+      if (prev[prev.length - 1]?.kind === 'marker') return prev;
+      const ts = Date.now();
+      return [
+        ...prev,
+        { id: `music-${ts}`, kind: 'marker' as const, text: musicMarkerText(language), ts },
+      ].slice(-80);
+    });
+  }
+
   /** Handles one SSE payload with latest live / audio prefs. */
   const onStreamMessage = useEffectEvent((raw: string): void => {
     try {
@@ -368,7 +391,12 @@ function CaptionStream({
         pcmBase64?: string;
         sampleRate?: number;
         message?: string;
+        activity?: string;
       };
+      if (data.activity === 'music' || data.activity === 'speech') {
+        applyActivity(data.activity);
+      }
+      if (data.type === 'activity') return;
       if (data.type === 'status' && typeof data.live === 'boolean') {
         onLiveChange(data.live);
         return;
@@ -563,7 +591,11 @@ function CaptionStream({
           <li
             key={line.id}
             ref={line.id === lastLineId && !partial ? latestRef : undefined}
-            className="text-lg leading-snug"
+            className={
+              line.kind === 'marker'
+                ? 'text-muted-foreground text-base leading-snug tracking-wide'
+                : 'text-lg leading-snug'
+            }
           >
             {line.text}
           </li>

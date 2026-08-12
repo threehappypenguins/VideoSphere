@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/repositories/live-translation-channels', () => ({
   getRuntimeSecretsForUser: vi.fn(async () => ({
@@ -68,6 +68,7 @@ import { getRuntimeSecretsForUser } from '@/lib/repositories/live-translation-ch
 import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
 import { translateLiveCaptionText } from '@/lib/translation/translate-text';
 import { transcribeAudio } from '@/lib/translation/transcribe';
+import { splitPcmFrames, synthesizeSinging, synthesizeSpeech } from '@/__tests__/utils/synth-audio';
 
 /**
  * Non-silent PCM16 mono so the session hub silence gate does not skip the chunk.
@@ -82,7 +83,48 @@ function loudPcm(byteLength: number): Buffer {
   return buf;
 }
 
+/**
+ * Feeds audio as 250 ms ingest frames, letting each chunk's async work settle.
+ * @param channelId - Channel to ingest into.
+ * @param pcm - Audio to push.
+ * @returns Resolves once every frame has been processed.
+ */
+async function feedIngestFrames(channelId: string, pcm: Buffer): Promise<void> {
+  for (const frame of splitPcmFrames(pcm)) {
+    enqueueOwnerPcm(channelId, 'user-1', frame, 16000);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
+/** Default channel configuration: Groq chunked STT with OpenRouter translate. */
+const GROQ_SECRETS = {
+  sttProvider: 'groq',
+  textTranslateProvider: 'openrouter',
+  openRouterApiKey: 'key',
+  groqApiKey: 'gsk',
+  deepgramApiKey: null,
+  assemblyaiApiKey: null,
+  gladiaApiKey: null,
+  speechmaticsApiKey: null,
+  sonioxApiKey: null,
+  modulateApiKey: null,
+  gcpServiceAccountJson: null,
+  sttModel: 'whisper-large-v3-turbo',
+  openRouterTranslateModel: 'tr',
+  gcpTtsVoices: {},
+  sourceLanguage: 'en',
+  enabledLanguages: ['es', 'fr'],
+  translationReady: true,
+  listenReady: false,
+} as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>;
+
 describe('translation session hub', () => {
+  beforeEach(() => {
+    // `clearAllMocks` keeps implementations, so a provider set by one test would
+    // otherwise leak into every test after it.
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue(GROQ_SECRETS);
+  });
+
   afterEach(() => {
     __resetTranslationSessionsForTests();
     vi.clearAllMocks();
@@ -654,5 +696,185 @@ describe('translation session hub', () => {
     await vi.waitFor(() => {
       expect(close).toHaveBeenCalled();
     });
+  });
+
+  it('stops STT and announces music once singing is detected', async () => {
+    const activity: string[] = [];
+    const unsub = subscribePublicListener({
+      channelId: 'ch-music',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'activity' && event.activity) activity.push(event.activity);
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-music').totalSubscribers).toBe(1);
+    });
+
+    await feedIngestFrames('ch-music', synthesizeSinging(6000));
+    expect(activity).toEqual(['music']);
+
+    // Captions ran while the analysis window filled; nothing new once music is committed.
+    const callsAtDetection = vi.mocked(transcribeAudio).mock.calls.length;
+    expect(callsAtDetection).toBeGreaterThan(0);
+    await feedIngestFrames('ch-music', synthesizeSinging(6000));
+    expect(vi.mocked(transcribeAudio).mock.calls.length).toBe(callsAtDetection);
+
+    unsub();
+  });
+
+  it('keeps fanning source audio to listeners during music', async () => {
+    const pcmEvents: unknown[] = [];
+    const unsub = subscribePublicListener({
+      channelId: 'ch-music-audio',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: true,
+      send: (event) => {
+        if (event.type === 'source_pcm') pcmEvents.push(event);
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-music-audio').totalSubscribers).toBe(1);
+    });
+
+    await feedIngestFrames('ch-music-audio', synthesizeSinging(6000));
+    const duringMusic = pcmEvents.length;
+
+    await feedIngestFrames('ch-music-audio', synthesizeSinging(2000));
+    // Listeners must still hear the singing even though captions stopped.
+    expect(pcmEvents.length).toBeGreaterThan(duringMusic);
+
+    unsub();
+  });
+
+  it('resumes captions when speech returns after singing', async () => {
+    const activity: string[] = [];
+    const unsub = subscribePublicListener({
+      channelId: 'ch-music-end',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'activity' && event.activity) activity.push(event.activity);
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-music-end').totalSubscribers).toBe(1);
+    });
+
+    await feedIngestFrames('ch-music-end', synthesizeSinging(8000));
+    expect(activity).toEqual(['music']);
+
+    const callsDuringMusic = vi.mocked(transcribeAudio).mock.calls.length;
+    await feedIngestFrames('ch-music-end', synthesizeSpeech(12000));
+
+    expect(activity).toEqual(['music', 'speech']);
+    expect(vi.mocked(transcribeAudio).mock.calls.length).toBeGreaterThan(callsDuringMusic);
+
+    unsub();
+  });
+
+  it('tells a listener joining mid-song that music is playing', async () => {
+    const first = subscribePublicListener({
+      channelId: 'ch-music-join',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: () => undefined,
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-music-join').totalSubscribers).toBe(1);
+    });
+    await feedIngestFrames('ch-music-join', synthesizeSinging(6000));
+
+    const statuses: Array<string | undefined> = [];
+    const second = subscribePublicListener({
+      channelId: 'ch-music-join',
+      userId: 'user-1',
+      language: 'es',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'status') statuses.push(event.activity);
+      },
+    });
+
+    expect(statuses).toEqual(['music']);
+
+    first();
+    second();
+  });
+
+  it('stops streaming audio upstream during music and replays pre-roll on resume', async () => {
+    const writePcm = vi.fn();
+    createStreamingAsrSession.mockResolvedValue({
+      writePcm,
+      close: vi.fn(async () => undefined),
+    });
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
+      ...GROQ_SECRETS,
+      sttProvider: 'deepgram',
+      deepgramApiKey: 'dg-test',
+      groqApiKey: null,
+      sttModel: null,
+    } as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>);
+
+    const unsub = subscribePublicListener({
+      channelId: 'ch-music-stream',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: () => undefined,
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-music-stream').totalSubscribers).toBe(1);
+    });
+
+    await feedIngestFrames('ch-music-stream', synthesizeSpeech(3000));
+    expect(writePcm).toHaveBeenCalled();
+
+    await feedIngestFrames('ch-music-stream', synthesizeSinging(6000));
+    const writesDuringMusic = writePcm.mock.calls.length;
+    await feedIngestFrames('ch-music-stream', synthesizeSinging(4000));
+    expect(writePcm.mock.calls.length).toBe(writesDuringMusic);
+
+    // Returning to speech flushes the retained pre-roll, so more than one frame's
+    // worth of audio reaches the provider on the first speech chunk.
+    await feedIngestFrames('ch-music-stream', synthesizeSpeech(8000));
+    expect(writePcm.mock.calls.length).toBeGreaterThan(writesDuringMusic + 1);
+
+    unsub();
+  });
+
+  it('clears the music state when ingest stops', async () => {
+    const activity: string[] = [];
+    const unsub = subscribePublicListener({
+      channelId: 'ch-music-stop',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'activity' && event.activity) activity.push(event.activity);
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(getSubscriberStats('ch-music-stop').totalSubscribers).toBe(1);
+    });
+
+    await feedIngestFrames('ch-music-stop', synthesizeSinging(6000));
+    expect(activity).toEqual(['music']);
+
+    markIngestStopped('ch-music-stop');
+    expect(activity).toEqual(['music', 'speech']);
+
+    unsub();
   });
 });

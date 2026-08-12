@@ -32,6 +32,12 @@ import {
   languageCodeHintFromVoiceName,
 } from '@/lib/translation/gcp-tts-voices';
 import { isNearSilentPcm16, sanitizeSttTranscript } from '@/lib/translation/stt-quality';
+import {
+  audioActivityDetectorOptionsFromEnv,
+  createAudioActivityDetector,
+  isMusicDetectionEnabled,
+  type AudioActivityDetector,
+} from '@/lib/translation/audio-activity';
 import { TRANSLATION_SESSIONS_GLOBAL_KEY } from '@/lib/translation/is-channel-live';
 
 export { isChannelLive } from '@/lib/translation/is-channel-live';
@@ -48,10 +54,25 @@ const TRANSLATE_RATE_LIMIT_BACKOFF_MAX_MS = 60_000;
 const STT_RATE_LIMIT_BACKOFF_MS = 15_000;
 /** Cap for exponential STT 429 backoff. */
 const STT_RATE_LIMIT_BACKOFF_MAX_MS = 60_000;
+/**
+ * Audio retained while music suppresses STT, replayed when speech resumes.
+ *
+ * Detecting the return to speech takes a few seconds of hysteresis, so without a
+ * pre-roll the preacher's first words after a hymn would never reach the provider.
+ * Sized to cover that hysteresis plus the analysis window that precedes it.
+ */
+const ACTIVITY_PRE_ROLL_MS = 6_000;
+/**
+ * Continuous music after which the upstream ASR socket is closed.
+ *
+ * Congregational singing runs for minutes, and providers bill for streamed audio —
+ * closing is a real saving, and the pre-roll buffer covers the reconnect gap.
+ */
+const MUSIC_ASR_CLOSE_MS = 10_000;
 
 /** Caption/audio event pushed to public SSE subscribers. */
 export interface TranslationHubEvent {
-  type: 'caption' | 'status' | 'error' | 'heartbeat' | 'source_pcm';
+  type: 'caption' | 'status' | 'error' | 'heartbeat' | 'source_pcm' | 'activity';
   segmentId?: string;
   language?: string;
   text?: string;
@@ -62,8 +83,16 @@ export interface TranslationHubEvent {
   sampleRate?: number;
   live?: boolean;
   message?: string;
+  /**
+   * Whether the owner audio currently holds speech or music. Sent on transitions
+   * and with the initial `status` event so listeners joining mid-song see the marker.
+   */
+  activity?: BroadcastActivity;
   ts: number;
 }
+
+/** Activity states surfaced to listeners (`silence` stays internal). */
+type BroadcastActivity = 'speech' | 'music';
 
 type Subscriber = {
   id: string;
@@ -144,6 +173,18 @@ type ChannelSession = {
   sonioxStarting: Map<string, Promise<void>>;
   /** Partial caption segment id for the active utterance (streaming). */
   streamingPartialSegmentId: string | null;
+  /** Speech/music detector over owner ingest; null when detection is disabled. */
+  activityDetector: AudioActivityDetector | null;
+  /** Last activity state broadcast to listeners. */
+  activity: BroadcastActivity;
+  /** Timestamp the current music stretch began, or 0 while captioning speech. */
+  musicSince: number;
+  /** True when the ASR socket was closed to avoid billing during music. */
+  asrPausedForMusic: boolean;
+  /** Recent PCM held back during music, replayed when speech resumes. */
+  activityPreRoll: Array<{ pcm: Buffer; sampleRate: number }>;
+  /** Total bytes currently held in `activityPreRoll`. */
+  activityPreRollBytes: number;
 };
 
 /**
@@ -193,6 +234,14 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
       sonioxByLanguage: new Map(),
       sonioxStarting: new Map(),
       streamingPartialSegmentId: null,
+      activityDetector: isMusicDetectionEnabled()
+        ? createAudioActivityDetector(audioActivityDetectorOptionsFromEnv())
+        : null,
+      activity: 'speech',
+      musicSince: 0,
+      asrPausedForMusic: false,
+      activityPreRoll: [],
+      activityPreRollBytes: 0,
     };
     sessions.set(channelId, session);
   }
@@ -394,6 +443,15 @@ function handleSourceStreamingEvent(
     return;
   }
 
+  if (event.kind === 'audio_event') {
+    session.activityDetector?.noteProviderMusicEvent(event.active, event.confidence ?? 0.5);
+    return;
+  }
+
+  // A final can still arrive from the provider just after music was committed;
+  // showing it would put a lyric fragment on screen below the music marker.
+  if (session.activity === 'music') return;
+
   const text = sanitizeSttTranscript(event.text);
   if (!text) return;
 
@@ -480,6 +538,10 @@ function handleSonioxStreamingEvent(
     });
     return;
   }
+
+  // Soniox does not classify non-speech audio; guard so the union stays exhaustive.
+  if (event.kind === 'audio_event') return;
+  if (session.activity === 'music') return;
 
   const isSourceStream = listenLanguage === sourceLanguage;
   if (isSourceStream && event.isTranslation) return;
@@ -588,6 +650,8 @@ async function ensureSingleStreamingAsr(session: ChannelSession): Promise<void> 
     await closeSingleStreamingAsr(session);
     return;
   }
+  // A listener joining mid-hymn must not open a socket we have nothing to send on.
+  if (session.activity === 'music') return;
   if (session.streamingAsr) return;
   if (session.streamingAsrStarting) {
     await session.streamingAsrStarting;
@@ -662,8 +726,11 @@ async function syncSonioxSessions(session: ChannelSession): Promise<void> {
 
   const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
   const wanted = new Set<string>();
-  for (const [language, bucket] of session.languages) {
-    if (bucket.subscribers.size > 0) wanted.add(language);
+  // Nothing is sent upstream during music, so do not open sockets for it either.
+  if (session.activity !== 'music') {
+    for (const [language, bucket] of session.languages) {
+      if (bucket.subscribers.size > 0) wanted.add(language);
+    }
   }
 
   for (const [language, asr] of [...session.sonioxByLanguage.entries()]) {
@@ -1208,6 +1275,8 @@ async function processAudioQueue(session: ChannelSession): Promise<void> {
       }
 
       if (!text) continue;
+      // Music may have been committed while this ~4s chunk was in flight at Groq.
+      if (session.activity === 'music') continue;
 
       const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
       const segment: Segment = {
@@ -1262,6 +1331,7 @@ export function markIngestActive(channelId: string, userId: string): void {
   session.ingestIdleTimer = setTimeout(() => {
     session.ingestActive = false;
     void closeAllStreamingAsr(session);
+    resetSessionActivity(session);
     broadcastAll(session, { type: 'status', live: false, ts: now() });
     maybeTeardown(session);
   }, INGEST_IDLE_MS);
@@ -1288,6 +1358,123 @@ function fanOutSourcePcm(session: ChannelSession, pcm: Buffer, sampleRate: numbe
     } catch {
       bucket.subscribers.delete(sub);
     }
+  }
+}
+
+/**
+ * Whether the newest analysis window has stopped arguing for music.
+ *
+ * Decides which audio is worth holding as pre-roll. Committing to speech takes several
+ * seconds of hysteresis, and blindly retaining that whole tail would replay the end of
+ * a hymn into the provider and caption the last line of the song. Only audio that
+ * already scores below the music bar is kept.
+ * @param session - Channel session.
+ * @returns True when the latest window no longer scores as music.
+ */
+function isPreRollWorthKeeping(session: ChannelSession): boolean {
+  const detector = session.activityDetector;
+  if (!detector) return true;
+  const scores = detector.lastScores();
+  if (!scores) return true;
+  return scores.silent || scores.music < detector.options.musicThreshold;
+}
+
+/**
+ * Retains a PCM chunk as pre-roll, discarding the oldest beyond the retention window.
+ * @param session - Channel session.
+ * @param pcm - 16-bit LE mono PCM.
+ * @param sampleRate - Sample rate Hz.
+ */
+function pushActivityPreRoll(session: ChannelSession, pcm: Buffer, sampleRate: number): void {
+  const maxBytes = Math.round((ACTIVITY_PRE_ROLL_MS / 1000) * sampleRate * 2);
+  session.activityPreRoll.push({ pcm, sampleRate });
+  session.activityPreRollBytes += pcm.length;
+  while (session.activityPreRollBytes > maxBytes && session.activityPreRoll.length > 1) {
+    const dropped = session.activityPreRoll.shift();
+    if (!dropped) break;
+    session.activityPreRollBytes -= dropped.pcm.length;
+  }
+}
+
+/**
+ * Removes and returns the retained pre-roll chunks in chronological order.
+ * @param session - Channel session.
+ * @returns Buffered chunks, oldest first.
+ */
+function drainActivityPreRoll(session: ChannelSession): Array<{ pcm: Buffer; sampleRate: number }> {
+  const chunks = session.activityPreRoll;
+  session.activityPreRoll = [];
+  session.activityPreRollBytes = 0;
+  return chunks;
+}
+
+/**
+ * Advances the speech/music detector and publishes state transitions.
+ * @param session - Channel session.
+ * @param pcm - 16-bit LE mono PCM.
+ * @param sampleRate - Sample rate Hz.
+ * @returns Current activity; always `speech` when detection is disabled.
+ */
+function updateSessionActivity(
+  session: ChannelSession,
+  pcm: Buffer,
+  sampleRate: number
+): BroadcastActivity {
+  const detector = session.activityDetector;
+  if (!detector) return 'speech';
+
+  const { state } = detector.push(pcm, sampleRate);
+  // `silence` is neutral: hold whatever was already being shown.
+  if (state === 'silence') return session.activity;
+  if (state === session.activity) return session.activity;
+
+  session.activity = state;
+  if (state === 'music') {
+    session.musicSince = now();
+    // Drop the unfinished caption so the last words before the song do not sit
+    // on screen as a permanent partial once STT stops producing finals.
+    session.streamingPartialSegmentId = null;
+    // Chunks already queued for Groq would otherwise still be transcribed and billed.
+    session.audioQueue.length = 0;
+  } else {
+    session.musicSince = 0;
+  }
+  broadcastAll(session, { type: 'activity', activity: state, ts: now() });
+  return state;
+}
+
+/**
+ * Returns the detector and activity state to their initial "speech" baseline.
+ *
+ * Called when ingest stops so a service that ended mid-song does not leave the
+ * music marker on listeners' screens, and the next service starts clean.
+ * @param session - Channel session.
+ */
+function resetSessionActivity(session: ChannelSession): void {
+  session.activityDetector?.reset();
+  session.musicSince = 0;
+  session.asrPausedForMusic = false;
+  session.activityPreRoll = [];
+  session.activityPreRollBytes = 0;
+  if (session.activity !== 'speech') {
+    session.activity = 'speech';
+    broadcastAll(session, { type: 'activity', activity: 'speech', ts: now() });
+  }
+}
+
+/**
+ * Closes upstream ASR sockets once music has run long enough to be worth the reconnect.
+ * @param session - Channel session.
+ */
+function suppressSttForMusic(session: ChannelSession): void {
+  if (session.asrPausedForMusic) return;
+  if (session.musicSince === 0 || now() - session.musicSince < MUSIC_ASR_CLOSE_MS) return;
+  session.asrPausedForMusic = true;
+  session.audioQueue.length = 0;
+  void closeSingleStreamingAsr(session);
+  for (const [language, asr] of session.sonioxByLanguage) {
+    session.sonioxByLanguage.delete(language);
+    void asr.close().catch(() => undefined);
   }
 }
 
@@ -1332,15 +1519,31 @@ export function enqueueOwnerPcm(
     if (!fannedSync) {
       fanOutSourcePcm(session, pcm, sampleRate);
     }
+
+    // Singing/music must not produce captions. Listeners keep hearing the source
+    // audio via `source_pcm`; only text, translate, and TTS work is suppressed.
+    if (updateSessionActivity(session, pcm, sampleRate) === 'music') {
+      if (isPreRollWorthKeeping(session)) pushActivityPreRoll(session, pcm, sampleRate);
+      suppressSttForMusic(session);
+      return;
+    }
+
     if (isStreamingSttProvider(secrets.sttProvider)) {
+      session.asrPausedForMusic = false;
+      for (const frame of drainActivityPreRoll(session)) {
+        await writePcmToStreamingAsr(session, frame.pcm, frame.sampleRate);
+      }
       await writePcmToStreamingAsr(session, pcm, sampleRate);
       return;
     }
     // Groq chunked fallback — skip provider calls with nobody listening.
     if (!sessionHasListeners(session)) {
       session.audioQueue.length = 0;
+      drainActivityPreRoll(session);
       return;
     }
+    session.asrPausedForMusic = false;
+    drainActivityPreRoll(session);
     session.audioQueue.push({ pcm, sampleRate });
     coalesceAudioQueueToLatest(session);
     void processAudioQueue(session);
@@ -1425,7 +1628,9 @@ export function subscribePublicListener(params: {
     return bucket;
   })();
 
-  send({ type: 'status', live: session.ingestActive, ts: now() });
+  // Include activity so a listener joining mid-song sees the music marker immediately
+  // instead of an empty caption list that looks broken.
+  send({ type: 'status', live: session.ingestActive, activity: session.activity, ts: now() });
   // No historical caption replay — only live segments from this point forward.
   // If this listener wants speech on a *target* language, finish TTS for the latest
   // already-translated segment (e.g. they tapped Listen after captions-only).
@@ -1502,6 +1707,7 @@ export function markIngestStopped(channelId: string): void {
   session.ingestActive = false;
   session.audioQueue.length = 0;
   session.sttRateLimitedUntil = 0;
+  resetSessionActivity(session);
   if (session.sttRateLimitTimer) {
     clearTimeout(session.sttRateLimitTimer);
     session.sttRateLimitTimer = null;

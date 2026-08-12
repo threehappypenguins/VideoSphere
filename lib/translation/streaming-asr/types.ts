@@ -19,6 +19,19 @@ export type StreamingAsrEvent =
       language?: string;
       isTranslation?: boolean;
     }
+  | {
+      /**
+       * Non-speech audio event reported by providers that classify it.
+       * Corroborates local music detection; only Speechmatics emits this today.
+       */
+      kind: 'audio_event';
+      /** Event class. Only music affects caption suppression. */
+      event: 'music';
+      /** True when the event started, false when it ended. */
+      active: boolean;
+      /** Provider confidence in `[0, 1]`, when supplied. */
+      confidence?: number;
+    }
   | { kind: 'error'; message: string };
 
 /**

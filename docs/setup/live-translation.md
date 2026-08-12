@@ -51,6 +51,80 @@ With streaming ASR, interim captions update in place; Deepgram also splits long 
 
 Caption translation clarifies a few ambiguous English sermon collocations in the source before every MT call (so “sinned against the Lord” is not read as fight/defy). OpenRouter / Groq also get a sermon-aware prompt, recent prior source finals, and a Mandarin/Cantonese safety repair if the model still emits 对抗 for that confession. Soniox built-in translation is unchanged.
 
+## Singing and music (automatic caption suppression)
+
+A worship service is not all speech. Captioning hymns produces garbage — lyrics arrive as fragments, Whisper hallucinates on sustained notes, and every stray line costs a translate call plus a TTS clip. The pipeline therefore classifies the owner audio continuously and suppresses captions while music is playing. **There is no toggle for the A/V operator to remember**: OBS streams, the app decides.
+
+What listeners see instead is a marker line in their own language — `♪ Music ♪`, `♪ Música ♪`, `♪ 音乐 ♪` — so the pause reads as intentional rather than as a broken stream. The marker is a fixed UI string, never sent to the translate provider or to TTS. Someone opening `/listen/{slug}` in the middle of a hymn sees the marker immediately.
+
+Source-language listeners with spoken audio on **keep hearing the singing**; only text, translation, and TTS stop.
+
+### How detection works
+
+Analysis runs on the same 16 kHz mono PCM that both **Add audio** and the RTMP/MediaMTX path already produce, so one detector covers both ingest routes. It is pure signal processing — no model download, no native dependency, no per-minute cost:
+
+| Feature | Speech | Singing |
+| --- | --- | --- |
+| Envelope modulation rate | 3–8 Hz (syllables) | 0.5–2.5 Hz (notes) |
+| Sustained pitch runs | Rare — pitch glides continuously | Common — notes are held |
+| Voiced share | ~50–65% (stops, plosives) | ~85%+ (near-continuous) |
+| Quiet gaps within a window | Frequent | Few |
+| Distance from a semitone grid | Large | Small |
+
+Instrument-oriented music detectors look for sustained tones and a beat, which **unaccompanied congregational singing does not have** — it is voices producing words. The pitch-behaviour features above are what separate the two cases, which is why they carry the most weight.
+
+Accompaniment makes the job easier, not harder. A sustained organ, keyboard, or guitar chord scores at the very top of the range, because it exhibits every one of those five traits more strongly than a human voice does. If your church has a band, unaccompanied singing is the case you should calibrate against — get that right and accompanied music follows.
+
+The one **known limitation** is unpitched percussion. Every feature that argues for music describes pitch behaviour, so a drums-only passage with no sung or pitched line reads as speech and captions will resume through it. Worship music essentially always carries a melodic line alongside the percussion, so this shows up in drum breaks rather than in songs.
+
+Transitions are deliberately slow, and deliberately **asymmetric**: entering music takes 2.5 s of sustained evidence, leaving it takes 3 s, and a minimum dwell time prevents flapping between verses. Silence is treated as **neutral**: a gap between verses does not resume captions, and a pause mid-sermon does not trigger the marker.
+
+The asymmetry is the single most important tuning decision, because the two mistakes are not equally bad. Leaving music too early lets hymn lyrics through as captions; resuming a second late costs nothing, since audio from the seconds before the switch is retained and replayed to the provider so the first words after a hymn are not lost. Measured against a full service recording, the same asymmetry also suppresses false positives cheaply: real songs run for **minutes** while false alarms last a **window or two**, so requiring evidence to persist separates them far better than any score threshold can — the score ranges of true songs and false alarms overlap almost completely.
+
+After 10 s of continuous music the upstream ASR socket is closed, which is a real saving across twenty-plus minutes of singing per service. It reopens automatically when speech returns.
+
+**Speechmatics** users get a second opinion: `audio_events_config` reports `music` events on the realtime WebSocket. Speechmatics documents these as over-sensitive to music, so the hub treats them as a vote that can push a borderline window toward music — never as the deciding signal. No other supported provider classifies non-speech audio (Deepgram's `vad_events` only distinguishes sound from silence, and music triggers it).
+
+### Calibrating for your room
+
+Default thresholds are a starting point, not a guarantee — a stone sanctuary with one overhead mic behaves nothing like a padded room with a mixer feed. Tune against real audio rather than guessing. You already have a recording: the sermon capture from OBS.
+
+```bash
+pnpm translation:analyze-audio path/to/service-recording.mkv
+```
+
+This replays the recording through the detector and prints every transition with a timestamp, so you can compare the detected timeline against what actually happened. Add `--verbose` for per-window feature values, or `--csv out.csv` to plot them.
+
+The script reads the same `.env` files the app does and prints the settings actually in effect, marking each as `env` or `default`. A one-off experiment can be passed inline without editing anything:
+
+```bash
+TRANSLATION_MUSIC_THRESHOLD=0.6 pnpm translation:analyze-audio service-recording.mkv
+```
+
+Read the **Music episodes** summary at the end before the transition list. It groups the timeline into stretches of music and flags any shorter than 15 s as suspect, because a real song is never that short — a five-second episode is the detector entering music and immediately wanting back out:
+
+```
+Music episodes: 3 (2 under 15s)
+  0:09:20.8 .. 0:09:26.8  6.0s   <- suspect
+  0:09:27.8 .. 0:09:42.3  14.5s  <- suspect
+  0:09:43.3 .. 0:11:32.8  109.5s
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TRANSLATION_MUSIC_DETECTION` | on | Set to `off` to caption everything, including music |
+| `TRANSLATION_MUSIC_THRESHOLD` | `0.55` | Score at or above which a window votes music. Raise if speech is misread as music |
+| `TRANSLATION_MUSIC_SPEECH_THRESHOLD` | `0.4` | Score at or below which a window votes speech. Scores in between abstain. Clamped to never exceed the music threshold |
+| `TRANSLATION_MUSIC_WINDOW_MS` | `2000` | Analysis window length |
+| `TRANSLATION_MUSIC_HOP_MS` | `500` | Interval between classifications |
+| `TRANSLATION_MUSIC_ENTER_MS` | `2500` | Sustained music evidence required before suppressing captions |
+| `TRANSLATION_MUSIC_EXIT_MS` | `3000` | Sustained speech evidence required before resuming |
+| `TRANSLATION_MUSIC_MIN_DWELL_MS` | `5000` | Minimum time held in the music state |
+
+Reach for the timing knobs before the thresholds. Short false episodes and flapping at the start of a song are hysteresis problems, and raising `TRANSLATION_MUSIC_ENTER_MS` / `TRANSLATION_MUSIC_EXIT_MS` fixes them without making the detector blind. Only move `TRANSLATION_MUSIC_THRESHOLD` when whole songs are missed (lower it) or long stretches of preaching are suppressed (raise it).
+
+Leave a variable **unset** to inherit its default. Pinning all of them to their current values in `.env.local` means future default improvements will not reach you. Restart the app after changing any of these.
+
 ## Enable listen (spoken translation)
 
 1. Save **Languages** first (source + at least one target).

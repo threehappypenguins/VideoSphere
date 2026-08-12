@@ -23,6 +23,7 @@
     "test:a11y": "vitest run --reporter=verbose --config vitest.a11y.config.ts",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
+    "translation:analyze-audio": "tsx scripts/analyze-service-audio.ts",
     "docs:api": "typedoc --options typedoc.json",
     "docs:dev": "pnpm docs:api && vitepress dev docs",
     "docs:build": "pnpm docs:api && vitepress build docs",

@@ -42,6 +42,9 @@ export async function createSpeechmaticsAsrSession(
             enable_partials: true,
             max_delay: 1.5,
           },
+          // Corroborates local speech/music detection. Speechmatics documents realtime
+          // music events as over-sensitive, so the hub treats these as a vote only.
+          audio_events_config: { types: ['music'] },
         })
       );
       resolve();
@@ -58,9 +61,21 @@ export async function createSpeechmaticsAsrSession(
           alternatives?: Array<{ content?: string }>;
           type?: string;
         }>;
+        event?: { type?: string; confidence?: number };
       };
       if (msg.message === 'Error') {
         options.onEvent({ kind: 'error', message: 'Speechmatics recognition error' });
+        return;
+      }
+      if (msg.message === 'AudioEventStarted' || msg.message === 'AudioEventEnded') {
+        if (msg.event?.type === 'music') {
+          options.onEvent({
+            kind: 'audio_event',
+            event: 'music',
+            active: msg.message === 'AudioEventStarted',
+            confidence: typeof msg.event.confidence === 'number' ? msg.event.confidence : undefined,
+          });
+        }
         return;
       }
       const fromMeta = msg.metadata?.transcript?.trim();
