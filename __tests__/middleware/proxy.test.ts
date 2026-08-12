@@ -2,18 +2,26 @@
 // PROXY MIDDLEWARE TESTS
 // =============================================================================
 // Tests core proxy functionality: session verification, auth redirects,
-// and admin role enforcement.
+// and admin role enforcement (JWT claims verified locally).
 // =============================================================================
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+
+const { mockJwtVerify } = vi.hoisted(() => ({
+  mockJwtVerify: vi.fn(),
+}));
+
+vi.mock('jose', () => ({
+  jwtVerify: (...args: unknown[]) => mockJwtVerify(...args),
+}));
+
 import { proxy } from '@/proxy';
 
 function createMockRequest(pathname: string, cookies: Record<string, string> = {}): NextRequest {
   const url = new URL(`http://localhost:3000${pathname}`);
   const request = new NextRequest(url);
 
-  // Manually set cookies on the request
   Object.entries(cookies).forEach(([key, value]) => {
     request.cookies.set(key, value);
   });
@@ -23,12 +31,13 @@ function createMockRequest(pathname: string, cookies: Record<string, string> = {
 
 describe('Proxy Middleware', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.stubGlobal('fetch', vi.fn());
+    mockJwtVerify.mockReset();
+    vi.stubEnv('JWT_SECRET', 'test-jwt-secret-for-vitest-only');
+    vi.stubEnv('JWT_SESSION_COOKIE_NAME', 'videosphere_session');
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   describe('Session Verification', () => {
@@ -38,17 +47,15 @@ describe('Proxy Middleware', () => {
       const result = await proxy(request);
 
       expect(result.status).toBe(200);
-      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockJwtVerify).not.toHaveBeenCalled();
     });
 
     it('should redirect authenticated users from home to dashboard after verifying session', async () => {
+      mockJwtVerify.mockResolvedValueOnce({
+        payload: { sub: 'user123', role: 'user' },
+      });
       const request = createMockRequest('/', {
         videosphere_session: 'valid_session_token_xyz',
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ $id: 'user123' }),
       });
 
       const result = await proxy(request);
@@ -58,13 +65,9 @@ describe('Proxy Middleware', () => {
     });
 
     it('should allow home through when a stale session cookie fails verification', async () => {
+      mockJwtVerify.mockRejectedValueOnce(new Error('invalid'));
       const request = createMockRequest('/', {
         videosphere_session: 'stale_session_token_xyz',
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        status: 401,
       });
 
       const result = await proxy(request);
@@ -77,46 +80,31 @@ describe('Proxy Middleware', () => {
 
       const result = await proxy(request);
 
-      expect(result).toBeDefined();
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/login');
       expect(location).toContain('redirect=%2Fdashboard%2Fuploads');
+      expect(mockJwtVerify).not.toHaveBeenCalled();
     });
 
-    it('should allow authenticated users through', async () => {
-      const sessionToken = 'valid_session_token_xyz';
-      const request = createMockRequest('/dashboard/uploads', {
-        videosphere_session: sessionToken,
+    it('should allow authenticated users through protected routes', async () => {
+      mockJwtVerify.mockResolvedValueOnce({
+        payload: { sub: 'user123', role: 'user' },
       });
-
-      // Mock successful session verification
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ $id: 'user123' }),
+      const request = createMockRequest('/dashboard/uploads', {
+        videosphere_session: 'valid_session_token_xyz',
       });
 
       const result = await proxy(request);
 
       expect(result.status).toBe(200);
-      expect(global.fetch).toHaveBeenCalledWith(
-        new URL('http://127.0.0.1:9624/api/auth/session'),
-        expect.objectContaining({
-          headers: { cookie: 'videosphere_session=valid_session_token_xyz' },
-        })
-      );
+      expect(mockJwtVerify).toHaveBeenCalled();
     });
 
     it('should redirect to login when session verification fails', async () => {
-      const sessionToken = 'invalid_session_token_xyz';
+      mockJwtVerify.mockRejectedValueOnce(new Error('invalid'));
       const request = createMockRequest('/profile/settings', {
-        videosphere_session: sessionToken,
-      });
-
-      // Mock failed session verification (401 response)
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        status: 401,
+        videosphere_session: 'invalid_session_token_xyz',
       });
 
       const result = await proxy(request);
@@ -127,111 +115,40 @@ describe('Proxy Middleware', () => {
       expect(location).toContain('redirect=%2Fprofile%2Fsettings');
     });
 
-    it('should redirect to login when session fetch throws', async () => {
-      const sessionToken = 'error_session_token_xyz';
+    it('should redirect to login when JWT_SECRET is missing', async () => {
+      vi.stubEnv('JWT_SECRET', '');
       const request = createMockRequest('/dashboard', {
-        videosphere_session: sessionToken,
+        videosphere_session: 'any_token',
       });
-
-      // Mock fetch error
-      (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
 
       const result = await proxy(request);
 
       expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toContain('/login');
+      expect(result.headers.get('location') || '').toContain('/login');
+      expect(mockJwtVerify).not.toHaveBeenCalled();
     });
   });
 
   describe('Admin Role Enforcement', () => {
-    it('should redirect to login when session-role returns 401', async () => {
-      const sessionToken = 'expired_session';
-      const request = createMockRequest('/admin/dashboard', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toContain('/login');
-      expect(location).toContain('redirect=');
-    });
-
     it('should allow admin users to access /admin routes', async () => {
-      const sessionToken = 'admin_session_token';
-      const request = createMockRequest('/admin/dashboard', {
-        videosphere_session: sessionToken,
+      mockJwtVerify.mockResolvedValueOnce({
+        payload: { sub: 'admin1', role: 'admin' },
       });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ role: 'admin' }),
+      const request = createMockRequest('/admin/dashboard', {
+        videosphere_session: 'admin_session_token',
       });
 
       const result = await proxy(request);
 
       expect(result.status).toBe(200);
-      expect((global.fetch as any).mock.calls).toHaveLength(1);
-      const calledUrl = String((global.fetch as any).mock.calls[0][0]);
-      expect(calledUrl).toContain('/api/auth/session-role');
     });
 
     it('should block non-admin users from /admin routes', async () => {
-      const sessionToken = 'user_session_token';
+      mockJwtVerify.mockResolvedValueOnce({
+        payload: { sub: 'user1', role: 'user' },
+      });
       const request = createMockRequest('/admin/users', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ role: 'user' }),
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toContain('/dashboard');
-      expect((global.fetch as any).mock.calls).toHaveLength(1);
-    });
-
-    it('should block users with missing role from /admin routes', async () => {
-      const sessionToken = 'user_session_token';
-      const request = createMockRequest('/admin/settings', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ role: 'user' }),
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toContain('/dashboard');
-    });
-
-    it('should redirect to dashboard when session-role returns 503 (profile unavailable)', async () => {
-      const sessionToken = 'user_session_token';
-      const request = createMockRequest('/admin/settings', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        status: 503,
+        videosphere_session: 'user_session_token',
       });
 
       const result = await proxy(request);
@@ -240,144 +157,32 @@ describe('Proxy Middleware', () => {
       expect(result.headers.get('location') || '').toContain('/dashboard');
     });
 
-    it('should redirect to dashboard when session-role fetch throws (e.g. network)', async () => {
-      const sessionToken = 'admin_session_token';
-      const request = createMockRequest('/admin/dashboard', {
-        videosphere_session: sessionToken,
+    it('should enforce admin on /dashboard/users', async () => {
+      mockJwtVerify.mockResolvedValueOnce({
+        payload: { sub: 'user1', role: 'user' },
       });
+      const blocked = await proxy(
+        createMockRequest('/dashboard/users', { videosphere_session: 'user_token' })
+      );
+      expect(blocked.status).toBe(307);
+      expect(blocked.headers.get('location') || '').toContain('/dashboard');
 
-      (global.fetch as any).mockRejectedValueOnce(new Error('Network error'));
+      mockJwtVerify.mockResolvedValueOnce({
+        payload: { sub: 'admin1', role: 'admin' },
+      });
+      const allowed = await proxy(
+        createMockRequest('/dashboard/users', { videosphere_session: 'admin_token' })
+      );
+      expect(allowed.status).toBe(200);
+    });
+
+    it('should redirect unauthenticated users from /admin to login', async () => {
+      const request = createMockRequest('/admin/dashboard');
 
       const result = await proxy(request);
 
       expect(result.status).toBe(307);
-      expect(result.headers.get('location') || '').toContain('/dashboard');
-    });
-
-    it('should redirect to dashboard when session-role response JSON is invalid', async () => {
-      const sessionToken = 'admin_session_token';
-      const request = createMockRequest('/admin/dashboard', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => {
-          throw new Error('Invalid JSON');
-        },
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(307);
-      expect(result.headers.get('location') || '').toContain('/dashboard');
-    });
-
-    it('should block non-admin users from /dashboard/users', async () => {
-      const sessionToken = 'user_session_token';
-      const request = createMockRequest('/dashboard/users', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ role: 'user' }),
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toContain('/dashboard');
-    });
-
-    it('should allow admin users to access /dashboard/users', async () => {
-      const sessionToken = 'admin_session_token';
-      const request = createMockRequest('/dashboard/users', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ role: 'admin' }),
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(200);
-    });
-
-    it('should allow admin users to access /dashboard routes', async () => {
-      const sessionToken = 'admin_session_token';
-      const request = createMockRequest('/dashboard/uploads', {
-        videosphere_session: sessionToken,
-      });
-
-      // Mock successful session verification
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ $id: 'admin_user_123' }),
-      });
-
-      const result = await proxy(request);
-
-      // Should not check role for non-admin routes
-      expect(result.status).toBe(200);
-      expect((global.fetch as any).mock.calls).toHaveLength(1);
-    });
-  });
-
-  describe('Cookie Handling', () => {
-    it('should redirect to login when no session cookie is present', async () => {
-      const request = createMockRequest('/dashboard');
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toContain('/login');
-    });
-
-    it('should rely on session cookie verification for dashboard access', async () => {
-      const sessionToken = 'valid_token';
-
-      const request = createMockRequest('/dashboard', {
-        videosphere_session: sessionToken,
-      });
-
-      // Mock successful session verification
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ $id: 'user123' }),
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(200);
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should redirect to login when fetch throws during session verification', async () => {
-      const sessionToken = 'token';
-      const request = createMockRequest('/dashboard', {
-        videosphere_session: sessionToken,
-      });
-
-      // When fetch throws during session verification, getSessionUser returns null
-      // and user is redirected to login (not fail-open behavior at this level)
-      (global.fetch as any).mockImplementationOnce(() => {
-        throw new Error('Network error');
-      });
-
-      const result = await proxy(request);
-
-      expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toContain('/login');
+      expect(result.headers.get('location') || '').toContain('/login');
     });
   });
 
@@ -390,21 +195,15 @@ describe('Proxy Middleware', () => {
       expect(result.status).toBe(307);
       const location = result.headers.get('location') || '';
       expect(location).toContain('/login');
-      // The redirect param should contain the full path with query string
       const url = new URL(location);
       const redirect = url.searchParams.get('redirect');
       expect(redirect).toBe('/profile?upgrade=success');
     });
 
     it('should preserve query params when session verification fails', async () => {
-      const sessionToken = 'invalid_token';
+      mockJwtVerify.mockRejectedValueOnce(new Error('invalid'));
       const request = createMockRequest('/profile?upgrade=success', {
-        videosphere_session: sessionToken,
-      });
-
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        status: 401,
+        videosphere_session: 'invalid_token',
       });
 
       const result = await proxy(request);
@@ -422,9 +221,7 @@ describe('Proxy Middleware', () => {
       const result = await proxy(request);
 
       expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toBeDefined();
-      expect(location).toContain('/login');
+      expect(result.headers.get('location') || '').toContain('/login');
     });
 
     it('should protect /profile routes', async () => {
@@ -432,9 +229,7 @@ describe('Proxy Middleware', () => {
       const result = await proxy(request);
 
       expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toBeDefined();
-      expect(location).toContain('/login');
+      expect(result.headers.get('location') || '').toContain('/login');
     });
 
     it('should protect /admin routes', async () => {
@@ -442,9 +237,7 @@ describe('Proxy Middleware', () => {
       const result = await proxy(request);
 
       expect(result.status).toBe(307);
-      const location = result.headers.get('location') || '';
-      expect(location).toBeDefined();
-      expect(location).toContain('/login');
+      expect(result.headers.get('location') || '').toContain('/login');
     });
   });
 });

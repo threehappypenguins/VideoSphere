@@ -50,6 +50,11 @@ const nextConfig: NextConfig = {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',
           },
+          {
+            // Allow Screen Wake Lock on the listen page (Chrome Android / Samsung).
+            key: 'Permissions-Policy',
+            value: 'screen-wake-lock=(self)',
+          },
         ],
       },
     ];

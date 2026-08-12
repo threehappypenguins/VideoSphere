@@ -51,3 +51,5 @@ docs/.vitepress/cache/
 
 # Generated TypeDoc output
 docs/public/typedoc/
+
+certificates

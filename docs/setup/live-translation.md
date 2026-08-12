@@ -25,6 +25,8 @@ A translation **channel** (including the public slug) is created only when you s
 
    Local development: prefer `pnpm dev` (Turbopack). `pnpm dev:webpack` can full-reload other open tabs when `/listen/{slug}` first compiles (webpack HMR `sync` hash change). That does not happen under Turbopack or production `next start`. Ingest intent stays in `sessionStorage` so Add audio can auto-resume after a remount — use **Stop audio** so a later load does not resume unexpectedly.
 
+   **Phone testing / keep screen on:** Chrome on Android only allows the Screen Wake Lock API in a **secure context** (HTTPS or `http://localhost`). Opening `http://192.168.x.x:9624` will dim and sleep as usual. For LAN phone tests run `pnpm dev:https`, then open `https://<your-LAN-IP>:9624/listen/...` and accept the self-signed certificate once. Production deployments behind HTTPS work without extra steps.
+
 ### How streaming vs Groq works
 
 | Mode | Behavior |
