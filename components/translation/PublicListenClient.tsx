@@ -470,6 +470,10 @@ function CaptionStream({
   const latestRef = useRef<HTMLLIElement>(null);
   /** When true, new captions keep the latest line pinned near mid-viewport. */
   const followLatestRef = useRef(true);
+  /** Ignores scroll events while we are programmatically pinning the latest line. */
+  const programmaticScrollRef = useRef(false);
+  /** Debounced settle for programmatic scroll (shared across rapid caption updates). */
+  const followScrollSettleTimerRef = useRef<number | null>(null);
   const [followPadPx, setFollowPadPx] = useState(0);
   const hasCaptions = lines.length > 0 || Boolean(partial);
 
@@ -489,10 +493,16 @@ function CaptionStream({
   useEffect(() => {
     const root = scrollRootRef.current;
     if (!root) return;
+
     const onScroll = () => {
-      // Only auto-follow when the user is already near the bottom of the page.
+      // Smooth scrollIntoView emits many intermediate scroll events; those must
+      // not turn follow off before the pin finishes.
+      if (programmaticScrollRef.current) return;
+      // Mid-viewport follow leaves the bottom spacer in view — use a large
+      // threshold so wrapped lines do not look like the user scrolled away.
       const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
-      followLatestRef.current = distanceFromBottom < 80;
+      const threshold = Math.max(120, Math.round(root.clientHeight * 0.55));
+      followLatestRef.current = distanceFromBottom <= threshold;
     };
     root.addEventListener('scroll', onScroll, { passive: true });
     return () => root.removeEventListener('scroll', onScroll);
@@ -500,8 +510,36 @@ function CaptionStream({
 
   useEffect(() => {
     if (!followLatestRef.current) return;
-    latestRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [lines, partial, followPadPx]);
+    const root = scrollRootRef.current;
+    const el = latestRef.current;
+    if (!root || !el) return;
+
+    programmaticScrollRef.current = true;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    if (followScrollSettleTimerRef.current !== null) {
+      window.clearTimeout(followScrollSettleTimerRef.current);
+    }
+    // Debounce settle across rapid caption/partial updates so in-flight smooth
+    // scroll events never clear the guard early and disable follow.
+    followScrollSettleTimerRef.current = window.setTimeout(() => {
+      followScrollSettleTimerRef.current = null;
+      programmaticScrollRef.current = false;
+      const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
+      const threshold = Math.max(120, Math.round(root.clientHeight * 0.55));
+      followLatestRef.current = distanceFromBottom <= threshold;
+    }, 450);
+  }, [lines, partial, followPadPx, scrollRootRef]);
+
+  useEffect(() => {
+    return () => {
+      if (followScrollSettleTimerRef.current !== null) {
+        window.clearTimeout(followScrollSettleTimerRef.current);
+        followScrollSettleTimerRef.current = null;
+      }
+      programmaticScrollRef.current = false;
+    };
+  }, []);
 
   const lastLineId = lines.length > 0 ? lines[lines.length - 1]!.id : null;
 
@@ -672,17 +710,21 @@ export function PublicListenClient({
 
   return (
     <div ref={scrollRootRef} className="flex h-full min-h-0 flex-col overflow-y-auto">
+      {!live ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-2.5 text-center text-sm font-medium text-foreground backdrop-blur-sm"
+        >
+          Not live — disconnected. Waiting for audio input.
+        </div>
+      ) : null}
+
       <header className="mx-auto w-full max-w-lg shrink-0 space-y-1 px-4 pt-6 pb-3">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Live audio translation
         </h1>
-        {live ? (
-          <p className="text-muted-foreground text-sm text-shadow-bg">Live now</p>
-        ) : (
-          <p className="text-muted-foreground text-sm text-shadow-bg">
-            There is currently no audio input.
-          </p>
-        )}
+        {live ? <p className="text-muted-foreground text-sm text-shadow-bg">Live now</p> : null}
       </header>
 
       <div className="shrink-0 px-4 py-3">
