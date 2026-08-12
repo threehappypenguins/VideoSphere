@@ -246,6 +246,11 @@ export function AddAudioCapture(props: {
   const [testingMic, setTestingMic] = useState(false);
   /** True while the mic MediaStream is open (test mode or ingest). */
   const [micLive, setMicLive] = useState(false);
+  /**
+   * After the mic opens, wait briefly before showing “Silent…” so the first
+   * ScriptProcessor frames can arrive (avoids a flash on Add audio / Test mic).
+   */
+  const [micMeterSettled, setMicMeterSettled] = useState(false);
   const [switchingDevice, setSwitchingDevice] = useState(false);
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -325,6 +330,7 @@ export function AddAudioCapture(props: {
     if (!options?.silent) {
       setLevel(0);
       setMicLive(false);
+      setMicMeterSettled(false);
     }
   }
 
@@ -476,6 +482,16 @@ export function AddAudioCapture(props: {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount bootstrap only
   }, []);
+
+  useEffect(() => {
+    if (!micLive) {
+      setMicMeterSettled(false);
+      return;
+    }
+    setMicMeterSettled(false);
+    const timer = window.setTimeout(() => setMicMeterSettled(true), 700);
+    return () => window.clearTimeout(timer);
+  }, [micLive]);
 
   /**
    * Sends buffered PCM to the ingest API when ingest is still live.
@@ -702,7 +718,7 @@ export function AddAudioCapture(props: {
       <div className="flex flex-wrap items-start gap-3">
         <div className="space-y-1.5">
           <div
-            className="bg-muted h-3 w-48 overflow-hidden rounded"
+            className="border-border bg-foreground/10 h-3 w-48 overflow-hidden rounded border"
             role="meter"
             aria-label="Input level"
             aria-valuemin={0}
@@ -720,7 +736,9 @@ export function AddAudioCapture(props: {
               : micLive
                 ? meterLooksLive
                   ? 'Hearing input'
-                  : 'Silent — speak or pick another mic'
+                  : micMeterSettled
+                    ? 'Silent — speak or pick another mic'
+                    : 'Listening…'
                 : 'Mic idle'}
           </p>
         </div>
