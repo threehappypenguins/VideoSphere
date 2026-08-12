@@ -23,7 +23,11 @@ import {
   normalizeTextTranslateProvider,
   sttProvidesBuiltInTranslation,
 } from '@/lib/translation/capabilities';
-import { languagesForTtsConfig, normalizeGcpTtsVoices } from '@/lib/translation/gcp-tts-voices';
+import {
+  languagesForTtsConfig,
+  normalizeGcpTtsVoices,
+  pruneGcpTtsVoicesToLanguages,
+} from '@/lib/translation/gcp-tts-voices';
 import { parseGcpServiceAccountJson } from '@/lib/translation/gcp-sa';
 import { validateTranslationAiConfig } from '@/lib/translation/validate-credentials';
 import { validateGcpTtsConfig } from '@/lib/translation/validate-gcp-tts';
@@ -347,15 +351,30 @@ export async function PUT(req: NextRequest) {
         );
       }
 
-      const voices = updatingGcpVoices
-        ? normalizeGcpTtsVoices(raw.gcpTtsVoices)
-        : normalizeGcpTtsVoices(secrets?.gcpTtsVoices);
+      const channelForLangs = existing ?? (await getChannelByUserId(userId));
+      const sourceLanguage = channelForLangs?.sourceLanguage || 'en';
+      const enabledLanguages = [...(channelForLangs?.enabledLanguages ?? [])];
+      const ttsLanguages = languagesForTtsConfig(sourceLanguage, enabledLanguages);
+      // Drop source (and any other non-target) voices — source uses live PCM passthrough.
+      const voices = pruneGcpTtsVoicesToLanguages(
+        updatingGcpVoices
+          ? normalizeGcpTtsVoices(raw.gcpTtsVoices)
+          : normalizeGcpTtsVoices(secrets?.gcpTtsVoices),
+        ttsLanguages
+      );
+      if (updatingGcpVoices) {
+        raw.gcpTtsVoices = voices;
+      } else {
+        const existingNormalized = normalizeGcpTtsVoices(secrets?.gcpTtsVoices);
+        const prunedAway = Object.keys(existingNormalized).some((k) => voices[k] === undefined);
+        if (prunedAway) {
+          // Persist drop of legacy source (or other non-target) voices.
+          raw.gcpTtsVoices = voices;
+        }
+      }
 
       const shouldValidateTts = updatingGcpVoices || Object.keys(voices).length > 0;
       if (shouldValidateTts) {
-        const channelForLangs = existing ?? (await getChannelByUserId(userId));
-        const sourceLanguage = channelForLangs?.sourceLanguage || 'en';
-        const enabledLanguages = [...(channelForLangs?.enabledLanguages ?? [])];
         if (enabledLanguages.length === 0) {
           return NextResponse.json(
             {
@@ -371,27 +390,12 @@ export async function PUT(req: NextRequest) {
           return NextResponse.json(
             {
               error: 'Bad Request',
-              message: 'Choose a TTS voice for at least one language.',
+              message: 'Choose a TTS voice for at least one target language.',
               fields: ['ttsVoice'],
               statusCode: 400,
             } satisfies ApiError & { fields: string[] },
             { status: 400 }
           );
-        }
-
-        const allowed = new Set(languagesForTtsConfig(sourceLanguage, enabledLanguages));
-        for (const lang of Object.keys(voices)) {
-          if (!allowed.has(lang)) {
-            return NextResponse.json(
-              {
-                error: 'Bad Request',
-                message: `Language "${lang}" is not in your configured languages.`,
-                fields: ['ttsVoice'],
-                statusCode: 400,
-              } satisfies ApiError & { fields: string[] },
-              { status: 400 }
-            );
-          }
         }
 
         const validated = await validateGcpTtsConfig({

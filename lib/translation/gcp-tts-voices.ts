@@ -177,18 +177,19 @@ export function gcpTtsVoiceForLanguage(
 }
 
 /**
- * Languages that should have optional TTS voice dropdowns (source + targets).
- * Source is listed first; targets follow alphabetically by English name.
- * @param sourceLanguage - Channel source language.
+ * Languages that should have optional TTS voice dropdowns (enabled listen *targets* only).
+ * Source language uses live PCM passthrough and is never offered a GCP TTS voice.
+ * Targets are sorted alphabetically by English name.
+ * @param sourceLanguage - Channel source language (excluded from the result).
  * @param enabledLanguages - Enabled listen target languages.
- * @returns Deduped normalized language codes.
+ * @returns Deduped normalized target language codes.
  */
 export function languagesForTtsConfig(
   sourceLanguage: string,
   enabledLanguages: string[]
 ): string[] {
   const source = normalizeTranslationLanguageCode(sourceLanguage) || 'en';
-  const targets = enabledLanguages
+  return enabledLanguages
     .map(normalizeTranslationLanguageCode)
     .filter((code): code is string => Boolean(code) && code !== source)
     .sort((a, b) =>
@@ -196,7 +197,27 @@ export function languagesForTtsConfig(
         sensitivity: 'base',
       })
     );
-  return [source, ...targets];
+}
+
+/**
+ * Languages that offer spoken audio on the public listen page.
+ * Always includes the source language (live PCM). Targets are included only when
+ * a GCP TTS voice is configured.
+ * @param sourceLanguage - Channel source language.
+ * @param enabledLanguages - Enabled listen target languages.
+ * @param voices - Normalized per-language GCP TTS voice map.
+ * @returns Language codes that may enable the listen speaker control.
+ */
+export function languagesForSpokenAudio(
+  sourceLanguage: string,
+  enabledLanguages: string[],
+  voices: GcpTtsVoicesMap
+): string[] {
+  const source = normalizeTranslationLanguageCode(sourceLanguage) || 'en';
+  const targetsWithVoice = languagesForTtsConfig(source, enabledLanguages).filter((code) =>
+    Boolean(gcpTtsVoiceForLanguage(voices, code))
+  );
+  return [source, ...targetsWithVoice];
 }
 
 /**

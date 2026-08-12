@@ -277,7 +277,7 @@ export async function updateChannelForUser(
     $set.gcpTtsVoices = normalizeGcpTtsVoices(patch.gcpTtsVoices);
   }
 
-  // Drop TTS voices for languages that are no longer source/enabled.
+  // Drop TTS voices for languages that are no longer enabled targets (source never has a voice).
   if (patch.sourceLanguage !== undefined || patch.enabledLanguages !== undefined) {
     const current = await getChannelByUserId(userId);
     if (current) {

@@ -8,11 +8,7 @@ import {
   capabilityInputFromDoc,
 } from '@/lib/repositories/live-translation-channels';
 import { isListenReady, isTranslationReady } from '@/lib/translation/capabilities';
-import {
-  gcpTtsVoiceForLanguage,
-  languagesForTtsConfig,
-  normalizeGcpTtsVoices,
-} from '@/lib/translation/gcp-tts-voices';
+import { languagesForSpokenAudio, normalizeGcpTtsVoices } from '@/lib/translation/gcp-tts-voices';
 import { isChannelLive } from '@/lib/translation/is-channel-live';
 import { normalizeTranslationSlug } from '@/lib/translation/slug';
 import type { ApiError, LiveTranslationPublicMeta } from '@/types';
@@ -54,9 +50,12 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ slug: 
     }
 
     const voices = normalizeGcpTtsVoices(channel.gcpTtsVoices);
-    const audioLanguages = languagesForTtsConfig(channel.sourceLanguage || 'en', [
-      ...(channel.enabledLanguages ?? []),
-    ]).filter((code) => Boolean(gcpTtsVoiceForLanguage(voices, code)));
+    const sourceLanguage = channel.sourceLanguage || 'en';
+    const audioLanguages = languagesForSpokenAudio(
+      sourceLanguage,
+      [...(channel.enabledLanguages ?? [])],
+      voices
+    );
 
     const payload: LiveTranslationPublicMeta = {
       slug: channel.slug,
@@ -64,7 +63,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ slug: 
       translationReady,
       listenAvailable: isListenReady(capability),
       audioLanguages,
-      sourceLanguage: channel.sourceLanguage || 'en',
+      sourceLanguage,
       enabledLanguages: [...(channel.enabledLanguages ?? [])],
       live: isChannelLive(channel._id),
     };

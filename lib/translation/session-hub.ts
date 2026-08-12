@@ -51,11 +51,15 @@ const STT_RATE_LIMIT_BACKOFF_MAX_MS = 60_000;
 
 /** Caption/audio event pushed to public SSE subscribers. */
 export interface TranslationHubEvent {
-  type: 'caption' | 'status' | 'error' | 'heartbeat';
+  type: 'caption' | 'status' | 'error' | 'heartbeat' | 'source_pcm';
   segmentId?: string;
   language?: string;
   text?: string;
   audioUrl?: string;
+  /** Base64-encoded 16-bit LE mono PCM for source-language live listen. */
+  pcmBase64?: string;
+  /** Sample rate Hz for `source_pcm` payloads. */
+  sampleRate?: number;
   live?: boolean;
   message?: string;
   ts: number;
@@ -119,6 +123,8 @@ type ChannelSession = {
   ingestIdleTimer: ReturnType<typeof setTimeout> | null;
   processingAudio: boolean;
   audioQueue: Array<{ pcm: Buffer; sampleRate: number }>;
+  /** Cached channel source language for PCM passthrough fan-out. */
+  cachedSourceLanguage: string | null;
   /** When set, pause STT attempts until this timestamp (provider 429 backoff). */
   sttRateLimitedUntil: number;
   sttRateLimitNotifiedAt: number;
@@ -174,6 +180,7 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
       ingestIdleTimer: null,
       processingAudio: false,
       audioQueue: [],
+      cachedSourceLanguage: null,
       sttRateLimitedUntil: 0,
       sttRateLimitNotifiedAt: 0,
       sttRateLimitTimer: null,
@@ -561,9 +568,12 @@ function handleSonioxStreamingEvent(
   });
 
   // Queue for TTS only (translation already present on the segment).
-  const bucket = session.languages.get(language);
-  if (bucket && [...bucket.subscribers].some((s) => s.wantAudio)) {
-    enqueueTts(session, language, segmentId);
+  // Source language uses live PCM passthrough — never GCP TTS.
+  if (!isSourceStream) {
+    const bucket = session.languages.get(language);
+    if (bucket && [...bucket.subscribers].some((s) => s.wantAudio)) {
+      enqueueTts(session, language, segmentId);
+    }
   }
 }
 
@@ -908,8 +918,16 @@ async function processLanguageQueue(session: ChannelSession, language: string): 
       });
 
       // Re-check after awaits — mute must stop new TTS immediately.
+      // Source language never uses GCP TTS (live PCM passthrough instead).
+      const sourceLanguage =
+        session.cachedSourceLanguage ||
+        normalizeTranslationLanguageCode(
+          (await getRuntimeSecretsForUser(session.userId))?.sourceLanguage || 'en'
+        ) ||
+        'en';
+      session.cachedSourceLanguage = sourceLanguage;
       const stillWantsAudio = [...bucket.subscribers].some((s) => s.wantAudio);
-      if (stillWantsAudio && !existing.audioId) {
+      if (stillWantsAudio && !existing.audioId && language !== sourceLanguage) {
         enqueueTts(session, language, segment.id);
       }
     }
@@ -1061,6 +1079,7 @@ async function processTtsQueue(session: ChannelSession, language: string): Promi
 function enqueueTts(session: ChannelSession, language: string, segmentId: string): void {
   const bucket = session.languages.get(language);
   if (!bucket) return;
+  if (session.cachedSourceLanguage && language === session.cachedSourceLanguage) return;
   if (![...bucket.subscribers].some((s) => s.wantAudio)) return;
   bucket.ttsQueue.push(segmentId);
   ensureTtsJob(session, language, segmentId);
@@ -1074,11 +1093,8 @@ function enqueueSegmentForActiveLanguages(
 ): void {
   for (const [language, bucket] of session.languages) {
     if (bucket.subscribers.size === 0) continue;
-    if (language === sourceLanguage) {
-      // Transcript already broadcast from STT; only queue when someone wants TTS.
-      const needsAudio = [...bucket.subscribers].some((s) => s.wantAudio);
-      if (!needsAudio) continue;
-    }
+    // Source captions were already broadcast from STT; spoken source is PCM passthrough.
+    if (language === sourceLanguage) continue;
     bucket.queue.push(segmentId);
     if (bucket.rateLimitedUntil > now()) {
       coalesceLanguageQueueToLatest(bucket);
@@ -1252,10 +1268,34 @@ export function markIngestActive(channelId: string, userId: string): void {
 }
 
 /**
+ * Fans live owner PCM to source-language listeners who enabled spoken audio.
+ * @param session - Channel session.
+ * @param pcm - 16-bit LE mono PCM.
+ * @param sampleRate - Sample rate Hz.
+ */
+function fanOutSourcePcm(session: ChannelSession, pcm: Buffer, sampleRate: number): void {
+  const sourceLanguage = session.cachedSourceLanguage;
+  if (!sourceLanguage) return;
+  const bucket = session.languages.get(sourceLanguage);
+  if (!bucket) return;
+  const pcmBase64 = pcm.toString('base64');
+  const ts = now();
+  for (const sub of bucket.subscribers) {
+    if (!sub.wantAudio) continue;
+    try {
+      sub.send({ type: 'source_pcm', pcmBase64, sampleRate, language: sourceLanguage, ts });
+    } catch {
+      bucket.subscribers.delete(sub);
+    }
+  }
+}
+
+/**
  * Queues PCM audio from the owner for shared STT.
  * Marks the channel live for listeners, but upstream STT only runs while at least
  * one public listener is subscribed (and stops when the last listener leaves).
  * Streaming providers receive frames immediately; Groq uses the chunked queue.
+ * Source-language listeners with spoken audio also receive PCM via `source_pcm` SSE.
  * @param channelId - Channel document id.
  * @param userId - Owning user id.
  * @param pcm - 16-bit LE mono PCM.
@@ -1269,6 +1309,12 @@ export function enqueueOwnerPcm(
 ): void {
   const session = getOrCreateSession(channelId, userId);
   markIngestActive(channelId, userId);
+  // Fan immediately when source language is already known. If subscribe warmed the
+  // cache between this sync check and the async secrets load, still catch up below.
+  const fannedSync = Boolean(session.cachedSourceLanguage);
+  if (fannedSync) {
+    fanOutSourcePcm(session, pcm, sampleRate);
+  }
 
   void (async () => {
     const secrets = await getRuntimeSecretsForUser(userId);
@@ -1279,6 +1325,11 @@ export function enqueueOwnerPcm(
         ts: now(),
       });
       return;
+    }
+    session.cachedSourceLanguage =
+      normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en') || 'en';
+    if (!fannedSync) {
+      fanOutSourcePcm(session, pcm, sampleRate);
     }
     if (isStreamingSttProvider(secrets.sttProvider)) {
       await writePcmToStreamingAsr(session, pcm, sampleRate);
@@ -1322,8 +1373,9 @@ export function getSubscriberStats(channelId: string): {
  * Subscribes a public listener to a language stream with refcount semantics.
  * First subscriber (with owner ingest active) opens billable STT; first subscriber
  * for a non-source language also starts translate(+TTS) work.
- * Source language is transcription-only. Last leave closes upstream STT immediately
- * and clears that language’s caption cache after a short grace.
+ * Source language is transcription + optional live PCM passthrough (never GCP TTS).
+ * Last leave closes upstream STT immediately and clears that language’s caption cache
+ * after a short grace.
  * @param params - Channel, user, language, audio preference, and send callback.
  * @returns Unsubscribe function.
  */
@@ -1374,20 +1426,26 @@ export function subscribePublicListener(params: {
 
   send({ type: 'status', live: session.ingestActive, ts: now() });
   // No historical caption replay — only live segments from this point forward.
-  // If this listener wants speech, finish TTS for the latest already-translated
-  // segment (e.g. they tapped Listen after captions-only).
-  if (wantAudio) {
-    for (let i = session.segments.length - 1; i >= 0; i -= 1) {
-      const segment = session.segments[i];
-      if (!segment) continue;
-      const existing = segment.byLanguage.get(language);
-      if (existing && !existing.audioId) {
-        bucketReady.queue.push(segment.id);
-        break;
+  // If this listener wants speech on a *target* language, finish TTS for the latest
+  // already-translated segment (e.g. they tapped Listen after captions-only).
+  void (async () => {
+    const secrets = await getRuntimeSecretsForUser(userId);
+    const sourceLanguage =
+      normalizeTranslationLanguageCode(secrets?.sourceLanguage || 'en') || 'en';
+    session.cachedSourceLanguage = sourceLanguage;
+    if (wantAudio && language !== sourceLanguage) {
+      for (let i = session.segments.length - 1; i >= 0; i -= 1) {
+        const segment = session.segments[i];
+        if (!segment) continue;
+        const existing = segment.byLanguage.get(language);
+        if (existing && !existing.audioId) {
+          bucketReady.queue.push(segment.id);
+          break;
+        }
       }
+      void processLanguageQueue(session, language);
     }
-  }
-  void processLanguageQueue(session, language);
+  })();
   // Open billable ASR only when ingest is already live and someone is listening.
   void syncSonioxSessions(session);
   void ensureSingleStreamingAsr(session);

@@ -32,12 +32,16 @@ export function readListenLanguagePreference(slug: string): string | null {
 
 /**
  * Saves the listener’s chosen language for a public translation page.
+ * No-ops when `languageCode` is null/empty (e.g. picker not chosen yet).
  * @param slug - Public channel slug.
- * @param languageCode - ISO 639-1 language code to persist.
+ * @param languageCode - ISO 639-1 language code to persist, or null to skip.
  */
-export function writeListenLanguagePreference(slug: string, languageCode: string): void {
+export function writeListenLanguagePreference(
+  slug: string,
+  languageCode: string | null | undefined
+): void {
   if (typeof window === 'undefined' || !slug.trim()) return;
-  const code = languageCode.trim().toLowerCase();
+  const code = languageCode?.trim().toLowerCase() ?? '';
   if (!code) return;
   try {
     window.localStorage.setItem(storageKey(slug), code);

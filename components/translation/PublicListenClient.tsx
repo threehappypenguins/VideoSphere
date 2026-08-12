@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MutableRefObject,
+} from 'react';
 import { Volume2 } from 'lucide-react';
 import type { LiveTranslationPublicMeta } from '@/types';
 import { TranslationLanguageCombobox } from '@/components/translation/TranslationLanguageCombobox';
@@ -48,84 +56,75 @@ function getListenLanguageServerSnapshot(): string | null {
   return null;
 }
 
-type CaptionStreamProps = {
+/**
+ * Subscribes to public SSE captions (and optional TTS audio) for one language.
+ * @param props - Stream props including language and wantAudio.
+ * @returns Caption list UI for the selected language.
+ */
+function CaptionStream({
+  slug,
+  language,
+  live,
+  wantAudio,
+  audioAvailable,
+  sourcePassthrough,
+  onLiveChange,
+  audioUnlockRef,
+}: {
   slug: string;
   language: string;
-  /** Owner is currently sending audio — open the caption SSE only while true. */
   live: boolean;
   wantAudio: boolean;
   audioAvailable: boolean;
+  /** When true, play live `source_pcm` via Web Audio instead of TTS clips. */
+  sourcePassthrough: boolean;
   onLiveChange: (live: boolean) => void;
-};
-
-/**
- * SSE caption + optional TTS queue for one listen language.
- * Remount (via parent `key`) when the language changes so caption state resets cleanly.
- * When the owner stops ingest, the SSE disconnects but the latest captions stay on screen.
- * @param props - Stream connection options.
- * @returns Caption list and hidden audio element.
- */
-function CaptionStream(props: CaptionStreamProps) {
-  const { slug, language, live, wantAudio, audioAvailable, onLiveChange } = props;
+  /** Parent speaker control calls this inside the click gesture to unlock playback. */
+  audioUnlockRef: MutableRefObject<(() => void) | null>;
+}) {
   const [lines, setLines] = useState<CaptionLine[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [partial, setPartial] = useState('');
+  const [streamError, setStreamError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const queueRef = useRef<string[]>([]);
+  const audioQueueRef = useRef<string[]>([]);
   const playingRef = useRef(false);
-  const objectUrlRef = useRef<string | null>(null);
-  /** Prefetched clip object URLs (and in-flight fetches) keyed by audio API path. */
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const nextPlayTimeRef = useRef(0);
+  const seenSegmentIdsRef = useRef<Set<string>>(new Set());
+  const queuedAudioUrlsRef = useRef<Set<string>>(new Set());
   const prefetchRef = useRef<Map<string, Promise<string>>>(new Map());
-  /** Ignore media errors raised while we intentionally swap `audio.src`. */
+  const objectUrlRef = useRef<string | null>(null);
   const ignoreAudioErrorRef = useRef(false);
-  const seenRef = useRef<Set<string>>(new Set());
-  const queuedAudioRef = useRef<Set<string>>(new Set());
-  const wantAudioRef = useRef(live && wantAudio && audioAvailable);
-  const pumpAudioRef = useRef<() => Promise<void>>(async () => {});
-  const enqueueSpokenUrlRef = useRef<(url: string) => void>(() => undefined);
+
+  /** Tiny silent WAV used only to unlock HTMLAudioElement inside a user gesture. */
+  const SILENT_WAV =
+    'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQQAAAAAAA==';
 
   useEffect(() => {
-    wantAudioRef.current = live && wantAudio && audioAvailable;
-  }, [audioAvailable, live, wantAudio]);
-
-  /**
-   * Starts fetching a clip into an object URL so playback can start without a gap.
-   * @param url - Public audio API path.
-   */
-  function prefetchAudioUrl(url: string): void {
-    if (prefetchRef.current.has(url)) return;
-    const job = (async () => {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Audio HTTP ${res.status}`);
-      const blob = await res.blob();
-      return URL.createObjectURL(blob);
-    })();
-    prefetchRef.current.set(url, job);
-    void job.catch(() => {
-      prefetchRef.current.delete(url);
-    });
-  }
-
-  useEffect(() => {
-    enqueueSpokenUrlRef.current = (url: string) => {
-      if (queuedAudioRef.current.has(url)) return;
-      queuedAudioRef.current.add(url);
-      queueRef.current.push(url);
-      prefetchAudioUrl(url);
-      const upcoming = queueRef.current[1];
-      if (upcoming) prefetchAudioUrl(upcoming);
-      void pumpAudioRef.current();
+    const prefetches = prefetchRef.current;
+    return () => {
+      void audioCtxRef.current?.close().catch(() => undefined);
+      audioCtxRef.current = null;
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+      for (const pending of prefetches.values()) {
+        void pending.then((url) => URL.revokeObjectURL(url)).catch(() => undefined);
+      }
+      prefetches.clear();
     };
-  });
+  }, []);
 
   /**
-   * Stops TTS playback and drops queued clips (used when the listener mutes).
+   * Stops TTS playback and drops queued / prefetched clips.
    */
-  function stopSpokenAudio() {
-    queueRef.current = [];
-    queuedAudioRef.current.clear();
+  function stopSpokenAudio(): void {
+    audioQueueRef.current = [];
+    queuedAudioUrlsRef.current = new Set();
     playingRef.current = false;
     for (const pending of prefetchRef.current.values()) {
-      void pending.then((objectUrl) => URL.revokeObjectURL(objectUrl)).catch(() => undefined);
+      void pending.then((url) => URL.revokeObjectURL(url)).catch(() => undefined);
     }
     prefetchRef.current.clear();
     if (objectUrlRef.current) {
@@ -147,306 +146,374 @@ function CaptionStream(props: CaptionStreamProps) {
   }
 
   useEffect(() => {
-    pumpAudioRef.current = async () => {
-      if (!wantAudioRef.current) {
-        stopSpokenAudio();
+    if (!wantAudio || !audioAvailable) {
+      stopSpokenAudio();
+      nextPlayTimeRef.current = 0;
+      void audioCtxRef.current?.suspend().catch(() => undefined);
+      return;
+    }
+    void audioCtxRef.current?.resume().catch(() => undefined);
+  }, [wantAudio, audioAvailable]);
+
+  /**
+   * Ensures a running AudioContext for source-language PCM passthrough.
+   * @returns AudioContext, or null if creation failed.
+   */
+  function ensureAudioContext(): AudioContext | null {
+    if (typeof window === 'undefined') return null;
+    const AC =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return null;
+    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+      audioCtxRef.current = new AC();
+      nextPlayTimeRef.current = 0;
+    }
+    return audioCtxRef.current;
+  }
+
+  /**
+   * Prefetches a TTS clip into a blob object URL.
+   * @param url - Public audio API path.
+   */
+  function prefetchAudioUrl(url: string): void {
+    if (prefetchRef.current.has(url)) return;
+    const job = (async () => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Audio HTTP ${res.status}`);
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
+    })();
+    prefetchRef.current.set(url, job);
+    void job.catch(() => {
+      prefetchRef.current.delete(url);
+    });
+  }
+
+  useEffect(() => {
+    audioUnlockRef.current = () => {
+      if (sourcePassthrough) {
+        const ctx = ensureAudioContext();
+        void ctx?.resume().catch(() => undefined);
         return;
       }
-      if (playingRef.current) return;
-      const next = queueRef.current.shift();
-      if (!next) return;
-      playingRef.current = true;
-      const upcoming = queueRef.current[0];
-      if (upcoming) prefetchAudioUrl(upcoming);
+      // HTMLAudioElement autoplay unlock requires a successful play() in this gesture.
+      // Empty src fails; a silent data-URI succeeds and unlocks later TTS clips.
       const audio = audioRef.current;
-      if (!audio) {
+      if (!audio) return;
+      ignoreAudioErrorRef.current = true;
+      audio.src = SILENT_WAV;
+      void audio
+        .play()
+        .then(() => {
+          audio.pause();
+          audio.removeAttribute('src');
+          audio.load();
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          ignoreAudioErrorRef.current = false;
+        });
+    };
+    return () => {
+      audioUnlockRef.current = null;
+    };
+  }, [audioUnlockRef, sourcePassthrough]);
+
+  /** Schedules live source PCM using the latest wantAudio / passthrough flags. */
+  const schedulePcmBase64 = useEffectEvent((pcmBase64: string, sampleRate: number): void => {
+    if (!wantAudio || !sourcePassthrough) return;
+    const ctx = ensureAudioContext();
+    if (!ctx) return;
+    void ctx.resume().catch(() => undefined);
+
+    const binary = atob(pcmBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const view = new DataView(bytes.buffer);
+    const sampleCount = Math.floor(bytes.byteLength / 2);
+    if (sampleCount < 1) return;
+
+    const buffer = ctx.createBuffer(1, sampleCount, sampleRate);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < sampleCount; i++) {
+      channel[i] = view.getInt16(i * 2, true) / 32768;
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    const startAt = Math.max(ctx.currentTime + 0.02, nextPlayTimeRef.current);
+    source.start(startAt);
+    nextPlayTimeRef.current = startAt + buffer.duration;
+  });
+
+  /** Plays the next queued TTS clip (blob object URL) using latest mute flags. */
+  const playNextTts = useEffectEvent(async (): Promise<void> => {
+    if (!wantAudio || sourcePassthrough) {
+      stopSpokenAudio();
+      return;
+    }
+    if (playingRef.current) return;
+    const next = audioQueueRef.current.shift();
+    if (!next) return;
+    playingRef.current = true;
+    const upcoming = audioQueueRef.current[0];
+    if (upcoming) prefetchAudioUrl(upcoming);
+
+    const audio = audioRef.current;
+    if (!audio) {
+      playingRef.current = false;
+      return;
+    }
+
+    try {
+      prefetchAudioUrl(next);
+      const prefetch = prefetchRef.current.get(next);
+      const objectUrl = prefetch ? await prefetch : null;
+      prefetchRef.current.delete(next);
+      if (!objectUrl) throw new Error('Missing audio prefetch');
+      if (!wantAudio || sourcePassthrough) {
+        URL.revokeObjectURL(objectUrl);
         playingRef.current = false;
         return;
       }
+
+      ignoreAudioErrorRef.current = true;
       try {
-        prefetchAudioUrl(next);
-        const prefetch = prefetchRef.current.get(next);
-        const objectUrl = prefetch ? await prefetch : null;
-        prefetchRef.current.delete(next);
-        if (!objectUrl) {
-          throw new Error('Missing audio prefetch');
+        if (objectUrlRef.current) {
+          URL.revokeObjectURL(objectUrlRef.current);
+          objectUrlRef.current = null;
         }
-        if (!wantAudioRef.current) {
-          URL.revokeObjectURL(objectUrl);
-          playingRef.current = false;
-          return;
-        }
-        ignoreAudioErrorRef.current = true;
-        try {
-          if (objectUrlRef.current) {
-            URL.revokeObjectURL(objectUrlRef.current);
-            objectUrlRef.current = null;
-          }
-          audio.pause();
-          objectUrlRef.current = objectUrl;
-          audio.src = objectUrl;
-        } finally {
-          await Promise.resolve();
-          ignoreAudioErrorRef.current = false;
-        }
-        await audio.play();
-      } catch {
-        playingRef.current = false;
+        audio.pause();
+        objectUrlRef.current = objectUrl;
+        audio.src = objectUrl;
+      } finally {
+        await Promise.resolve();
         ignoreAudioErrorRef.current = false;
-        if (!wantAudioRef.current) return;
-        setError('Spoken audio failed to play. Check volume, then tap Listen again.');
-        void pumpAudioRef.current();
       }
-    };
+      await audio.play();
+    } catch {
+      playingRef.current = false;
+      ignoreAudioErrorRef.current = false;
+      if (!wantAudio || sourcePassthrough) return;
+      setStreamError('Spoken audio failed to play. Tap the speaker again, then keep listening.');
+      // Continue with the next queued clip without recursively calling this Effect Event.
+      if (audioQueueRef.current.length > 0) {
+        queueMicrotask(() => {
+          void playNextTts();
+        });
+      }
+    }
+  });
+
+  /** Queues a TTS clip URL once (hub may re-send the same caption with audio later). */
+  const enqueueSpokenUrl = useEffectEvent((url: string): void => {
+    if (!wantAudio || sourcePassthrough) return;
+    if (queuedAudioUrlsRef.current.has(url)) return;
+    queuedAudioUrlsRef.current.add(url);
+    audioQueueRef.current.push(url);
+    prefetchAudioUrl(url);
+    const upcoming = audioQueueRef.current[1];
+    if (upcoming) prefetchAudioUrl(upcoming);
+    void playNextTts();
+  });
+
+  /** Handles one SSE payload with latest live / audio prefs. */
+  const onStreamMessage = useEffectEvent((raw: string): void => {
+    try {
+      const data = JSON.parse(raw) as {
+        type?: string;
+        text?: string;
+        segmentId?: string;
+        ts?: number;
+        live?: boolean;
+        audioUrl?: string;
+        pcmBase64?: string;
+        sampleRate?: number;
+        message?: string;
+      };
+      if (data.type === 'status' && typeof data.live === 'boolean') {
+        onLiveChange(data.live);
+        return;
+      }
+      if (data.type === 'error' && data.message) {
+        setStreamError(data.message);
+        return;
+      }
+      if (data.type === 'source_pcm' && typeof data.pcmBase64 === 'string') {
+        const rate =
+          typeof data.sampleRate === 'number' && data.sampleRate > 0 ? data.sampleRate : 16000;
+        schedulePcmBase64(data.pcmBase64, rate);
+        return;
+      }
+      // Hub delivers spoken TTS as caption events with `audioUrl` (not a separate `tts` type).
+      if (data.type === 'caption' && typeof data.text === 'string' && data.segmentId) {
+        if (seenSegmentIdsRef.current.has(data.segmentId)) {
+          setLines((prev) =>
+            prev.map((line) =>
+              line.id === data.segmentId
+                ? { ...line, text: data.text!, ts: data.ts ?? line.ts }
+                : line
+            )
+          );
+          setPartial('');
+        } else {
+          seenSegmentIdsRef.current.add(data.segmentId);
+          setLines((prev) =>
+            [...prev, { id: data.segmentId!, text: data.text!, ts: data.ts ?? Date.now() }].slice(
+              -80
+            )
+          );
+          setPartial('');
+        }
+        if (data.audioUrl) enqueueSpokenUrl(data.audioUrl);
+        return;
+      }
+      // Streaming partials without a stable segment id (rare) — show as interim text.
+      if (data.type === 'caption' && typeof data.text === 'string') {
+        setPartial(data.text);
+      }
+    } catch {
+      /* ignore malformed */
+    }
   });
 
   useEffect(() => {
-    if (!live || !wantAudio) {
-      stopSpokenAudio();
-      if ('mediaSession' in navigator) {
-        try {
-          navigator.mediaSession.playbackState = 'paused';
-        } catch {
-          // Media Session unsupported quirks
-        }
-      }
-      return;
-    }
-    if ('mediaSession' in navigator) {
-      try {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: 'Live audio translation',
-          artist: 'VideoSphere',
-        });
-        navigator.mediaSession.playbackState = 'playing';
-      } catch {
-        // Media Session unsupported quirks
-      }
-    }
-  }, [live, wantAudio]);
-
-  useEffect(() => {
-    // Keep the latest captions on screen after ingest stops — only disconnect the SSE.
-    if (!live) {
-      stopSpokenAudio();
-      setError(null);
-      return;
-    }
-
-    const params = new URLSearchParams({
-      language,
-      wantAudio: wantAudio && audioAvailable ? '1' : '0',
-    });
-    const source = new EventSource(
+    let closed = false;
+    const params = new URLSearchParams({ language });
+    if (wantAudio && audioAvailable) params.set('wantAudio', '1');
+    const es = new EventSource(
       `/api/translation/public/${encodeURIComponent(slug)}/events?${params}`
     );
-
-    source.onmessage = (message) => {
-      try {
-        const event = JSON.parse(message.data) as {
-          type: string;
-          segmentId?: string;
-          text?: string;
-          audioUrl?: string;
-          live?: boolean;
-          message?: string;
-          ts?: number;
-        };
-
-        if (event.type === 'status' && typeof event.live === 'boolean') {
-          onLiveChange(event.live);
-        }
-        if (event.type === 'error' && event.message) {
-          setError(event.message);
-        }
-        if (event.type === 'caption' && event.segmentId && event.text) {
-          if (seenRef.current.has(event.segmentId)) {
-            // Same segment: update text in place (streaming partials → final).
-            setLines((prev) =>
-              prev.map((line) =>
-                line.id === event.segmentId
-                  ? { ...line, text: event.text!, ts: event.ts ?? line.ts }
-                  : line
-              )
-            );
-            // Same segment may arrive again later with a TTS audio URL.
-            if (wantAudioRef.current && event.audioUrl) {
-              enqueueSpokenUrlRef.current(event.audioUrl);
-            }
-            return;
-          }
-          seenRef.current.add(event.segmentId);
-          setLines((prev) =>
-            [
-              ...prev,
-              { id: event.segmentId!, text: event.text!, ts: event.ts ?? Date.now() },
-            ].slice(-80)
-          );
-          if (wantAudioRef.current && event.audioUrl) {
-            enqueueSpokenUrlRef.current(event.audioUrl);
-          }
-        }
-      } catch {
-        // ignore malformed events
+    es.onmessage = (ev) => {
+      onStreamMessage(ev.data);
+    };
+    es.onerror = () => {
+      // Ignore teardown / intentional close (language change, unmount).
+      if (closed) return;
+      if (es.readyState === EventSource.CLOSED) {
+        setStreamError('Connection lost. Refresh to try again.');
+        return;
       }
+      setStreamError('Connection interrupted — reconnecting…');
+    };
+    es.onopen = () => {
+      if (!closed) setStreamError(null);
     };
 
-    source.onerror = () => {
-      setError('Connection interrupted. Reconnecting…');
-    };
+    if (audioRef.current) {
+      audioRef.current.onended = () => {
+        playingRef.current = false;
+        void playNextTts();
+      };
+      audioRef.current.onerror = () => {
+        if (ignoreAudioErrorRef.current) return;
+        playingRef.current = false;
+        if (!wantAudio || sourcePassthrough) {
+          stopSpokenAudio();
+          return;
+        }
+        setStreamError(
+          'Spoken audio clip was missing or expired. Keep listening for the next line.'
+        );
+        void playNextTts();
+      };
+    }
 
     return () => {
-      source.close();
-      // Closing the SSE also mutes locally so a reconnect with wantAudio=0 cannot
-      // keep draining a stale clip queue from the previous connection.
+      closed = true;
+      es.close();
       if (!(wantAudio && audioAvailable)) {
         stopSpokenAudio();
       }
+      nextPlayTimeRef.current = 0;
     };
-  }, [audioAvailable, language, live, onLiveChange, slug, wantAudio]);
+  }, [slug, language, wantAudio, audioAvailable, sourcePassthrough]);
 
   return (
-    <>
-      {error ? <p className="text-destructive mb-3 text-sm">{error}</p> : null}
-
-      {/* Captions are the live text list below; TTS clips have no VTT track. */}
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {streamError ? <p className="text-muted-foreground text-xs">{streamError}</p> : null}
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions rendered as page text */}
-      <audio
-        ref={audioRef}
-        className="hidden"
-        playsInline
-        onEnded={() => {
-          playingRef.current = false;
-          if (!wantAudioRef.current) {
-            stopSpokenAudio();
-            return;
-          }
-          void pumpAudioRef.current();
-        }}
-        onError={() => {
-          // Swapping `src` often emits a spurious error for the previous resource.
-          if (ignoreAudioErrorRef.current) return;
-          playingRef.current = false;
-          if (!wantAudioRef.current) {
-            stopSpokenAudio();
-            return;
-          }
-          setError('Spoken audio clip was missing or expired. Keep listening for the next line.');
-          void pumpAudioRef.current();
-        }}
-      />
-
+      <audio ref={audioRef} className="hidden" playsInline preload="auto" />
       <ol className="flex flex-1 flex-col gap-3 overflow-y-auto pb-8">
-        {lines.length === 0 ? (
+        {lines.length === 0 && !partial && live ? (
           <li className="text-muted-foreground text-sm">
-            {live
-              ? 'Captions will appear here in real time.'
-              : 'There is currently no audio input. Captions will appear here once the speaker is live.'}
+            Listening… captions appear as speech is detected.
           </li>
-        ) : (
-          lines.map((line) => (
-            <li
-              key={line.id}
-              className="rounded-lg bg-black/[0.03] px-3 py-2 text-base leading-relaxed dark:bg-white/[0.06]"
-            >
-              {line.text}
-            </li>
-          ))
-        )}
+        ) : null}
+        {lines.length === 0 && !partial && !live ? (
+          <li className="text-muted-foreground text-sm">Waiting for the next live segment.</li>
+        ) : null}
+        {lines.map((line) => (
+          <li key={line.id} className="text-lg leading-snug">
+            {line.text}
+          </li>
+        ))}
+        {partial ? (
+          <li className="text-muted-foreground text-lg leading-snug italic">{partial}</li>
+        ) : null}
       </ol>
-    </>
+    </div>
   );
 }
 
-/** How often to re-check public meta while the owner is not sending audio. */
-const LIVE_STATUS_POLL_MS = 2500;
-
 /**
- * Mobile-first public captions + optional TTS listen client (no login).
- * @param props - Public channel metadata from the server.
- * @returns Listen page UI.
+ * Public listen UI: language picker, live captions, optional spoken audio when configured.
+ * @param props - Public channel meta from the server.
+ * @returns Listen page client UI.
  */
-export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
-  const { meta } = props;
-  const languages = useMemo(() => {
-    const set = new Set(
-      [meta.sourceLanguage, ...meta.enabledLanguages]
-        .map(normalizeTranslationLanguageCode)
-        .filter(Boolean)
-    );
-    return [...set].sort((a, b) =>
-      resolveTranslationLanguageOption(a).name.localeCompare(
-        resolveTranslationLanguageOption(b).name,
-        'en',
-        { sensitivity: 'base' }
-      )
-    );
-  }, [meta.enabledLanguages, meta.sourceLanguage]);
+export function PublicListenClient({ meta }: { meta: LiveTranslationPublicMeta }) {
+  const languageOptions = useMemo(() => {
+    const codes = [...new Set([meta.sourceLanguage, ...meta.enabledLanguages])];
+    return codes
+      .map((code) => resolveTranslationLanguageOption(code))
+      .filter((o): o is NonNullable<typeof o> => Boolean(o));
+  }, [meta.sourceLanguage, meta.enabledLanguages]);
 
-  const languageOptions = useMemo(
-    () => languages.map((code) => resolveTranslationLanguageOption(code)),
-    [languages]
-  );
-
-  const savedLanguage = useSyncExternalStore(
+  const storedLanguage = useSyncExternalStore(
     subscribeListenLanguagePreference,
     () => getListenLanguageSnapshot(meta.slug),
     getListenLanguageServerSnapshot
   );
 
-  /** `undefined` = use saved preference; otherwise an explicit user choice (including clear). */
-  const [languageOverride, setLanguageOverride] = useState<string | null | undefined>(undefined);
-  const [wantAudioRequested, setWantAudioRequested] = useState(false);
+  const [language, setLanguage] = useState<string | null>(() => {
+    const allowed = new Set(
+      [meta.sourceLanguage, ...meta.enabledLanguages].map((c) =>
+        normalizeTranslationLanguageCode(c)
+      )
+    );
+    const fromStore = storedLanguage ? normalizeTranslationLanguageCode(storedLanguage) : null;
+    if (fromStore && allowed.has(fromStore)) return fromStore;
+    return null;
+  });
   const [live, setLive] = useState(meta.live);
+  const [wantAudioRequested, setWantAudioRequested] = useState(false);
+  const audioUnlockRef = useRef<(() => void) | null>(null);
 
-  const languageCandidate = languageOverride !== undefined ? languageOverride : savedLanguage;
-  const language =
-    languageCandidate && languages.includes(languageCandidate) ? languageCandidate : null;
+  useEffect(() => {
+    writeListenLanguagePreference(meta.slug, language);
+  }, [meta.slug, language]);
 
+  const audioLanguages = meta.audioLanguages ?? [];
   const audioAvailableForLanguage = Boolean(
-    language && (meta.audioLanguages ?? []).includes(language)
+    language && audioLanguages.some((c) => normalizeTranslationLanguageCode(c) === language)
   );
   const wantAudio = wantAudioRequested && audioAvailableForLanguage;
-  /** Only open the caption SSE while the owner is actually ingesting. */
-  const streamActive = Boolean(language && live);
+  const sourcePassthrough = Boolean(
+    language &&
+    normalizeTranslationLanguageCode(language) ===
+      normalizeTranslationLanguageCode(meta.sourceLanguage)
+  );
 
-  // Lightweight poll until CaptionStream is connected (it then owns live via SSE).
-  useEffect(() => {
-    if (streamActive) return;
-    let cancelled = false;
-
-    async function refreshLiveStatus(): Promise<void> {
-      try {
-        const res = await fetch(`/api/translation/public/${encodeURIComponent(meta.slug)}`, {
-          cache: 'no-store',
-        });
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as Partial<LiveTranslationPublicMeta>;
-        if (typeof data.live === 'boolean') setLive(data.live);
-      } catch {
-        // ignore transient network errors; next poll retries
-      }
-    }
-
-    void refreshLiveStatus();
-    const timer = setInterval(() => {
-      void refreshLiveStatus();
-    }, LIVE_STATUS_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [meta.slug, streamActive]);
-
-  /**
-   * Updates the selected language and persists it for this slug in localStorage.
-   * @param code - Language code chosen by the listener.
-   */
-  function setLanguage(code: string) {
-    const normalized = normalizeTranslationLanguageCode(code) || code;
-    setLanguageOverride(normalized);
-    writeListenLanguagePreference(meta.slug, normalized);
+  if (languageOptions.length === 0) {
+    return (
+      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-4 py-10">
+        <p className="text-muted-foreground text-center text-sm">
+          No languages are configured for this channel.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -482,7 +549,12 @@ export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
               aria-pressed={wantAudio}
               aria-label={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
               title={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
-              onClick={() => setWantAudioRequested((v) => !v)}
+              onClick={() => {
+                const enabling = !wantAudioRequested;
+                // Unlock must run in this click gesture (before React effects re-run).
+                if (enabling) audioUnlockRef.current?.();
+                setWantAudioRequested(enabling);
+              }}
             >
               <Volume2 className="size-5" aria-hidden="true" />
             </Button>
@@ -496,7 +568,9 @@ export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
           </p>
         ) : wantAudio ? (
           <p className="text-muted-foreground text-xs">
-            Audio may continue with the screen locked, depending on your browser.
+            {sourcePassthrough
+              ? 'Playing live source audio. May continue with the screen locked, depending on your browser.'
+              : 'Audio may continue with the screen locked, depending on your browser.'}
           </p>
         ) : null}
       </div>
@@ -513,7 +587,9 @@ export function PublicListenClient(props: { meta: LiveTranslationPublicMeta }) {
           live={live}
           wantAudio={wantAudio}
           audioAvailable={audioAvailableForLanguage}
+          sourcePassthrough={sourcePassthrough}
           onLiveChange={setLive}
+          audioUnlockRef={audioUnlockRef}
         />
       )}
     </div>

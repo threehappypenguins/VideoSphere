@@ -959,9 +959,12 @@ export interface LiveTranslationPublicMeta {
   publicEnabled: boolean;
   /** Whether the owner has translation credentials/models configured. */
   translationReady: boolean;
-  /** Whether listen/TTS is available for at least one language. */
+  /** Whether listen/TTS is available for at least one target language. */
   listenAvailable: boolean;
-  /** Languages that have a configured TTS voice (spoken audio). */
+  /**
+   * Languages that offer spoken audio: always includes source (live PCM);
+   * targets appear when a GCP TTS voice is configured.
+   */
   audioLanguages: string[];
   /** Source language code. */
   sourceLanguage: string;

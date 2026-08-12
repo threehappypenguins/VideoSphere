@@ -43,9 +43,9 @@ Legacy channels that still have STT set to OpenRouter or GCP Speech-to-Text must
 | Captions | **Google Cloud Translation (NMT)** (unless Soniox STT) | First **~500,000 characters/month** free — usually enough for a few target languages at sermon volume. OpenRouter `:free` (~50 RPD) is not. |
 | Spoken listen | **GCP TTS** (Standard / WaveNet) | Large free character allowances; configure voices after languages. |
 
-Public listeners open `/listen/{slug}` (no login). Choosing a language (while the owner is capturing) opens STT for the channel; choosing the **source language** shows live **transcription only** (no translate API call). Other languages start translate(+optional TTS) only while at least one listener is connected; when the last listener leaves the channel, upstream STT closes immediately. When the last listener leaves a language, pending translate work stops and that language’s caption cache is dropped after a short reconnect grace (a few seconds). Switching languages does not replay old captions — you only see new live segments.
+Public listeners open `/listen/{slug}` (no login). Choosing a language (while the owner is capturing) opens STT for the channel; choosing the **source language** shows live **transcription only** (no translate API call) and, with spoken audio on, plays **live source PCM** (never GCP TTS). Other languages start translate(+optional TTS) only while at least one listener is connected; when the last listener leaves the channel, upstream STT closes immediately. When the last listener leaves a language, pending translate work stops and that language’s caption cache is dropped after a short reconnect grace (a few seconds). Switching languages does not replay old captions — you only see new live segments.
 
-With streaming ASR, interim captions update in place; Deepgram also splits long continuous speech into sentence-sized finals (so captions/TTS do not wait for a multi-minute pause). Spoken listen synthesizes TTS only after those finals. Captions are pushed as soon as STT (+ translation when needed) finish. TTS for upcoming lines starts in parallel and is delivered in order, and the listen client prefetches the next clip while the current one plays — short gaps can still happen when the speaker pauses or GCP synthesis lags a long line.
+With streaming ASR, interim captions update in place; Deepgram also splits long continuous speech into sentence-sized finals (so captions/TTS do not wait for a multi-minute pause). Spoken listen for **targets** synthesizes TTS only after those finals. Captions are pushed as soon as STT (+ translation when needed) finish. TTS for upcoming lines starts in parallel and is delivered in order, and the listen client prefetches the next clip while the current one plays — short gaps can still happen when the speaker pauses or GCP synthesis lags a long line.
 
 Caption translation clarifies a few ambiguous English sermon collocations in the source before every MT call (so “sinned against the Lord” is not read as fight/defy). OpenRouter / Groq also get a sermon-aware prompt, recent prior source finals, and a Mandarin/Cantonese safety repair if the model still emits 对抗 for that confession. Soniox built-in translation is unchanged.
 
@@ -53,14 +53,18 @@ Caption translation clarifies a few ambiguous English sermon collocations in the
 
 1. Save **Languages** first (source + at least one target).
 2. In Google Cloud: enable **Cloud Text-to-Speech** (and Translation API if you use GCP translate), create a service account, download the JSON key. If you use GCP caption translation, assign **Cloud Translation API User** to that service account.
-3. On the Translation page under **Google Cloud TTS**, upload/paste the JSON and **Load voices**. Choose a **voice model** first (Standard / WaveNet / Neural2 / Chirp 3 HD / etc.) — the dropdown shows each model’s **free monthly character limit** from [Google Cloud TTS pricing](https://cloud.google.com/text-to-speech/pricing). Then pick a voice **per language** within that model. Saving validates credentials and voice names via Google `listVoices`.
-4. On `/listen`, spoken audio is offered only for languages that have a configured voice; other languages stay captions-only. Channel “Listen ready” means SA + at least one language voice are set (and translation is already ready).
+3. On the Translation page under **Google Cloud TTS**, upload/paste the JSON and **Load voices**. Choose a **voice model** first (Standard / WaveNet / Neural2 / Chirp 3 HD / etc.) — the dropdown shows each model’s **free monthly character limit** from [Google Cloud TTS pricing](https://cloud.google.com/text-to-speech/pricing). Then pick a voice **per target language** within that model (source is never listed — listeners hear live source PCM instead of TTS). Saving validates credentials and voice names via Google `listVoices`. Legacy source-language voice entries are pruned on save.
+4. On `/listen`, **source** always offers spoken audio (live owner PCM). **Targets** offer spoken audio only when a TTS voice is configured; other targets stay captions-only. Channel “Listen ready” means SA + at least one **target** voice are set (and translation is already ready).
 
 ## Optional RTMP (MediaMTX)
 
-Browser **Add audio** does not require MediaMTX. For OBS/RTMP:
+Browser **Add audio** does not require MediaMTX (useful for local testing). For OBS/RTMP captions and source listen audio:
 
 1. Uncomment the `mediamtx` service in `portainer-stack.yml` or `docker-compose.yml`.
-2. Set `TRANSLATION_RTMP_PUBLIC_HOST` (and optionally `TRANSLATION_RTMP_PATH_PREFIX`).
-3. Rotate/generate a stream key on the Translation page and publish to the shown RTMP URL.
-4. MediaMTX auth is validated via `POST /api/translation/rtmp/auth` against the owner’s stream key hash.
+2. Set on the app:
+   - `TRANSLATION_RTMP_PUBLIC_HOST` (and optionally `TRANSLATION_RTMP_PATH_PREFIX`)
+   - `TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://mediamtx:8554` (Docker DNS name of the MediaMTX service)
+3. Rotate/generate a stream key on the Translation page and publish from OBS to the shown RTMP URL (e.g. `rtmp://host:1935/live/<streamKey>`).
+4. MediaMTX auth is validated via `POST /api/translation/rtmp/auth` against the owner’s stream key hash. On successful **publish**, the app starts an ffmpeg RTSP pull into the same PCM path as Add audio (`enqueueOwnerPcm`). On unpublish / puller stop, ingest is marked stopped.
+5. **STT billing gate is unchanged:** OBS (or Add audio) can be live without burning STT credits. Upstream ASR opens only while someone is on `/listen` with a language selected.
+6. Optional: `TRANSLATION_RTMP_HOOK_SECRET` for an internal `POST /api/translation/rtmp/publisher` webhook. The primary start path is auth → puller (official MediaMTX images often lack `curl` for `runOnAvailable`).

@@ -24,6 +24,9 @@ services:
 
   # OPTIONAL — MediaMTX for RTMP audio ingest (live audio translation).
   # Uncomment only when you need OBS/RTMP; browser "Add audio" works without it.
+  # Also set on the app service (or in .env.local):
+  #   TRANSLATION_RTMP_PUBLIC_HOST=…:1935
+  #   TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://mediamtx:8554
   # mediamtx:
   #   image: bluenviron/mediamtx:latest
   #   container_name: videosphere-mediamtx
@@ -34,6 +37,7 @@ services:
   #     - '8888:8888'
   #   environment:
   #     MTX_RTMP: 'yes'
+  #     MTX_RTSP: 'yes'
   #     MTX_AUTHMETHOD: http
   #     MTX_AUTHHTTPADDRESS: http://app:9624/api/translation/rtmp/auth
   #   depends_on:

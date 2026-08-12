@@ -64,6 +64,7 @@ import {
   subscribePublicListener,
 } from '@/lib/translation/session-hub';
 import { getRuntimeSecretsForUser } from '@/lib/repositories/live-translation-channels';
+import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
 import { translateLiveCaptionText } from '@/lib/translation/translate-text';
 import { transcribeAudio } from '@/lib/translation/transcribe';
 
@@ -259,6 +260,86 @@ describe('translation session hub', () => {
       expect(captions).toContain('hello');
     });
     expect(transcribeAudio).toHaveBeenCalled();
+    unsub();
+  });
+
+  it('fans source_pcm to source listeners with wantAudio and never synthesizes TTS', async () => {
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
+      sttProvider: 'groq',
+      textTranslateProvider: 'openrouter',
+      openRouterApiKey: 'key',
+      groqApiKey: 'gsk',
+      deepgramApiKey: null,
+      assemblyaiApiKey: null,
+      gladiaApiKey: null,
+      speechmaticsApiKey: null,
+      sonioxApiKey: null,
+      gcpServiceAccountJson: '{"type":"service_account"}',
+      sttModel: 'whisper-large-v3-turbo',
+      openRouterTranslateModel: 'tr',
+      // Legacy source voice must not trigger TTS for source listen.
+      gcpTtsVoices: { en: 'en-US-Neural2-A', es: 'es-US-Neural2-A' },
+      sourceLanguage: 'en',
+      enabledLanguages: ['es'],
+      translationReady: true,
+      listenReady: true,
+    } as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>);
+
+    const pcmEvents: Array<{ pcmBase64?: string; sampleRate?: number }> = [];
+    const audioUrls: string[] = [];
+    const unsub = subscribePublicListener({
+      channelId: 'ch-source-pcm',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: true,
+      send: (event) => {
+        if (event.type === 'source_pcm') {
+          pcmEvents.push({ pcmBase64: event.pcmBase64, sampleRate: event.sampleRate });
+        }
+        if (event.type === 'caption' && event.audioUrl) {
+          audioUrls.push(event.audioUrl);
+        }
+      },
+    });
+
+    const pcm = loudPcm(3200);
+    enqueueOwnerPcm('ch-source-pcm', 'user-1', pcm, 16000);
+
+    await vi.waitFor(() => {
+      expect(pcmEvents.length).toBeGreaterThan(0);
+    });
+    expect(pcmEvents[0]?.pcmBase64).toBe(pcm.toString('base64'));
+    expect(pcmEvents[0]?.sampleRate).toBe(16000);
+
+    await vi.waitFor(() => {
+      expect(transcribeAudio).toHaveBeenCalled();
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(synthesizeSpeechWithGcp).not.toHaveBeenCalled();
+    expect(audioUrls).toEqual([]);
+    unsub();
+  });
+
+  it('does not fan source_pcm when wantAudio is false', async () => {
+    const pcmEvents: unknown[] = [];
+    const unsub = subscribePublicListener({
+      channelId: 'ch-source-silent',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'source_pcm') pcmEvents.push(event);
+      },
+    });
+
+    enqueueOwnerPcm('ch-source-silent', 'user-1', loudPcm(3200), 16000);
+    await vi.waitFor(() => {
+      expect(transcribeAudio).toHaveBeenCalled();
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pcmEvents).toEqual([]);
     unsub();
   });
 

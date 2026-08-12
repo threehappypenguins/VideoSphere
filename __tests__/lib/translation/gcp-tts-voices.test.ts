@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   gcpTtsLanguageBasesForListenLanguage,
   gcpVoiceMatchesListenLanguage,
+  languagesForSpokenAudio,
+  languagesForTtsConfig,
+  pruneGcpTtsVoicesToLanguages,
   voiceMatchesListenLanguage,
 } from '@/lib/translation/gcp-tts-voices';
 
@@ -52,5 +55,37 @@ describe('voiceMatchesListenLanguage', () => {
   it('accepts yue-HK for Cantonese listen language only', () => {
     expect(voiceMatchesListenLanguage('yue-HK-Chirp3-HD-Aoede', 'yue')).toBe(true);
     expect(voiceMatchesListenLanguage('yue-HK-Chirp3-HD-Aoede', 'zh')).toBe(false);
+  });
+});
+
+describe('languagesForTtsConfig', () => {
+  it('returns enabled targets only and excludes source', () => {
+    expect(languagesForTtsConfig('en', ['es', 'en', 'fr'])).toEqual(['fr', 'es']);
+  });
+});
+
+describe('languagesForSpokenAudio', () => {
+  it('always includes source even without a TTS voice', () => {
+    expect(languagesForSpokenAudio('en', ['es', 'fr'], {})).toEqual(['en']);
+  });
+
+  it('adds targets only when a voice is configured', () => {
+    expect(
+      languagesForSpokenAudio('en', ['es', 'fr'], {
+        es: 'es-US-Neural2-A',
+        en: 'en-US-Neural2-A',
+      })
+    ).toEqual(['en', 'es']);
+  });
+});
+
+describe('pruneGcpTtsVoicesToLanguages', () => {
+  it('drops source and other non-active languages', () => {
+    expect(
+      pruneGcpTtsVoicesToLanguages(
+        { en: 'en-US-Neural2-A', es: 'es-US-Neural2-A', fr: 'fr-FR-Neural2-A' },
+        languagesForTtsConfig('en', ['es'])
+      )
+    ).toEqual({ es: 'es-US-Neural2-A' });
   });
 });

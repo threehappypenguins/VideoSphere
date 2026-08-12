@@ -39,6 +39,14 @@ describe('listen language preference', () => {
     expect(readListenLanguagePreference('demo')).toBe('es');
   });
 
+  it('ignores null or empty language without clearing an existing preference', () => {
+    writeListenLanguagePreference('demo', 'tl');
+    writeListenLanguagePreference('demo', null);
+    writeListenLanguagePreference('demo', undefined);
+    writeListenLanguagePreference('demo', '  ');
+    expect(readListenLanguagePreference('demo')).toBe('tl');
+  });
+
   it('clears a stored preference', () => {
     writeListenLanguagePreference('demo', 'tl');
     clearListenLanguagePreference('demo');
