@@ -370,6 +370,7 @@ function streamingApiKeyForProvider(
   if (provider === 'gladia') return secrets.gladiaApiKey;
   if (provider === 'speechmatics') return secrets.speechmaticsApiKey;
   if (provider === 'soniox') return secrets.sonioxApiKey;
+  if (provider === 'modulate') return secrets.modulateApiKey;
   return null;
 }
 

@@ -15,6 +15,7 @@ describe('translation capabilities', () => {
     expect(normalizeSttProvider('groq')).toBe('groq');
     expect(normalizeSttProvider('deepgram')).toBe('deepgram');
     expect(normalizeSttProvider('soniox')).toBe('soniox');
+    expect(normalizeSttProvider('modulate')).toBe('modulate');
     expect(normalizeSttProvider('gcp')).toBeNull();
     expect(normalizeSttProvider('openrouter')).toBeNull();
     expect(normalizeSttProvider('other')).toBeNull();
@@ -200,6 +201,32 @@ describe('translation capabilities', () => {
         openRouterTranslateModel: '',
         hasGcpServiceAccount: true,
         gcpTtsVoices: { es: 'es-US-Neural2-A' },
+      })
+    ).toBe(false);
+  });
+
+  it('treats Modulate as ready when a Modulate key is present', () => {
+    expect(
+      isSttReady({
+        sttProvider: 'modulate',
+        hasModulateKey: true,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
+        hasGcpServiceAccount: false,
+        gcpTtsVoices: {},
+      })
+    ).toBe(true);
+
+    expect(
+      isSttReady({
+        sttProvider: 'modulate',
+        hasModulateKey: false,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
+        hasGcpServiceAccount: false,
+        gcpTtsVoices: {},
       })
     ).toBe(false);
   });

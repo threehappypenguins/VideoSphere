@@ -44,6 +44,9 @@ export const SPEECHMATICS_PRICING_URL = 'https://www.speechmatics.com/pricing';
 /** Soniox docs / pricing. */
 export const SONIOX_DOCS_URL = 'https://soniox.com/docs';
 
+/** Modulate (Velma) API pricing. */
+export const MODULATE_PRICING_URL = 'https://platform.modulate.ai/pricing';
+
 /**
  * Speech-to-text provider pricing hints for the Configure AI UI.
  */
@@ -86,6 +89,15 @@ export const STT_PROVIDER_PRICING: Record<
     freeUsageLimit: 'Check console for trial / credits; STT+translation on one stream.',
     priceAfterFree: 'Real-time STT roughly ~US$0.12 / hour (token-based; confirm in console).',
     pricingUrl: SONIOX_DOCS_URL,
+  },
+  modulate: {
+    id: 'modulate',
+    label: 'Modulate',
+    freeUsageLimit:
+      'New accounts include free credits (1,000 credits / no card) — enough for hundreds of STT hours at published rates.',
+    priceAfterFree:
+      'Multilingual streaming STT from ~US$0.06 / hour after credits (see Modulate pricing).',
+    pricingUrl: MODULATE_PRICING_URL,
   },
   groq: {
     id: 'groq',

@@ -88,7 +88,8 @@ type TranslationConfigPendingAction =
   | 'clear-assemblyai'
   | 'clear-gladia'
   | 'clear-speechmatics'
-  | 'clear-soniox';
+  | 'clear-soniox'
+  | 'clear-modulate';
 
 type GcpVoiceOption = {
   name: string;
@@ -134,6 +135,8 @@ export function TranslationConfigClient() {
   const [showSpeechmaticsKey, setShowSpeechmaticsKey] = useState(false);
   const [sonioxKey, setSonioxKey] = useState('');
   const [showSonioxKey, setShowSonioxKey] = useState(false);
+  const [modulateKey, setModulateKey] = useState('');
+  const [showModulateKey, setShowModulateKey] = useState(false);
   const [aiGcpJson, setAiGcpJson] = useState('');
   const [aiGcpJsonFileName, setAiGcpJsonFileName] = useState<string | null>(null);
   const [sttModel, setSttModel] = useState('');
@@ -571,6 +574,7 @@ export function TranslationConfigClient() {
     const gladiaKeyTrimmed = gladiaKey.trim();
     const smKey = speechmaticsKey.trim();
     const sonioxKeyTrimmed = sonioxKey.trim();
+    const modulateKeyTrimmed = modulateKey.trim();
     const gcpJsonTrimmed = aiGcpJson.trim();
     const stt = sttModel.trim();
     const translate = translateModel.trim();
@@ -607,6 +611,9 @@ export function TranslationConfigClient() {
     }
     if (sttProvider === 'soniox' && !channel?.hasSonioxKey && !sonioxKeyTrimmed) {
       errors.sonioxKey = 'Paste your Soniox API key.';
+    }
+    if (sttProvider === 'modulate' && !channel?.hasModulateKey && !modulateKeyTrimmed) {
+      errors.modulateKey = 'Paste your Modulate API key.';
     }
     if (needsGcp && !hasGcp) {
       errors.gcpJson =
@@ -650,6 +657,7 @@ export function TranslationConfigClient() {
       if (gladiaKeyTrimmed) body.gladiaApiKey = gladiaKeyTrimmed;
       if (smKey) body.speechmaticsApiKey = smKey;
       if (sonioxKeyTrimmed) body.sonioxApiKey = sonioxKeyTrimmed;
+      if (modulateKeyTrimmed) body.modulateApiKey = modulateKeyTrimmed;
       if (gcpJsonTrimmed) body.gcpServiceAccountJson = gcpJsonTrimmed;
 
       const res = await fetch('/api/translation/credentials', {
@@ -678,6 +686,7 @@ export function TranslationConfigClient() {
       setGladiaKey('');
       setSpeechmaticsKey('');
       setSonioxKey('');
+      setModulateKey('');
       setAiGcpJson('');
       setShowOpenRouterKey(false);
       setShowGroqKey(false);
@@ -686,6 +695,7 @@ export function TranslationConfigClient() {
       setShowGladiaKey(false);
       setShowSpeechmaticsKey(false);
       setShowSonioxKey(false);
+      setShowModulateKey(false);
       setAiFieldErrors({});
       setAiOpen(false);
       toast.success('AI settings saved for your account only');
@@ -775,6 +785,7 @@ export function TranslationConfigClient() {
       | 'gladia'
       | 'speechmatics'
       | 'soniox'
+      | 'modulate'
   ) {
     setPendingAction(`clear-${kind}`);
     try {
@@ -993,6 +1004,7 @@ export function TranslationConfigClient() {
   const showSttGladiaKey = sttProvider === 'gladia';
   const showSttSpeechmaticsKey = sttProvider === 'speechmatics';
   const showSttSonioxKey = sttProvider === 'soniox';
+  const showSttModulateKey = sttProvider === 'modulate';
   /** Credential UI for translate follows the translate dropdown; skip when Soniox embeds MT. */
   const showTranslateOpenRouterKey = !sonioxSttSelected && textTranslateProvider === 'openrouter';
   const showTranslateGroqKey =
@@ -1047,6 +1059,7 @@ export function TranslationConfigClient() {
           channel.hasGladiaKey ||
           channel.hasSpeechmaticsKey ||
           channel.hasSonioxKey ||
+          channel.hasModulateKey ||
           channel.hasGcpServiceAccount) ? (
           <div className="space-y-3">
             <p className="text-sm">
@@ -1072,6 +1085,7 @@ export function TranslationConfigClient() {
               {channel.hasGladiaKey ? <> · Gladia key: configured</> : null}
               {channel.hasSpeechmaticsKey ? <> · Speechmatics key: configured</> : null}
               {channel.hasSonioxKey ? <> · Soniox key: configured</> : null}
+              {channel.hasModulateKey ? <> · Modulate key: configured</> : null}
               {hasOpenRouter ? <> · OpenRouter key: configured</> : null}
               {channel.hasGroqKey ? <> · Groq key: configured</> : null}
               {channel.hasGcpServiceAccount ? <> · GCP SA: configured</> : null}
@@ -1128,6 +1142,16 @@ export function TranslationConfigClient() {
                   onClick={() => void clearCredential('soniox')}
                 >
                   Remove Soniox
+                </Button>
+              ) : null}
+              {channel.hasModulateKey ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pendingAction === 'clear-modulate'}
+                  onClick={() => void clearCredential('modulate')}
+                >
+                  Remove Modulate
                 </Button>
               ) : null}
               {hasOpenRouter ? (
@@ -1477,6 +1501,7 @@ export function TranslationConfigClient() {
                     clearAiFieldError('gladiaKey');
                     clearAiFieldError('speechmaticsKey');
                     clearAiFieldError('sonioxKey');
+                    clearAiFieldError('modulateKey');
                     clearAiFieldError('openRouterKey');
                     clearAiFieldError('gcpJson');
                     clearAiFieldError('sttModel');
@@ -1496,6 +1521,7 @@ export function TranslationConfigClient() {
                     <SelectItem value="gladia">Gladia (streaming)</SelectItem>
                     <SelectItem value="speechmatics">Speechmatics (streaming)</SelectItem>
                     <SelectItem value="soniox">Soniox (streaming + translation)</SelectItem>
+                    <SelectItem value="modulate">Modulate (streaming)</SelectItem>
                     <SelectItem value="groq">Groq Whisper (chunked free fallback)</SelectItem>
                   </SelectContent>
                 </Select>
@@ -1787,6 +1813,62 @@ export function TranslationConfigClient() {
                   ) : (
                     <p className="text-muted-foreground text-xs">
                       Soniox includes translation — caption translation settings are hidden.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {showSttModulateKey ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-stt-modulate-key">Modulate API key</Label>
+                  <div className="relative">
+                    <Input
+                      id="modal-stt-modulate-key"
+                      type={showModulateKey ? 'text' : 'password'}
+                      autoComplete="off"
+                      aria-invalid={aiFieldErrors.modulateKey ? true : undefined}
+                      className={invalidInputClass(Boolean(aiFieldErrors.modulateKey), 'pr-10')}
+                      placeholder={
+                        channel?.hasModulateKey ? '•••• configured — paste to replace' : 'API key'
+                      }
+                      value={modulateKey}
+                      onChange={(e) => {
+                        setModulateKey(e.target.value);
+                        clearAiFieldError('modulateKey');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowModulateKey((v) => !v)}
+                      className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
+                      aria-label={
+                        showModulateKey ? 'Hide Modulate API key' : 'Show Modulate API key'
+                      }
+                      aria-pressed={showModulateKey}
+                    >
+                      {showModulateKey ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                  {aiFieldErrors.modulateKey ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.modulateKey}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      Create a key at{' '}
+                      <a
+                        href="https://platform.modulate.ai/dashboard/api-keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2"
+                      >
+                        platform.modulate.ai
+                      </a>{' '}
+                      (free credits on signup).
                     </p>
                   )}
                 </div>

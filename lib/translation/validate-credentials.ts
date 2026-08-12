@@ -35,6 +35,8 @@ export interface ValidateTranslationAiConfigInput {
   speechmaticsApiKey?: string | null;
   /** Soniox API key when STT uses Soniox. */
   sonioxApiKey?: string | null;
+  /** Modulate API key when STT uses Modulate. */
+  modulateApiKey?: string | null;
   /** Whether a GCP service account is already stored or included in this save. */
   hasGcpServiceAccount: boolean;
   /** Active STT provider. */
@@ -67,6 +69,7 @@ export type ValidateTranslationAiConfigResult =
         | 'gladiaKey'
         | 'speechmaticsKey'
         | 'sonioxKey'
+        | 'modulateKey'
         | 'sttModel'
         | 'translateModel'
         | 'gcpJson'
@@ -285,6 +288,7 @@ export async function validateTranslationAiConfig(
   const gladiaApiKey = input.gladiaApiKey?.trim() || '';
   const speechmaticsApiKey = input.speechmaticsApiKey?.trim() || '';
   const sonioxApiKey = input.sonioxApiKey?.trim() || '';
+  const modulateApiKey = input.modulateApiKey?.trim() || '';
 
   const sonioxStt = sttProvidesBuiltInTranslation(input.sttProvider);
   const streaming = isStreamingSttProvider(input.sttProvider);
@@ -389,6 +393,20 @@ export async function validateTranslationAiConfig(
     }
     if (sonioxApiKey.length < 8) {
       return { ok: false, message: 'Soniox API key looks too short.', fields: ['sonioxKey'] };
+    }
+  }
+
+  if (input.sttProvider === 'modulate') {
+    if (!modulateApiKey) {
+      return { ok: false, message: 'Modulate API key is required.', fields: ['modulateKey'] };
+    }
+    // Modulate has no trivial public HTTP ping; accept non-empty key shape.
+    if (modulateApiKey.length < 8) {
+      return {
+        ok: false,
+        message: 'Modulate API key looks too short.',
+        fields: ['modulateKey'],
+      };
     }
   }
 

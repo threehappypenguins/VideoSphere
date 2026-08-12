@@ -39,6 +39,7 @@ const STREAMING_KEY_FIELDS = [
   'gladiaApiKey',
   'speechmaticsApiKey',
   'sonioxApiKey',
+  'modulateApiKey',
 ] as const;
 
 /**
@@ -127,6 +128,7 @@ export async function PUT(req: NextRequest) {
       ['gladiaApiKey', 'gladiaKey'],
       ['speechmaticsApiKey', 'speechmaticsKey'],
       ['sonioxApiKey', 'sonioxKey'],
+      ['modulateApiKey', 'modulateKey'],
     ] as const) {
       const bad = requireNonEmptyString(field, formField);
       if (bad) return bad;
@@ -138,7 +140,7 @@ export async function PUT(req: NextRequest) {
           {
             error: 'Bad Request',
             message:
-              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, or groq',
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, or groq',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
@@ -192,6 +194,10 @@ export async function PUT(req: NextRequest) {
         typeof raw.sonioxApiKey === 'string' && raw.sonioxApiKey.trim()
           ? raw.sonioxApiKey.trim()
           : (secrets?.sonioxApiKey ?? '');
+      const modulateApiKey =
+        typeof raw.modulateApiKey === 'string' && raw.modulateApiKey.trim()
+          ? raw.modulateApiKey.trim()
+          : (secrets?.modulateApiKey ?? '');
 
       const gcpJsonFromBody =
         typeof raw.gcpServiceAccountJson === 'string' ? raw.gcpServiceAccountJson.trim() : '';
@@ -256,7 +262,8 @@ export async function PUT(req: NextRequest) {
         Boolean(assemblyaiApiKey) ||
         Boolean(gladiaApiKey) ||
         Boolean(speechmaticsApiKey) ||
-        Boolean(sonioxApiKey);
+        Boolean(sonioxApiKey) ||
+        Boolean(modulateApiKey);
 
       if (
         !existing &&
@@ -285,6 +292,7 @@ export async function PUT(req: NextRequest) {
         gladiaApiKey,
         speechmaticsApiKey,
         sonioxApiKey,
+        modulateApiKey,
         hasGcpServiceAccount,
         sttProvider,
         textTranslateProvider,
@@ -445,6 +453,9 @@ export async function PUT(req: NextRequest) {
     if (raw.sonioxApiKey !== undefined) {
       view = await setStreamingAsrApiKey(userId, 'soniox', String(raw.sonioxApiKey));
     }
+    if (raw.modulateApiKey !== undefined) {
+      view = await setStreamingAsrApiKey(userId, 'modulate', String(raw.modulateApiKey));
+    }
     if (raw.gcpServiceAccountJson !== undefined) {
       view = await setGcpServiceAccountJson(userId, String(raw.gcpServiceAccountJson).trim());
     }
@@ -458,7 +469,7 @@ export async function PUT(req: NextRequest) {
           {
             error: 'Bad Request',
             message:
-              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, or groq',
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, or groq',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }

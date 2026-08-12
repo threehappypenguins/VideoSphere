@@ -68,6 +68,7 @@ export function capabilityInputFromDoc(
     hasGladiaKey: hasEncrypted(doc.gladiaApiKeyEncrypted),
     hasSpeechmaticsKey: hasEncrypted(doc.speechmaticsApiKeyEncrypted),
     hasSonioxKey: hasEncrypted(doc.sonioxApiKeyEncrypted),
+    hasModulateKey: hasEncrypted(doc.modulateApiKeyEncrypted),
     sttModel: doc.openRouterSttModel ?? null,
     openRouterTranslateModel: doc.openRouterTranslateModel ?? null,
     hasGcpServiceAccount,
@@ -115,6 +116,7 @@ export function toOwnerView(
     hasGladiaKey: Boolean(capability.hasGladiaKey),
     hasSpeechmaticsKey: Boolean(capability.hasSpeechmaticsKey),
     hasSonioxKey: Boolean(capability.hasSonioxKey),
+    hasModulateKey: Boolean(capability.hasModulateKey),
     hasGcpServiceAccount: capability.hasGcpServiceAccount,
     hasStreamKey: hasEncrypted(doc.streamKeyHash),
     translationReady: isTranslationReady(capability),
@@ -395,7 +397,7 @@ export async function setGcpServiceAccountJson(
  */
 export async function setStreamingAsrApiKey(
   userId: string,
-  kind: 'deepgram' | 'assemblyai' | 'gladia' | 'speechmatics' | 'soniox',
+  kind: 'deepgram' | 'assemblyai' | 'gladia' | 'speechmatics' | 'soniox' | 'modulate',
   apiKey: string
 ): Promise<LiveTranslationChannelOwnerView | null> {
   await connectToDatabase();
@@ -408,7 +410,9 @@ export async function setStreamingAsrApiKey(
           ? 'gladiaApiKeyEncrypted'
           : kind === 'speechmatics'
             ? 'speechmaticsApiKeyEncrypted'
-            : 'sonioxApiKeyEncrypted';
+            : kind === 'soniox'
+              ? 'sonioxApiKeyEncrypted'
+              : 'modulateApiKeyEncrypted';
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $set: { [field]: encryptToken(apiKey.trim()) } },
@@ -455,7 +459,9 @@ export async function clearCredential(
                 ? { gladiaApiKeyEncrypted: 1 }
                 : kind === 'speechmatics'
                   ? { speechmaticsApiKeyEncrypted: 1 }
-                  : { sonioxApiKeyEncrypted: 1 };
+                  : kind === 'soniox'
+                    ? { sonioxApiKeyEncrypted: 1 }
+                    : { modulateApiKeyEncrypted: 1 };
 
   if (kind === 'groq') {
     if (sttProvider === 'groq') {
@@ -480,7 +486,8 @@ export async function clearCredential(
     (kind === 'assemblyai' && sttProvider === 'assemblyai') ||
     (kind === 'gladia' && sttProvider === 'gladia') ||
     (kind === 'speechmatics' && sttProvider === 'speechmatics') ||
-    (kind === 'soniox' && sttProvider === 'soniox')
+    (kind === 'soniox' && sttProvider === 'soniox') ||
+    (kind === 'modulate' && sttProvider === 'modulate')
   ) {
     unset.sttProvider = 1;
   }
@@ -528,6 +535,7 @@ export interface LiveTranslationRuntimeSecrets {
   gladiaApiKey: string | null;
   speechmaticsApiKey: string | null;
   sonioxApiKey: string | null;
+  modulateApiKey: string | null;
   gcpServiceAccountJson: string | null;
   sttModel: string | null;
   openRouterTranslateModel: string | null;
@@ -556,6 +564,7 @@ export async function getRuntimeSecretsForUser(
   const gladiaApiKey = tryDecrypt(doc.gladiaApiKeyEncrypted);
   const speechmaticsApiKey = tryDecrypt(doc.speechmaticsApiKeyEncrypted);
   const sonioxApiKey = tryDecrypt(doc.sonioxApiKeyEncrypted);
+  const modulateApiKey = tryDecrypt(doc.modulateApiKeyEncrypted);
   const gcpServiceAccountJson = tryDecrypt(doc.gcpServiceAccountJsonEncrypted);
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const openRouterTranslateModel = doc.openRouterTranslateModel?.trim() || null;
@@ -575,6 +584,7 @@ export async function getRuntimeSecretsForUser(
     hasGladiaKey: Boolean(gladiaApiKey),
     hasSpeechmaticsKey: Boolean(speechmaticsApiKey),
     hasSonioxKey: Boolean(sonioxApiKey),
+    hasModulateKey: Boolean(modulateApiKey),
     sttModel,
     openRouterTranslateModel,
     hasGcpServiceAccount,
@@ -591,6 +601,7 @@ export async function getRuntimeSecretsForUser(
     gladiaApiKey,
     speechmaticsApiKey,
     sonioxApiKey,
+    modulateApiKey,
     gcpServiceAccountJson,
     sttModel,
     openRouterTranslateModel,

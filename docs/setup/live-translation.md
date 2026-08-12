@@ -8,11 +8,11 @@ A translation **channel** (including the public slug) is created only when you s
 
 1. Open **Dashboard → Translation**.
 2. Choose **Configure AI**, then pick providers **separately** (no automatic fallback):
-   - **STT provider** — streaming ASR: **Deepgram**, **AssemblyAI**, **Gladia**, **Speechmatics**, or **Soniox** (STT+translation). **Groq Whisper** remains a chunked free-tier fallback (~4s windows).
+   - **STT provider** — streaming ASR: **Deepgram**, **AssemblyAI**, **Gladia**, **Speechmatics**, **Modulate**, or **Soniox** (STT+translation). **Groq Whisper** remains a chunked free-tier fallback (~4s windows).
    - **Caption translation provider** — Google Cloud Translation (NMT), Groq chat, or OpenRouter chat. **Hidden when STT is Soniox** (Soniox returns translated captions directly).
 3. The modal shows each provider’s **free / rate limits**, **post-free pricing**, and a link to the vendor’s pricing or limits page.
 4. Paste only the keys required for your choices:
-   - Streaming ASR key for the selected STT provider (Deepgram / AssemblyAI / Gladia / Speechmatics / Soniox).
+   - Streaming ASR key for the selected STT provider (Deepgram / AssemblyAI / Gladia / Speechmatics / Modulate / Soniox).
    - Groq key when STT or translate uses Groq ([console.groq.com](https://console.groq.com/)).
    - OpenRouter key when translate uses OpenRouter.
    - Google Cloud service account JSON when translate uses GCP (or reuse one already saved under Google Cloud TTS). Enable **Cloud Translation API** on that project and grant the service account **Cloud Translation API User** (`roles/cloudtranslate.user`).
@@ -31,7 +31,7 @@ A translation **channel** (including the public slug) is created only when you s
 
 | Mode | Behavior |
 | --- | --- |
-| Streaming (Deepgram, AssemblyAI, Gladia, Speechmatics) | Session hub opens one long-lived provider WebSocket. Finals create caption segments and enqueue separate MT (+ optional async TTS). |
+| Streaming (Deepgram, AssemblyAI, Gladia, Speechmatics, Modulate) | Session hub opens one long-lived provider WebSocket. Finals create caption segments and enqueue separate MT (+ optional async TTS). |
 | Soniox | One Soniox WebSocket **per active listen language** (one-way translation to that target). Same PCM is fanned out. Translated finals skip the separate MT provider. |
 | Groq (chunked) | Existing HTTP Whisper batch path (~4s windows) for free-tier fallback. |
 

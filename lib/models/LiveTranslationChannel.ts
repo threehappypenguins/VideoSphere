@@ -29,6 +29,7 @@ export interface LiveTranslationChannelDocument {
   gladiaApiKeyEncrypted?: string;
   speechmaticsApiKeyEncrypted?: string;
   sonioxApiKeyEncrypted?: string;
+  modulateApiKeyEncrypted?: string;
   gcpServiceAccountJsonEncrypted?: string;
   /**
    * STT model id for Groq Whisper.
@@ -66,6 +67,7 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
         'gladia',
         'speechmatics',
         'soniox',
+        'modulate',
         'groq',
         'openrouter',
         'gcp',
@@ -84,6 +86,7 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
     gladiaApiKeyEncrypted: { type: String, required: false },
     speechmaticsApiKeyEncrypted: { type: String, required: false },
     sonioxApiKeyEncrypted: { type: String, required: false },
+    modulateApiKeyEncrypted: { type: String, required: false },
     gcpServiceAccountJsonEncrypted: { type: String, required: false },
     openRouterSttModel: { type: String, required: false, trim: true },
     openRouterTranslateModel: { type: String, required: false, trim: true },
