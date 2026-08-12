@@ -220,8 +220,9 @@ function audioConstraintsForDevice(selectedDeviceId: string): MediaTrackConstrai
 
 /**
  * Browser microphone / input-device capture that streams PCM chunks to the owner ingest API.
- * Opens a live level preview before ingest so the owner can verify the mic, and allows
- * switching inputs while ingest is already running.
+ * The mic MediaStream stays closed by default (no tab recording light). Use **Test mic** for
+ * level checks without ingest, or **Add audio** to stream. Device switching works idle, in
+ * test mode, or while live.
  * @param props - Whether translation is ready, STT provider (controls chunk length), and optional status callback.
  * @returns Capture controls UI.
  */
@@ -241,7 +242,10 @@ export function AddAudioCapture(props: {
     () => readIngestIntent()?.deviceId ?? readPreferredAudioInputId() ?? ''
   );
   const [ingesting, setIngesting] = useState(() => Boolean(readIngestIntent()));
-  const [previewActive, setPreviewActive] = useState(false);
+  /** Level-only mic check — no PCM upload. */
+  const [testingMic, setTestingMic] = useState(false);
+  /** True while the mic MediaStream is open (test mode or ingest). */
+  const [micLive, setMicLive] = useState(false);
   const [switchingDevice, setSwitchingDevice] = useState(false);
   const [level, setLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -259,6 +263,8 @@ export function AddAudioCapture(props: {
   const micOpenRef = useRef(false);
   /** When true, PCM frames are uploaded to the ingest API. */
   const ingestingRef = useRef(Boolean(readIngestIntent()));
+  /** When true, mic is open for level test only. */
+  const testingMicRef = useRef(false);
   const deviceIdRef = useRef(deviceId);
   deviceIdRef.current = deviceId;
   const ingestAbortRef = useRef<AbortController | null>(null);
@@ -318,12 +324,12 @@ export function AddAudioCapture(props: {
     levelRef.current = 0;
     if (!options?.silent) {
       setLevel(0);
-      setPreviewActive(false);
+      setMicLive(false);
     }
   }
 
   /**
-   * Opens (or reopens) the selected mic for level preview and optional ingest.
+   * Opens (or reopens) the selected mic for level metering and optional ingest.
    * @param selectedDeviceId - Device to open.
    * @returns Void.
    */
@@ -397,7 +403,7 @@ export function AddAudioCapture(props: {
     processor.connect(monitorGain);
     monitorGain.connect(context.destination);
     micOpenRef.current = true;
-    setPreviewActive(true);
+    setMicLive(true);
   }
 
   useEffect(() => {
@@ -417,7 +423,10 @@ export function AddAudioCapture(props: {
         setDeviceId(nextId);
         if (nextId) {
           writePreferredAudioInputId(nextId);
-          await openMic(nextId);
+          // Keep the mic closed unless test mode or ingest is already live.
+          if (ingestingRef.current || testingMicRef.current) {
+            await openMic(nextId);
+          }
           if (!cancelled) setError(null);
         }
         return nextId;
@@ -431,7 +440,7 @@ export function AddAudioCapture(props: {
 
     async function bootstrap() {
       try {
-        // Permission prompt so labels populate, then keep a live preview open.
+        // Permission prompt so device labels populate, then release tracks immediately.
         const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
         tmp.getTracks().forEach((t) => t.stop());
         if (cancelled) return;
@@ -461,6 +470,7 @@ export function AddAudioCapture(props: {
       // Close the mic graph only — do NOT DELETE ingest or clear sessionStorage.
       // React remounts (HMR / dashboard reload) must be able to auto-resume.
       ingestingRef.current = false;
+      testingMicRef.current = false;
       ingestAbortRef.current?.abort();
       void closeMicGraph({ silent: true });
     };
@@ -538,6 +548,43 @@ export function AddAudioCapture(props: {
   }
 
   /**
+   * Opens the mic for level metering only — does not upload PCM or start a session.
+   * @returns Void.
+   */
+  async function startMicTest() {
+    setError(null);
+    if (!deviceIdRef.current) {
+      setError('Select an audio input first.');
+      return;
+    }
+    try {
+      testingMicRef.current = true;
+      await openMic(deviceIdRef.current);
+      if (!micOpenRef.current) {
+        testingMicRef.current = false;
+        return;
+      }
+      writePreferredAudioInputId(deviceIdRef.current);
+      setTestingMic(true);
+    } catch (err) {
+      testingMicRef.current = false;
+      setTestingMic(false);
+      setError(err instanceof Error ? err.message : 'Could not open microphone');
+    }
+  }
+
+  /**
+   * Ends mic test mode and releases the MediaStream.
+   * @returns Void.
+   */
+  async function stopMicTest() {
+    if (ingestingRef.current) return;
+    testingMicRef.current = false;
+    setTestingMic(false);
+    await closeMicGraph();
+  }
+
+  /**
    * Starts uploading live PCM to the translation ingest API.
    * @returns Void.
    */
@@ -553,6 +600,8 @@ export function AddAudioCapture(props: {
       }
       pcmChunksRef.current = [];
       samplesCollectedRef.current = 0;
+      testingMicRef.current = false;
+      setTestingMic(false);
       ingestingRef.current = true;
       writeIngestIntent(deviceIdRef.current);
       writePreferredAudioInputId(deviceIdRef.current);
@@ -565,11 +614,12 @@ export function AddAudioCapture(props: {
   startIngestRef.current = startIngest;
 
   /**
-   * Stops uploading PCM (keeps the mic preview open for level checks).
+   * Stops uploading PCM and releases the mic (clears the browser tab recording indicator).
    * @returns Void.
    */
   async function stopIngest() {
     ingestingRef.current = false;
+    testingMicRef.current = false;
     clearIngestIntent();
     pcmChunksRef.current = [];
     samplesCollectedRef.current = 0;
@@ -577,6 +627,7 @@ export function AddAudioCapture(props: {
     ingestAbortRef.current = null;
     setIngesting(false);
     onLiveChangeRef.current?.(false);
+    await closeMicGraph();
 
     try {
       await fetch('/api/translation/ingest/audio', {
@@ -589,7 +640,7 @@ export function AddAudioCapture(props: {
   }
 
   /**
-   * Switches the active input device, preserving ingest when it was already live.
+   * Switches the active input device, reopening the mic when test mode or ingest is live.
    * @param nextDeviceId - Newly selected device id.
    * @returns Void.
    */
@@ -597,6 +648,9 @@ export function AddAudioCapture(props: {
     if (!nextDeviceId || nextDeviceId === deviceIdRef.current) return;
     setDeviceId(nextDeviceId);
     writePreferredAudioInputId(nextDeviceId);
+    if (!ingestingRef.current && !testingMicRef.current) {
+      return;
+    }
     setSwitchingDevice(true);
     setError(null);
     try {
@@ -615,7 +669,7 @@ export function AddAudioCapture(props: {
   const meterPercent = Math.min(100, Math.round(Math.sqrt(Math.max(0, level)) * 100));
   /** Radix Select sentinel so empty selection stays controlled. */
   const deviceUnset = '__unset__';
-  const meterLooksLive = previewActive && meterPercent > 2;
+  const meterLooksLive = micLive && meterPercent > 2;
 
   return (
     <div className="space-y-4">
@@ -643,58 +697,81 @@ export function AddAudioCapture(props: {
             ))}
           </SelectContent>
         </Select>
-        <p className="text-muted-foreground text-xs">
-          Preview opens on your system default. Speak and confirm the level meter moves before
-          adding audio. You can switch inputs anytime — including while live.
-        </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div
-          className="bg-muted h-3 w-48 overflow-hidden rounded"
-          role="meter"
-          aria-label="Input level preview"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={meterPercent}
-        >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="space-y-1.5">
           <div
-            className="bg-primary h-full transition-[width] duration-75"
-            style={{ width: `${meterPercent}%` }}
-          />
-        </div>
-        <span className="text-muted-foreground text-xs tabular-nums" aria-live="polite">
-          {switchingDevice
-            ? 'Switching…'
-            : previewActive
-              ? meterLooksLive
-                ? 'Hearing input'
-                : 'Silent — speak or pick another mic'
-              : 'Waiting for mic…'}
-        </span>
-        {ingesting ? (
-          <Button type="button" variant="destructive" onClick={() => void stopIngest()}>
-            Stop audio
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            disabled={!enabled || !previewActive || switchingDevice}
-            onClick={() => void startIngest()}
+            className="bg-muted h-3 w-48 overflow-hidden rounded"
+            role="meter"
+            aria-label="Input level"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={meterPercent}
           >
-            Add audio
-          </Button>
-        )}
+            <div
+              className="bg-primary h-full transition-[width] duration-75"
+              style={{ width: `${meterPercent}%` }}
+            />
+          </div>
+          <p className="text-muted-foreground min-h-4 text-xs tabular-nums" aria-live="polite">
+            {switchingDevice
+              ? 'Switching…'
+              : micLive
+                ? meterLooksLive
+                  ? 'Hearing input'
+                  : 'Silent — speak or pick another mic'
+                : 'Mic idle'}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {ingesting ? (
+            <>
+              <Button type="button" variant="destructive" onClick={() => void stopIngest()}>
+                Stop audio
+              </Button>
+              <span
+                className="text-destructive inline-flex items-center gap-1.5 text-xs font-medium"
+                aria-live="polite"
+              >
+                <span
+                  className="bg-destructive size-2 animate-pulse rounded-full"
+                  aria-hidden="true"
+                />
+                Live
+              </span>
+            </>
+          ) : (
+            <Button
+              type="button"
+              disabled={!enabled || !deviceId || switchingDevice}
+              onClick={() => void startIngest()}
+            >
+              Add audio
+            </Button>
+          )}
+          {ingesting ? null : testingMic ? (
+            <Button type="button" variant="outline" onClick={() => void stopMicTest()}>
+              Stop test
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!deviceId || switchingDevice}
+              onClick={() => void startMicTest()}
+            >
+              Test mic
+            </Button>
+          )}
+        </div>
       </div>
-      <p className="text-muted-foreground text-xs">
-        {ingesting ? 'Live — sending this input.' : 'Level preview only until you click Add audio.'}
-      </p>
 
       {error ? <p className="text-destructive text-sm">{error}</p> : null}
       {!enabled ? (
         <p className="text-muted-foreground text-sm">
           Translation stays off until you configure streaming ASR (or Groq) and caption translation
-          in Configure AI.
+          in Configure AI. You can still use Test mic to verify an input.
         </p>
       ) : null}
     </div>

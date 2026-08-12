@@ -1373,7 +1373,7 @@ export function TranslationConfigClient() {
           <h2 className="text-xl font-semibold text-foreground">Add audio</h2>
           <p className="text-muted-foreground text-sm">
             Choose a microphone or sound device on this computer to stream live audio for
-            translation. No RTMP sidecar required.
+            translation.
           </p>
           <AddAudioCapture enabled={channel.translationReady} sttProvider={channel.sttProvider} />
         </section>
