@@ -16,6 +16,7 @@ import {
   sttLanguageHintForTranslationLanguage,
 } from '@/lib/translation/languages';
 import { createStreamingAsrSession } from '@/lib/translation/streaming-asr';
+import { isModulateSoftReconnectError } from '@/lib/translation/streaming-asr/modulate';
 import type { StreamingAsrEvent, StreamingAsrSession } from '@/lib/translation/streaming-asr/types';
 import { transcribeAudio } from '@/lib/translation/transcribe';
 import {
@@ -55,6 +56,8 @@ const MAX_SEGMENTS = 40;
 /** Brief grace for EventSource reconnects; then language work + cached captions are dropped. */
 const LANGUAGE_IDLE_MS = 3_000;
 const INGEST_IDLE_MS = 45_000;
+/** Keep ASR open across brief listener gaps (EventSource reconnect / speaker toggle). */
+const ASR_LISTENER_GRACE_MS = 1_500;
 /** Base backoff after OpenRouter translate 429 (free shared pools). */
 const TRANSLATE_RATE_LIMIT_BACKOFF_MS = 20_000;
 /** Cap for exponential translate 429 backoff. */
@@ -104,6 +107,7 @@ export interface TranslationHubEvent {
 type BroadcastActivity = 'speech' | 'music';
 
 type Subscriber = {
+  /** Client-stable listen id (EventSource query) when provided; otherwise server-generated. */
   id: string;
   language: string;
   wantAudio: boolean;
@@ -178,8 +182,15 @@ type ChannelSession = {
   audioBytes: Map<string, { mime: string; data: Buffer; expiresAt: number }>;
   /** Non-Soniox streaming ASR (single upstream). */
   streamingAsr: StreamingAsrSession | null;
+  /**
+   * Monotonic id for the current non-Soniox ASR socket.
+   * Stale error/close callbacks from a replaced socket must not clear a newer one.
+   */
+  streamingAsrGeneration: number;
   /** In-flight open for non-Soniox streaming ASR. */
   streamingAsrStarting: Promise<void> | null;
+  /** Debounced close after the last public listener disconnects. */
+  asrCloseTimer: ReturnType<typeof setTimeout> | null;
   /** Soniox: one session per active listen language. */
   sonioxByLanguage: Map<string, StreamingAsrSession>;
   /** In-flight Soniox open per language. */
@@ -243,7 +254,9 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
       languages: new Map(),
       audioBytes: new Map(),
       streamingAsr: null,
+      streamingAsrGeneration: 0,
       streamingAsrStarting: null,
+      asrCloseTimer: null,
       sonioxByLanguage: new Map(),
       sonioxStarting: new Map(),
       streamingPartialSegmentId: null,
@@ -389,9 +402,33 @@ function maybeTeardown(session: ChannelSession): void {
  * Used when the last listener leaves while owner ingest may still be active.
  * @param session - Channel session.
  */
+function cancelScheduledStreamingAsrClose(session: ChannelSession): void {
+  if (!session.asrCloseTimer) return;
+  clearTimeout(session.asrCloseTimer);
+  session.asrCloseTimer = null;
+}
+
+/**
+ * Closes upstream ASR shortly after the last listener leaves.
+ * A short grace covers EventSource reconnects (e.g. speaker toggle) so we do not
+ * tear down Modulate/Deepgram mid-utterance and bounce on Invalid input audio.
+ * @param session - Channel session.
+ */
+function scheduleStreamingAsrClose(session: ChannelSession): void {
+  if (session.asrCloseTimer) return;
+  session.asrCloseTimer = setTimeout(() => {
+    session.asrCloseTimer = null;
+    if (sessionHasListeners(session)) return;
+    void closeSingleStreamingAsr(session);
+    void syncSonioxSessions(session);
+  }, ASR_LISTENER_GRACE_MS);
+}
+
 async function closeSingleStreamingAsr(session: ChannelSession): Promise<void> {
+  cancelScheduledStreamingAsrClose(session);
   const single = session.streamingAsr;
   session.streamingAsr = null;
+  session.streamingAsrGeneration += 1;
   session.streamingAsrStarting = null;
   session.streamingPartialSegmentId = null;
   if (single) {
@@ -404,8 +441,10 @@ async function closeSingleStreamingAsr(session: ChannelSession): Promise<void> {
  * @param session - Channel session.
  */
 async function closeAllStreamingAsr(session: ChannelSession): Promise<void> {
+  cancelScheduledStreamingAsrClose(session);
   const single = session.streamingAsr;
   session.streamingAsr = null;
+  session.streamingAsrGeneration += 1;
   session.streamingAsrStarting = null;
   session.streamingPartialSegmentId = null;
   const soniox = [...session.sonioxByLanguage.entries()];
@@ -445,14 +484,29 @@ function streamingApiKeyForProvider(
 function handleSourceStreamingEvent(
   session: ChannelSession,
   event: StreamingAsrEvent,
-  sourceLanguage: string
+  sourceLanguage: string,
+  generation: number
 ): void {
+  // Late frames from a socket we already replaced/closed must not toast listeners
+  // or tear down the healthy replacement.
+  if (generation !== session.streamingAsrGeneration) return;
+
   if (event.kind === 'error') {
-    broadcastAll(session, {
-      type: 'error',
-      message: event.message.slice(0, 280),
-      ts: now(),
-    });
+    // Modulate occasionally rejects the first frame(s) with "Invalid input audio"
+    // and closes; the next PCM open recovers. Do not sticky-toast that bounce.
+    if (!isModulateSoftReconnectError(event.message)) {
+      broadcastAll(session, {
+        type: 'error',
+        message: event.message.slice(0, 280),
+        ts: now(),
+      });
+    }
+    const dead = session.streamingAsr;
+    session.streamingAsr = null;
+    session.streamingAsrGeneration += 1;
+    session.streamingAsrStarting = null;
+    session.streamingPartialSegmentId = null;
+    if (dead) void dead.close().catch(() => undefined);
     return;
   }
 
@@ -658,18 +712,38 @@ function handleSonioxStreamingEvent(
  * Opens only while owner ingest is active and at least one listener is subscribed.
  * @param session - Channel session.
  */
+/**
+ * True when captioning is paused for singing/music (no upstream ASR).
+ * @param session - Channel session.
+ * @returns Whether activity is music.
+ */
+function isMusicActivity(session: ChannelSession): boolean {
+  return session.activity === 'music';
+}
+
+/**
+ * Ensures a non-Soniox streaming ASR session is open.
+ * Opens only while owner ingest is active and at least one listener is subscribed.
+ * @param session - Channel session.
+ */
 async function ensureSingleStreamingAsr(session: ChannelSession): Promise<void> {
+  cancelScheduledStreamingAsrClose(session);
   if (!session.ingestActive || !sessionHasListeners(session)) {
     await closeSingleStreamingAsr(session);
     return;
   }
-  // A listener joining mid-hymn must not open a socket we have nothing to send on.
-  if (session.activity === 'music') return;
-  if (session.streamingAsr) return;
-  if (session.streamingAsrStarting) {
+
+  // Wait out any in-flight open; retry if it abandoned without assigning a socket.
+  for (;;) {
+    // Mid-hymn: do not open (or keep waiting on) a billable socket with nothing to send.
+    if (isMusicActivity(session)) return;
+    if (session.streamingAsr) return;
+    if (!session.streamingAsrStarting) break;
     await session.streamingAsrStarting;
-    return;
   }
+  if (!session.ingestActive || !sessionHasListeners(session)) return;
+  if (isMusicActivity(session)) return;
+  if (session.streamingAsr) return;
 
   session.streamingAsrStarting = (async () => {
     if (!session.ingestActive || !sessionHasListeners(session)) return;
@@ -696,16 +770,18 @@ async function ensureSingleStreamingAsr(session: ChannelSession): Promise<void> 
       return;
     }
     const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
+    const generation = session.streamingAsrGeneration + 1;
     try {
       const asr = await createStreamingAsrSession(provider, {
         apiKey,
         sourceLanguage,
-        onEvent: (event) => handleSourceStreamingEvent(session, event, sourceLanguage),
+        onEvent: (event) => handleSourceStreamingEvent(session, event, sourceLanguage, generation),
       });
       if (!session.ingestActive || !sessionHasListeners(session)) {
         await asr.close().catch(() => undefined);
         return;
       }
+      session.streamingAsrGeneration = generation;
       session.streamingAsr = asr;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to start streaming ASR';
@@ -1654,13 +1730,20 @@ export function subscribePublicListener(params: {
   userId: string;
   language: string;
   wantAudio: boolean;
+  /** Optional client-stable id so wantAudio can be updated without reconnecting SSE. */
+  listenerId?: string;
   send: (event: TranslationHubEvent) => void;
 }): () => void {
   const { channelId, userId, wantAudio, send } = params;
   const language = normalizeTranslationLanguageCode(params.language);
   const session = getOrCreateSession(channelId, userId);
+  cancelScheduledStreamingAsrClose(session);
+  const listenerId =
+    typeof params.listenerId === 'string' && params.listenerId.trim()
+      ? params.listenerId.trim().slice(0, 128)
+      : randomUUID();
   const subscriber: Subscriber = {
-    id: randomUUID(),
+    id: listenerId,
     language,
     wantAudio,
     send,
@@ -1741,13 +1824,57 @@ export function subscribePublicListener(params: {
       scheduleLanguageIdle(session, language);
     }
     if (!sessionHasListeners(session)) {
-      // Stop STT billing as soon as the last listener leaves (owner may still be live).
+      // Stop STT billing shortly after the last listener leaves (owner may still be live).
+      // Grace covers brief EventSource gaps from speaker toggle / mobile network blips.
       session.audioQueue.length = 0;
-      void closeSingleStreamingAsr(session);
+      scheduleStreamingAsrClose(session);
     }
     void syncSonioxSessions(session);
     maybeTeardown(session);
   };
+}
+
+/**
+ * Updates spoken-audio preference for an existing public listener without reconnecting SSE.
+ * @param params - Channel, listener id, and new wantAudio flag.
+ * @returns True when a matching subscriber was updated.
+ */
+export function setPublicListenerWantAudio(params: {
+  channelId: string;
+  listenerId: string;
+  wantAudio: boolean;
+}): boolean {
+  const session = sessions.get(params.channelId);
+  if (!session) return false;
+  const listenerId = params.listenerId.trim();
+  if (!listenerId) return false;
+  for (const bucket of session.languages.values()) {
+    for (const sub of bucket.subscribers) {
+      if (sub.id !== listenerId) continue;
+      const enabling = params.wantAudio && !sub.wantAudio;
+      sub.wantAudio = params.wantAudio;
+      if (enabling) {
+        void (async () => {
+          const secrets = await getRuntimeSecretsForUser(session.userId);
+          const sourceLanguage =
+            normalizeTranslationLanguageCode(secrets?.sourceLanguage || 'en') || 'en';
+          if (sub.language === sourceLanguage) return;
+          for (let i = session.segments.length - 1; i >= 0; i -= 1) {
+            const segment = session.segments[i];
+            if (!segment) continue;
+            const existing = segment.byLanguage.get(sub.language);
+            if (existing && !existing.audioId) {
+              bucket.queue.push(segment.id);
+              break;
+            }
+          }
+          void processLanguageQueue(session, sub.language);
+        })();
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

@@ -8,27 +8,25 @@ import {
   type StreamingAsrCreateOptions,
   type StreamingAsrSession,
 } from '@/lib/translation/streaming-asr/types';
+import {
+  shouldFinalizeCompleteSentence,
+  takeUtteranceChunk,
+  STREAMING_MIN_SENTENCE_FINAL_CHARS,
+  STREAMING_UTTERANCE_HARD_MAX_CHARS,
+  STREAMING_UTTERANCE_SOFT_MAX_CHARS,
+} from '@/lib/translation/streaming-asr/utterance-split';
 import { sendWsBinary, sendWsText } from '@/lib/translation/streaming-asr/ws-send';
 
 const KEEP_ALIVE_MS = 8_000;
 
-/**
- * Soft length at which locked (`is_final`) transcript should become its own
- * caption/TTS segment when a sentence boundary is available.
- * Aimed at ~one spoken sentence for live listen (not multi-sentence paragraphs).
- */
-export const DEEPGRAM_UTTERANCE_SOFT_MAX_CHARS = 100;
+/** @deprecated Prefer STREAMING_UTTERANCE_SOFT_MAX_CHARS — kept for existing imports/tests. */
+export const DEEPGRAM_UTTERANCE_SOFT_MAX_CHARS = STREAMING_UTTERANCE_SOFT_MAX_CHARS;
+/** @deprecated Prefer STREAMING_UTTERANCE_HARD_MAX_CHARS. */
+export const DEEPGRAM_UTTERANCE_HARD_MAX_CHARS = STREAMING_UTTERANCE_HARD_MAX_CHARS;
+/** @deprecated Prefer STREAMING_MIN_SENTENCE_FINAL_CHARS. */
+export const DEEPGRAM_MIN_SENTENCE_FINAL_CHARS = STREAMING_MIN_SENTENCE_FINAL_CHARS;
 
-/**
- * Hard length — force a break even mid-sentence so captions/TTS cannot grow unbounded.
- */
-export const DEEPGRAM_UTTERANCE_HARD_MAX_CHARS = 160;
-
-/**
- * Minimum length before treating a punctuated `is_final` slice as its own final.
- * Avoids tiny “Yes.” / “Amen.” spam while still flushing real sentences promptly.
- */
-export const DEEPGRAM_MIN_SENTENCE_FINAL_CHARS = 40;
+export { takeUtteranceChunk };
 
 /**
  * Applies one Deepgram Results frame to the current utterance buffers.
@@ -82,64 +80,6 @@ export function applyDeepgramResult(input: {
     committed: input.committed,
     event: display ? { kind: 'partial', text: display } : null,
   };
-}
-
-/**
- * Takes a caption-sized chunk off oversized locked transcript when possible.
- * Once past `softMax`, prefers the last complete sentence that still fits in
- * that window so continuous speech becomes short caption/TTS units.
- * @param committed - Locked `is_final` text awaiting `speech_final` / UtteranceEnd.
- * @param softMax - Prefer a break once length reaches this.
- * @param hardMax - Always break at/before this length.
- * @returns Chunk to emit as `final` plus remaining committed text, or null to wait.
- */
-export function takeUtteranceChunk(
-  committed: string,
-  softMax: number = DEEPGRAM_UTTERANCE_SOFT_MAX_CHARS,
-  hardMax: number = DEEPGRAM_UTTERANCE_HARD_MAX_CHARS
-): { chunk: string; rest: string } | null {
-  const text = committed.trim();
-  if (text.length < softMax) return null;
-
-  // Only used for forced mid-word fallback — sentence ends may be earlier than softMax/2.
-  const minWordBreak = Math.max(12, Math.floor(softMax / 4));
-
-  const isSentenceEnd = (i: number): boolean => {
-    const ch = text[i];
-    if (ch !== '.' && ch !== '!' && ch !== '?') return false;
-    const next = text[i + 1];
-    return next === undefined || /\s/.test(next);
-  };
-
-  // Prefer the last sentence that still fits inside the soft window.
-  let breakAt = -1;
-  const softEnd = Math.min(text.length, softMax);
-  for (let i = 0; i < softEnd; i += 1) {
-    if (isSentenceEnd(i)) breakAt = i + 1;
-  }
-
-  // Otherwise take the first sentence end between softMax and hardMax.
-  if (breakAt < 0) {
-    const hardEnd = Math.min(text.length, hardMax);
-    for (let i = softMax; i < hardEnd; i += 1) {
-      if (isSentenceEnd(i)) {
-        breakAt = i + 1;
-        break;
-      }
-    }
-  }
-
-  if (breakAt < 0) {
-    if (text.length < hardMax) return null;
-    const slice = text.slice(0, hardMax);
-    const sp = slice.lastIndexOf(' ');
-    breakAt = sp >= minWordBreak ? sp : hardMax;
-  }
-
-  const chunk = text.slice(0, breakAt).trim();
-  const rest = text.slice(breakAt).trim();
-  if (!chunk) return null;
-  return { chunk, rest };
 }
 
 /**
@@ -237,11 +177,7 @@ export function createDeepgramAsrSession(options: StreamingAsrCreateOptions): St
    * True when locked text already ends a sentence and is long enough to speak alone.
    * @param text - Committed transcript.
    */
-  const shouldFinalizeCompleteSentence = (text: string): boolean => {
-    const trimmed = text.trim();
-    if (trimmed.length < DEEPGRAM_MIN_SENTENCE_FINAL_CHARS) return false;
-    return /[.!?]$/.test(trimmed);
-  };
+  const shouldFlushSentence = (text: string): boolean => shouldFinalizeCompleteSentence(text);
 
   ws.on('open', () => {
     keepAlive = setInterval(() => {
@@ -294,7 +230,7 @@ export function createDeepgramAsrSession(options: StreamingAsrCreateOptions): St
       // Locked slices: split oversized text; also flush a complete sentence promptly.
       if (isFinal) {
         softFinalizeCommitted();
-        if (committed && shouldFinalizeCompleteSentence(committed)) {
+        if (committed && shouldFlushSentence(committed)) {
           emitFinal(committed.trim());
           committed = '';
         } else if (committed) {

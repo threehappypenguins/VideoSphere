@@ -113,6 +113,11 @@ export async function POST(req: NextRequest) {
     if (pcm.length < 2) {
       return NextResponse.json({ ok: true, ignored: true });
     }
+    // PCM16 LE requires an even byte count; drop a trailing orphan byte so
+    // streaming STT (notably Modulate) never sees a misaligned frame.
+    if (pcm.length % 2 === 1) {
+      pcm = pcm.subarray(0, pcm.length - 1);
+    }
 
     enqueueOwnerPcm(channel._id, userId, pcm, rate);
     return NextResponse.json({ ok: true });

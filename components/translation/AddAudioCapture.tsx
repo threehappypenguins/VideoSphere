@@ -530,7 +530,9 @@ export function AddAudioCapture(props: {
       pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
 
-    const bytes = new Uint8Array(pcm.buffer);
+    // Use the Int16 view bounds — `pcm.buffer` alone can include unrelated bytes
+    // when the typed array is a view into a larger ArrayBuffer.
+    const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
     let binary = '';
     for (let i = 0; i < bytes.length; i += 1) {
       binary += String.fromCharCode(bytes[i]!);

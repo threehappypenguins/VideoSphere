@@ -31,6 +31,12 @@ import {
   syncListenMediaSession,
 } from '@/lib/translation/listen-background-audio';
 import {
+  captionFollowPinKey,
+  isCaptionScrollTowardOlderContent,
+  isNearCaptionLiveEdge,
+  pinElementInScrollRoot,
+} from '@/lib/translation/caption-follow';
+import {
   playbackRateForLag,
   trimTtsQueueForLag,
   type TtsQueueItem,
@@ -95,6 +101,13 @@ function CaptionStream({
   const muteSpokenAudio = useEffectEvent(() => {
     onMuteSpokenAudio();
   });
+
+  /** Stable across speaker toggles so SSE need not reconnect (reconnect bounces STT). */
+  const listenerIdRef = useRef(
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `listen-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 
   const resumeKeepAlivePlayback = useEffectEvent(() => {
     const keepAlive = keepAliveRef.current;
@@ -454,6 +467,7 @@ function CaptionStream({
       }
       // Hub delivers spoken TTS as caption events with `audioUrl` (not a separate `tts` type).
       if (data.type === 'caption' && typeof data.text === 'string' && data.segmentId) {
+        setStreamError(null);
         if (seenSegmentIdsRef.current.has(data.segmentId)) {
           setLines((prev) =>
             prev.map((line) =>
@@ -477,6 +491,7 @@ function CaptionStream({
       }
       // Streaming partials without a stable segment id (rare) — show as interim text.
       if (data.type === 'caption' && typeof data.text === 'string') {
+        setStreamError(null);
         setPartial(data.text);
       }
     } catch {
@@ -486,7 +501,12 @@ function CaptionStream({
 
   useEffect(() => {
     let closed = false;
-    const params = new URLSearchParams({ language });
+    const params = new URLSearchParams({
+      language,
+      listenerId: listenerIdRef.current,
+    });
+    // Initial wantAudio only — later toggles use POST /want-audio so EventSource
+    // (and upstream STT) stay up.
     if (wantAudio && audioAvailable) params.set('wantAudio', '1');
     const es = new EventSource(
       `/api/translation/public/${encodeURIComponent(slug)}/events?${params}`
@@ -534,17 +554,90 @@ function CaptionStream({
       }
       nextPlayTimeRef.current = 0;
     };
-  }, [slug, language, wantAudio, audioAvailable, sourcePassthrough]);
+    // wantAudio intentionally omitted — toggling speaker must not bounce the SSE/STT socket.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  }, [slug, language, audioAvailable, sourcePassthrough]);
+
+  useEffect(() => {
+    if (!audioAvailable) return;
+    const controller = new AbortController();
+    void fetch(`/api/translation/public/${encodeURIComponent(slug)}/want-audio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        listenerId: listenerIdRef.current,
+        wantAudio,
+      }),
+    }).catch(() => {
+      // Listener may not be subscribed yet on the first paint; EventSource carries initial wantAudio.
+    });
+    return () => controller.abort();
+  }, [slug, language, wantAudio, audioAvailable]);
 
   const latestRef = useRef<HTMLLIElement>(null);
   /** When true, new captions keep the latest line pinned near mid-viewport. */
   const followLatestRef = useRef(true);
-  /** Ignores scroll events while we are programmatically pinning the latest line. */
+  /** Ignores settle logic while we are programmatically pinning the latest line. */
   const programmaticScrollRef = useRef(false);
   /** Debounced settle for programmatic scroll (shared across rapid caption updates). */
   const followScrollSettleTimerRef = useRef<number | null>(null);
+  /** Last pin identity — avoids re-scrolling on every partial text tick (mobile). */
+  const lastFollowPinKeyRef = useRef<string | null>(null);
+  /** Tracks scrollTop so upward gestures pause follow even mid smooth-pin. */
+  const lastScrollTopRef = useRef(0);
   const [followPadPx, setFollowPadPx] = useState(0);
+  const followPadPxRef = useRef(0);
+  followPadPxRef.current = followPadPx;
   const hasCaptions = lines.length > 0 || Boolean(partial);
+  const hasPartial = Boolean(partial);
+  const lastLineId = lines.length > 0 ? lines[lines.length - 1]!.id : null;
+
+  const clearFollowScrollSettle = useEffectEvent(() => {
+    if (followScrollSettleTimerRef.current !== null) {
+      window.clearTimeout(followScrollSettleTimerRef.current);
+      followScrollSettleTimerRef.current = null;
+    }
+    programmaticScrollRef.current = false;
+  });
+
+  /** User scrolled away from the live edge — stop yanking them back. */
+  const pauseCaptionFollow = useEffectEvent(() => {
+    clearFollowScrollSettle();
+    followLatestRef.current = false;
+  });
+
+  /**
+   * Pins the live caption inside the page scroll root (not via scrollIntoView).
+   * @param force - When true, pin even if the pin key is unchanged (follow resumed).
+   */
+  const pinLiveCaption = useEffectEvent((force = false) => {
+    if (!followLatestRef.current) return;
+    const root = scrollRootRef.current;
+    const el = latestRef.current;
+    if (!root || !el) return;
+
+    const pinKey = captionFollowPinKey(lines.length, lastLineId, Boolean(partial));
+    if (!force && lastFollowPinKeyRef.current === pinKey) return;
+    lastFollowPinKeyRef.current = pinKey;
+
+    programmaticScrollRef.current = true;
+    pinElementInScrollRoot(root, el, 'smooth');
+
+    if (followScrollSettleTimerRef.current !== null) {
+      window.clearTimeout(followScrollSettleTimerRef.current);
+    }
+    followScrollSettleTimerRef.current = window.setTimeout(() => {
+      followScrollSettleTimerRef.current = null;
+      programmaticScrollRef.current = false;
+      lastScrollTopRef.current = root.scrollTop;
+      if (!followLatestRef.current) return;
+      followLatestRef.current = isNearCaptionLiveEdge(
+        root.scrollHeight - root.scrollTop - root.clientHeight,
+        followPadPxRef.current
+      );
+    }, 320);
+  });
 
   useEffect(() => {
     const root = scrollRootRef.current;
@@ -562,55 +655,79 @@ function CaptionStream({
   useEffect(() => {
     const root = scrollRootRef.current;
     if (!root) return;
+    lastScrollTopRef.current = root.scrollTop;
+
+    const distanceFromBottom = () => root.scrollHeight - root.scrollTop - root.clientHeight;
 
     const onScroll = () => {
-      // Smooth scrollIntoView emits many intermediate scroll events; those must
-      // not turn follow off before the pin finishes.
+      const nextTop = root.scrollTop;
+      const scrolledTowardOlder = isCaptionScrollTowardOlderContent(
+        lastScrollTopRef.current,
+        nextTop
+      );
+      lastScrollTopRef.current = nextTop;
+
+      // Upward scroll always belongs to the user — even during a smooth pin.
+      if (scrolledTowardOlder) {
+        pauseCaptionFollow();
+        return;
+      }
+
       if (programmaticScrollRef.current) return;
-      // Mid-viewport follow leaves the bottom spacer in view — use a large
-      // threshold so wrapped lines do not look like the user scrolled away.
-      const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
-      const threshold = Math.max(120, Math.round(root.clientHeight * 0.55));
-      followLatestRef.current = distanceFromBottom <= threshold;
+
+      const near = isNearCaptionLiveEdge(distanceFromBottom(), followPadPxRef.current);
+      if (near && !followLatestRef.current) {
+        followLatestRef.current = true;
+        lastFollowPinKeyRef.current = null;
+        pinLiveCaption(true);
+        return;
+      }
+      followLatestRef.current = near;
     };
+
+    // Finger-down cancels an in-flight pin so mobile flings are not eaten.
+    const onTouchStart = () => {
+      if (programmaticScrollRef.current) {
+        pauseCaptionFollow();
+      }
+    };
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        pauseCaptionFollow();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === 'ArrowUp' ||
+        event.key === 'PageUp' ||
+        event.key === 'Home' ||
+        (event.key === ' ' && event.shiftKey)
+      ) {
+        pauseCaptionFollow();
+      }
+    };
+
     root.addEventListener('scroll', onScroll, { passive: true });
-    return () => root.removeEventListener('scroll', onScroll);
+    root.addEventListener('touchstart', onTouchStart, { passive: true });
+    root.addEventListener('wheel', onWheel, { passive: true });
+    root.addEventListener('keydown', onKeyDown);
+    return () => {
+      root.removeEventListener('scroll', onScroll);
+      root.removeEventListener('touchstart', onTouchStart);
+      root.removeEventListener('wheel', onWheel);
+      root.removeEventListener('keydown', onKeyDown);
+    };
   }, [scrollRootRef]);
 
   useEffect(() => {
-    if (!followLatestRef.current) return;
-    const root = scrollRootRef.current;
-    const el = latestRef.current;
-    if (!root || !el) return;
-
-    programmaticScrollRef.current = true;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    if (followScrollSettleTimerRef.current !== null) {
-      window.clearTimeout(followScrollSettleTimerRef.current);
-    }
-    // Debounce settle across rapid caption/partial updates so in-flight smooth
-    // scroll events never clear the guard early and disable follow.
-    followScrollSettleTimerRef.current = window.setTimeout(() => {
-      followScrollSettleTimerRef.current = null;
-      programmaticScrollRef.current = false;
-      const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
-      const threshold = Math.max(120, Math.round(root.clientHeight * 0.55));
-      followLatestRef.current = distanceFromBottom <= threshold;
-    }, 450);
-  }, [lines, partial, followPadPx, scrollRootRef]);
+    pinLiveCaption(false);
+  }, [lines.length, lastLineId, hasPartial, followPadPx, scrollRootRef]);
 
   useEffect(() => {
     return () => {
-      if (followScrollSettleTimerRef.current !== null) {
-        window.clearTimeout(followScrollSettleTimerRef.current);
-        followScrollSettleTimerRef.current = null;
-      }
-      programmaticScrollRef.current = false;
+      clearFollowScrollSettle();
     };
   }, []);
-
-  const lastLineId = lines.length > 0 ? lines[lines.length - 1]!.id : null;
 
   return (
     <div className="flex flex-col gap-3">

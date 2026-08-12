@@ -693,9 +693,91 @@ describe('translation session hub', () => {
     });
 
     unsub();
-    await vi.waitFor(() => {
-      expect(close).toHaveBeenCalled();
+    // Last-listener leave closes ASR after a short grace (speaker-toggle reconnects).
+    await vi.waitFor(
+      () => {
+        expect(close).toHaveBeenCalled();
+      },
+      { timeout: 3_000 }
+    );
+  });
+
+  it('soft-reconnects Modulate Invalid input audio without toasting listeners', async () => {
+    const errors: string[] = [];
+    const captions: string[] = [];
+    let firstOnEvent: ((event: { kind: string; message?: string; text?: string }) => void) | null =
+      null;
+    let openCount = 0;
+
+    createStreamingAsrSession.mockImplementation(
+      async (
+        _provider: string,
+        options: { onEvent: (event: { kind: string; message?: string; text?: string }) => void }
+      ) => {
+        openCount += 1;
+        if (openCount === 1) firstOnEvent = options.onEvent;
+        return {
+          writePcm: vi.fn(),
+          close: vi.fn(async () => undefined),
+        };
+      }
+    );
+
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
+      sttProvider: 'modulate',
+      textTranslateProvider: 'openrouter',
+      openRouterApiKey: 'key',
+      groqApiKey: null,
+      deepgramApiKey: null,
+      assemblyaiApiKey: null,
+      gladiaApiKey: null,
+      speechmaticsApiKey: null,
+      sonioxApiKey: null,
+      modulateApiKey: 'mod-test',
+      gcpServiceAccountJson: null,
+      sttModel: null,
+      openRouterTranslateModel: 'tr',
+      gcpTtsVoices: {},
+      sourceLanguage: 'en',
+      enabledLanguages: ['en'],
+      translationReady: true,
+      listenReady: false,
+    } as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>);
+
+    const unsub = subscribePublicListener({
+      channelId: 'ch-mod-soft',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'error' && event.message) errors.push(event.message);
+        if (event.type === 'caption' && event.text) captions.push(event.text);
+      },
     });
+
+    enqueueOwnerPcm('ch-mod-soft', 'user-1', loudPcm(3200), 16000);
+    await vi.waitFor(() => {
+      expect(firstOnEvent).not.toBeNull();
+    });
+
+    firstOnEvent!({ kind: 'error', message: 'Invalid input audio' });
+    expect(errors).toEqual([]);
+
+    enqueueOwnerPcm('ch-mod-soft', 'user-1', loudPcm(3200), 16000);
+    await vi.waitFor(() => {
+      expect(openCount).toBe(2);
+    });
+
+    const secondOpts = createStreamingAsrSession.mock.calls[1]?.[1] as {
+      onEvent: (event: { kind: string; text?: string; language?: string }) => void;
+    };
+    secondOpts.onEvent({ kind: 'final', text: 'hello again', language: 'en' });
+    await vi.waitFor(() => {
+      expect(captions).toContain('hello again');
+    });
+    expect(errors).toEqual([]);
+
+    unsub();
   });
 
   it('stops STT and announces music once singing is detected', async () => {

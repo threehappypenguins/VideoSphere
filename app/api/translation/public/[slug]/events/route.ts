@@ -15,7 +15,7 @@ import { normalizeTranslationSlug } from '@/lib/translation/slug';
 /**
  * Server-Sent Events stream of live captions (and optional audio URLs) for a language.
  * First subscriber for a language starts translate work; disconnect stops after grace.
- * @param req - Incoming request with language / wantAudio query params.
+ * @param req - Incoming request with language / wantAudio / listenerId query params.
  * @param context - Route params with slug.
  * @returns SSE response.
  */
@@ -26,6 +26,8 @@ export async function GET(req: NextRequest, context: { params: Promise<{ slug: s
     (req.nextUrl.searchParams.get('language') ?? '').trim()
   );
   const wantAudio = req.nextUrl.searchParams.get('wantAudio') === '1';
+  const listenerIdRaw = (req.nextUrl.searchParams.get('listenerId') ?? '').trim();
+  const listenerId = listenerIdRaw || undefined;
 
   if (!language) {
     return new Response(JSON.stringify({ error: 'language is required' }), {
@@ -77,6 +79,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ slug: s
         userId: channel.userId,
         language,
         wantAudio,
+        listenerId,
         send,
       });
 

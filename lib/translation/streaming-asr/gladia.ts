@@ -6,9 +6,50 @@ import WebSocket from 'ws';
 import {
   shortLanguageCode,
   type StreamingAsrCreateOptions,
+  type StreamingAsrEvent,
   type StreamingAsrSession,
 } from '@/lib/translation/streaming-asr/types';
 import { sendWsBinary, sendWsText } from '@/lib/translation/streaming-asr/ws-send';
+
+/**
+ * Maps a Gladia live WebSocket JSON frame to a hub ASR event.
+ *
+ * Gladia v2 sends `data.utterance` as an object with a `text` field (not a bare string).
+ * @param msg - Parsed server message.
+ * @param sourceLanguage - Channel source language for event metadata.
+ * @returns Hub event, or null when the frame should be ignored.
+ */
+export function gladiaEventFromServerMessage(
+  msg: unknown,
+  sourceLanguage: string
+): StreamingAsrEvent | null {
+  if (!msg || typeof msg !== 'object') return null;
+  const record = msg as {
+    type?: unknown;
+    data?: {
+      is_final?: unknown;
+      utterance?: unknown;
+    };
+  };
+
+  if (record.type !== 'transcript') return null;
+
+  const utterance = record.data?.utterance;
+  const text =
+    utterance &&
+    typeof utterance === 'object' &&
+    typeof (utterance as { text?: unknown }).text === 'string'
+      ? (utterance as { text: string }).text.trim()
+      : typeof utterance === 'string'
+        ? utterance.trim()
+        : '';
+  if (!text) return null;
+
+  if (record.data?.is_final) {
+    return { kind: 'final', text, language: sourceLanguage };
+  }
+  return { kind: 'partial', text, language: sourceLanguage };
+}
 
 /**
  * Opens a Gladia live transcription session (POST /v2/live then WebSocket).
@@ -57,18 +98,9 @@ export async function createGladiaAsrSession(
 
   ws.on('message', (data) => {
     try {
-      const msg = JSON.parse(String(data)) as {
-        type?: string;
-        data?: { utterance?: string; is_final?: boolean };
-      };
-      if (msg.type !== 'transcript') return;
-      const text = msg.data?.utterance?.trim() ?? '';
-      if (!text) return;
-      if (msg.data?.is_final) {
-        options.onEvent({ kind: 'final', text, language: options.sourceLanguage });
-      } else {
-        options.onEvent({ kind: 'partial', text, language: options.sourceLanguage });
-      }
+      const msg = JSON.parse(String(data)) as unknown;
+      const event = gladiaEventFromServerMessage(msg, options.sourceLanguage);
+      if (event) options.onEvent(event);
     } catch {
       // ignore
     }

@@ -12,11 +12,10 @@ import type WebSocket from 'ws';
  * @param pcm - PCM16 LE mono bytes.
  */
 export function sendWsBinary(socket: WebSocket, pcm: Buffer): void {
-  // Copy into a standalone ArrayBuffer-backed view (avoids SharedArrayBuffer /
-  // pooled Buffer edge cases with bufferutil masking).
-  const bytes = new Uint8Array(pcm.byteLength);
-  bytes.set(pcm);
-  socket.send(bytes);
+  if (pcm.byteLength === 0) return;
+  // Copy into a standalone Buffer so optional native helpers (`bufferutil`) never
+  // see SharedArrayBuffer / pooled views, and force the binary opcode explicitly.
+  socket.send(Buffer.from(pcm), { binary: true });
 }
 
 /**
