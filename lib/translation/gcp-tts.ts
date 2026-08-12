@@ -36,7 +36,7 @@ export function clampGcpTtsInput(text: string, maxChars: number = GCP_TTS_MAX_IN
 
 /**
  * Synthesizes speech for translated text using the owner's GCP credentials.
- * @param params - Service account JSON, voice name, language code, and text.
+ * @param params - Service account JSON, voice name, language code, text, and optional rate.
  * @returns MP3 audio bytes.
  */
 export async function synthesizeSpeechWithGcp(params: {
@@ -44,8 +44,13 @@ export async function synthesizeSpeechWithGcp(params: {
   voiceName: string;
   languageCode: string;
   text: string;
+  /**
+   * Speaking rate / pace in `[0.25, 2.0]`. `1.0` is the voice's native speed.
+   * Supported for Chirp 3 HD via AudioConfig (not SSML). Defaults to `1.0`.
+   */
+  speakingRate?: number;
 }): Promise<Buffer> {
-  const { serviceAccountJson, voiceName, languageCode, text } = params;
+  const { serviceAccountJson, voiceName, languageCode, text, speakingRate } = params;
   if (!voiceName.trim()) {
     throw new Error('GCP TTS requires a per-user voice name.');
   }
@@ -71,6 +76,14 @@ export async function synthesizeSpeechWithGcp(params: {
   const resolvedLanguage =
     languageCodeHintFromVoiceName(voiceName) || languageCode.trim() || 'en-US';
 
+  const rate =
+    typeof speakingRate === 'number' &&
+    Number.isFinite(speakingRate) &&
+    speakingRate >= 0.25 &&
+    speakingRate <= 2
+      ? speakingRate
+      : 1;
+
   try {
     const [response] = await client.synthesizeSpeech({
       input: { text: trimmed },
@@ -78,7 +91,10 @@ export async function synthesizeSpeechWithGcp(params: {
         languageCode: resolvedLanguage,
         name: voiceName.trim(),
       },
-      audioConfig: { audioEncoding: 'MP3' },
+      audioConfig: {
+        audioEncoding: 'MP3',
+        ...(rate !== 1 ? { speakingRate: rate } : {}),
+      },
     });
 
     const audio = response.audioContent;

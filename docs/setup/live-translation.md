@@ -132,6 +132,36 @@ Leave a variable **unset** to inherit its default. Pinning all of them to their 
 3. On the Translation page under **Google Cloud TTS**, upload/paste the JSON and **Load voices**. Choose a **voice model** first (Standard / WaveNet / Neural2 / Chirp 3 HD / etc.) — the dropdown shows each model’s **free monthly character limit** from [Google Cloud TTS pricing](https://cloud.google.com/text-to-speech/pricing). Then pick a voice **per target language** within that model (source is never listed — listeners hear live source PCM instead of TTS). Saving validates credentials and voice names via Google `listVoices`. Legacy source-language voice entries are pruned on save.
 4. On `/listen`, **source** always offers spoken audio (live owner PCM). **Targets** offer spoken audio only when a TTS voice is configured; other targets stay captions-only. Channel “Listen ready” means SA + at least one **target** voice are set (and translation is already ready).
 
+### Measuring spoken lag
+
+Some target languages need more time to say the same thing than English does, so their spoken audio can fall progressively further behind the preacher. Before changing anything about speaking rate or translation length, measure it. Set `TRANSLATION_TTS_TIMING_LOG=on`, restart, and run a service (or replay one); the server console prints one line per spoken caption and a summary every 20 clips:
+
+```
+[tts-timing fr] # 34  lag=  11.4s  pipeline=3.2s  backlog=8.2s  audio=6.1s  source=4.8s  expand=1.27
+[tts-timing fr] 40 clips
+  lag       p50 9.8s  p95 15.1s  max 16.4s
+  pipeline  p50 3.2s  (fixed cost; not recoverable by speaking faster)
+  backlog   p50 6.6s  p95 11.9s
+  expansion 1.24x sustained  p50 1.26x  -> falls 14.4s further behind per minute of speech
+```
+
+Read it as two separate problems. **`pipeline`** is the fixed cost of transcribe → translate → synthesize. It stays flat, and every simultaneous interpreter has the same lag; speaking faster cannot recover it. **`backlog`** is time spent waiting behind audio still playing, and it is the part that grows.
+
+**`expansion`** is the number that decides whether backlog grows at all: spoken audio duration over the source speech it covers. Below 1.0 the language keeps up and backlog stays at zero. Above 1.0 it grows for as long as the speaker keeps going, and the summary converts the ratio into seconds lost per minute. Long gaps in the source (over 10 s — hymns, pauses, technical breaks) are excluded from the ratio, because counting silence as source speech would make every language look comfortably fast. Those gaps do still drain the backlog, which is why `lag` recovers after a song.
+
+Turn the flag back off afterwards. It logs a line per caption and measures every clip's duration, and it is diagnostic output rather than something to run in production.
+
+### Keeping spoken audio in sync
+
+Live timing showed two separate problems: a fixed ~6–8 s pipeline floor (STT → translate → synthesize), and a backlog that grows when the target language takes longer to speak than the source — or when slow clips arrive in bursts.
+
+VideoSphere recovers the backlog automatically:
+
+1. **Native speaking rate** — GCP TTS synthesizes slightly faster for languages that expand (French defaults to `1.12×` from calibration). Override with `TRANSLATION_TTS_SPEAKING_RATE` (global) or `TRANSLATION_TTS_SPEAKING_RATE_BY_LANG=fr:1.12,es:1.15`. Mandarin measured near `1.0×`, so it stays at native pace.
+2. **Client playback recovery** — `/listen` nudges `HTMLAudioElement.playbackRate` up to `1.1×` when lag is well past the pipeline floor, and drops hopelessly stale queued clips (captions stay). The client rate is kept modest so it does not stack with GCP speakingRate into something that sounds rushed. Pitch is preserved by the browser.
+
+Neither removes the fixed pipeline floor. Cutting that further (for example Chirp streaming TTS) is a separate change.
+
 ## Optional RTMP (MediaMTX)
 
 Browser **Add audio** does not require MediaMTX (useful for local testing). For OBS/RTMP captions and source listen audio:

@@ -30,6 +30,11 @@ import {
   stopListenKeepAliveAudio,
   syncListenMediaSession,
 } from '@/lib/translation/listen-background-audio';
+import {
+  playbackRateForLag,
+  trimTtsQueueForLag,
+  type TtsQueueItem,
+} from '@/lib/translation/tts-sync';
 
 type CaptionLine = {
   id: string;
@@ -77,7 +82,7 @@ function CaptionStream({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const keepAliveRef = useRef<HTMLAudioElement | null>(null);
   const keepAliveSourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const audioQueueRef = useRef<string[]>([]);
+  const audioQueueRef = useRef<TtsQueueItem[]>([]);
   const playingRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef(0);
@@ -142,6 +147,7 @@ function CaptionStream({
     try {
       ignoreAudioErrorRef.current = true;
       audio.pause();
+      audio.playbackRate = 1;
       audio.removeAttribute('src');
       audio.load();
     } catch {
@@ -223,6 +229,33 @@ function CaptionStream({
     });
   }
 
+  /**
+   * Drops a queued clip's prefetch so skipped audio does not keep a blob URL alive.
+   * @param url - Public audio API path.
+   */
+  function dropPrefetch(url: string): void {
+    const pending = prefetchRef.current.get(url);
+    prefetchRef.current.delete(url);
+    queuedAudioUrlsRef.current.delete(url);
+    if (!pending) return;
+    void pending.then((objectUrl) => URL.revokeObjectURL(objectUrl)).catch(() => undefined);
+  }
+
+  /**
+   * Applies lag-based trim: drops hopelessly stale queued clips, keeps captions.
+   * @param nowMs - Wall-clock time used for lag.
+   */
+  function trimSpokenQueue(nowMs: number): void {
+    const before = audioQueueRef.current;
+    const after = trimTtsQueueForLag(before, nowMs);
+    if (after.length === before.length) return;
+    const kept = new Set(after.map((item) => item.url));
+    for (const item of before) {
+      if (!kept.has(item.url)) dropPrefetch(item.url);
+    }
+    audioQueueRef.current = after;
+  }
+
   useEffect(() => {
     audioUnlockRef.current = () => {
       // Must start HTML media in this user gesture so Android grants audio focus
@@ -294,11 +327,13 @@ function CaptionStream({
       return;
     }
     if (playingRef.current) return;
+
+    trimSpokenQueue(Date.now());
     const next = audioQueueRef.current.shift();
     if (!next) return;
     playingRef.current = true;
     const upcoming = audioQueueRef.current[0];
-    if (upcoming) prefetchAudioUrl(upcoming);
+    if (upcoming) prefetchAudioUrl(upcoming.url);
 
     const audio = audioRef.current;
     if (!audio) {
@@ -307,10 +342,10 @@ function CaptionStream({
     }
 
     try {
-      prefetchAudioUrl(next);
-      const prefetch = prefetchRef.current.get(next);
+      prefetchAudioUrl(next.url);
+      const prefetch = prefetchRef.current.get(next.url);
       const objectUrl = prefetch ? await prefetch : null;
-      prefetchRef.current.delete(next);
+      prefetchRef.current.delete(next.url);
       if (!objectUrl) throw new Error('Missing audio prefetch');
       if (!wantAudio || sourcePassthrough) {
         URL.revokeObjectURL(objectUrl);
@@ -327,6 +362,8 @@ function CaptionStream({
         audio.pause();
         objectUrlRef.current = objectUrl;
         audio.src = objectUrl;
+        // Recover backlog without chipmunking: browsers default preservesPitch to true.
+        audio.playbackRate = playbackRateForLag(Date.now() - next.sourceTs);
       } finally {
         await Promise.resolve();
         ignoreAudioErrorRef.current = false;
@@ -346,15 +383,19 @@ function CaptionStream({
     }
   });
 
-  /** Queues a TTS clip URL once (hub may re-send the same caption with audio later). */
-  const enqueueSpokenUrl = useEffectEvent((url: string): void => {
+  /** Queues a TTS clip once (hub may re-send the same caption with audio later). */
+  const enqueueSpokenUrl = useEffectEvent((url: string, sourceTs: number): void => {
     if (!wantAudio || sourcePassthrough) return;
     if (queuedAudioUrlsRef.current.has(url)) return;
     queuedAudioUrlsRef.current.add(url);
-    audioQueueRef.current.push(url);
+    audioQueueRef.current.push({
+      url,
+      sourceTs: Number.isFinite(sourceTs) ? sourceTs : Date.now(),
+    });
+    trimSpokenQueue(Date.now());
     prefetchAudioUrl(url);
     const upcoming = audioQueueRef.current[1];
-    if (upcoming) prefetchAudioUrl(upcoming);
+    if (upcoming) prefetchAudioUrl(upcoming.url);
     void playNextTts();
   });
 
@@ -431,7 +472,7 @@ function CaptionStream({
           );
           setPartial('');
         }
-        if (data.audioUrl) enqueueSpokenUrl(data.audioUrl);
+        if (data.audioUrl) enqueueSpokenUrl(data.audioUrl, data.ts ?? Date.now());
         return;
       }
       // Streaming partials without a stable segment id (rare) — show as interim text.

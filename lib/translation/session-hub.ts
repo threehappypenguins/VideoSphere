@@ -26,12 +26,21 @@ import {
 import { buildRecentSourceContext } from '@/lib/translation/mt-prompt';
 import { repairSermonTranslation } from '@/lib/translation/sermon-source-clarify';
 import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
+import { resolveTtsSpeakingRate } from '@/lib/translation/tts-speaking-rate';
 import { pcm16MonoToWav } from '@/lib/translation/pcm-wav';
 import {
   gcpTtsVoiceForLanguage,
   languageCodeHintFromVoiceName,
 } from '@/lib/translation/gcp-tts-voices';
 import { isNearSilentPcm16, sanitizeSttTranscript } from '@/lib/translation/stt-quality';
+import { mp3DurationMs } from '@/lib/translation/mp3-duration';
+import {
+  createTtsTimingTracker,
+  formatTtsSegmentTiming,
+  formatTtsTimingSummary,
+  isTtsTimingLogEnabled,
+  type TtsTimingTracker,
+} from '@/lib/translation/tts-timing';
 import {
   audioActivityDetectorOptionsFromEnv,
   createAudioActivityDetector,
@@ -127,6 +136,8 @@ type LanguageBucket = {
    * queued so later lines synthesize while earlier ones play; delivery stays ordered.
    */
   ttsJobs: Map<string, Promise<TtsJobResult | null>>;
+  /** Spoken-lag measurements, only populated while `TRANSLATION_TTS_TIMING_LOG` is on. */
+  ttsTiming: TtsTimingTracker | null;
   /** When set, pause translate attempts until this timestamp (OpenRouter 429 backoff). */
   rateLimitedUntil: number;
   rateLimitNotifiedAt: number;
@@ -142,6 +153,8 @@ type TtsJobResult = {
   text: string;
   audioId: string;
   createdAt: number;
+  /** Clip playback duration, measured only when timing instrumentation is enabled. */
+  audioMs: number | null;
 };
 
 type ChannelSession = {
@@ -1024,6 +1037,16 @@ function ensureTtsJob(session: ChannelSession, language: string, segmentId: stri
   const bucket = session.languages.get(language);
   if (!bucket || bucket.ttsJobs.has(segmentId)) return;
 
+  /**
+   * Parses a clip duration when timing logs are on.
+   * Checked at synthesize time (not only when the language bucket was created) so
+   * flipping `TRANSLATION_TTS_TIMING_LOG` after a restart still works for live sessions.
+   * @param bytes - MP3 bytes, when available.
+   * @returns Duration in milliseconds, or null when not measuring.
+   */
+  const measureClipMs = (bytes: Uint8Array | undefined): number | null =>
+    isTtsTimingLogEnabled() && bytes ? mp3DurationMs(bytes) : null;
+
   const job = (async (): Promise<TtsJobResult | null> => {
     const segment = session.segments.find((s) => s.id === segmentId);
     if (!segment) return null;
@@ -1035,6 +1058,7 @@ function ensureTtsJob(session: ChannelSession, language: string, segmentId: stri
         text: translation.text,
         audioId: translation.audioId,
         createdAt: segment.createdAt,
+        audioMs: measureClipMs(session.audioBytes.get(translation.audioId)?.data),
       };
     }
 
@@ -1052,6 +1076,7 @@ function ensureTtsJob(session: ChannelSession, language: string, segmentId: stri
         voiceName,
         languageCode: languageCodeHintFromVoiceName(voiceName) || language,
         text: textForTts,
+        speakingRate: resolveTtsSpeakingRate(language),
       });
       if (mp3.length === 0) return null;
       if (![...(session.languages.get(language)?.subscribers ?? [])].some((s) => s.wantAudio)) {
@@ -1063,6 +1088,7 @@ function ensureTtsJob(session: ChannelSession, language: string, segmentId: stri
           text: textForTts,
           audioId: translation.audioId,
           createdAt,
+          audioMs: measureClipMs(session.audioBytes.get(translation.audioId)?.data),
         };
       }
       const audioId = randomUUID();
@@ -1073,7 +1099,7 @@ function ensureTtsJob(session: ChannelSession, language: string, segmentId: stri
       });
       translation.audioId = audioId;
       pruneAudio(session);
-      return { segmentId, text: textForTts, audioId, createdAt };
+      return { segmentId, text: textForTts, audioId, createdAt, audioMs: measureClipMs(mp3) };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'TTS failed';
       broadcastLanguage(session, language, {
@@ -1086,6 +1112,44 @@ function ensureTtsJob(session: ChannelSession, language: string, segmentId: stri
   })();
 
   bucket.ttsJobs.set(segmentId, job);
+}
+
+/** Spoken clips between aggregate timing summaries. */
+const TTS_TIMING_SUMMARY_EVERY = 20;
+
+/**
+ * Records one delivered clip against the language's lag tracker and logs it.
+ *
+ * A no-op while `TRANSLATION_TTS_TIMING_LOG` is off, and also when a clip's duration could
+ * not be measured because its bytes had already been pruned.
+ * @param bucket - Language bucket holding the tracker.
+ * @param language - Listen language code.
+ * @param result - Delivered TTS job result.
+ * @param broadcastAt - Timestamp the audio URL was sent to listeners.
+ */
+function recordTtsTiming(
+  bucket: LanguageBucket,
+  language: string,
+  result: TtsJobResult,
+  broadcastAt: number
+): void {
+  if (!isTtsTimingLogEnabled() || result.audioMs === null) return;
+  if (!bucket.ttsTiming) {
+    bucket.ttsTiming = createTtsTimingTracker();
+    console.log(`[tts-timing ${language}] measuring spoken lag (TRANSLATION_TTS_TIMING_LOG=on)`);
+  }
+
+  const timing = bucket.ttsTiming.record({
+    createdAt: result.createdAt,
+    broadcastAt,
+    audioMs: result.audioMs,
+  });
+  console.log(formatTtsSegmentTiming(language, timing));
+
+  if (timing.index % TTS_TIMING_SUMMARY_EVERY === 0) {
+    const summary = bucket.ttsTiming.summary();
+    if (summary) console.log(formatTtsTimingSummary(language, summary));
+  }
 }
 
 /**
@@ -1121,6 +1185,7 @@ async function processTtsQueue(session: ChannelSession, language: string): Promi
         bucket.ttsJobs.clear();
         break;
       }
+      const broadcastAt = now();
       broadcastLanguage(session, language, {
         type: 'caption',
         segmentId: result.segmentId,
@@ -1129,6 +1194,7 @@ async function processTtsQueue(session: ChannelSession, language: string): Promi
         audioUrl: `/api/translation/public/audio/${result.audioId}`,
         ts: result.createdAt,
       });
+      recordTtsTiming(bucket, language, result, broadcastAt);
     }
   } finally {
     bucket.ttsBusy = false;
@@ -1613,6 +1679,7 @@ export function subscribePublicListener(params: {
         ttsQueue: [],
         ttsBusy: false,
         ttsJobs: new Map(),
+        ttsTiming: isTtsTimingLogEnabled() ? createTtsTimingTracker() : null,
         rateLimitedUntil: 0,
         rateLimitNotifiedAt: 0,
         consecutiveRateLimits: 0,
@@ -1668,6 +1735,9 @@ export function subscribePublicListener(params: {
       bucket.queue.length = 0;
       bucket.ttsQueue.length = 0;
       bucket.ttsJobs.clear();
+      // Print totals while the tracker still exists — the bucket may be purged after grace.
+      const summary = bucket.ttsTiming?.summary();
+      if (summary) console.log(formatTtsTimingSummary(language, summary));
       scheduleLanguageIdle(session, language);
     }
     if (!sessionHasListeners(session)) {
