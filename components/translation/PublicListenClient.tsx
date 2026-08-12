@@ -12,8 +12,8 @@ import {
 import { Volume2 } from 'lucide-react';
 import type { LiveTranslationPublicMeta } from '@/types';
 import { TranslationLanguageCombobox } from '@/components/translation/TranslationLanguageCombobox';
+import { useRegisterListenNavControls } from '@/components/translation/ListenNavControlsProvider';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import {
   normalizeTranslationLanguageCode,
   resolveTranslationLanguageOption,
@@ -51,6 +51,7 @@ function CaptionStream({
   onLiveChange,
   onMuteSpokenAudio,
   audioUnlockRef,
+  scrollRootRef,
 }: {
   slug: string;
   language: string;
@@ -64,6 +65,8 @@ function CaptionStream({
   onMuteSpokenAudio: () => void;
   /** Parent speaker control calls this inside the click gesture to unlock playback. */
   audioUnlockRef: MutableRefObject<(() => void) | null>;
+  /** Page scroll container used for mid-viewport follow and “near bottom” detection. */
+  scrollRootRef: MutableRefObject<HTMLElement | null>;
 }) {
   const [lines, setLines] = useState<CaptionLine[]>([]);
   const [partial, setPartial] = useState('');
@@ -464,35 +467,36 @@ function CaptionStream({
     };
   }, [slug, language, wantAudio, audioAvailable, sourcePassthrough]);
 
-  const listRef = useRef<HTMLOListElement>(null);
   const latestRef = useRef<HTMLLIElement>(null);
   /** When true, new captions keep the latest line pinned near mid-viewport. */
   const followLatestRef = useRef(true);
   const [followPadPx, setFollowPadPx] = useState(0);
+  const hasCaptions = lines.length > 0 || Boolean(partial);
 
   useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
+    const root = scrollRootRef.current;
+    if (!root) return;
     const syncPad = () => {
-      setFollowPadPx(Math.round(list.clientHeight * 0.5));
+      // Only reserve mid-viewport space once there is a live line to pin.
+      setFollowPadPx(hasCaptions ? Math.round(root.clientHeight * 0.5) : 0);
     };
     syncPad();
     const ro = new ResizeObserver(syncPad);
-    ro.observe(list);
+    ro.observe(root);
     return () => ro.disconnect();
-  }, []);
+  }, [scrollRootRef, hasCaptions]);
 
   useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
+    const root = scrollRootRef.current;
+    if (!root) return;
     const onScroll = () => {
-      // Follow zone ≈ mid-screen pin: leave ~half the list height below the live edge.
-      const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
-      followLatestRef.current = distanceFromBottom < list.clientHeight * 0.55;
+      // Only auto-follow when the user is already near the bottom of the page.
+      const distanceFromBottom = root.scrollHeight - root.scrollTop - root.clientHeight;
+      followLatestRef.current = distanceFromBottom < 80;
     };
-    list.addEventListener('scroll', onScroll, { passive: true });
-    return () => list.removeEventListener('scroll', onScroll);
-  }, []);
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => root.removeEventListener('scroll', onScroll);
+  }, [scrollRootRef]);
 
   useEffect(() => {
     if (!followLatestRef.current) return;
@@ -502,13 +506,13 @@ function CaptionStream({
   const lastLineId = lines.length > 0 ? lines[lines.length - 1]!.id : null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex flex-col gap-3">
       {streamError ? <p className="text-muted-foreground text-xs">{streamError}</p> : null}
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- captions rendered as page text */}
       <audio ref={audioRef} className="hidden" playsInline preload="auto" />
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- silent loop for Android audio focus */}
       <audio ref={keepAliveRef} className="hidden" playsInline loop preload="auto" />
-      <ol ref={listRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <ol className="flex flex-col gap-3">
         {lines.length === 0 && !partial && live ? (
           <li className="text-muted-foreground text-sm">
             Listening… captions appear as speech is detected.
@@ -544,10 +548,20 @@ function CaptionStream({
 
 /**
  * Public listen UI: language picker, live captions, optional spoken audio when configured.
- * @param props - Public channel meta from the server.
+ * @param props - Public channel meta and optional SSR language from the preference cookie.
  * @returns Listen page client UI.
  */
-export function PublicListenClient({ meta }: { meta: LiveTranslationPublicMeta }) {
+export function PublicListenClient({
+  meta,
+  initialLanguage = null,
+}: {
+  meta: LiveTranslationPublicMeta;
+  /**
+   * Language restored from the preference cookie on the server so the first paint
+   * matches the listener’s last choice (avoids a “Select a language…” flash).
+   */
+  initialLanguage?: string | null;
+}) {
   const languageOptions = useMemo(() => {
     const codes = [...new Set([meta.sourceLanguage, ...meta.enabledLanguages])];
     return codes
@@ -555,30 +569,37 @@ export function PublicListenClient({ meta }: { meta: LiveTranslationPublicMeta }
       .filter((o): o is NonNullable<typeof o> => Boolean(o));
   }, [meta.sourceLanguage, meta.enabledLanguages]);
 
-  // Client-only: SSR/hydration stay null; localStorage applies after mount without an effect setState.
-  const isClient = useSyncExternalStore(
-    () => () => undefined,
-    () => true,
-    () => false
+  const allowedLanguageCodes = useMemo(
+    () =>
+      new Set(
+        [meta.sourceLanguage, ...meta.enabledLanguages].map((c) =>
+          normalizeTranslationLanguageCode(c)
+        )
+      ),
+    [meta.sourceLanguage, meta.enabledLanguages]
   );
-  const restoredLanguage = useMemo(() => {
-    if (!isClient) return null;
-    const allowed = new Set(
-      [meta.sourceLanguage, ...meta.enabledLanguages].map((c) =>
-        normalizeTranslationLanguageCode(c)
-      )
-    );
-    const saved = readListenLanguagePreference(meta.slug);
-    const fromStore = saved ? normalizeTranslationLanguageCode(saved) : null;
-    return fromStore && allowed.has(fromStore) ? fromStore : null;
-  }, [isClient, meta.slug, meta.sourceLanguage, meta.enabledLanguages]);
 
   const [languageSelection, setLanguageSelection] = useState<{
     slug: string;
     code: string;
-  } | null>(null);
-  const language =
-    languageSelection?.slug === meta.slug ? languageSelection.code : restoredLanguage;
+  } | null>(() => {
+    if (!initialLanguage) return null;
+    const code = normalizeTranslationLanguageCode(initialLanguage);
+    return allowedLanguageCodes.has(code) ? { slug: meta.slug, code } : null;
+  });
+
+  // Migrate older localStorage-only prefs without setState-in-effect (cookie SSR is preferred).
+  const storedLanguage = useSyncExternalStore(
+    () => () => undefined,
+    () => {
+      const saved = readListenLanguagePreference(meta.slug);
+      const code = saved ? normalizeTranslationLanguageCode(saved) : null;
+      return code && allowedLanguageCodes.has(code) ? code : null;
+    },
+    () => null
+  );
+
+  const language = languageSelection?.slug === meta.slug ? languageSelection.code : storedLanguage;
   const setLanguage = (code: string) => {
     setLanguageSelection({ slug: meta.slug, code });
   };
@@ -586,11 +607,10 @@ export function PublicListenClient({ meta }: { meta: LiveTranslationPublicMeta }
   const [live, setLive] = useState(meta.live);
   const [wantAudioRequested, setWantAudioRequested] = useState(false);
   const audioUnlockRef = useRef<(() => void) | null>(null);
+  const scrollRootRef = useRef<HTMLDivElement | null>(null);
 
   // Keep the screen awake while live captions are on screen (HTTPS required).
-  const { status: wakeLockStatus, armFromUserGesture: armScreenWakeLock } = useScreenWakeLock(
-    Boolean(language && live)
-  );
+  const { armFromUserGesture: armScreenWakeLock } = useScreenWakeLock(Boolean(language && live));
 
   // Re-arm on any tap if the browser needed a gesture or released the lock.
   useEffect(() => {
@@ -619,10 +639,31 @@ export function PublicListenClient({ meta }: { meta: LiveTranslationPublicMeta }
       normalizeTranslationLanguageCode(meta.sourceLanguage)
   );
 
+  useRegisterListenNavControls(
+    languageOptions.length === 0
+      ? null
+      : {
+          languageOptions,
+          language: language ?? '',
+          onLanguageChange: (next: string) => {
+            armScreenWakeLock();
+            setLanguage(next);
+          },
+          audioAvailable: audioAvailableForLanguage,
+          wantAudio,
+          onToggleAudio: () => {
+            armScreenWakeLock();
+            const enabling = !wantAudioRequested;
+            if (enabling) audioUnlockRef.current?.();
+            setWantAudioRequested(enabling);
+          },
+        }
+  );
+
   if (languageOptions.length === 0) {
     return (
-      <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center px-4 py-10">
-        <p className="text-muted-foreground text-center text-sm">
+      <div className="mx-auto flex h-full min-h-0 w-full max-w-lg flex-col justify-center px-4 py-10">
+        <p className="text-muted-foreground text-center text-sm text-shadow-bg">
           No languages are configured for this channel.
         </p>
       </div>
@@ -630,105 +671,77 @@ export function PublicListenClient({ meta }: { meta: LiveTranslationPublicMeta }
   }
 
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-lg flex-col overflow-hidden px-4 py-6">
-      <header className="mb-6 shrink-0 space-y-1">
-        <p className="text-muted-foreground text-xs tracking-[0.2em] uppercase">VideoSphere</p>
-        <h1 className="text-2xl font-semibold tracking-tight">Live audio translation</h1>
+    <div ref={scrollRootRef} className="flex h-full min-h-0 flex-col overflow-y-auto">
+      <header className="mx-auto w-full max-w-lg shrink-0 space-y-1 px-4 pt-6 pb-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+          Live audio translation
+        </h1>
         {live ? (
-          <p className="text-muted-foreground text-sm">Live now</p>
+          <p className="text-muted-foreground text-sm text-shadow-bg">Live now</p>
         ) : (
-          <p className="text-muted-foreground text-sm">There is currently no audio input.</p>
+          <p className="text-muted-foreground text-sm text-shadow-bg">
+            There is currently no audio input.
+          </p>
         )}
       </header>
 
-      <div className="mb-4 shrink-0 space-y-2">
-        <Label htmlFor="listen-language">Language</Label>
-        <div className="flex items-center gap-2">
-          <TranslationLanguageCombobox
-            id="listen-language"
-            className="min-w-0 flex-1"
-            listLabel="Available languages"
-            labelStyle="public"
-            options={languageOptions}
-            value={language ?? ''}
-            onValueChange={(next) => {
-              armScreenWakeLock();
-              setLanguage(next);
-            }}
-          />
-          {language && audioAvailableForLanguage ? (
-            <Button
-              type="button"
-              variant={wantAudio ? 'default' : 'outline'}
-              size="icon"
-              className="size-11 shrink-0"
-              aria-pressed={wantAudio}
-              aria-label={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
-              title={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
-              onClick={() => {
+      <div className="shrink-0 px-4 py-3">
+        <div className="mx-auto flex w-full max-w-lg flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <TranslationLanguageCombobox
+              id="listen-language"
+              className="min-w-0 flex-1"
+              listLabel="Available languages"
+              labelStyle="public"
+              options={languageOptions}
+              value={language ?? ''}
+              onValueChange={(next) => {
                 armScreenWakeLock();
-                const enabling = !wantAudioRequested;
-                // Unlock must run in this click gesture (before React effects re-run).
-                if (enabling) audioUnlockRef.current?.();
-                setWantAudioRequested(enabling);
+                setLanguage(next);
               }}
-            >
-              <Volume2 className="size-5" aria-hidden="true" />
-            </Button>
-          ) : null}
+            />
+            {language && audioAvailableForLanguage ? (
+              <Button
+                type="button"
+                variant={wantAudio ? 'default' : 'outline'}
+                size="icon"
+                className="size-11 shrink-0"
+                aria-pressed={wantAudio}
+                aria-label={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
+                title={wantAudio ? 'Mute spoken audio' : 'Play spoken audio'}
+                onClick={() => {
+                  armScreenWakeLock();
+                  const enabling = !wantAudioRequested;
+                  // Unlock must run in this click gesture (before React effects re-run).
+                  if (enabling) audioUnlockRef.current?.();
+                  setWantAudioRequested(enabling);
+                }}
+              >
+                <Volume2 className="size-5" aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
         </div>
-        {!language ? (
-          <p className="text-muted-foreground text-xs">Select a language to follow captions.</p>
-        ) : !live ? (
-          <p className="text-muted-foreground text-xs">
-            Latest captions stay on screen. New lines appear when audio starts again.
-          </p>
-        ) : wantAudio ? (
-          <div className="text-muted-foreground space-y-1 text-xs">
-            <p>
-              {sourcePassthrough
-                ? 'Playing live source audio. With screen off, leave this tab open in Chrome.'
-                : 'With screen off, leave this tab open in Chrome.'}
-            </p>
-            <p>
-              On Samsung: Chrome → App info → Battery → Unrestricted (otherwise audio may stop after
-              a few seconds).
-            </p>
-          </div>
-        ) : null}
-        {language && live && wakeLockStatus === 'insecure' ? (
-          <div className="bg-muted/60 space-y-2 rounded-md px-3 py-2 text-xs">
-            <p>
-              This page is not HTTPS, so the screen cannot stay on (common when opening a LAN IP
-              like <code className="text-[0.7rem]">http://192.168.…</code>).
-            </p>
-            <p className="text-muted-foreground">
-              On the server, run <code className="text-[0.7rem]">pnpm dev:https</code>, then open
-              this listen URL with <code className="text-[0.7rem]">https://</code> (accept the
-              certificate warning once).
-            </p>
-          </div>
-        ) : null}
       </div>
 
-      {!language ? (
-        <ol className="flex flex-1 flex-col gap-3 overflow-y-auto pb-8">
-          <li className="text-muted-foreground text-sm">Choose a language above to start.</li>
-        </ol>
-      ) : (
-        <CaptionStream
-          key={language}
-          slug={meta.slug}
-          language={language}
-          live={live}
-          wantAudio={wantAudio}
-          audioAvailable={audioAvailableForLanguage}
-          sourcePassthrough={sourcePassthrough}
-          onLiveChange={setLive}
-          onMuteSpokenAudio={() => setWantAudioRequested(false)}
-          audioUnlockRef={audioUnlockRef}
-        />
-      )}
+      {/* flex-1 fills remaining viewport on first paint; taller caption lists still grow and scroll. */}
+      <div className="mx-2 mb-2 mt-3 flex flex-1 flex-col rounded-xl border border-border bg-background/65 p-4 backdrop-blur-sm sm:mx-auto sm:w-full sm:max-w-lg">
+        {language ? (
+          <CaptionStream
+            key={language}
+            slug={meta.slug}
+            language={language}
+            live={live}
+            wantAudio={wantAudio}
+            audioAvailable={audioAvailableForLanguage}
+            sourcePassthrough={sourcePassthrough}
+            onLiveChange={setLive}
+            onMuteSpokenAudio={() => setWantAudioRequested(false)}
+            audioUnlockRef={audioUnlockRef}
+            scrollRootRef={scrollRootRef}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

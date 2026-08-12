@@ -12,7 +12,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, Languages } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
   filterTranslationLanguages,
@@ -70,6 +70,12 @@ export function TranslationLanguageCombobox(props: {
   className?: string;
   /** Placeholder when no language is selected. */
   placeholder?: string;
+  /**
+   * Trigger presentation.
+   * - `label`: full-width labeled combobox (default)
+   * - `icon`: compact Languages glyph for navbar chrome
+   */
+  triggerMode?: 'label' | 'icon';
 }) {
   const {
     options,
@@ -80,6 +86,7 @@ export function TranslationLanguageCombobox(props: {
     labelStyle = 'public',
     className,
     placeholder = 'Select a language…',
+    triggerMode = 'label',
   } = props;
 
   const listboxId = useId();
@@ -128,11 +135,16 @@ export function TranslationLanguageCombobox(props: {
     const spaceAbove = rect.top - gutter;
     const openUpward = spaceBelow < 160 && spaceAbove > spaceBelow;
     const height = Math.min(maxHeight, openUpward ? spaceAbove : spaceBelow);
+    const isIcon = triggerMode === 'icon';
+    const width = isIcon ? Math.min(320, window.innerWidth - gutter * 2) : Math.max(rect.width, 12);
+    const left = isIcon
+      ? Math.max(gutter, Math.min(rect.right - width, window.innerWidth - gutter - width))
+      : rect.left;
 
     setPanelStyle({
       position: 'fixed',
-      left: rect.left,
-      width: rect.width,
+      left,
+      width,
       zIndex: 1000,
       maxHeight: height,
       ...(openUpward
@@ -156,7 +168,8 @@ export function TranslationLanguageCombobox(props: {
       window.removeEventListener('resize', onReposition);
       window.removeEventListener('scroll', onReposition, true);
     };
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- updatePanelPosition reads triggerMode/DOM
+  }, [open, triggerMode]);
 
   /**
    * Closes the panel and clears ephemeral search/highlight state.
@@ -337,31 +350,53 @@ export function TranslationLanguageCombobox(props: {
         )
       : null;
 
+  const iconAriaLabel = selectedLabel
+    ? `Language: ${selectedLabel}`
+    : placeholder || 'Select a language';
+
   return (
     <div className={cn('relative', className)}>
-      <button
-        ref={triggerRef}
-        id={id}
-        type="button"
-        role="combobox"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={open ? listboxId : undefined}
-        className={cn(
-          'border-input bg-background ring-offset-background focus:ring-ring flex h-11 w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none',
-          !selectedLabel && 'text-muted-foreground'
-        )}
-        onClick={toggleOpen}
-      >
-        <span className="min-w-0 flex-1 truncate">{selectedLabel || placeholder}</span>
-        <ChevronDown
+      {triggerMode === 'icon' ? (
+        <button
+          ref={triggerRef}
+          id={id}
+          type="button"
+          role="combobox"
+          aria-label={iconAriaLabel}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={open ? listboxId : undefined}
+          title={iconAriaLabel}
+          className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+          onClick={toggleOpen}
+        >
+          <Languages className="h-5 w-5" aria-hidden="true" />
+        </button>
+      ) : (
+        <button
+          ref={triggerRef}
+          id={id}
+          type="button"
+          role="combobox"
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-controls={open ? listboxId : undefined}
           className={cn(
-            'ml-2 h-4 w-4 shrink-0 opacity-50 transition-transform',
-            open && 'rotate-180'
+            'border-input bg-background ring-offset-background focus:ring-ring flex h-11 w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm focus:ring-2 focus:ring-offset-2 focus:outline-none',
+            !selectedLabel && 'text-muted-foreground'
           )}
-          aria-hidden="true"
-        />
-      </button>
+          onClick={toggleOpen}
+        >
+          <span className="min-w-0 flex-1 truncate">{selectedLabel || placeholder}</span>
+          <ChevronDown
+            className={cn(
+              'ml-2 h-4 w-4 shrink-0 opacity-50 transition-transform',
+              open && 'rotate-180'
+            )}
+            aria-hidden="true"
+          />
+        </button>
+      )}
       {panel}
     </div>
   );

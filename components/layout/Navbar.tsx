@@ -22,6 +22,7 @@ import {
 } from '@/lib/ui/background-preference';
 import { DashboardNavMenuIcon } from '@/components/dashboard/dashboard-nav-shared';
 import { useDashboardNav } from '@/components/dashboard/DashboardNavProvider';
+import { ListenNavBarControls } from '@/components/translation/ListenNavBarControls';
 
 const THEME_OPTIONS = [
   { value: 'system' as const, label: 'System', Icon: ComputerDesktopIcon },
@@ -154,6 +155,16 @@ interface NavbarProps {
   initialSessionUser?: SessionUser | null;
   /** When true, hide sign-in links until first-run admin setup is complete. */
   initialFirstRunPending?: boolean;
+  /**
+   * Public listen chrome: theme controls only (no login, no mobile menu).
+   * Wordmark links to {@link wordmarkHref} or the current `/listen/...` path.
+   */
+  variant?: 'default' | 'public';
+  /**
+   * Destination for the VideoSphere wordmark.
+   * @default '/' for default variant; current pathname for public `/listen/...` routes
+   */
+  wordmarkHref?: string;
 }
 
 /**
@@ -164,12 +175,17 @@ interface NavbarProps {
 export default function Navbar({
   initialSessionUser,
   initialFirstRunPending = false,
+  variant = 'default',
+  wordmarkHref,
 }: NavbarProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const isPublicChrome = variant === 'public';
+  const resolvedWordmarkHref =
+    wordmarkHref ?? (isPublicChrome && pathname.startsWith('/listen/') ? pathname : '/');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<SessionUser | null | 'loading'>(
-    initialSessionUser === undefined ? 'loading' : initialSessionUser
+    isPublicChrome ? null : initialSessionUser === undefined ? 'loading' : initialSessionUser
   );
   const [themeDropdownOpen, setThemeDropdownOpen] = useState<ThemeDropdownPlace>(false);
   const [grainEnabled, setGrainEnabled] = useState(() => getBackgroundGrainEnabled());
@@ -186,6 +202,7 @@ export default function Navbar({
   // Re-fetch session when route changes so client-side redirects (e.g. after email/password login) pick up the new session.
   // AbortController ensures a slower response from a previous route cannot overwrite state (e.g. pre-login 401 after post-login 200).
   useEffect(() => {
+    if (isPublicChrome) return;
     const controller = new AbortController();
     fetch('/api/auth/session', {
       credentials: 'include',
@@ -204,7 +221,7 @@ export default function Navbar({
         setSessionUser(null);
       });
     return () => controller.abort();
-  }, [pathname]);
+  }, [pathname, isPublicChrome]);
 
   useEffect(() => {
     if (!themeDropdownOpen) return;
@@ -270,8 +287,8 @@ export default function Navbar({
               </button>
             ) : null}
             <Link
-              href="/"
-              aria-current={pathname === '/' ? 'page' : undefined}
+              href={resolvedWordmarkHref}
+              aria-current={pathname === resolvedWordmarkHref ? 'page' : undefined}
               className="flex min-w-0 items-center gap-2"
             >
               <Image
@@ -285,115 +302,124 @@ export default function Navbar({
             </Link>
           </div>
 
-          {/* --- Desktop nav --- */}
-          <div className="hidden items-center gap-4 md:flex">
-            {sessionUser === 'loading' ? (
-              <span className="text-sm text-muted-foreground" aria-hidden>
-                …
-              </span>
-            ) : isLoggedIn ? (
-              <>
-                <Link
-                  href="/dashboard"
-                  aria-current={pathname.startsWith('/dashboard') ? 'page' : undefined}
-                  className={primaryNavLinkClassName(pathname.startsWith('/dashboard'))}
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/profile"
-                  aria-current={pathname.startsWith('/profile') ? 'page' : undefined}
-                  className={primaryNavLinkClassName(pathname.startsWith('/profile'))}
-                >
-                  Profile
-                </Link>
+          {/* --- Right controls --- */}
+          <div className="flex items-center gap-1 md:gap-4">
+            {isPublicChrome ? <ListenNavBarControls /> : null}
+
+            {/* --- Desktop nav --- */}
+            <div className="hidden items-center gap-4 md:flex">
+              {!isPublicChrome ? (
+                sessionUser === 'loading' ? (
+                  <span className="text-sm text-muted-foreground" aria-hidden>
+                    …
+                  </span>
+                ) : isLoggedIn ? (
+                  <>
+                    <Link
+                      href="/dashboard"
+                      aria-current={pathname.startsWith('/dashboard') ? 'page' : undefined}
+                      className={primaryNavLinkClassName(pathname.startsWith('/dashboard'))}
+                    >
+                      Dashboard
+                    </Link>
+                    <Link
+                      href="/profile"
+                      aria-current={pathname.startsWith('/profile') ? 'page' : undefined}
+                      className={primaryNavLinkClassName(pathname.startsWith('/profile'))}
+                    >
+                      Profile
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className={primaryNavActionClassName()}
+                    >
+                      Log out
+                    </button>
+                  </>
+                ) : showSignInLinks ? (
+                  <Link href="/login" className={primaryNavActionClassName()}>
+                    Log in
+                  </Link>
+                ) : null
+              ) : null}
+
+              <ThemeDropdown
+                containerRef={desktopThemeRef}
+                isOpen={themeDropdownOpen === 'desktop'}
+                onToggle={() =>
+                  setThemeDropdownOpen(themeDropdownOpen === 'desktop' ? false : 'desktop')
+                }
+                onClose={() => setThemeDropdownOpen(false)}
+                theme={theme}
+                setTheme={setTheme}
+                grainEnabled={grainEnabled}
+                onToggleGrain={handleToggleGrain}
+                resolvedTheme={resolvedTheme}
+                mounted={mounted}
+                dropdownClassName="right-0"
+              />
+            </div>
+
+            {/* --- Mobile controls (theme rightmost) --- */}
+            <div className="flex items-center gap-1 md:hidden">
+              {!isPublicChrome ? (
                 <button
                   type="button"
-                  onClick={handleLogout}
-                  className={primaryNavActionClassName()}
+                  className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  aria-expanded={mobileMenuOpen ? 'true' : 'false'}
+                  aria-label="Toggle navigation menu"
+                  aria-controls="site-navigation-mobile-menu"
                 >
-                  Log out
+                  {mobileMenuOpen ? (
+                    <svg
+                      className="h-6 w-6"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="h-6 w-6"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                      />
+                    </svg>
+                  )}
                 </button>
-              </>
-            ) : showSignInLinks ? (
-              <Link href="/login" className={primaryNavActionClassName()}>
-                Log in
-              </Link>
-            ) : null}
-
-            <ThemeDropdown
-              containerRef={desktopThemeRef}
-              isOpen={themeDropdownOpen === 'desktop'}
-              onToggle={() =>
-                setThemeDropdownOpen(themeDropdownOpen === 'desktop' ? false : 'desktop')
-              }
-              onClose={() => setThemeDropdownOpen(false)}
-              theme={theme}
-              setTheme={setTheme}
-              grainEnabled={grainEnabled}
-              onToggleGrain={handleToggleGrain}
-              resolvedTheme={resolvedTheme}
-              mounted={mounted}
-              dropdownClassName="right-0"
-            />
-          </div>
-
-          {/* --- Mobile controls (theme rightmost) --- */}
-          <div className="flex items-center gap-1 md:hidden">
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground hover:text-foreground"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-expanded={mobileMenuOpen ? 'true' : 'false'}
-              aria-label="Toggle navigation menu"
-              aria-controls="site-navigation-mobile-menu"
-            >
-              {mobileMenuOpen ? (
-                <svg
-                  className="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg
-                  className="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-                  />
-                </svg>
-              )}
-            </button>
-            <ThemeDropdown
-              containerRef={mobileThemeRef}
-              isOpen={themeDropdownOpen === 'mobile'}
-              onToggle={() =>
-                setThemeDropdownOpen(themeDropdownOpen === 'mobile' ? false : 'mobile')
-              }
-              onClose={() => setThemeDropdownOpen(false)}
-              theme={theme}
-              setTheme={setTheme}
-              grainEnabled={grainEnabled}
-              onToggleGrain={handleToggleGrain}
-              resolvedTheme={resolvedTheme}
-              mounted={mounted}
-              dropdownClassName="right-0"
-            />
+              ) : null}
+              <ThemeDropdown
+                containerRef={mobileThemeRef}
+                isOpen={themeDropdownOpen === 'mobile'}
+                onToggle={() =>
+                  setThemeDropdownOpen(themeDropdownOpen === 'mobile' ? false : 'mobile')
+                }
+                onClose={() => setThemeDropdownOpen(false)}
+                theme={theme}
+                setTheme={setTheme}
+                grainEnabled={grainEnabled}
+                onToggleGrain={handleToggleGrain}
+                resolvedTheme={resolvedTheme}
+                mounted={mounted}
+                dropdownClassName="right-0"
+              />
+            </div>
           </div>
         </div>
 
         {/* --- Mobile Menu --- */}
-        {mobileMenuOpen && (
+        {!isPublicChrome && mobileMenuOpen ? (
           <div id="site-navigation-mobile-menu" className="border-t border-border pb-4 md:hidden">
             <div className="flex flex-col gap-2 pt-4">
               {sessionUser === null && showSignInLinks && <hr className="my-2 border-border" />}
@@ -436,7 +462,7 @@ export default function Navbar({
               ) : null}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </nav>
   );

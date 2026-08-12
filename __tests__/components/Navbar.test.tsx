@@ -163,4 +163,29 @@ describe('Navbar admin link visibility', () => {
     expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Profile' })).toBeInTheDocument();
   });
+
+  it('public variant hides auth links and mobile menu; wordmark stays on listen slug', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    mockPathname.mockReturnValue('/listen/demo-church');
+
+    render(<Navbar variant="public" />);
+
+    expect(screen.queryByRole('link', { name: 'Log in' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Toggle navigation menu' })
+    ).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const wordmark = screen.getByRole('link', { name: /VideoSphere/i });
+    expect(wordmark).toHaveAttribute('href', '/listen/demo-church');
+    expect(wordmark).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('public variant does not show listen icons until controls are registered', () => {
+    mockPathname.mockReturnValue('/listen/demo-church');
+    render(<Navbar variant="public" />);
+    expect(screen.queryByRole('combobox', { name: /language/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /spoken audio/i })).not.toBeInTheDocument();
+  });
 });
