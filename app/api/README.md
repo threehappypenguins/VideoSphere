@@ -13,7 +13,7 @@ This directory contains Next.js App Router route handlers (`route.ts` files).
 | `/api/youtube-import/*` | Resolve URL, preview, start/run import jobs |
 | `/api/platforms/*` | Connect/callback flows and platform metadata helpers |
 | `/api/livestreams/*` | Livestream CRUD, schedule, thumbnails |
-| `/api/ai/generate-metadata` | AI metadata generation (OpenRouter) |
+| `/api/translation/*` | Per-user live audio translation (ingest, public SSE, credentials) |
 | `/api/admin/*` | Users, invites, stats |
 
 For handler patterns and HTTP conventions, see [docs/api-routes.md](/docs/api-routes.md).

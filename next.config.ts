@@ -24,11 +24,23 @@ const platformSvgTurbopackRules: NonNullable<NextConfig['turbopack']>['rules'][s
   },
 ];
 
+/**
+ * Hostnames allowed to request Next.js *dev* internals (HMR, fonts, etc.) when
+ * browsing via a LAN IP instead of localhost. Not related to app auth.
+ * Set `ALLOWED_DEV_ORIGINS=192.168.1.51` (comma-separated) in `.env.local`.
+ */
+const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
   output: 'standalone', // required for Docker (produces server.js)
+  ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
   // Mongoose/MongoDB use Node built-ins (net, tls, etc.); must not be webpack-bundled
   // for instrumentation or other server entry points.
-  serverExternalPackages: ['mongoose', 'mongodb', 'ssh2'],
+  // `ws` optional natives (bufferutil) break when webpack/Turbopack bundle the package.
+  serverExternalPackages: ['mongoose', 'mongodb', 'ssh2', 'ws', 'bufferutil', 'utf-8-validate'],
   async headers() {
     return [
       {
@@ -37,6 +49,11 @@ const nextConfig: NextConfig = {
           {
             key: 'Referrer-Policy',
             value: 'strict-origin-when-cross-origin',
+          },
+          {
+            // Allow Screen Wake Lock on the listen page (Chrome Android / Samsung).
+            key: 'Permissions-Policy',
+            value: 'screen-wake-lock=(self)',
           },
         ],
       },

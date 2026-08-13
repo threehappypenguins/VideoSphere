@@ -22,7 +22,7 @@ Pin a specific tag instead of `latest` when you want controlled rollouts.
 - [Cloudflare R2](/setup/r2/r2-module) bucket for temporary media staging
 - Platform OAuth credentials — [Google OAuth](/setup/google/google-oauth) (sign-in, YouTube, Google Drive), [Vimeo OAuth](/setup/vimeo/vimeo-oauth), [Facebook OAuth](/setup/facebook/fb-oauth)
 - Per-user connection credentials entered in the app — [SermonAudio API](/setup/sermon-audio/sa-api), SFTP host/auth, SMB share credentials
-- OpenRouter API key for AI metadata generation (optional)
+- Optional MediaMTX sidecar only if you want RTMP ingest for live audio translation (browser mic works without it)
 
 ## Required Environment Variables
 
@@ -46,7 +46,7 @@ Email/password login works without Google OAuth. Add platform keys only when you
 - `VIMEO_CLIENT_ID` / `VIMEO_CLIENT_SECRET`
 - `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET`
 - `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET`
-- `OPENROUTER_API_KEY` (and optional `OPENROUTER_MODEL`, timeout overrides)
+- `TRANSLATION_RTMP_PUBLIC_HOST` / `TRANSLATION_RTMP_PATH_PREFIX` only when enabling optional MediaMTX RTMP ingest
 
 The app builds `MONGODB_URI` automatically when you use the stack templates below. If you run MongoDB separately, set `MONGODB_URI` yourself.
 

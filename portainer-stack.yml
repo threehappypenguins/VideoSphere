@@ -28,7 +28,11 @@
 #   VIMEO_CLIENT_ID / VIMEO_CLIENT_SECRET
 #   FACEBOOK_APP_ID / FACEBOOK_APP_SECRET
 #   GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET
-#   OPENROUTER_API_KEY (AI metadata)
+# Optional — live audio translation RTMP ingest (browser mic works without this):
+#   TRANSLATION_RTMP_PUBLIC_HOST   e.g. 192.168.1.38:1935 or rtmp://my.host:1935
+#   TRANSLATION_RTMP_PATH_PREFIX   defaults to live
+# Uncomment the mediamtx service below when you want OBS/RTMP ingest.
+# Per-user OpenRouter / GCP keys are configured in the app UI (not stack env).
 #
 # Add optional keys as stack environment variables only when you use that feature.
 #
@@ -94,15 +98,39 @@ services:
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       GOOGLE_DRIVE_CLIENT_ID: ${GOOGLE_DRIVE_CLIENT_ID:-}
       GOOGLE_DRIVE_CLIENT_SECRET: ${GOOGLE_DRIVE_CLIENT_SECRET:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
-      OPENROUTER_FETCH_TIMEOUT_MS: ${OPENROUTER_FETCH_TIMEOUT_MS:-}
+      TRANSLATION_RTMP_PUBLIC_HOST: ${TRANSLATION_RTMP_PUBLIC_HOST:-}
+      TRANSLATION_RTMP_PATH_PREFIX: ${TRANSLATION_RTMP_PATH_PREFIX:-live}
       PLATFORM_UPLOAD_TIMEOUT_MS: ${PLATFORM_UPLOAD_TIMEOUT_MS:-}
       UPLOAD_STALE_RECONCILE_MS: ${UPLOAD_STALE_RECONCILE_MS:-}
       UPLOAD_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS: ${UPLOAD_SERMONAUDIO_UNPUBLISHED_STALE_RECONCILE_MS:-}
     depends_on:
       mongo:
         condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # OPTIONAL — MediaMTX for RTMP audio ingest (live audio translation)
+  # Uncomment this entire service only if you need OBS/RTMP instead of (or in
+  # addition to) the in-app "Add audio" microphone capture.
+  # Also set TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://mediamtx:8554 on the app
+  # (required with TRANSLATION_RTMP_PUBLIC_HOST — the Translation page probes
+  # MediaMTX and only then shows stream-key controls).
+  # Default installs should leave this commented so no extra container runs.
+  # ---------------------------------------------------------------------------
+  # mediamtx:
+  #   image: bluenviron/mediamtx:latest
+  #   container_name: videosphere-mediamtx
+  #   restart: unless-stopped
+  #   ports:
+  #     - '1935:1935'   # RTMP
+  #     - '8554:8554'   # RTSP (app pulls PCM for STT)
+  #     - '8888:8888'   # HLS
+  #   environment:
+  #     MTX_RTMP: 'yes'
+  #     MTX_RTSP: 'yes'
+  #     MTX_AUTHMETHOD: http
+  #     MTX_AUTHHTTPADDRESS: http://app:9624/api/translation/rtmp/auth
+  #   depends_on:
+  #     - app
 
   mongo:
     image: mongo:8

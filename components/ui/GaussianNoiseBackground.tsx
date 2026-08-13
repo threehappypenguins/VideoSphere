@@ -22,6 +22,8 @@ export const PAGE_SEEDS: Record<string, number> = {
   // Profile
   '/profile': 256,
   '/profile/connections': 1345,
+  // Public listen
+  '/listen': 1947,
 };
 
 /** Prefix route keys sorted longest-first for deterministic nested path matching. */

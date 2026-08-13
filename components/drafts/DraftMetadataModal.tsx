@@ -6,18 +6,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import {
-  ChevronDown,
-  ChevronRight,
-  CircleCheck,
-  Loader2,
-  Redo2,
-  Sparkles,
-  Square,
-  Trash2,
-  Undo2,
-} from 'lucide-react';
-import { createSseParser } from '@/lib/ai/sse-utils';
+import { ChevronDown, ChevronRight, CircleCheck, Loader2, Trash2 } from 'lucide-react';
 import { validateDraftForUpload, type DraftUploadFieldKey } from '@/lib/draft-upload-validation';
 import { mergeSermonAudioDefaultFields } from '@/lib/platforms/sermon-audio-event-types';
 import type { SermonAudioLanguageOption } from '@/lib/platforms/sermon-audio-languages';
@@ -517,7 +506,6 @@ interface DraftMetadataModalProps {
   onUploadComplete?: () => Promise<void> | void;
   onDelete?: (draftId: string) => Promise<boolean>;
   onChange: (next: DraftEditorValues) => void;
-  canUseAiMetadata?: boolean;
   /** Saved label library for chip colors in the label editor. */
   labelLibrary?: DraftLabelDefinition[];
   /** Called when the label library changes during editing (for example, color updates). */
@@ -572,27 +560,6 @@ function setCachedUploadHistory(
 }
 
 /** Extract best-effort partial field values from a partially-assembled JSON string. */
-function extractPartialAiFields(raw: string): {
-  title: string;
-  description: string;
-  tags: string[];
-} {
-  const unescape = (s: string) =>
-    s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"');
-  const titleM = raw.match(/"title"\s*:\s*"((?:[^"\\]|\\.)*)/u);
-  const title = titleM ? unescape(titleM[1]) : '';
-  const descM = raw.match(/"description"\s*:\s*"((?:[^"\\]|\\.)*)/u);
-  const description = descM ? unescape(descM[1]) : '';
-  const tagsArrayM = raw.match(/"tags"\s*:\s*\[([^\]]*)/u);
-  const tags: string[] = [];
-  if (tagsArrayM) {
-    for (const m of tagsArrayM[1].matchAll(/"((?:[^"\\]|\\.)*)"/gu)) {
-      tags.push(unescape(m[1]));
-    }
-  }
-  return { title, description, tags };
-}
-
 /**
  * Renders the draft metadata modal component.
  * @param props - Component props.
@@ -609,7 +576,6 @@ export function DraftMetadataModal({
   onUploadComplete,
   onDelete,
   onChange,
-  canUseAiMetadata = false,
   labelLibrary,
   onLabelLibraryChange,
   disableInteractionLock = false,
@@ -705,10 +671,6 @@ export function DraftMetadataModal({
   const [sermonEventTypesLoadFailed, setSermonEventTypesLoadFailed] = useState(false);
   const [sermonLanguages, setSermonLanguages] = useState<SermonAudioLanguageOption[] | null>(null);
   const [sermonLanguagesLoadFailed, setSermonLanguagesLoadFailed] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-  const [aiUndoStack, setAiUndoStack] = useState<DraftEditorValues[]>([]);
-  const [aiRedoStack, setAiRedoStack] = useState<DraftEditorValues[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRefs = useRef<Partial<Record<ThumbnailUploadScope, HTMLInputElement>>>({});
   const thumbnailSectionRef = useRef<HTMLDivElement>(null);
@@ -737,7 +699,6 @@ export function DraftMetadataModal({
   const clearPendingConfirmIntentRef = useRef<ClearPendingConfirmIntent>('clearOnly');
   const uploadHistoryCacheRef = useRef(new Map<string, DraftUploadHistoryItem[]>());
   const hadActiveJobsRef = useRef(false);
-  const aiMetadataAbortRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
   /** Tracks the open modal’s draft id so we can ignore stale AI responses after close or draft switch. */
   const latestDraftIdRef = useRef<string | null>(null);
@@ -1058,9 +1019,7 @@ export function DraftMetadataModal({
   }, [draftId]);
 
   useEffect(() => {
-    return () => {
-      aiMetadataAbortRef.current?.abort();
-    };
+    return () => {};
   }, [draftId]);
 
   useEffect(() => {
@@ -1497,16 +1456,6 @@ export function DraftMetadataModal({
   }, [abortThumbnailUploadFlow, resetThumbnailUploadUi, value]);
 
   useEffect(() => {
-    if (!draftId) {
-      setAiPrompt('');
-      setIsGeneratingAi(false);
-      setAiUndoStack([]);
-      setAiRedoStack([]);
-      setThumbnailFileNames({});
-      return;
-    }
-    setAiUndoStack([]);
-    setAiRedoStack([]);
     setThumbnailFileNames({});
   }, [draftId]);
 
@@ -2806,213 +2755,6 @@ export function DraftMetadataModal({
     !isSaving &&
     !youtubeImportDistributionQueued &&
     hasUploadableVideoSource;
-  const trimmedAiPrompt = aiPrompt.trim();
-  const hasAiPrompt = trimmedAiPrompt !== '';
-  const hasGeneratedMetadata =
-    value !== null &&
-    (value.title.trim() !== '' || value.description.trim() !== '' || value.tags.length > 0);
-
-  const handleUndoAi = () => {
-    if (!value || aiUndoStack.length === 0) return;
-    const previous = aiUndoStack[aiUndoStack.length - 1];
-    setAiUndoStack((prev) => prev.slice(0, -1));
-    setAiRedoStack((prev) => [...prev, snapshotEditor(value)]);
-    onChange(snapshotEditor(previous));
-  };
-
-  const handleRedoAi = () => {
-    if (!value || aiRedoStack.length === 0) return;
-    const next = aiRedoStack[aiRedoStack.length - 1];
-    setAiRedoStack((prev) => prev.slice(0, -1));
-    setAiUndoStack((prev) => [...prev, snapshotEditor(value)]);
-    onChange(snapshotEditor(next));
-  };
-
-  const handleGenerateAiMetadata = async () => {
-    if (!value) return;
-    if (!hasAiPrompt) return;
-    if (value.targets.length === 0) {
-      toast.error('Please select at least one platform first');
-      return;
-    }
-
-    const requestDraftId = value.id;
-    // Capture state before we start so undo reverts to the correct baseline.
-    const preStreamSnapshot = snapshotEditor(value);
-    aiMetadataAbortRef.current?.abort();
-    const ac = new AbortController();
-    aiMetadataAbortRef.current = ac;
-
-    let didStreamUpdate = false;
-
-    const revertPartialUpdates = () => {
-      if (!didStreamUpdate) return;
-      if (latestDraftIdRef.current !== requestDraftId) return;
-      const latest = latestValueRef.current;
-      if (latest) {
-        onChange({
-          ...latest,
-          title: preStreamSnapshot.title,
-          description: preStreamSnapshot.description,
-          tags: [...preStreamSnapshot.tags],
-        });
-      }
-    };
-
-    setIsGeneratingAi(true);
-    try {
-      const response = await fetch('/api/ai/generate-metadata/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileName: videoFile?.name ?? 'video',
-          userPrompt: trimmedAiPrompt || undefined,
-          platforms: value.targets,
-        }),
-        signal: ac.signal,
-      });
-      if (ac.signal.aborted) return;
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => null);
-        throw new Error(errBody?.message ?? 'Failed to generate metadata');
-      }
-      if (!response.body) {
-        throw new Error('Response body is empty');
-      }
-
-      // Read the SSE stream — push partial JSON tokens live into the form fields.
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      const parseSseChunk = createSseParser();
-      let accumulated = '';
-
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) {
-          // Flush the TextDecoder's internal buffer so any trailing multi-byte
-          // UTF-8 sequences held across chunk boundaries are not silently dropped.
-          const flushed = decoder.decode();
-          if (flushed) {
-            for (const result of parseSseChunk(flushed)) {
-              if (result.error) throw new Error(result.error);
-              if (result.done) {
-                // [DONE] arrived in the final flush — run the same finalization
-                // path as the main loop so metadata is applied and not silently dropped.
-                if (ac.signal.aborted) return;
-                if (latestDraftIdRef.current !== requestDraftId) {
-                  ac.abort();
-                  return;
-                }
-
-                let parsed: { title?: unknown; description?: unknown; tags?: unknown };
-                try {
-                  parsed = JSON.parse(accumulated) as typeof parsed;
-                } catch {
-                  throw new Error('AI returned invalid JSON. Please try again.');
-                }
-
-                setAiUndoStack((prev) => [...prev, preStreamSnapshot]);
-                setAiRedoStack([]);
-
-                const latest = latestValueRef.current;
-                if (!latest) {
-                  ac.abort();
-                  return;
-                }
-                onChange({
-                  ...latest,
-                  title: typeof parsed.title === 'string' ? parsed.title : '',
-                  description: typeof parsed.description === 'string' ? parsed.description : '',
-                  tags:
-                    Array.isArray(parsed.tags) && parsed.tags.every((t) => typeof t === 'string')
-                      ? (parsed.tags as string[])
-                      : [],
-                });
-                announceInModal('Metadata generated successfully');
-                return;
-              }
-            }
-          }
-          break;
-        }
-        if (ac.signal.aborted) {
-          await reader.cancel();
-          return;
-        }
-
-        const text = decoder.decode(chunk, { stream: true });
-        for (const result of parseSseChunk(text)) {
-          if (result.error) {
-            throw new Error(result.error);
-          }
-          if (result.done) {
-            // Stream complete — parse the fully assembled JSON and apply final values.
-            if (ac.signal.aborted) return;
-            if (latestDraftIdRef.current !== requestDraftId) {
-              ac.abort();
-              return;
-            }
-
-            let parsed: { title?: unknown; description?: unknown; tags?: unknown };
-            try {
-              parsed = JSON.parse(accumulated) as typeof parsed;
-            } catch {
-              throw new Error('AI returned invalid JSON. Please try again.');
-            }
-
-            // Push the pre-stream snapshot (not the mid-stream state) to the undo stack.
-            setAiUndoStack((prev) => [...prev, preStreamSnapshot]);
-            setAiRedoStack([]);
-
-            const latest = latestValueRef.current;
-            if (!latest) {
-              ac.abort();
-              return;
-            }
-            onChange({
-              ...latest,
-              title: typeof parsed.title === 'string' ? parsed.title : '',
-              description: typeof parsed.description === 'string' ? parsed.description : '',
-              tags:
-                Array.isArray(parsed.tags) && parsed.tags.every((t) => typeof t === 'string')
-                  ? (parsed.tags as string[])
-                  : [],
-            });
-            announceInModal('Metadata generated successfully');
-            return;
-          }
-          if (result.deltaContent !== undefined) {
-            accumulated += result.deltaContent;
-            if (latestDraftIdRef.current !== requestDraftId) {
-              ac.abort();
-              return;
-            }
-            const latest = latestValueRef.current;
-            if (latest) {
-              didStreamUpdate = true;
-              onChange({ ...latest, ...extractPartialAiFields(accumulated) });
-            }
-          }
-        }
-      }
-      // Stream closed without sending [DONE] — treat as an error.
-      throw new Error('Stream ended without a completion signal. Please try again.');
-    } catch (error) {
-      const isAbort =
-        (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
-      // Undo any partial live field updates so the form isn't left with incomplete JSON.
-      revertPartialUpdates();
-      if (isAbort) return;
-      console.warn('AI metadata generation failed:', error);
-      toast.error('Failed to generate metadata. Please try again.');
-    } finally {
-      if (aiMetadataAbortRef.current === ac) {
-        aiMetadataAbortRef.current = null;
-        setIsGeneratingAi(false);
-      }
-    }
-  };
-
   const handleTogglePlatform = (platform: ConnectedAccountPlatform) => {
     if (!value) return;
     const isSelected = value.targets.includes(platform);
@@ -3055,7 +2797,6 @@ export function DraftMetadataModal({
       value.description.trim() === '' &&
       value.tags.length === 0 &&
       !hasPendingTagInput &&
-      aiPrompt.trim() === '' &&
       videoFile === null &&
       !uploading &&
       currentUploadJobId === null &&
@@ -3082,7 +2823,6 @@ export function DraftMetadataModal({
       value.description.trim() === '' &&
       value.tags.length === 0 &&
       !hasPendingTagInput &&
-      aiPrompt.trim() === '' &&
       videoFile === null &&
       !uploading &&
       currentUploadJobId === null &&
@@ -5251,92 +4991,6 @@ export function DraftMetadataModal({
                     </p>
                   </div>
                 </div>
-              </DraftModalCard>
-            ) : null}
-            {canUseAiMetadata ? (
-              <DraftModalCard
-                className="bg-muted/40"
-                header={
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                      <Sparkles className="h-4 w-4" />
-                      AI metadata
-                    </p>
-                    <div className="inline-flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={handleUndoAi}
-                        disabled={aiUndoStack.length === 0 || isGeneratingAi}
-                        className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-50"
-                      >
-                        <Undo2 className="h-3.5 w-3.5" />
-                        Undo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleRedoAi}
-                        disabled={aiRedoStack.length === 0 || isGeneratingAi}
-                        className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-50"
-                      >
-                        <Redo2 className="h-3.5 w-3.5" />
-                        Redo
-                      </button>
-                    </div>
-                  </div>
-                }
-              >
-                <p id="draft-ai-metadata-help" className="text-xs text-muted-foreground">
-                  Enter a prompt to generate title, description, and tags.
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label htmlFor="draft-ai-prompt" className="sr-only">
-                    AI prompt required for generation
-                  </label>
-                  <input
-                    id="draft-ai-prompt"
-                    value={aiPrompt}
-                    onChange={(event) => setAiPrompt(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !isGeneratingAi && hasAiPrompt) {
-                        void handleGenerateAiMetadata();
-                      }
-                    }}
-                    aria-describedby="draft-ai-metadata-help"
-                    placeholder="Enter a prompt for AI"
-                    className="min-w-55 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-                  />
-                  {isGeneratingAi ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        aiMetadataAbortRef.current?.abort();
-                      }}
-                      aria-describedby="draft-ai-metadata-help"
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                    >
-                      <Square className="h-3.5 w-3.5 fill-current" />
-                      Stop
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleGenerateAiMetadata();
-                      }}
-                      disabled={isGeneratingAi || !hasAiPrompt}
-                      aria-describedby="draft-ai-metadata-help"
-                      className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                    >
-                      {`${hasGeneratedMetadata ? 'Regenerate' : 'Generate'} with AI`}
-                    </button>
-                  )}
-                </div>
-                {isGeneratingAi ? (
-                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    AI is generating your metadata…
-                  </p>
-                ) : null}
               </DraftModalCard>
             ) : null}
             <DraftModalCard>

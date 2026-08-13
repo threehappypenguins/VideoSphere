@@ -10,52 +10,42 @@
 //   /admin/*      — authenticated admin users only
 //   /dashboard/users — authenticated admin users only
 //
-// Session is stored as an httpOnly cookie. Authentication is verified by
-// calling internal API routes (outside the matcher so no circular routing).
-// Admin RBAC uses GET /api/auth/session-role so this file avoids direct data
-// layer imports and keeps middleware edge-safe via fetch-only I/O.
+// Session is stored as an httpOnly JWT cookie. Claims are verified locally with
+// `jose` (no hairpin HTTP fetch to the app). That keeps `pnpm dev:https` and
+// reverse-proxy deploys working — internal `http://127.0.0.1` fetches fail when
+// the server only listens on HTTPS.
 // =============================================================================
 
+import { jwtVerify } from 'jose';
 import { NextRequest, NextResponse } from 'next/server';
-import { getInternalAppOrigin } from '@/lib/app-port';
 import { getSessionCookieName } from '@/lib/auth-session-cookie';
 
-/**
- * Verify the session by calling the /api/auth/session route.
- * Forwards the incoming cookies so the route can read the session cookie.
- * Returns the user object if valid, null otherwise.
- */
-async function getSessionUser(request: NextRequest): Promise<{ $id: string } | null> {
-  try {
-    const res = await fetch(new URL('/api/auth/session', getInternalAppOrigin()), {
-      headers: { cookie: request.headers.get('cookie') ?? '' },
-    });
-    if (!res.ok) return null;
-    const user = await res.json();
-    return user && typeof user.$id === 'string' ? user : null;
-  } catch {
-    return null;
-  }
-}
+type SessionClaims = {
+  userId: string;
+  role: 'admin' | 'user';
+};
 
 /**
- * Session + user_profiles.role in one round trip (for /admin/* only).
- * Avoids importing the Tables SDK in middleware.
+ * Verifies the session JWT from cookies and returns subject + role claims.
+ * @param request - Incoming request (cookies forwarded by the browser).
+ * @returns Session claims, or null when missing/invalid.
  */
-async function getSessionRoleForAdminGate(
-  request: NextRequest
-): Promise<'admin' | 'user' | 'unauthenticated' | 'error'> {
+async function readSessionClaims(request: NextRequest): Promise<SessionClaims | null> {
+  const token = request.cookies.get(getSessionCookieName())?.value ?? null;
+  if (!token) return null;
+
+  const secret = process.env.JWT_SECRET;
+  if (!secret) return null;
+
   try {
-    const res = await fetch(new URL('/api/auth/session-role', getInternalAppOrigin()), {
-      headers: { cookie: request.headers.get('cookie') ?? '' },
-    });
-    if (res.status === 401) return 'unauthenticated';
-    if (!res.ok) return 'error';
-    const data = (await res.json()) as { role?: string };
-    return data.role === 'admin' ? 'admin' : 'user';
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
+    if (typeof payload.sub !== 'string' || !payload.sub) return null;
+    return {
+      userId: payload.sub,
+      role: payload.role === 'admin' ? 'admin' : 'user',
+    };
   } catch {
-    // Network / JSON parse failures — not a confirmed 401; avoid treating as logged-out
-    return 'error';
+    return null;
   }
 }
 
@@ -68,10 +58,6 @@ function getFullPath(request: NextRequest): string {
   return search ? `${pathname}${search}` : pathname;
 }
 
-function getSessionTokenFromCookies(request: NextRequest): string | null {
-  return request.cookies.get(getSessionCookieName())?.value ?? null;
-}
-
 function isAdminOnlyDashboardPath(pathname: string): boolean {
   return pathname === '/dashboard/users' || pathname.startsWith('/dashboard/users/');
 }
@@ -81,51 +67,31 @@ export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
     const fullPath = getFullPath(request);
 
-    const sessionToken = getSessionTokenFromCookies(request);
+    const claims = await readSessionClaims(request);
 
     if (pathname === '/') {
-      if (!sessionToken) {
+      if (!claims) {
         return NextResponse.next();
       }
-
-      const user = await getSessionUser(request);
-      if (user) {
-        return NextResponse.redirect(new URL('/dashboard', request.url));
-      }
-
-      return NextResponse.next();
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
 
-    // No session cookie — redirect to login
-    if (!sessionToken) {
+    // No valid session — redirect to login
+    if (!claims) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', fullPath);
       return NextResponse.redirect(loginUrl);
     }
 
     if (pathname.startsWith('/admin') || isAdminOnlyDashboardPath(pathname)) {
-      const gate = await getSessionRoleForAdminGate(request);
-      if (gate === 'unauthenticated') {
-        const loginUrl = new URL('/login', request.url);
-        loginUrl.searchParams.set('redirect', fullPath);
-        return NextResponse.redirect(loginUrl);
-      }
-      if (gate !== 'admin') {
+      if (claims.role !== 'admin') {
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
       return NextResponse.next();
     }
 
-    const user = await getSessionUser(request);
-
-    if (!user) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', fullPath);
-      return NextResponse.redirect(loginUrl);
-    }
-
     return NextResponse.next();
-  } catch (error) {
+  } catch {
     // Fail closed: on error, redirect to login instead of allowing through
     const loginUrl = new URL('/login', request.url);
     const fullPath = getFullPath(request);

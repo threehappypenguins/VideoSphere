@@ -38,6 +38,11 @@ export const DASHBOARD_NAV_ITEMS: DashboardNavItem[] = [
     exact: false,
     children: [{ label: 'History', href: '/dashboard/livestreams/history', exact: false }],
   },
+  {
+    label: 'Translation',
+    href: '/dashboard/translation',
+    exact: false,
+  },
 ];
 
 /** Admin-only dashboard nav link. */

@@ -102,7 +102,6 @@ export default function UploadsPage() {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   const [isDuplicatingId, setIsDuplicatingId] = useState<string | null>(null);
-  const [canUseAiMetadata, setCanUseAiMetadata] = useState(false);
   const [isOpeningCreate, setIsOpeningCreate] = useState(false);
   /** True after the user successfully saves a draft that was opened via minimal create. */
   const [createDraftSaved, setCreateDraftSaved] = useState(false);
@@ -119,29 +118,23 @@ export default function UploadsPage() {
     setHasLoadedConnections(false);
 
     try {
-      const [draftsResponse, connectionsResponse, aiAccessResponse, labelsResponse] =
-        await Promise.all([
-          fetch('/api/drafts', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-          fetch('/api/platforms/connections', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-          fetch('/api/auth/ai-access', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-          fetch('/api/drafts/labels', {
-            method: 'GET',
-            signal,
-            cache: 'no-store',
-          }),
-        ]);
+      const [draftsResponse, connectionsResponse, labelsResponse] = await Promise.all([
+        fetch('/api/drafts', {
+          method: 'GET',
+          signal,
+          cache: 'no-store',
+        }),
+        fetch('/api/platforms/connections', {
+          method: 'GET',
+          signal,
+          cache: 'no-store',
+        }),
+        fetch('/api/drafts/labels', {
+          method: 'GET',
+          signal,
+          cache: 'no-store',
+        }),
+      ]);
 
       if (!draftsResponse.ok) {
         const errorBody = (await draftsResponse.json().catch(() => null)) as {
@@ -164,10 +157,6 @@ export default function UploadsPage() {
       setConnectedPlatforms(platforms);
       setHasLoadedConnections(connectionsResponse.ok);
 
-      const aiAccessPayload = aiAccessResponse.ok
-        ? ((await aiAccessResponse.json()) as { canUseAiMetadata?: boolean })
-        : null;
-
       setDrafts(Array.isArray(draftsJson.data) ? draftsJson.data : []);
       if (labelsResponse.ok) {
         const labelsPayload = (await labelsResponse.json()) as ApiResponse<DraftLabelDefinition[]>;
@@ -175,7 +164,6 @@ export default function UploadsPage() {
       } else {
         setLabelLibrary([]);
       }
-      setCanUseAiMetadata(Boolean(aiAccessPayload?.canUseAiMetadata));
     } catch (error) {
       if (signal?.aborted) return;
       const message = error instanceof Error ? error.message : 'Failed to load drafts.';
@@ -183,7 +171,6 @@ export default function UploadsPage() {
       setDrafts([]);
       setLabelLibrary([]);
       setConnectedPlatforms([]);
-      setCanUseAiMetadata(false);
       setHasLoadedConnections(false);
     } finally {
       if (!signal?.aborted) {
@@ -706,7 +693,6 @@ export default function UploadsPage() {
         onSave={handleSaveCreate}
         onUploadComplete={loadDrafts}
         isSaving={isSavingCreate}
-        canUseAiMetadata={canUseAiMetadata}
         disableInteractionLock={searchParams.get('onboardingFlow') === 'true'}
       />
       <DraftMetadataModal
@@ -725,7 +711,6 @@ export default function UploadsPage() {
         onUploadComplete={loadDrafts}
         onDelete={handleDeleteDraftById}
         isSaving={isSavingEdit}
-        canUseAiMetadata={canUseAiMetadata}
       />
     </div>
   );
