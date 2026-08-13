@@ -70,6 +70,26 @@ import { sttProvidesBuiltInTranslation } from '@/lib/translation/capabilities';
 /** Radix Select sentinel so empty selection stays controlled (not `undefined`). */
 const SELECT_UNSET = '__unset__';
 
+/** Streaming / dedicated STT credential kinds that require remove confirmation. */
+type SttCredentialKind =
+  | 'deepgram'
+  | 'assemblyai'
+  | 'gladia'
+  | 'speechmatics'
+  | 'soniox'
+  | 'modulate'
+  | 'elevenlabs';
+
+const STT_CREDENTIAL_LABELS: Record<SttCredentialKind, string> = {
+  deepgram: 'Deepgram',
+  assemblyai: 'AssemblyAI',
+  gladia: 'Gladia',
+  speechmatics: 'Speechmatics',
+  soniox: 'Soniox',
+  modulate: 'Modulate',
+  elevenlabs: 'ElevenLabs',
+};
+
 /**
  * In-flight translation config action.
  * Only the control(s) for that action should disable while it runs.
@@ -117,6 +137,8 @@ export function TranslationConfigClient() {
 
   const [aiOpen, setAiOpen] = useState(false);
   const [gcpOpen, setGcpOpen] = useState(false);
+  /** STT provider key pending remove confirmation (null when dialog closed). */
+  const [sttRemoveKind, setSttRemoveKind] = useState<SttCredentialKind | null>(null);
 
   const [sttProvider, setSttProvider] = useState<LiveTranslationSttProvider | ''>('');
   const [textTranslateProvider, setTextTranslateProvider] = useState<
@@ -1078,6 +1100,17 @@ export function TranslationConfigClient() {
         </div>
       </header>
 
+      {channel?.translationReady ? (
+        <section className={sectionClassName}>
+          <h2 className="text-xl font-semibold text-foreground">Add audio</h2>
+          <p className="text-muted-foreground text-sm">
+            Choose a microphone or sound device on this computer to stream live audio for
+            translation.
+          </p>
+          <AddAudioCapture enabled={channel.translationReady} sttProvider={channel.sttProvider} />
+        </section>
+      ) : null}
+
       <section className={sectionClassName}>
         <h2 className="text-xl font-semibold text-foreground">Speech-to-text &amp; translation</h2>
         <p className="text-muted-foreground text-sm">
@@ -1135,7 +1168,7 @@ export function TranslationConfigClient() {
                   type="button"
                   variant="outline"
                   disabled={pendingAction === 'clear-deepgram'}
-                  onClick={() => void clearCredential('deepgram')}
+                  onClick={() => setSttRemoveKind('deepgram')}
                 >
                   Remove Deepgram
                 </Button>
@@ -1145,7 +1178,7 @@ export function TranslationConfigClient() {
                   type="button"
                   variant="outline"
                   disabled={pendingAction === 'clear-assemblyai'}
-                  onClick={() => void clearCredential('assemblyai')}
+                  onClick={() => setSttRemoveKind('assemblyai')}
                 >
                   Remove AssemblyAI
                 </Button>
@@ -1155,7 +1188,7 @@ export function TranslationConfigClient() {
                   type="button"
                   variant="outline"
                   disabled={pendingAction === 'clear-gladia'}
-                  onClick={() => void clearCredential('gladia')}
+                  onClick={() => setSttRemoveKind('gladia')}
                 >
                   Remove Gladia
                 </Button>
@@ -1165,7 +1198,7 @@ export function TranslationConfigClient() {
                   type="button"
                   variant="outline"
                   disabled={pendingAction === 'clear-speechmatics'}
-                  onClick={() => void clearCredential('speechmatics')}
+                  onClick={() => setSttRemoveKind('speechmatics')}
                 >
                   Remove Speechmatics
                 </Button>
@@ -1175,7 +1208,7 @@ export function TranslationConfigClient() {
                   type="button"
                   variant="outline"
                   disabled={pendingAction === 'clear-soniox'}
-                  onClick={() => void clearCredential('soniox')}
+                  onClick={() => setSttRemoveKind('soniox')}
                 >
                   Remove Soniox
                 </Button>
@@ -1185,7 +1218,7 @@ export function TranslationConfigClient() {
                   type="button"
                   variant="outline"
                   disabled={pendingAction === 'clear-modulate'}
-                  onClick={() => void clearCredential('modulate')}
+                  onClick={() => setSttRemoveKind('modulate')}
                 >
                   Remove Modulate
                 </Button>
@@ -1195,7 +1228,7 @@ export function TranslationConfigClient() {
                   type="button"
                   variant="outline"
                   disabled={pendingAction === 'clear-elevenlabs'}
-                  onClick={() => void clearCredential('elevenlabs')}
+                  onClick={() => setSttRemoveKind('elevenlabs')}
                 >
                   Remove ElevenLabs
                 </Button>
@@ -1416,21 +1449,10 @@ export function TranslationConfigClient() {
 
       {channel?.translationReady ? (
         <section className={sectionClassName}>
-          <h2 className="text-xl font-semibold text-foreground">Add audio</h2>
-          <p className="text-muted-foreground text-sm">
-            Choose a microphone or sound device on this computer to stream live audio for
-            translation.
-          </p>
-          <AddAudioCapture enabled={channel.translationReady} sttProvider={channel.sttProvider} />
-        </section>
-      ) : null}
-
-      {channel?.translationReady ? (
-        <section className={sectionClassName}>
           <h2 className="text-xl font-semibold text-foreground">RTMP (optional)</h2>
           <p className="text-muted-foreground text-sm">
-            Prefer browser Add audio above. RTMP needs the optional MediaMTX sidecar — uncomment the{' '}
-            <code className="text-xs">mediamtx</code> service in{' '}
+            Prefer browser Add audio at the top of this page. RTMP needs the optional MediaMTX
+            sidecar — uncomment the <code className="text-xs">mediamtx</code> service in{' '}
             <code className="text-xs">portainer-stack.yml</code> /{' '}
             <code className="text-xs">docker-compose.yml</code> and set{' '}
             <code className="text-xs">TRANSLATION_RTMP_PUBLIC_HOST</code>.
@@ -1514,6 +1536,42 @@ export function TranslationConfigClient() {
           </AlertDialog>
         </section>
       ) : null}
+
+      <AlertDialog
+        open={sttRemoveKind !== null}
+        onOpenChange={(open) => {
+          if (!open) setSttRemoveKind(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {sttRemoveKind ? STT_CREDENTIAL_LABELS[sttRemoveKind] : 'STT'} key?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the stored {sttRemoveKind ? STT_CREDENTIAL_LABELS[sttRemoveKind] : 'STT'}{' '}
+              API key from your channel
+              {sttRemoveKind && channel?.sttProvider === sttRemoveKind
+                ? ' and clears it as the active speech-to-text provider'
+                : ''}
+              . You can add a new key later. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={sttRemoveKind === null || pendingAction === `clear-${sttRemoveKind}`}
+              onClick={() => {
+                if (!sttRemoveKind) return;
+                void clearCredential(sttRemoveKind);
+                setSttRemoveKind(null);
+              }}
+            >
+              Remove key
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={aiOpen} onOpenChange={setAiOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
