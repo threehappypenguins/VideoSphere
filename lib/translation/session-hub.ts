@@ -472,6 +472,7 @@ function streamingApiKeyForProvider(
   if (provider === 'speechmatics') return secrets.speechmaticsApiKey;
   if (provider === 'soniox') return secrets.sonioxApiKey;
   if (provider === 'modulate') return secrets.modulateApiKey;
+  if (provider === 'elevenlabs') return secrets.elevenLabsApiKey;
   return null;
 }
 

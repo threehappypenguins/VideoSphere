@@ -47,6 +47,9 @@ export const SONIOX_DOCS_URL = 'https://soniox.com/docs';
 /** Modulate (Velma) API pricing. */
 export const MODULATE_PRICING_URL = 'https://platform.modulate.ai/pricing';
 
+/** ElevenLabs Scribe / Speech pricing. */
+export const ELEVENLABS_PRICING_URL = 'https://elevenlabs.io/pricing';
+
 /**
  * Speech-to-text provider pricing hints for the Configure AI UI.
  */
@@ -98,6 +101,15 @@ export const STT_PROVIDER_PRICING: Record<
     priceAfterFree:
       'Multilingual streaming STT from ~US$0.06 / hour after credits (see Modulate pricing).',
     pricingUrl: MODULATE_PRICING_URL,
+  },
+  elevenlabs: {
+    id: 'elevenlabs',
+    label: 'ElevenLabs',
+    freeUsageLimit:
+      'Free / Starter plans include monthly character credits shared with TTS — confirm Scribe realtime eligibility in the console.',
+    priceAfterFree:
+      'Scribe realtime billed per audio hour on paid plans (see ElevenLabs pricing / console).',
+    pricingUrl: ELEVENLABS_PRICING_URL,
   },
   groq: {
     id: 'groq',

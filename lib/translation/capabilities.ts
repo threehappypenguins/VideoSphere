@@ -13,7 +13,8 @@ export type LiveTranslationStreamingSttProvider =
   | 'gladia'
   | 'speechmatics'
   | 'soniox'
-  | 'modulate';
+  | 'modulate'
+  | 'elevenlabs';
 
 /**
  * Supported speech-to-text backends for live translation ingest.
@@ -37,7 +38,8 @@ export type LiveTranslationCredentialKind =
   | 'gladia'
   | 'speechmatics'
   | 'soniox'
-  | 'modulate';
+  | 'modulate'
+  | 'elevenlabs';
 
 const STREAMING_STT_PROVIDERS: ReadonlySet<string> = new Set([
   'deepgram',
@@ -46,12 +48,13 @@ const STREAMING_STT_PROVIDERS: ReadonlySet<string> = new Set([
   'speechmatics',
   'soniox',
   'modulate',
+  'elevenlabs',
 ]);
 
 /**
  * Returns whether the STT provider uses streaming WebSocket ASR.
  * @param provider - Canonical STT provider, or null.
- * @returns True for Deepgram / AssemblyAI / Gladia / Speechmatics / Soniox / Modulate.
+ * @returns True for Deepgram / AssemblyAI / Gladia / Speechmatics / Soniox / Modulate / ElevenLabs.
  */
 export function isStreamingSttProvider(
   provider: LiveTranslationSttProvider | string | null | undefined
@@ -86,7 +89,8 @@ export function normalizeSttProvider(
     value === 'gladia' ||
     value === 'speechmatics' ||
     value === 'soniox' ||
-    value === 'modulate'
+    value === 'modulate' ||
+    value === 'elevenlabs'
   ) {
     return value;
   }
@@ -122,7 +126,8 @@ export function normalizeCredentialKind(
     value === 'gladia' ||
     value === 'speechmatics' ||
     value === 'soniox' ||
-    value === 'modulate'
+    value === 'modulate' ||
+    value === 'elevenlabs'
   ) {
     return value;
   }
@@ -153,6 +158,8 @@ export interface TranslationCapabilityInput {
   hasSonioxKey?: boolean;
   /** Whether a Modulate API key is stored. */
   hasModulateKey?: boolean;
+  /** Whether an ElevenLabs API key is stored. */
+  hasElevenLabsKey?: boolean;
   /**
    * STT model id for chunked Groq Whisper.
    * Unused for streaming ASR providers.
@@ -200,6 +207,7 @@ export function isSttReady(input: TranslationCapabilityInput): boolean {
   if (provider === 'speechmatics') return Boolean(input.hasSpeechmaticsKey);
   if (provider === 'soniox') return Boolean(input.hasSonioxKey);
   if (provider === 'modulate') return Boolean(input.hasModulateKey);
+  if (provider === 'elevenlabs') return Boolean(input.hasElevenLabsKey);
   return false;
 }
 

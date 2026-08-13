@@ -5,6 +5,7 @@
 import type { LiveTranslationStreamingSttProvider } from '@/lib/translation/capabilities';
 import { createAssemblyaiAsrSession } from '@/lib/translation/streaming-asr/assemblyai';
 import { createDeepgramAsrSession } from '@/lib/translation/streaming-asr/deepgram';
+import { createElevenLabsAsrSession } from '@/lib/translation/streaming-asr/elevenlabs';
 import { createGladiaAsrSession } from '@/lib/translation/streaming-asr/gladia';
 import { createModulateAsrSession } from '@/lib/translation/streaming-asr/modulate';
 import { createSpeechmaticsAsrSession } from '@/lib/translation/streaming-asr/speechmatics';
@@ -37,6 +38,8 @@ export async function createStreamingAsrSession(
       return createSonioxAsrSession(options);
     case 'modulate':
       return createModulateAsrSession(options);
+    case 'elevenlabs':
+      return createElevenLabsAsrSession(options);
     default: {
       const _exhaustive: never = provider;
       throw new Error(`Unsupported streaming STT provider: ${String(_exhaustive)}`);

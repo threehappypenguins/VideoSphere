@@ -857,6 +857,7 @@ export type LiveTranslationSttProvider =
   | 'speechmatics'
   | 'soniox'
   | 'modulate'
+  | 'elevenlabs'
   | 'groq';
 
 /**
@@ -923,6 +924,8 @@ export interface LiveTranslationChannelPublic {
   hasSonioxKey: boolean;
   /** Whether a Modulate API key is stored. */
   hasModulateKey: boolean;
+  /** Whether an ElevenLabs API key is stored. */
+  hasElevenLabsKey: boolean;
   /** Whether a GCP service-account JSON is stored. */
   hasGcpServiceAccount: boolean;
   /** Whether a stream key hash is stored (plaintext is never returned after mint). */

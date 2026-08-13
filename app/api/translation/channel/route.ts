@@ -182,7 +182,7 @@ export async function PATCH(req: NextRequest) {
           {
             error: 'Bad Request',
             message:
-              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, or groq',
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, elevenlabs, or groq',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }

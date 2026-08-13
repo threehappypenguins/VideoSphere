@@ -69,6 +69,7 @@ export function capabilityInputFromDoc(
     hasSpeechmaticsKey: hasEncrypted(doc.speechmaticsApiKeyEncrypted),
     hasSonioxKey: hasEncrypted(doc.sonioxApiKeyEncrypted),
     hasModulateKey: hasEncrypted(doc.modulateApiKeyEncrypted),
+    hasElevenLabsKey: hasEncrypted(doc.elevenLabsApiKeyEncrypted),
     sttModel: doc.openRouterSttModel ?? null,
     openRouterTranslateModel: doc.openRouterTranslateModel ?? null,
     hasGcpServiceAccount,
@@ -117,6 +118,7 @@ export function toOwnerView(
     hasSpeechmaticsKey: Boolean(capability.hasSpeechmaticsKey),
     hasSonioxKey: Boolean(capability.hasSonioxKey),
     hasModulateKey: Boolean(capability.hasModulateKey),
+    hasElevenLabsKey: Boolean(capability.hasElevenLabsKey),
     hasGcpServiceAccount: capability.hasGcpServiceAccount,
     hasStreamKey: hasEncrypted(doc.streamKeyHash),
     translationReady: isTranslationReady(capability),
@@ -397,22 +399,27 @@ export async function setGcpServiceAccountJson(
  */
 export async function setStreamingAsrApiKey(
   userId: string,
-  kind: 'deepgram' | 'assemblyai' | 'gladia' | 'speechmatics' | 'soniox' | 'modulate',
+  kind:
+    | 'deepgram'
+    | 'assemblyai'
+    | 'gladia'
+    | 'speechmatics'
+    | 'soniox'
+    | 'modulate'
+    | 'elevenlabs',
   apiKey: string
 ): Promise<LiveTranslationChannelOwnerView | null> {
   await connectToDatabase();
-  const field =
-    kind === 'deepgram'
-      ? 'deepgramApiKeyEncrypted'
-      : kind === 'assemblyai'
-        ? 'assemblyaiApiKeyEncrypted'
-        : kind === 'gladia'
-          ? 'gladiaApiKeyEncrypted'
-          : kind === 'speechmatics'
-            ? 'speechmaticsApiKeyEncrypted'
-            : kind === 'soniox'
-              ? 'sonioxApiKeyEncrypted'
-              : 'modulateApiKeyEncrypted';
+  const fieldByKind: Record<typeof kind, string> = {
+    deepgram: 'deepgramApiKeyEncrypted',
+    assemblyai: 'assemblyaiApiKeyEncrypted',
+    gladia: 'gladiaApiKeyEncrypted',
+    speechmatics: 'speechmaticsApiKeyEncrypted',
+    soniox: 'sonioxApiKeyEncrypted',
+    modulate: 'modulateApiKeyEncrypted',
+    elevenlabs: 'elevenLabsApiKeyEncrypted',
+  };
+  const field = fieldByKind[kind];
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
     { $set: { [field]: encryptToken(apiKey.trim()) } },
@@ -444,24 +451,19 @@ export async function clearCredential(
 
   // Clearing GCP removes both the encrypted SA JSON and the voice name so
   // "Add Google Cloud TTS" does not prefill a stale voice after remove.
-  const unset: Record<string, 1> =
-    kind === 'openrouter'
-      ? { openRouterApiKeyEncrypted: 1 }
-      : kind === 'groq'
-        ? { groqApiKeyEncrypted: 1 }
-        : kind === 'gcp'
-          ? { gcpServiceAccountJsonEncrypted: 1, gcpTtsVoices: 1 }
-          : kind === 'deepgram'
-            ? { deepgramApiKeyEncrypted: 1 }
-            : kind === 'assemblyai'
-              ? { assemblyaiApiKeyEncrypted: 1 }
-              : kind === 'gladia'
-                ? { gladiaApiKeyEncrypted: 1 }
-                : kind === 'speechmatics'
-                  ? { speechmaticsApiKeyEncrypted: 1 }
-                  : kind === 'soniox'
-                    ? { sonioxApiKeyEncrypted: 1 }
-                    : { modulateApiKeyEncrypted: 1 };
+  const unsetByKind: Record<LiveTranslationCredentialKind, Record<string, 1>> = {
+    openrouter: { openRouterApiKeyEncrypted: 1 },
+    groq: { groqApiKeyEncrypted: 1 },
+    gcp: { gcpServiceAccountJsonEncrypted: 1, gcpTtsVoices: 1 },
+    deepgram: { deepgramApiKeyEncrypted: 1 },
+    assemblyai: { assemblyaiApiKeyEncrypted: 1 },
+    gladia: { gladiaApiKeyEncrypted: 1 },
+    speechmatics: { speechmaticsApiKeyEncrypted: 1 },
+    soniox: { sonioxApiKeyEncrypted: 1 },
+    modulate: { modulateApiKeyEncrypted: 1 },
+    elevenlabs: { elevenLabsApiKeyEncrypted: 1 },
+  };
+  const unset: Record<string, 1> = { ...unsetByKind[kind] };
 
   if (kind === 'groq') {
     if (sttProvider === 'groq') {
@@ -487,7 +489,8 @@ export async function clearCredential(
     (kind === 'gladia' && sttProvider === 'gladia') ||
     (kind === 'speechmatics' && sttProvider === 'speechmatics') ||
     (kind === 'soniox' && sttProvider === 'soniox') ||
-    (kind === 'modulate' && sttProvider === 'modulate')
+    (kind === 'modulate' && sttProvider === 'modulate') ||
+    (kind === 'elevenlabs' && sttProvider === 'elevenlabs')
   ) {
     unset.sttProvider = 1;
   }
@@ -536,6 +539,7 @@ export interface LiveTranslationRuntimeSecrets {
   speechmaticsApiKey: string | null;
   sonioxApiKey: string | null;
   modulateApiKey: string | null;
+  elevenLabsApiKey: string | null;
   gcpServiceAccountJson: string | null;
   sttModel: string | null;
   openRouterTranslateModel: string | null;
@@ -565,6 +569,7 @@ export async function getRuntimeSecretsForUser(
   const speechmaticsApiKey = tryDecrypt(doc.speechmaticsApiKeyEncrypted);
   const sonioxApiKey = tryDecrypt(doc.sonioxApiKeyEncrypted);
   const modulateApiKey = tryDecrypt(doc.modulateApiKeyEncrypted);
+  const elevenLabsApiKey = tryDecrypt(doc.elevenLabsApiKeyEncrypted);
   const gcpServiceAccountJson = tryDecrypt(doc.gcpServiceAccountJsonEncrypted);
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const openRouterTranslateModel = doc.openRouterTranslateModel?.trim() || null;
@@ -585,6 +590,7 @@ export async function getRuntimeSecretsForUser(
     hasSpeechmaticsKey: Boolean(speechmaticsApiKey),
     hasSonioxKey: Boolean(sonioxApiKey),
     hasModulateKey: Boolean(modulateApiKey),
+    hasElevenLabsKey: Boolean(elevenLabsApiKey),
     sttModel,
     openRouterTranslateModel,
     hasGcpServiceAccount,
@@ -602,6 +608,7 @@ export async function getRuntimeSecretsForUser(
     speechmaticsApiKey,
     sonioxApiKey,
     modulateApiKey,
+    elevenLabsApiKey,
     gcpServiceAccountJson,
     sttModel,
     openRouterTranslateModel,

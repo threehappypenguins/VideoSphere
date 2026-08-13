@@ -37,6 +37,8 @@ export interface ValidateTranslationAiConfigInput {
   sonioxApiKey?: string | null;
   /** Modulate API key when STT uses Modulate. */
   modulateApiKey?: string | null;
+  /** ElevenLabs API key when STT uses ElevenLabs. */
+  elevenLabsApiKey?: string | null;
   /** Whether a GCP service account is already stored or included in this save. */
   hasGcpServiceAccount: boolean;
   /** Active STT provider. */
@@ -70,6 +72,7 @@ export type ValidateTranslationAiConfigResult =
         | 'speechmaticsKey'
         | 'sonioxKey'
         | 'modulateKey'
+        | 'elevenLabsKey'
         | 'sttModel'
         | 'translateModel'
         | 'gcpJson'
@@ -271,6 +274,35 @@ async function validateGladiaApiKey(apiKey: string): Promise<string | null> {
 }
 
 /**
+ * Strips BOM / zero-width characters that sometimes hitch a ride on clipboard paste.
+ * @param value - Raw pasted secret.
+ * @returns Cleaned string.
+ */
+function sanitizePastableSecret(value: string): string {
+  return value
+    .replace(/^\uFEFF/, '')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    .trim();
+}
+
+/**
+ * Soft-checks an ElevenLabs API key by shape only.
+ *
+ * Live HTTP probes are unreliable for scoped keys (`/v1/user` needs `user_read`,
+ * `/v1/models` needs `models_read`). STT-only keys return 401s that look like
+ * auth failures and blocked saves. The realtime WebSocket surfaces real auth errors.
+ * @param apiKey - ElevenLabs API key.
+ * @returns Error message when invalid; otherwise null.
+ */
+function validateElevenLabsApiKey(apiKey: string): string | null {
+  const cleaned = sanitizePastableSecret(apiKey);
+  if (cleaned.length < 16) {
+    return 'ElevenLabs API key looks too short.';
+  }
+  return null;
+}
+
+/**
  * Validates STT + translate credentials against live provider APIs.
  * Call before persisting AI settings so misconfiguration fails in the settings UI.
  * @param input - Effective keys, providers, and model ids to validate.
@@ -279,16 +311,17 @@ async function validateGladiaApiKey(apiKey: string): Promise<string | null> {
 export async function validateTranslationAiConfig(
   input: ValidateTranslationAiConfigInput
 ): Promise<ValidateTranslationAiConfigResult> {
-  const openRouterApiKey = input.openRouterApiKey.trim();
+  const openRouterApiKey = sanitizePastableSecret(input.openRouterApiKey);
   const sttModel = input.sttModel.trim();
   const translateModel = input.translateModel.trim();
-  const groqApiKey = input.groqApiKey?.trim() || '';
-  const deepgramApiKey = input.deepgramApiKey?.trim() || '';
-  const assemblyaiApiKey = input.assemblyaiApiKey?.trim() || '';
-  const gladiaApiKey = input.gladiaApiKey?.trim() || '';
-  const speechmaticsApiKey = input.speechmaticsApiKey?.trim() || '';
-  const sonioxApiKey = input.sonioxApiKey?.trim() || '';
-  const modulateApiKey = input.modulateApiKey?.trim() || '';
+  const groqApiKey = sanitizePastableSecret(input.groqApiKey ?? '');
+  const deepgramApiKey = sanitizePastableSecret(input.deepgramApiKey ?? '');
+  const assemblyaiApiKey = sanitizePastableSecret(input.assemblyaiApiKey ?? '');
+  const gladiaApiKey = sanitizePastableSecret(input.gladiaApiKey ?? '');
+  const speechmaticsApiKey = sanitizePastableSecret(input.speechmaticsApiKey ?? '');
+  const sonioxApiKey = sanitizePastableSecret(input.sonioxApiKey ?? '');
+  const modulateApiKey = sanitizePastableSecret(input.modulateApiKey ?? '');
+  const elevenLabsApiKey = sanitizePastableSecret(input.elevenLabsApiKey ?? '');
 
   const sonioxStt = sttProvidesBuiltInTranslation(input.sttProvider);
   const streaming = isStreamingSttProvider(input.sttProvider);
@@ -408,6 +441,18 @@ export async function validateTranslationAiConfig(
         fields: ['modulateKey'],
       };
     }
+  }
+
+  if (input.sttProvider === 'elevenlabs') {
+    if (!elevenLabsApiKey) {
+      return {
+        ok: false,
+        message: 'ElevenLabs API key is required.',
+        fields: ['elevenLabsKey'],
+      };
+    }
+    const err = validateElevenLabsApiKey(elevenLabsApiKey);
+    if (err) return { ok: false, message: err, fields: ['elevenLabsKey'] };
   }
 
   if (needsOpenRouterTranslate) {

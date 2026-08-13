@@ -30,6 +30,7 @@ export interface LiveTranslationChannelDocument {
   speechmaticsApiKeyEncrypted?: string;
   sonioxApiKeyEncrypted?: string;
   modulateApiKeyEncrypted?: string;
+  elevenLabsApiKeyEncrypted?: string;
   gcpServiceAccountJsonEncrypted?: string;
   /**
    * STT model id for Groq Whisper.
@@ -68,6 +69,7 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
         'speechmatics',
         'soniox',
         'modulate',
+        'elevenlabs',
         'groq',
         'openrouter',
         'gcp',
@@ -87,6 +89,7 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
     speechmaticsApiKeyEncrypted: { type: String, required: false },
     sonioxApiKeyEncrypted: { type: String, required: false },
     modulateApiKeyEncrypted: { type: String, required: false },
+    elevenLabsApiKeyEncrypted: { type: String, required: false },
     gcpServiceAccountJsonEncrypted: { type: String, required: false },
     openRouterSttModel: { type: String, required: false, trim: true },
     openRouterTranslateModel: { type: String, required: false, trim: true },

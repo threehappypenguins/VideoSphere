@@ -60,6 +60,7 @@ describe('provider pricing metadata', () => {
       'speechmatics',
       'soniox',
       'modulate',
+      'elevenlabs',
       'groq',
     ] as const) {
       expect(STT_PROVIDER_PRICING[id].pricingUrl).toMatch(/^https:\/\//);

@@ -31,7 +31,7 @@ export async function DELETE(req: NextRequest, context: { params: Promise<{ kind
         {
           error: 'Bad Request',
           message:
-            'kind must be openrouter, groq, gcp, deepgram, assemblyai, gladia, speechmatics, or soniox',
+            'kind must be openrouter, groq, gcp, deepgram, assemblyai, gladia, speechmatics, soniox, modulate, or elevenlabs',
           statusCode: 400,
         } satisfies ApiError,
         { status: 400 }

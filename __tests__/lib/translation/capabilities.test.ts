@@ -16,6 +16,7 @@ describe('translation capabilities', () => {
     expect(normalizeSttProvider('deepgram')).toBe('deepgram');
     expect(normalizeSttProvider('soniox')).toBe('soniox');
     expect(normalizeSttProvider('modulate')).toBe('modulate');
+    expect(normalizeSttProvider('elevenlabs')).toBe('elevenlabs');
     expect(normalizeSttProvider('gcp')).toBeNull();
     expect(normalizeSttProvider('openrouter')).toBeNull();
     expect(normalizeSttProvider('other')).toBeNull();
@@ -222,6 +223,32 @@ describe('translation capabilities', () => {
       isSttReady({
         sttProvider: 'modulate',
         hasModulateKey: false,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
+        hasGcpServiceAccount: false,
+        gcpTtsVoices: {},
+      })
+    ).toBe(false);
+  });
+
+  it('treats ElevenLabs as ready when an ElevenLabs key is present', () => {
+    expect(
+      isSttReady({
+        sttProvider: 'elevenlabs',
+        hasElevenLabsKey: true,
+        hasOpenRouterKey: false,
+        sttModel: '',
+        openRouterTranslateModel: '',
+        hasGcpServiceAccount: false,
+        gcpTtsVoices: {},
+      })
+    ).toBe(true);
+
+    expect(
+      isSttReady({
+        sttProvider: 'elevenlabs',
+        hasElevenLabsKey: false,
         hasOpenRouterKey: false,
         sttModel: '',
         openRouterTranslateModel: '',

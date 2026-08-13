@@ -89,7 +89,8 @@ type TranslationConfigPendingAction =
   | 'clear-gladia'
   | 'clear-speechmatics'
   | 'clear-soniox'
-  | 'clear-modulate';
+  | 'clear-modulate'
+  | 'clear-elevenlabs';
 
 type GcpVoiceOption = {
   name: string;
@@ -137,6 +138,8 @@ export function TranslationConfigClient() {
   const [showSonioxKey, setShowSonioxKey] = useState(false);
   const [modulateKey, setModulateKey] = useState('');
   const [showModulateKey, setShowModulateKey] = useState(false);
+  const [elevenLabsKey, setElevenLabsKey] = useState('');
+  const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
   const [aiGcpJson, setAiGcpJson] = useState('');
   const [aiGcpJsonFileName, setAiGcpJsonFileName] = useState<string | null>(null);
   const [sttModel, setSttModel] = useState('');
@@ -369,6 +372,20 @@ export function TranslationConfigClient() {
     setShowOpenRouterKey(false);
     setGroqKey('');
     setShowGroqKey(false);
+    setDeepgramKey('');
+    setShowDeepgramKey(false);
+    setAssemblyaiKey('');
+    setShowAssemblyaiKey(false);
+    setGladiaKey('');
+    setShowGladiaKey(false);
+    setSpeechmaticsKey('');
+    setShowSpeechmaticsKey(false);
+    setSonioxKey('');
+    setShowSonioxKey(false);
+    setModulateKey('');
+    setShowModulateKey(false);
+    setElevenLabsKey('');
+    setShowElevenLabsKey(false);
     setAiGcpJson('');
     setAiGcpJsonFileName(null);
     setSttProvider(channel?.sttProvider ?? '');
@@ -575,6 +592,7 @@ export function TranslationConfigClient() {
     const smKey = speechmaticsKey.trim();
     const sonioxKeyTrimmed = sonioxKey.trim();
     const modulateKeyTrimmed = modulateKey.trim();
+    const elevenLabsKeyTrimmed = elevenLabsKey.trim();
     const gcpJsonTrimmed = aiGcpJson.trim();
     const stt = sttModel.trim();
     const translate = translateModel.trim();
@@ -615,6 +633,9 @@ export function TranslationConfigClient() {
     if (sttProvider === 'modulate' && !channel?.hasModulateKey && !modulateKeyTrimmed) {
       errors.modulateKey = 'Paste your Modulate API key.';
     }
+    if (sttProvider === 'elevenlabs' && !channel?.hasElevenLabsKey && !elevenLabsKeyTrimmed) {
+      errors.elevenLabsKey = 'Paste your ElevenLabs API key.';
+    }
     if (needsGcp && !hasGcp) {
       errors.gcpJson =
         'Upload or paste a Google Cloud service account JSON, or save one under Google Cloud TTS first.';
@@ -651,13 +672,21 @@ export function TranslationConfigClient() {
         body.openRouterTranslateModel = translate;
       }
       if (orKey) body.openRouterApiKey = orKey;
-      if (gKey) body.groqApiKey = gKey;
-      if (dgKey) body.deepgramApiKey = dgKey;
-      if (aaiKey) body.assemblyaiApiKey = aaiKey;
-      if (gladiaKeyTrimmed) body.gladiaApiKey = gladiaKeyTrimmed;
-      if (smKey) body.speechmaticsApiKey = smKey;
-      if (sonioxKeyTrimmed) body.sonioxApiKey = sonioxKeyTrimmed;
-      if (modulateKeyTrimmed) body.modulateApiKey = modulateKeyTrimmed;
+      if (gKey && (sttProvider === 'groq' || textTranslateProvider === 'groq')) {
+        body.groqApiKey = gKey;
+      }
+      // Only send the STT key for the selected provider — leftover inputs from a
+      // previous selection must not overwrite another vendor's stored credential.
+      if (sttProvider === 'deepgram' && dgKey) body.deepgramApiKey = dgKey;
+      if (sttProvider === 'assemblyai' && aaiKey) body.assemblyaiApiKey = aaiKey;
+      if (sttProvider === 'gladia' && gladiaKeyTrimmed) body.gladiaApiKey = gladiaKeyTrimmed;
+      if (sttProvider === 'speechmatics' && smKey) body.speechmaticsApiKey = smKey;
+      if (sttProvider === 'soniox' && sonioxKeyTrimmed) body.sonioxApiKey = sonioxKeyTrimmed;
+      if (sttProvider === 'modulate' && modulateKeyTrimmed)
+        body.modulateApiKey = modulateKeyTrimmed;
+      if (sttProvider === 'elevenlabs' && elevenLabsKeyTrimmed) {
+        body.elevenLabsApiKey = elevenLabsKeyTrimmed;
+      }
       if (gcpJsonTrimmed) body.gcpServiceAccountJson = gcpJsonTrimmed;
 
       const res = await fetch('/api/translation/credentials', {
@@ -687,6 +716,7 @@ export function TranslationConfigClient() {
       setSpeechmaticsKey('');
       setSonioxKey('');
       setModulateKey('');
+      setElevenLabsKey('');
       setAiGcpJson('');
       setShowOpenRouterKey(false);
       setShowGroqKey(false);
@@ -696,6 +726,7 @@ export function TranslationConfigClient() {
       setShowSpeechmaticsKey(false);
       setShowSonioxKey(false);
       setShowModulateKey(false);
+      setShowElevenLabsKey(false);
       setAiFieldErrors({});
       setAiOpen(false);
       toast.success('AI settings saved for your account only');
@@ -786,6 +817,7 @@ export function TranslationConfigClient() {
       | 'speechmatics'
       | 'soniox'
       | 'modulate'
+      | 'elevenlabs'
   ) {
     setPendingAction(`clear-${kind}`);
     try {
@@ -1005,6 +1037,7 @@ export function TranslationConfigClient() {
   const showSttSpeechmaticsKey = sttProvider === 'speechmatics';
   const showSttSonioxKey = sttProvider === 'soniox';
   const showSttModulateKey = sttProvider === 'modulate';
+  const showSttElevenLabsKey = sttProvider === 'elevenlabs';
   /** Credential UI for translate follows the translate dropdown; skip when Soniox embeds MT. */
   const showTranslateOpenRouterKey = !sonioxSttSelected && textTranslateProvider === 'openrouter';
   const showTranslateGroqKey =
@@ -1024,9 +1057,10 @@ export function TranslationConfigClient() {
         </h1>
         <p className="text-muted-foreground text-shadow-bg">
           Your keys stay on your account. Prefer streaming ASR (Deepgram, AssemblyAI, Gladia,
-          Speechmatics, or Soniox). Groq Whisper remains a free chunked fallback. Soniox includes
-          translation — other STT providers need a separate caption translation backend (OpenRouter,
-          Groq, or Google Cloud). A channel is created only when you configure AI.
+          Speechmatics, Modulate, ElevenLabs, or Soniox). Groq Whisper remains a free chunked
+          fallback. Soniox includes translation — other STT providers need a separate caption
+          translation backend (OpenRouter, Groq, or Google Cloud). A channel is created only when
+          you configure AI.
         </p>
         <div className="flex flex-wrap gap-2 text-sm">
           <span
@@ -1060,6 +1094,7 @@ export function TranslationConfigClient() {
           channel.hasSpeechmaticsKey ||
           channel.hasSonioxKey ||
           channel.hasModulateKey ||
+          channel.hasElevenLabsKey ||
           channel.hasGcpServiceAccount) ? (
           <div className="space-y-3">
             <p className="text-sm">
@@ -1086,6 +1121,7 @@ export function TranslationConfigClient() {
               {channel.hasSpeechmaticsKey ? <> · Speechmatics key: configured</> : null}
               {channel.hasSonioxKey ? <> · Soniox key: configured</> : null}
               {channel.hasModulateKey ? <> · Modulate key: configured</> : null}
+              {channel.hasElevenLabsKey ? <> · ElevenLabs key: configured</> : null}
               {hasOpenRouter ? <> · OpenRouter key: configured</> : null}
               {channel.hasGroqKey ? <> · Groq key: configured</> : null}
               {channel.hasGcpServiceAccount ? <> · GCP SA: configured</> : null}
@@ -1152,6 +1188,16 @@ export function TranslationConfigClient() {
                   onClick={() => void clearCredential('modulate')}
                 >
                   Remove Modulate
+                </Button>
+              ) : null}
+              {channel.hasElevenLabsKey ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={pendingAction === 'clear-elevenlabs'}
+                  onClick={() => void clearCredential('elevenlabs')}
+                >
+                  Remove ElevenLabs
                 </Button>
               ) : null}
               {hasOpenRouter ? (
@@ -1494,6 +1540,22 @@ export function TranslationConfigClient() {
                     const value = next as LiveTranslationSttProvider;
                     setSttProvider(value);
                     setSttModel('');
+                    // Clear STT key drafts so a paste for provider A cannot be
+                    // saved under provider B if the dropdown was changed.
+                    setDeepgramKey('');
+                    setAssemblyaiKey('');
+                    setGladiaKey('');
+                    setSpeechmaticsKey('');
+                    setSonioxKey('');
+                    setModulateKey('');
+                    setElevenLabsKey('');
+                    setShowDeepgramKey(false);
+                    setShowAssemblyaiKey(false);
+                    setShowGladiaKey(false);
+                    setShowSpeechmaticsKey(false);
+                    setShowSonioxKey(false);
+                    setShowModulateKey(false);
+                    setShowElevenLabsKey(false);
                     clearAiFieldError('sttProvider');
                     clearAiFieldError('groqKey');
                     clearAiFieldError('deepgramKey');
@@ -1502,6 +1564,7 @@ export function TranslationConfigClient() {
                     clearAiFieldError('speechmaticsKey');
                     clearAiFieldError('sonioxKey');
                     clearAiFieldError('modulateKey');
+                    clearAiFieldError('elevenLabsKey');
                     clearAiFieldError('openRouterKey');
                     clearAiFieldError('gcpJson');
                     clearAiFieldError('sttModel');
@@ -1522,6 +1585,7 @@ export function TranslationConfigClient() {
                     <SelectItem value="speechmatics">Speechmatics (streaming)</SelectItem>
                     <SelectItem value="soniox">Soniox (streaming + translation)</SelectItem>
                     <SelectItem value="modulate">Modulate (streaming)</SelectItem>
+                    <SelectItem value="elevenlabs">ElevenLabs Scribe (streaming)</SelectItem>
                     <SelectItem value="groq">Groq Whisper (chunked free fallback)</SelectItem>
                   </SelectContent>
                 </Select>
@@ -1869,6 +1933,63 @@ export function TranslationConfigClient() {
                         platform.modulate.ai
                       </a>{' '}
                       (free credits on signup).
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {showSttElevenLabsKey ? (
+                <div className="space-y-2">
+                  <Label htmlFor="modal-stt-elevenlabs-key">ElevenLabs API key</Label>
+                  <div className="relative">
+                    <Input
+                      id="modal-stt-elevenlabs-key"
+                      type={showElevenLabsKey ? 'text' : 'password'}
+                      autoComplete="off"
+                      aria-invalid={aiFieldErrors.elevenLabsKey ? true : undefined}
+                      className={invalidInputClass(Boolean(aiFieldErrors.elevenLabsKey), 'pr-10')}
+                      placeholder={
+                        channel?.hasElevenLabsKey ? '•••• configured — paste to replace' : 'xi-…'
+                      }
+                      value={elevenLabsKey}
+                      onChange={(e) => {
+                        setElevenLabsKey(e.target.value);
+                        clearAiFieldError('elevenLabsKey');
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowElevenLabsKey((v) => !v)}
+                      className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
+                      aria-label={
+                        showElevenLabsKey ? 'Hide ElevenLabs API key' : 'Show ElevenLabs API key'
+                      }
+                      aria-pressed={showElevenLabsKey}
+                    >
+                      {showElevenLabsKey ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                  {aiFieldErrors.elevenLabsKey ? (
+                    <p className="text-destructive text-xs" role="alert">
+                      {aiFieldErrors.elevenLabsKey}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      Create a key at{' '}
+                      <a
+                        href="https://elevenlabs.io/app/settings/api-keys"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2"
+                      >
+                        elevenlabs.io
+                      </a>{' '}
+                      (Scribe v2 realtime). Restricted keys need the{' '}
+                      <code className="text-xs">speech_to_text</code> permission.
                     </p>
                   )}
                 </div>

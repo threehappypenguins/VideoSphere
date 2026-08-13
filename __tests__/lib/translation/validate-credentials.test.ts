@@ -245,4 +245,36 @@ describe('validateTranslationAiConfig', () => {
 
     expect(result).toEqual({ ok: true });
   });
+
+  it('accepts ElevenLabs keys by shape without requiring user_read HTTP access', async () => {
+    const result = await validateTranslationAiConfig({
+      openRouterApiKey: '',
+      elevenLabsApiKey: 'sk_restricted_stt_only_key',
+      hasGcpServiceAccount: true,
+      sttProvider: 'elevenlabs',
+      textTranslateProvider: 'gcp',
+      sttModel: '',
+      translateModel: '',
+    });
+
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('rejects short ElevenLabs API keys', async () => {
+    const result = await validateTranslationAiConfig({
+      openRouterApiKey: '',
+      elevenLabsApiKey: 'sk_short',
+      hasGcpServiceAccount: true,
+      sttProvider: 'elevenlabs',
+      textTranslateProvider: 'gcp',
+      sttModel: '',
+      translateModel: '',
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: 'ElevenLabs API key looks too short.',
+      fields: ['elevenLabsKey'],
+    });
+  });
 });
