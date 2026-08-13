@@ -847,8 +847,7 @@ export interface ExampleItem {
 // =============================================================================
 
 /**
- * Speech-to-text backend for live translation ingest.
- * Streaming providers plus Groq (chunked Whisper fallback).
+ * Speech-to-text backend for live translation ingest (streaming ASR only).
  */
 export type LiveTranslationSttProvider =
   | 'deepgram'
@@ -857,8 +856,7 @@ export type LiveTranslationSttProvider =
   | 'speechmatics'
   | 'soniox'
   | 'modulate'
-  | 'elevenlabs'
-  | 'groq';
+  | 'elevenlabs';
 
 /**
  * Caption text-translation backend (explicit choice; no auto-fallback).
@@ -889,15 +887,6 @@ export interface LiveTranslationChannelPublic {
    * Always `null` when STT is Soniox (built-in MT).
    */
   textTranslateProvider: LiveTranslationTextTranslateProvider | null;
-  /**
-   * STT model id for Groq Whisper.
-   * Unused for streaming ASR providers. API alias of stored `openRouterSttModel`.
-   */
-  sttModel: string | null;
-  /**
-   * @deprecated Prefer `sttModel`. Kept for older clients during the STT-provider split.
-   */
-  openRouterSttModel: string | null;
   /**
    * Chat translation model id for OpenRouter or Groq when set.
    * Unused when `textTranslateProvider` is `gcp` or STT is Soniox.

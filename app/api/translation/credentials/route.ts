@@ -18,7 +18,6 @@ import {
   type LiveTranslationChannelPatch,
 } from '@/lib/repositories/live-translation-channels';
 import {
-  isStreamingSttProvider,
   normalizeSttProvider,
   normalizeTextTranslateProvider,
   sttProvidesBuiltInTranslation,
@@ -90,8 +89,6 @@ export async function PUT(req: NextRequest) {
       STREAMING_KEY_FIELDS.some((k) => raw[k] !== undefined) ||
       raw.sttProvider !== undefined ||
       raw.textTranslateProvider !== undefined ||
-      raw.sttModel !== undefined ||
-      raw.openRouterSttModel !== undefined ||
       raw.openRouterTranslateModel !== undefined;
 
     if (!existing && !isAiConfig) {
@@ -142,7 +139,7 @@ export async function PUT(req: NextRequest) {
           {
             error: 'Bad Request',
             message:
-              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, elevenlabs, or groq',
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, elevenlabs',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
@@ -247,15 +244,6 @@ export async function PUT(req: NextRequest) {
         );
       }
 
-      const sttFromBody =
-        typeof raw.sttModel === 'string'
-          ? raw.sttModel
-          : typeof raw.openRouterSttModel === 'string'
-            ? raw.openRouterSttModel
-            : null;
-      const sttModel =
-        (sttFromBody !== null ? sttFromBody.trim() : '') || secrets?.sttModel?.trim() || '';
-
       const translateFromBody =
         typeof raw.openRouterTranslateModel === 'string' ? raw.openRouterTranslateModel : null;
       const translateModel =
@@ -304,7 +292,6 @@ export async function PUT(req: NextRequest) {
         hasGcpServiceAccount,
         sttProvider,
         textTranslateProvider,
-        sttModel,
         translateModel,
       });
       if (validated.ok === false) {
@@ -480,7 +467,7 @@ export async function PUT(req: NextRequest) {
           {
             error: 'Bad Request',
             message:
-              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, elevenlabs, or groq',
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, elevenlabs',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
@@ -510,38 +497,28 @@ export async function PUT(req: NextRequest) {
       modelPatch.textTranslateProvider = textTranslateProvider;
     }
 
-    for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel'] as const) {
-      if (raw[key] !== undefined) {
-        if (raw[key] !== null && typeof raw[key] !== 'string') {
-          return NextResponse.json(
-            {
-              error: 'Bad Request',
-              message: `${key} must be a string or null`,
-              statusCode: 400,
-            } satisfies ApiError,
-            { status: 400 }
-          );
-        }
-        const value = raw[key] === null ? null : String(raw[key]).trim() || null;
-        if (key === 'sttModel' || key === 'openRouterSttModel') {
-          modelPatch.sttModel = value;
-        } else {
-          modelPatch.openRouterTranslateModel = value;
-        }
+    if (raw.openRouterTranslateModel !== undefined) {
+      if (
+        raw.openRouterTranslateModel !== null &&
+        typeof raw.openRouterTranslateModel !== 'string'
+      ) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'openRouterTranslateModel must be a string or null',
+            statusCode: 400,
+          } satisfies ApiError,
+          { status: 400 }
+        );
       }
+      modelPatch.openRouterTranslateModel =
+        raw.openRouterTranslateModel === null
+          ? null
+          : String(raw.openRouterTranslateModel).trim() || null;
     }
 
     if (raw.gcpTtsVoices !== undefined) {
       modelPatch.gcpTtsVoices = normalizeGcpTtsVoices(raw.gcpTtsVoices);
-    }
-
-    // When selecting a streaming STT provider, Groq model is optional — clear empty.
-    if (
-      modelPatch.sttProvider &&
-      isStreamingSttProvider(modelPatch.sttProvider) &&
-      modelPatch.sttModel === undefined
-    ) {
-      // leave existing model stored; unused at runtime
     }
 
     if (Object.keys(modelPatch).length > 0) {

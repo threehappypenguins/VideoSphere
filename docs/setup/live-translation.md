@@ -8,40 +8,37 @@ A translation **channel** (including the public slug) is created only when you s
 
 1. Open **Dashboard → Translation**.
 2. Choose **Configure AI**, then pick providers **separately** (no automatic fallback):
-   - **STT provider** — streaming ASR: **Deepgram**, **AssemblyAI**, **Gladia**, **Speechmatics**, **Modulate**, **ElevenLabs** (Scribe v2 realtime), or **Soniox** (STT+translation). **Groq Whisper** remains a chunked free-tier fallback (~4s windows).
+   - **STT provider** — streaming ASR: **Deepgram**, **AssemblyAI**, **Gladia**, **Speechmatics**, **Modulate**, **ElevenLabs** (Scribe v2 realtime), or **Soniox** (STT+translation).
    - **Caption translation provider** — Google Cloud Translation (NMT), Groq chat, or OpenRouter chat. **Hidden when STT is Soniox** (Soniox returns translated captions directly).
 3. The modal shows each provider’s **free / rate limits**, **post-free pricing**, and a link to the vendor’s pricing or limits page.
 4. Paste only the keys required for your choices:
    - Streaming ASR key for the selected STT provider (Deepgram / AssemblyAI / Gladia / Speechmatics / Modulate / ElevenLabs / Soniox).
-   - Groq key when STT or translate uses Groq ([console.groq.com](https://console.groq.com/)).
+   - Groq key when caption translation uses Groq ([console.groq.com](https://console.groq.com/)).
    - OpenRouter key when translate uses OpenRouter.
    - Google Cloud service account JSON when translate uses GCP (or reuse one already saved under Google Cloud TTS). Enable **Cloud Translation API** on that project and grant the service account **Cloud Translation API User** (`roles/cloudtranslate.user`).
-5. For **Groq** STT only, enter the **Whisper model id** (e.g. `whisper-large-v3-turbo`). Streaming ASR providers do not need a model id. For OpenRouter or Groq caption translation, also enter a **chat translation model id**. GCP NMT does not need a chat model.
+5. For OpenRouter or Groq caption translation, enter a **chat translation model id**. Streaming ASR and GCP NMT do not need a chat model.
 6. In **Languages**, set the **source** language and at least one **target** listen language, then save. Mandarin (`Chinese - Mandarin` / 普通话) and Cantonese (`Chinese - Cantonese` / 粤语) are separate targets so translation text and GCP voices stay aligned.
    - **Deepgram** Mandarin uses `language=zh`.
    - **AssemblyAI** Mandarin uses Universal-3.5 Pro (`u3-rt-pro`) on the streaming WebSocket.
 7. Optionally configure the **Public translation page** (enable + slug) when you are ready to share `/listen/{slug}`.
-8. Use **Add audio** on the machine running the dashboard page. Choose an input, optionally click **Test mic** to confirm the level meter moves (opens the mic without uploading), then **Add audio** to stream. Switch inputs anytime — including while testing or live. Owner mic ingest alone does **not** open billable STT — upstream ASR starts only when at least one public listener has chosen a language (and stops when the last listener leaves). Streaming STT sends ~**250ms** PCM frames; Groq sends ~**4s** chunks. Near-silent / cutoff chunks are skipped (and lone Whisper fillers like “Thank you” are dropped) so pauses do not become fake captions. **Stop audio** / **Stop test** releases the mic (and clears the browser tab recording indicator); **Stop audio** also closes upstream ASR sockets / drops queued STT work.
+8. Use **Add audio** on the machine running the dashboard page. Choose an input, optionally click **Test mic** to confirm the level meter moves (opens the mic without uploading), then **Add audio** to stream. Switch inputs anytime — including while testing or live. Owner mic ingest alone does **not** open billable STT — upstream ASR starts only when at least one public listener has chosen a language (and stops when the last listener leaves). Streaming STT sends ~**250ms** PCM frames. Near-silent / cutoff frames are skipped (and lone fillers like “Thank you” are dropped) so pauses do not become fake captions. **Stop audio** / **Stop test** releases the mic (and clears the browser tab recording indicator); **Stop audio** also closes upstream ASR sockets.
 
    Local development: prefer `pnpm dev` (Turbopack). `pnpm dev:webpack` can full-reload other open tabs when `/listen/{slug}` first compiles (webpack HMR `sync` hash change). That does not happen under Turbopack or production `next start`. Ingest intent stays in `sessionStorage` so Add audio can auto-resume after a remount — use **Stop audio** so a later load does not resume unexpectedly.
 
    **Phone testing / keep screen on:** Chrome on Android only allows the Screen Wake Lock API in a **secure context** (HTTPS or `http://localhost`). Opening `http://192.168.x.x:9624` will dim and sleep as usual. For LAN phone tests run `pnpm dev:https`, then open `https://<your-LAN-IP>:9624/listen/...` and accept the self-signed certificate once. Production deployments behind HTTPS work without extra steps.
 
-### How streaming vs Groq works
+### How streaming STT works
 
 | Mode | Behavior |
 | --- | --- |
 | Streaming (Deepgram, AssemblyAI, Gladia, Speechmatics, Modulate, ElevenLabs) | Session hub opens one long-lived provider WebSocket. Finals create caption segments and enqueue separate MT (+ optional async TTS). |
 | Soniox | One Soniox WebSocket **per active listen language** (one-way translation to that target). Same PCM is fanned out. Translated finals skip the separate MT provider. Incremental final tokens are accumulated and soft-split into sentence-sized captions (Latin `.?!` and CJK `。！？`); each committed caption gets its own segment id so prior lines stay on screen. |
-| Groq (chunked) | Existing HTTP Whisper batch path (~4s windows) for free-tier fallback. |
-
-Legacy channels that still have STT set to OpenRouter or GCP Speech-to-Text must **reconfigure AI** — those STT backends are no longer supported on the live path.
 
 ### Recommended path for full sermons (~2×50 min/week)
 
 | Stage | Provider | Why |
 | --- | --- | --- |
-| STT | **Deepgram** (or another streaming ASR) | Low-latency captions; signup credits cover early services. Use **Groq Whisper** only if you need a free chunked fallback. |
+| STT | **Deepgram** (or another streaming ASR) | Low-latency captions; signup credits cover early services. |
 | Captions | **Google Cloud Translation (NMT)** (unless Soniox STT) | First **~500,000 characters/month** free — usually enough for a few target languages at sermon volume. OpenRouter `:free` (~50 RPD) is not. |
 | Spoken listen | **GCP TTS** (Standard / WaveNet) | Large free character allowances; configure voices after languages. |
 

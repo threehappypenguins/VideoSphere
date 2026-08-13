@@ -25,7 +25,6 @@ describe('validateTranslationAiConfig', () => {
       hasGcpServiceAccount: false,
       sttProvider: 'deepgram',
       textTranslateProvider: 'openrouter',
-      sttModel: '',
       translateModel: 'openai/gpt-4o-mini',
     });
 
@@ -62,7 +61,6 @@ describe('validateTranslationAiConfig', () => {
       hasGcpServiceAccount: false,
       sttProvider: 'deepgram',
       textTranslateProvider: 'openrouter',
-      sttModel: '',
       translateModel: 'missing/model',
     });
 
@@ -103,89 +101,18 @@ describe('validateTranslationAiConfig', () => {
       hasGcpServiceAccount: false,
       sttProvider: 'deepgram',
       textTranslateProvider: 'openrouter',
-      sttModel: '',
       translateModel: 'openai/gpt-4o-mini',
     });
 
     expect(result).toEqual({ ok: true });
   });
 
-  it('validates Groq key and STT model when provider is groq', async () => {
+  it('accepts Deepgram STT + GCP translate without OpenRouter', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        if (String(url).includes('openrouter.ai/api/v1/key')) {
-          return Response.json({ data: { label: 'ok' } });
-        }
-        if (String(url).includes('openrouter.ai/api/v1/models')) {
-          return Response.json({
-            data: [{ id: 'openai/gpt-oss-20b:free', architecture: { input_modalities: ['text'] } }],
-          });
-        }
-        if (String(url).includes('api.groq.com')) {
-          return Response.json({
-            data: [{ id: 'whisper-large-v3-turbo' }],
-          });
-        }
-        throw new Error(`Unexpected fetch: ${url}`);
-      })
-    );
-
-    const result = await validateTranslationAiConfig({
-      openRouterApiKey: 'sk-ok',
-      groqApiKey: 'gsk_ok',
-      hasGcpServiceAccount: false,
-      sttProvider: 'groq',
-      textTranslateProvider: 'openrouter',
-      sttModel: 'whisper-large-v3-turbo',
-      translateModel: 'openai/gpt-oss-20b:free',
-    });
-
-    expect(result).toEqual({ ok: true });
-  });
-
-  it('rejects missing Groq STT models', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => {
-        if (String(url).includes('openrouter.ai/api/v1/key')) {
-          return Response.json({ data: { label: 'ok' } });
-        }
-        if (String(url).includes('openrouter.ai/api/v1/models')) {
-          return Response.json({
-            data: [{ id: 'openai/gpt-oss-20b:free' }],
-          });
-        }
-        if (String(url).includes('api.groq.com')) {
-          return Response.json({ data: [{ id: 'whisper-large-v3' }] });
-        }
-        throw new Error(`Unexpected fetch: ${url}`);
-      })
-    );
-
-    const result = await validateTranslationAiConfig({
-      openRouterApiKey: 'sk-ok',
-      groqApiKey: 'gsk_ok',
-      hasGcpServiceAccount: false,
-      sttProvider: 'groq',
-      textTranslateProvider: 'openrouter',
-      sttModel: 'not-a-real-whisper',
-      translateModel: 'openai/gpt-oss-20b:free',
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok === false) {
-      expect(result.message).toMatch(/Groq STT model/i);
-      expect(result.fields).toEqual(['sttModel']);
-    }
-  });
-
-  it('accepts Groq STT + GCP translate without OpenRouter', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => {
-        if (String(url).includes('api.groq.com')) {
-          return Response.json({ data: [{ id: 'whisper-large-v3-turbo' }] });
+        if (String(url).includes('api.deepgram.com')) {
+          return Response.json({ projects: [] });
         }
         throw new Error(`Unexpected fetch: ${url}`);
       })
@@ -193,11 +120,10 @@ describe('validateTranslationAiConfig', () => {
 
     const result = await validateTranslationAiConfig({
       openRouterApiKey: '',
-      groqApiKey: 'gsk_ok',
+      deepgramApiKey: 'dg-ok',
       hasGcpServiceAccount: true,
-      sttProvider: 'groq',
+      sttProvider: 'deepgram',
       textTranslateProvider: 'gcp',
-      sttModel: 'whisper-large-v3-turbo',
       translateModel: '',
     });
 
@@ -222,7 +148,6 @@ describe('validateTranslationAiConfig', () => {
       hasGcpServiceAccount: false,
       sttProvider: 'deepgram',
       textTranslateProvider: 'gcp',
-      sttModel: '',
       translateModel: '',
     });
 
@@ -239,7 +164,6 @@ describe('validateTranslationAiConfig', () => {
       hasGcpServiceAccount: false,
       sttProvider: 'soniox',
       textTranslateProvider: null,
-      sttModel: '',
       translateModel: '',
     });
 
@@ -253,7 +177,6 @@ describe('validateTranslationAiConfig', () => {
       hasGcpServiceAccount: true,
       sttProvider: 'elevenlabs',
       textTranslateProvider: 'gcp',
-      sttModel: '',
       translateModel: '',
     });
 
@@ -267,7 +190,6 @@ describe('validateTranslationAiConfig', () => {
       hasGcpServiceAccount: true,
       sttProvider: 'elevenlabs',
       textTranslateProvider: 'gcp',
-      sttModel: '',
       translateModel: '',
     });
 

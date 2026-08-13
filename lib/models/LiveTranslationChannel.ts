@@ -21,11 +21,8 @@ export interface LiveTranslationChannelDocument {
    * Auth still uses {@link streamKeyHash}; this field is never sent to MediaMTX.
    */
   streamKeyEncrypted?: string;
-  /**
-   * STT backend: streaming ASR or Groq chunked Whisper.
-   * Legacy `openrouter` / `gcp` values are ignored at runtime.
-   */
-  sttProvider?: LiveTranslationSttProvider | string;
+  /** STT backend (streaming ASR). */
+  sttProvider?: LiveTranslationSttProvider;
   /** Caption translation backend (unused when STT is Soniox). */
   textTranslateProvider?: LiveTranslationTextTranslateProvider;
   openRouterApiKeyEncrypted?: string;
@@ -38,11 +35,6 @@ export interface LiveTranslationChannelDocument {
   modulateApiKeyEncrypted?: string;
   elevenLabsApiKeyEncrypted?: string;
   gcpServiceAccountJsonEncrypted?: string;
-  /**
-   * STT model id for Groq Whisper.
-   * Field name is historical; unused for streaming ASR providers.
-   */
-  openRouterSttModel?: string;
   /**
    * Chat translation model id for OpenRouter or Groq.
    * Unused when `textTranslateProvider` is `gcp` or STT is Soniox.
@@ -68,7 +60,6 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
       type: String,
       required: false,
       trim: true,
-      // Keep legacy values in enum so old documents still load; normalizeSttProvider drops them.
       enum: [
         'deepgram',
         'assemblyai',
@@ -77,9 +68,6 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
         'soniox',
         'modulate',
         'elevenlabs',
-        'groq',
-        'openrouter',
-        'gcp',
       ],
     },
     textTranslateProvider: {
@@ -98,7 +86,6 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
     modulateApiKeyEncrypted: { type: String, required: false },
     elevenLabsApiKeyEncrypted: { type: String, required: false },
     gcpServiceAccountJsonEncrypted: { type: String, required: false },
-    openRouterSttModel: { type: String, required: false, trim: true },
     openRouterTranslateModel: { type: String, required: false, trim: true },
     gcpTtsVoices: { type: Map, of: String, required: false },
   },

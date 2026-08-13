@@ -17,10 +17,9 @@ export type LiveTranslationStreamingSttProvider =
   | 'elevenlabs';
 
 /**
- * Supported speech-to-text backends for live translation ingest.
- * `groq` is chunked Whisper (free-tier fallback); all others are streaming ASR.
+ * Supported speech-to-text backends for live translation ingest (streaming ASR only).
  */
-export type LiveTranslationSttProvider = LiveTranslationStreamingSttProvider | 'groq';
+export type LiveTranslationSttProvider = LiveTranslationStreamingSttProvider;
 
 /**
  * Supported caption text-translation backends (explicit choice; no auto-fallback).
@@ -75,7 +74,6 @@ export function sttProvidesBuiltInTranslation(
 
 /**
  * Normalizes a stored or request STT provider value.
- * Legacy `openrouter` / `gcp` STT values are treated as unset (force reconfigure).
  * @param value - Raw provider string.
  * @returns Canonical provider, or `null` when unset/unknown (no implicit default).
  */
@@ -83,7 +81,6 @@ export function normalizeSttProvider(
   value: string | null | undefined
 ): LiveTranslationSttProvider | null {
   if (
-    value === 'groq' ||
     value === 'deepgram' ||
     value === 'assemblyai' ||
     value === 'gladia' ||
@@ -161,11 +158,6 @@ export interface TranslationCapabilityInput {
   /** Whether an ElevenLabs API key is stored. */
   hasElevenLabsKey?: boolean;
   /**
-   * STT model id for chunked Groq Whisper.
-   * Unused for streaming ASR providers.
-   */
-  sttModel: string | null | undefined;
-  /**
    * Chat translation model id for OpenRouter or Groq translate.
    * Unused when text translate provider is GCP, or when STT is Soniox.
    */
@@ -198,9 +190,6 @@ export function effectiveTextTranslateProvider(
 export function isSttReady(input: TranslationCapabilityInput): boolean {
   const provider = normalizeSttProvider(input.sttProvider);
   if (!provider) return false;
-  if (provider === 'groq') {
-    return Boolean(input.hasGroqKey && input.sttModel?.trim());
-  }
   if (provider === 'deepgram') return Boolean(input.hasDeepgramKey);
   if (provider === 'assemblyai') return Boolean(input.hasAssemblyaiKey);
   if (provider === 'gladia') return Boolean(input.hasGladiaKey);

@@ -75,7 +75,6 @@ export function capabilityInputFromDoc(
     hasSonioxKey: hasEncrypted(doc.sonioxApiKeyEncrypted),
     hasModulateKey: hasEncrypted(doc.modulateApiKeyEncrypted),
     hasElevenLabsKey: hasEncrypted(doc.elevenLabsApiKeyEncrypted),
-    sttModel: doc.openRouterSttModel ?? null,
     openRouterTranslateModel: doc.openRouterTranslateModel ?? null,
     hasGcpServiceAccount,
     gcpTtsVoices: normalizeGcpTtsVoices(doc.gcpTtsVoices),
@@ -95,7 +94,6 @@ export async function toOwnerView(
   extras?: { streamKeyPlaintext?: string; bypassMediamtxProbeCache?: boolean }
 ): Promise<LiveTranslationChannelOwnerView> {
   const capability = capabilityInputFromDoc(doc);
-  const sttModel = doc.openRouterSttModel?.trim() || null;
   const sttProvider = normalizeSttProvider(doc.sttProvider);
   const textTranslateProvider = sttProvidesBuiltInTranslation(sttProvider)
     ? null
@@ -121,8 +119,6 @@ export async function toOwnerView(
     enabledLanguages: [...(doc.enabledLanguages ?? [])],
     sttProvider,
     textTranslateProvider,
-    sttModel,
-    openRouterSttModel: sttModel,
     openRouterTranslateModel: doc.openRouterTranslateModel?.trim() || null,
     gcpTtsVoices: normalizeGcpTtsVoices(doc.gcpTtsVoices),
     hasOpenRouterKey: capability.hasOpenRouterKey,
@@ -258,10 +254,6 @@ export interface LiveTranslationChannelPatch {
   enabledLanguages?: string[];
   sttProvider?: LiveTranslationSttProvider;
   textTranslateProvider?: LiveTranslationTextTranslateProvider;
-  /** STT model id (stored as `openRouterSttModel`). */
-  sttModel?: string | null;
-  /** @deprecated Prefer `sttModel`. */
-  openRouterSttModel?: string | null;
   openRouterTranslateModel?: string | null;
   gcpTtsVoices?: GcpTtsVoicesMap | null;
 }
@@ -290,10 +282,6 @@ export async function updateChannelForUser(
   if (patch.textTranslateProvider !== undefined) {
     const textTranslateProvider = normalizeTextTranslateProvider(patch.textTranslateProvider);
     if (textTranslateProvider) $set.textTranslateProvider = textTranslateProvider;
-  }
-  const sttModel = patch.sttModel !== undefined ? patch.sttModel : patch.openRouterSttModel;
-  if (sttModel !== undefined) {
-    $set.openRouterSttModel = sttModel?.trim() || null;
   }
   if (patch.openRouterTranslateModel !== undefined) {
     $set.openRouterTranslateModel = patch.openRouterTranslateModel?.trim() || null;
@@ -487,10 +475,6 @@ export async function clearCredential(
   const unset: Record<string, 1> = { ...unsetByKind[kind] };
 
   if (kind === 'groq') {
-    if (sttProvider === 'groq') {
-      unset.sttProvider = 1;
-      unset.openRouterSttModel = 1;
-    }
     if (textTranslateProvider === 'groq') {
       unset.textTranslateProvider = 1;
       unset.openRouterTranslateModel = 1;
@@ -587,7 +571,6 @@ export interface LiveTranslationRuntimeSecrets {
   modulateApiKey: string | null;
   elevenLabsApiKey: string | null;
   gcpServiceAccountJson: string | null;
-  sttModel: string | null;
   openRouterTranslateModel: string | null;
   gcpTtsVoices: GcpTtsVoicesMap;
   sourceLanguage: string;
@@ -617,7 +600,6 @@ export async function getRuntimeSecretsForUser(
   const modulateApiKey = tryDecrypt(doc.modulateApiKeyEncrypted);
   const elevenLabsApiKey = tryDecrypt(doc.elevenLabsApiKeyEncrypted);
   const gcpServiceAccountJson = tryDecrypt(doc.gcpServiceAccountJsonEncrypted);
-  const sttModel = doc.openRouterSttModel?.trim() || null;
   const openRouterTranslateModel = doc.openRouterTranslateModel?.trim() || null;
   const gcpTtsVoices = normalizeGcpTtsVoices(doc.gcpTtsVoices);
   const hasGcpServiceAccount = Boolean(gcpServiceAccountJson);
@@ -637,7 +619,6 @@ export async function getRuntimeSecretsForUser(
     hasSonioxKey: Boolean(sonioxApiKey),
     hasModulateKey: Boolean(modulateApiKey),
     hasElevenLabsKey: Boolean(elevenLabsApiKey),
-    sttModel,
     openRouterTranslateModel,
     hasGcpServiceAccount,
     gcpTtsVoices,
@@ -656,7 +637,6 @@ export async function getRuntimeSecretsForUser(
     modulateApiKey,
     elevenLabsApiKey,
     gcpServiceAccountJson,
-    sttModel,
     openRouterTranslateModel,
     gcpTtsVoices,
     sourceLanguage: doc.sourceLanguage || 'en',

@@ -61,7 +61,6 @@ describe('provider pricing metadata', () => {
       'soniox',
       'modulate',
       'elevenlabs',
-      'groq',
     ] as const) {
       expect(STT_PROVIDER_PRICING[id].pricingUrl).toMatch(/^https:\/\//);
       expect(STT_PROVIDER_PRICING[id].freeUsageLimit.length).toBeGreaterThan(10);

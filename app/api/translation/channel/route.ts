@@ -184,7 +184,7 @@ export async function PATCH(req: NextRequest) {
           {
             error: 'Bad Request',
             message:
-              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, elevenlabs, or groq',
+              'sttProvider must be deepgram, assemblyai, gladia, speechmatics, soniox, modulate, elevenlabs',
             statusCode: 400,
           } satisfies ApiError,
           { status: 400 }
@@ -210,25 +210,24 @@ export async function PATCH(req: NextRequest) {
       patch.textTranslateProvider = textTranslateProvider;
     }
 
-    for (const key of ['sttModel', 'openRouterSttModel', 'openRouterTranslateModel'] as const) {
-      if (raw[key] !== undefined) {
-        if (raw[key] !== null && typeof raw[key] !== 'string') {
-          return NextResponse.json(
-            {
-              error: 'Bad Request',
-              message: `${key} must be a string or null`,
-              statusCode: 400,
-            } satisfies ApiError,
-            { status: 400 }
-          );
-        }
-        const value = raw[key] === null ? null : String(raw[key]).trim() || null;
-        if (key === 'sttModel' || key === 'openRouterSttModel') {
-          patch.sttModel = value;
-        } else {
-          patch.openRouterTranslateModel = value;
-        }
+    if (raw.openRouterTranslateModel !== undefined) {
+      if (
+        raw.openRouterTranslateModel !== null &&
+        typeof raw.openRouterTranslateModel !== 'string'
+      ) {
+        return NextResponse.json(
+          {
+            error: 'Bad Request',
+            message: 'openRouterTranslateModel must be a string or null',
+            statusCode: 400,
+          } satisfies ApiError,
+          { status: 400 }
+        );
       }
+      patch.openRouterTranslateModel =
+        raw.openRouterTranslateModel === null
+          ? null
+          : String(raw.openRouterTranslateModel).trim() || null;
     }
 
     try {

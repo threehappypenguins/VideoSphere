@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/repositories/live-translation-channels', () => ({
   getRuntimeSecretsForUser: vi.fn(async () => ({
-    sttProvider: 'groq',
+    sttProvider: 'deepgram',
     textTranslateProvider: 'openrouter',
     openRouterApiKey: 'key',
-    groqApiKey: 'gsk',
-    deepgramApiKey: null,
+    groqApiKey: null,
+    deepgramApiKey: 'dg-test',
     assemblyaiApiKey: null,
     gladiaApiKey: null,
     speechmaticsApiKey: null,
@@ -14,7 +14,6 @@ vi.mock('@/lib/repositories/live-translation-channels', () => ({
     modulateApiKey: null,
     elevenLabsApiKey: null,
     gcpServiceAccountJson: null,
-    sttModel: 'whisper-large-v3-turbo',
     openRouterTranslateModel: 'tr',
     gcpTtsVoices: {},
     sourceLanguage: 'en',
@@ -44,10 +43,6 @@ vi.mock('@/lib/translation/translate-text', () => ({
   },
 }));
 
-vi.mock('@/lib/translation/transcribe', () => ({
-  transcribeAudio: vi.fn(async () => 'hello'),
-}));
-
 vi.mock('@/lib/translation/gcp-tts', () => ({
   synthesizeSpeechWithGcp: vi.fn(async () => Buffer.alloc(0)),
 }));
@@ -68,7 +63,6 @@ import {
 import { getRuntimeSecretsForUser } from '@/lib/repositories/live-translation-channels';
 import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
 import { translateLiveCaptionText } from '@/lib/translation/translate-text';
-import { transcribeAudio } from '@/lib/translation/transcribe';
 import { splitPcmFrames, synthesizeSinging, synthesizeSpeech } from '@/__tests__/utils/synth-audio';
 
 /**
@@ -97,13 +91,44 @@ async function feedIngestFrames(channelId: string, pcm: Buffer): Promise<void> {
   }
 }
 
-/** Default channel configuration: Groq chunked STT with OpenRouter translate. */
-const GROQ_SECRETS = {
-  sttProvider: 'groq',
+type AsrOnEvent = (event: {
+  kind: string;
+  text?: string;
+  language?: string;
+  message?: string;
+}) => void;
+
+/**
+ * Default Deepgram mock: each writePcm emits one final transcript.
+ * @param text - Fixed transcript, or factory for sequential values.
+ * @returns The writePcm spy for call-count assertions.
+ */
+function mockStreamingFinals(text: string | (() => string | Promise<string>) = 'hello') {
+  const writePcm = vi.fn();
+  createStreamingAsrSession.mockImplementation(
+    async (_provider: string, options: { onEvent: AsrOnEvent }) => {
+      writePcm.mockImplementation(() => {
+        void Promise.resolve(typeof text === 'function' ? text() : text).then((resolved) => {
+          if (!resolved) return;
+          options.onEvent({ kind: 'final', text: resolved, language: 'en' });
+        });
+      });
+      return {
+        writePcm,
+        close: vi.fn(async () => undefined),
+      };
+    }
+  );
+  return writePcm;
+}
+
+/** Default channel configuration: streaming Deepgram STT with OpenRouter translate. */
+const STREAMING_SECRETS = {
+  sttProvider: 'deepgram',
   textTranslateProvider: 'openrouter',
   openRouterApiKey: 'key',
-  groqApiKey: 'gsk',
-  deepgramApiKey: null,
+  groqApiKey: null,
+  deepgramApiKey: 'dg-test',
   assemblyaiApiKey: null,
   gladiaApiKey: null,
   speechmaticsApiKey: null,
@@ -111,7 +136,6 @@ const GROQ_SECRETS = {
   modulateApiKey: null,
   elevenLabsApiKey: null,
   gcpServiceAccountJson: null,
-  sttModel: 'whisper-large-v3-turbo',
   openRouterTranslateModel: 'tr',
   gcpTtsVoices: {},
   sourceLanguage: 'en',
@@ -124,7 +148,8 @@ describe('translation session hub', () => {
   beforeEach(() => {
     // `clearAllMocks` keeps implementations, so a provider set by one test would
     // otherwise leak into every test after it.
-    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue(GROQ_SECRETS);
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue(STREAMING_SECRETS);
+    mockStreamingFinals('hello');
   });
 
   afterEach(() => {
@@ -177,7 +202,7 @@ describe('translation session hub', () => {
       expect(captions).toContain('hello');
     });
 
-    expect(transcribeAudio).toHaveBeenCalled();
+    expect(createStreamingAsrSession).toHaveBeenCalled();
     expect(translateLiveCaptionText).not.toHaveBeenCalled();
     unsub();
   });
@@ -286,7 +311,7 @@ describe('translation session hub', () => {
     enqueueOwnerPcm('ch-idle', 'user-1', loudPcm(3200), 16000);
     await Promise.resolve();
     await Promise.resolve();
-    expect(transcribeAudio).not.toHaveBeenCalled();
+    expect(createStreamingAsrSession).not.toHaveBeenCalled();
     expect(getSubscriberStats('ch-idle').live).toBe(true);
 
     const captions: string[] = [];
@@ -304,26 +329,14 @@ describe('translation session hub', () => {
     await vi.waitFor(() => {
       expect(captions).toContain('hello');
     });
-    expect(transcribeAudio).toHaveBeenCalled();
+    expect(createStreamingAsrSession).toHaveBeenCalled();
     unsub();
   });
 
   it('fans source_pcm to source listeners with wantAudio and never synthesizes TTS', async () => {
     vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
-      sttProvider: 'groq',
-      textTranslateProvider: 'openrouter',
-      openRouterApiKey: 'key',
-      groqApiKey: 'gsk',
-      deepgramApiKey: null,
-      assemblyaiApiKey: null,
-      gladiaApiKey: null,
-      speechmaticsApiKey: null,
-      sonioxApiKey: null,
-      modulateApiKey: null,
-      elevenLabsApiKey: null,
+      ...STREAMING_SECRETS,
       gcpServiceAccountJson: '{"type":"service_account"}',
-      sttModel: 'whisper-large-v3-turbo',
-      openRouterTranslateModel: 'tr',
       // Legacy source voice must not trigger TTS for source listen.
       gcpTtsVoices: { en: 'en-US-Neural2-A', es: 'es-US-Neural2-A' },
       sourceLanguage: 'en',
@@ -359,7 +372,7 @@ describe('translation session hub', () => {
     expect(pcmEvents[0]?.sampleRate).toBe(16000);
 
     await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalled();
+      expect(createStreamingAsrSession).toHaveBeenCalled();
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -382,7 +395,7 @@ describe('translation session hub', () => {
 
     enqueueOwnerPcm('ch-source-silent', 'user-1', loudPcm(3200), 16000);
     await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalled();
+      expect(createStreamingAsrSession).toHaveBeenCalled();
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -390,16 +403,8 @@ describe('translation session hub', () => {
     unsub();
   });
 
-  it('drops queued PCM when ingest is stopped so STT does not keep running', async () => {
-    let releaseStt: (() => void) | undefined;
-    const sttGate = new Promise<void>((resolve) => {
-      releaseStt = resolve;
-    });
-    vi.mocked(transcribeAudio).mockImplementationOnce(async () => {
-      await sttGate;
-      return 'still-going';
-    });
-
+  it('closes upstream ASR when ingest is stopped', async () => {
+    const writePcm = mockStreamingFinals('hello');
     const unsub = subscribePublicListener({
       channelId: 'ch-stop',
       userId: 'user-1',
@@ -413,107 +418,16 @@ describe('translation session hub', () => {
     });
 
     enqueueOwnerPcm('ch-stop', 'user-1', loudPcm(3200), 16000);
-    enqueueOwnerPcm('ch-stop', 'user-1', loudPcm(3200), 16000);
-    enqueueOwnerPcm('ch-stop', 'user-1', loudPcm(3200), 16000);
-
     await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalledTimes(1);
+      expect(writePcm).toHaveBeenCalled();
     });
 
+    const sessionResult = await createStreamingAsrSession.mock.results[0]!.value;
     markIngestStopped('ch-stop');
-    releaseStt?.();
-
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // In-flight call may finish, but queued chunks must not start new STT work.
-    expect(transcribeAudio).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(sessionResult.close).toHaveBeenCalled();
+    });
     expect(getSubscriberStats('ch-stop').live).toBe(false);
-    unsub();
-  });
-
-  it('backs off STT after a 429 instead of draining the queue immediately', async () => {
-    vi.useFakeTimers();
-    vi.mocked(transcribeAudio)
-      .mockRejectedValueOnce(new Error('Groq STT error (429): rate_limit_exceeded'))
-      .mockResolvedValue('hello');
-
-    const unsub = subscribePublicListener({
-      channelId: 'ch-429',
-      userId: 'user-1',
-      language: 'en',
-      wantAudio: false,
-      send: () => undefined,
-    });
-
-    await vi.waitFor(() => {
-      expect(getSubscriberStats('ch-429').totalSubscribers).toBe(1);
-    });
-
-    enqueueOwnerPcm('ch-429', 'user-1', loudPcm(3200), 16000);
-
-    await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalledTimes(1);
-    });
-
-    // Still within backoff — should not immediately retry.
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(transcribeAudio).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(15_000);
-    await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalledTimes(2);
-    });
-    unsub();
-  });
-
-  it('drops older PCM while STT is rate-limited so recovery does not burn quota', async () => {
-    vi.useFakeTimers();
-    let releaseStt: (() => void) | undefined;
-    const sttGate = new Promise<void>((resolve) => {
-      releaseStt = resolve;
-    });
-    vi.mocked(transcribeAudio)
-      .mockRejectedValueOnce(new Error('Groq STT error (429): rate_limit_exceeded'))
-      .mockImplementationOnce(async () => {
-        await sttGate;
-        return 'latest-only';
-      });
-
-    const captions: string[] = [];
-    const unsub = subscribePublicListener({
-      channelId: 'ch-stt-coalesce',
-      userId: 'user-1',
-      language: 'en',
-      wantAudio: false,
-      send: (event) => {
-        if (event.type === 'caption' && event.text) captions.push(event.text);
-      },
-    });
-
-    await vi.waitFor(() => {
-      expect(getSubscriberStats('ch-stt-coalesce').byLanguage.en).toBe(1);
-    });
-
-    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', loudPcm(100), 16000);
-    await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalledTimes(1);
-    });
-
-    // These would previously pile up and get drained after backoff.
-    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', loudPcm(200), 16000);
-    enqueueOwnerPcm('ch-stt-coalesce', 'user-1', loudPcm(300), 16000);
-
-    await vi.advanceTimersByTimeAsync(15_000);
-    await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalledTimes(2);
-    });
-    releaseStt?.();
-
-    await vi.waitFor(() => {
-      expect(captions).toContain('latest-only');
-    });
-    expect(transcribeAudio).toHaveBeenCalledTimes(2);
     unsub();
   });
 
@@ -524,7 +438,11 @@ describe('translation session hub', () => {
     vi.mocked(translateLiveCaptionText)
       .mockRejectedValueOnce(new Error('OpenRouter translate error (429): rate limited'))
       .mockResolvedValue('hola-latest');
-    vi.mocked(transcribeAudio).mockResolvedValueOnce('one').mockResolvedValue('three');
+    let n = 0;
+    mockStreamingFinals(() => {
+      n += 1;
+      return n === 1 ? 'one' : 'three';
+    });
 
     const unsub = subscribePublicListener({
       channelId: 'ch-tr-429',
@@ -550,7 +468,7 @@ describe('translation session hub', () => {
     // Another live chunk while translate is paused.
     enqueueOwnerPcm('ch-tr-429', 'user-1', loudPcm(3200), 16000);
     await vi.waitFor(() => {
-      expect(transcribeAudio).toHaveBeenCalledTimes(2);
+      expect(n).toBeGreaterThanOrEqual(2);
     });
 
     await vi.advanceTimersByTimeAsync(20_000);
@@ -590,7 +508,6 @@ describe('translation session hub', () => {
       modulateApiKey: null,
       elevenLabsApiKey: null,
       gcpServiceAccountJson: null,
-      sttModel: null,
       openRouterTranslateModel: null,
       gcpTtsVoices: {},
       sourceLanguage: 'en',
@@ -664,7 +581,6 @@ describe('translation session hub', () => {
       modulateApiKey: null,
       elevenLabsApiKey: null,
       gcpServiceAccountJson: null,
-      sttModel: null,
       openRouterTranslateModel: 'tr',
       gcpTtsVoices: {},
       sourceLanguage: 'en',
@@ -741,7 +657,6 @@ describe('translation session hub', () => {
       modulateApiKey: 'mod-test',
       elevenLabsApiKey: null,
       gcpServiceAccountJson: null,
-      sttModel: null,
       openRouterTranslateModel: 'tr',
       gcpTtsVoices: {},
       sourceLanguage: 'en',
@@ -817,7 +732,6 @@ describe('translation session hub', () => {
       modulateApiKey: null,
       elevenLabsApiKey: null,
       gcpServiceAccountJson: null,
-      sttModel: null,
       openRouterTranslateModel: 'tr',
       gcpTtsVoices: {},
       sourceLanguage: 'en',
@@ -890,11 +804,11 @@ describe('translation session hub', () => {
     await feedIngestFrames('ch-music', synthesizeSinging(6000));
     expect(activity).toEqual(['music']);
 
-    // Captions ran while the analysis window filled; nothing new once music is committed.
-    const callsAtDetection = vi.mocked(transcribeAudio).mock.calls.length;
-    expect(callsAtDetection).toBeGreaterThan(0);
+    // ASR opened while the analysis window filled; nothing new once music is committed.
+    const opensAtDetection = createStreamingAsrSession.mock.calls.length;
+    expect(opensAtDetection).toBeGreaterThan(0);
     await feedIngestFrames('ch-music', synthesizeSinging(6000));
-    expect(vi.mocked(transcribeAudio).mock.calls.length).toBe(callsAtDetection);
+    expect(createStreamingAsrSession.mock.calls.length).toBe(opensAtDetection);
 
     unsub();
   });
@@ -926,6 +840,7 @@ describe('translation session hub', () => {
   });
 
   it('resumes captions when speech returns after singing', async () => {
+    const writePcm = mockStreamingFinals('hello');
     const activity: string[] = [];
     const unsub = subscribePublicListener({
       channelId: 'ch-music-end',
@@ -944,11 +859,11 @@ describe('translation session hub', () => {
     await feedIngestFrames('ch-music-end', synthesizeSinging(8000));
     expect(activity).toEqual(['music']);
 
-    const callsDuringMusic = vi.mocked(transcribeAudio).mock.calls.length;
+    const callsDuringMusic = writePcm.mock.calls.length;
     await feedIngestFrames('ch-music-end', synthesizeSpeech(12000));
 
     expect(activity).toEqual(['music', 'speech']);
-    expect(vi.mocked(transcribeAudio).mock.calls.length).toBeGreaterThan(callsDuringMusic);
+    expect(writePcm.mock.calls.length).toBeGreaterThan(callsDuringMusic);
 
     unsub();
   });
@@ -991,11 +906,10 @@ describe('translation session hub', () => {
       close: vi.fn(async () => undefined),
     });
     vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
-      ...GROQ_SECRETS,
+      ...STREAMING_SECRETS,
       sttProvider: 'deepgram',
       deepgramApiKey: 'dg-test',
       groqApiKey: null,
-      sttModel: null,
     } as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>);
 
     const unsub = subscribePublicListener({

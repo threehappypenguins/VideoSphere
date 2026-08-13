@@ -11,14 +11,10 @@ import {
   sttProvidesBuiltInTranslation,
   type LiveTranslationStreamingSttProvider,
 } from '@/lib/translation/capabilities';
-import {
-  normalizeTranslationLanguageCode,
-  sttLanguageHintForTranslationLanguage,
-} from '@/lib/translation/languages';
+import { normalizeTranslationLanguageCode } from '@/lib/translation/languages';
 import { createStreamingAsrSession } from '@/lib/translation/streaming-asr';
 import { isModulateSoftReconnectError } from '@/lib/translation/streaming-asr/modulate';
 import type { StreamingAsrEvent, StreamingAsrSession } from '@/lib/translation/streaming-asr/types';
-import { transcribeAudio } from '@/lib/translation/transcribe';
 import {
   GroqTranslateRateLimitError,
   OpenRouterTranslateRateLimitError,
@@ -28,7 +24,6 @@ import { buildRecentSourceContext } from '@/lib/translation/mt-prompt';
 import { repairSermonTranslation } from '@/lib/translation/sermon-source-clarify';
 import { synthesizeSpeechWithGcp } from '@/lib/translation/gcp-tts';
 import { resolveTtsSpeakingRate } from '@/lib/translation/tts-speaking-rate';
-import { pcm16MonoToWav } from '@/lib/translation/pcm-wav';
 import {
   gcpTtsVoiceForLanguage,
   languageCodeHintFromVoiceName,
@@ -62,10 +57,6 @@ const ASR_LISTENER_GRACE_MS = 1_500;
 const TRANSLATE_RATE_LIMIT_BACKOFF_MS = 20_000;
 /** Cap for exponential translate 429 backoff. */
 const TRANSLATE_RATE_LIMIT_BACKOFF_MAX_MS = 60_000;
-/** Base backoff after Groq/OpenRouter STT 429 (free tiers are often ~20 RPM). */
-const STT_RATE_LIMIT_BACKOFF_MS = 15_000;
-/** Cap for exponential STT 429 backoff. */
-const STT_RATE_LIMIT_BACKOFF_MAX_MS = 60_000;
 /**
  * Audio retained while music suppresses STT, replayed when speech resumes.
  *
@@ -167,16 +158,8 @@ type ChannelSession = {
   ingestActive: boolean;
   lastIngestAt: number;
   ingestIdleTimer: ReturnType<typeof setTimeout> | null;
-  processingAudio: boolean;
-  audioQueue: Array<{ pcm: Buffer; sampleRate: number }>;
   /** Cached channel source language for PCM passthrough fan-out. */
   cachedSourceLanguage: string | null;
-  /** When set, pause STT attempts until this timestamp (provider 429 backoff). */
-  sttRateLimitedUntil: number;
-  sttRateLimitNotifiedAt: number;
-  sttRateLimitTimer: ReturnType<typeof setTimeout> | null;
-  /** Consecutive STT 429s (drives exponential backoff; reset on success). */
-  sttConsecutiveRateLimits: number;
   segments: Segment[];
   languages: Map<string, LanguageBucket>;
   audioBytes: Map<string, { mime: string; data: Buffer; expiresAt: number }>;
@@ -249,13 +232,7 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
       ingestActive: false,
       lastIngestAt: 0,
       ingestIdleTimer: null,
-      processingAudio: false,
-      audioQueue: [],
       cachedSourceLanguage: null,
-      sttRateLimitedUntil: 0,
-      sttRateLimitNotifiedAt: 0,
-      sttRateLimitTimer: null,
-      sttConsecutiveRateLimits: 0,
       segments: [],
       languages: new Map(),
       audioBytes: new Map(),
@@ -279,27 +256,6 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
     sessions.set(channelId, session);
   }
   return session;
-}
-
-/**
- * Keeps only the newest PCM chunk (live captions should not burn quota on a backlog).
- * @param session - Channel session.
- */
-function coalesceAudioQueueToLatest(session: ChannelSession): void {
-  if (session.audioQueue.length <= 1) return;
-  const keep = session.audioQueue[session.audioQueue.length - 1];
-  session.audioQueue.length = 0;
-  if (keep) session.audioQueue.push(keep);
-}
-
-/**
- * Computes STT 429 backoff with exponential growth.
- * @param consecutive - Consecutive 429 count (1-based after increment).
- * @returns Delay in milliseconds.
- */
-function sttRateLimitBackoffMs(consecutive: number): number {
-  const exp = Math.max(0, consecutive - 1);
-  return Math.min(STT_RATE_LIMIT_BACKOFF_MAX_MS, STT_RATE_LIMIT_BACKOFF_MS * 2 ** exp);
 }
 
 /**
@@ -393,7 +349,7 @@ function sessionHasListeners(session: ChannelSession): boolean {
 
 function maybeTeardown(session: ChannelSession): void {
   const hasSubs = sessionHasListeners(session);
-  if (!session.ingestActive && !hasSubs && session.audioQueue.length === 0) {
+  if (!session.ingestActive && !hasSubs) {
     if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
     for (const bucket of session.languages.values()) {
       if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
@@ -1325,153 +1281,6 @@ function enqueueSegmentForActiveLanguages(
   }
 }
 
-async function processAudioQueue(session: ChannelSession): Promise<void> {
-  if (session.processingAudio) return;
-  if (!session.ingestActive || !sessionHasListeners(session)) {
-    session.audioQueue.length = 0;
-    return;
-  }
-  if (session.sttRateLimitedUntil > now()) {
-    coalesceAudioQueueToLatest(session);
-    const waitMs = session.sttRateLimitedUntil - now();
-    if (!session.sttRateLimitTimer) {
-      session.sttRateLimitTimer = setTimeout(() => {
-        session.sttRateLimitTimer = null;
-        void processAudioQueue(session);
-      }, waitMs);
-    }
-    return;
-  }
-
-  session.processingAudio = true;
-  try {
-    while (session.audioQueue.length > 0) {
-      if (!session.ingestActive || !sessionHasListeners(session)) {
-        session.audioQueue.length = 0;
-        break;
-      }
-      if (session.sttRateLimitedUntil > now()) {
-        break;
-      }
-
-      // Live-only: drop older pending chunks before each STT call.
-      coalesceAudioQueueToLatest(session);
-      const item = session.audioQueue.shift();
-      if (!item) break;
-
-      const secrets = await getRuntimeSecretsForUser(session.userId);
-      if (!secrets?.translationReady || secrets.sttProvider !== 'groq' || !secrets.sttModel) {
-        broadcastAll(session, {
-          type: 'error',
-          message: 'Translation is not configured for this channel.',
-          ts: now(),
-        });
-        session.audioQueue.length = 0;
-        break;
-      }
-
-      // Owner stopped while we were loading secrets / awaiting prior STT.
-      if (!session.ingestActive) {
-        session.audioQueue.length = 0;
-        break;
-      }
-
-      // Skip near-silence before STT — Whisper invents “Thank you” / outros on cutoff.
-      if (isNearSilentPcm16(item.pcm)) {
-        continue;
-      }
-
-      const wav = pcm16MonoToWav(item.pcm, item.sampleRate);
-      let text = '';
-      try {
-        text = sanitizeSttTranscript(
-          await transcribeAudio({
-            provider: secrets.sttProvider,
-            openRouterApiKey: secrets.openRouterApiKey,
-            groqApiKey: secrets.groqApiKey,
-            gcpServiceAccountJson: secrets.gcpServiceAccountJson,
-            model: secrets.sttModel,
-            audio: wav,
-            format: 'wav',
-            sampleRateHertz: item.sampleRate,
-            language: sttLanguageHintForTranslationLanguage(secrets.sourceLanguage),
-          })
-        );
-        session.sttConsecutiveRateLimits = 0;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'STT failed';
-        const rateLimited = /\(429\)/.test(message) || /rate.?limit/i.test(message);
-        if (rateLimited) {
-          // Keep only the newest chunk so recovery does not burn free RPM on a backlog.
-          session.audioQueue.push(item);
-          coalesceAudioQueueToLatest(session);
-          session.sttConsecutiveRateLimits += 1;
-          session.sttRateLimitedUntil =
-            now() + sttRateLimitBackoffMs(session.sttConsecutiveRateLimits);
-          if (now() - session.sttRateLimitNotifiedAt > STT_RATE_LIMIT_BACKOFF_MS) {
-            session.sttRateLimitNotifiedAt = now();
-            broadcastAll(session, {
-              type: 'error',
-              message:
-                'Speech-to-text is temporarily rate-limited (common on free STT tiers). Pausing, then retrying the latest audio only.',
-              ts: now(),
-            });
-          }
-          break;
-        }
-        broadcastAll(session, { type: 'error', message, ts: now() });
-        continue;
-      }
-
-      if (!session.ingestActive) {
-        session.audioQueue.length = 0;
-        break;
-      }
-
-      if (!text) continue;
-      // Music may have been committed while this ~4s chunk was in flight at Groq.
-      if (session.activity === 'music') continue;
-
-      const sourceLanguage = normalizeTranslationLanguageCode(secrets.sourceLanguage || 'en');
-      const segment: Segment = {
-        id: randomUUID(),
-        sourceText: text,
-        createdAt: now(),
-        byLanguage: new Map(),
-      };
-      // Source language captions are the transcript itself (no translate call).
-      segment.byLanguage.set(sourceLanguage, { text });
-      session.segments.push(segment);
-      trimSegments(session);
-      enqueueSegmentForActiveLanguages(session, segment.id, sourceLanguage);
-
-      // Fans subscribed to the source language get live captions without a translate worker.
-      broadcastLanguage(session, sourceLanguage, {
-        type: 'caption',
-        segmentId: segment.id,
-        language: sourceLanguage,
-        text,
-        ts: segment.createdAt,
-      });
-    }
-  } finally {
-    session.processingAudio = false;
-    if (session.ingestActive && session.audioQueue.length > 0) {
-      if (session.sttRateLimitedUntil > now()) {
-        const waitMs = session.sttRateLimitedUntil - now();
-        if (!session.sttRateLimitTimer) {
-          session.sttRateLimitTimer = setTimeout(() => {
-            session.sttRateLimitTimer = null;
-            void processAudioQueue(session);
-          }, waitMs);
-        }
-      } else {
-        void processAudioQueue(session);
-      }
-    }
-  }
-}
-
 /**
  * Marks ingest as live for a channel and resets the idle timer.
  * @param channelId - Channel document id.
@@ -1589,8 +1398,6 @@ function updateSessionActivity(
     // on screen as a permanent partial once STT stops producing finals.
     session.streamingPartialSegmentId = null;
     session.sonioxPartialSegmentIds.clear();
-    // Chunks already queued for Groq would otherwise still be transcribed and billed.
-    session.audioQueue.length = 0;
   } else {
     session.musicSince = 0;
   }
@@ -1625,7 +1432,6 @@ function suppressSttForMusic(session: ChannelSession): void {
   if (session.asrPausedForMusic) return;
   if (session.musicSince === 0 || now() - session.musicSince < MUSIC_ASR_CLOSE_MS) return;
   session.asrPausedForMusic = true;
-  session.audioQueue.length = 0;
   void closeSingleStreamingAsr(session);
   for (const [language, asr] of session.sonioxByLanguage) {
     session.sonioxByLanguage.delete(language);
@@ -1635,10 +1441,9 @@ function suppressSttForMusic(session: ChannelSession): void {
 }
 
 /**
- * Queues PCM audio from the owner for shared STT.
+ * Forwards PCM audio from the owner to streaming STT.
  * Marks the channel live for listeners, but upstream STT only runs while at least
  * one public listener is subscribed (and stops when the last listener leaves).
- * Streaming providers receive frames immediately; Groq uses the chunked queue.
  * Source-language listeners with spoken audio also receive PCM via `source_pcm` SSE.
  * @param channelId - Channel document id.
  * @param userId - Owning user id.
@@ -1662,10 +1467,11 @@ export function enqueueOwnerPcm(
 
   void (async () => {
     const secrets = await getRuntimeSecretsForUser(userId);
-    if (!secrets?.sttProvider) {
+    if (!secrets?.sttProvider || !isStreamingSttProvider(secrets.sttProvider)) {
       broadcastAll(session, {
         type: 'error',
-        message: 'Translation is not configured for this channel.',
+        message:
+          'Translation is not configured for this channel. Choose a streaming STT provider in Configure AI.',
         ts: now(),
       });
       return;
@@ -1684,25 +1490,11 @@ export function enqueueOwnerPcm(
       return;
     }
 
-    if (isStreamingSttProvider(secrets.sttProvider)) {
-      session.asrPausedForMusic = false;
-      for (const frame of drainActivityPreRoll(session)) {
-        await writePcmToStreamingAsr(session, frame.pcm, frame.sampleRate);
-      }
-      await writePcmToStreamingAsr(session, pcm, sampleRate);
-      return;
-    }
-    // Groq chunked fallback — skip provider calls with nobody listening.
-    if (!sessionHasListeners(session)) {
-      session.audioQueue.length = 0;
-      drainActivityPreRoll(session);
-      return;
-    }
     session.asrPausedForMusic = false;
-    drainActivityPreRoll(session);
-    session.audioQueue.push({ pcm, sampleRate });
-    coalesceAudioQueueToLatest(session);
-    void processAudioQueue(session);
+    for (const frame of drainActivityPreRoll(session)) {
+      await writePcmToStreamingAsr(session, frame.pcm, frame.sampleRate);
+    }
+    await writePcmToStreamingAsr(session, pcm, sampleRate);
   })();
 }
 
@@ -1840,7 +1632,6 @@ export function subscribePublicListener(params: {
     if (!sessionHasListeners(session)) {
       // Stop STT billing shortly after the last listener leaves (owner may still be live).
       // Grace covers brief EventSource gaps from speaker toggle / mobile network blips.
-      session.audioQueue.length = 0;
       scheduleStreamingAsrClose(session);
     }
     void syncSonioxSessions(session);
@@ -1909,20 +1700,14 @@ export function getAudioBytes(audioId: string): { mime: string; data: Buffer } |
 
 /**
  * Marks ingest stopped immediately (owner clicked stop).
- * Drops queued PCM so STT does not keep calling providers after stop.
+ * Closes upstream ASR so STT does not keep billing after stop.
  * @param channelId - Channel document id.
  */
 export function markIngestStopped(channelId: string): void {
   const session = sessions.get(channelId);
   if (!session) return;
   session.ingestActive = false;
-  session.audioQueue.length = 0;
-  session.sttRateLimitedUntil = 0;
   resetSessionActivity(session);
-  if (session.sttRateLimitTimer) {
-    clearTimeout(session.sttRateLimitTimer);
-    session.sttRateLimitTimer = null;
-  }
   if (session.ingestIdleTimer) {
     clearTimeout(session.ingestIdleTimer);
     session.ingestIdleTimer = null;
@@ -1943,11 +1728,6 @@ export function disposeChannelSession(channelId: string): void {
     clearTimeout(session.ingestIdleTimer);
     session.ingestIdleTimer = null;
   }
-  if (session.sttRateLimitTimer) {
-    clearTimeout(session.sttRateLimitTimer);
-    session.sttRateLimitTimer = null;
-  }
-  session.audioQueue.length = 0;
   for (const bucket of session.languages.values()) {
     if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
     if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);
@@ -1967,7 +1747,6 @@ export function disposeChannelSession(channelId: string): void {
 export function __resetTranslationSessionsForTests(): void {
   for (const session of sessions.values()) {
     if (session.ingestIdleTimer) clearTimeout(session.ingestIdleTimer);
-    if (session.sttRateLimitTimer) clearTimeout(session.sttRateLimitTimer);
     for (const bucket of session.languages.values()) {
       if (bucket.idleTimer) clearTimeout(bucket.idleTimer);
       if (bucket.rateLimitTimer) clearTimeout(bucket.rateLimitTimer);

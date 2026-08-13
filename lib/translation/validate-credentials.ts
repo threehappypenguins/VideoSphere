@@ -3,7 +3,6 @@
 // =============================================================================
 
 import {
-  isStreamingSttProvider,
   sttProvidesBuiltInTranslation,
   type LiveTranslationSttProvider,
   type LiveTranslationTextTranslateProvider,
@@ -48,8 +47,6 @@ export interface ValidateTranslationAiConfigInput {
    * Ignored (and may be null) when STT is Soniox.
    */
   textTranslateProvider: LiveTranslationTextTranslateProvider | null;
-  /** STT model id for Groq Whisper (unused for streaming ASR). */
-  sttModel: string;
   /** Chat model id for OpenRouter or Groq translate (unused for GCP / Soniox). */
   translateModel: string;
 }
@@ -73,7 +70,6 @@ export type ValidateTranslationAiConfigResult =
         | 'sonioxKey'
         | 'modulateKey'
         | 'elevenLabsKey'
-        | 'sttModel'
         | 'translateModel'
         | 'gcpJson'
       >;
@@ -312,7 +308,6 @@ export async function validateTranslationAiConfig(
   input: ValidateTranslationAiConfigInput
 ): Promise<ValidateTranslationAiConfigResult> {
   const openRouterApiKey = sanitizePastableSecret(input.openRouterApiKey);
-  const sttModel = input.sttModel.trim();
   const translateModel = input.translateModel.trim();
   const groqApiKey = sanitizePastableSecret(input.groqApiKey ?? '');
   const deepgramApiKey = sanitizePastableSecret(input.deepgramApiKey ?? '');
@@ -324,9 +319,7 @@ export async function validateTranslationAiConfig(
   const elevenLabsApiKey = sanitizePastableSecret(input.elevenLabsApiKey ?? '');
 
   const sonioxStt = sttProvidesBuiltInTranslation(input.sttProvider);
-  const streaming = isStreamingSttProvider(input.sttProvider);
   const needsOpenRouterTranslate = !sonioxStt && input.textTranslateProvider === 'openrouter';
-  const needsGroqStt = input.sttProvider === 'groq';
   const needsGroqTranslate = !sonioxStt && input.textTranslateProvider === 'groq';
   const needsGcpTranslate = !sonioxStt && input.textTranslateProvider === 'gcp';
 
@@ -348,10 +341,6 @@ export async function validateTranslationAiConfig(
     };
   }
 
-  if (needsGroqStt && !sttModel) {
-    return { ok: false, message: 'STT model id is required for Groq.', fields: ['sttModel'] };
-  }
-
   if ((needsOpenRouterTranslate || needsGroqTranslate) && !translateModel) {
     return {
       ok: false,
@@ -368,12 +357,10 @@ export async function validateTranslationAiConfig(
     };
   }
 
-  if ((needsGroqStt || needsGroqTranslate) && !groqApiKey) {
+  if (needsGroqTranslate && !groqApiKey) {
     return {
       ok: false,
-      message: needsGroqStt
-        ? 'Groq API key is required when STT provider is Groq.'
-        : 'Groq API key is required when translation provider is Groq.',
+      message: 'Groq API key is required when translation provider is Groq.',
       fields: ['groqKey'],
     };
   }
@@ -478,44 +465,28 @@ export async function validateTranslationAiConfig(
     }
   }
 
-  if (needsGroqStt || needsGroqTranslate) {
+  if (needsGroqTranslate) {
     const catalog = await listGroqModels(groqApiKey);
     if (catalog.ok === false) {
       return { ok: false, message: catalog.message, fields: ['groqKey'] };
     }
 
-    if (needsGroqStt) {
-      const found = catalog.models.some((m) => typeof m.id === 'string' && m.id === sttModel);
-      if (!found) {
-        return {
-          ok: false,
-          message: `Groq STT model "${sttModel}" was not found for this API key.`,
-          fields: ['sttModel'],
-        };
-      }
+    const found = catalog.models.some((m) => typeof m.id === 'string' && m.id === translateModel);
+    if (!found) {
+      return {
+        ok: false,
+        message: `Groq translation model "${translateModel}" was not found for this API key.`,
+        fields: ['translateModel'],
+      };
     }
-
-    if (needsGroqTranslate) {
-      const found = catalog.models.some((m) => typeof m.id === 'string' && m.id === translateModel);
-      if (!found) {
-        return {
-          ok: false,
-          message: `Groq translation model "${translateModel}" was not found for this API key.`,
-          fields: ['translateModel'],
-        };
-      }
-      if (/whisper/i.test(translateModel)) {
-        return {
-          ok: false,
-          message: 'Pick a Groq chat model for translation (not a Whisper STT model).',
-          fields: ['translateModel'],
-        };
-      }
+    if (/whisper/i.test(translateModel)) {
+      return {
+        ok: false,
+        message: 'Pick a Groq chat model for translation (not a Whisper STT model).',
+        fields: ['translateModel'],
+      };
     }
   }
-
-  // streaming is used for capability documentation; silence unused when only shape-checked above
-  void streaming;
 
   return { ok: true };
 }

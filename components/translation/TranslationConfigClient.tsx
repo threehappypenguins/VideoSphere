@@ -60,7 +60,6 @@ import {
   languagesForTtsConfig,
 } from '@/lib/translation/gcp-tts-voices';
 import {
-  GROQ_RATE_LIMITS_URL,
   STT_PROVIDER_PRICING,
   sttProviderPricing,
   translateProviderPricing,
@@ -168,7 +167,6 @@ export function TranslationConfigClient() {
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
   const [aiGcpJson, setAiGcpJson] = useState('');
   const [aiGcpJsonFileName, setAiGcpJsonFileName] = useState<string | null>(null);
-  const [sttModel, setSttModel] = useState('');
   const [translateModel, setTranslateModel] = useState('');
 
   const [gcpJson, setGcpJson] = useState('');
@@ -204,7 +202,6 @@ export function TranslationConfigClient() {
     );
     setSttProvider(view.sttProvider ?? '');
     setTextTranslateProvider(view.textTranslateProvider ?? '');
-    setSttModel(view.sttModel ?? view.openRouterSttModel ?? '');
     setTranslateModel(view.openRouterTranslateModel ?? '');
     setTtsVoices(view.gcpTtsVoices ?? {});
     setStreamKeyPlaintext(view.streamKeyPlaintext ?? null);
@@ -420,7 +417,6 @@ export function TranslationConfigClient() {
     setAiGcpJsonFileName(null);
     setSttProvider(channel?.sttProvider ?? '');
     setTextTranslateProvider(channel?.textTranslateProvider ?? '');
-    setSttModel(channel?.sttModel ?? channel?.openRouterSttModel ?? '');
     setTranslateModel(channel?.openRouterTranslateModel ?? '');
     setAiFieldErrors({});
     setAiOpen(true);
@@ -624,11 +620,10 @@ export function TranslationConfigClient() {
     const modulateKeyTrimmed = modulateKey.trim();
     const elevenLabsKeyTrimmed = elevenLabsKey.trim();
     const gcpJsonTrimmed = aiGcpJson.trim();
-    const stt = sttModel.trim();
     const translate = translateModel.trim();
     const sonioxStt = sttProvider === 'soniox';
     const needsOpenRouter = !sonioxStt && textTranslateProvider === 'openrouter';
-    const needsGroq = sttProvider === 'groq' || (!sonioxStt && textTranslateProvider === 'groq');
+    const needsGroq = !sonioxStt && textTranslateProvider === 'groq';
     const needsGcp = !sonioxStt && textTranslateProvider === 'gcp';
     const hasGcp = Boolean(channel?.hasGcpServiceAccount || gcpJsonTrimmed);
 
@@ -670,9 +665,6 @@ export function TranslationConfigClient() {
       errors.gcpJson =
         'Upload or paste a Google Cloud service account JSON, or save one under Google Cloud TTS first.';
     }
-    if (sttProvider === 'groq' && !stt) {
-      errors.sttModel = 'Enter a Groq Whisper model id.';
-    }
     if (!sonioxStt && textTranslateProvider && textTranslateProvider !== 'gcp' && !translate) {
       errors.translateModel = 'Enter a translation model id.';
     }
@@ -695,14 +687,11 @@ export function TranslationConfigClient() {
       if (!sonioxStt && textTranslateProvider) {
         body.textTranslateProvider = textTranslateProvider;
       }
-      if (sttProvider === 'groq') {
-        body.sttModel = stt;
-      }
       if (!sonioxStt && textTranslateProvider && textTranslateProvider !== 'gcp') {
         body.openRouterTranslateModel = translate;
       }
       if (orKey) body.openRouterApiKey = orKey;
-      if (gKey && (sttProvider === 'groq' || textTranslateProvider === 'groq')) {
+      if (gKey && textTranslateProvider === 'groq') {
         body.groqApiKey = gKey;
       }
       // Only send the STT key for the selected provider — leftover inputs from a
@@ -899,7 +888,6 @@ export function TranslationConfigClient() {
       setStreamKeyPlaintext(null);
       setSttProvider('');
       setTextTranslateProvider('');
-      setSttModel('');
       setTranslateModel('');
       setTtsVoices({});
       setAiOpen(false);
@@ -1102,7 +1090,6 @@ export function TranslationConfigClient() {
 
   const sonioxSttSelected = sttProvider === 'soniox';
   /** Credential UI for STT follows the STT dropdown only. */
-  const showSttGroqKey = sttProvider === 'groq';
   const showSttDeepgramKey = sttProvider === 'deepgram';
   const showSttAssemblyaiKey = sttProvider === 'assemblyai';
   const showSttGladiaKey = sttProvider === 'gladia';
@@ -1112,8 +1099,7 @@ export function TranslationConfigClient() {
   const showSttElevenLabsKey = sttProvider === 'elevenlabs';
   /** Credential UI for translate follows the translate dropdown; skip when Soniox embeds MT. */
   const showTranslateOpenRouterKey = !sonioxSttSelected && textTranslateProvider === 'openrouter';
-  const showTranslateGroqKey =
-    !sonioxSttSelected && textTranslateProvider === 'groq' && sttProvider !== 'groq';
+  const showTranslateGroqKey = !sonioxSttSelected && textTranslateProvider === 'groq';
   const showTranslateGcpSa = !sonioxSttSelected && textTranslateProvider === 'gcp';
   const translateReusesSttCredentials =
     !sonioxSttSelected &&
@@ -1128,11 +1114,10 @@ export function TranslationConfigClient() {
           Live audio translation
         </h1>
         <p className="text-muted-foreground text-shadow-bg">
-          Your keys stay on your account. Prefer streaming ASR (Deepgram, AssemblyAI, Gladia,
-          Speechmatics, Modulate, ElevenLabs, or Soniox). Groq Whisper remains a free chunked
-          fallback. Soniox includes translation — other STT providers need a separate caption
-          translation backend (OpenRouter, Groq, or Google Cloud). A channel is created only when
-          you configure AI.
+          Your keys stay on your account. Choose streaming ASR (Deepgram, AssemblyAI, Gladia,
+          Speechmatics, Modulate, ElevenLabs, or Soniox). Soniox includes translation — other STT
+          providers need a separate caption translation backend (OpenRouter, Groq chat, or Google
+          Cloud). A channel is created only when you configure AI.
         </p>
         <div className="flex flex-wrap gap-2 text-sm">
           <span
@@ -1182,12 +1167,6 @@ export function TranslationConfigClient() {
           <div className="space-y-3">
             <p className="text-sm">
               STT: {sttLabel}
-              {channel.sttProvider === 'groq' && channel.sttModel ? (
-                <>
-                  {' '}
-                  · <code className="text-xs">{channel.sttModel}</code>
-                </>
-              ) : null}
               {' · '}
               Translate: {translateLabel}
               {channel.textTranslateProvider !== 'gcp' &&
@@ -1198,16 +1177,6 @@ export function TranslationConfigClient() {
                   · <code className="text-xs">{channel.openRouterTranslateModel}</code>
                 </>
               ) : null}
-              {channel.hasDeepgramKey ? <> · Deepgram key: configured</> : null}
-              {channel.hasAssemblyaiKey ? <> · AssemblyAI key: configured</> : null}
-              {channel.hasGladiaKey ? <> · Gladia key: configured</> : null}
-              {channel.hasSpeechmaticsKey ? <> · Speechmatics key: configured</> : null}
-              {channel.hasSonioxKey ? <> · Soniox key: configured</> : null}
-              {channel.hasModulateKey ? <> · Modulate key: configured</> : null}
-              {channel.hasElevenLabsKey ? <> · ElevenLabs key: configured</> : null}
-              {hasOpenRouter ? <> · OpenRouter key: configured</> : null}
-              {channel.hasGroqKey ? <> · Groq key: configured</> : null}
-              {channel.hasGcpServiceAccount ? <> · GCP SA: configured</> : null}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={openAiModal}>
@@ -1726,13 +1695,11 @@ export function TranslationConfigClient() {
                   onValueChange={(next) => {
                     if (next === SELECT_UNSET) {
                       setSttProvider('');
-                      setSttModel('');
                       clearAiFieldError('sttProvider');
                       return;
                     }
                     const value = next as LiveTranslationSttProvider;
                     setSttProvider(value);
-                    setSttModel('');
                     // Clear STT key drafts so a paste for provider A cannot be
                     // saved under provider B if the dropdown was changed.
                     setDeepgramKey('');
@@ -1760,7 +1727,6 @@ export function TranslationConfigClient() {
                     clearAiFieldError('elevenLabsKey');
                     clearAiFieldError('openRouterKey');
                     clearAiFieldError('gcpJson');
-                    clearAiFieldError('sttModel');
                   }}
                 >
                   <SelectTrigger
@@ -1779,7 +1745,6 @@ export function TranslationConfigClient() {
                     <SelectItem value="soniox">Soniox (streaming + translation)</SelectItem>
                     <SelectItem value="modulate">Modulate (streaming)</SelectItem>
                     <SelectItem value="elevenlabs">ElevenLabs Scribe (streaming)</SelectItem>
-                    <SelectItem value="groq">Groq Whisper (chunked free fallback)</SelectItem>
                   </SelectContent>
                 </Select>
                 {aiFieldErrors.sttProvider ? (
@@ -1798,63 +1763,9 @@ export function TranslationConfigClient() {
                     >
                       Pricing
                     </a>
-                    {sttProvider === 'groq' ? (
-                      <>
-                        {' · '}
-                        <a
-                          href={GROQ_RATE_LIMITS_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline underline-offset-2"
-                        >
-                          Groq pricing
-                        </a>
-                      </>
-                    ) : null}
                   </p>
                 ) : null}
               </div>
-
-              {showSttGroqKey ? (
-                <div className="space-y-2">
-                  <Label htmlFor="modal-stt-groq-key">Groq API key</Label>
-                  <div className="relative">
-                    <Input
-                      id="modal-stt-groq-key"
-                      type={showGroqKey ? 'text' : 'password'}
-                      autoComplete="off"
-                      aria-invalid={aiFieldErrors.groqKey ? true : undefined}
-                      className={invalidInputClass(Boolean(aiFieldErrors.groqKey), 'pr-10')}
-                      placeholder={
-                        channel?.hasGroqKey ? '•••• configured — paste to replace' : 'gsk_…'
-                      }
-                      value={groqKey}
-                      onChange={(e) => {
-                        setGroqKey(e.target.value);
-                        clearAiFieldError('groqKey');
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowGroqKey((v) => !v)}
-                      className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2"
-                      aria-label={showGroqKey ? 'Hide Groq API key' : 'Show Groq API key'}
-                      aria-pressed={showGroqKey}
-                    >
-                      {showGroqKey ? (
-                        <EyeOff className="h-4 w-4" aria-hidden="true" />
-                      ) : (
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                  {aiFieldErrors.groqKey ? (
-                    <p className="text-destructive text-xs" role="alert">
-                      {aiFieldErrors.groqKey}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
 
               {showSttDeepgramKey ? (
                 <div className="space-y-2">
@@ -2183,32 +2094,6 @@ export function TranslationConfigClient() {
                       </a>{' '}
                       (Scribe v2 realtime). Restricted keys need the{' '}
                       <code className="text-xs">speech_to_text</code> permission.
-                    </p>
-                  )}
-                </div>
-              ) : null}
-
-              {sttProvider === 'groq' ? (
-                <div className="space-y-2">
-                  <Label htmlFor="modal-stt-model">Groq Whisper model id</Label>
-                  <Input
-                    id="modal-stt-model"
-                    aria-invalid={aiFieldErrors.sttModel ? true : undefined}
-                    className={invalidInputClass(Boolean(aiFieldErrors.sttModel))}
-                    placeholder="e.g. whisper-large-v3-turbo"
-                    value={sttModel}
-                    onChange={(e) => {
-                      setSttModel(e.target.value);
-                      clearAiFieldError('sttModel');
-                    }}
-                  />
-                  {aiFieldErrors.sttModel ? (
-                    <p className="text-destructive text-xs" role="alert">
-                      {aiFieldErrors.sttModel}
-                    </p>
-                  ) : (
-                    <p className="text-muted-foreground text-xs">
-                      Chunked free-tier fallback. Prefer streaming ASR for lower latency.
                     </p>
                   )}
                 </div>

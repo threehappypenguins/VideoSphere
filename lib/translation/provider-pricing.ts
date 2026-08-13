@@ -111,15 +111,6 @@ export const STT_PROVIDER_PRICING: Record<
       'Scribe realtime billed per audio hour on paid plans (see ElevenLabs pricing / console).',
     pricingUrl: ELEVENLABS_PRICING_URL,
   },
-  groq: {
-    id: 'groq',
-    label: 'Groq (chunked fallback)',
-    freeUsageLimit:
-      'Whisper free plan ≈ 20 RPM / 2,000 RPD · 7,200 audio-seconds/hour · 28,800 audio-seconds/day. Not streaming ASR.',
-    priceAfterFree:
-      'Developer plan billed per audio hour (see GroqCloud models docs); higher RPM/ASH.',
-    pricingUrl: GROQ_RATE_LIMITS_URL,
-  },
 };
 
 /**

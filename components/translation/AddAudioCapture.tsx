@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/select';
 
 import type { LiveTranslationSttProvider } from '@/lib/translation/capabilities';
-import { isStreamingSttProvider } from '@/lib/translation/capabilities';
 import {
   TRANSLATION_INGEST_INTENT_KEY,
   TRANSLATION_PREFERRED_AUDIO_INPUT_KEY,
@@ -21,8 +20,6 @@ import {
 const TARGET_SAMPLE_RATE = 16000;
 /** Streaming ASR: short frames for low latency. */
 const STREAMING_CHUNK_MS = 250;
-/** Groq chunked Whisper: longer windows to stay under free RPM. */
-const GROQ_CHUNK_MS = 4000;
 /** Inaudible but non-zero — Chromium can skip ScriptProcessor when gain is exactly 0. */
 const MONITOR_GAIN = 0.0001;
 /**
@@ -223,18 +220,17 @@ function audioConstraintsForDevice(selectedDeviceId: string): MediaTrackConstrai
  * The mic MediaStream stays closed by default (no tab recording light). Use **Test mic** for
  * level checks without ingest, or **Add audio** to stream. Device switching works idle, in
  * test mode, or while live.
- * @param props - Whether translation is ready, STT provider (controls chunk length), and optional status callback.
+ * @param props - Whether translation is ready, optional STT provider, and optional status callback.
  * @returns Capture controls UI.
  */
 export function AddAudioCapture(props: {
   enabled: boolean;
-  /** Active STT provider — streaming uses ~250ms frames; Groq uses ~4s. */
+  /** Active STT provider (informational; frames are always ~250ms for streaming ASR). */
   sttProvider?: LiveTranslationSttProvider | null;
   onLiveChange?: (live: boolean) => void;
 }) {
-  const { enabled, sttProvider, onLiveChange } = props;
-  const chunkMs =
-    sttProvider && isStreamingSttProvider(sttProvider) ? STREAMING_CHUNK_MS : GROQ_CHUNK_MS;
+  const { enabled, onLiveChange } = props;
+  const chunkMs = STREAMING_CHUNK_MS;
   const chunkMsRef = useRef(chunkMs);
   chunkMsRef.current = chunkMs;
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
