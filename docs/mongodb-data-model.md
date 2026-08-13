@@ -12,6 +12,7 @@ VideoSphere stores application data in MongoDB via Mongoose models in `lib/model
 | `platform_uploads` | `PlatformUpload` | Per-platform distribution attempts and snapshots |
 | `connected_accounts` | `ConnectedAccount` | OAuth tokens and backup credentials (encrypted) |
 | `livestreams` | `Livestream` | Scheduled YouTube/Facebook livestream metadata |
+| `live_translation_channels` | `LiveTranslationChannel` | Per-user live audio translation credentials, languages, public slug, stream key hash + encrypted plaintext |
 | `youtube_import_jobs` | `YoutubeImportJob` | YouTube URL import jobs (yt-dlp → R2 → distribute) |
 | `invites` | `InviteToken` | Admin invite tokens for signup |
 | `password_reset_tokens` | `PasswordResetToken` | Password reset links |
@@ -31,7 +32,7 @@ See [draft-document-and-upload-testing.md](./draft-document-and-upload-testing.m
 
 ## Encryption at Rest for Connected Account Secrets
 
-Connected account tokens, SFTP credentials, SMB credentials, and SermonAudio API keys are encrypted before persistence.
+Connected account tokens, SFTP credentials, SMB credentials, SermonAudio API keys, and live-translation OpenRouter / Groq / GCP service-account secrets (and the recoverable RTMP stream key) are encrypted before persistence.
 
 - Key env var: `TOKEN_ENCRYPTION_KEY`
 - Algorithm: AES-256-GCM

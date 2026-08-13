@@ -3,7 +3,7 @@
 // =============================================================================
 // Basic UI rendering tests for the Drafts page: verify header, empty state,
 // and primary CTA link render correctly. Initial load uses four GETs (drafts,
-// connections, ai-access, labels); edit-from-query also GETs /api/drafts/:id after openEditDraft.
+// connections, labels); edit-from-query also GETs /api/drafts/:id after openEditDraft.
 // =============================================================================
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -104,11 +104,10 @@ function youtubeConnectionPayload() {
   };
 }
 
-/** Mocks the four parallel GETs issued by loadDrafts (call order matters). */
+/** Mocks the three parallel GETs issued by loadDrafts (call order matters). */
 function mockInitialPageLoadFetch(options?: {
   drafts?: unknown[];
   connections?: unknown;
-  canUseAiMetadata?: boolean;
   labels?: unknown[];
 }) {
   return vi
@@ -119,7 +118,6 @@ function mockInitialPageLoadFetch(options?: {
         data: options?.connections ?? [youtubeConnectionPayload()],
       })
     )
-    .mockResolvedValueOnce(jsonResponse({ canUseAiMetadata: options?.canUseAiMetadata ?? true }))
     .mockResolvedValueOnce(labelsJsonResponse(options?.labels ?? []));
 }
 
@@ -150,9 +148,6 @@ function mockEditDraftQueryFetch() {
     if (url.includes('/api/platforms/connections')) {
       return Promise.resolve(jsonResponse({ data: [youtubeConnectionPayload()] }));
     }
-    if (url.includes('/api/auth/ai-access')) {
-      return Promise.resolve(jsonResponse({ canUseAiMetadata: true }));
-    }
 
     return Promise.reject(new Error(`Unexpected fetch in editDraft test: ${url}`));
   });
@@ -170,9 +165,6 @@ describe('UploadsPage', () => {
     );
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith('/api/platforms/connections', expect.any(Object))
-    );
-    await waitFor(() =>
-      expect(global.fetch).toHaveBeenCalledWith('/api/auth/ai-access', expect.any(Object))
     );
     await waitFor(() =>
       expect(global.fetch).toHaveBeenCalledWith('/api/drafts/labels', expect.any(Object))
@@ -194,7 +186,7 @@ describe('UploadsPage', () => {
     render(<UploadsPage />);
 
     expect(screen.getByRole('button', { name: /create draft/i })).toBeInTheDocument();
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
   });
 
   it('opens create modal from createDraftId query param', async () => {

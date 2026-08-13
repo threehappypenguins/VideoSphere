@@ -64,7 +64,7 @@ export function DashboardQuickActions() {
         </button>
         <Link
           href="/dashboard/uploads"
-          data-tour="ai-metadata-hint"
+          data-tour="uploads-drafts-hint"
           className="rounded-lg border border-border px-6 py-2 text-sm font-medium text-foreground transition-colors bg-background/70 hover:bg-muted"
         >
           View drafts

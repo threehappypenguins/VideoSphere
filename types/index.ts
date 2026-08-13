@@ -843,21 +843,140 @@ export interface ExampleItem {
 }
 
 // =============================================================================
-// AI Metadata Generation types (PRD: AI-01 through AI-06, AI-08)
+// Live audio translation
 // =============================================================================
 
-/** Structured metadata returned by the AI metadata generation endpoint. */
-export interface GeneratedMetadata {
-  title: string;
-  description: string;
-  tags: string[];
+/**
+ * Speech-to-text backend for live translation ingest (streaming ASR only).
+ */
+export type LiveTranslationSttProvider =
+  | 'deepgram'
+  | 'assemblyai'
+  | 'gladia'
+  | 'speechmatics'
+  | 'soniox'
+  | 'modulate'
+  | 'elevenlabs';
+
+/**
+ * Caption text-translation backend (explicit choice; no auto-fallback).
+ * Unused when `sttProvider` is `soniox`.
+ */
+export type LiveTranslationTextTranslateProvider = 'openrouter' | 'groq' | 'gcp';
+
+/**
+ * Public-safe view of a user's live translation channel (no secrets).
+ */
+export interface LiveTranslationChannelPublic {
+  /** Channel document id. */
+  id: string;
+  /** Owning user id. */
+  userId: string;
+  /** Public URL slug (`/listen/{slug}`). */
+  slug: string;
+  /** Whether the public page is enabled. */
+  publicEnabled: boolean;
+  /** Source spoken language (ISO-639-1). */
+  sourceLanguage: string;
+  /** Target caption/listen languages (ISO-639-1 or BCP-47). */
+  enabledLanguages: string[];
+  /** Active STT backend, or `null` when not chosen yet. */
+  sttProvider: LiveTranslationSttProvider | null;
+  /**
+   * Active caption translation backend, or `null` when not chosen yet.
+   * Always `null` when STT is Soniox (built-in MT).
+   */
+  textTranslateProvider: LiveTranslationTextTranslateProvider | null;
+  /**
+   * Chat translation model id for OpenRouter or Groq when set.
+   * Unused when `textTranslateProvider` is `gcp` or STT is Soniox.
+   */
+  openRouterTranslateModel: string | null;
+  /**
+   * Per-language Google Cloud TTS voices (ISO code → voice resource name).
+   * Empty object when none configured.
+   */
+  gcpTtsVoices: Record<string, string>;
+  /** Whether an OpenRouter API key is stored. */
+  hasOpenRouterKey: boolean;
+  /** Whether a Groq API key is stored. */
+  hasGroqKey: boolean;
+  /** Whether a Deepgram API key is stored. */
+  hasDeepgramKey: boolean;
+  /** Whether an AssemblyAI API key is stored. */
+  hasAssemblyaiKey: boolean;
+  /** Whether a Gladia API key is stored. */
+  hasGladiaKey: boolean;
+  /** Whether a Speechmatics API key is stored. */
+  hasSpeechmaticsKey: boolean;
+  /** Whether a Soniox API key is stored. */
+  hasSonioxKey: boolean;
+  /** Whether a Modulate API key is stored. */
+  hasModulateKey: boolean;
+  /** Whether an ElevenLabs API key is stored. */
+  hasElevenLabsKey: boolean;
+  /** Whether a GCP service-account JSON is stored. */
+  hasGcpServiceAccount: boolean;
+  /** Whether an RTMP stream key is stored (hash and/or encrypted plaintext). */
+  hasStreamKey: boolean;
+  /** Captions/translation ready for this channel owner. */
+  translationReady: boolean;
+  /** TTS listen ready for this channel owner. */
+  listenReady: boolean;
+  /** ISO timestamp when the channel was created. */
+  createdAt: string;
+  /** ISO timestamp when the channel was last updated. */
+  updatedAt: string;
 }
 
-/** Request body for POST /api/ai/generate-metadata. */
-export interface GenerateMetadataRequest {
-  fileName: string;
-  userPrompt?: string;
-  platforms: ConnectedAccountPlatform[];
+/**
+ * Owner-facing channel payload including recoverable stream key plaintext when stored encrypted.
+ */
+export interface LiveTranslationChannelOwnerView extends LiveTranslationChannelPublic {
+  /**
+   * Plaintext stream key for OBS, when encrypted storage is present (or just minted).
+   * @property streamKeyPlaintext - RTMP/path stream key for the owner dashboard.
+   */
+  streamKeyPlaintext?: string;
+  /** OBS Server URL (`rtmp://host/live`) when MediaMTX public host is configured. */
+  rtmpServerUrl: string | null;
+  /**
+   * Full publish URL including stream key when plaintext is available.
+   * Prefer {@link rtmpServerUrl} + stream key for OBS Custom fields.
+   */
+  rtmpPublishUrl: string | null;
+  /** Whether optional MediaMTX ingest host env is configured. */
+  rtmpConfigured: boolean;
+  /**
+   * True when RTMP env is fully wired and MediaMTX answered a short TCP probe
+   * (sidecar reachable from the app).
+   */
+  rtmpReachable: boolean;
+}
+
+/**
+ * Public listen page metadata (no auth).
+ */
+export interface LiveTranslationPublicMeta {
+  /** Public slug. */
+  slug: string;
+  /** Whether the page is enabled. */
+  publicEnabled: boolean;
+  /** Whether the owner has translation credentials/models configured. */
+  translationReady: boolean;
+  /** Whether listen/TTS is available for at least one target language. */
+  listenAvailable: boolean;
+  /**
+   * Languages that offer spoken audio: always includes source (live PCM);
+   * targets appear when a GCP TTS voice is configured.
+   */
+  audioLanguages: string[];
+  /** Source language code. */
+  sourceLanguage: string;
+  /** Languages listeners may select. */
+  enabledLanguages: string[];
+  /** Whether ingest is currently live. */
+  live: boolean;
 }
 
 /**

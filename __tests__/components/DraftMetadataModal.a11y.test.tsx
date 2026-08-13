@@ -54,7 +54,7 @@ describe('Draft metadata modal accessibility', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders labelled draft controls and AI actions without axe violations', async () => {
+  it('renders labelled draft controls without axe violations', async () => {
     const { baseElement } = render(
       <DraftMetadataModal
         mode="create"
@@ -65,15 +65,10 @@ describe('Draft metadata modal accessibility', () => {
         onClose={vi.fn()}
         onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
         onChange={vi.fn()}
-        canUseAiMetadata
       />
     );
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByLabelText(/ai prompt required for generation/i)).toBeInTheDocument();
-
-    const aiButton = screen.getByRole('button', { name: /generate with ai/i });
-    expect(aiButton).toHaveAttribute('aria-describedby', 'draft-ai-metadata-help');
     expect(screen.getByLabelText(/^title(\s*\*)?$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^description$/i)).toBeInTheDocument();
 
@@ -91,7 +86,6 @@ describe('Draft metadata modal accessibility', () => {
         onClose={vi.fn()}
         onSave={vi.fn().mockResolvedValue({ saved: true, draftId: draftValue.id })}
         onChange={vi.fn()}
-        canUseAiMetadata
       />
     );
 
