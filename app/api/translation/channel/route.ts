@@ -41,7 +41,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(err, { status: 401 });
     }
 
-    const view = await getChannelOwnerViewForUser(userId);
+    const view = await getChannelOwnerViewForUser(userId, {
+      bypassMediamtxProbeCache: true,
+    });
     if (!view) {
       return NextResponse.json(
         {

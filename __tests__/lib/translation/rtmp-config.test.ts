@@ -3,8 +3,14 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  __resetMediamtxProbeCacheForTests,
   buildMediamtxRtspUrl,
+  buildRtmpPublishUrl,
+  buildRtmpServerUrl,
   getMediamtxRtspBase,
+  isRtmpIngestEnvReady,
+  probeMediamtxReachable,
+  resolveMediamtxProbeTarget,
   streamKeyFromMtxPath,
 } from '@/lib/translation/rtmp-config';
 import {
@@ -18,6 +24,7 @@ describe('rtmp-config', () => {
     'TRANSLATION_MEDIAMTX_RTSP_BASE',
     'TRANSLATION_RTMP_HOOK_SECRET',
     'TRANSLATION_RTMP_PATH_PREFIX',
+    'TRANSLATION_RTMP_PUBLIC_HOST',
   ] as const;
   const previous = new Map<string, string | undefined>();
 
@@ -29,6 +36,7 @@ describe('rtmp-config', () => {
     }
     previous.clear();
     __resetRtmpPcmPullersForTests();
+    __resetMediamtxProbeCacheForTests();
   });
 
   /**
@@ -60,6 +68,19 @@ describe('rtmp-config', () => {
     expect(isRtmpPcmPullConfigured()).toBe(false);
   });
 
+  it('builds OBS server URL without the stream key', () => {
+    setEnv('TRANSLATION_RTMP_PUBLIC_HOST', '192.168.1.51:1935');
+    setEnv('TRANSLATION_RTMP_PATH_PREFIX', 'live');
+    expect(buildRtmpServerUrl()).toBe('rtmp://192.168.1.51:1935/live');
+    expect(buildRtmpPublishUrl('abcKey')).toBe('rtmp://192.168.1.51:1935/live/abcKey');
+  });
+
+  it('returns null RTMP URLs when public host is unset', () => {
+    setEnv('TRANSLATION_RTMP_PUBLIC_HOST', undefined);
+    expect(buildRtmpServerUrl()).toBeNull();
+    expect(buildRtmpPublishUrl('abcKey')).toBeNull();
+  });
+
   it('extracts stream key from MediaMTX paths', () => {
     expect(streamKeyFromMtxPath('live/abc123')).toBe('abc123');
     expect(streamKeyFromMtxPath('abc123')).toBe('abc123');
@@ -76,5 +97,29 @@ describe('rtmp-config', () => {
   it('rejects hook secrets when env is unset', () => {
     setEnv('TRANSLATION_RTMP_HOOK_SECRET', undefined);
     expect(verifyRtmpHookSecret('anything')).toBe(false);
+  });
+
+  it('requires both public RTMP host and RTSP base for ingest env readiness', () => {
+    setEnv('TRANSLATION_RTMP_PUBLIC_HOST', undefined);
+    setEnv('TRANSLATION_MEDIAMTX_RTSP_BASE', undefined);
+    expect(isRtmpIngestEnvReady()).toBe(false);
+
+    setEnv('TRANSLATION_RTMP_PUBLIC_HOST', '192.168.1.51:1935');
+    expect(isRtmpIngestEnvReady()).toBe(false);
+
+    setEnv('TRANSLATION_MEDIAMTX_RTSP_BASE', 'rtsp://127.0.0.1:8554');
+    expect(isRtmpIngestEnvReady()).toBe(true);
+  });
+
+  it('resolves the MediaMTX probe target from the RTSP base', () => {
+    setEnv('TRANSLATION_RTMP_PUBLIC_HOST', '192.168.1.51:1935');
+    setEnv('TRANSLATION_MEDIAMTX_RTSP_BASE', 'rtsp://127.0.0.1:8554');
+    expect(resolveMediamtxProbeTarget()).toEqual({ host: '127.0.0.1', port: 8554 });
+  });
+
+  it('reports MediaMTX unreachable when ingest env is incomplete', async () => {
+    setEnv('TRANSLATION_RTMP_PUBLIC_HOST', '127.0.0.1:1935');
+    setEnv('TRANSLATION_MEDIAMTX_RTSP_BASE', undefined);
+    await expect(probeMediamtxReachable({ bypassCache: true })).resolves.toBe(false);
   });
 });

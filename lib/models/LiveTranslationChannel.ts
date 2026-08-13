@@ -14,7 +14,13 @@ export interface LiveTranslationChannelDocument {
   publicEnabled: boolean;
   sourceLanguage: string;
   enabledLanguages: string[];
+  /** SHA-256 of the RTMP stream key (MediaMTX auth). */
   streamKeyHash?: string;
+  /**
+   * Encrypted plaintext stream key so the owner can reveal/copy it again.
+   * Auth still uses {@link streamKeyHash}; this field is never sent to MediaMTX.
+   */
+  streamKeyEncrypted?: string;
   /**
    * STT backend: streaming ASR or Groq chunked Whisper.
    * Legacy `openrouter` / `gcp` values are ignored at runtime.
@@ -57,6 +63,7 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
     sourceLanguage: { type: String, required: true, trim: true, default: 'en' },
     enabledLanguages: { type: [String], default: [] },
     streamKeyHash: { type: String, required: false },
+    streamKeyEncrypted: { type: String, required: false },
     sttProvider: {
       type: String,
       required: false,
@@ -98,12 +105,21 @@ const LiveTranslationChannelSchema = new Schema<LiveTranslationChannelDocument>(
   { timestamps: true }
 );
 
-export const LiveTranslationChannelModel =
-  (mongoose.models.LiveTranslationChannel as
+export const LiveTranslationChannelModel = (() => {
+  const existing = mongoose.models.LiveTranslationChannel as
     | mongoose.Model<LiveTranslationChannelDocument>
-    | undefined) ||
-  mongoose.model<LiveTranslationChannelDocument>(
+    | undefined;
+  if (existing) {
+    // Next.js HMR can keep a cached model compiled before new paths existed; without this,
+    // strict mode strips fields like streamKeyEncrypted on $set.
+    if (!existing.schema.path('streamKeyEncrypted')) {
+      existing.schema.add({ streamKeyEncrypted: { type: String, required: false } });
+    }
+    return existing;
+  }
+  return mongoose.model<LiveTranslationChannelDocument>(
     'LiveTranslationChannel',
     LiveTranslationChannelSchema,
     'live_translation_channels'
   );
+})();

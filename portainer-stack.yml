@@ -111,7 +111,9 @@ services:
   # OPTIONAL — MediaMTX for RTMP audio ingest (live audio translation)
   # Uncomment this entire service only if you need OBS/RTMP instead of (or in
   # addition to) the in-app "Add audio" microphone capture.
-  # Also set TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://mediamtx:8554 on the app.
+  # Also set TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://mediamtx:8554 on the app
+  # (required with TRANSLATION_RTMP_PUBLIC_HOST — the Translation page probes
+  # MediaMTX and only then shows stream-key controls).
   # Default installs should leave this commented so no extra container runs.
   # ---------------------------------------------------------------------------
   # mediamtx:

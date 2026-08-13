@@ -928,7 +928,7 @@ export interface LiveTranslationChannelPublic {
   hasElevenLabsKey: boolean;
   /** Whether a GCP service-account JSON is stored. */
   hasGcpServiceAccount: boolean;
-  /** Whether a stream key hash is stored (plaintext is never returned after mint). */
+  /** Whether an RTMP stream key is stored (hash and/or encrypted plaintext). */
   hasStreamKey: boolean;
   /** Captions/translation ready for this channel owner. */
   translationReady: boolean;
@@ -941,18 +941,28 @@ export interface LiveTranslationChannelPublic {
 }
 
 /**
- * Owner-facing channel payload including optional one-time stream key plaintext.
+ * Owner-facing channel payload including recoverable stream key plaintext when stored encrypted.
  */
 export interface LiveTranslationChannelOwnerView extends LiveTranslationChannelPublic {
   /**
-   * Plaintext stream key, only present immediately after create/rotate.
-   * @property streamKeyPlaintext - RTMP/path stream key shown once to the owner.
+   * Plaintext stream key for OBS, when encrypted storage is present (or just minted).
+   * @property streamKeyPlaintext - RTMP/path stream key for the owner dashboard.
    */
   streamKeyPlaintext?: string;
-  /** Suggested RTMP publish URL base when MediaMTX public host is configured. */
+  /** OBS Server URL (`rtmp://host/live`) when MediaMTX public host is configured. */
+  rtmpServerUrl: string | null;
+  /**
+   * Full publish URL including stream key when plaintext is available.
+   * Prefer {@link rtmpServerUrl} + stream key for OBS Custom fields.
+   */
   rtmpPublishUrl: string | null;
   /** Whether optional MediaMTX ingest host env is configured. */
   rtmpConfigured: boolean;
+  /**
+   * True when RTMP env is fully wired and MediaMTX answered a short TCP probe
+   * (sidecar reachable from the app).
+   */
+  rtmpReachable: boolean;
 }
 
 /**

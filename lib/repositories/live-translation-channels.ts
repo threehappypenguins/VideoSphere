@@ -26,7 +26,12 @@ import {
   pruneGcpTtsVoicesToLanguages,
   type GcpTtsVoicesMap,
 } from '@/lib/translation/gcp-tts-voices';
-import { buildRtmpPublishUrl, isRtmpConfigured } from '@/lib/translation/rtmp-config';
+import {
+  buildRtmpPublishUrl,
+  buildRtmpServerUrl,
+  isRtmpConfigured,
+  probeMediamtxReachable,
+} from '@/lib/translation/rtmp-config';
 import { generateStreamKeyPlaintext, hashStreamKey } from '@/lib/translation/stream-key';
 import { suggestTranslationSlug } from '@/lib/translation/slug';
 import type { LiveTranslationChannelOwnerView, LiveTranslationChannelPublic } from '@/types';
@@ -78,15 +83,17 @@ export function capabilityInputFromDoc(
 }
 
 /**
- * Maps a channel document to a public-safe owner view (no secret plaintext).
+ * Maps a channel document to a public-safe owner view (no secret ciphertext).
+ * Decrypts the RTMP stream key when stored so the dashboard can reveal/copy it.
+ * Probes MediaMTX when RTMP env is set so stream-key controls appear only while reachable.
  * @param doc - Mongo document.
- * @param extras - Optional one-time stream key plaintext for rotate/create.
+ * @param extras - Optional plaintext override (fresh mint) and probe controls.
  * @returns Owner-facing channel view.
  */
-export function toOwnerView(
+export async function toOwnerView(
   doc: LiveTranslationChannelDocument,
-  extras?: { streamKeyPlaintext?: string }
-): LiveTranslationChannelOwnerView {
+  extras?: { streamKeyPlaintext?: string; bypassMediamtxProbeCache?: boolean }
+): Promise<LiveTranslationChannelOwnerView> {
   const capability = capabilityInputFromDoc(doc);
   const sttModel = doc.openRouterSttModel?.trim() || null;
   const sttProvider = normalizeSttProvider(doc.sttProvider);
@@ -94,8 +101,16 @@ export function toOwnerView(
     ? null
     : normalizeTextTranslateProvider(doc.textTranslateProvider);
 
-  const streamKeyPlaintext = extras?.streamKeyPlaintext;
+  const streamKeyPlaintext =
+    extras?.streamKeyPlaintext ??
+    (doc.streamKeyEncrypted ? tryDecrypt(doc.streamKeyEncrypted) : null) ??
+    undefined;
+  const rtmpServerUrl = buildRtmpServerUrl();
   const rtmpPublishUrl = streamKeyPlaintext ? buildRtmpPublishUrl(streamKeyPlaintext) : null;
+  const rtmpConfigured = isRtmpConfigured();
+  const rtmpReachable = await probeMediamtxReachable({
+    bypassCache: extras?.bypassMediamtxProbeCache,
+  });
 
   const publicView: LiveTranslationChannelPublic = {
     id: doc._id,
@@ -120,7 +135,7 @@ export function toOwnerView(
     hasModulateKey: Boolean(capability.hasModulateKey),
     hasElevenLabsKey: Boolean(capability.hasElevenLabsKey),
     hasGcpServiceAccount: capability.hasGcpServiceAccount,
-    hasStreamKey: hasEncrypted(doc.streamKeyHash),
+    hasStreamKey: hasEncrypted(doc.streamKeyHash) || hasEncrypted(doc.streamKeyEncrypted),
     translationReady: isTranslationReady(capability),
     listenReady: isListenReady(capability),
     createdAt: doc.createdAt.toISOString(),
@@ -130,18 +145,20 @@ export function toOwnerView(
   return {
     ...publicView,
     ...(streamKeyPlaintext ? { streamKeyPlaintext } : {}),
+    rtmpServerUrl,
     rtmpPublishUrl,
-    rtmpConfigured: isRtmpConfigured(),
+    rtmpConfigured,
+    rtmpReachable,
   };
 }
 
 /**
  * Ensures the authenticated user has a translation channel document.
- * Creates one with a unique slug and a fresh stream key when missing.
+ * Creates one with a unique slug when missing (no stream key until Generate).
  * Call only when the owner is configuring AI credentials — not on page load.
  * @param userId - Authenticated user id.
  * @param slugSeed - Optional seed for initial slug suggestion.
- * @returns Owner view; includes streamKeyPlaintext only on first create.
+ * @returns Owner view for the channel.
  */
 export async function getOrCreateChannelForUser(
   userId: string,
@@ -150,7 +167,7 @@ export async function getOrCreateChannelForUser(
   await connectToDatabase();
   const existing = await LiveTranslationChannelModel.findOne({ userId }).lean().exec();
   if (existing) {
-    return { view: toOwnerView(existing), created: false };
+    return { view: await toOwnerView(existing), created: false };
   }
 
   let slug = suggestTranslationSlug(slugSeed);
@@ -160,7 +177,6 @@ export async function getOrCreateChannelForUser(
     slug = suggestTranslationSlug(slugSeed, attempt + 2);
   }
 
-  const streamKeyPlaintext = generateStreamKeyPlaintext();
   const now = new Date();
   const doc: LiveTranslationChannelDocument = {
     _id: randomUUID(),
@@ -169,13 +185,12 @@ export async function getOrCreateChannelForUser(
     publicEnabled: false,
     sourceLanguage: 'en',
     enabledLanguages: [],
-    streamKeyHash: hashStreamKey(streamKeyPlaintext),
     createdAt: now,
     updatedAt: now,
   };
 
   await LiveTranslationChannelModel.create(doc);
-  return { view: toOwnerView(doc, { streamKeyPlaintext }), created: true };
+  return { view: await toOwnerView(doc), created: true };
 }
 
 /**
@@ -193,13 +208,19 @@ export async function getChannelByUserId(
 /**
  * Returns the owner view for a user when a channel exists.
  * @param userId - Owner user id.
+ * @param options - Optional MediaMTX probe controls.
  * @returns Owner view, or null when no channel has been created yet.
  */
 export async function getChannelOwnerViewForUser(
-  userId: string
+  userId: string,
+  options?: { bypassMediamtxProbeCache?: boolean }
 ): Promise<LiveTranslationChannelOwnerView | null> {
   const doc = await getChannelByUserId(userId);
-  return doc ? toOwnerView(doc) : null;
+  return doc
+    ? await toOwnerView(doc, {
+        bypassMediamtxProbeCache: options?.bypassMediamtxProbeCache,
+      })
+    : null;
 }
 
 /**
@@ -302,7 +323,7 @@ export async function updateChannelForUser(
 
   if (Object.keys($set).length === 0) {
     const current = await getChannelByUserId(userId);
-    return current ? toOwnerView(current) : null;
+    return current ? await toOwnerView(current) : null;
   }
 
   try {
@@ -313,7 +334,7 @@ export async function updateChannelForUser(
     )
       .lean()
       .exec();
-    return updated ? toOwnerView(updated) : null;
+    return updated ? await toOwnerView(updated) : null;
   } catch (error) {
     const code =
       error && typeof error === 'object' && 'code' in error
@@ -345,7 +366,7 @@ export async function setOpenRouterApiKey(
   )
     .lean()
     .exec();
-  return updated ? toOwnerView(updated) : null;
+  return updated ? await toOwnerView(updated) : null;
 }
 
 /**
@@ -366,7 +387,7 @@ export async function setGroqApiKey(
   )
     .lean()
     .exec();
-  return updated ? toOwnerView(updated) : null;
+  return updated ? await toOwnerView(updated) : null;
 }
 
 /**
@@ -387,7 +408,7 @@ export async function setGcpServiceAccountJson(
   )
     .lean()
     .exec();
-  return updated ? toOwnerView(updated) : null;
+  return updated ? await toOwnerView(updated) : null;
 }
 
 /**
@@ -427,7 +448,7 @@ export async function setStreamingAsrApiKey(
   )
     .lean()
     .exec();
-  return updated ? toOwnerView(updated) : null;
+  return updated ? await toOwnerView(updated) : null;
 }
 
 /**
@@ -502,11 +523,11 @@ export async function clearCredential(
   )
     .lean()
     .exec();
-  return updated ? toOwnerView(updated) : null;
+  return updated ? await toOwnerView(updated) : null;
 }
 
 /**
- * Rotates the RTMP stream key and returns plaintext once.
+ * Creates or rotates the RTMP stream key (encrypted + hashed) and returns plaintext.
  * @param userId - Owner user id.
  * @returns Updated owner view with streamKeyPlaintext, or null.
  */
@@ -517,12 +538,37 @@ export async function rotateStreamKey(
   const streamKeyPlaintext = generateStreamKeyPlaintext();
   const updated = await LiveTranslationChannelModel.findOneAndUpdate(
     { userId },
-    { $set: { streamKeyHash: hashStreamKey(streamKeyPlaintext) } },
+    {
+      $set: {
+        streamKeyHash: hashStreamKey(streamKeyPlaintext),
+        streamKeyEncrypted: encryptToken(streamKeyPlaintext),
+      },
+    },
+    // strict:false so HMR-cached schemas without streamKeyEncrypted still persist it
+    { returnDocument: 'after', strict: false }
+  )
+    .lean()
+    .exec();
+  return updated ? await toOwnerView(updated, { streamKeyPlaintext }) : null;
+}
+
+/**
+ * Removes the RTMP stream key (hash + encrypted plaintext) from the channel.
+ * @param userId - Owner user id.
+ * @returns Updated owner view, or null when the channel does not exist.
+ */
+export async function clearStreamKey(
+  userId: string
+): Promise<LiveTranslationChannelOwnerView | null> {
+  await connectToDatabase();
+  const updated = await LiveTranslationChannelModel.findOneAndUpdate(
+    { userId },
+    { $unset: { streamKeyHash: '', streamKeyEncrypted: '' } },
     { returnDocument: 'after' }
   )
     .lean()
     .exec();
-  return updated ? toOwnerView(updated, { streamKeyPlaintext }) : null;
+  return updated ? await toOwnerView(updated) : null;
 }
 
 /**

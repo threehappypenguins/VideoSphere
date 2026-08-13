@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Copy, Eye, EyeOff, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
   LiveTranslationChannelOwnerView,
@@ -101,6 +101,7 @@ type TranslationConfigPendingAction =
   | 'save-public'
   | 'delete-channel'
   | 'rotate-stream-key'
+  | 'delete-stream-key'
   | 'clear-openrouter'
   | 'clear-groq'
   | 'clear-gcp'
@@ -134,6 +135,9 @@ export function TranslationConfigClient() {
   const [sourceLanguage, setSourceLanguage] = useState('en');
   const [enabledLanguages, setEnabledLanguages] = useState<string[]>([]);
   const [streamKeyPlaintext, setStreamKeyPlaintext] = useState<string | null>(null);
+  const [showStreamKey, setShowStreamKey] = useState(false);
+  /** True after Generate/Rotate in this session so the key starts revealed. */
+  const streamKeyRevealOnApplyRef = useRef(false);
 
   const [aiOpen, setAiOpen] = useState(false);
   const [gcpOpen, setGcpOpen] = useState(false);
@@ -203,8 +207,12 @@ export function TranslationConfigClient() {
     setSttModel(view.sttModel ?? view.openRouterSttModel ?? '');
     setTranslateModel(view.openRouterTranslateModel ?? '');
     setTtsVoices(view.gcpTtsVoices ?? {});
-    if (view.streamKeyPlaintext) {
-      setStreamKeyPlaintext(view.streamKeyPlaintext);
+    setStreamKeyPlaintext(view.streamKeyPlaintext ?? null);
+    if (streamKeyRevealOnApplyRef.current) {
+      setShowStreamKey(Boolean(view.streamKeyPlaintext));
+      streamKeyRevealOnApplyRef.current = false;
+    } else {
+      setShowStreamKey(false);
     }
   }, []);
 
@@ -1011,12 +1019,54 @@ export function TranslationConfigClient() {
         message?: string;
       };
       if (!res.ok) throw new Error(data.message || 'Failed to rotate stream key');
+      streamKeyRevealOnApplyRef.current = true;
       applyChannel(data);
-      toast.success('Stream key rotated — copy it now');
+      toast.success(streamKeyPlaintext ? 'Stream key rotated' : 'Stream key generated');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to rotate key');
     } finally {
       setPendingAction(null);
+    }
+  }
+
+  async function deleteStreamKey() {
+    setPendingAction('delete-stream-key');
+    try {
+      const res = await fetch('/api/translation/stream-key', {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = (await res.json()) as LiveTranslationChannelOwnerView & {
+        message?: string;
+      };
+      if (!res.ok) throw new Error(data.message || 'Failed to delete stream key');
+      applyChannel(data);
+      toast.success('Stream key deleted');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to delete stream key');
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function copyStreamKey() {
+    if (!streamKeyPlaintext) return;
+    try {
+      await navigator.clipboard.writeText(streamKeyPlaintext);
+      toast.success('Stream key copied');
+    } catch {
+      toast.error('Could not copy to clipboard');
+    }
+  }
+
+  async function copyRtmpServerUrl() {
+    const url = channel?.rtmpServerUrl;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Publish URL copied');
+    } catch {
+      toast.error('Could not copy to clipboard');
     }
   }
 
@@ -1450,31 +1500,112 @@ export function TranslationConfigClient() {
       {channel?.translationReady ? (
         <section className={sectionClassName}>
           <h2 className="text-xl font-semibold text-foreground">RTMP (optional)</h2>
-          <p className="text-muted-foreground text-sm">
-            Prefer browser Add audio at the top of this page. RTMP needs the optional MediaMTX
-            sidecar — uncomment the <code className="text-xs">mediamtx</code> service in{' '}
-            <code className="text-xs">portainer-stack.yml</code> /{' '}
-            <code className="text-xs">docker-compose.yml</code> and set{' '}
-            <code className="text-xs">TRANSLATION_RTMP_PUBLIC_HOST</code>.
-          </p>
-          {channel.rtmpConfigured ? (
+          {channel.rtmpReachable ? (
             <>
+              <p className="text-muted-foreground text-sm">
+                MediaMTX is up. In OBS Custom, set Server to the Publish URL below and Stream Key to
+                the key. Prefer browser{' '}
+                <span className="font-medium text-foreground">Add audio</span> unless you need OBS.
+              </p>
+              {channel.rtmpServerUrl ? (
+                <div className="space-y-2">
+                  <Label htmlFor="rtmp-publish-url">Publish URL</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="rtmp-publish-url"
+                      readOnly
+                      value={channel.rtmpServerUrl}
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => void copyRtmpServerUrl()}
+                      aria-label="Copy publish URL"
+                    >
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
               {streamKeyPlaintext ? (
-                <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
-                  <p className="text-sm font-medium">Stream key (copy now — shown once)</p>
-                  <code className="block break-all text-xs">{streamKeyPlaintext}</code>
-                  {channel.rtmpPublishUrl ? (
-                    <p className="text-muted-foreground text-xs break-all">
-                      Publish URL: {channel.rtmpPublishUrl}
-                    </p>
-                  ) : null}
+                <div className="space-y-2">
+                  <Label htmlFor="rtmp-stream-key">Stream key</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="rtmp-stream-key"
+                      readOnly
+                      type={showStreamKey ? 'text' : 'password'}
+                      value={streamKeyPlaintext}
+                      className="font-mono text-xs"
+                      autoComplete="off"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => setShowStreamKey((v) => !v)}
+                      aria-label={showStreamKey ? 'Hide stream key' : 'Show stream key'}
+                    >
+                      {showStreamKey ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => void copyStreamKey()}
+                      aria-label="Copy stream key"
+                    >
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="shrink-0"
+                          disabled={pendingAction === 'delete-stream-key'}
+                          aria-label="Delete stream key"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete stream key?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            OBS will not be able to publish until you generate a new stream key.
+                            This cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={pendingAction === 'delete-stream-key'}>
+                            Cancel
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            disabled={pendingAction === 'delete-stream-key'}
+                            onClick={() => {
+                              void deleteStreamKey();
+                            }}
+                          >
+                            Delete stream key
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
               ) : (
-                <p className="text-muted-foreground text-sm">
-                  {channel.hasStreamKey
-                    ? 'A stream key is stored. Rotate to view a new plaintext key.'
-                    : 'No stream key yet.'}
-                </p>
+                <p className="text-muted-foreground text-sm">No stream key yet.</p>
               )}
               <Button
                 type="button"
@@ -1482,13 +1613,17 @@ export function TranslationConfigClient() {
                 disabled={pendingAction === 'rotate-stream-key'}
                 onClick={() => void rotateStreamKey()}
               >
-                Generate / rotate stream key
+                {streamKeyPlaintext ? 'Rotate stream key' : 'Generate stream key'}
               </Button>
             </>
           ) : (
             <p className="text-muted-foreground text-sm">
-              Stream key controls appear after MediaMTX is enabled in your stack and{' '}
-              <code className="text-xs">TRANSLATION_RTMP_PUBLIC_HOST</code> is set.
+              For RTMP, uncomment the <code className="text-xs">mediamtx</code> service in{' '}
+              <code className="text-xs">portainer-stack.yml</code> /{' '}
+              <code className="text-xs">docker-compose.yml</code>, set{' '}
+              <code className="text-xs">TRANSLATION_RTMP_PUBLIC_HOST</code> and{' '}
+              <code className="text-xs">TRANSLATION_MEDIAMTX_RTSP_BASE</code>, restart the app, and
+              start MediaMTX. Stream key controls appear when MediaMTX is reachable.
             </p>
           )}
         </section>

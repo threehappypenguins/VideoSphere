@@ -166,11 +166,55 @@ Neither removes the fixed pipeline floor. Cutting that further (for example Chir
 
 Browser **Add audio** does not require MediaMTX (useful for local testing). For OBS/RTMP captions and source listen audio:
 
+### Environment variables (local vs production)
+
+| Variable | Purpose | Local (`pnpm dev` + MediaMTX container) | Production (Compose / Portainer) |
+| -------- | ------- | ---------------------------------------- | -------------------------------- |
+| `TRANSLATION_RTMP_PUBLIC_HOST` | Host:port OBS uses (Publish URL / Server). No `rtmp://` prefix needed. | LAN IP of this machine, e.g. `192.168.1.51:1935` (or `127.0.0.1:1935` if OBS is on the same machine) | Public or LAN hostname clients reach, e.g. `stream.example.com:1935` or `192.168.1.38:1935` |
+| `TRANSLATION_RTMP_PATH_PREFIX` | Path segment before the stream key (`live/<key>`). | `live` (default; usually leave unset) | `live` (default) |
+| `TRANSLATION_MEDIAMTX_RTSP_BASE` | Where **the app** pulls RTSP from MediaMTX (not what OBS uses). | `rtsp://127.0.0.1:8554` — app is on the host, MediaMTX ports are published | `rtsp://mediamtx:8554` — Docker DNS name of the `mediamtx` service |
+
+`TRANSLATION_RTMP_PUBLIC_HOST` is for humans/OBS. `TRANSLATION_MEDIAMTX_RTSP_BASE` is for the app’s ffmpeg pull. They are usually different hosts in local dev and the same Docker network name in production.
+
+Example `.env.local` for local OBS testing:
+
+```bash
+TRANSLATION_RTMP_PUBLIC_HOST=192.168.1.51:1935
+TRANSLATION_RTMP_PATH_PREFIX=live
+TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://127.0.0.1:8554
+```
+
+### Run MediaMTX locally (alongside `pnpm dev`)
+
+With the app on the host and MediaMTX in Docker, auth must call the host app (not `http://app:9624`):
+
+```bash
+docker run -d --name videosphere-mediamtx \
+  --add-host=host.docker.internal:host-gateway \
+  -p 1935:1935 -p 8554:8554 -p 8888:8888 \
+  -e MTX_RTMP=yes \
+  -e MTX_RTSP=yes \
+  -e MTX_AUTHMETHOD=http \
+  -e MTX_AUTHHTTPADDRESS=http://host.docker.internal:9624/api/translation/rtmp/auth \
+  bluenviron/mediamtx:latest
+```
+
+On rootless Docker, if the container dies with an `nproc` / rlimit error, add `--pids-limit=-1` (or raise the user `nproc` limit).
+
+Stop/remove: `docker rm -f videosphere-mediamtx`.
+
+### Production / Compose / Portainer
+
 1. Uncomment the `mediamtx` service in `portainer-stack.yml` or `docker-compose.yml`.
-2. Set on the app:
+2. Set on the **app** (not only MediaMTX):
    - `TRANSLATION_RTMP_PUBLIC_HOST` (and optionally `TRANSLATION_RTMP_PATH_PREFIX`)
-   - `TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://mediamtx:8554` (Docker DNS name of the MediaMTX service)
-3. Rotate/generate a stream key on the Translation page and publish from OBS to the shown RTMP URL (e.g. `rtmp://host:1935/live/<streamKey>`).
-4. MediaMTX auth is validated via `POST /api/translation/rtmp/auth` against the owner’s stream key hash. On successful **publish**, the app starts an ffmpeg RTSP pull into the same PCM path as Add audio (`enqueueOwnerPcm`). On unpublish / puller stop, ingest is marked stopped.
-5. **STT billing gate is unchanged:** OBS (or Add audio) can be live without burning STT credits. Upstream ASR opens only while someone is on `/listen` with a language selected.
-6. Optional: `TRANSLATION_RTMP_HOOK_SECRET` for an internal `POST /api/translation/rtmp/publisher` webhook. The primary start path is auth → puller (official MediaMTX images often lack `curl` for `runOnAvailable`).
+   - `TRANSLATION_MEDIAMTX_RTSP_BASE=rtsp://mediamtx:8554`
+3. MediaMTX auth in those files points at `http://app:9624/api/translation/rtmp/auth` (same Compose network).
+
+### After MediaMTX is up
+
+1. Restart the app (or ensure env is loaded). On **Dashboard → Translation**, the **RTMP (optional)** section probes MediaMTX over TCP. Stream-key controls appear only while that check succeeds (refresh the page after starting the sidecar).
+2. Generate a stream key (or rotate an existing one). In OBS Custom: **Server** = Publish URL (`rtmp://host:1935/live`), **Stream Key** = the key alone. The key is stored encrypted in MongoDB (`live_translation_channels`) so it remains available on later visits (hidden by default; reveal/copy/delete from the dashboard). Multiple users share the same Server URL; each has a unique stream key (`live/<key>`).
+3. MediaMTX auth is validated via `POST /api/translation/rtmp/auth` against the owner’s stream key hash. On successful **publish**, the app starts an ffmpeg RTSP pull into the same PCM path as Add audio (`enqueueOwnerPcm`). On unpublish / puller stop, ingest is marked stopped.
+4. **STT billing gate is unchanged:** OBS (or Add audio) can be live without burning STT credits. Upstream ASR opens only while someone is on `/listen` with a language selected.
+5. Optional: `TRANSLATION_RTMP_HOOK_SECRET` for an internal `POST /api/translation/rtmp/publisher` webhook. The primary start path is auth → puller (official MediaMTX images often lack `curl` for `runOnAvailable`).
