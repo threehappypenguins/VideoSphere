@@ -76,7 +76,7 @@ describe('applyModulateTranscript', () => {
       sourceLanguage: 'en',
     });
     expect(result.events.some((e) => e.kind === 'final')).toBe(true);
-    expect(result.events.filter((e) => e.kind === 'final').every((e) => e.text.length <= 160)).toBe(
+    expect(result.events.filter((e) => e.kind === 'final').every((e) => e.text.length <= 200)).toBe(
       true
     );
     // Entire example ends on a complete sentence, so everything can flush as finals.

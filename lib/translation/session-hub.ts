@@ -542,9 +542,11 @@ function handleSourceStreamingEvent(
         segment.byLanguage.set(sourceLanguage, { text });
       }
     }
+    // Omit segmentId so listeners show this as revisable interim text. Sending an
+    // id made every ASR hypothesis rewrite a committed caption line (words appear,
+    // then vanish when the provider revises).
     broadcastLanguage(session, sourceLanguage, {
       type: 'caption',
-      segmentId,
       language: sourceLanguage,
       text,
       ts: now(),
@@ -655,9 +657,9 @@ function handleSonioxStreamingEvent(
         segment.byLanguage.set(language, { text });
       }
     }
+    // Same as source ASR: interim hypotheses must not rewrite committed caption rows.
     broadcastLanguage(session, language, {
       type: 'caption',
-      segmentId,
       language,
       text,
       ts: now(),

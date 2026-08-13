@@ -6,9 +6,45 @@ import WebSocket from 'ws';
 import {
   assemblyaiLanguageParam,
   type StreamingAsrCreateOptions,
+  type StreamingAsrEvent,
   type StreamingAsrSession,
 } from '@/lib/translation/streaming-asr/types';
+import { applyCumulativeUtteranceTranscript } from '@/lib/translation/streaming-asr/utterance-split';
 import { sendWsBinary, sendWsText } from '@/lib/translation/streaming-asr/ws-send';
+
+/**
+ * Maps an AssemblyAI Turn frame to a soft-split kind for caption emission.
+ *
+ * With `format_turns=true`, AssemblyAI sends an unformatted `end_of_turn` then a
+ * formatted one — treating both as provider finals would duplicate captions.
+ * Soft-split still runs on the unformatted turn as a partial so long speech
+ * becomes sentence-sized finals before the formatted flush.
+ * @param msg - Parsed Turn fields.
+ * @returns `final` when the turn is complete (formatted if formatting is on).
+ */
+export function assemblyaiTurnKind(msg: {
+  end_of_turn?: boolean;
+  turn_is_formatted?: boolean;
+}): 'partial' | 'final' {
+  if (!msg.end_of_turn) return 'partial';
+  // format_turns off → turn_is_formatted is absent; end_of_turn alone is enough.
+  if (msg.turn_is_formatted === false) return 'partial';
+  return 'final';
+}
+
+/**
+ * Soft-splits AssemblyAI cumulative turn text into caption-sized hub events.
+ * @param input - Latest frame kind/text plus text already emitted as finals.
+ * @returns Updated finalized prefix and zero or more hub events (in order).
+ */
+export function applyAssemblyaiTranscript(input: {
+  kind: 'partial' | 'final';
+  text: string;
+  finalizedPrefix: string;
+  sourceLanguage: string;
+}): { finalizedPrefix: string; events: StreamingAsrEvent[] } {
+  return applyCumulativeUtteranceTranscript(input);
+}
 
 /**
  * Opens an AssemblyAI real-time transcription session.
@@ -36,6 +72,10 @@ export function createAssemblyaiAsrSession(
   });
 
   let closed = false;
+  /** Cumulative text already emitted as caption finals for the active AssemblyAI turn. */
+  let finalizedPrefix = '';
+  /** AssemblyAI turn id — transcript resets per turn, so the soft-split lock must too. */
+  let currentTurnOrder: number | null = null;
 
   ws.on('message', (data) => {
     try {
@@ -44,6 +84,7 @@ export function createAssemblyaiAsrSession(
         transcript?: string;
         end_of_turn?: boolean;
         turn_is_formatted?: boolean;
+        turn_order?: number;
       };
       if (msg.type === 'Termination' || msg.type === 'error') {
         if (msg.type === 'error') {
@@ -53,10 +94,21 @@ export function createAssemblyaiAsrSession(
       }
       const text = msg.transcript?.trim() ?? '';
       if (!text) return;
-      if (msg.end_of_turn) {
-        options.onEvent({ kind: 'final', text, language: options.sourceLanguage });
-      } else {
-        options.onEvent({ kind: 'partial', text, language: options.sourceLanguage });
+
+      if (typeof msg.turn_order === 'number' && msg.turn_order !== currentTurnOrder) {
+        currentTurnOrder = msg.turn_order;
+        finalizedPrefix = '';
+      }
+
+      const applied = applyAssemblyaiTranscript({
+        kind: assemblyaiTurnKind(msg),
+        text,
+        finalizedPrefix,
+        sourceLanguage: options.sourceLanguage,
+      });
+      finalizedPrefix = applied.finalizedPrefix;
+      for (const event of applied.events) {
+        options.onEvent(event);
       }
     } catch {
       // ignore
@@ -85,6 +137,7 @@ export function createAssemblyaiAsrSession(
     async close() {
       if (closed) return;
       closed = true;
+      finalizedPrefix = '';
       if (ws.readyState === WebSocket.OPEN) {
         try {
           sendWsText(ws, JSON.stringify({ type: 'Terminate' }));

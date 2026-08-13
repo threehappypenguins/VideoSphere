@@ -10,12 +10,7 @@ import {
   type StreamingAsrEvent,
   type StreamingAsrSession,
 } from '@/lib/translation/streaming-asr/types';
-import {
-  appendFinalizedPrefix,
-  remainingAfterFinalizedPrefix,
-  shouldFinalizeCompleteSentence,
-  takeUtteranceChunk,
-} from '@/lib/translation/streaming-asr/utterance-split';
+import { applyCumulativeUtteranceTranscript } from '@/lib/translation/streaming-asr/utterance-split';
 import { sendWsBinary } from '@/lib/translation/streaming-asr/ws-send';
 
 const MODULATE_STT_WS_BASE = 'wss://platform.modulate.ai/api/velma-2-stt-streaming';
@@ -84,50 +79,7 @@ export function applyModulateTranscript(input: {
   finalizedPrefix: string;
   sourceLanguage: string;
 }): { finalizedPrefix: string; events: StreamingAsrEvent[] } {
-  const full = input.text.trim();
-  if (!full) {
-    return { finalizedPrefix: input.kind === 'final' ? '' : input.finalizedPrefix, events: [] };
-  }
-
-  let finalizedPrefix = input.finalizedPrefix.trim();
-  let pending = remainingAfterFinalizedPrefix(full, finalizedPrefix);
-  // Provider revised earlier wording — restart from the full cumulative text.
-  if (finalizedPrefix && pending === full && !full.startsWith(finalizedPrefix)) {
-    finalizedPrefix = '';
-    pending = full;
-  }
-
-  const events: StreamingAsrEvent[] = [];
-
-  const emitFinal = (chunk: string) => {
-    const trimmed = chunk.trim();
-    if (!trimmed) return;
-    events.push({ kind: 'final', text: trimmed, language: input.sourceLanguage });
-    finalizedPrefix = appendFinalizedPrefix(finalizedPrefix, trimmed);
-  };
-
-  for (;;) {
-    const split = takeUtteranceChunk(pending);
-    if (!split) break;
-    emitFinal(split.chunk);
-    pending = split.rest;
-  }
-
-  if (input.kind === 'final') {
-    if (pending.trim()) emitFinal(pending);
-    return { finalizedPrefix: '', events };
-  }
-
-  if (pending && shouldFinalizeCompleteSentence(pending)) {
-    emitFinal(pending);
-    pending = '';
-  }
-
-  if (pending) {
-    events.push({ kind: 'partial', text: pending, language: input.sourceLanguage });
-  }
-
-  return { finalizedPrefix, events };
+  return applyCumulativeUtteranceTranscript(input);
 }
 
 /**

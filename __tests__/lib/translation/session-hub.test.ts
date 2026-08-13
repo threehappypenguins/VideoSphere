@@ -780,6 +780,90 @@ describe('translation session hub', () => {
     unsub();
   });
 
+  it('broadcasts streaming partials without segmentId so clients can revise interim text', async () => {
+    const captions: Array<{ text?: string; segmentId?: string }> = [];
+    let onEvent: ((event: { kind: string; text?: string; language?: string }) => void) | null =
+      null;
+
+    createStreamingAsrSession.mockImplementation(
+      async (
+        _provider: string,
+        options: { onEvent: (event: { kind: string; text?: string; language?: string }) => void }
+      ) => {
+        onEvent = options.onEvent;
+        return {
+          writePcm: vi.fn(),
+          close: vi.fn(async () => undefined),
+        };
+      }
+    );
+
+    vi.mocked(getRuntimeSecretsForUser).mockResolvedValue({
+      sttProvider: 'assemblyai',
+      textTranslateProvider: 'openrouter',
+      openRouterApiKey: 'key',
+      groqApiKey: null,
+      deepgramApiKey: null,
+      assemblyaiApiKey: 'aai-test',
+      gladiaApiKey: null,
+      speechmaticsApiKey: null,
+      sonioxApiKey: null,
+      modulateApiKey: null,
+      gcpServiceAccountJson: null,
+      sttModel: null,
+      openRouterTranslateModel: 'tr',
+      gcpTtsVoices: {},
+      sourceLanguage: 'en',
+      enabledLanguages: ['en'],
+      translationReady: true,
+      listenReady: false,
+    } as Awaited<ReturnType<typeof getRuntimeSecretsForUser>>);
+
+    const unsub = subscribePublicListener({
+      channelId: 'ch-partial-id',
+      userId: 'user-1',
+      language: 'en',
+      wantAudio: false,
+      send: (event) => {
+        if (event.type === 'caption' && event.text) {
+          captions.push({ text: event.text, segmentId: event.segmentId });
+        }
+      },
+    });
+
+    enqueueOwnerPcm('ch-partial-id', 'user-1', loudPcm(3200), 16000);
+    await vi.waitFor(() => {
+      expect(onEvent).not.toBeNull();
+    });
+
+    onEvent!({ kind: 'partial', text: 'he said he would not because his fellow', language: 'en' });
+    onEvent!({
+      kind: 'partial',
+      text: 'he said he would not because his fellow soldiers',
+      language: 'en',
+    });
+    onEvent!({
+      kind: 'final',
+      text: 'He said he would not because his fellow soldiers.',
+      language: 'en',
+    });
+
+    await vi.waitFor(() => {
+      expect(captions.some((c) => c.text?.includes('fellow soldiers.'))).toBe(true);
+    });
+
+    const partials = captions.filter((c) => c.text && !c.text.endsWith('.'));
+    expect(partials.length).toBeGreaterThanOrEqual(2);
+    expect(partials.every((c) => c.segmentId === undefined)).toBe(true);
+
+    const finals = captions.filter((c) => c.text?.endsWith('.'));
+    expect(finals.some((c) => typeof c.segmentId === 'string' && c.segmentId.length > 0)).toBe(
+      true
+    );
+
+    unsub();
+  });
+
   it('stops STT and announces music once singing is detected', async () => {
     const activity: string[] = [];
     const unsub = subscribePublicListener({

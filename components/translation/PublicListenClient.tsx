@@ -466,6 +466,8 @@ function CaptionStream({
         return;
       }
       // Hub delivers spoken TTS as caption events with `audioUrl` (not a separate `tts` type).
+      // Finals include `segmentId` (stable rows). Partials omit it so ASR revisions update
+      // italic interim text instead of rewriting a committed line (words appearing then vanishing).
       if (data.type === 'caption' && typeof data.text === 'string' && data.segmentId) {
         setStreamError(null);
         if (seenSegmentIdsRef.current.has(data.segmentId)) {
