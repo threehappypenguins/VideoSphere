@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -41,14 +42,26 @@ import {
   trimTtsQueueForLag,
   type TtsQueueItem,
 } from '@/lib/translation/tts-sync';
+import {
+  appendCaptionFinal,
+  appendCaptionMarker,
+  applyCaptionInterim,
+  captionSegmentCount,
+  hasCaptionContent,
+  lastCaptionSegmentId,
+  updateCaptionSegment,
+  type CaptionBlock,
+} from '@/lib/translation/caption-flow';
 
-type CaptionLine = {
-  id: string;
-  text: string;
-  ts: number;
-  /** Marker lines stand in for captions during singing/music. */
-  kind?: 'caption' | 'marker';
-};
+/**
+ * Random id for a new caption paragraph.
+ * @returns Unique React key.
+ */
+function newCaptionBlockId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `blk-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 /**
  * Subscribes to public SSE captions (and optional TTS audio) for one language.
@@ -82,8 +95,7 @@ function CaptionStream({
   /** Page scroll container used for mid-viewport follow and “near bottom” detection. */
   scrollRootRef: MutableRefObject<HTMLElement | null>;
 }) {
-  const [lines, setLines] = useState<CaptionLine[]>([]);
-  const [partial, setPartial] = useState('');
+  const [blocks, setBlocks] = useState<CaptionBlock[]>([]);
   const [streamError, setStreamError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const keepAliveRef = useRef<HTMLAudioElement | null>(null);
@@ -421,15 +433,10 @@ function CaptionStream({
    */
   function applyActivity(next: 'speech' | 'music'): void {
     if (next !== 'music') return;
-    setPartial('');
-    setLines((prev) => {
-      if (prev[prev.length - 1]?.kind === 'marker') return prev;
-      const ts = Date.now();
-      return [
-        ...prev,
-        { id: `music-${ts}`, kind: 'marker' as const, text: musicMarkerText(language), ts },
-      ].slice(-80);
-    });
+    const ts = Date.now();
+    setBlocks((prev) =>
+      appendCaptionMarker(prev, { id: `music-${ts}`, text: musicMarkerText(language), ts })
+    );
   }
 
   /** Handles one SSE payload with latest live / audio prefs. */
@@ -466,35 +473,44 @@ function CaptionStream({
         return;
       }
       // Hub delivers spoken TTS as caption events with `audioUrl` (not a separate `tts` type).
-      // Finals include `segmentId` (stable rows). Partials omit it so ASR revisions update
-      // italic interim text instead of rewriting a committed line (words appearing then vanishing).
+      // Finals include `segmentId` (stable units). Partials omit it so ASR revisions update
+      // interim text instead of rewriting committed text (words appearing then vanishing).
+      // Both flow inside the same paragraph, so finalizing never re-flows what is on screen.
       if (data.type === 'caption' && typeof data.text === 'string' && data.segmentId) {
         setStreamError(null);
-        if (seenSegmentIdsRef.current.has(data.segmentId)) {
-          setLines((prev) =>
-            prev.map((line) =>
-              line.id === data.segmentId
-                ? { ...line, text: data.text!, ts: data.ts ?? line.ts }
-                : line
-            )
-          );
-          setPartial('');
+        const segmentId = data.segmentId;
+        const text = data.text;
+        const ts = data.ts ?? Date.now();
+        if (seenSegmentIdsRef.current.has(segmentId)) {
+          setBlocks((prev) => updateCaptionSegment(prev, { id: segmentId, text }));
         } else {
-          seenSegmentIdsRef.current.add(data.segmentId);
-          setLines((prev) =>
-            [...prev, { id: data.segmentId!, text: data.text!, ts: data.ts ?? Date.now() }].slice(
-              -80
-            )
+          seenSegmentIdsRef.current.add(segmentId);
+          setBlocks((prev) =>
+            appendCaptionFinal(prev, {
+              id: segmentId,
+              text,
+              ts,
+              now: Date.now(),
+              blockId: newCaptionBlockId(),
+            })
           );
-          setPartial('');
         }
-        if (data.audioUrl) enqueueSpokenUrl(data.audioUrl, data.ts ?? Date.now());
+        if (data.audioUrl) enqueueSpokenUrl(data.audioUrl, ts);
         return;
       }
-      // Streaming partials without a stable segment id (rare) — show as interim text.
+      // Streaming partials without a stable segment id — interim tail of the live paragraph.
       if (data.type === 'caption' && typeof data.text === 'string') {
         setStreamError(null);
-        setPartial(data.text);
+        const text = data.text;
+        const ts = data.ts ?? Date.now();
+        setBlocks((prev) =>
+          applyCaptionInterim(prev, {
+            text,
+            ts,
+            now: Date.now(),
+            blockId: newCaptionBlockId(),
+          })
+        );
       }
     } catch {
       /* ignore malformed */
@@ -577,7 +593,15 @@ function CaptionStream({
     return () => controller.abort();
   }, [slug, language, wantAudio, audioAvailable]);
 
-  const latestRef = useRef<HTMLLIElement>(null);
+  /** Live edge to keep pinned: the interim tail when present, else the newest paragraph. */
+  const latestRef = useRef<HTMLElement | null>(null);
+  const setLatestElement = useCallback((el: HTMLElement | null) => {
+    latestRef.current = el;
+    // Guarded so detaching the previous live edge cannot clear the one just attached.
+    return () => {
+      if (latestRef.current === el) latestRef.current = null;
+    };
+  }, []);
   /** When true, new captions keep the latest line pinned near mid-viewport. */
   const followLatestRef = useRef(true);
   /** Ignores settle logic while we are programmatically pinning the latest line. */
@@ -591,9 +615,13 @@ function CaptionStream({
   const [followPadPx, setFollowPadPx] = useState(0);
   const followPadPxRef = useRef(0);
   followPadPxRef.current = followPadPx;
-  const hasCaptions = lines.length > 0 || Boolean(partial);
-  const hasPartial = Boolean(partial);
-  const lastLineId = lines.length > 0 ? lines[lines.length - 1]!.id : null;
+  const hasCaptions = hasCaptionContent(blocks);
+  const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1]! : null;
+  const hasPartial = Boolean(lastBlock?.interim);
+  const lastLineId = lastCaptionSegmentId(blocks);
+  // Follow re-pins per finalized unit (as before), not per paragraph — paragraphs now
+  // span many finals, so paragraph count alone would let the live edge drift away.
+  const segmentCount = captionSegmentCount(blocks);
 
   const clearFollowScrollSettle = useEffectEvent(() => {
     if (followScrollSettleTimerRef.current !== null) {
@@ -619,7 +647,7 @@ function CaptionStream({
     const el = latestRef.current;
     if (!root || !el) return;
 
-    const pinKey = captionFollowPinKey(lines.length, lastLineId, Boolean(partial));
+    const pinKey = captionFollowPinKey(segmentCount, lastLineId, hasPartial);
     if (!force && lastFollowPinKeyRef.current === pinKey) return;
     lastFollowPinKeyRef.current = pinKey;
 
@@ -723,7 +751,7 @@ function CaptionStream({
 
   useEffect(() => {
     pinLiveCaption(false);
-  }, [lines.length, lastLineId, hasPartial, followPadPx, scrollRootRef]);
+  }, [segmentCount, lastLineId, hasPartial, followPadPx, scrollRootRef]);
 
   useEffect(() => {
     return () => {
@@ -739,32 +767,46 @@ function CaptionStream({
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- silent loop for Android audio focus */}
       <audio ref={keepAliveRef} className="hidden" playsInline loop preload="auto" />
       <ol className="flex flex-col gap-3">
-        {lines.length === 0 && !partial && live ? (
+        {!hasCaptions && live ? (
           <li className="text-muted-foreground text-sm">
             Listening… captions appear as speech is detected.
           </li>
         ) : null}
-        {lines.length === 0 && !partial && !live ? (
+        {!hasCaptions && !live ? (
           <li className="text-muted-foreground text-sm">Waiting for the next live segment.</li>
         ) : null}
-        {lines.map((line) => (
-          <li
-            key={line.id}
-            ref={line.id === lastLineId && !partial ? latestRef : undefined}
-            className={
-              line.kind === 'marker'
-                ? 'text-muted-foreground text-base leading-snug tracking-wide'
-                : 'text-lg leading-snug'
-            }
-          >
-            {line.text}
-          </li>
-        ))}
-        {partial ? (
-          <li ref={latestRef} className="text-muted-foreground text-lg leading-snug italic">
-            {partial}
-          </li>
-        ) : null}
+        {blocks.map((block) => {
+          const isLast = block.id === lastBlock?.id;
+          return (
+            <li
+              key={block.id}
+              ref={isLast && !block.interim ? setLatestElement : undefined}
+              className={
+                block.kind === 'marker'
+                  ? 'text-muted-foreground text-base leading-snug tracking-wide'
+                  : 'text-lg leading-snug'
+              }
+            >
+              {/* Finalized text and the interim tail share one paragraph: finalizing swaps
+                  the styling in place instead of moving the sentence to its own line. */}
+              {block.segments.map((segment, index) => (
+                <span key={segment.id}>
+                  {index > 0 ? ' ' : ''}
+                  {segment.text}
+                </span>
+              ))}
+              {block.interim ? (
+                <span
+                  ref={isLast ? setLatestElement : undefined}
+                  className="text-muted-foreground italic"
+                >
+                  {block.segments.length > 0 ? ' ' : ''}
+                  {block.interim}
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
         {/* Spacer so the live edge can sit at mid-viewport instead of the bottom edge. */}
         <li
           aria-hidden="true"

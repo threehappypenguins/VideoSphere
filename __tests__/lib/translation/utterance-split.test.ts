@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyCumulativeUtteranceTranscript,
+  endsCompleteSentence,
   looksLikeIncompleteCaption,
   normalizeTranscriptWord,
   takeUtteranceChunk,
@@ -53,6 +54,33 @@ describe('takeUtteranceChunk english', () => {
     expect(split!.rest.length).toBeGreaterThan(0);
   });
 
+  it('ends a sentence that closes with a quotation mark', () => {
+    const text =
+      'God said, "I\'m going to wipe out this nation, and I\'m going to raise up another nation, and you can lead them as my people." And Moses said';
+    const split = takeUtteranceChunk(text, 90, 140, { allowHardBreak: false });
+    expect(split).not.toBeNull();
+    expect(split!.chunk).toMatch(/as my people\."$/);
+    expect(split!.rest).toBe('And Moses said');
+  });
+
+  it('does not break after an abbreviation period', () => {
+    const text =
+      'Our brother Dr. Martin came to preach for us this evening about the mercy of God and his kindness toward every one of us.';
+    const split = takeUtteranceChunk(text, 90, 140, { allowHardBreak: true });
+    expect(split).not.toBeNull();
+    expect(split!.chunk).toContain('Dr. Martin');
+  });
+
+  it('keeps a forced clause break on the comma instead of backing into mid-phrase', () => {
+    const text =
+      'God said I am going to wipe out this nation and I am going to raise up another nation, and you can lead them as my people and they will follow wherever you go';
+    expect(text.length).toBeGreaterThan(140);
+    const split = takeUtteranceChunk(text, 90, 140, { allowHardBreak: false });
+    expect(split).not.toBeNull();
+    expect(split!.chunk).toMatch(/another nation,$/);
+    expect(split!.rest).toMatch(/^and you can lead them/);
+  });
+
   it('rejects incomplete caption endings when splitting', () => {
     const text =
       'God for hearing the afflict— And then something else that keeps going past the soft max length here.';
@@ -60,6 +88,45 @@ describe('takeUtteranceChunk english', () => {
     if (split) {
       expect(looksLikeIncompleteCaption(split.chunk)).toBe(false);
     }
+  });
+});
+
+describe('endsCompleteSentence', () => {
+  it('accepts terminators hidden behind closing quotes and brackets', () => {
+    expect(endsCompleteSentence('And Moses said, "No."')).toBe(true);
+    expect(endsCompleteSentence('he cried out for mercy.')).toBe(true);
+    expect(endsCompleteSentence('就能成就我所求的。')).toBe(true);
+    expect(endsCompleteSentence('and I am going to raise up another nation,')).toBe(false);
+  });
+});
+
+describe('applyCumulativeUtteranceTranscript quoted speech', () => {
+  it('finalizes only whole sentences as a quoted turn streams in word by word', () => {
+    const sermon =
+      'God said, "I\'m going to wipe out this nation, and I\'m going to raise up another nation, and you can lead them as my people." And Moses said, "No." And he cried out for mercy.';
+    const words = sermon.split(' ');
+
+    let finalizedPrefix = '';
+    const finals: string[] = [];
+    for (let i = 1; i <= words.length; i += 1) {
+      const result = applyCumulativeUtteranceTranscript({
+        kind: i === words.length ? 'final' : 'partial',
+        text: words.slice(0, i).join(' '),
+        finalizedPrefix,
+        sourceLanguage: 'en',
+      });
+      finalizedPrefix = result.finalizedPrefix;
+      for (const event of result.events) {
+        if (event.kind === 'final') finals.push(event.text);
+      }
+    }
+
+    expect(finals.length).toBeGreaterThan(0);
+    // Every caption/TTS unit is a whole sentence — no `…raise up another` / `nation, and…`.
+    for (const text of finals) {
+      expect(endsCompleteSentence(text)).toBe(true);
+    }
+    expect(finals.join(' ')).toContain('as my people."');
   });
 });
 

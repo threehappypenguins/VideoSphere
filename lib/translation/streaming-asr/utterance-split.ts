@@ -47,14 +47,109 @@ export type TakeUtteranceChunkOptions = {
   sentenceSearchMax?: number;
 };
 
+/** Sentence terminators, including CJK fullwidth forms. */
+const SENTENCE_TERMINATORS = new Set(['.', '!', '?', '。', '！', '？']);
+
+/**
+ * Closing punctuation allowed between a terminator and the sentence boundary.
+ * Preaching quotes scripture constantly (`…as my people." And Moses said…`), so a
+ * terminator followed by a closing quote still ends the sentence.
+ */
+const SENTENCE_CLOSERS = new Set(['"', "'", '”', '’', '»', '›', ')', ']', '}', '」', '』']);
+
+/**
+ * Words whose trailing period abbreviates rather than ends a sentence.
+ * Splitting after these produced fragments like `…invited Dr.` / `Smith to preach…`.
+ */
+const NON_TERMINAL_ABBREVIATIONS = new Set([
+  'mr',
+  'mrs',
+  'ms',
+  'dr',
+  'st',
+  'rev',
+  'fr',
+  'jr',
+  'sr',
+  'prof',
+  'vs',
+  'etc',
+  'ie',
+  'eg',
+  'cf',
+  'vol',
+  'ch',
+  'v',
+  'vv',
+]);
+
+/**
+ * True when the period at `dotIndex` abbreviates a word (or an initial) instead of
+ * closing a sentence.
+ * @param text - Transcript being scanned.
+ * @param dotIndex - Index of the `.` character.
+ * @returns Whether the period should be ignored as a sentence end.
+ */
+function isAbbreviationDot(text: string, dotIndex: number): boolean {
+  let start = dotIndex;
+  while (start > 0 && /[\p{L}\p{N}]/u.test(text[start - 1]!)) start -= 1;
+  const word = text.slice(start, dotIndex);
+  if (!word) return false;
+  // Single letters are initials (`C. S. Lewis`); digits are not (`in 2020. Then…`).
+  if (word.length === 1 && /\p{L}/u.test(word)) return true;
+  return NON_TERMINAL_ABBREVIATIONS.has(word.toLowerCase());
+}
+
+/**
+ * Index just past a sentence ending at `index`, including any closing quotes/brackets.
+ * @param text - Transcript being scanned.
+ * @param index - Candidate terminator index.
+ * @returns Break index after the sentence, or -1 when `index` does not end a sentence.
+ */
+function sentenceEndIndexAt(text: string, index: number): number {
+  const ch = text[index];
+  if (!ch || !SENTENCE_TERMINATORS.has(ch)) return -1;
+  if (ch === '.' && isAbbreviationDot(text, index)) return -1;
+
+  let end = index + 1;
+  while (end < text.length && SENTENCE_CLOSERS.has(text[end]!)) end += 1;
+
+  const next = text[end];
+  if (next === undefined || /\s/.test(next)) return end;
+  // CJK text runs sentences together with no space after the fullwidth terminator.
+  return ch === '。' || ch === '！' || ch === '？' ? end : -1;
+}
+
+/**
+ * True when text ends a sentence, allowing trailing quotes (`He said, "No."`).
+ * @param text - Transcript candidate.
+ * @returns Whether the final character closes a sentence.
+ */
+export function endsCompleteSentence(text: string): boolean {
+  let end = text.trimEnd().length;
+  while (end > 0 && SENTENCE_CLOSERS.has(text[end - 1]!)) end -= 1;
+  const last = text[end - 1];
+  return last !== undefined && SENTENCE_TERMINATORS.has(last);
+}
+
+/**
+ * A forced break position plus whether it landed on a real clause boundary.
+ */
+type ForcedBreak = {
+  /** Character index to split at. */
+  at: number;
+  /** True when the break follows a comma/semicolon/dash rather than a bare space. */
+  clause: boolean;
+};
+
 /**
  * Picks a forced break index preferring clause boundaries, then spaces.
  * @param text - Full pending transcript.
  * @param limit - Max index to break at (exclusive of trailing incomplete crumbs when possible).
  * @param minWordBreak - Refuse breaks earlier than this.
- * @returns Character index to split at.
+ * @returns Break index and whether it is a clause boundary.
  */
-function findForcedBreakAt(text: string, limit: number, minWordBreak: number): number {
+function findForcedBreakAt(text: string, limit: number, minWordBreak: number): ForcedBreak {
   const end = Math.min(text.length, limit);
   const slice = text.slice(0, end);
   const preferAfter = Math.max(minWordBreak, Math.floor(slice.length * 0.45));
@@ -72,11 +167,11 @@ function findForcedBreakAt(text: string, limit: number, minWordBreak: number): n
 
   for (const re of [/, /g, /; /g, /，/g, /、/g, / — /g, / – /g, / - /g]) {
     const at = tryPattern(re);
-    if (at >= minWordBreak) return at;
+    if (at >= minWordBreak) return { at, clause: true };
   }
 
   const sp = slice.lastIndexOf(' ');
-  return sp >= minWordBreak ? sp : end;
+  return { at: sp >= minWordBreak ? sp : end, clause: false };
 }
 
 /**
@@ -123,20 +218,12 @@ export function takeUtteranceChunk(
   // Only used for forced mid-word fallback — sentence ends may be earlier than softMax/2.
   const minWordBreak = Math.max(12, Math.floor(softMax / 4));
 
-  const isSentenceEnd = (i: number): boolean => {
-    const ch = text[i];
-    // CJK fullwidth terminators — next char is often the start of the next sentence (no space).
-    if (ch === '。' || ch === '！' || ch === '？') return true;
-    if (ch !== '.' && ch !== '!' && ch !== '?') return false;
-    const next = text[i + 1];
-    return next === undefined || /\s/.test(next);
-  };
-
   // Prefer the last sentence that still fits inside the soft window.
   let breakAt = -1;
   const softEnd = Math.min(text.length, softMax);
   for (let i = 0; i < softEnd; i += 1) {
-    if (isSentenceEnd(i)) breakAt = i + 1;
+    const end = sentenceEndIndexAt(text, i);
+    if (end > 0) breakAt = end;
   }
 
   // Otherwise take the first sentence end after softMax — search past hardMax so
@@ -144,8 +231,9 @@ export function takeUtteranceChunk(
   if (breakAt < 0) {
     const searchEnd = Math.min(text.length, Math.max(hardMax, sentenceSearchMax));
     for (let i = softMax; i < searchEnd; i += 1) {
-      if (isSentenceEnd(i)) {
-        breakAt = i + 1;
+      const end = sentenceEndIndexAt(text, i);
+      if (end > 0) {
+        breakAt = end;
         break;
       }
     }
@@ -153,14 +241,18 @@ export function takeUtteranceChunk(
 
   // Still no sentence end — force a clause/word break once past hardMax so the
   // italic partial cannot grow into a multi-paragraph blurb until turn end.
+  // Clause breaks keep their trailing comma: `…raise up another nation,` reads (and
+  // speaks) far better than backing up into `…raise up another`.
+  let clauseBreak = false;
   if (breakAt < 0) {
     if (text.length < hardMax) return null;
-    breakAt = findForcedBreakAt(text, hardMax, minWordBreak);
-    breakAt = backUpIncompleteBreak(text, breakAt, minWordBreak);
+    const forced = findForcedBreakAt(text, hardMax, minWordBreak);
+    clauseBreak = forced.clause;
+    breakAt = clauseBreak ? forced.at : backUpIncompleteBreak(text, forced.at, minWordBreak);
     // If we still look truncated and there is room to wait, keep buffering unless
     // the emergency search window is already exceeded.
     const probe = text.slice(0, breakAt).trim();
-    if (looksLikeIncompleteCaption(probe) && text.length < sentenceSearchMax) {
+    if (!clauseBreak && looksLikeIncompleteCaption(probe) && text.length < sentenceSearchMax) {
       return null;
     }
   }
@@ -168,7 +260,7 @@ export function takeUtteranceChunk(
   let chunk = text.slice(0, breakAt).trim();
   let rest = text.slice(breakAt).trim();
   if (!chunk) return null;
-  if (looksLikeIncompleteCaption(chunk)) {
+  if (!clauseBreak && looksLikeIncompleteCaption(chunk)) {
     // Sentence-end path can still land on “—.” style crumbs; refuse unless final flush.
     if (!allowHardBreak) return null;
     breakAt = backUpIncompleteBreak(text, breakAt, minWordBreak);
@@ -196,7 +288,7 @@ export function shouldFinalizeCompleteSentence(
   const trimmed = text.trim();
   if (trimmed.length < minChars) return false;
   if (looksLikeIncompleteCaption(trimmed)) return false;
-  return /[.!?。！？]$/.test(trimmed);
+  return endsCompleteSentence(trimmed);
 }
 
 /**
