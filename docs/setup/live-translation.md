@@ -32,7 +32,7 @@ A translation **channel** (including the public slug) is created only when you s
 | Mode | Behavior |
 | --- | --- |
 | Streaming (Deepgram, AssemblyAI, Gladia, Speechmatics, Modulate, ElevenLabs) | Session hub opens one long-lived provider WebSocket. Finals create caption segments and enqueue separate MT (+ optional async TTS). |
-| Soniox | One Soniox WebSocket **per active listen language** (one-way translation to that target). Same PCM is fanned out. Translated finals skip the separate MT provider. |
+| Soniox | One Soniox WebSocket **per active listen language** (one-way translation to that target). Same PCM is fanned out. Translated finals skip the separate MT provider. Incremental final tokens are accumulated and soft-split into sentence-sized captions (Latin `.?!` and CJK `。！？`); each committed caption gets its own segment id so prior lines stay on screen. |
 | Groq (chunked) | Existing HTTP Whisper batch path (~4s windows) for free-tier fallback. |
 
 Legacy channels that still have STT set to OpenRouter or GCP Speech-to-Text must **reconfigure AI** — those STT backends are no longer supported on the live path.

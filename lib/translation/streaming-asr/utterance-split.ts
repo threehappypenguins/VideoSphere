@@ -70,7 +70,7 @@ function findForcedBreakAt(text: string, limit: number, minWordBreak: number): n
     return last;
   };
 
-  for (const re of [/, /g, /; /g, / — /g, / – /g, / - /g]) {
+  for (const re of [/, /g, /; /g, /，/g, /、/g, / — /g, / – /g, / - /g]) {
     const at = tryPattern(re);
     if (at >= minWordBreak) return at;
   }
@@ -125,6 +125,8 @@ export function takeUtteranceChunk(
 
   const isSentenceEnd = (i: number): boolean => {
     const ch = text[i];
+    // CJK fullwidth terminators — next char is often the start of the next sentence (no space).
+    if (ch === '。' || ch === '！' || ch === '？') return true;
     if (ch !== '.' && ch !== '!' && ch !== '?') return false;
     const next = text[i + 1];
     return next === undefined || /\s/.test(next);
@@ -194,7 +196,7 @@ export function shouldFinalizeCompleteSentence(
   const trimmed = text.trim();
   if (trimmed.length < minChars) return false;
   if (looksLikeIncompleteCaption(trimmed)) return false;
-  return /[.!?]$/.test(trimmed);
+  return /[.!?。！？]$/.test(trimmed);
 }
 
 /**
@@ -214,14 +216,16 @@ export function looksLikeIncompleteCaption(text: string): boolean {
 
 /**
  * Strips leading/trailing punctuation for word-level transcript alignment.
+ * Keeps Latin and CJK letters/numbers so Mandarin captions are not treated as empty
+ * (empty content words were falsely flagged as near-duplicates and dropped).
  * @param token - A whitespace-separated token from the transcript.
  * @returns Lowercased core word, or empty when the token is punctuation-only.
  */
 export function normalizeTranscriptWord(token: string): string {
   return token
     .toLowerCase()
-    .replace(/^[^a-z0-9\u00c0-\u024f]+/i, '')
-    .replace(/[^a-z0-9\u00c0-\u024f]+$/i, '');
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .replace(/[^\p{L}\p{N}]+$/u, '');
 }
 
 /**

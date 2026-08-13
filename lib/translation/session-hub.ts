@@ -195,7 +195,13 @@ type ChannelSession = {
   sonioxByLanguage: Map<string, StreamingAsrSession>;
   /** In-flight Soniox open per language. */
   sonioxStarting: Map<string, Promise<void>>;
-  /** Partial caption segment id for the active utterance (streaming). */
+  /**
+   * Soniox soft-split partial segment ids keyed by listen language.
+   * Each Soniox socket is per-language; sharing one id made translation finals
+   * overwrite the previous caption row on the client.
+   */
+  sonioxPartialSegmentIds: Map<string, string>;
+  /** Partial caption segment id for the active utterance (non-Soniox streaming). */
   streamingPartialSegmentId: string | null;
   /** Speech/music detector over owner ingest; null when detection is disabled. */
   activityDetector: AudioActivityDetector | null;
@@ -259,6 +265,7 @@ function getOrCreateSession(channelId: string, userId: string): ChannelSession {
       asrCloseTimer: null,
       sonioxByLanguage: new Map(),
       sonioxStarting: new Map(),
+      sonioxPartialSegmentIds: new Map(),
       streamingPartialSegmentId: null,
       activityDetector: isMusicDetectionEnabled()
         ? createAudioActivityDetector(audioActivityDetectorOptionsFromEnv())
@@ -450,6 +457,7 @@ async function closeAllStreamingAsr(session: ChannelSession): Promise<void> {
   const soniox = [...session.sonioxByLanguage.entries()];
   session.sonioxByLanguage.clear();
   session.sonioxStarting.clear();
+  session.sonioxPartialSegmentIds.clear();
   await Promise.allSettled([
     single ? single.close() : Promise.resolve(),
     ...soniox.map(([, s]) => s.close()),
@@ -621,7 +629,7 @@ function handleSonioxStreamingEvent(
   if (!rawText) return;
   const language = listenLanguage;
   // Soniox skips our MT stack; still run Mandarin/Cantonese confession repairs.
-  const partialId = session.streamingPartialSegmentId;
+  const partialId = session.sonioxPartialSegmentIds.get(language) ?? null;
   const text = !isSourceStream
     ? repairSermonTranslation({
         sourceText:
@@ -639,10 +647,10 @@ function handleSonioxStreamingEvent(
     : rawText;
 
   if (event.kind === 'partial') {
-    let segmentId = session.streamingPartialSegmentId;
+    let segmentId = session.sonioxPartialSegmentIds.get(language);
     if (!segmentId) {
       segmentId = randomUUID();
-      session.streamingPartialSegmentId = segmentId;
+      session.sonioxPartialSegmentIds.set(language, segmentId);
       const segment: Segment = {
         id: segmentId,
         sourceText: isSourceStream ? text : '',
@@ -668,12 +676,10 @@ function handleSonioxStreamingEvent(
     return;
   }
 
-  let segmentId = session.streamingPartialSegmentId;
-  // Keep partial id across languages until all streams finalize — reset only on source finals
-  // or when this language finalizes a standalone segment.
-  if (isSourceStream) {
-    session.streamingPartialSegmentId = null;
-  }
+  // Final — always clear this language's partial id so the next soft-split / utterance
+  // gets a new segmentId. Reusing the id made the listen client overwrite the prior row.
+  let segmentId = session.sonioxPartialSegmentIds.get(language);
+  session.sonioxPartialSegmentIds.delete(language);
   if (!segmentId) {
     segmentId = randomUUID();
     const segment: Segment = {
@@ -811,6 +817,7 @@ async function syncSonioxSessions(session: ChannelSession): Promise<void> {
   if (!session.ingestActive) {
     for (const [language, asr] of [...session.sonioxByLanguage.entries()]) {
       session.sonioxByLanguage.delete(language);
+      session.sonioxPartialSegmentIds.delete(language);
       void asr.close();
     }
     return;
@@ -828,6 +835,7 @@ async function syncSonioxSessions(session: ChannelSession): Promise<void> {
   for (const [language, asr] of [...session.sonioxByLanguage.entries()]) {
     if (!wanted.has(language)) {
       session.sonioxByLanguage.delete(language);
+      session.sonioxPartialSegmentIds.delete(language);
       void asr.close();
     }
   }
@@ -926,6 +934,7 @@ function purgeLanguageData(session: ChannelSession, language: string): void {
   const soniox = session.sonioxByLanguage.get(language);
   if (soniox) {
     session.sonioxByLanguage.delete(language);
+    session.sonioxPartialSegmentIds.delete(language);
     void soniox.close();
   }
   maybeTeardown(session);
@@ -1579,6 +1588,7 @@ function updateSessionActivity(
     // Drop the unfinished caption so the last words before the song do not sit
     // on screen as a permanent partial once STT stops producing finals.
     session.streamingPartialSegmentId = null;
+    session.sonioxPartialSegmentIds.clear();
     // Chunks already queued for Groq would otherwise still be transcribed and billed.
     session.audioQueue.length = 0;
   } else {
@@ -1619,6 +1629,7 @@ function suppressSttForMusic(session: ChannelSession): void {
   void closeSingleStreamingAsr(session);
   for (const [language, asr] of session.sonioxByLanguage) {
     session.sonioxByLanguage.delete(language);
+    session.sonioxPartialSegmentIds.delete(language);
     void asr.close().catch(() => undefined);
   }
 }

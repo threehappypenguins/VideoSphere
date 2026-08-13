@@ -2,10 +2,33 @@ import { describe, expect, it } from 'vitest';
 import {
   applyCumulativeUtteranceTranscript,
   looksLikeIncompleteCaption,
+  normalizeTranscriptWord,
   takeUtteranceChunk,
 } from '@/lib/translation/streaming-asr/utterance-split';
 
+describe('normalizeTranscriptWord', () => {
+  it('keeps CJK letters so Mandarin captions are not treated as empty', () => {
+    expect(normalizeTranscriptWord('就能成就我所求的。')).toBe('就能成就我所求的');
+    expect(normalizeTranscriptWord('Hello')).toBe('hello');
+  });
+});
+
 describe('takeUtteranceChunk', () => {
+  it('splits Chinese on fullwidth 。 without requiring a following space', () => {
+    const first = '就能成就我所求的。';
+    const rest =
+      '耶稣说这位妇人明白了。我记得我称她为外邦人中的以色列人因为以色列人就是这样得名的就是雅各向神呼求的时候求那样的慈悲因为他认识到神是慈悲的。';
+    const text = `${first}${rest}`;
+    const softMax = 40;
+    expect(text.length).toBeGreaterThan(softMax);
+    const split = takeUtteranceChunk(text, softMax, 80);
+    expect(split).not.toBeNull();
+    expect(split!.chunk.endsWith('。')).toBe(true);
+    expect(split!.rest.length).toBeGreaterThan(0);
+  });
+});
+
+describe('takeUtteranceChunk english', () => {
   it('does not hard-break mid-phrase while still under hard max on partials', () => {
     const long =
       'God for hearing the afflict the afflicted one and not that he did not despise the affliction of the afflicted one';
