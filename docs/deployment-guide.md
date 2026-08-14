@@ -242,14 +242,14 @@ VideoSphere listens on HTTP inside the container (port 9624). For HTTPS and a pu
 - `NEXT_PUBLIC_APP_URL` matches the URL users type in the browser (scheme and host)
 - OAuth callback URLs use the same host
 - WebSocket/long uploads: ensure the proxy allows large request bodies and sufficient timeouts for video uploads
-- **SSE (live translation `/listen`):** public captions and “live” status use Server-Sent Events at `/api/translation/public/*/events`. Default nginx buffering holds that stream until a large chunk accumulates — listeners see ~20s of silence then a huge caption dump, and the “not connected” banner stays stale until refresh. The app sends `X-Accel-Buffering: no`; also turn off proxy buffering (and raise read timeouts) for that path.
+- **SSE (live translation `/listen`):** public captions and “live” status use Server-Sent Events at `/api/translation/public/{slug}/events`. Default nginx buffering can hold that stream until a large chunk accumulates (long silence, then a huge caption dump; “not connected” stuck until refresh). VideoSphere sends `X-Accel-Buffering: no` on that response so nginx/NPM flush events without custom Advanced config. Redeploy the app image after upgrading; no proxy changes required for a normal NPM setup.
 
-### Nginx / Nginx Proxy Manager (live translation SSE)
+### If SSE is still buffered after upgrade
 
-In the proxy host **Advanced** custom Nginx config (or a dedicated location):
+Rare cases (proxy ignores `X-Accel-Buffering`, non-nginx frontends, Cloudflare orange-cloud quirks): confirm in DevTools that `/events` dumps many `data:` lines at once instead of a steady trickle (heartbeats every ~15s). Then either DNS-only Cloudflare for a test, or add a **scoped** Advanced location for the SSE path only — not sibling JSON/TTS routes under `/api/translation/public/` (`/audio/...` is short-lived TTS downloads; source listen PCM rides the SSE stream):
 
 ```nginx
-location /api/translation/public/ {
+location ~ ^/api/translation/public/[^/]+/events {
   proxy_pass http://<videosphere-host>:9624;
   proxy_http_version 1.1;
   proxy_set_header Host $host;
@@ -265,9 +265,7 @@ location /api/translation/public/ {
 }
 ```
 
-Replace `<videosphere-host>` with whatever NPM already uses for the rest of the site (often the Odroid LAN IP). After saving, retest `/listen/{slug}`: the `events` request should stay pending **while** streaming small `data:` lines continuously (heartbeats every ~15s), not dump a wall of text after a long pause.
-
-If Cloudflare proxies the hostname (orange cloud), temporarily set DNS-only to confirm; CF can also delay SSE.
+Replace `<videosphere-host>` with whatever the proxy already uses for the rest of the site. Remove this block once the app header alone is enough.
 
 ## Useful Resources
 
