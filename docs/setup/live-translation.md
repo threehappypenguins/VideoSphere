@@ -188,7 +188,7 @@ With the app on the host and MediaMTX in Docker, auth must call the host app (no
 ```bash
 docker run -d --name videosphere-mediamtx \
   --add-host=host.docker.internal:host-gateway \
-  -p 1935:1935 -p 8554:8554 -p 8888:8888 \
+  -p 1935:1935 -p 8554:8554 \
   -e MTX_RTMP=yes \
   -e MTX_RTSP=yes \
   -e MTX_AUTHMETHOD=http \
