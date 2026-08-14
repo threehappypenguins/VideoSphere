@@ -242,6 +242,30 @@ VideoSphere listens on HTTP inside the container (port 9624). For HTTPS and a pu
 - `NEXT_PUBLIC_APP_URL` matches the URL users type in the browser (scheme and host)
 - OAuth callback URLs use the same host
 - WebSocket/long uploads: ensure the proxy allows large request bodies and sufficient timeouts for video uploads
+- **SSE (live translation `/listen`):** public captions and “live” status use Server-Sent Events at `/api/translation/public/{slug}/events`. Default nginx buffering can hold that stream until a large chunk accumulates (long silence, then a huge caption dump; “not connected” stuck until refresh). VideoSphere sends `X-Accel-Buffering: no` on that response so nginx/NPM flush events without custom Advanced config. Redeploy the app image after upgrading; no proxy changes required for a normal NPM setup.
+
+### If SSE is still buffered after upgrade
+
+Rare cases (proxy ignores `X-Accel-Buffering`, non-nginx frontends, Cloudflare orange-cloud quirks): confirm in DevTools that `/events` dumps many `data:` lines at once instead of a steady trickle (heartbeats every ~15s). Then either DNS-only Cloudflare for a test, or add a **scoped** Advanced location for the SSE path only — not sibling JSON/TTS routes under `/api/translation/public/` (`/audio/...` is short-lived TTS downloads; source listen PCM rides the SSE stream):
+
+```nginx
+location ~ ^/api/translation/public/[^/]+/events {
+  proxy_pass http://<videosphere-host>:9624;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Connection '';
+  proxy_buffering off;
+  proxy_cache off;
+  proxy_read_timeout 3600s;
+  proxy_send_timeout 3600s;
+  chunked_transfer_encoding on;
+}
+```
+
+Replace `<videosphere-host>` with whatever the proxy already uses for the rest of the site. Remove this block once the app header alone is enough.
 
 ## Useful Resources
 
