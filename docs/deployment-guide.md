@@ -242,6 +242,32 @@ VideoSphere listens on HTTP inside the container (port 9624). For HTTPS and a pu
 - `NEXT_PUBLIC_APP_URL` matches the URL users type in the browser (scheme and host)
 - OAuth callback URLs use the same host
 - WebSocket/long uploads: ensure the proxy allows large request bodies and sufficient timeouts for video uploads
+- **SSE (live translation `/listen`):** public captions and “live” status use Server-Sent Events at `/api/translation/public/*/events`. Default nginx buffering holds that stream until a large chunk accumulates — listeners see ~20s of silence then a huge caption dump, and the “not connected” banner stays stale until refresh. The app sends `X-Accel-Buffering: no`; also turn off proxy buffering (and raise read timeouts) for that path.
+
+### Nginx / Nginx Proxy Manager (live translation SSE)
+
+In the proxy host **Advanced** custom Nginx config (or a dedicated location):
+
+```nginx
+location /api/translation/public/ {
+  proxy_pass http://<videosphere-host>:9624;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Connection '';
+  proxy_buffering off;
+  proxy_cache off;
+  proxy_read_timeout 3600s;
+  proxy_send_timeout 3600s;
+  chunked_transfer_encoding on;
+}
+```
+
+Replace `<videosphere-host>` with whatever NPM already uses for the rest of the site (often the Odroid LAN IP). After saving, retest `/listen/{slug}`: the `events` request should stay pending **while** streaming small `data:` lines continuously (heartbeats every ~15s), not dump a wall of text after a long pause.
+
+If Cloudflare proxies the hostname (orange cloud), temporarily set DNS-only to confirm; CF can also delay SSE.
 
 ## Useful Resources
 
