@@ -109,6 +109,8 @@ export async function GET(req: NextRequest, context: { params: Promise<{ slug: s
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
+      // Disable nginx (and NPM) response buffering so captions/status flush immediately.
+      'X-Accel-Buffering': 'no',
     },
   });
 }

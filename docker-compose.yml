@@ -34,7 +34,6 @@ services:
   #   ports:
   #     - '1935:1935'
   #     - '8554:8554'
-  #     - '8888:8888'
   #   environment:
   #     MTX_RTMP: 'yes'
   #     MTX_RTSP: 'yes'
