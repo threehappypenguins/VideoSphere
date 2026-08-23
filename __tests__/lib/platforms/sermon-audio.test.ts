@@ -13,6 +13,8 @@ import {
   uploadSermonAudioThumbnail,
   uploadToSermonAudio,
 } from '@/lib/platforms/sermon-audio';
+import { SERMONAUDIO_MULTIPART_THRESHOLD_BYTES } from '@/lib/platforms/sermon-audio-s3-upload';
+import { SERMONAUDIO_API_BASE } from '@/lib/platforms/sermon-audio-http';
 
 function makeThumbnailStream(): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -23,10 +25,10 @@ function makeThumbnailStream(): ReadableStream<Uint8Array> {
   });
 }
 
-function makeVideoStream(): ReadableStream<Uint8Array> {
+function makeVideoStream(byteLength = 3): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(new Uint8Array([1, 2, 3]));
+      controller.enqueue(new Uint8Array(byteLength).fill(1));
       controller.close();
     },
   });
@@ -283,6 +285,195 @@ describe('uploadToSermonAudio', () => {
     expect(result).toMatchObject({
       ok: false,
       error: { code: 'SERMONAUDIO_UPLOAD_URL_INVALID' },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('uploads large videos through SermonAudio multipart S3 instead of a single POST', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const partUrl = 'https://abc.r2.cloudflarestorage.com/bucket/key';
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            guid: 'media-guid-1',
+            uploadURL: 'https://upload.sermonaudio.com/video',
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadId: 'upload-1' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ url: partUrl }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 200, headers: { ETag: '"etag-1"' } }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(SERMONAUDIO_MULTIPART_THRESHOLD_BYTES),
+      contentLength: SERMONAUDIO_MULTIPART_THRESHOLD_BYTES,
+      contentType: 'video/mp4',
+      metadata,
+      tokens,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      platformVideoId: 'sermon-123',
+      platformUrl: 'https://www.sermonaudio.com/sermons/sermon-123',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(`${SERMONAUDIO_API_BASE}/v2/s3/create`);
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(`${SERMONAUDIO_API_BASE}/v2/s3/sign_part`);
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(partUrl);
+    expect(fetchMock.mock.calls[4]?.[1]).toMatchObject({ method: 'PUT' });
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(`${SERMONAUDIO_API_BASE}/v2/s3/complete_upload`);
+  });
+
+  it('follows a trusted 307 on the multipart part PUT', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const partUrl = 'https://abc.r2.cloudflarestorage.com/bucket/key';
+    const redirectedUrl = 'https://xyz.r2.cloudflarestorage.com/bucket/key';
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            guid: 'media-guid-1',
+            uploadURL: 'https://upload.sermonaudio.com/video',
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadId: 'upload-1' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ url: partUrl }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(null, { status: 307, headers: { Location: redirectedUrl } })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200, headers: { ETag: '"etag-1"' } }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(SERMONAUDIO_MULTIPART_THRESHOLD_BYTES),
+      contentLength: SERMONAUDIO_MULTIPART_THRESHOLD_BYTES,
+      contentType: 'video/mp4',
+      metadata,
+      tokens,
+    });
+
+    expect(result).toMatchObject({ ok: true, platformVideoId: 'sermon-123' });
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(partUrl);
+    expect(fetchMock.mock.calls[4]?.[1]).toMatchObject({ method: 'PUT', redirect: 'manual' });
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(redirectedUrl);
+    expect(fetchMock.mock.calls[6]?.[0]).toBe(`${SERMONAUDIO_API_BASE}/v2/s3/complete_upload`);
+  });
+
+  it('rejects a multipart part PUT redirect to an untrusted host', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const partUrl = 'https://abc.r2.cloudflarestorage.com/bucket/key';
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            guid: 'media-guid-1',
+            uploadURL: 'https://upload.sermonaudio.com/video',
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadId: 'upload-1' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ url: partUrl }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 307,
+          headers: { Location: 'https://evil.example/steal' },
+        })
+      );
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(SERMONAUDIO_MULTIPART_THRESHOLD_BYTES),
+      contentLength: SERMONAUDIO_MULTIPART_THRESHOLD_BYTES,
+      metadata,
+      tokens,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SERMONAUDIO_S3_PART_URL_INVALID' },
+    });
+  });
+
+  it('returns part-upload failure details when the part PUT throws a nested fetch error', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const partUrl = 'https://abc.r2.cloudflarestorage.com/bucket/key';
+    const nested = new Error('fetch failed', { cause: new Error('unexpected redirect') });
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            guid: 'media-guid-1',
+            uploadURL: 'https://upload.sermonaudio.com/video',
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadId: 'upload-1' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ url: partUrl }), { status: 200 }))
+      .mockRejectedValue(nested);
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(SERMONAUDIO_MULTIPART_THRESHOLD_BYTES),
+      contentLength: SERMONAUDIO_MULTIPART_THRESHOLD_BYTES,
+      metadata,
+      tokens,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SERMONAUDIO_S3_PART_UPLOAD_FAILED' },
+    });
+    expect(result.ok === false && result.error.details).toContain('unexpected redirect');
+  });
+
+  it('returns an error when a large video has no media guid for multipart upload', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sermonID: 'sermon-123' }), { status: 200 })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadURL: 'https://upload.sermonaudio.com/video' }), {
+          status: 200,
+        })
+      );
+
+    const result = await uploadToSermonAudio({
+      videoStream: makeVideoStream(SERMONAUDIO_MULTIPART_THRESHOLD_BYTES),
+      contentLength: SERMONAUDIO_MULTIPART_THRESHOLD_BYTES,
+      metadata,
+      tokens,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'SERMONAUDIO_MEDIA_GUID_MISSING' },
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
