@@ -9,6 +9,10 @@ import {
   resolveSermonAudioUploadUrl,
   sermonAudioJsonHeaders,
 } from '@/lib/platforms/sermon-audio-http';
+import {
+  shouldUseSermonAudioS3Multipart,
+  uploadSermonAudioVideoViaS3,
+} from '@/lib/platforms/sermon-audio-s3-upload';
 import { getObjectWebStream } from '@/lib/r2';
 import { messageFromThrown } from '@/lib/utils/error-message';
 import type {
@@ -71,6 +75,7 @@ interface SermonCreateResponse {
 
 interface MediaCreateResponse {
   uploadURL?: string;
+  guid?: string;
 }
 
 interface SermonMediaPayload {
@@ -538,42 +543,64 @@ export async function uploadToSermonAudio(
     }
 
     const mediaPayload = (await mediaResponse.json().catch(() => ({}))) as MediaCreateResponse;
-    const uploadURL = mediaPayload.uploadURL?.trim();
-    if (!uploadURL) {
-      return toError(
-        'SERMONAUDIO_UPLOAD_URL_MISSING',
-        'SermonAudio media create succeeded but no uploadURL was returned.'
-      );
-    }
+    const guid = mediaPayload.guid?.trim();
 
-    const validatedUploadURL = resolveSermonAudioUploadUrl(uploadURL);
-    if (!validatedUploadURL) {
-      return toError(
-        'SERMONAUDIO_UPLOAD_URL_INVALID',
-        'SermonAudio media create returned an invalid or untrusted uploadURL.'
-      );
-    }
+    if (shouldUseSermonAudioS3Multipart(input.contentLength)) {
+      if (!guid) {
+        return toError(
+          'SERMONAUDIO_MEDIA_GUID_MISSING',
+          'SermonAudio media create succeeded but no guid was returned for multipart upload.'
+        );
+      }
 
-    const uploadInit: RequestInit & { duplex: 'half' } = {
-      method: 'POST',
-      headers: {
-        'Content-Type': contentType,
-        'Content-Length': String(input.contentLength),
-      },
-      body: input.videoStream,
-      duplex: 'half',
-      redirect: 'error',
-      ...(signal ? { signal } : {}),
-    };
+      const s3Result = await uploadSermonAudioVideoViaS3({
+        apiKey,
+        guid,
+        videoStream: input.videoStream,
+        contentLength: input.contentLength,
+        signal,
+      });
+      if (s3Result.ok !== true) {
+        return toError(s3Result.code, s3Result.message, s3Result.statusCode, s3Result.details);
+      }
+    } else {
+      const uploadURL = mediaPayload.uploadURL?.trim();
+      if (!uploadURL) {
+        return toError(
+          'SERMONAUDIO_UPLOAD_URL_MISSING',
+          'SermonAudio media create succeeded but no uploadURL was returned.'
+        );
+      }
 
-    const uploadResponse = await fetch(validatedUploadURL, uploadInit);
-    if (!uploadResponse.ok) {
-      return toError(
-        'SERMONAUDIO_MEDIA_UPLOAD_FAILED',
-        'SermonAudio video upload failed.',
-        uploadResponse.status,
-        await readApiErrorDetails(uploadResponse)
-      );
+      const validatedUploadURL = resolveSermonAudioUploadUrl(uploadURL);
+      if (!validatedUploadURL) {
+        return toError(
+          'SERMONAUDIO_UPLOAD_URL_INVALID',
+          'SermonAudio media create returned an invalid or untrusted uploadURL.'
+        );
+      }
+
+      const uploadInit: RequestInit & { duplex: 'half' } = {
+        method: 'POST',
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': String(input.contentLength),
+        },
+        body: input.videoStream,
+        duplex: 'half',
+        redirect: 'error',
+        ...(signal ? { signal } : {}),
+      };
+
+      const uploadResponse = await fetch(validatedUploadURL, uploadInit);
+      if (!uploadResponse.ok) {
+        return toError(
+          'SERMONAUDIO_MEDIA_UPLOAD_FAILED',
+          'SermonAudio video upload failed.',
+          uploadResponse.status,
+          await readApiErrorDetails(uploadResponse)
+        );
+      }
     }
 
     const thumbKey = input.metadata.thumbnailR2Key?.trim();

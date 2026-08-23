@@ -7,6 +7,64 @@ function isSermonAudioHostname(hostname: string): boolean {
   return hostname === 'sermonaudio.com' || hostname.endsWith('.sermonaudio.com');
 }
 
+function isCloudflareR2Hostname(hostname: string): boolean {
+  return hostname === 'r2.cloudflarestorage.com' || hostname.endsWith('.r2.cloudflarestorage.com');
+}
+
+function isAmazonAwsHostname(hostname: string): boolean {
+  return hostname === 'amazonaws.com' || hostname.endsWith('.amazonaws.com');
+}
+
+/**
+ * Hostnames SermonAudio may return on signed multipart part URLs (their R2/S3 upload targets).
+ * @param hostname - Hostname from a signed part URL.
+ * @returns Whether the host is a trusted SermonAudio upload destination.
+ */
+function isSermonAudioSignedPartHostname(hostname: string): boolean {
+  return (
+    isSermonAudioHostname(hostname) ||
+    isCloudflareR2Hostname(hostname) ||
+    isAmazonAwsHostname(hostname)
+  );
+}
+
+function resolveTrustedHttpsUrl(
+  rawUrl: string,
+  isTrustedHostname: (hostname: string) => boolean
+): string | null {
+  const trimmed = rawUrl.trim();
+  if (trimmed === '') {
+    return null;
+  }
+
+  let resolved: URL;
+  try {
+    resolved = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (resolved.protocol !== 'https:') {
+    return null;
+  }
+
+  if (!isTrustedHostname(resolved.hostname)) {
+    return null;
+  }
+
+  if (resolved.username !== '' || resolved.password !== '') {
+    return null;
+  }
+
+  const port = resolved.port;
+  if (port !== '' && port !== '443') {
+    return null;
+  }
+
+  resolved.port = '';
+  return resolved.toString();
+}
+
 /**
  * Resolves a SermonAudio API path or URL for server-side `fetch`.
  * Rejects absolute URLs whose hostname is not the configured SermonAudio API host.
@@ -60,37 +118,17 @@ export function resolveSermonAudioApiUrl(pathOrUrl: string): string | null {
  * @returns Normalized HTTPS URL, or `null` when the input is invalid or untrusted.
  */
 export function resolveSermonAudioUploadUrl(rawUrl: string): string | null {
-  const trimmed = rawUrl.trim();
-  if (trimmed === '') {
-    return null;
-  }
+  return resolveTrustedHttpsUrl(rawUrl, isSermonAudioHostname);
+}
 
-  let resolved: URL;
-  try {
-    resolved = new URL(trimmed);
-  } catch {
-    return null;
-  }
-
-  if (resolved.protocol !== 'https:') {
-    return null;
-  }
-
-  if (!isSermonAudioHostname(resolved.hostname)) {
-    return null;
-  }
-
-  if (resolved.username !== '' || resolved.password !== '') {
-    return null;
-  }
-
-  const port = resolved.port;
-  if (port !== '' && port !== '443') {
-    return null;
-  }
-
-  resolved.port = '';
-  return resolved.toString();
+/**
+ * Validates a signed multipart part URL from SermonAudio's `/v2/s3/sign_part` response.
+ * Accepts HTTPS URLs on SermonAudio, Cloudflare R2, or Amazon S3 hosts with the default port.
+ * @param rawUrl - Signed PUT URL for one S3/R2 part.
+ * @returns Normalized HTTPS URL, or `null` when the input is invalid or untrusted.
+ */
+export function resolveSermonAudioSignedPartUrl(rawUrl: string): string | null {
+  return resolveTrustedHttpsUrl(rawUrl, isSermonAudioSignedPartHostname);
 }
 
 /**

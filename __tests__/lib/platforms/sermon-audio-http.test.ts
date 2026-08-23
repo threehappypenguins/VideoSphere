@@ -4,6 +4,7 @@ import {
   assertSermonAudioHttpOk,
   isSermonAudioCredentialsFailure,
   resolveSermonAudioApiUrl,
+  resolveSermonAudioSignedPartUrl,
   resolveSermonAudioUploadUrl,
   sermonAudioUpstreamResponseStatus,
   sermonAudioUpstreamApiErrorLabel,
@@ -75,6 +76,30 @@ describe('resolveSermonAudioUploadUrl', () => {
     expect(resolveSermonAudioUploadUrl('')).toBeNull();
     expect(resolveSermonAudioUploadUrl('   ')).toBeNull();
     expect(resolveSermonAudioUploadUrl('not a url')).toBeNull();
+  });
+});
+
+describe('resolveSermonAudioSignedPartUrl', () => {
+  it('accepts SermonAudio, Cloudflare R2, and Amazon S3 HTTPS URLs', () => {
+    expect(resolveSermonAudioSignedPartUrl('https://upload.sermonaudio.com/part')).toBe(
+      'https://upload.sermonaudio.com/part'
+    );
+    expect(
+      resolveSermonAudioSignedPartUrl(
+        'https://abc.r2.cloudflarestorage.com/bucket/key?X-Amz-Signature=sig'
+      )
+    ).toBe('https://abc.r2.cloudflarestorage.com/bucket/key?X-Amz-Signature=sig');
+    expect(resolveSermonAudioSignedPartUrl('https://bucket.s3.us-east-1.amazonaws.com/key')).toBe(
+      'https://bucket.s3.us-east-1.amazonaws.com/key'
+    );
+  });
+
+  it('rejects untrusted or non-HTTPS signed part URLs', () => {
+    expect(resolveSermonAudioSignedPartUrl('http://upload.sermonaudio.com/part')).toBeNull();
+    expect(resolveSermonAudioSignedPartUrl('https://evil.example/ssrf')).toBeNull();
+    expect(
+      resolveSermonAudioSignedPartUrl('https://user:pass@upload.sermonaudio.com/part')
+    ).toBeNull();
   });
 });
 
